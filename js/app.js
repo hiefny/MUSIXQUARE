@@ -11,20 +11,20 @@
  *   - QRCode.js (QR Generation)
  * 
  * [SECTION INDEX]
- *   Line ~1-90      : 전역 변수 선언
- *   Line ~90-160    : Worker & Timer
- *   Line ~160-320   : Audio Engine (Tone.js)
- *   Line ~320-455   : Onboarding & Session Actions
- *   Line ~455-1175  : Playlist & Track Management
- *   Line ~1175-1700 : Playback Engine
- *   Line ~1700-2200 : Audio Settings (EQ, Reverb, VB, Surround)
- *   Line ~2200-2400 : Visualizer & UI Helpers
- *   Line ~2400-3130 : Networking (PeerJS)
- *   Line ~3130-4450 : Data Handlers (File Transfer, Sync)
- *   Line ~4450-5000 : Relay & Broadcast
- *   Line ~5000-5450 : UI Functions (Toast, Loader, Help)
- *   Line ~5450-5820 : Chat System
- *   Line ~5820-6550 : YouTube Integration
+ *   - 전역 변수 선언
+ *   - Worker & Timer
+ *   - Audio Engine (Tone.js)
+ *   - Onboarding & Session Actions
+ *   - Playlist & Track Management
+ *   - Playback Engine
+ *   - Audio Settings (EQ, Reverb, VB, Surround)
+ *   - Visualizer & UI Helpers
+ *   - Networking (PeerJS)
+ *   - Data Handlers (File Transfer, Sync)
+ *   - Relay & Broadcast
+ *   - UI Functions (Toast, Loader, Help)
+ *   - Chat System
+ *   - YouTube Integration
  * 
  * ============================================================================
  * GLOBAL VARIABLES REFERENCE
@@ -286,6 +286,11 @@ function switchTab(tabId) {
     const tabs = ['play', 'playlist', 'connect', 'settings'];
     const idx = tabs.indexOf(tabId);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
+
+    // YouTube mode toast when entering settings
+    if (tabId === 'settings' && isYouTubeMode) {
+        showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
+    }
 
     // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
     if (tabId === 'play' && isYouTubeMode) {
@@ -2152,6 +2157,14 @@ function setReverbHighCut(val) {
 function resetReverbHighCut() {
     setReverbHighCut(0);
     onReverbHighCutChange(0);
+}
+
+function resetReverb() {
+    resetReverbMix();
+    resetReverbDecay();
+    resetReverbPreDelay();
+    resetReverbLowCut();
+    resetReverbHighCut();
 }
 
 // Graphic EQ

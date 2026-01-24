@@ -1,3 +1,88 @@
+/**
+ * ============================================================================
+ * MUSIXQUARE - Multi-Device Synchronized Audio Player
+ * ============================================================================
+ * 
+ * 여러 스마트폰을 P2P로 연결하여 동기화된 서라운드 오디오 시스템을 구축하는 웹 앱
+ * 
+ * [DEPENDENCIES]
+ *   - Tone.js (Audio Engine)
+ *   - PeerJS (WebRTC P2P)
+ *   - QRCode.js (QR Generation)
+ * 
+ * [SECTION INDEX]
+ *   Line ~1-90      : 전역 변수 선언
+ *   Line ~90-160    : Worker & Timer
+ *   Line ~160-320   : Audio Engine (Tone.js)
+ *   Line ~320-455   : Onboarding & Session Actions
+ *   Line ~455-1175  : Playlist & Track Management
+ *   Line ~1175-1700 : Playback Engine
+ *   Line ~1700-2200 : Audio Settings (EQ, Reverb, VB, Surround)
+ *   Line ~2200-2400 : Visualizer & UI Helpers
+ *   Line ~2400-3130 : Networking (PeerJS)
+ *   Line ~3130-4450 : Data Handlers (File Transfer, Sync)
+ *   Line ~4450-5000 : Relay & Broadcast
+ *   Line ~5000-5450 : UI Functions (Toast, Loader, Help)
+ *   Line ~5450-5820 : Chat System
+ *   Line ~5820-6550 : YouTube Integration
+ * 
+ * ============================================================================
+ * GLOBAL VARIABLES REFERENCE
+ * ============================================================================
+ * 
+ * [AUDIO ENGINE - Tone.js Nodes]
+ *   player          : Tone.Player - 메인 오디오 플레이어
+ *   toneSplit       : Tone.Split - 스테레오 채널 분리
+ *   toneMerge       : Tone.Merge - 채널 병합
+ *   gainL, gainR    : Tone.Gain - L/R 채널 게인
+ *   masterGain      : Tone.Gain - 마스터 볼륨
+ *   reverb          : Tone.Reverb - 리버브 이펙트
+ *   eqNodes[]       : Tone.Filter[] - 5밴드 EQ
+ *   vbFilter/Cheby/Gain : Virtual Bass 체인
+ *   analyser        : Tone.Analyser - 비주얼라이저용
+ * 
+ * [PLAYBACK STATE]
+ *   isPlaying       : boolean - 현재 재생 중 여부
+ *   startedAt       : number - Tone.now() 기준 재생 시작 시간
+ *   pausedAt        : number - 일시정지 위치 (초)
+ *   buffer          : Tone.Buffer - 현재 로드된 오디오 버퍼
+ *   isVideoMode     : boolean - 비디오 재생 모드 여부
+ * 
+ * [PLAYLIST]
+ *   playlist[]      : Array - { type, file, name, videoId, playlistId, ... }
+ *   currentTrackIndex : number - 현재 재생 중인 트랙 인덱스
+ *   repeatMode      : 0=끔, 1=전체반복, 2=한곡반복
+ *   isShuffle       : boolean - 셔플 모드
+ * 
+ * [NETWORK - PeerJS]
+ *   peer            : Peer - PeerJS 인스턴스
+ *   myId            : string - 내 Peer ID
+ *   hostConn        : DataConnection - Guest→Host 연결 (Guest만 사용)
+ *   connectedPeers[] : DataConnection[] - Host가 관리하는 Guest 연결 목록
+ *   isOperator      : boolean - Guest가 OP 권한 보유 여부
+ * 
+ * [SYNC]
+ *   localOffset     : number - 수동 싱크 오프셋 (초)
+ *   autoSyncOffset  : number - 자동 레이턴시 보정 (초)
+ * 
+ * [PRELOAD]
+ *   nextTrackIndex  : number - 프리로드된 다음 트랙 인덱스
+ *   nextBuffer      : Tone.Buffer - 프리로드된 오디오 버퍼
+ *   nextFileBlob    : Blob - 프리로드된 파일 (Guest 전송용)
+ *   preloadChunks[] : ArrayBuffer[] - Guest가 수신 중인 프리로드 청크
+ * 
+ * [YOUTUBE]
+ *   youtubePlayer   : YT.Player - YouTube IFrame Player
+ *   isYouTubeMode   : boolean - YouTube 재생 모드 여부
+ *   youtubeSubItemsMap : object - 플레이리스트별 비디오 ID/제목 캐시
+ * 
+ * ============================================================================
+ */
+
+// ============================================================================
+// [SECTION] AUDIO ENGINE - Tone.js Nodes
+// Dependencies: Tone.js CDN
+// ============================================================================
 let player, toneSplit, toneMerge;
 let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
@@ -7,7 +92,9 @@ let globalLowPass = null;
 let analyser;
 let buffer; // Holds the Tone.Buffer or AudioBuffer
 
-// Audio State
+// ============================================================================
+// [SECTION] PLAYBACK STATE
+// ============================================================================
 let isPlaying = false;
 let startTime = 0;
 let pausedAt = 0;
@@ -29,8 +116,10 @@ let reverbType = 'hall';
 let subFreq = 120; // VB Crossover
 let masterVolume = 1.0;
 
-
-
+// ============================================================================
+// [SECTION] NETWORK STATE - PeerJS
+// Dependencies: PeerJS CDN
+// ============================================================================
 let myId = null, peer = null, hostConn = null;
 window.hostConn = null; // Expose to other scripts (demo.js)
 let localOffset = 0;
@@ -44,24 +133,32 @@ let upstreamDataConn = null; // Connection to receive file chunks from (Host or 
 let downstreamDataPeers = []; // Peers I need to forward file chunks to
 const MAX_DIRECT_DATA_PEERS = 2; // Host sends data to max 2 people directly
 
-// [FIX #19] Global Constants for Magic Numbers
+// ============================================================================
+// [SECTION] CONSTANTS
+// ============================================================================
 const CHUNK_SIZE = 16384; // 16KB per chunk
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
 const RELAY_MONITOR_INTERVAL = 10000; // 10 seconds
 const ENDED_CHECK_THROTTLE = 500; // 500ms throttle for handleEnded
 const WATCHDOG_TIMEOUT = 12000; // 12 seconds for chunk watchdog
 
+// ============================================================================
+// [SECTION] FILE TRANSFER STATE
+// ============================================================================
 let chunkWatchdog = null, prepareWatchdog = null;
 let lastChunkTime = 0;
 let _isProcessingBlob = false; // Guard to prevent redundant decoding and sync storm
 
-// YouTube Sub-item State (Host tracking)
+// ============================================================================
+// [SECTION] YOUTUBE STATE
+// ============================================================================
 let currentYouTubeSubIndex = -1;
 let youtubeSubItemsMap = {}; // playlistId -> { ids: [], titles: [] }
 let currentFileBlob = null; // Cache for serving late joiners
 
-
-// Playlist State
+// ============================================================================
+// [SECTION] PLAYLIST STATE
+// ============================================================================
 let playlist = [];
 let currentTrackIndex = -1;
 let repeatMode = 0;
@@ -69,12 +166,16 @@ let isShuffle = false;
 let autoPlayTimer = null;  // Track 3-second auto-play timer
 let isFirstTrackLoad = true;  // Track if this is the first file load
 
-// Video State
+// ============================================================================
+// [SECTION] VIDEO STATE
+// ============================================================================
 let isVideoMode = false;
 const videoElement = document.getElementById('main-video');
 
-
-// Preload State (Host)
+// ============================================================================
+// [SECTION] PRELOAD STATE
+// ============================================================================
+// Host Side
 let nextTrackIndex = -1;
 let nextBuffer = null;
 let nextFileBlob = null;
@@ -82,7 +183,7 @@ let isPreloading = false;
 let nextMeta = null; // Store metadata for preloaded file
 let preloadSessionId = 0; // Session ID for cancellation support
 
-// Preload State (Guest)
+// Guest Side
 let preloadChunks = [];
 let preloadCount = 0;
 let preloadMeta = null;

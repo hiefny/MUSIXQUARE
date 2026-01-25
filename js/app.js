@@ -6059,14 +6059,18 @@ switchTab = function (tabId) {
         toggleChatDrawer();
     }
 
-    // Update mini YouTube player visibility
-    if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-        document.getElementById('yt-mini-player').style.display = 'block';
-    } else {
-        document.getElementById('yt-mini-player').style.display = 'none';
-    }
-    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-        document.getElementById('yt-mini-player').style.display = 'none';
+    // Update mini YouTube player visibility with defensive checks
+    const miniPlayer = document.getElementById('yt-mini-player');
+    if (miniPlayer) {
+        if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+            miniPlayer.style.display = 'block';
+        } else {
+            miniPlayer.style.display = 'none';
+        }
+
+        if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+            miniPlayer.style.display = 'none';
+        }
     }
 };
 

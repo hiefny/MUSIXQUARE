@@ -3317,15 +3317,7 @@ async function detectConnectionType() {
         } else if (connectionType === 'host' || connectionType === 'srflx') {
             usePingCompensation = false;
             console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
-            showToast("로컬 네트워크 감지 - 직접 동기화");
-
-            // 배지 초록색으로 변경 (로컬/직접)
-            const roleBadge = document.getElementById('role-badge');
-            if (roleBadge) {
-                roleBadge.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
-                roleBadge.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.5)';
-                roleBadge.title = connectionType === 'host' ? '로컬 네트워크 (직접 연결)' : '원격 네트워크 (NAT 우회)';
-            }
+            // 기본 파란색 유지 (CSS에서 설정됨)
         } else {
             usePingCompensation = true; // Fallback: apply compensation
             console.log("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");

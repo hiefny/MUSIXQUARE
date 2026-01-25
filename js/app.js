@@ -184,6 +184,9 @@ let isPreloading = false;
 let nextMeta = null; // Store metadata for preloaded file
 let preloadSessionId = 0; // Session ID for cancellation support
 
+// Start network initialization early to fetch TURN config in parallel with script parsing
+initNetwork();
+
 // Guest Side
 let preloadChunks = [];
 let preloadCount = 0;
@@ -205,6 +208,12 @@ function clearPreloadState() {
     window._skipIncomingPreload = false;
 
     console.log("[Preload] State cleared");
+}
+
+// Help Modal Functions
+// ============================================
+function openHelpModal() {
+    document.getElementById('help-modal').classList.add('show');
 }
 
 // --- Worker for Background Timers (Blob URL for file:// support) ---
@@ -2693,10 +2702,13 @@ function setupPeerEvents() {
 
         const params = new URLSearchParams(window.location.search);
         if (params.get('host')) {
-            document.getElementById('join-id-input').value = params.get('host');
-            // Check if gesture-overlay exists (might be deprecated)
-            const go = document.getElementById('gesture-overlay');
-            if (go) go.style.display = 'flex';
+            const hostId = params.get('host');
+            document.getElementById('join-id-input').value = hostId;
+            console.log("[QR] Auto-joining host:", hostId);
+
+            // Auto-trigger join session for QR users
+            // This is safe because we are already inside peer.on('open')
+            setTimeout(() => joinSession(), 100);
         } else {
             const hostPanel = document.getElementById('host-panel');
             if (hostPanel) hostPanel.classList.add('visible');
@@ -3092,22 +3104,25 @@ function setupPeerEvents() {
     });
 }
 
-// 4. 실행
-initNetwork();
+// 4. 실행 (Deleted from here, moved to top)
 
 // Guest Logic
 let connectionRetryCount = 0;
 const MAX_CONNECTION_RETRIES = 3;
-const CONNECTION_TIMEOUT_MS = 10000;
+const CONNECTION_TIMEOUT_MS = 7000; // [SAFARI FIX] Reduced from 10s to 7s for faster retry if it hangs
 let connectionTimeoutId = null;
 
 function joinSession(retryAttempt = 0) {
-    // [SAFARI FIX] Race Condition: Wait for Peer initialization if it's still null (due to TURN fetch)
-    if (!peer) {
-        console.warn("[Network] Peer not initialized yet. Waiting...");
-        if (retryAttempt === 0) showToast("네트워크 초기화 중입니다. 잠시만 기다려주세요...");
+    // [SAFARI FIX] Race Condition: Wait for Peer initialization AND for it to be 'open'
+    // Calling connect() while peer is not yet open often leads to hanging or timeouts in Safari.
+    if (!peer || !peer.open) {
+        console.warn("[Network] Peer not ready yet (open: " + (peer ? peer.open : "null") + "). Waiting...");
+        if (retryAttempt === 0) {
+            document.getElementById('role-text').innerText = "네트워크 대기 중...";
+            // showToast("네트워크를 초기화 중입니다..."); // Optional: might be too spammy if toggled fast
+        }
 
-        // Retry sooner than regular timeout (500ms instead of 10s)
+        // Check again in 500ms
         setTimeout(() => joinSession(retryAttempt), 500);
         return;
     }

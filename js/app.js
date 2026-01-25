@@ -42,11 +42,10 @@
  *   analyser        : Tone.Analyser - 비주얼라이저용
  * 
  * [PLAYBACK STATE]
- *   isPlaying       : boolean - 현재 재생 중 여부
+ *   currentState    : string - APP_STATE 머신 상태
  *   startedAt       : number - Tone.now() 기준 재생 시작 시간
  *   pausedAt        : number - 일시정지 위치 (초)
  *   buffer          : Tone.Buffer - 현재 로드된 오디오 버퍼
- *   isVideoMode     : boolean - 비디오 재생 모드 여부
  * 
  * [PLAYLIST]
  *   playlist[]      : Array - { type, file, name, videoId, playlistId, ... }
@@ -73,7 +72,6 @@
  * 
  * [YOUTUBE]
  *   youtubePlayer   : YT.Player - YouTube IFrame Player
- *   isYouTubeMode   : boolean - YouTube 재생 모드 여부
  *   youtubeSubItemsMap : object - 플레이리스트별 비디오 ID/제목 캐시
  * 
  * ============================================================================
@@ -93,9 +91,16 @@ let analyser;
 let buffer; // Holds the Tone.Buffer or AudioBuffer
 
 // ============================================================================
-// [SECTION] PLAYBACK STATE
+// [SECTION] APP STATE MACHINE (State Pattern)
 // ============================================================================
-let isPlaying = false;
+const APP_STATE = {
+    IDLE: 'IDLE',                   // 아무것도 재생 안함
+    PLAYING_AUDIO: 'PLAYING_AUDIO', // 로컬 오디오 재생 (Tone.js)
+    PLAYING_VIDEO: 'PLAYING_VIDEO', // 로컬 비디오/대용량 재생 (Streaming)
+    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE' // 유튜브 모드
+};
+
+let currentState = APP_STATE.IDLE;
 let startTime = 0;
 let pausedAt = 0;
 let startedAt = 0;
@@ -170,7 +175,7 @@ let isFirstTrackLoad = true;  // Track if this is the first file load
 // ============================================================================
 // [SECTION] VIDEO STATE
 // ============================================================================
-let isVideoMode = false;
+
 const videoElement = document.getElementById('main-video');
 
 // ============================================================================
@@ -257,7 +262,7 @@ timerWorker.onmessage = (e) => {
 };
 
 function checkVideoSync() {
-    if (isPlaying && isVideoMode && videoElement && !videoElement.paused) {
+    if (currentState !== APP_STATE.IDLE && currentState === APP_STATE.PLAYING_VIDEO && videoElement && !videoElement.paused) {
         // [Latency Compensation V3 for Video]
         // Sync Video to Audio Time (Tone.now)
         const t = (Tone.now() - startedAt) + localOffset;
@@ -298,12 +303,12 @@ function switchTab(tabId) {
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
 
     // YouTube mode toast when entering settings
-    if (tabId === 'settings' && isYouTubeMode) {
+    if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
         showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
     }
 
     // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
-    if (tabId === 'play' && isYouTubeMode) {
+    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
         // Use timeout to ensure tab transition is complete
         setTimeout(() => refreshYouTubeDisplay(), 50);
     }
@@ -745,10 +750,10 @@ function initMediaSession() {
     console.log("[MediaSession] Initializing action handlers...");
 
     navigator.mediaSession.setActionHandler('play', () => {
-        if (!isPlaying) togglePlay();
+        if (currentState === APP_STATE.IDLE) togglePlay();
     });
     navigator.mediaSession.setActionHandler('pause', () => {
-        if (isPlaying) togglePlay();
+        if (currentState !== APP_STATE.IDLE) togglePlay();
     });
     navigator.mediaSession.setActionHandler('previoustrack', () => {
         playPrevTrack();
@@ -1194,7 +1199,7 @@ function playNextTrack() {
     // Host: execute directly
 
     // YouTube Playlist Internal Navigation
-    if (isYouTubeMode && youtubePlayer && youtubePlayer.getPlaylist) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.getPlaylist) {
         try {
             const playlistIds = youtubePlayer.getPlaylist() || [];
             const currentIndex = youtubePlayer.getPlaylistIndex();
@@ -1245,7 +1250,7 @@ function playPrevTrack() {
     // Host: execute directly
 
     // YouTube mode
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const currentTime = youtubePlayer.getCurrentTime();
             const playlistIds = youtubePlayer.getPlaylist ? youtubePlayer.getPlaylist() : null;
@@ -1290,7 +1295,7 @@ async function loadAndBroadcastFile(file) {
     stop();
 
     // Stop YouTube mode if active
-    if (isYouTubeMode) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         stopYouTubeMode();
     }
 
@@ -1429,7 +1434,7 @@ function setupMediaSource() {
     // This enables hardware acceleration on iOS/iPadOS
     // Guests still use Tone.js (they receive WAV, not video)
     const isHost = !hostConn;
-    if (isHost && isVideoMode) {
+    if (isHost && currentState === APP_STATE.PLAYING_VIDEO) {
         console.log("[Host] Video mode: Using native playback (Tone.js bypassed for HW acceleration)");
         videoElement.muted = false; // Use native audio
         // Don't create MediaElementSource - let video play natively
@@ -1535,7 +1540,7 @@ function setupMediaSource() {
 }
 
 async function play(offset) {
-    if (isYouTubeMode) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         console.warn("[Audio] Blocked play() call while in YouTube mode");
         return;
     }
@@ -1544,7 +1549,7 @@ async function play(offset) {
         try { await Tone.context.resume(); } catch (e) { console.warn("Resume failed:", e); }
     }
 
-    if (!buffer && !isVideoMode) return;
+    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
     initAudio();
 
     if (player.state === 'started') player.stop();
@@ -1564,13 +1569,15 @@ async function play(offset) {
 
         if (player.buffer !== buffer) player.buffer = buffer;
         player.start(undefined, offset);
-    } else if (isVideoMode) {
+        currentState = APP_STATE.PLAYING_AUDIO;
+    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
         // --- STREAMING MODE ---
         // Ensure routing is set
         setupMediaSource();
         // Seek & Play
         videoElement.currentTime = offset;
         videoElement.play().catch(e => console.log('Video play failed', e));
+        currentState = APP_STATE.PLAYING_VIDEO;
     }
 
     // [Time Sync Correction]
@@ -1580,12 +1587,11 @@ async function play(offset) {
     // localOffset = manual user adjustment, autoSyncOffset = network sync correction
     startedAt = Tone.now() - offset + (localOffset + autoSyncOffset);
     pausedAt = offset;
-    isPlaying = true;
 
     updatePlayState(true);
     startVisualizer();
 
-    if (isVideoMode) {
+    if (currentState === APP_STATE.PLAYING_VIDEO) {
         timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 500 });
     }
 
@@ -1593,29 +1599,38 @@ async function play(offset) {
 }
 
 function handleEnded() {
+    // [SAFARI FIX] Video duration can be transiently small/wrong during load.
+    // Guests should only trigger 'ended' if they are NOT loading and the Host isn't forcing playback.
+    if (hostConn && currentState !== APP_STATE.IDLE) {
+        // If Host says we are 3 mins in, but local says 0.39s, ignore local "end"
+        // Most sync logic handles this, but let's be explicit.
+        return;
+    }
+
+    // Safety: Verify video readyState before trusting duration
+    if (currentState === APP_STATE.PLAYING_VIDEO && videoElement && videoElement.readyState < 1) {
+        return; // Metadata not yet reliable
+    }
+
     const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
 
-    // Safety: Skip if duration is invalid (prevents infinite time increase)
-    if (!duration || !isFinite(duration) || duration <= 0) {
+    // Safety: Skip if duration is invalid or suspiciously short during load
+    if (!duration || !isFinite(duration) || duration <= 0.5) {
         return;
     }
 
     let curr = 0;
     if (buffer) {
-        // [Fix] Don't rely strictly on player.state === 'started' because it can stop 
-        // almost instantly if seeking to the very end. Use global playback time.
         curr = (Tone.now() - startedAt) + localOffset;
-    } else if (isVideoMode && videoElement) {
+    } else if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) {
         curr = videoElement.currentTime;
     }
 
-    // Safety: Clamp current time to duration to prevent runaway values after end
-    // but check for end logic using the raw value
-    const isPastEnd = (curr >= duration - 0.3); // Tightened threshold
+    const isPastEnd = (curr >= duration - 0.2);
 
-    if (isPlaying && isPastEnd) {
+    if (currentState !== APP_STATE.IDLE && isPastEnd) {
         console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
-        isPlaying = false;
+        currentState = APP_STATE.IDLE;
         updatePlayState(false);
         pausedAt = 0;
         document.getElementById('seek-slider').value = 0;
@@ -1625,7 +1640,7 @@ function handleEnded() {
         if (player && player.state === 'started') {
             try { player.stop(); } catch (e) { /* ignore */ }
         }
-        if (isVideoMode && videoElement && !videoElement.paused) {
+        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement && !videoElement.paused) {
             videoElement.pause();
         }
 
@@ -1666,7 +1681,14 @@ function stopAllMedia() {
         try { youtubePlayer.stopVideo(); } catch (e) { }
     }
 
-    isPlaying = false;
+    // Clear any pending triggers
+    window._pendingPlayTime = undefined;
+    if (autoPlayTimer) {
+        clearTimeout(autoPlayTimer);
+        autoPlayTimer = null;
+    }
+
+    currentState = APP_STATE.IDLE;
     updatePlayState(false);
 
     // Stop all background sync timers
@@ -1691,23 +1713,21 @@ function setEngineMode(mode) {
     }
 
     if (mode === 'video') {
-        isVideoMode = true;
-        isYouTubeMode = false;
+        currentState = APP_STATE.PLAYING_VIDEO;
         document.body.classList.add('mode-video');
         if (videoElement) videoElement.style.display = 'block';
     } else if (mode === 'youtube') {
-        isVideoMode = false;
-        isYouTubeMode = true;
+        currentState = APP_STATE.PLAYING_YOUTUBE;
         document.body.classList.add('mode-youtube');
         if (ytContainer) {
             ytContainer.style.opacity = '1';
             ytContainer.style.pointerEvents = 'auto';
         }
-    } else {
-        // Default: 'audio'
-        isVideoMode = false;
-        isYouTubeMode = false;
+    } else if (mode === 'audio') {
+        currentState = APP_STATE.PLAYING_AUDIO;
         // Visualizer is default (shown when .mode-video and .mode-youtube are absent)
+    } else {
+        currentState = APP_STATE.IDLE;
     }
 
     // Always sync UI after mode switch
@@ -1723,7 +1743,7 @@ function togglePlay() {
     if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
 
     // YouTube Mode: Control via YT API
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         // OP: request Host to control YouTube
         if (hostConn && isOperator) {
             try {
@@ -1755,7 +1775,7 @@ function togglePlay() {
         return;
     }
 
-    if (!buffer && !isVideoMode) return;
+    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
 
     // Cancel pending auto-play timer if host manually controls playback
     if (!hostConn && autoPlayTimer) {
@@ -1764,7 +1784,7 @@ function togglePlay() {
         showToast("자동 재생 취소됨");
     }
 
-    if (isPlaying) {
+    if (currentState !== APP_STATE.IDLE) {
         if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
         else if (isOperator) hostConn.send({ type: 'request-pause' });
     } else {
@@ -1774,19 +1794,18 @@ function togglePlay() {
 }
 
 function pause() {
-    if (isPlaying) {
+    if (currentState !== APP_STATE.IDLE) {
         if (player) player.stop();
-        if (isVideoMode && videoElement) videoElement.pause();
+        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.pause();
 
         // Calculate pause position
         if (buffer) pausedAt = Tone.now() - startedAt;
         else pausedAt = videoElement.currentTime;
 
-        if (isVideoMode && videoElement) videoElement.currentTime = pausedAt;
+        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.currentTime = pausedAt;
     }
-    isPlaying = false;
     updatePlayState(false);
-
+    showToast("일시정지");
     timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
 }
 
@@ -1802,7 +1821,7 @@ function skipTime(sec) {
 
     // Host: execute directly
     // YouTube mode: use YouTube API
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const currentTime = youtubePlayer.getCurrentTime();
             const duration = youtubePlayer.getDuration();
@@ -1822,10 +1841,10 @@ function skipTime(sec) {
     }
 
     // Local mode
-    if (!buffer && !isVideoMode) return;
+    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
 
-    let current = isPlaying ? (Tone.now() - startedAt) : pausedAt;
-    if (isVideoMode && !buffer) current = videoElement.currentTime;
+    let current = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
+    if (currentState === APP_STATE.PLAYING_VIDEO && !buffer) current = videoElement.currentTime;
 
     let target = current + sec;
     const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
@@ -1847,7 +1866,7 @@ function adjustSync(val) {
     localOffset += val;
     showToast(`Sync: ${val > 0 ? '+' : ''}${val.toFixed(2)} s`);
     // Use Tone.now()
-    if (isPlaying) play((Tone.now() - startedAt) + val);
+    if (currentState !== APP_STATE.IDLE) play((Tone.now() - startedAt) + val);
     else pausedAt += val;
 }
 
@@ -1993,7 +2012,7 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     if (!surroundSplitter) return; // Wait for media setup
 
     // Routing Logic:
-    // 1. Ensure Graph is in Surround Mode 
+    // 1. Ensure Graph is in Surround Mode
     if (!isSurroundMode) return;
 
     // 2. Re-connect MediaSource if needed (to Splitter)
@@ -2394,7 +2413,7 @@ function startVisualizer() {
     }
 
     function draw() {
-        if (!isPlaying) return;
+        if (currentState === APP_STATE.IDLE) return;
         animationId = requestAnimationFrame(draw);
 
         if (isToneAnalyser) {
@@ -2542,7 +2561,7 @@ slider.addEventListener('change', () => {
     isSeeking = false;
     const t = parseFloat(slider.value);
 
-    // Guest (non-OP): local only, wait for Host sync
+    // Guest (non-OP): blocked
     if (hostConn && !isOperator) {
         return; // Guests can't seek
     }
@@ -2555,7 +2574,7 @@ slider.addEventListener('change', () => {
 
     // Host: execute directly
     // YouTube mode: use YouTube API
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             youtubePlayer.seekTo(t, true);  // t is already in seconds
             broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: t });
@@ -2566,7 +2585,7 @@ slider.addEventListener('change', () => {
     }
 
     // Local mode
-    if (isPlaying) play(t); else pausedAt = t;
+    if (currentState !== APP_STATE.IDLE) play(t); else pausedAt = t;
     broadcast({ type: 'play', time: t });
 
     // Schedule global resync after seek (Host only)
@@ -2578,7 +2597,7 @@ slider.addEventListener('change', () => {
 
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
-    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isPlaying);
+    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", currentState !== APP_STATE.IDLE);
     if (!hostConn) {
         // Host: Reset local offset and trigger Guest-side Sync
         localOffset = 0;
@@ -2916,7 +2935,7 @@ function setupPeerEvents() {
             });
 
             // Send current YouTube state if active
-            if (isYouTubeMode && youtubePlayer) {
+            if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
                 try {
                     const videoData = youtubePlayer.getVideoData();
                     const curItem = playlist[currentTrackIndex];
@@ -2947,17 +2966,17 @@ function setupPeerEvents() {
 
             if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
                 const item = playlist[currentTrackIndex];
-                // ONLY send 'file-prepare' for local files. 
+                // ONLY send 'file-prepare' for local files.
                 // YouTube tracks handle UI via 'youtube-play' above.
                 if (item.type !== 'youtube') {
                     conn.send({ type: 'file-prepare', name: item.name, index: currentTrackIndex });
                 }
 
                 // Only send actual data if they are a direct data target
-                // (If they are relayed, the relay should technically sync them, but for now 
+                // (If they are relayed, the relay should technically sync them, but for now
                 // the relay logic handles 'live' chunks. Late join during playback might need catchup logic.
-                // For Beta, we'll let 'broadcastFile' handle new files. 
-                // If playing mid-file, they might miss out until next track or manual restart. 
+                // For Beta, we'll let 'broadcastFile' handle new files.
+                // If playing mid-file, they might miss out until next track or manual restart.
                 // Simplification: If direct, send. If relay, wait for next msg.)
                 if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file) {
                     unicastFile(conn, playlist[currentTrackIndex].file);
@@ -2974,7 +2993,7 @@ function setupPeerEvents() {
                     conn.send({
                         type: 'status-sync',
                         currentTrackIndex: currentTrackIndex,
-                        isPlaying: isPlaying,
+                        isPlaying: currentState !== APP_STATE.IDLE,
                         playlistMeta: playlist.map(item => ({
                             type: item.type,
                             name: item.name || item.title,
@@ -2996,8 +3015,8 @@ function setupPeerEvents() {
             // Removed Sync Handler
 
             if (data.type === 'get-sync-time') {
-                const currentTime = isPlaying ? (Tone.now() - startedAt) : pausedAt;
-                conn.send({ type: 'sync-response', time: currentTime, isPlaying: isPlaying });
+                const currentTime = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
+                conn.send({ type: 'sync-response', time: currentTime, isPlaying: currentState !== APP_STATE.IDLE });
             }
             // Removed Ping Handler
             // Operator Requests
@@ -3029,7 +3048,7 @@ function setupPeerEvents() {
 
             else if (data.type === 'status-sync') {
                 // [Synchronization Logic] Playlist-Centric Model
-                const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlaying } = data;
+                const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
 
                 // 1. Sync Playlist Structure if different
                 const isPlaylistDifferent = JSON.stringify(playlist.map(it => it.name)) !== JSON.stringify(playlistMeta.map(it => it.name));
@@ -3066,9 +3085,9 @@ function setupPeerEvents() {
                             }
                         }
                     } else if (item && item.type === 'youtube') {
-                        if (!isYouTubeMode || currentTrackIndex !== prevIndex) {
+                        if (currentState !== APP_STATE.PLAYING_YOUTUBE || currentTrackIndex !== prevIndex) {
                             console.log("[Sync] Switching to YouTube mode for sync");
-                            // YouTube mode switch is usually handled by youtube-play message, 
+                            // YouTube mode switch is usually handled by youtube-play message,
                             // but this provides a fallback for late joiners.
                         }
                     }
@@ -3337,19 +3356,19 @@ function showConnectionFailedOverlay(message) {
     const overlay = document.createElement('div');
     overlay.id = 'connection-failed-overlay';
     overlay.style.cssText = `
-        position: fixed; inset: 0; background: rgba(0,0,0,0.85); 
-        z-index: 9999; display: flex; flex-direction: column; 
+        position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+        z-index: 9999; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 20px;
     `;
     overlay.innerHTML = `
         <h2 style="color:white; font-size: 24px; text-align: center; padding: 0 20px;">${message}</h2>
         <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
             <button onclick="document.getElementById('connection-failed-overlay').remove(); joinSession(0);" style="
-                padding: 12px 30px; background: var(--primary, #3b82f6); color: white; 
+                padding: 12px 30px; background: var(--primary, #3b82f6); color: white;
                 border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
             ">다시 시도</button>
             <button onclick="window.location.href = window.location.pathname" style="
-                padding: 12px 30px; background: #ef4444; color: white; 
+                padding: 12px 30px; background: #ef4444; color: white;
                 border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
             ">나가기</button>
         </div>
@@ -3379,7 +3398,7 @@ let syncRequestTime = 0; // Capture exact time of sync request
 let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
 let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
 
-// Detect ICE candidate type and set compensation mode
+// Detect ICE connection type and set compensation mode
 async function detectConnectionType() {
     if (!hostConn || !hostConn.peerConnection) {
         console.log("[ICE] No peer connection available");
@@ -3559,7 +3578,7 @@ async function handleFilePrepare(data) {
             updatePlaylistUI();
         }
         // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
-        if (isYouTubeMode) {
+        if (currentState === APP_STATE.PLAYING_YOUTUBE) {
             console.log("[file-prepare] Stopping YouTube mode for incoming local file");
             stopYouTubeMode();
         }
@@ -3644,7 +3663,7 @@ async function handleFileStart(data) {
 
                         if (isLarge || isVideo) {
                             buffer = null;
-                            isVideoMode = true;
+                            currentState = APP_STATE.PLAYING_VIDEO;
                             if (currentMediaObjectURL) URL.revokeObjectURL(currentMediaObjectURL);
                             const url = URL.createObjectURL(blob);
                             currentMediaObjectURL = url;
@@ -3669,7 +3688,7 @@ async function handleFileStart(data) {
                                 return ctx.decodeAudioData(buf);
                             }).then(decoded => {
                                 buffer = decoded;
-                                isVideoMode = false;
+                                currentState = APP_STATE.PLAYING_AUDIO;
                                 document.body.classList.remove('mode-video');
                                 videoElement.style.display = 'none';
                                 document.getElementById('seek-slider').max = buffer.duration;
@@ -3881,7 +3900,6 @@ async function handleFileChunk(data) {
     }
 
     lastChunkTime = Date.now();
-
     // [Active Keep-Alive]
     // If receiving bloated data, send explicit ACK to Host every 2s
     // This prevents Host from timing us out during long transfers
@@ -4028,7 +4046,7 @@ async function handleFileChunk(data) {
                 return ctx.decodeAudioData(buf);
             }).then(decoded => {
                 buffer = decoded;
-                isVideoMode = false; // Explicitly ensure video mode is off for small audio
+                currentState = APP_STATE.PLAYING_AUDIO; // Explicitly ensure video mode is off for small audio
                 document.body.classList.remove('mode-video');
                 videoElement.style.display = 'none';
 
@@ -4121,8 +4139,8 @@ async function handleFileWait(data) {
 
 async function handleSyncResponse(data) {
     // YouTube mode: Skip local audio sync (YouTube has its own sync)
-    if (isYouTubeMode) {
-        showToast("YouTube 모드에서는 자동 싱크가 적용되지 않습니다");
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+        showToast("YouTube 모드에서는 수동 싱크가 작동하지 않습니다");
         return;
     }
 
@@ -4167,9 +4185,9 @@ async function handleYouTubePlay(data) {
     window._skipIncomingPreload = false;
     if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
 
-    isYouTubeMode = true;
+    currentState = APP_STATE.PLAYING_YOUTUBE;
     // 3. Stop existing YouTube if playing
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try { youtubePlayer.destroy(); } catch (e) { }
         youtubePlayer = null;
     }
@@ -4194,9 +4212,6 @@ async function handleYouTubeSync(data) {
     } else {
         // Fallback or direct implementation if handleYouTubeSyncInternal is not defined
         // In the original code it was calling handleYouTubeSync(data) which was a recursive call or meant a different function.
-        // Wait, looking at original code:
-        // else if (data.type === 'youtube-sync') { handleYouTubeSync(data); }
-        // This implies handleYouTubeSync is a separate function already?
         // Let's check.
     }
 }
@@ -4371,7 +4386,7 @@ async function handlePlayPreloaded(data) {
     updatePlaylistUI(); // Update active highlight
 
     // [Fix] If Guest was in YouTube mode, stop it before loading file
-    if (isYouTubeMode) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         console.log("[Guest] Switching from YouTube to Preloaded Local Track");
         stopYouTubeMode();
     }
@@ -4426,7 +4441,7 @@ async function handlePlayPreloaded(data) {
 
 async function handleStatusSync(data) {
     // [Synchronization Logic] Playlist-Centric Model
-    const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlaying } = data;
+    const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
 
     // 1. Sync Playlist Structure if different
     const isPlaylistDifferent = JSON.stringify(playlist.map(it => it.name)) !== JSON.stringify(playlistMeta.map(it => it.name));
@@ -4458,7 +4473,7 @@ async function handleStatusSync(data) {
                 clearPreviousTrackState('status-sync mismatch');
 
                 // [Fix] If in YouTube mode, stop it for the new local track
-                if (isYouTubeMode) stopYouTubeMode();
+                if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
 
                 if (hostConn && hostConn.open) {
                     hostConn.send({
@@ -4470,9 +4485,9 @@ async function handleStatusSync(data) {
                 }
             }
         } else if (item && item.type === 'youtube') {
-            if (!isYouTubeMode || currentTrackIndex !== prevIndex) {
+            if (currentState !== APP_STATE.PLAYING_YOUTUBE || currentTrackIndex !== prevIndex) {
                 console.log("[Sync] Switching to YouTube mode for sync");
-                // YouTube mode switch is usually handled by youtube-play message, 
+                // YouTube mode switch is usually handled by youtube-play message,
                 // but this provides a fallback for late joiners.
             }
         }
@@ -4503,6 +4518,42 @@ async function handleWelcome(data) {
 }
 
 async function handlePlay(data) {
+    if (autoPlayTimer) {
+        clearTimeout(autoPlayTimer);
+        autoPlayTimer = null;
+    }
+
+    // [StrongSync] Index Check
+    if (data.index !== undefined && data.index !== currentTrackIndex) {
+        console.warn(`[StrongSync] Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
+
+        // 1. Stop whatever I'm doing
+        stopAllMedia();
+
+        // 2. Switch index and metadata
+        currentTrackIndex = data.index;
+        updatePlaylistUI();
+
+        // 3. Initiate recovery/loading if needed
+        const item = playlist[currentTrackIndex];
+        if (item && item.type !== 'youtube') {
+            const hasFile = (buffer && buffer.duration > 0) || (currentFileBlob && currentFileBlob.size > 0);
+            if (!hasFile || (meta && meta.name !== item.name)) {
+                console.log("[StrongSync] Need file for new index, requesting...");
+                window._pendingPlayTime = data.time; // Resume after download
+                if (hostConn && hostConn.open) {
+                    hostConn.send({
+                        type: 'request-data-recovery',
+                        nextChunk: 0,
+                        fileName: item.name,
+                        index: currentTrackIndex
+                    });
+                }
+                return; // Early exit, play will happen after load
+            }
+        }
+    }
+
     const loaderEl = document.getElementById('loader');
     const loaderVisible = loaderEl && loaderEl.style.display !== 'none';
     const isDownloading = loaderVisible || window._waitingForRelayData;
@@ -4513,7 +4564,7 @@ async function handlePlay(data) {
         return;
     }
     const target = data.time + localOffset;
-    if (!isPlaying || Math.abs((Tone.now() - startedAt) - target) > 0.15) play(target);
+    if (currentState === APP_STATE.IDLE || Math.abs((Tone.now() - startedAt) - target) > 0.15) play(target);
 }
 
 async function handlePause(data) {
@@ -4592,7 +4643,7 @@ async function handleYouTubePlaylistInfo(data) {
 
 async function handleYouTubeStop(data) {
     console.log("[Guest] Received youtube-stop, switching to local mode");
-    if (isYouTubeMode) stopYouTubeMode();
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
     stop();
 }
 
@@ -4690,47 +4741,6 @@ const handlers = {
     'status-sync': handleStatusSync,
     'request-data-recovery': handleRequestDataRecoveryGuest
 };
-
-async function handlePlay(data) {
-    if (autoPlayTimer) {
-        clearTimeout(autoPlayTimer);
-        autoPlayTimer = null;
-    }
-
-    // [StrongSync] Index Check
-    if (data.index !== undefined && data.index !== currentTrackIndex) {
-        console.warn(`[StrongSync] Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
-
-        // 1. Stop whatever I'm doing
-        stopAllMedia();
-
-        // 2. Switch index and metadata
-        currentTrackIndex = data.index;
-        updatePlaylistUI();
-
-        // 3. Initiate recovery/loading if needed
-        const item = playlist[currentTrackIndex];
-        if (item && item.type !== 'youtube') {
-            const hasFile = (buffer && buffer.duration > 0) || (currentFileBlob && currentFileBlob.size > 0);
-            if (!hasFile || (meta && meta.name !== item.name)) {
-                console.log("[StrongSync] Need file for new index, requesting...");
-                window._pendingPlayTime = data.time; // Resume after download
-                if (hostConn && hostConn.open) {
-                    hostConn.send({
-                        type: 'request-data-recovery',
-                        nextChunk: 0,
-                        fileName: item.name,
-                        index: currentTrackIndex
-                    });
-                }
-                return; // Early exit, play will happen after load
-            }
-        }
-    }
-
-    const targetTime = (data.time || 0) + localOffset;
-    play(targetTime);
-}
 
 async function handleData(data) {
     const handler = handlers[data.type];
@@ -4858,7 +4868,7 @@ function nudgeSync(ms) {
     updateSyncDisplay();
 
     // 2. YouTube Mode: Apply immediately via seek
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const currentTime = youtubePlayer.getCurrentTime();
             // Nudge = shift current position by the offset delta
@@ -4877,7 +4887,7 @@ function nudgeSync(ms) {
     if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
 
     syncDebounceTimer = setTimeout(() => {
-        if (isPlaying) {
+        if (currentState !== APP_STATE.IDLE) {
             // Apply the new offset to audio
             // We calculate current track position using the 'old' startedAt
             // play() will then recalculate a 'new' startedAt including the new localOffset
@@ -4903,7 +4913,7 @@ function resetTotalSync() {
     } else {
         // Fallback if no host
         showToast("호스트 연결 없음. 로컬 초기화 완료.");
-        if (isPlaying) play(Tone.now() - startedAt);
+        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) play(Tone.now() - startedAt);
     }
 }
 
@@ -5143,7 +5153,7 @@ function renderDeviceList(list) {
             // AND provide the toggle button
 
             if (!p.isHost && p.status === 'connected') {
-                opBtn = `<button class="btn-action ${p.isOp ? 'active' : ''}" 
+                opBtn = `<button class="btn-action ${p.isOp ? 'active' : ''}"
                      style="font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}"
                      onclick="toggleOperator('${p.id}')">
                      ${p.isOp ? 'REVOKE' : 'GRANT'}
@@ -5206,7 +5216,7 @@ function handleOperatorRequest(data) {
     } else if (data.type === 'request-youtube-play') {
         // OP requested YouTube play
         console.log("[Host] OP requested YouTube play");
-        if (isYouTubeMode && youtubePlayer) {
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.playVideo();
                 broadcast({ type: 'youtube-state', state: 1, time: youtubePlayer.getCurrentTime() });
@@ -5217,7 +5227,7 @@ function handleOperatorRequest(data) {
     } else if (data.type === 'request-youtube-pause') {
         // OP requested YouTube pause
         console.log("[Host] OP requested YouTube pause");
-        if (isYouTubeMode && youtubePlayer) {
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.pauseVideo();
                 broadcast({ type: 'youtube-state', state: 2, time: youtubePlayer.getCurrentTime() });
@@ -5246,7 +5256,7 @@ function handleOperatorRequest(data) {
         console.log("[Host] OP requested seek to:", data.time);
 
         // YouTube mode: use YouTube API
-        if (isYouTubeMode && youtubePlayer) {
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.seekTo(data.time, true);  // data.time is already in seconds
                 broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: data.time });
@@ -5257,7 +5267,7 @@ function handleOperatorRequest(data) {
         }
 
         // Local mode
-        if (isPlaying) play(data.time); else pausedAt = data.time;
+        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) play(data.time); else pausedAt = data.time;
         broadcast({ type: 'play', time: data.time });
     } else if (data.type === 'request-eq-reset') {
         resetEQ(); // Host resets locally -> Broadcasts 'eq-reset'
@@ -5285,7 +5295,7 @@ function handleOperatorRequest(data) {
     } else if (data.type === 'request-youtube-sub-seek') {
         // OP requested specific video in playlist
         console.log("[Host] OP requested YouTube sub-seek:", data.subIdx);
-        if (isYouTubeMode && youtubePlayer && youtubePlayer.playVideoAt) {
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.playVideoAt) {
             try {
                 youtubePlayer.playVideoAt(data.subIdx);
                 // State update will be handled by regular sync loop
@@ -5519,7 +5529,7 @@ function autoSync() {
 }
 
 function loopUI() {
-    if (isPlaying) {
+    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
         let t = (Tone.now() - startedAt) + localOffset;
 
@@ -5606,7 +5616,7 @@ async function loadPreloadedTrack() {
         buffer = nextBuffer;
 
         // 모드 전환: 오디오 모드
-        isVideoMode = false;
+        currentState = APP_STATE.PLAYING_AUDIO;
         document.body.classList.remove('mode-video');
         videoElement.style.display = 'none';
 
@@ -5631,7 +5641,7 @@ async function loadPreloadedTrack() {
 
         if (isLargeFile || isVideoType) {
             // --- Streaming Mode (Video Element) ---
-            isVideoMode = true;
+            currentState = APP_STATE.PLAYING_VIDEO;
             document.body.classList.add('mode-video');
             videoElement.style.display = 'block';
             videoElement.src = url;
@@ -5647,7 +5657,7 @@ async function loadPreloadedTrack() {
                 setupMediaSource(); // 오디오 노드 연결
                 updateUISlider(videoElement.duration);
 
-                // 주의: videoElement.src에 할당된 ObjectURL은 
+                // 주의: videoElement.src에 할당된 ObjectURL은
                 // 해당 요소가 로드된 후에도 해제하면 안 되는 경우가 있어(브라우저마다 다름),
                 // 보통 다음 곡으로 넘어갈 때 revoke하거나 가비지 컬렉션에 맡깁니다.
                 // 여기서는 안전하게 유지합니다.
@@ -5674,7 +5684,7 @@ async function loadPreloadedTrack() {
                 URL.revokeObjectURL(url);
 
                 // 모드 전환: 오디오 모드
-                isVideoMode = false;
+                currentState = APP_STATE.PLAYING_AUDIO;
                 document.body.classList.remove('mode-video');
                 videoElement.style.display = 'none';
 
@@ -5876,10 +5886,10 @@ function parseTimestamp(str) {
  * Seek to specific time in current media
  */
 function seekToTime(seconds) {
-    if (isYouTubeMode && youtubePlayer && youtubePlayer.seekTo) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.seekTo) {
         youtubePlayer.seekTo(seconds, true);
         showToast(`${fmtTime(seconds)}로 이동`);
-    } else if (isVideoMode) {
+    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
         const video = document.getElementById('main-video');
         if (video) {
             video.currentTime = seconds;
@@ -5970,6 +5980,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// Window Keyboard Listener for Media Controls
+window.addEventListener('keydown', (e) => {
+    // Ignore if typing in input/textarea
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+    const isPlayingAny = (currentState !== APP_STATE.IDLE);
+    if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+    } else if (e.key === 'p' || e.key === 'P') {
+        if (!isPlayingAny) togglePlay();
+    } else if (e.key === 's' || e.key === 'S') {
+        if (isPlayingAny) togglePlay();
+    }
+});
+
 // ============================================================
 // Unread Message Badge
 // ============================================================
@@ -6031,6 +6057,16 @@ switchTab = function (tabId) {
     // Close chat drawer when switching tabs
     if (isChatDrawerOpen) {
         toggleChatDrawer();
+    }
+
+    // Update mini YouTube player visibility
+    if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+        document.getElementById('yt-mini-player').style.display = 'block';
+    } else {
+        document.getElementById('yt-mini-player').style.display = 'none';
+    }
+    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+        document.getElementById('yt-mini-player').style.display = 'none';
     }
 };
 
@@ -6118,7 +6154,7 @@ window.updateChatYouTube = updateChatYouTube;
 // ============================================
 
 let youtubePlayer = null;
-let isYouTubeMode = false;
+
 
 function openMediaSourcePopup() {
     if (hostConn) {
@@ -6372,13 +6408,14 @@ function onYouTubePlayerStateChange(event) {
         showYouTubeSyncOverlay(false);
         document.getElementById('icon-play').style.display = 'none';
         document.getElementById('icon-pause').style.display = 'block';
-        isPlaying = true;
+        currentState = APP_STATE.PLAYING_YOUTUBE;
     } else if (state === YT.PlayerState.PAUSED) {
         document.getElementById('icon-play').style.display = 'block';
         document.getElementById('icon-pause').style.display = 'none';
-        isPlaying = false;
+        // Still in YouTube mode, but "paused". In the machine, we stay in PLAYING_YOUTUBE 
+        // because "isPlaying" is usually checked as currentState !== IDLE.
     } else if (state === YT.PlayerState.ENDED) {
-        isPlaying = false;
+        currentState = APP_STATE.IDLE;
 
         // Auto-play next track in unified playlist
         if (!hostConn) {
@@ -6399,7 +6436,7 @@ function onYouTubePlayerStateChange(event) {
 }
 
 function updateYouTubeUI() {
-    if (!youtubePlayer || !isYouTubeMode || !youtubePlayer.getCurrentTime) return;
+    if (!youtubePlayer || currentState !== APP_STATE.PLAYING_YOUTUBE || !youtubePlayer.getCurrentTime) return;
 
     try {
         const currentTime = youtubePlayer.getCurrentTime();
@@ -6539,7 +6576,7 @@ function broadcastYouTubeSync() {
 }
 
 function handleYouTubeSync(data) {
-    if (!youtubePlayer || !isYouTubeMode || !youtubePlayer.getCurrentTime) return;
+    if (!youtubePlayer || currentState !== APP_STATE.PLAYING_YOUTUBE || !youtubePlayer.getCurrentTime) return;
 
     try {
         const hostTime = data.time;
@@ -6605,7 +6642,7 @@ function handleYouTubeSync(data) {
 
 function refreshYouTubeDisplay() {
     const container = document.getElementById('youtube-player-container');
-    if (!container || !isYouTubeMode) return;
+    if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
     console.log("[YouTube] Refreshing display to prevent black screen...");
     const iframe = container.querySelector('iframe');
@@ -6641,7 +6678,7 @@ function handleYouTubeSubTitleUpdate(data) {
 }
 
 function stopYouTubeMode() {
-    isYouTubeMode = false;
+    currentState = APP_STATE.IDLE;
 
     // Stop sync loops
     if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
@@ -6794,7 +6831,7 @@ window.fetchYouTubePreview = fetchYouTubePreview;
 
 // Seek slider control for YouTube
 document.getElementById('seek-slider').addEventListener('input', function () {
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const seekTime = parseFloat(this.value);  // this.value is already in seconds
             youtubePlayer.seekTo(seekTime, true);
@@ -6812,7 +6849,7 @@ document.getElementById('seek-slider').addEventListener('input', function () {
 // Override skipTime for YouTube support
 const originalSkipTime = window.skipTime;
 window.skipTime = function (seconds) {
-    if (isYouTubeMode && youtubePlayer) {
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const currentTime = youtubePlayer.getCurrentTime();
             const newTime = Math.max(0, currentTime + seconds);

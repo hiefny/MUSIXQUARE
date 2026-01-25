@@ -2618,15 +2618,23 @@ async function detectConnectionType() {
         console.log(`[Network] 연결 유형: ${candidateType} (${connectionStatus})`);
         console.log(`[Network] Local: ${localAddress}, Remote: ${remoteAddress}`);
 
-        // UI 업데이트 (연결 상태 배지 등)
+        // UI 업데이트 (연결 상태 배지 색상)
         const roleBadge = document.getElementById('role-badge');
         if (roleBadge) {
             roleBadge.title = connectionStatus;
-            // 로컬 네트워크면 초록색 강조, 릴레이면 주황색
+
             if (isLocalNetwork) {
-                roleBadge.style.boxShadow = '0 0 8px rgba(34, 197, 94, 0.6)';
+                // 로컬 네트워크: 초록색
+                roleBadge.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+                roleBadge.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.5)';
             } else if (candidateType === 'relay') {
-                roleBadge.style.boxShadow = '0 0 8px rgba(251, 146, 60, 0.6)';
+                // 릴레이: 주황색 (TURN 서버 경유, 느릴 수 있음)
+                roleBadge.style.background = 'linear-gradient(135deg, #fb923c, #ea580c)';
+                roleBadge.style.boxShadow = '0 0 12px rgba(251, 146, 60, 0.5)';
+            } else {
+                // 원격 P2P (srflx/prflx): 기본 파란색 유지 또는 약간 다른 색
+                roleBadge.style.background = 'linear-gradient(135deg, #3b82f6, #2563eb)';
+                roleBadge.style.boxShadow = '0 0 12px rgba(59, 130, 246, 0.5)';
             }
         }
 

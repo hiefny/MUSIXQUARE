@@ -2545,6 +2545,97 @@ function updateSyncBtnState(isGuest) {
 }
 
 // --- Networking (Updated from network.html) ---
+
+/**
+ * 연결 유형 감지 (로컬 네트워크 vs 원격/릴레이)
+ * ICE candidate 타입을 분석하여 연결 방식을 판별
+ */
+async function detectConnectionType() {
+    // Guest인 경우 hostConn의 peerConnection 사용
+    // Host인 경우 첫 번째 연결된 피어의 peerConnection 사용
+    let pc = null;
+
+    if (hostConn && hostConn.peerConnection) {
+        pc = hostConn.peerConnection;
+    } else if (connectedPeers.length > 0 && connectedPeers[0].conn?.peerConnection) {
+        pc = connectedPeers[0].conn.peerConnection;
+    }
+
+    if (!pc) {
+        console.log("[Network] 연결 유형 감지: 활성 연결 없음");
+        return;
+    }
+
+    try {
+        const stats = await pc.getStats();
+        let candidateType = 'unknown';
+        let localAddress = '';
+        let remoteAddress = '';
+
+        stats.forEach(report => {
+            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                // 성공한 ICE candidate pair 찾기
+                stats.forEach(r => {
+                    if (r.id === report.localCandidateId) {
+                        candidateType = r.candidateType || candidateType;
+                        localAddress = r.address || r.ip || '';
+                    }
+                    if (r.id === report.remoteCandidateId) {
+                        remoteAddress = r.address || r.ip || '';
+                    }
+                });
+            }
+        });
+
+        // 연결 유형 판별
+        let connectionStatus = '';
+        let isLocalNetwork = false;
+
+        switch (candidateType) {
+            case 'host':
+                // 직접 연결 (같은 네트워크)
+                connectionStatus = '로컬 네트워크 (직접 연결)';
+                isLocalNetwork = true;
+                break;
+            case 'srflx':
+                // STUN을 통한 NAT 우회
+                connectionStatus = '원격 네트워크 (NAT 우회)';
+                break;
+            case 'prflx':
+                // Peer Reflexive
+                connectionStatus = '원격 네트워크 (P2P)';
+                break;
+            case 'relay':
+                // TURN 서버 릴레이
+                connectionStatus = '원격 네트워크 (릴레이)';
+                break;
+            default:
+                connectionStatus = '네트워크 유형 불명';
+        }
+
+        // 토스트로 연결 유형 알림
+        showToast(connectionStatus);
+        console.log(`[Network] 연결 유형: ${candidateType} (${connectionStatus})`);
+        console.log(`[Network] Local: ${localAddress}, Remote: ${remoteAddress}`);
+
+        // UI 업데이트 (연결 상태 배지 등)
+        const roleBadge = document.getElementById('role-badge');
+        if (roleBadge) {
+            roleBadge.title = connectionStatus;
+            // 로컬 네트워크면 초록색 강조, 릴레이면 주황색
+            if (isLocalNetwork) {
+                roleBadge.style.boxShadow = '0 0 8px rgba(34, 197, 94, 0.6)';
+            } else if (candidateType === 'relay') {
+                roleBadge.style.boxShadow = '0 0 8px rgba(251, 146, 60, 0.6)';
+            }
+        }
+
+        return { type: candidateType, status: connectionStatus, isLocal: isLocalNetwork };
+    } catch (e) {
+        console.error("[Network] 연결 유형 감지 실패:", e);
+    }
+}
+
 // [수정된 네트워크 초기화 코드]
 async function initNetwork() {
     try {
@@ -2646,7 +2737,8 @@ function setupPeerEvents() {
 
     peer.on('open', id => {
         myId = id;
-        document.getElementById('my-id').innerText = id;
+        const myIdEl = document.getElementById('my-id');
+        if (myIdEl) myIdEl.innerText = id;
 
         updateQrCode(myId);
 
@@ -2657,8 +2749,10 @@ function setupPeerEvents() {
             const go = document.getElementById('gesture-overlay');
             if (go) go.style.display = 'flex';
         } else {
-            document.getElementById('host-panel').classList.add('visible');
-            document.getElementById('role-text').innerText = "HOST (ME)";
+            const hostPanel = document.getElementById('host-panel');
+            if (hostPanel) hostPanel.classList.add('visible');
+            const roleText = document.getElementById('role-text');
+            if (roleText) roleText.innerText = "HOST (ME)";
             document.getElementById('role-badge').classList.add('connected');
             updateSyncBtnState(false);
 
@@ -3128,11 +3222,13 @@ function joinSession(retryAttempt = 0) {
         if (failedOverlay) failedOverlay.remove();
 
         showToast("Host 연결됨!");
-        document.getElementById('role-badge').classList.add('connected');
+        const roleBadge = document.getElementById('role-badge');
+        if (roleBadge) roleBadge.classList.add('connected');
         updateSyncBtnState(true);
 
         updateQrCode(hostId);
-        document.getElementById('host-panel').classList.add('visible');
+        const hostPanel = document.getElementById('host-panel');
+        if (hostPanel) hostPanel.classList.add('visible');
 
         // Volunteer Heartbeat: Send to Host every 5s (Worker)
         timerWorker.postMessage({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
@@ -3143,7 +3239,8 @@ function joinSession(retryAttempt = 0) {
         // Detect ICE connection type after connection stabilizes
         setTimeout(() => detectConnectionType(), 2000);
 
-        document.getElementById('btn-leave-session').style.display = 'flex';
+        const leaveBtn = document.getElementById('btn-leave-session');
+        if (leaveBtn) leaveBtn.style.display = 'flex';
         switchTab('play');
     });
 
@@ -6656,3 +6753,97 @@ window.skipTime = function (seconds) {
     if (originalSkipTime) originalSkipTime(seconds);
 };
 
+// ============================================
+// DEMO MEDIA LOADER
+// ============================================
+
+const DEMO_VIDEO_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
+
+/**
+ * 시연용 데모 미디어(Tears of Steel)를 다운로드하고 재생합니다.
+ * Host만 실행 가능합니다.
+ */
+async function loadDemoMedia() {
+    // Guest는 실행 불가
+    if (hostConn) {
+        showToast("Host만 실행할 수 있습니다.");
+        return;
+    }
+
+    if (!confirm("시연 영상(Tears of Steel, ~15MB)을 다운로드하고 재생하시겠습니까?\n(데이터 요금이 부과될 수 있습니다)")) {
+        return;
+    }
+
+    // 모든 기기에 알림
+    const toastMsg = "곧 시연 영상과 음성이 재생됩니다.\n\"설정 탭\"에서 본인의 기기 역할을 설정해주세요!";
+    broadcast({ type: 'sys-toast', message: toastMsg });
+    showToast(toastMsg);
+
+    try {
+        showLoader(true, "Demo 다운로드 중...");
+
+        const response = await fetch(DEMO_VIDEO_URL);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const contentLength = +response.headers.get('Content-Length');
+        if (!contentLength) {
+            showLoader(true, "다운로드 중... (크기 알 수 없음)");
+        }
+
+        const reader = response.body.getReader();
+        let receivedLength = 0;
+        let chunks = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            chunks.push(value);
+            receivedLength += value.length;
+
+            if (contentLength) {
+                const percent = Math.floor((receivedLength / contentLength) * 100);
+                const loaderText = document.getElementById('loader-text');
+                if (loaderText) loaderText.innerText = `Demo 다운로드 중... ${percent}%`;
+                if (typeof updateLoader === 'function') updateLoader(percent);
+            }
+        }
+
+        // 청크 합치기
+        const blob = new Blob(chunks, { type: 'video/mp4' });
+        const file = new File([blob], "Tears_of_Steel_Demo.mp4", { type: "video/mp4" });
+
+        showLoader(true, "플레이리스트 추가 중...");
+
+        // 플레이리스트에 추가
+        playlist.push({
+            type: 'local',
+            file: file,
+            name: file.name
+        });
+        updatePlaylistUI();
+
+        // 게스트들에게 플레이리스트 업데이트 전송
+        broadcast({
+            type: 'playlist-update',
+            list: playlist.map(item => ({
+                type: item.type || 'local',
+                name: item.name || item.file?.name || 'Unknown',
+                videoId: item.videoId || null,
+                playlistId: item.playlistId || null
+            }))
+        });
+
+        // 재생 시작
+        playTrack(playlist.length - 1);
+        showLoader(false);
+
+    } catch (e) {
+        console.error("[Demo] 로드 실패:", e);
+        showLoader(false);
+        showToast("Demo 로드 실패: " + e.message);
+    }
+}
+
+// Expose demo loader
+window.loadDemoMedia = loadDemoMedia;

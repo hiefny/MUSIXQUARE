@@ -1777,6 +1777,16 @@ function togglePlay() {
 
     if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
 
+    // [FIX] 상태 머신 값만 보지 말고, 실제 오디오/비디오가 재생 중인지 확인해야 함
+    // (파일 로드 직후에는 상태는 PLAYING_... 이지만 실제로는 멈춰있기 때문)
+    let isActuallyPlaying = false;
+
+    if (currentState === APP_STATE.PLAYING_AUDIO) {
+        isActuallyPlaying = (player && player.state === 'started');
+    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+        isActuallyPlaying = (videoElement && !videoElement.paused);
+    }
+
     // Cancel pending auto-play timer if host manually controls playback
     if (!hostConn && autoPlayTimer) {
         clearTimeout(autoPlayTimer);
@@ -1784,7 +1794,8 @@ function togglePlay() {
         showToast("자동 재생 취소됨");
     }
 
-    if (currentState !== APP_STATE.IDLE) {
+    // 진짜 재생 중일 때만 일시정지, 아니면 재생
+    if (isActuallyPlaying) {
         if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
         else if (isOperator) hostConn.send({ type: 'request-pause' });
     } else {

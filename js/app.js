@@ -889,6 +889,8 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
     data._isFetching = false;
 }
 
+
+
 async function playTrack(index) {
     if (index < 0 || index >= playlist.length) return;
 
@@ -988,16 +990,8 @@ async function playTrack(index) {
     }
 
     // Local file playback
-    // Stop YouTube mode if active (restore visualizer)
-    if (isYouTubeMode) {
-        stopYouTubeMode();
-        // Notify guests to stop YouTube too
-        if (!hostConn) {
-            broadcast({ type: 'youtube-stop' });
-        }
-    }
-    // Also stop any local audio
-    stop();
+    // 1. Unified Stop
+    stopAllMedia();
 
     const file = item.file;
     if (!hostConn) {
@@ -1329,15 +1323,13 @@ async function loadAndBroadcastFile(file) {
         if (isVideo || isLargeFile) {
             console.log("Large File/Video detected. Using Streaming Mode (MediaElementSource).");
             buffer = null; // No Tone.Buffer
-            isVideoMode = true; // Use Video Element for timing/playback even if it's just chunks
+
+            // UI & Engine Setup
+            setEngineMode(isVideo ? 'video' : 'audio');
 
             // UI Info Update
             updateTitleWithMarquee(file.name);
             document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1} `;
-
-            // Setup Video Element
-            document.body.classList.add('mode-video');
-            videoElement.style.display = isVideo ? 'block' : 'none'; // Hide if just audio-large
             videoElement.src = url;
 
             // Wait for metadata to get duration
@@ -1360,9 +1352,7 @@ async function loadAndBroadcastFile(file) {
             showToast(isVideo ? "Video Mode (Streaming)" : "Large File Mode (Streaming)");
         } else {
             // Standard Tone.Buffer Mode (Small Files)
-            isVideoMode = false;
-            document.body.classList.remove('mode-video');
-            videoElement.style.display = 'none';
+            setEngineMode('audio');
             videoElement.removeAttribute('src');
             videoElement.load();
 
@@ -1654,13 +1644,78 @@ function handleEnded() {
     }
 }
 
-function stop() {
-    if (player && player.state === 'started') player.stop();
-    if (isVideoMode && videoElement) { videoElement.pause(); videoElement.currentTime = 0; }
+/**
+ * Stop EVERYTHING. Tone.js, Video, and YouTube.
+ * Ensures no audio overlap during transitions.
+ */
+function stopAllMedia() {
+    // 1. Stop Tone.js
+    if (player && player.state === 'started') {
+        try { player.stop(); } catch (e) { }
+    }
+
+    // 2. Stop Global Video
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.currentTime = 0;
+        // Don't clear src yet, only on mode switch
+    }
+
+    // 3. Stop YouTube
+    if (youtubePlayer && youtubePlayer.stopVideo) {
+        try { youtubePlayer.stopVideo(); } catch (e) { }
+    }
+
     isPlaying = false;
     updatePlayState(false);
 
+    // Stop all background sync timers
     timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
+    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'youtube-sync' });
+}
+
+/**
+ * Handle UI and state transitions between Audio, Video, and YouTube modes.
+ */
+function setEngineMode(mode) {
+    console.log(`[Engine] Switching mode to: ${mode}`);
+
+    // Initial Cleanup
+    document.body.classList.remove('mode-video', 'mode-youtube');
+
+    if (videoElement) videoElement.style.display = 'none';
+    const ytContainer = document.getElementById('youtube-player-container');
+    if (ytContainer) {
+        ytContainer.style.opacity = '0';
+        ytContainer.style.pointerEvents = 'none';
+    }
+
+    if (mode === 'video') {
+        isVideoMode = true;
+        isYouTubeMode = false;
+        document.body.classList.add('mode-video');
+        if (videoElement) videoElement.style.display = 'block';
+    } else if (mode === 'youtube') {
+        isVideoMode = false;
+        isYouTubeMode = true;
+        document.body.classList.add('mode-youtube');
+        if (ytContainer) {
+            ytContainer.style.opacity = '1';
+            ytContainer.style.pointerEvents = 'auto';
+        }
+    } else {
+        // Default: 'audio'
+        isVideoMode = false;
+        isYouTubeMode = false;
+        // Visualizer is default (shown when .mode-video and .mode-youtube are absent)
+    }
+
+    // Always sync UI after mode switch
+    updatePlaylistUI();
+}
+
+function stop() {
+    stopAllMedia();
 }
 
 
@@ -3910,13 +3965,19 @@ async function handleFileChunk(data) {
 
         // Check for Large File / Video to avoid Decoding Crash
         const isLarge = blob.size > 100 * 1024 * 1024;
-        const isVideo = meta.mime.startsWith('video/') || (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
+        const isVideoBlob = blob.type.startsWith('video/'); // Check ACTUAL blob type, not just extension
+        const isVideoExt = (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
 
-        if (isLarge || isVideo) {
+        // If it's a video file, it's definitely Video Mode.
+        // If it was a video but we received a WAV, it's Audio Mode.
+        const shouldBeVideoMode = isVideoBlob;
+
+        if (isLarge || shouldBeVideoMode) {
             // --- STREAMING MODE (No Decode) ---
-            console.log("Guest: Large File/Video detected. Using Streaming Mode.");
+            console.log(`Guest: Large/Video (${blob.type}) detected. Using Streaming Mode.`);
             buffer = null;
-            isVideoMode = true;
+
+            setEngineMode(shouldBeVideoMode ? 'video' : 'audio');
 
             // Cleanup previous ObjectURL to prevent memory leak
             if (currentMediaObjectURL) {
@@ -3925,17 +3986,8 @@ async function handleFileChunk(data) {
             }
 
             const url = URL.createObjectURL(blob);
-            currentMediaObjectURL = url; // Track for later cleanup
+            currentMediaObjectURL = url;
             videoElement.src = url;
-            // If just audio-large, hide video? Guest mirrors Host usually.
-            // Assuming Host sets 'isVideoMode' correctly via visual cues, but here we enforce logic.
-            if (isVideo) {
-                document.body.classList.add('mode-video');
-                videoElement.style.display = 'block';
-            } else {
-                // Large Audio File
-                videoElement.style.display = 'none';
-            }
 
             // Get Duration from Video Element Metadata
             videoElement.onloadedmetadata = () => {
@@ -4386,7 +4438,11 @@ async function handleStatusSync(data) {
 
     // 2. Sync Track Index and Trigger Auto-Recovery if needed
     if (hostTrackIndex !== -1 && hostTrackIndex !== currentTrackIndex) {
-        const prevIndex = currentTrackIndex;
+        console.log(`[StrongSync] Index mismatch: Host(${hostTrackIndex}) vs Me(${currentTrackIndex}). Correcting...`);
+
+        // STOP EVERYTHING FIRST
+        stopAllMedia();
+
         currentTrackIndex = hostTrackIndex;
         updatePlaylistUI();
 
@@ -4634,6 +4690,47 @@ const handlers = {
     'status-sync': handleStatusSync,
     'request-data-recovery': handleRequestDataRecoveryGuest
 };
+
+async function handlePlay(data) {
+    if (autoPlayTimer) {
+        clearTimeout(autoPlayTimer);
+        autoPlayTimer = null;
+    }
+
+    // [StrongSync] Index Check
+    if (data.index !== undefined && data.index !== currentTrackIndex) {
+        console.warn(`[StrongSync] Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
+
+        // 1. Stop whatever I'm doing
+        stopAllMedia();
+
+        // 2. Switch index and metadata
+        currentTrackIndex = data.index;
+        updatePlaylistUI();
+
+        // 3. Initiate recovery/loading if needed
+        const item = playlist[currentTrackIndex];
+        if (item && item.type !== 'youtube') {
+            const hasFile = (buffer && buffer.duration > 0) || (currentFileBlob && currentFileBlob.size > 0);
+            if (!hasFile || (meta && meta.name !== item.name)) {
+                console.log("[StrongSync] Need file for new index, requesting...");
+                window._pendingPlayTime = data.time; // Resume after download
+                if (hostConn && hostConn.open) {
+                    hostConn.send({
+                        type: 'request-data-recovery',
+                        nextChunk: 0,
+                        fileName: item.name,
+                        index: currentTrackIndex
+                    });
+                }
+                return; // Early exit, play will happen after load
+            }
+        }
+    }
+
+    const targetTime = (data.time || 0) + localOffset;
+    play(targetTime);
+}
 
 async function handleData(data) {
     const handler = handlers[data.type];
@@ -6127,17 +6224,9 @@ function loadYouTubeFromInput() {
 }
 
 function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex = 0) {
-    // Stop local playback completely
-    stop();
-
-    // Stop local video element if playing
-    const localVideo = document.getElementById('main-video');
-    if (localVideo) {
-        localVideo.pause();
-        localVideo.src = '';
-    }
-
-    isYouTubeMode = true;
+    // [StrongSync] Unified Stop & Mode Switch
+    stopAllMedia();
+    setEngineMode('youtube');
 
     // Show toast about audio effects
     showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");

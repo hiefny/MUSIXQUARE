@@ -2546,104 +2546,6 @@ function updateSyncBtnState(isGuest) {
 
 // --- Networking (Updated from network.html) ---
 
-/**
- * 연결 유형 감지 (로컬 네트워크 vs 원격/릴레이)
- * ICE candidate 타입을 분석하여 연결 방식을 판별
- */
-async function detectConnectionType() {
-    // Guest인 경우 hostConn의 peerConnection 사용
-    // Host인 경우 첫 번째 연결된 피어의 peerConnection 사용
-    let pc = null;
-
-    if (hostConn && hostConn.peerConnection) {
-        pc = hostConn.peerConnection;
-    } else if (connectedPeers.length > 0 && connectedPeers[0].conn?.peerConnection) {
-        pc = connectedPeers[0].conn.peerConnection;
-    }
-
-    if (!pc) {
-        console.log("[Network] 연결 유형 감지: 활성 연결 없음");
-        return;
-    }
-
-    try {
-        const stats = await pc.getStats();
-        let candidateType = 'unknown';
-        let localAddress = '';
-        let remoteAddress = '';
-
-        stats.forEach(report => {
-            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                // 성공한 ICE candidate pair 찾기
-                stats.forEach(r => {
-                    if (r.id === report.localCandidateId) {
-                        candidateType = r.candidateType || candidateType;
-                        localAddress = r.address || r.ip || '';
-                    }
-                    if (r.id === report.remoteCandidateId) {
-                        remoteAddress = r.address || r.ip || '';
-                    }
-                });
-            }
-        });
-
-        // 연결 유형 판별
-        let connectionStatus = '';
-        let isLocalNetwork = false;
-
-        switch (candidateType) {
-            case 'host':
-                // 직접 연결 (같은 네트워크)
-                connectionStatus = '로컬 네트워크 (직접 연결)';
-                isLocalNetwork = true;
-                break;
-            case 'srflx':
-                // STUN을 통한 NAT 우회
-                connectionStatus = '원격 네트워크 (NAT 우회)';
-                break;
-            case 'prflx':
-                // Peer Reflexive
-                connectionStatus = '원격 네트워크 (P2P)';
-                break;
-            case 'relay':
-                // TURN 서버 릴레이
-                connectionStatus = '원격 네트워크 (릴레이)';
-                break;
-            default:
-                connectionStatus = '네트워크 유형 불명';
-        }
-
-        // 토스트로 연결 유형 알림
-        showToast(connectionStatus);
-        console.log(`[Network] 연결 유형: ${candidateType} (${connectionStatus})`);
-        console.log(`[Network] Local: ${localAddress}, Remote: ${remoteAddress}`);
-
-        // UI 업데이트 (연결 상태 배지 색상)
-        const roleBadge = document.getElementById('role-badge');
-        if (roleBadge) {
-            roleBadge.title = connectionStatus;
-
-            if (isLocalNetwork) {
-                // 로컬 네트워크: 초록색
-                roleBadge.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
-                roleBadge.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.5)';
-            } else if (candidateType === 'relay') {
-                // 릴레이: 주황색 (TURN 서버 경유, 느릴 수 있음)
-                roleBadge.style.background = 'linear-gradient(135deg, #fb923c, #ea580c)';
-                roleBadge.style.boxShadow = '0 0 12px rgba(251, 146, 60, 0.5)';
-            } else {
-                // 원격 P2P (srflx/prflx): 기본 파란색 유지 또는 약간 다른 색
-                roleBadge.style.background = 'linear-gradient(135deg, #3b82f6, #2563eb)';
-                roleBadge.style.boxShadow = '0 0 12px rgba(59, 130, 246, 0.5)';
-            }
-        }
-
-        return { type: candidateType, status: connectionStatus, isLocal: isLocalNetwork };
-    } catch (e) {
-        console.error("[Network] 연결 유형 감지 실패:", e);
-    }
-}
-
 // [수정된 네트워크 초기화 코드]
 async function initNetwork() {
     try {
@@ -3404,10 +3306,26 @@ async function detectConnectionType() {
             usePingCompensation = true;
             console.log("[ICE] TURN Relay detected - Using RTT/2 compensation");
             showToast("원격 네트워크 감지 - 자동 보정 활성화");
+
+            // 배지 주황색으로 변경 (릴레이)
+            const roleBadge = document.getElementById('role-badge');
+            if (roleBadge) {
+                roleBadge.style.background = 'linear-gradient(135deg, #fb923c, #ea580c)';
+                roleBadge.style.boxShadow = '0 0 12px rgba(251, 146, 60, 0.5)';
+                roleBadge.title = '원격 네트워크 (릴레이)';
+            }
         } else if (connectionType === 'host' || connectionType === 'srflx') {
             usePingCompensation = false;
             console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
             showToast("로컬 네트워크 감지 - 직접 동기화");
+
+            // 배지 초록색으로 변경 (로컬/직접)
+            const roleBadge = document.getElementById('role-badge');
+            if (roleBadge) {
+                roleBadge.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+                roleBadge.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.5)';
+                roleBadge.title = connectionType === 'host' ? '로컬 네트워크 (직접 연결)' : '원격 네트워크 (NAT 우회)';
+            }
         } else {
             usePingCompensation = true; // Fallback: apply compensation
             console.log("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");

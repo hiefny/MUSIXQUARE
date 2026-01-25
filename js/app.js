@@ -2596,8 +2596,22 @@ slider.addEventListener('change', () => {
     }
 
     // Local mode
-    if (currentState !== APP_STATE.IDLE) play(t); else pausedAt = t;
-    broadcast({ type: 'play', time: t });
+    let isActuallyPlaying = false;
+    if (currentState === APP_STATE.PLAYING_AUDIO) {
+        isActuallyPlaying = (player && player.state === 'started');
+    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+        isActuallyPlaying = (videoElement && !videoElement.paused);
+    }
+
+    if (isActuallyPlaying) {
+        play(t);
+        broadcast({ type: 'play', time: t });
+    } else {
+        pausedAt = t;
+        if (currentState === APP_STATE.PLAYING_VIDEO) videoElement.currentTime = t;
+        // Broadcast pause with updated time to sync guests without starting playback
+        broadcast({ type: 'pause', time: t });
+    }
 
     // Schedule global resync after seek (Host only)
     setTimeout(() => {
@@ -2608,7 +2622,14 @@ slider.addEventListener('change', () => {
 
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
-    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", currentState !== APP_STATE.IDLE);
+    let isActuallyPlaying = false;
+    if (currentState === APP_STATE.PLAYING_AUDIO) {
+        isActuallyPlaying = (player && player.state === 'started');
+    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+        isActuallyPlaying = (videoElement && !videoElement.paused);
+    }
+
+    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
     if (!hostConn) {
         // Host: Reset local offset and trigger Guest-side Sync
         localOffset = 0;
@@ -3001,10 +3022,17 @@ function setupPeerEvents() {
 
                 // [Optimization] Playlist-Centric Sync: Respond with current status
                 if (!hostConn) { // Only genuine Host responds
+                    let isActuallyPlaying = false;
+                    if (currentState === APP_STATE.PLAYING_AUDIO) {
+                        isActuallyPlaying = (player && player.state === 'started');
+                    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+                        isActuallyPlaying = (videoElement && !videoElement.paused);
+                    }
+
                     conn.send({
                         type: 'status-sync',
                         currentTrackIndex: currentTrackIndex,
-                        isPlaying: currentState !== APP_STATE.IDLE,
+                        isPlaying: isActuallyPlaying,
                         playlistMeta: playlist.map(item => ({
                             type: item.type,
                             name: item.name || item.title,
@@ -3027,7 +3055,16 @@ function setupPeerEvents() {
 
             if (data.type === 'get-sync-time') {
                 const currentTime = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
-                conn.send({ type: 'sync-response', time: currentTime, isPlaying: currentState !== APP_STATE.IDLE });
+
+                // [FIX] 진짜 재생 중인지 확인 (일시정지 상태면 false)
+                let isActuallyPlaying = false;
+                if (currentState === APP_STATE.PLAYING_AUDIO) {
+                    isActuallyPlaying = (player && player.state === 'started');
+                } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+                    isActuallyPlaying = (videoElement && !videoElement.paused);
+                }
+
+                conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
             }
             // Removed Ping Handler
             // Operator Requests
@@ -4579,6 +4616,12 @@ async function handlePlay(data) {
 }
 
 async function handlePause(data) {
+    if (data.time !== undefined) {
+        pausedAt = data.time;
+        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.currentTime = data.time;
+        document.getElementById('seek-slider').value = data.time;
+        document.getElementById('time-curr').innerText = fmtTime(data.time);
+    }
     pause();
 }
 
@@ -5540,27 +5583,38 @@ function autoSync() {
 }
 
 function loopUI() {
+    // Keep loop alive as long as we are in a playback mode (even if paused)
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-        const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
-        let t = (Tone.now() - startedAt) + localOffset;
-
-        // [Fix] Clamp UI time to duration to prevent "3:07 / 3:00" visuals
-        if (duration > 0 && t > duration) t = duration;
-
-        if (!isSeeking) {
-            document.getElementById('seek-slider').value = t;
-            document.getElementById('time-curr').innerText = fmtTime(t);
+        let isActuallyPlaying = false;
+        if (currentState === APP_STATE.PLAYING_AUDIO) {
+            isActuallyPlaying = (player && player.state === 'started');
+        } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+            isActuallyPlaying = (videoElement && !videoElement.paused);
         }
 
-        // Video Sync is now handled by Worker (checkVideoSync)
+        if (isActuallyPlaying) {
+            const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
+            let t = (Tone.now() - startedAt) + localOffset;
 
-        // [FIX #9] Throttle handleEnded to check every 500ms instead of every frame
-        const now = Date.now();
-        if (!window._lastEndedCheck || now - window._lastEndedCheck > 500) {
-            window._lastEndedCheck = now;
-            handleEnded();
+            // [Fix] Clamp UI time to duration to prevent "3:07 / 3:00" visuals
+            if (duration > 0 && t > duration) t = duration;
+
+            if (!isSeeking) {
+                const slider = document.getElementById('seek-slider');
+                if (slider) slider.value = t;
+                const timeCurr = document.getElementById('time-curr');
+                if (timeCurr) timeCurr.innerText = fmtTime(t);
+            }
+
+            // Throttle handleEnded
+            const now = Date.now();
+            if (!window._lastEndedCheck || now - window._lastEndedCheck > 500) {
+                window._lastEndedCheck = now;
+                handleEnded();
+            }
         }
 
+        // Always continue loop if in playback state
         requestAnimationFrame(loopUI);
     }
 }

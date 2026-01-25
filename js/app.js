@@ -127,6 +127,7 @@ let localOffset = 0;
 let connectedPeers = [];
 let isOperator = false;
 let deviceCounter = 0; // Host-side counter for unique device names
+let isIntentionalDisconnect = false;
 
 // Beta Relay State
 let upstreamDataConn = null; // Connection to receive file chunks from (Host or Relay info)
@@ -3104,6 +3105,9 @@ function joinSession(retryAttempt = 0) {
     const hostId = document.getElementById('join-id-input').value.trim();
     if (!hostId) return showToast("ID 입력 필요");
 
+    // New attempt: Reset intentional flag
+    isIntentionalDisconnect = false;
+
     // Show connection status
     if (retryAttempt === 0) {
         showToast("Host에 연결 중...");
@@ -3209,17 +3213,25 @@ function joinSession(retryAttempt = 0) {
             connectionTimeoutId = null;
         }
 
-        showToast("Host 끊김");
-        document.getElementById('role-text').innerText = "OFFLINE";
-        document.getElementById('role-badge').classList.remove('connected');
-        updateSyncBtnState(false);
-
         // Stop Worker Timers
         timerWorker.postMessage({ command: 'STOP_TIMER', id: 'heartbeat' });
         timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
 
-        // Show Disconnect Overlay
-        showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
+        if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
+            // Unexpected close: attempt retry
+            console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+            showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+            setTimeout(() => joinSession(retryAttempt + 1), 1500);
+        } else {
+            // Intentional or too many retries
+            showToast("Host 끊김");
+            document.getElementById('role-text').innerText = "OFFLINE";
+            document.getElementById('role-badge').classList.remove('connected');
+            updateSyncBtnState(false);
+
+            // Show Disconnect Overlay
+            showConnectionFailedOverlay(isIntentionalDisconnect ? "세션을 나갔습니다" : "Host와 연결이 끊어졌습니다");
+        }
     });
 }
 
@@ -3256,6 +3268,7 @@ function showConnectionFailedOverlay(message) {
 
 function leaveSession() {
     if (confirm("모임에서 나가시겠습니까?")) {
+        isIntentionalDisconnect = true;
         if (hostConn) hostConn.close();
         // Reload without query parameters to become fresh Host
         window.location.href = window.location.pathname;

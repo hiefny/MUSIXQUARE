@@ -2700,6 +2700,44 @@ async function initNetwork() {
     }
 }
 
+/**
+ * QR 코드 업데이트 함수
+ * @param {string} id - 세션 ID
+ */
+function updateQrCode(id) {
+    const qrContainer = document.getElementById("qrcode");
+    if (!qrContainer) {
+        console.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
+        return;
+    }
+
+    qrContainer.innerHTML = "";
+
+    // QRCode.js 라이브러리 확인
+    if (typeof QRCode === 'undefined') {
+        console.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
+        return;
+    }
+
+    try {
+        new QRCode(qrContainer, {
+            text: `${window.location.origin}${window.location.pathname}?host=${id}`,
+            width: 160,
+            height: 160,
+            colorDark: "#000000",
+            colorLight: "#ffffff"
+        });
+    } catch (e) {
+        console.error("[QR] QR 코드 생성 실패:", e);
+    }
+
+    // ID 표시 업데이트
+    const myIdEl = document.getElementById('my-id');
+    if (myIdEl) {
+        myIdEl.innerText = hostConn ? "Host ID: " + id : id;
+    }
+}
+
 function setupPeerEvents() {
 
     peer.on('error', (err) => {
@@ -2794,23 +2832,6 @@ function setupPeerEvents() {
             }, 1000);
         }
     });
-
-    function updateQrCode(id) {
-        document.getElementById("qrcode").innerHTML = "";
-
-        // QR Code Color - Adaptive? qrcode.js only supports static colors.
-        // We will stick to B/W for max contrast.
-        new QRCode(document.getElementById("qrcode"), {
-            text: `${window.location.origin}${window.location.pathname}?host=${id}`,
-            width: 160, height: 160, colorDark: "#000000", colorLight: "#ffffff"
-        });
-
-        if (hostConn) {
-            document.getElementById('my-id').innerText = "Host ID: " + id;
-        } else {
-            document.getElementById('my-id').innerText = id;
-        }
-    }
 
     function broadcastDeviceList() {
         const list = [

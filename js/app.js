@@ -2595,7 +2595,7 @@ async function initNetwork() {
                 bundlePolicy: 'max-bundle',
                 sdpSemantics: 'unified-plan',
                 iceTransportPolicy: 'all',
-                iceCandidatePoolSize: 10
+                iceCandidatePoolSize: 0 // [SAFARI FIX] Reduced from 10 to 0 for better iOS compatibility
             }
         };
 
@@ -3102,11 +3102,29 @@ const CONNECTION_TIMEOUT_MS = 10000;
 let connectionTimeoutId = null;
 
 function joinSession(retryAttempt = 0) {
+    // [SAFARI FIX] Race Condition: Wait for Peer initialization if it's still null (due to TURN fetch)
+    if (!peer) {
+        console.warn("[Network] Peer not initialized yet. Waiting...");
+        if (retryAttempt === 0) showToast("네트워크 초기화 중입니다. 잠시만 기다려주세요...");
+
+        // Retry sooner than regular timeout (500ms instead of 10s)
+        setTimeout(() => joinSession(retryAttempt), 500);
+        return;
+    }
+
     const hostId = document.getElementById('join-id-input').value.trim();
     if (!hostId) return showToast("ID 입력 필요");
 
     // New attempt: Reset intentional flag
     isIntentionalDisconnect = false;
+
+    // UI Reset: Rebranding to "Connecting" state (Gray)
+    const roleBadge = document.getElementById('role-badge');
+    if (roleBadge) {
+        roleBadge.classList.remove('connected');
+        roleBadge.style.background = ''; // Clear inline colors (orange/blue)
+        roleBadge.style.boxShadow = '';
+    }
 
     // Show connection status
     if (retryAttempt === 0) {
@@ -3226,7 +3244,12 @@ function joinSession(retryAttempt = 0) {
             // Intentional or too many retries
             showToast("Host 끊김");
             document.getElementById('role-text').innerText = "OFFLINE";
-            document.getElementById('role-badge').classList.remove('connected');
+            const roleBadge = document.getElementById('role-badge');
+            if (roleBadge) {
+                roleBadge.classList.remove('connected');
+                roleBadge.style.background = '';
+                roleBadge.style.boxShadow = '';
+            }
             updateSyncBtnState(false);
 
             // Show Disconnect Overlay

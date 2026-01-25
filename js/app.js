@@ -3310,13 +3310,13 @@ async function detectConnectionType() {
             // 배지 주황색으로 변경 (릴레이)
             const roleBadge = document.getElementById('role-badge');
             if (roleBadge) {
-                roleBadge.style.background = 'linear-gradient(135deg, #fb923c, #ea580c)';
-                roleBadge.style.boxShadow = '0 0 12px rgba(251, 146, 60, 0.5)';
+                roleBadge.style.background = '#fb923c';
                 roleBadge.title = '원격 네트워크 (릴레이)';
             }
         } else if (connectionType === 'host' || connectionType === 'srflx') {
             usePingCompensation = false;
             console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
+            showToast("로컬 네트워크 감지 - 직접 동기화");
             // 기본 파란색 유지 (CSS에서 설정됨)
         } else {
             usePingCompensation = true; // Fallback: apply compensation

@@ -3178,7 +3178,7 @@ function joinSession(retryAttempt = 0) {
         showToast("Host에 연결 중...");
         document.getElementById('role-text').innerText = "연결 중...";
     } else {
-        showToast(`재연결 시도 중... (${retryAttempt} / ${MAX_CONNECTION_RETRIES})`);
+        // 연결 시간 초과 토스트가 이미 표시되므로 여기서는 UI만 업데이트
         document.getElementById('role-text').innerText = `재연결 ${retryAttempt}/${MAX_CONNECTION_RETRIES}`;
     }
 

@@ -133,6 +133,7 @@ let connectedPeers = [];
 let isOperator = false;
 let deviceCounter = 0; // Host-side counter for unique device names
 let isIntentionalDisconnect = false;
+let isConnecting = false;
 
 // Beta Relay State
 let upstreamDataConn = null; // Connection to receive file chunks from (Host or Relay info)
@@ -2883,22 +2884,32 @@ function setupPeerEvents() {
             return;
         }
 
-        deviceCounter++;
-        const deviceName = `DEVICE ${deviceCounter} `;
-        const peerObj = {
-            id: conn.peer,
-            label: deviceName,
-            status: 'connected',
-            conn: conn,
-            isOp: false,
-            isDataTarget: true, // Default: Receive data from Host
-            lastHeartbeat: Date.now() // Heartbeat Init
-        };
-        connectedPeers.push(peerObj);
-
-        broadcastDeviceList();
+        // [GHOSTING FIX] Duplicate check: If this peer ID is already connected, close the old one
+        const existingIdx = connectedPeers.findIndex(p => p.id === conn.peer);
+        if (existingIdx !== -1) {
+            console.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
+            const oldPeer = connectedPeers[existingIdx];
+            if (oldPeer.conn) {
+                try { oldPeer.conn.close(); } catch (e) { }
+            }
+            connectedPeers.splice(existingIdx, 1);
+        }
 
         conn.on('open', () => {
+            deviceCounter++;
+            const deviceName = `DEVICE ${deviceCounter} `;
+            const peerObj = {
+                id: conn.peer,
+                label: deviceName,
+                status: 'connected',
+                conn: conn,
+                isOp: false,
+                isDataTarget: true, // Default: Receive data from Host
+                lastHeartbeat: Date.now() // Heartbeat Init
+            };
+            connectedPeers.push(peerObj);
+            broadcastDeviceList();
+
             showToast(`${deviceName} 연결됨`);
 
             // --- Relay Assignment Logic ---
@@ -3217,7 +3228,7 @@ function setupPeerEvents() {
                     console.log(`[Host] Pruned stale peer ${peerObj.id} after inactivity`);
                     broadcastDeviceList();
                 }
-            }, 300000); // 5 minutes
+            }, 30000); // 30 seconds (Reduced from 5 minutes to prevent ghosting)
         });
         conn.on('error', () => {
             peerObj.status = 'disconnected';
@@ -3235,19 +3246,31 @@ const CONNECTION_TIMEOUT_MS = 7000; // [SAFARI FIX] Reduced from 10s to 7s for f
 let connectionTimeoutId = null;
 
 function joinSession(retryAttempt = 0) {
-    // [SAFARI FIX] Race Condition: Wait for Peer initialization AND for it to be 'open'
-    // Calling connect() while peer is not yet open often leads to hanging or timeouts in Safari.
+    // 1. Peer 객체가 준비되지 않았을 때 (초기화 중)
     if (!peer || !peer.open) {
-        console.warn("[Network] Peer not ready yet (open: " + (peer ? peer.open : "null") + "). Waiting...");
-        if (retryAttempt === 0) {
-            document.getElementById('role-text').innerText = "네트워크 대기 중...";
-            // showToast("네트워크를 초기화 중입니다..."); // Optional: might be too spammy if toggled fast
+        // [FIX] 로그에 시도 횟수 표시
+        console.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
+
+        // [FIX] 20번(약 10초)까지만 기다려보고, 안 되면 포기 선언
+        if (retryAttempt > 20) {
+            showConnectionFailedOverlay(
+                "네트워크 초기화에 실패했습니다.\n\n" +
+                "1. 잠시 후 '새로고침' 해보세요. (서버 부팅 중일 수 있음)\n" +
+                "2. VPN이나 사내 보안망을 끄고 시도해보세요."
+            );
+            return;
         }
 
-        // Check again in 500ms
-        setTimeout(() => joinSession(retryAttempt), 500);
+        // [FIX] 0.5초 뒤에 다시 확인하되, 카운트를 1 증가시킴
+        setTimeout(() => joinSession(retryAttempt + 1), 500);
         return;
     }
+
+    if (isConnecting && retryAttempt === 0) {
+        console.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
+        return;
+    }
+    isConnecting = true;
 
     const hostId = document.getElementById('join-id-input').value.trim();
     if (!hostId) return showToast("ID 입력 필요");
@@ -3291,9 +3314,13 @@ function joinSession(retryAttempt = 0) {
             hostConn.close();
 
             if (retryAttempt < MAX_CONNECTION_RETRIES) {
+                isConnecting = false;
                 showToast(`연결 시간 초과. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-                setTimeout(() => joinSession(retryAttempt + 1), 1000);
+                // [GHOSTING FIX] Exponential Backoff
+                const backoffDelay = 1000 * Math.pow(1.5, retryAttempt);
+                setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
             } else {
+                isConnecting = false;
                 showConnectionFailedOverlay("연결 시간이 초과되었습니다. Host가 온라인인지 확인하세요.");
             }
         }
@@ -3305,6 +3332,7 @@ function joinSession(retryAttempt = 0) {
             clearTimeout(connectionTimeoutId);
             connectionTimeoutId = null;
         }
+        isConnecting = false;
         connectionRetryCount = 0; // Reset retry counter
 
         // Remove connection failed overlay if present (from retry)
@@ -3343,20 +3371,13 @@ function joinSession(retryAttempt = 0) {
             connectionTimeoutId = null;
         }
 
-        // Retry logic
+        // Retry logic with backoff
         if (retryAttempt < MAX_CONNECTION_RETRIES) {
             showToast(`연결 오류. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            setTimeout(() => joinSession(retryAttempt + 1), 1500);
+            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
+            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
         } else {
-            let errorMsg = "연결에 실패했습니다.";
-            if (err.type === 'peer-unavailable') {
-                errorMsg = "Host를 찾을 수 없습니다. ID를 확인하세요.";
-            } else if (err.type === 'network') {
-                errorMsg = "네트워크 오류. 인터넷 연결을 확인하세요.";
-            } else if (err.type === 'server-error') {
-                errorMsg = "서버 오류. 잠시 후 다시 시도하세요.";
-            }
-            showConnectionFailedOverlay(errorMsg);
+            showConnectionFailedOverlay("연결 오류 발생: " + err.type);
         }
     });
 
@@ -3373,12 +3394,17 @@ function joinSession(retryAttempt = 0) {
         timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
 
         if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
-            // Unexpected close: attempt retry
+            isConnecting = false;
             console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
             showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            setTimeout(() => joinSession(retryAttempt + 1), 1500);
+
+            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
+            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
         } else {
-            // Intentional or too many retries
+            isConnecting = false;
+            if (!isIntentionalDisconnect) {
+                showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
+            }
             showToast("Host 끊김");
             document.getElementById('role-text').innerText = "OFFLINE";
             const roleBadge = document.getElementById('role-badge');
@@ -3388,9 +3414,6 @@ function joinSession(retryAttempt = 0) {
                 roleBadge.style.boxShadow = '';
             }
             updateSyncBtnState(false);
-
-            // Show Disconnect Overlay
-            showConnectionFailedOverlay(isIntentionalDisconnect ? "세션을 나갔습니다" : "Host와 연결이 끊어졌습니다");
         }
     });
 }

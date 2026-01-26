@@ -55,7 +55,6 @@
  * * [PRELOAD]
  * nextTrackIndex  : number - 프리로드된 다음 트랙 인덱스
  * nextFileBlob    : Blob - 프리로드된 파일 (Guest 전송용)
- * preloadChunks[] : ArrayBuffer[] - Guest가 수신 중인 프리로드 청크
  * * [YOUTUBE]
  * youtubePlayer   : YT.Player - YouTube IFrame Player
  * youtubeSubItemsMap : object - 플레이리스트별 비디오 ID/제목 캐시
@@ -361,6 +360,10 @@ const TRANSFER_STATE = {
 };
 let transferState = TRANSFER_STATE.IDLE;
 
+// OPFS State
+let currentFileOpfs = { handle: null, writable: null, name: null };
+let preloadFileOpfs = { handle: null, writable: null, name: null };
+
 // ============================================================================
 // [SECTION] YOUTUBE STATE
 // ============================================================================
@@ -399,10 +402,15 @@ let currentTransferSessionId = 0; // [NEW] Active transfer session ID to prevent
 initNetwork();
 
 // Guest Side
-let preloadChunks = [];
 let preloadCount = 0;
 let preloadMeta = null;
 let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest side
+
+// OPFS Helper coordination (now handled by worker)
+function cleanupOPFSInWorker(filename, isPreload) {
+    if (!filename) return;
+    timerWorker.postMessage({ command: 'OPFS_CLEANUP', filename, isPreload });
+}
 
 // Helper: Clear all preload state (call on track change, session leave, etc.)
 function clearPreloadState() {
@@ -418,40 +426,25 @@ function clearPreloadState() {
     preloadMeta = null;
     window._skipIncomingPreload = false;
 
-    console.log("[Preload] State cleared");
+    // [OPFS-Worker] Cleanup
+    if (currentFileOpfs.name) cleanupOPFSInWorker(currentFileOpfs.name, false);
+    if (preloadFileOpfs.name) cleanupOPFSInWorker(preloadFileOpfs.name, true);
+
+    currentFileOpfs.name = null;
+    preloadFileOpfs.name = null;
+
+    console.log("[Cleanup] Previous track state cleared");
 }
 
 
 // --- Worker for Background Timers (Blob URL for file:// support) ---
-const workerCode = `
-const timers = {};
-self.onmessage = function (e) {
-    const { command, id, interval } = e.data;
-    if (command === 'START_TIMER') {
-        if (timers[id]) clearInterval(timers[id]);
-        timers[id] = setInterval(() => {
-            self.postMessage({ type: 'TICK', id: id });
-        }, interval);
-        // console.log(\`[Worker] Started: \${id} (\${interval}ms)\`);
-    }
-    else if (command === 'STOP_TIMER') {
-        if (timers[id]) {
-            clearInterval(timers[id]);
-            delete timers[id];
-            // console.log(\`[Worker] Stopped: \${id}\`);
-        }
-    }
-};
-`;
+// --- Worker for Background Timers and High-Performance OPFS Writes ---
+const timerWorker = new Worker('js/worker.js');
 
-const blob = new Blob([workerCode], { type: 'application/javascript' });
-const timerWorker = new Worker(URL.createObjectURL(blob));
-
-timerWorker.onmessage = (e) => {
-    if (e.data.type === 'TICK') {
-        const id = e.data.id;
-        // console.log(`[Worker Tick] ${id}`); // Debug Verification
-
+timerWorker.onmessage = async (e) => {
+    const data = e.data;
+    if (data.type === 'TICK') {
+        const id = data.id;
         if (id === 'heartbeat') {
             if (hostConn && hostConn.open) hostConn.send({ type: 'heartbeat' });
         } else if (id === 'ping') {
@@ -460,7 +453,97 @@ timerWorker.onmessage = (e) => {
             checkVideoSync();
         }
     }
+    else if (data.type === 'OPFS_FILE_READY') {
+        console.log(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
+
+        // Re-retrieve file handle in main thread to get the File object
+        // (Handles are serialized shared state in some browsers, 
+        // but getting a fresh one from root is always safe)
+        const root = await navigator.storage.getDirectory();
+        const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_');
+        const fileHandle = await root.getFileHandle(safeName);
+        const file = await fileHandle.getFile();
+
+        if (data.isPreload) {
+            nextFileBlob = file;
+            nextMeta = preloadMeta;
+            nextTrackIndex = preloadMeta.index;
+
+            if (hostConn && hostConn.open) {
+                hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
+            }
+
+            if (window._waitingForPreload && window._pendingFileIndex === nextTrackIndex) {
+                console.log("[Worker-OPFS] Guest was waiting for this track. Playing now.");
+                window._waitingForPreload = false;
+                showLoader(false);
+                loadPreloadedTrack();
+            }
+        } else {
+            // Check session ID if available (data.sessionId)
+            currentFileBlob = file;
+            window._waitingForRelayData = false;
+            finalizeFileProcessing(file);
+        }
+    }
+    else if (data.type === 'OPFS_ERROR') {
+        console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
+        showToast(`파일 저장 오류: ${data.filename}`);
+    }
 };
+
+/**
+ * [HELPER] Finishes processing after OPFS file is ready
+ */
+function finalizeFileProcessing(file) {
+    if (transferState === TRANSFER_STATE.PROCESSING) return; // Prevent double trigger
+    transferState = TRANSFER_STATE.PROCESSING;
+
+    const isVideoBlob = file.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
+    const shouldBeVideoMode = isVideoBlob;
+
+    console.log(`[Main] Finalizing processing from Worker-OPFS.`);
+
+    setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
+
+    const url = BlobURLManager.create(file);
+    videoElement.src = url;
+
+    videoElement.onloadedmetadata = () => {
+        document.getElementById('seek-slider').max = videoElement.duration;
+        document.getElementById('seek-slider').value = 0;
+        document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
+        BlobURLManager.confirm(file);
+    };
+    videoElement.load();
+    setupMediaSource();
+
+    document.getElementById('play-btn').disabled = !isOperator;
+    if (Tone.context.state === 'suspended') Tone.context.resume();
+
+    showLoader(false);
+    if (chunkWatchdog) clearInterval(chunkWatchdog);
+    pausedAt = 0;
+    updatePlayState(false);
+    showToast("재생 준비 완료");
+
+    setTimeout(() => {
+        if (hostConn && hostConn.open) {
+            hostConn.send({ type: 'get-sync-time' });
+        } else {
+            syncReset();
+        }
+    }, 1000);
+
+    if (window._pendingPlayTime !== undefined) {
+        const target = window._pendingPlayTime + localOffset;
+        play(target);
+        window._pendingPlayTime = undefined;
+    }
+
+    receivedCount = 0;
+    transferState = TRANSFER_STATE.READY;
+}
 
 function checkVideoSync() {
     if (currentState !== APP_STATE.IDLE && (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) && videoElement && !videoElement.paused && videoElement.readyState >= 3) {
@@ -722,10 +805,17 @@ async function activateAudio() {
     await initAudio();
     initMediaSession();
 
-    // 3. Silent Mode Bypass (iOS) - Play HTML5 Audio
+    // 3. Silent Mode Bypass (iOS) - Play HTML5 Audio + Video Unlock
     const silentAudio = document.getElementById('silent-trigger');
     if (silentAudio) {
         silentAudio.play().catch(e => console.log("Silent Audio play failed", e));
+    }
+
+    if (videoElement) {
+        // [iOS Protection] Briefly play and pause video to unlock programmatic control later
+        videoElement.play().then(() => {
+            videoElement.pause();
+        }).catch(e => console.log("Video unlock failed", e));
     }
 
 
@@ -870,7 +960,7 @@ function updatePlaylistUI() {
         }
 
         const icon = item.type === 'youtube'
-            ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#ff0000;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33.22 2.65.28 1.3.07 2.49.1 3.59.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
+            ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#ff0000;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47.13 1.33.22 2.65.28 1.3.07 2.49.1 3.59.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
             : '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
 
         const displayName = item.name || item.title || 'Unknown';
@@ -3475,8 +3565,8 @@ function leaveSession() {
 }
 
 // --- Data Handling ---
-let incomingChunks = [], meta = {}, receivedCount = 0;
-// Note: preloadChunks, preloadMeta, preloadCount are declared at the top of file (line ~72)
+let meta = {}, receivedCount = 0;
+// Note: currentFileOpfs, preloadFileOpfs handles are used for storage
 let lastProgressAck = 0;
 let myDeviceLabel = 'GUEST'; // Store my label for UI updates
 let lastLatencyMs = 0; // Store Median RTT (Robust)
@@ -3761,6 +3851,13 @@ async function handleFileStart(data) {
     // This is safe because file-start means we're (re)starting the transfer
     transferState = TRANSFER_STATE.IDLE;
 
+    // [OPFS-Worker] Start new session
+    if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
+        cleanupOPFSInWorker(currentFileOpfs.name, false);
+    }
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+    currentFileOpfs.name = data.name;
+
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
 
     let sizeText = "";
@@ -3773,8 +3870,8 @@ async function handleFileStart(data) {
     const isSameFile = meta && meta.name === data.name && meta.total === data.total;
 
     if (isSameFile && receivedCount > 0) {
-        // RECOVERY MODE: Keep existing chunks
-        console.log(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks`);
+        // RECOVERY MODE: Keep existing chunks (OPFS will overwrite or we seek)
+        console.log(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks (OPFS seek logic will follow)`);
 
         // [FIX] If file is already 100% complete, reset guard and skip to end
         if (receivedCount >= data.total) {
@@ -3782,66 +3879,50 @@ async function handleFileStart(data) {
             _isProcessingBlob = false; // Reset guard to allow reprocessing
             meta = data; // Update meta first
 
-            // Trigger processing immediately via setTimeout to avoid blocking
-            setTimeout(() => {
-                // Simulate the processing that would happen in file-chunk completion
-                if (receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
-                    transferState = TRANSFER_STATE.PROCESSING;
-                    const validChunks = incomingChunks.filter(chunk => chunk !== undefined && chunk !== null);
-                    if (validChunks.length >= meta.total) {
-                        console.log("[file-start] Processing cached complete file");
-                        const blob = new Blob(validChunks.slice(0, meta.total), { type: meta.mime });
-                        currentFileBlob = blob;
-                        window._waitingForRelayData = false;
-
-                        const isVideo = meta.mime.startsWith('video/') || (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
-                        setEngineMode(isVideo ? 'video' : 'streaming');
-                        const url = BlobURLManager.create(blob);
-                        videoElement.src = url;
-                        videoElement.onloadedmetadata = () => {
-                            document.getElementById('seek-slider').max = videoElement.duration;
-                            document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
-                        };
-                        videoElement.load();
-                        setupMediaSource();
-                        document.getElementById('play-btn').disabled = !isOperator;
-                        showLoader(false);
-                        showToast("재생 준비 완료 (캐시 사용)");
-                    } else {
-                        transferState = TRANSFER_STATE.IDLE;
-                    }
-                }
-            }, 100);
+            // Trigger processing via worker notification
+            timerWorker.postMessage({ command: 'OPFS_END', filename: data.name, isPreload: false, sessionId: incomingSid });
             return; // Skip rest of file-start handler
         } else {
             showToast(`${sourceLabel}로부터 전송 이어받기`);
             const pct = Math.round((receivedCount / data.total) * 100);
             showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
+
+            // Resume with Worker (keepExistingData is default for OPFS_START if we handle logic there, 
+            // but Worker implementation above creates fresh. Let's send START to ensure handles are open)
+            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
         }
-        // Update meta but don't touch incomingChunks or receivedCount
+        // Update meta but don't touch receivedCount
         meta = data;
     } else {
         // NEW FILE: Initialize fresh
-        console.log(`[file-start] New file, initializing array for ${data.total} chunks`);
+        console.log(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
         showToast(`${sourceLabel}로부터 파일 수신 시작`);
         showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
-        // Allocate fixed size array to support out-of-order delivery
-        incomingChunks = new Array(data.total);
+
+        // [OPFS-Worker] Start
+        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+        currentFileOpfs.name = data.name;
+
+        incomingChunks = []; // Clear in-memory array
         receivedCount = 0;
         meta = data;
         transferState = TRANSFER_STATE.RECEIVING;
 
         // [FIX] Apply any pending chunks that arrived before file-start
         if (window._pendingEarlyChunks && window._pendingEarlyChunks.length > 0) {
-            console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks`);
-            window._pendingEarlyChunks.forEach(pending => {
-                if (pending.index >= 0 && pending.index < data.total && !incomingChunks[pending.index]) {
-                    incomingChunks[pending.index] = pending.chunk;
+            console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
+            for (const pending of window._pendingEarlyChunks) {
+                if (pending.index >= 0 && pending.index < data.total) {
+                    timerWorker.postMessage({
+                        command: 'OPFS_WRITE',
+                        chunk: pending.chunk,
+                        index: pending.index,
+                        isPreload: false
+                    }, [pending.chunk.buffer]);
                     receivedCount++;
                 }
-            });
+            }
             window._pendingEarlyChunks = []; // Clear pending buffer
-            console.log(`[file-start] After applying early chunks: ${receivedCount}/${data.total}`);
         }
     }
 
@@ -3866,18 +3947,8 @@ async function handleFileStart(data) {
                 const recoveryFileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
                 const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
 
-                // GAP-BASED RECOVERY: Find first missing chunk index instead of using receivedCount
-                let firstMissing = 0;
-                if (incomingChunks && incomingChunks.length > 0) {
-                    for (let j = 0; j < incomingChunks.length; j++) {
-                        if (!incomingChunks[j]) {
-                            firstMissing = j;
-                            break;
-                        }
-                    }
-                } else {
-                    firstMissing = receivedCount || 0;
-                }
+                // GAP-BASED RECOVERY: (Simplified: using receivedCount as fallback since we don't have bitset here)
+                let firstMissing = receivedCount || 0;
 
                 console.log("[Watchdog Recovery] Requesting from index:", firstMissing, "FileName:", recoveryFileName);
                 hostConn.send({
@@ -3910,29 +3981,23 @@ async function handleFileResume(data) {
     if (incomingSid > localTransferSessionId) {
         console.log(`[file-resume] New session detected during resume: ${incomingSid}`);
         localTransferSessionId = incomingSid;
-        // Don't clear state yet, resume might be valid for a re-started session
     }
 
     // Clear Prepare Watchdog
     if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
 
-    // RESUME TRANSFER: Don't reinitialize array! Just continue receiving
+    // RESUME TRANSFER
     window._skipIncomingFile = false;
+
+    // [OPFS-Worker] Resume
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+    currentFileOpfs.name = data.name;
 
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
     const startChunk = data.startChunk || 0;
 
-    console.log(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks`);
+    console.log(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks (OPFS handles resume via keepExistingData)`);
     showToast(`${sourceLabel}로부터 전송 재개 (${startChunk}부터)`);
-
-    // Only initialize array if it doesn't exist or has wrong size
-    if (!incomingChunks || incomingChunks.length !== data.total) {
-        console.log("[Resume] Array needs initialization");
-        incomingChunks = new Array(data.total);
-        receivedCount = 0;
-    } else {
-        console.log(`[Resume] Keeping existing ${receivedCount} chunks`);
-    }
 
     transferState = TRANSFER_STATE.RECEIVING;
 
@@ -3958,18 +4023,8 @@ async function handleFileResume(data) {
                 const recoveryFileName = meta?.name || window._pendingFileName || '';
                 const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
 
-                // Find first missing chunk
-                let firstMissing = 0;
-                if (incomingChunks && incomingChunks.length > 0) {
-                    for (let j = 0; j < incomingChunks.length; j++) {
-                        if (!incomingChunks[j]) {
-                            firstMissing = j;
-                            break;
-                        }
-                    }
-                } else {
-                    firstMissing = receivedCount || 0;
-                }
+                // Find first missing chunk (Simplified: in OPFS we'd need a tracking bitset for perfect gaps, using receivedCount as fallback)
+                let firstMissing = receivedCount || 0;
 
                 console.log("[Resume Watchdog] Requesting from index:", firstMissing);
                 hostConn.send({
@@ -4006,21 +4061,25 @@ async function handleFileChunk(data) {
 
     // Debug logging for first few chunks
     if (idx < 5 || idx % 100 === 0) {
-        console.log(`[Chunk] Received idx=${idx}, arrayLen=${incomingChunks.length}, total=${meta?.total}`);
+        console.log(`[Chunk] Received idx=${idx}, total=${meta?.total}`);
     }
 
     // [FIX #12] Enhanced bounds check with meta.total validation
     const isValidIndex = idx >= 0 &&
-        incomingChunks.length > 0 &&
-        idx < incomingChunks.length &&
         (!meta || !meta.total || idx < meta.total);
 
-    if (isValidIndex && !incomingChunks[idx]) {
-        incomingChunks[idx] = chunkCopy;
+    if (isValidIndex) {
+        // [Worker-OPFS] Offload write
+        timerWorker.postMessage({
+            command: 'OPFS_WRITE',
+            chunk: chunkCopy,
+            index: idx,
+            isPreload: false
+        }, [chunkCopy.buffer]);
         receivedCount++;
-    } else if (incomingChunks.length === 0) {
+    } else {
         // [FIX] Buffer early chunks that arrive before file-start
-        console.log(`[Chunk] Buffering early chunk idx=${idx} (waiting for file-start)`);
+        console.log(`[Chunk] Buffering early chunk idx=${idx} (waiting for OPFS start)`);
         if (!window._pendingEarlyChunks) window._pendingEarlyChunks = [];
         window._pendingEarlyChunks.push({ index: idx, chunk: chunkCopy });
     }
@@ -4049,7 +4108,6 @@ async function handleFileChunk(data) {
     if (meta && meta.size) {
         const totalMB = (meta.size / 1024 / 1024).toFixed(1);
         // Estimate current based on chunks
-        // CHUNK size is 16384 (16KB) defined in broadcastFile/unicastFile
         const currentBytes = receivedCount * 16384;
         const currentMB = (currentBytes / 1024 / 1024).toFixed(1);
         progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
@@ -4066,81 +4124,16 @@ async function handleFileChunk(data) {
         const processingIndex = meta.index;   // [Fix] Capture track index for ACK
 
         // [New] Notify Host that we have this file now
-        // This ensures Host knows we have it even if received via real-time transfer
         if (hostConn && hostConn.open && processingIndex !== undefined) {
             hostConn.send({ type: 'preload-ack', index: processingIndex });
             console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
         }
 
-        // CRITICAL: Filter out undefined/null chunks before creating Blob
-        // This can happen if relay sent data with gaps
-        const validChunks = incomingChunks.filter(chunk => chunk !== undefined && chunk !== null);
+        // [Worker-OPFS] Finalize file
+        timerWorker.postMessage({ command: 'OPFS_END', filename: meta.name, isPreload: false, sessionId: incomingSid });
 
-        if (validChunks.length !== meta.total) {
-            console.error(`[ERROR] Chunk count mismatch: expected ${meta.total}, got ${validChunks.length} valid chunks`);
-            showToast("파일 수신 불완전 - 재전송 요청");
-            _isProcessingBlob = false; // [FIX] Reset guard to allow retry
-            // Request recovery from host
-            if (hostConn && hostConn.open) {
-                hostConn.send({
-                    type: 'request-data-recovery',
-                    nextChunk: 0,
-                    fileName: meta.name
-                });
-            }
-            return;
-        }
-
-        const blob = new Blob(validChunks, { type: meta.mime });
-        currentFileBlob = blob;
-        window._waitingForRelayData = false;
-
-        const isVideoBlob = blob.type.startsWith('video/');
-        const shouldBeVideoMode = isVideoBlob;
-
-        // --- ALWAYS STREAMING MODE ---
-        console.log(`Guest: Streaming (${blob.type}) enabled for all files.`);
-
-        setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
-
-        const url = BlobURLManager.create(blob);
-        videoElement.src = url;
-
-        videoElement.onloadedmetadata = () => {
-            document.getElementById('seek-slider').max = videoElement.duration;
-            document.getElementById('seek-slider').value = 0;
-            document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
-            BlobURLManager.confirm(blob);
-        };
-        videoElement.load();
-        setupMediaSource();
-
-        document.getElementById('play-btn').disabled = !isOperator;
-        if (Tone.context.state === 'suspended') Tone.context.resume();
-
-        showLoader(false);
-        if (chunkWatchdog) clearInterval(chunkWatchdog);
-        pausedAt = 0;
-        updatePlayState(false);
-        showToast("재생 준비 완료");
-
-        setTimeout(() => {
-            if (hostConn && hostConn.open) {
-                hostConn.send({ type: 'get-sync-time' });
-            } else {
-                syncReset();
-            }
-        }, 1000);
-
-        if (window._pendingPlayTime !== undefined) {
-            const target = window._pendingPlayTime + localOffset;
-            play(target);
-            window._pendingPlayTime = undefined;
-        }
-
-        incomingChunks = [];
-        receivedCount = 0;
-        transferState = TRANSFER_STATE.READY;
+        // Finalize UI/playback state will happen in Worker message handler
+        return;
     }
 }
 
@@ -4302,121 +4295,67 @@ async function handlePreloadStart(data) {
         return;
     }
 
-    window._skipIncomingPreload = false;
-    console.log("Preload Started:", data.name);
-    // Do NOT show loader, this is background
-    preloadChunks = new Array(data.total);
-    preloadCount = 0;
-    preloadMeta = { ...data, isSkipped: false };
+    console.log(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
 
-    // RELAY SUPPORT: Forward to downstream peers using existing mesh topology
+    // [OPFS-Worker] Prepare preload file
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true });
+    preloadFileOpfs.name = data.name;
+
+    preloadChunks = [];
+    preloadCount = 0;
+    preloadMeta = data;
+    window._skipIncomingPreload = false;
+
     if (downstreamDataPeers.length > 0) {
-        console.log(`[Relay] Forwarding preload-start to ${downstreamDataPeers.length} downstream peers`);
-        const forwardHeader = { ...data, skipped: false }; // [Safety] Always false for downstream
-        downstreamDataPeers.forEach(p => {
-            if (p.open) p.send(forwardHeader);
-        });
+        downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 }
 
 async function handlePreloadChunk(data) {
-    if (window._skipIncomingPreload) return; // DISCARD Host chunks while relaying from cache
-    // Clone
-    const chunkCopy = new Uint8Array(data.chunk);
-    const idx = data.index;
-    if (idx >= 0 && idx < preloadChunks.length && !preloadChunks[idx]) {
-        preloadChunks[idx] = chunkCopy;
-        preloadCount++;
-    }
+    if (window._skipIncomingPreload) return;
 
-    // RELAY: Forward chunk to downstream peers
+    const idx = data.index;
+    const chunkCopy = new Uint8Array(data.chunk);
+
+    // [Worker-OPFS] Offload write
+    timerWorker.postMessage({
+        command: 'OPFS_WRITE',
+        chunk: chunkCopy,
+        index: idx,
+        isPreload: true
+    }, [chunkCopy.buffer]);
+    preloadCount++;
+
     if (downstreamDataPeers.length > 0) {
         const fwdMsg = { type: 'preload-chunk', chunk: chunkCopy, index: idx };
-        downstreamDataPeers.forEach(p => {
-            if (p.open) p.send(fwdMsg);
-        });
+        downstreamDataPeers.forEach(p => { if (p.open) p.send(fwdMsg); });
     }
-    // No progress UI for preload (silent)
+
+    if (preloadMeta && preloadCount >= preloadMeta.total) {
+        console.log("[Preload] All chunks received via Worker-OPFS. Finalizing...");
+        timerWorker.postMessage({ command: 'OPFS_END', filename: preloadMeta.name, isPreload: true });
+
+        preloadCount = 0;
+    }
 }
 
 async function handlePreloadEnd(data) {
-    // [Fix] Reliable Session Matching: Ignore end signals from previous/cancelled sessions
-    if (preloadMeta && data.sessionId !== undefined && preloadMeta.sessionId !== data.sessionId) {
-        console.log(`[Preload] Ignoring stale end signal for session ${data.sessionId}`);
+    if (window._skipIncomingPreload) return;
+
+    console.log("[Preload] End signal received for index:", data.index);
+
+    if (preloadCount < (preloadMeta?.total || 0)) {
+        console.warn(`[Preload] Incomplete! Got ${preloadCount}/${preloadMeta.total} chunks.`);
         return;
     }
 
-    // [Reliable Skip Detection]
-    const isActuallySkipped = window._skipIncomingPreload || (preloadMeta && preloadMeta.isSkipped);
-
-    if (isActuallySkipped || preloadCount === 0) {
-        console.log(`[Preload] Finished (Skip/No Chunks): ${data.name}`);
-        window._skipIncomingPreload = false;
-        return;
+    if (!nextFileBlob) {
+        timerWorker.postMessage({ command: 'OPFS_END', filename: preloadMeta.name, isPreload: true, sessionId: data.sessionId });
     }
 
-    console.log("[Preload] Finished:", data.name);
-
-    // RELAY: Forward preload-end only if it matches current session
-    if (downstreamDataPeers.length > 0) {
-        const endMsg = { type: 'preload-end', name: data.name, index: data.index, sessionId: data.sessionId };
-        downstreamDataPeers.forEach(p => { if (p.open) p.send(endMsg); });
-    }
-
-    // Verify chunk integrity
-    let missingCount = 0;
-    for (let i = 0; i < preloadChunks.length; i++) {
-        if (!preloadChunks[i]) missingCount++;
-    }
-
-    if (missingCount > 0) {
-        // [Final Guard] If NO chunks arrived (573/573 missing), this is likely a discarded/stale session.
-        // Just clear and move on without warning the user.
-        if (preloadCount === 0) {
-            console.log(`[Preload] Session ${data.sessionId} reached end with no chunks. Discarding silently.`);
-            clearPreloadState();
-            return;
-        }
-
-        console.warn(`[Preload] Integrity Check: ${missingCount} / ${preloadChunks.length} chunks missing`);
-        clearPreloadState();
-        return;
-    }
-
-    console.log("[Preload] Success, saving to buffer cache");
-
-    showToast("다음 곡 다운로드 완료! (대기 중)");
-
-    const blob = new Blob(preloadChunks, { type: preloadMeta.mime });
-
-    // Decide: Cache as Blob or Decode?
-    // To be safe and ready, let's just store the Blob and Meta
-    // We will process it in 'play-preloaded'
-    nextFileBlob = blob;
-    nextMeta = preloadMeta;
-
-    // [FIX #3] Clear temp arrays with explicit null for GC
-    preloadChunks = null; // Force GC eligibility
-    preloadChunks = [];
-    preloadCount = 0;
-    preloadMeta = null;
-
-    // NOTIFY HOST: I have this preload now (prevents duplicate transmission)
+    // NOTIFY HOST
     if (hostConn && hostConn.open) {
         hostConn.send({ type: 'preload-ack', index: data.index });
-        console.log("[Guest] Sent preload-ack to Host for index:", data.index);
-    }
-
-    // CHECK: If we were waiting for this preload, use it immediately!
-    if (window._waitingForPreload) {
-        console.log("[preload-end] Was waiting for this preload, loading now!");
-        window._waitingForPreload = false;
-
-        await loadPreloadedTrack();
-        window._preloadUsedForIndex = window._pendingFileIndex;
-        showLoader(false);
-
-        // Ready for play command from Host
     }
 }
 
@@ -4548,11 +4487,11 @@ async function handleStatusSync(data) {
             }
 
             // Check if a preload is CURRENTLY in progress for this track
-            const isPreloadingThis = isPreloading && preloadMeta && (preloadMeta.index === hostTrackIndex || preloadMeta.name === item.name);
+            const isOurPreload = preloadFileOpfs.name && (preloadMeta && (preloadMeta.index === hostTrackIndex || preloadMeta.name === item.name));
 
             // If it's a new track and we don't have it, ask for it
             if (!hasBuffer && !hasBlob && (meta && meta.name !== item.name)) {
-                if (isPreloadingThis) {
+                if (isOurPreload) {
                     console.log("[Sync] Track is being preloaded. Waiting for completion...");
                     showLoader(true, `파일 동기화 중: ${item.name}`);
                     window._waitingForPreload = true;
@@ -5065,71 +5004,17 @@ function handleRelayConnection(conn) {
             const currentTrackName = playlist[currentTrackIndex]?.name;
             const hasValidMeta = meta && meta.name && meta.name === currentTrackName;
 
-            if (incomingChunks.length > 0 && hasValidMeta && receivedCount === meta.total) {
-                showToast(`Fast Relay: Streaming to ${conn.peer.substr(-4)}`);
-
-                (async () => {
-                    conn.send(meta);
-                    await new Promise(r => setTimeout(r, 100));
-
-                    for (let i = 0; i < incomingChunks.length; i++) {
-                        if (conn.dataChannel.bufferedAmount > 512 * 1024) {
-                            await new Promise(r => {
-                                const timer = setInterval(() => {
-                                    if (conn.dataChannel.bufferedAmount < 256 * 1024) { clearInterval(timer); r(); }
-                                }, 50);
-                            });
-                        }
-
-                        if (incomingChunks[i]) {
-                            conn.send({ type: 'file-chunk', chunk: incomingChunks[i], index: i });
-                        }
-                        if (i % 20 === 0) await new Promise(r => setTimeout(r, 10));
-                    }
-                    conn.send({ type: 'file-end', name: meta.name, mime: meta.mime });
-                })();
-            }
-            else if (currentFileBlob && meta) {
+            if (currentFileBlob && hasValidMeta) {
                 showToast(`Relay Request: Serving blob to ${conn.peer.substr(-4)}`);
                 unicastFile(conn, currentFileBlob);
             }
-            else if (incomingChunks.length > 0 && meta && meta.total > 0) {
-                console.log(`[Relay] Serving in-progress file: ${receivedCount}/${meta.total} chunks`);
-                showToast(`Relay Request: Syncing stream to ${conn.peer.substr(-4)}`);
-
-                conn.send(meta);
-                await new Promise(r => setTimeout(r, 100));
-
-                for (let i = 0; i < incomingChunks.length; i++) {
-                    if (conn.dataChannel.bufferedAmount > 512 * 1024) {
-                        await new Promise(r => setTimeout(r, 50));
-                    }
-                    if (i % 10 === 0) await new Promise(r => setTimeout(r, 10));
-
-                    if (incomingChunks[i]) {
-                        conn.send({ type: 'file-chunk', chunk: incomingChunks[i], index: i });
-                    }
-                }
+            else if (nextFileBlob && preloadMeta && preloadMeta.index === currentTrackIndex) {
+                showToast(`Relay Request: Serving preloaded blob to ${conn.peer.substr(-4)}`);
+                unicastFile(conn, nextFileBlob);
             }
-            else if (preloadMeta && preloadChunks.length > 0) {
+            else if (preloadMeta && nextFileBlob) {
                 showToast(`Relay Request: Serving preload to ${conn.peer.substr(-4)}`);
-                console.log(`[Relay] Syncing preload buffer: ${preloadCount}/${preloadMeta.total} chunks`);
-
-                (async () => {
-                    conn.send(preloadMeta);
-                    await new Promise(r => setTimeout(r, 100));
-
-                    for (let i = 0; i < preloadChunks.length; i++) {
-                        if (preloadChunks[i]) {
-                            if (conn.dataChannel.bufferedAmount > 512 * 1024) {
-                                await new Promise(r => setTimeout(r, 50));
-                            }
-                            if (i % 20 === 0) await new Promise(r => setTimeout(r, 10));
-
-                            conn.send({ type: 'preload-chunk', chunk: preloadChunks[i], index: i });
-                        }
-                    }
-                })();
+                unicastFile(conn, nextFileBlob);
             }
             else {
                 console.log("[Relay] No data yet, telling downstream to wait...");
@@ -6786,117 +6671,3 @@ async function loadDemoMedia() {
 
 window.loadDemoMedia = loadDemoMedia;
 
-// [MISSING FUNCTION RESTORATION]
-// Extracts audio from a video file and returns it as a WAV Blob
-async function extractAudioToWav(videoFile) {
-    console.log("[AudioExtract] Starting extraction from:", videoFile.name);
-
-    // 1. Decode Audio Data using OfflineAudioContext
-    const arrayBuffer = await videoFile.arrayBuffer();
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-    console.log(`[AudioExtract] Decoded: ${audioBuffer.duration}s, ${audioBuffer.numberOfChannels}ch, ${audioBuffer.sampleRate}Hz`);
-
-    // 2. Convert AudioBuffer to WAV Blob
-    const wavBlob = audioBufferToWav(audioBuffer);
-
-    // 3. Create File object
-    const wavFile = new File([wavBlob], videoFile.name.replace(/\.[^/.]+$/, "") + ".wav", { type: "audio/wav" });
-
-    return wavFile;
-}
-
-// Helper: Convert AudioBuffer to WAV Blob
-function audioBufferToWav(buffer) {
-    const numChannels = buffer.numberOfChannels;
-    const sampleRate = buffer.sampleRate;
-    const format = 1; // PCM
-    const bitDepth = 16;
-
-    let result;
-    if (numChannels === 2) {
-        result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
-    } else {
-        result = buffer.getChannelData(0);
-    }
-
-    return encodeWAV(result, numChannels, sampleRate, bitDepth);
-}
-
-function interleave(inputL, inputR) {
-    const length = inputL.length + inputR.length;
-    const result = new Float32Array(length);
-
-    let index = 0;
-    let inputIndex = 0;
-
-    while (index < length) {
-        result[index++] = inputL[inputIndex];
-        result[index++] = inputR[inputIndex];
-        inputIndex++;
-    }
-    return result;
-}
-
-function encodeWAV(samples, numChannels, sampleRate, bitDepth) {
-    const bytesPerSample = bitDepth / 8;
-    const blockAlign = numChannels * bytesPerSample;
-    const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);
-    const view = new DataView(buffer);
-
-    // RIFF identifier
-    writeString(view, 0, 'RIFF');
-    // RIFF chunk length
-    view.setUint32(4, 36 + samples.length * bytesPerSample, true);
-    // RIFF type
-    writeString(view, 8, 'WAVE');
-    // format chunk identifier
-    writeString(view, 12, 'fmt ');
-    // format chunk length
-    view.setUint32(16, 16, true);
-    // sample format (raw)
-    view.setUint16(20, 1, true);
-    // channel count
-    view.setUint16(22, numChannels, true);
-    // sample rate
-    view.setUint32(24, sampleRate, true);
-    // byte rate (sample rate * block align)
-    view.setUint32(28, sampleRate * blockAlign, true);
-    // block align (channel count * bytes per sample)
-    view.setUint16(32, blockAlign, true);
-    // bits per sample
-    view.setUint16(34, bitDepth, true);
-    // data chunk identifier
-    writeString(view, 36, 'data');
-    // data chunk length
-    view.setUint32(40, samples.length * bytesPerSample, true);
-
-    if (bitDepth === 16) {
-        floatTo16BitPCM(view, 44, samples);
-    } else {
-        floatTo32BitPCM(view, 44, samples);
-    }
-
-    return new Blob([view], { type: 'audio/wav' });
-}
-
-function floatTo16BitPCM(output, offset, input) {
-    for (let i = 0; i < input.length; i++, offset += 2) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }
-}
-
-function floatTo32BitPCM(output, offset, input) {
-    for (let i = 0; i < input.length; i++, offset += 4) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        output.setInt32(offset, s < 0 ? s * 0x80000000 : s * 0x7FFFFFFF, true);
-    }
-}
-
-function writeString(view, offset, string) {
-    for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-    }
-}

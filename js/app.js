@@ -3205,6 +3205,8 @@ function setupPeerEvents() {
                 peerLabels[conn.peer] = deviceName;
             }
 
+            const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
+
             const peerObj = {
                 id: conn.peer,
                 label: deviceName,
@@ -3286,7 +3288,6 @@ function setupPeerEvents() {
             if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
                 try {
                     const videoData = youtubePlayer.getVideoData();
-                    const curItem = playlist[currentTrackIndex];
                     conn.send({
                         type: 'youtube-play',
                         videoId: (videoData && videoData.video_id) ? videoData.video_id : (curItem ? curItem.videoId : null),

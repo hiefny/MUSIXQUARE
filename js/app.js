@@ -176,13 +176,14 @@ function cleanupState(oldState) {
  * [NEW] 중앙화된 현재 트랙 재생 위치 계산 함수
  * startedAt, localOffset, autoSyncOffset을 모두 고려하여
  * 현재 트랙의 몇 초 지점인지를 반환합니다.
+ * @param {boolean} useAudioClock - true면 비디오 요소 대신 Tone.js 클락(네트워크 기준)을 사용합니다.
  */
-function getTrackPosition() {
+function getTrackPosition(useAudioClock = false) {
     if (currentState === APP_STATE.IDLE) return pausedAt;
 
     // 비디오/스트리밍 모드: videoElement.currentTime 사용 (더 정확함)
     const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
-    if (usesVideoElement && videoElement && videoElement.src && videoElement.readyState >= 1) {
+    if (!useAudioClock && usesVideoElement && videoElement && videoElement.src && videoElement.readyState >= 1) {
         return videoElement.currentTime;
     }
 
@@ -479,13 +480,20 @@ timerWorker.onmessage = (e) => {
 };
 
 function checkVideoSync() {
-    if (currentState !== APP_STATE.IDLE && currentState === APP_STATE.PLAYING_VIDEO && videoElement && !videoElement.paused) {
+    if (currentState !== APP_STATE.IDLE && (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) && videoElement && !videoElement.paused) {
+        // [HOST GUARD] Host in native video bypass mode should NOT sync to Tone.js clock.
+        // The video element itself is the master clock on the host.
+        if (!hostConn && currentState === APP_STATE.PLAYING_VIDEO) return;
+
         // [Latency Compensation V3 for Video]
-        // Sync Video to Audio Time (Tone.now)
-        const t = (Tone.now() - startedAt) + localOffset;
+        // Sync Video to Audio Time (Tone.now based startedAt)
+        // Use useAudioClock=true to get the target sync point reliably
+        const t = getTrackPosition(true);
         const diff = videoElement.currentTime - t;
-        if (Math.abs(diff) > 0.2) {
-            console.log(`[VideoSync] Correcting drift: ${diff.toFixed(3)}s`);
+
+        // Increased threshold to 0.3s for host-bypass stability and jitter reduction
+        if (Math.abs(diff) > 0.3) {
+            console.log(`[VideoSync] Correcting drift: ${diff.toFixed(3)}s (Target: ${t.toFixed(3)}s)`);
             videoElement.currentTime = t;
         }
     }
@@ -2042,12 +2050,14 @@ function togglePlay() {
 function pause() {
     if (currentState !== APP_STATE.IDLE) {
         if (player) player.stop();
-        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.pause();
+        // [Fix] Include PLAYING_STREAMING to ensure guest video pauses correctly
+        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+        if (usesVideo && videoElement) videoElement.pause();
 
         // [Fix] Consistent time capture including offsets
         pausedAt = getTrackPosition();
 
-        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.currentTime = pausedAt;
+        if (usesVideo && videoElement) videoElement.currentTime = pausedAt;
     }
     updatePlayState(false);
     showToast("일시정지");
@@ -3310,11 +3320,11 @@ function setupPeerEvents() {
                 }
 
                 if (data.type === 'get-sync-time') {
-                    const currentTime = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
+                    const currentTime = getTrackPosition();
                     let isActuallyPlaying = false;
                     if (currentState === APP_STATE.PLAYING_AUDIO) {
                         isActuallyPlaying = (player && player.state === 'started');
-                    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+                    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
                         isActuallyPlaying = (videoElement && !videoElement.paused);
                     }
                     conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
@@ -4859,7 +4869,8 @@ async function handlePlay(data) {
 async function handlePause(data) {
     if (data.time !== undefined) {
         pausedAt = data.time;
-        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.currentTime = data.time;
+        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+        if (usesVideo && videoElement) videoElement.currentTime = data.time;
         document.getElementById('seek-slider').value = data.time;
         document.getElementById('time-curr').innerText = fmtTime(data.time);
     }

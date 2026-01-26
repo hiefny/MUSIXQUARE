@@ -1055,13 +1055,13 @@ function toggleExpansion(idx) {
                 }
             }
 
-            // 3. Trigger background title fetcher (Host Only)
-            if (!hostConn) {
-                if (youtubeSubItemsMap[pid] && youtubeSubItemsMap[pid].ids && youtubeSubItemsMap[pid].ids.length > 0) {
-                    fetchPlaylistSubTitles(pid, youtubeSubItemsMap[pid].ids);
-                }
-            } else {
-                // Guest: Request info from Host if map is missing or empty
+            // 3. Trigger background title fetcher (All roles)
+            if (youtubeSubItemsMap[pid] && youtubeSubItemsMap[pid].ids && youtubeSubItemsMap[pid].ids.length > 0) {
+                fetchPlaylistSubTitles(pid, youtubeSubItemsMap[pid].ids);
+            }
+
+            if (hostConn) {
+                // Guest: Request info from Host if map is missing or empty (double check)
                 if (!youtubeSubItemsMap[pid] || !youtubeSubItemsMap[pid].ids || youtubeSubItemsMap[pid].ids.length === 0) {
                     hostConn.send({ type: 'request-youtube-playlist-info', playlistId: pid });
                 }
@@ -1073,7 +1073,6 @@ function toggleExpansion(idx) {
 
 // Background fetcher for YouTube titles (No API Key needed)
 async function fetchPlaylistSubTitles(playlistId, ids) {
-    if (hostConn) return; // Host only
     if (!ids || ids.length === 0) return;
 
     const data = youtubeSubItemsMap[playlistId];
@@ -1098,14 +1097,18 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
                 data.titles[i] = json.title;
                 console.log(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 
-                // Update UI and broadcast to guests
+                // Update UI
                 updatePlaylistUI();
-                broadcast({
-                    type: 'youtube-sub-title-update',
-                    playlistId: playlistId,
-                    subIdx: i,
-                    title: json.title
-                });
+
+                // Only Host broadcasts to others to keep it centralized
+                if (!hostConn) {
+                    broadcast({
+                        type: 'youtube-sub-title-update',
+                        playlistId: playlistId,
+                        subIdx: i,
+                        title: json.title
+                    });
+                }
             }
         } catch (e) {
             console.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
@@ -2728,6 +2731,13 @@ function setVolume(val) {
 
     const vSlider = document.getElementById('volume-slider');
     if (vSlider) vSlider.value = val * 100;
+
+    // [New] Support Video Element Volume sync (Especially for Host Native Playback)
+    if (videoElement) {
+        try {
+            videoElement.volume = val;
+        } catch (e) { }
+    }
 
     updateVolumeIcon();
 }
@@ -5120,6 +5130,11 @@ async function handleYouTubePlaylistInfo(data) {
     const { playlistId, ids, titles } = data;
     youtubeSubItemsMap[playlistId] = { ids: ids, titles: titles || [] };
     updatePlaylistUI();
+
+    // [New] Guest can also fetch titles if missing
+    if (ids && ids.length > 0) {
+        fetchPlaylistSubTitles(playlistId, ids);
+    }
 }
 
 async function handleYouTubeStop(data) {

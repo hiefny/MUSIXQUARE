@@ -26,7 +26,6 @@
  * GLOBAL VARIABLES REFERENCE
  * ============================================================================
  * * [AUDIO ENGINE - Tone.js Nodes]
- * player          : Tone.Player - 메인 오디오 플레이어
  * toneSplit       : Tone.Split - 스테레오 채널 분리
  * toneMerge       : Tone.Merge - 채널 병합
  * gainL, gainR    : Tone.Gain - L/R 채널 게인
@@ -39,7 +38,6 @@
  * currentState    : string - APP_STATE 머신 상태
  * startedAt       : number - Tone.now() 기준 재생 시작 시간
  * pausedAt        : number - 일시정지 위치 (초)
- * buffer          : Tone.Buffer - 현재 로드된 오디오 버퍼
  * * [PLAYLIST]
  * playlist[]      : Array - { type, file, name, videoId, playlistId, ... }
  * currentTrackIndex : number - 현재 재생 중인 트랙 인덱스
@@ -56,7 +54,6 @@
  * autoSyncOffset  : number - 자동 레이턴시 보정 (초)
  * * [PRELOAD]
  * nextTrackIndex  : number - 프리로드된 다음 트랙 인덱스
- * nextBuffer      : Tone.Buffer - 프리로드된 오디오 버퍼
  * nextFileBlob    : Blob - 프리로드된 파일 (Guest 전송용)
  * preloadChunks[] : ArrayBuffer[] - Guest가 수신 중인 프리로드 청크
  * * [YOUTUBE]
@@ -69,14 +66,13 @@
 // [SECTION] AUDIO ENGINE - Tone.js Nodes
 // Dependencies: Tone.js CDN
 // ============================================================================
-let player, toneSplit, toneMerge;
+let toneSplit, toneMerge;
 let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
 let vbFilter, vbCheby, vbGain;
 let preamp, widener;
 let globalLowPass = null;
 let analyser;
-let buffer; // Holds the Tone.Buffer or AudioBuffer
 
 // ============================================================================
 // [SECTION] APP STATE MACHINE (State Pattern)
@@ -393,7 +389,6 @@ const videoElement = document.getElementById('main-video');
 // ============================================================================
 // Host Side
 let nextTrackIndex = -1;
-let nextBuffer = null;
 let nextFileBlob = null;
 let isPreloading = false;
 let nextMeta = null; // Store metadata for preloaded file
@@ -413,7 +408,6 @@ let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest 
 function clearPreloadState() {
     // Host side
     nextTrackIndex = -1;
-    nextBuffer = null;
     nextFileBlob = null;
     nextMeta = null;
     isPreloading = false;
@@ -529,14 +523,7 @@ function switchTab(tabId) {
 // --- Audio System (Tone.js) ---
 async function initAudio() {
     if (Tone.context.state !== 'running') await Tone.start();
-    if (player) return; // Already Initialized
-
-    // 1. Core Player
-    player = new Tone.Player({
-        fadeIn: 0.05,
-        fadeOut: 0.05
-    });
-    player.loop = false;
+    if (masterGain) return; // Already Initialized
 
     // 2. Channel & Stereo Processing
     toneSplit = new Tone.Split();
@@ -595,7 +582,10 @@ async function initAudio() {
     // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
 
     // 1. Pre-Processing (Stereo Width & Preamp)
-    player.connect(widener);
+    // Audio is piped via setupMediaSource() using videoElement
+    widener = new Tone.StereoWidener(1);
+    preamp = new Tone.Gain(1);
+
     widener.connect(preamp);
 
     // 2. Channel Splitting
@@ -1121,7 +1111,7 @@ async function playTrack(index) {
     if (!hostConn) switchTab('play');
 
     // Check if this track is already preloaded (Host Side Check)
-    if (index === nextTrackIndex && (nextBuffer || nextFileBlob) && !hostConn) {
+    if (index === nextTrackIndex && nextFileBlob && !hostConn) {
         console.log("[Host] Using Preloaded Track:", index);
         currentTrackIndex = index;
         updatePlaylistUI();
@@ -1134,14 +1124,11 @@ async function playTrack(index) {
         const fileName = item?.file?.name || item?.name || `Track ${index}`;
 
         // 3. Broadcast ONLY play-preloaded command
-        // Guests who have preload will use it
-        // Guests who DON'T have preload will send request-data-recovery
-        // This saves Host upload bandwidth by not sending file to everyone
         broadcast({ type: 'play-preloaded', index: index, name: fileName });
 
-        // 4. Start Playback (with delay for Guests to switch buffers or request file)
+        // 4. Start Playback
         setTimeout(() => {
-            play(0); // This broadcasts { type: 'play', time: ... }
+            play(0);
         }, 500);
 
         // Schedule Auto-Sync (5s later)
@@ -1424,8 +1411,8 @@ function playNextTrack() {
         }
     }
 
-    // If we have a preloaded track ready with actual data, use it (respects shuffle decision)
-    if (nextTrackIndex !== -1 && (nextBuffer || nextFileBlob)) {
+    // If we have a preloaded track ready with actual data, use it
+    if (nextTrackIndex !== -1 && nextFileBlob) {
         playTrack(nextTrackIndex);
         return;
     }
@@ -1528,8 +1515,7 @@ async function loadAndBroadcastFile(file) {
         }
 
         // Always Streaming Mode
-        console.log("Streaming Mode (MediaElementSource) enabled for all files.");
-        buffer = null;
+        console.log("Streaming Mode (MediaElementSource) enabled.");
 
         setEngineMode(isVideo ? 'video' : 'streaming');
         updateTitleWithMarquee(file.name);
@@ -1628,9 +1614,6 @@ function setupMediaSource() {
     const isVideoBypass = isHost && currentState === APP_STATE.PLAYING_VIDEO;
 
     // 1. DISCONNECT PREVIOUS (Avoid overlap and effects leak)
-    if (player) {
-        try { player.disconnect(); } catch (e) { }
-    }
     if (mediaSourceNode) {
         try { mediaSourceNode.disconnect(); } catch (e) { }
     }
@@ -1691,35 +1674,19 @@ function setupMediaSource() {
             // Surround Path: Source -> Splitter -> (Select 1) -> SurroundGain -> Preamp
             Tone.connect(mediaSourceNode, surroundSplitter);
 
-            // Fix: Connect Music Player to Surround Splitter as well
-            if (player) player.connect(surroundSplitter);
-
             // Connector from Splitter to SurroundGain is managed by setSurroundChannel()
             // But we need to ensure SurroundGain connects to graph
-            // We inject into Preamp (bypassing Widener because it expects Stereo)
-            // Route Surround Gain into Preamp chain.
             surroundGain.connect(preamp);
-
-            // Ensure Widener is disconnected from Preamp?
-            // Widener connects to Preamp setup in initAudio. 
-            // We need to disconnect Widener from Preamp to avoid noise?
-            // Or just mute Widener inputs.
-            // mediaDownmixNode -> Widener path is broken if we don't connect it.
-            // So just don't connect mediaSourceNode to mediaDownmixNode here.
 
             // Restore Channel Selection (Routing: Splitter -> Gain)
             // We pass true to skip calling setupMediaSource again (recursion)
             if (surroundChannelIndex !== -1) {
                 setSurroundChannel(surroundChannelIndex, null, true);
             }
-
         } else {
             // Standard Path: Source -> Downmix -> Widener -> Preamp
             Tone.connect(mediaSourceNode, mediaDownmixNode);
             mediaDownmixNode.connect(widener);
-
-            // Fix: Connect Music Player to Widener (Standard Path)
-            if (player) player.connect(widener);
 
             // Safety Re-connect Chain
             try {
@@ -1741,7 +1708,6 @@ function setupMediaSource() {
 }
 
 async function play(offset) {
-    // [Fix] Clear pending play command as we are executing playback now
     window._pendingPlayTime = undefined;
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -1753,66 +1719,42 @@ async function play(offset) {
         try { await Tone.context.resume(); } catch (e) { console.warn("Resume failed:", e); }
     }
 
-    // [FIX] Support Streaming Mode (Large WAV/Video)
-    // Allow play if we have a buffer OR if the videoElement has a source
     const hasVideoSource = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
-    const hasSource = buffer || hasVideoSource;
-    const isStreamingState = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
 
-    if (!hasSource && !isStreamingState) {
+    if (!hasVideoSource) {
         console.warn("[Play] No media source available");
         return;
     }
 
     initAudio();
 
-    if (player.state === 'started') player.stop();
+    // --- STREAMING MODE (Video or Large WAV) ---
+    setupMediaSource();
 
-    if (hasVideoSource) {
-        // --- STREAMING MODE (Video or Large WAV) ---
-        // Ensure routing is set
-        setupMediaSource();
+    videoElement.currentTime = offset;
 
-        // [FIX] Seek & Wait for 'seeked' before play to ensure sync
-        videoElement.currentTime = offset;
+    const onSeeked = () => {
+        videoElement.removeEventListener('seeked', onSeeked);
+        videoElement.play().catch(e => console.log('[Video] play failed', e));
+        updatePlayState(true);
+    };
 
-        const onSeeked = () => {
-            videoElement.removeEventListener('seeked', onSeeked);
-            videoElement.play().catch(e => console.log('[Video] play failed', e));
-            updatePlayState(true);
-        };
-
-        if (videoElement.seeking) {
-            videoElement.addEventListener('seeked', onSeeked);
-        } else {
-            // No seek needed or already finished
-            videoElement.play().catch(e => console.log('[Video] play failed', e));
-            updatePlayState(true);
-        }
-
-        // Determine correct state based on content type
-        if (currentState !== APP_STATE.PLAYING_VIDEO) {
-            // Large WAV or audio via video element → PLAYING_STREAMING
-            setState(APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
-        }
+    if (videoElement.seeking) {
+        videoElement.addEventListener('seeked', onSeeked);
+    } else {
+        videoElement.play().catch(e => console.log('[Video] play failed', e));
+        updatePlayState(true);
     }
 
-    // [Time Sync Correction]
-    // startedAt is the GLOBAL time when the track "started" (virtual start time).
-    // We adjust this by our local Manual Offset AND the Auto Sync Offset.
-    // [NOTE #10] Offsets are applied ONCE at play start - not accumulated per tick.
-    // localOffset = manual user adjustment, autoSyncOffset = network sync correction
+    if (currentState !== APP_STATE.PLAYING_VIDEO) {
+        setState(APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
+    }
+
     startedAt = Tone.now() - offset + (localOffset + autoSyncOffset);
     pausedAt = offset;
 
-    // updatePlayState(true); // Moved inside onSeeked for video, or here for audio
-    if (!hasVideoSource) updatePlayState(true);
     startVisualizer();
-
-    if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-        timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 500 });
-    }
-
+    timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 500 });
     loopUI();
 }
 
@@ -1830,7 +1772,7 @@ function handleEnded() {
         return; // Metadata not yet reliable
     }
 
-    const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
+    const duration = videoElement ? videoElement.duration : 0;
 
     // Safety: Skip if duration is invalid or suspiciously short during load
     if (!duration || !isFinite(duration) || duration <= 0.5) {
@@ -1877,21 +1819,13 @@ function handleEnded() {
  * Ensures no audio overlap during transitions.
  */
 function stopAllMedia() {
-    // Use centralized cleanup via setState
-    // But we need extra steps (reset currentTime, clear timers)
-
-    // 1. Stop Tone.js
-    if (player && player.state === 'started') {
-        try { player.stop(); } catch (e) { }
-    }
-
-    // 2. Stop Global Video
+    // 1. Stop Global Video
     if (videoElement) {
         videoElement.pause();
         videoElement.currentTime = 0;
     }
 
-    // 3. Stop YouTube
+    // 2. Stop YouTube
     if (youtubePlayer && youtubePlayer.stopVideo) {
         try { youtubePlayer.stopVideo(); } catch (e) { }
     }
@@ -1903,7 +1837,6 @@ function stopAllMedia() {
         autoPlayTimer = null;
     }
 
-    // Use centralized state transition (skip cleanup since we did it manually)
     setState(APP_STATE.IDLE, { skipCleanup: true });
     updatePlayState(false);
 
@@ -1986,17 +1919,7 @@ function togglePlay() {
         return;
     }
 
-    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
-
-    // [FIX] 상태 머신 값만 보지 말고, 실제 오디오/비디오가 재생 중인지 확인해야 함
-    // (파일 로드 직후에는 상태는 PLAYING_... 이지만 실제로는 멈춰있기 때문)
-    let isActuallyPlaying = false;
-
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
-        isActuallyPlaying = (player && player.state === 'started');
-    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-        isActuallyPlaying = (videoElement && !videoElement.paused);
-    }
+    const isActuallyPlaying = (videoElement && !videoElement.paused);
 
     // Cancel pending auto-play timer if host manually controls playback
     if (!hostConn && autoPlayTimer) {
@@ -2005,7 +1928,6 @@ function togglePlay() {
         showToast("자동 재생 취소됨");
     }
 
-    // 진짜 재생 중일 때만 일시정지, 아니면 재생
     if (isActuallyPlaying) {
         if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
         else if (isOperator) hostConn.send({ type: 'request-pause' });
@@ -2017,15 +1939,9 @@ function togglePlay() {
 
 function pause() {
     if (currentState !== APP_STATE.IDLE) {
-        if (player) player.stop();
-        // [Fix] Include PLAYING_STREAMING to ensure guest video pauses correctly
-        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
-        if (usesVideo && videoElement) videoElement.pause();
-
-        // [Fix] Consistent time capture including offsets
+        if (videoElement) videoElement.pause();
         pausedAt = getTrackPosition();
-
-        if (usesVideo && videoElement) videoElement.currentTime = pausedAt;
+        if (videoElement) videoElement.currentTime = pausedAt;
     }
     updatePlayState(false);
     showToast("일시정지");
@@ -2064,13 +1980,11 @@ function skipTime(sec) {
     }
 
     // Local mode
-    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
-
     let current = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
-    if (currentState === APP_STATE.PLAYING_VIDEO && !buffer) current = videoElement.currentTime;
+    if ((currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING)) current = videoElement.currentTime;
 
     let target = current + sec;
-    const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
+    const duration = videoElement ? videoElement.duration : 0;
 
     if (target < 0) target = 0;
     if (target > duration) target = duration;
@@ -2100,7 +2014,7 @@ function setChannelMode(mode) {
 
     // Remove Cutoff Visibility Toggle (Always Visible now)
 
-    if (!player) return; // Not init
+    if (!masterGain) return; // Not init
     const ramp = 0.05;
 
     // Reset LowPass to Full Range by default (Safety)
@@ -2175,40 +2089,16 @@ function toggleSurroundMode(enabled) {
         // Ensure 7.1 Graph Nodes exist
         if (!surroundSplitter) setupMediaSource();
 
-        // Buffer Mode: Re-route Player
-        if (buffer) {
-            player.disconnect();
-            player.connect(surroundSplitter);
-
-            // Smart Default for Stereo Files
-            if (buffer.numberOfChannels <= 2 && surroundChannelIndex === -1) {
-                setSurroundChannel(0, null); // Force FL
-                showToast("7.1 Mode: Stereo File (FL Active)");
-            } else {
-                // Default to Center (2) for Multichannel
-                if (surroundChannelIndex === -1) setSurroundChannel(2, null);
-                else setSurroundChannel(surroundChannelIndex, null);
-            }
-        } else {
-            // Streaming/No Buffer defaults to Center
-            if (surroundChannelIndex === -1) setSurroundChannel(2, null);
-            else setSurroundChannel(surroundChannelIndex, null);
-        }
+        // Streaming/No Buffer defaults to Center
+        if (surroundChannelIndex === -1) setSurroundChannel(2, null);
+        else setSurroundChannel(surroundChannelIndex, null);
 
         showToast("Surround Mode: Enabled");
-    } else {
-        // Revert to Standard
-        // Buffer Mode: Restore Player
-        if (buffer) {
-            player.disconnect();
-            player.connect(widener);
-        }
-
-        // Streaming Mode: Restore MediaSource
-        setupMediaSource();
-        setChannelMode(channelMode); // Restore standard channel
-        showToast("Surround Mode: Disabled");
     }
+
+    // Streaming Mode: Restore MediaSource
+    setupMediaSource();
+    setChannelMode(channelMode); // Restore standard channel
 }
 
 function setSurroundChannel(idx, el, skipSetup = false) {
@@ -2299,7 +2189,7 @@ function setSurroundChannel(idx, el, skipSetup = false) {
 }
 
 function setChannel(mode, el) {
-    if (!player) initAudio();
+    if (!masterGain) initAudio();
     document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
     el.classList.add('active');
     setChannelMode(mode);
@@ -2569,7 +2459,7 @@ function onVirtualBassChange(val) {
 }
 
 function applySettings() {
-    if (!player) return;
+    if (!masterGain) return;
 
     // Reverb Mix (CrossFade)
     if (rvbCrossFade) rvbCrossFade.fade.rampTo(reverbMix, 0.1);
@@ -2860,13 +2750,7 @@ slider.addEventListener('change', () => {
         return;
     }
 
-    // Local mode
-    let isActuallyPlaying = false;
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
-        isActuallyPlaying = (player && player.state === 'started');
-    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-        isActuallyPlaying = (videoElement && !videoElement.paused);
-    }
+    const isActuallyPlaying = (videoElement && !videoElement.paused);
 
     if (isActuallyPlaying) {
         play(t);
@@ -2887,12 +2771,7 @@ slider.addEventListener('change', () => {
 
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
-    let isActuallyPlaying = false;
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
-        isActuallyPlaying = (player && player.state === 'started');
-    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-        isActuallyPlaying = (videoElement && !videoElement.paused);
-    }
+    const isActuallyPlaying = (videoElement && !videoElement.paused);
 
     console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
     if (!hostConn) {
@@ -3321,12 +3200,7 @@ function setupPeerEvents() {
                     peerObj.lastHeartbeat = Date.now();
 
                     if (!hostConn) { // Only genuine Host responds
-                        let isActuallyPlaying = false;
-                        if (currentState === APP_STATE.PLAYING_AUDIO) {
-                            isActuallyPlaying = (player && player.state === 'started');
-                        } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-                            isActuallyPlaying = (videoElement && !videoElement.paused);
-                        }
+                        const isActuallyPlaying = (videoElement && !videoElement.paused);
 
                         conn.send({
                             type: 'status-sync',
@@ -3350,12 +3224,7 @@ function setupPeerEvents() {
 
                 if (data.type === 'get-sync-time') {
                     const currentTime = getTrackPosition();
-                    let isActuallyPlaying = false;
-                    if (currentState === APP_STATE.PLAYING_AUDIO) {
-                        isActuallyPlaying = (player && player.state === 'started');
-                    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-                        isActuallyPlaying = (videoElement && !videoElement.paused);
-                    }
+                    const isActuallyPlaying = (videoElement && !videoElement.paused);
                     conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
                 }
                 else if (peerObj.isOp) {
@@ -3900,7 +3769,7 @@ async function handleFilePrepare(data) {
                 const jitter = Math.random() * 1000 + 200;
                 console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
                 setTimeout(() => {
-                    if (hostConn && hostConn.open && (!buffer && !currentFileBlob)) {
+                    if (hostConn && hostConn.open && !currentFileBlob) {
                         console.log("[Prepare Watchdog Recovery] Requesting from Host:", recoveryFileName);
                         hostConn.send({
                             type: 'request-data-recovery',
@@ -3977,8 +3846,6 @@ async function handleFileStart(data) {
                         window._waitingForRelayData = false;
 
                         const isVideo = meta.mime.startsWith('video/') || (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
-
-                        buffer = null;
                         setEngineMode(isVideo ? 'video' : 'streaming');
                         const url = BlobURLManager.create(blob);
                         videoElement.src = url;
@@ -4284,7 +4151,6 @@ async function handleFileChunk(data) {
 
         // --- ALWAYS STREAMING MODE ---
         console.log(`Guest: Streaming (${blob.type}) enabled for all files.`);
-        buffer = null;
 
         setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
 
@@ -4457,7 +4323,7 @@ async function handlePreloadStart(data) {
     const matchIndex = (idx) => Number(idx) === Number(data.index);
     const matchName = (n) => n && data.name && n === data.name;
 
-    const isCurrentlyPlaying = (buffer || currentFileBlob) && (matchIndex(currentTrackIndex) || matchName(meta?.name));
+    const isCurrentlyPlaying = currentFileBlob && (matchIndex(currentTrackIndex) || matchName(meta?.name));
     const isNextPreloaded = nextFileBlob && (matchIndex(nextMeta?.index) || matchName(nextMeta?.name));
     const alreadyCachedLocally = isCurrentlyPlaying || isNextPreloaded;
 
@@ -4722,13 +4588,11 @@ async function handleStatusSync(data) {
 
         const item = playlist[currentTrackIndex];
         if (item && item.type !== 'youtube') {
-            // [FIX] Check both current and preloaded data
-            const hasBuffer = (buffer && buffer.duration > 0);
             const hasBlob = (currentFileBlob && currentFileBlob.size > 0);
             const isPreloaded = nextFileBlob && (nextMeta && (nextMeta.index === hostTrackIndex || nextMeta.name === item.name));
 
             // If it's preloaded, use it immediately
-            if (!hasBuffer && !hasBlob && isPreloaded) {
+            if (!hasBlob && isPreloaded) {
                 console.log("[Sync] Required track found in preload cache. Activating...");
                 loadPreloadedTrack();
                 return;
@@ -4759,7 +4623,7 @@ async function handleStatusSync(data) {
                     console.log(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms`);
                     setTimeout(() => {
                         // Final check before sending recovery: did it arrive via sync/preload while we waited?
-                        const alreadyGotIt = buffer || currentFileBlob || nextFileBlob;
+                        const alreadyGotIt = currentFileBlob || nextFileBlob;
                         if (currentTrackIndex === hostTrackIndex && !alreadyGotIt) {
                             hostConn.send({
                                 type: 'request-data-recovery',
@@ -4828,7 +4692,7 @@ async function handlePlay(data) {
         // 3. Initiate recovery/loading if needed
         const item = playlist[currentTrackIndex];
         if (item && item.type !== 'youtube') {
-            const hasFile = (buffer && buffer.duration > 0) || (currentFileBlob && currentFileBlob.size > 0);
+            const hasFile = (currentFileBlob && currentFileBlob.size > 0);
             const isPreloaded = nextFileBlob && (nextMeta && (nextMeta.index === currentTrackIndex || nextMeta.name === item.name));
 
             if (!hasFile && isPreloaded) {
@@ -5058,8 +4922,7 @@ async function handleGetSyncTime(data, conn) {
     if (hostConn) return; // Guest ignores this
     if (conn && conn.open) {
         const t = getTrackPosition();
-        const isPlaying = (currentState !== APP_STATE.IDLE &&
-            (currentState === APP_STATE.PLAYING_AUDIO ? (player && player.state === 'started') : (videoElement && !videoElement.paused)));
+        const isPlaying = (currentState !== APP_STATE.IDLE && (videoElement && !videoElement.paused));
 
         conn.send({
             type: 'sync-response',
@@ -5222,7 +5085,7 @@ function resetTotalSync() {
         syncReset();
     } else {
         showToast("호스트 연결 없음. 로컬 초기화 완료.");
-        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) play(Tone.now() - startedAt);
+        if (videoElement && !videoElement.paused) play(Tone.now() - startedAt);
     }
 }
 
@@ -5761,21 +5624,15 @@ function autoSync() {
 }
 
 function loopUI() {
-    const isPlaybackState = currentState === APP_STATE.PLAYING_AUDIO ||
-        currentState === APP_STATE.PLAYING_VIDEO ||
+    const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO ||
         currentState === APP_STATE.PLAYING_STREAMING;
 
     if (isPlaybackState) {
-        let isActuallyPlaying = false;
-        if (currentState === APP_STATE.PLAYING_AUDIO) {
-            isActuallyPlaying = (player && player.state === 'started');
-        } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-            isActuallyPlaying = (videoElement && !videoElement.paused);
-        }
+        let isActuallyPlaying = (videoElement && !videoElement.paused);
 
         if (isActuallyPlaying) {
             const hasVideoSrc = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
-            const duration = buffer ? buffer.duration : (hasVideoSrc ? videoElement.duration : 0);
+            const duration = hasVideoSrc ? videoElement.duration : 0;
 
             let t = getTrackPosition();
 
@@ -5839,7 +5696,6 @@ async function loadPreloadedTrack() {
         const isVideo = nextMeta && (nextMeta.mime?.startsWith('video/') || (nextMeta.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name)));
 
         // ALWAYS STREAMING
-        buffer = null;
         setEngineMode(isVideo ? 'video' : 'streaming');
 
         const url = BlobURLManager.create(nextFileBlob);
@@ -6018,7 +5874,7 @@ function seekToTime(seconds) {
             video.currentTime = seconds;
             showToast(`${fmtTime(seconds)}로 이동`);
         }
-    } else if (player) {
+    } else if (videoElement && videoElement.src) {
         stop();
         play(seconds);
         showToast(`${fmtTime(seconds)}로 이동`);

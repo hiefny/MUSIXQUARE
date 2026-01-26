@@ -1,0 +1,43 @@
+﻿3:  * MUSIXQUARE - Multi-Device Synchronized Audio Player
+29:  * player          : Tone.Player - 메인 오디오 플레이어
+61:  * youtubePlayer   : YT.Player - YouTube IFrame Player
+583:     // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
+722:     // initAudio Checks if player exists, but calling it ensures setup
+776: // --- Playlist & Player Logic ---
+1019:             // 1. Try to get IDs from current player if it matches
+2093:         // Streaming/No Buffer defaults to Center
+2565:     // Determine buffer size
+2616:             // High: 7.5kHz ~ 20kHz (0.7 ~ 1.0 of buffer)
+2698:         // Add a small buffer (e.g., 32px) to ensure it clears the edge fully
+2699:         const targetOffset = -(overflowWidth + 32); // +32 for padding/mask buffer
+2777:         isActuallyPlaying = (player && player.state === 'started');
+3171:                     // Send current time sync after short delay (let guest load player first)
+3552: let latencyHistory = []; // Buffer to filter noise
+3639:     // [FIX] Clear early chunks buffer to prevent data mixing
+3900:             window._pendingEarlyChunks = []; // Clear pending buffer
+4058:     // CRITICAL: Clone the chunk! The underlying buffer might be reused or detached by PeerJS.
+4079:         // [FIX] Buffer early chunks that arrive before file-start
+4443:     console.log("[Preload] Success, saving to buffer cache");
+5173:                 console.log(`[Relay] Syncing preload buffer: ${preloadCount}/${preloadMeta.total} chunks`);
+5549:                 console.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
+6024:     const miniPlayer = document.getElementById('yt-mini-player');
+6087:             container.innerHTML = '<div class="chat-youtube-player" id="chat-youtube-placeholder"></div>';
+6229:         container.innerHTML = '<div id="youtube-player"></div>';
+6232:     if (!window.YT || !window.YT.Player) {
+6261:     // [FIX] Safety Guard: Ensure we are still in YouTube mode when player initializes
+6267:         console.log("[YouTube] Re-using existing player instance");
+6282:             console.warn("[YouTube] Failed to reuse player, recreating...", e);
+6284:             if (container) container.innerHTML = '<div id="youtube-player"></div>';
+6315:     youtubePlayer = new YT.Player('youtube-player', playerOptions);
+6319:     console.log("[YouTube] Player ready");
+6334:     // [Sync] Apply current master volume to YouTube player immediately
+6399:         // Player not ready yet
+6499:         // Player not ready
+6605:             console.log("[YouTube] Destroying player instance...");
+6861: function audioBufferToWav(buffer) {
+6862:     const numChannels = buffer.numberOfChannels;
+6863:     const sampleRate = buffer.sampleRate;
+6869:         result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+6871:         result = buffer.getChannelData(0);
+6895:     const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);
+6896:     const view = new DataView(buffer);

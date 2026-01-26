@@ -6662,6 +6662,9 @@ function onYouTubePlayerReady(event) {
         if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
         window.youtubeSyncLoop = setInterval(broadcastYouTubeSync, 3000);
     }
+
+    // [Sync] Apply current master volume to YouTube player immediately
+    setVolume(masterVolume);
 }
 
 function onYouTubePlayerStateChange(event) {

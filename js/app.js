@@ -132,6 +132,7 @@ let localOffset = 0;
 let connectedPeers = [];
 let isOperator = false;
 let deviceCounter = 0; // Host-side counter for unique device names
+const peerLabels = {}; // Key: PeerID, Value: "DEVICE X"
 let isIntentionalDisconnect = false;
 let isConnecting = false;
 
@@ -2668,46 +2669,62 @@ async function initNetwork() {
     try {
         let turnConfig = { username: "", credential: "" };
 
-        try {
-            // 1. 배달원에게 설정값 요청 (Netlify Function 호출)
-            const response = await fetch('/.netlify/functions/get-turn-config');
+        // 1. 로컬/프라이빗 네트워크 감지
+        const hostname = window.location.hostname;
+        const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hostname) ||
+            hostname.startsWith('192.168.') ||
+            hostname.startsWith('10.') ||
+            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
 
-            // [로컬 환경 대응] response.ok 확인 및 Content-Type 체크로 HTML(404) 파싱 방지
-            if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
-                turnConfig = await response.json();
-                console.log("TURN 설정 로드 완료 (Netlify)");
-            } else {
-                console.warn("Netlify Function 사용 불가 - 로컬 환경 또는 미설정 상태로 초기화합니다. (STUN 전용)");
+        if (!isLocal) {
+            try {
+                // 배달원에게 설정값 요청 (Netlify Function 호출)
+                const response = await fetch('/.netlify/functions/get-turn-config');
+
+                if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
+                    turnConfig = await response.json();
+                    console.log("TURN 설정 로드 완료 (Netlify)");
+                } else {
+                    console.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
+                }
+            } catch (fetchErr) {
+                console.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
             }
-        } catch (fetchErr) {
-            console.warn("네트워크 설정 요청 중 오류 (개발 환경인 경우 정상):", fetchErr.message);
+        } else {
+            console.log("[Network] Local/Private environment detected - skipping TURN configuration.");
         }
 
         // 2. 받아온 설정으로 옵션 만들기
+        const iceServers = [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun.relay.metered.ca:80" }
+        ];
+
+        // 로컬이 아니고 TURN 설정이 있는 경우에만 TURN 서버 추가
+        if (!isLocal && turnConfig.username && turnConfig.credential) {
+            iceServers.push(
+                {
+                    urls: "turn:standard.relay.metered.ca:443",
+                    username: turnConfig.username,
+                    credential: turnConfig.credential
+                },
+                {
+                    urls: "turn:standard.relay.metered.ca:443?transport=tcp",
+                    username: turnConfig.username,
+                    credential: turnConfig.credential
+                },
+                {
+                    urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+                    username: turnConfig.username,
+                    credential: turnConfig.credential
+                }
+            );
+        }
+
         const peerOpts = {
             debug: 2,
             config: {
-                iceServers: [
-                    { urls: "stun:stun.l.google.com:19302" },
-                    {
-                        urls: "stun:stun.relay.metered.ca:80",
-                    },
-                    {
-                        urls: "turn:standard.relay.metered.ca:443",
-                        username: turnConfig.username,
-                        credential: turnConfig.credential
-                    },
-                    {
-                        urls: "turn:standard.relay.metered.ca:443?transport=tcp",
-                        username: turnConfig.username,
-                        credential: turnConfig.credential
-                    },
-                    {
-                        urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-                        username: turnConfig.username,
-                        credential: turnConfig.credential
-                    }
-                ],
+                iceServers: iceServers,
                 bundlePolicy: 'max-bundle',
                 sdpSemantics: 'unified-plan',
                 iceTransportPolicy: 'all',
@@ -2896,8 +2913,19 @@ function setupPeerEvents() {
         }
 
         conn.on('open', () => {
-            deviceCounter++;
-            const deviceName = `DEVICE ${deviceCounter} `;
+            let deviceName;
+
+            // 1. Label Memory 확인: 이전에 접속했던 기기인가?
+            if (peerLabels[conn.peer]) {
+                deviceName = peerLabels[conn.peer];
+                console.log(`[Network] Re-connection detected: ${deviceName} (${conn.peer})`);
+            } else {
+                // 2. 신규 기기라면 카운터 증가 및 저장
+                deviceCounter++;
+                deviceName = `DEVICE ${deviceCounter} `; // 뒤에 공백 유지
+                peerLabels[conn.peer] = deviceName;
+            }
+
             const peerObj = {
                 id: conn.peer,
                 label: deviceName,
@@ -5408,10 +5436,10 @@ async function unicastFile(conn, file, startChunkIndex = 0) {
 
     try {
         for (let i = startChunkIndex; i < total; i++) {
-            // Check connection is still open
+            // 1. 연결 상태 확인 (Stricter check)
             if (!conn.open) {
-                console.error("[Unicast] Connection closed mid-transfer at chunk", i);
-                return;
+                console.warn(`[Unicast] Connection closed at chunk ${i}/${total}. Aborting.`);
+                return; // Silent abort
             }
 
             // Safe buffered amount check with fallback
@@ -5429,7 +5457,6 @@ async function unicastFile(conn, file, startChunkIndex = 0) {
                     });
                 }
             } catch (bufferErr) {
-                // dataChannel might not be available, continue anyway
                 console.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
             }
 
@@ -5440,24 +5467,31 @@ async function unicastFile(conn, file, startChunkIndex = 0) {
             const chunkBuf = await chunkBlob.arrayBuffer();
             const chunk = new Uint8Array(chunkBuf);
 
-            conn.send({ type: 'file-chunk', chunk: chunk, index: i });
+            // 2. Individual try-catch for sending to prevent crash
+            try {
+                conn.send({ type: 'file-chunk', chunk: chunk, index: i });
+            } catch (sendErr) {
+                console.warn(`[Unicast] Send failed at chunk ${i}:`, sendErr);
+                return; // Stop immediately as recovery will be requested later
+            }
 
-            // Throttle: Pause every 50 chunks (increased from 10 for better speed)
+            // Throttle: Pause every 50 chunks
             if (i % 50 === 0) {
                 await new Promise(r => setTimeout(r, 10));
-                // Log progress occasionally
                 if (i % 100 === 0) {
                     console.log(`[Unicast] Progress: ${i}/${total} chunks`);
                 }
             }
         }
 
-        conn.send({ type: 'file-end', name: file.name, mime: file.type });
-        console.log("[Unicast] Transfer complete:", file.name);
+        // Final message safety
+        if (conn.open) {
+            conn.send({ type: 'file-end', name: file.name, mime: file.type });
+            console.log("[Unicast] Transfer complete:", file.name);
+        }
 
     } catch (e) {
         console.error("[Unicast] Transfer error:", e);
-        showToast("파일 전송 중 오류 발생");
     }
 }
 

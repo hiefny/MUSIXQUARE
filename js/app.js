@@ -262,26 +262,54 @@ let masterVolume = 1.0;
 let currentMediaObjectURL = null;
 
 const BlobURLManager = {
+    _activeURL: null,
+    _pendingRevocations: new Set(),
+
     /**
-     * Create and track a new Blob URL for active playback.
-     * Revokes any previous active URL.
+     * Create a new Blob URL and handle the transition from the previous one.
+     * The previous URL is scheduled for delayed revocation to prevent ERR_FILE_NOT_FOUND.
      */
     create: function (blob) {
-        this.revoke();
         if (!blob) return null;
-        currentMediaObjectURL = URL.createObjectURL(blob);
-        console.log(`[BlobURL] Created: ${currentMediaObjectURL}`);
-        return currentMediaObjectURL;
+
+        // Schedule previous URL for delayed revocation
+        if (this._activeURL) {
+            this.safeRevoke(this._activeURL);
+        }
+
+        this._activeURL = URL.createObjectURL(blob);
+        console.log(`[BlobURL] Created: ${this._activeURL}`);
+        return this._activeURL;
     },
 
     /**
-     * Revoke the current active Blob URL.
+     * Schedule a specific URL for revocation after a safety delay.
+     */
+    safeRevoke: function (url) {
+        if (!url || this._pendingRevocations.has(url)) return;
+
+        this._pendingRevocations.add(url);
+        console.log(`[BlobURL] Scheduled for revocation (10s): ${url}`);
+
+        setTimeout(() => {
+            try {
+                URL.revokeObjectURL(url);
+                this._pendingRevocations.delete(url);
+                if (this._activeURL === url) this._activeURL = null;
+                console.log(`[BlobURL] Successfully revoked: ${url}`);
+            } catch (e) {
+                console.warn(`[BlobURL] Revocation failed for ${url}:`, e);
+            }
+        }, 10000); // 10 second safety margin for decoding/fetching
+    },
+
+    /**
+     * Helper to revoke the currently active URL (delayed).
+     * Typically called when stopping playback or clearing state.
      */
     revoke: function () {
-        if (currentMediaObjectURL) {
-            console.log(`[BlobURL] Revoking: ${currentMediaObjectURL}`);
-            URL.revokeObjectURL(currentMediaObjectURL);
-            currentMediaObjectURL = null;
+        if (this._activeURL) {
+            this.safeRevoke(this._activeURL);
         }
     }
 };
@@ -4262,35 +4290,31 @@ async function handleFileChunk(data) {
         } else {
             // --- BUFFER MODE ---
             blob.arrayBuffer().then(buf => {
-                // Fix: Ensure we have a valid AudioContext (Tone.js wrapper)
                 const ctx = Tone.context.rawContext;
                 return ctx.decodeAudioData(buf);
             }).then(decoded => {
                 buffer = decoded;
-                currentState = APP_STATE.PLAYING_AUDIO; // Explicitly ensure video mode is off for small audio
+                currentState = APP_STATE.PLAYING_AUDIO;
                 document.body.classList.remove('mode-video');
                 videoElement.style.display = 'none';
 
                 document.getElementById('seek-slider').max = buffer.duration;
                 document.getElementById('seek-slider').value = 0;
                 document.getElementById('time-dur').innerText = fmtTime(buffer.duration);
-                // Guest receives file -> Enable only if Operator
                 document.getElementById('play-btn').disabled = !isOperator;
                 if (Tone.context.state === 'suspended') Tone.context.resume();
 
                 showLoader(false);
-                if (chunkWatchdog) clearInterval(chunkWatchdog); // Stop watchdog
+                if (chunkWatchdog) clearInterval(chunkWatchdog);
                 pausedAt = 0;
                 updatePlayState(false);
                 showToast("재생 준비 완료");
 
-                // Auto-sync after file load (1 second delay to avoid storm)
                 setTimeout(() => {
                     console.log("[Guest] Auto-sync after buffer file load");
                     syncReset();
                 }, 1000);
 
-                // Execute pending play command if any
                 if (window._pendingPlayTime !== undefined) {
                     console.log("[Guest] Executing pending play after download");
                     const target = window._pendingPlayTime + localOffset;
@@ -4303,6 +4327,8 @@ async function handleFileChunk(data) {
                 showLoader(false);
                 showToast("오디오 디코딩 실패: 지원하지 않는 형식이거나 손상됨");
                 transferState = TRANSFER_STATE.IDLE;
+                // [FIX] Reset state to idle to prevent "No media source" on play
+                currentState = APP_STATE.IDLE;
             });
         }
     }
@@ -5783,12 +5809,15 @@ async function loadPreloadedTrack() {
             }
 
         } else {
+            // --- Decode Mode (RAM Buffer) ---
             try {
                 const tempBuffer = new Tone.Buffer();
+                console.log(`[AudioEngine] Loading Tone.Buffer from ${url}...`);
                 await tempBuffer.load(url);
                 buffer = tempBuffer;
 
-                URL.revokeObjectURL(url);
+                // [FIX] No longer revoking here; let BlobURLManager.create() or clearPreviousTrackState()
+                // handle it via safeRevoke(10s) to guarantee no race conditions.
 
                 currentState = APP_STATE.PLAYING_AUDIO;
                 document.body.classList.remove('mode-video');
@@ -5797,6 +5826,7 @@ async function loadPreloadedTrack() {
                 updateUISlider(buffer.duration);
             } catch (err) {
                 console.error("Audio Decode Error:", err);
+                showToast("오디오를 로드하는 중 오류가 발생했습니다.");
                 return;
             }
         }

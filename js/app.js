@@ -6864,72 +6864,46 @@ function stopYouTubeMode() {
     if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
     if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
 
-}
-
-const container = document.getElementById('youtube-player-container');
-if (container) {
-    container.innerHTML = '';
-}
-
-const videoEl = document.getElementById('main-video');
-if (videoEl) {
-    videoEl.pause();
-    videoEl.src = '';
-    videoEl.style.display = 'none';
-}
-
-const fsBtn = document.querySelector('.fullscreen-btn');
-if (fsBtn) {
-    fsBtn.style.removeProperty('display');
-    fsBtn.style.display = '';
-}
-
-updateChatYouTube(false);
-
-console.log("[YouTube] Mode stopped, visualizer restored");
-updatePlaylistUI();
-
-if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-    const item = playlist[currentTrackIndex];
-    if (item.type !== 'youtube') {
-        const displayName = item.file?.name || item.name || 'Unknown';
-        updateTitleWithMarquee(displayName);
-        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
+    if (youtubePlayer) {
+        try {
+            console.log("[YouTube] Destroying player instance...");
+            youtubePlayer.stopVideo();
+            youtubePlayer.destroy();
+        } catch (e) { }
+        youtubePlayer = null;
     }
-}
-}
 
-const container = document.getElementById('youtube-player-container');
-if (container) {
-    container.innerHTML = '';
-}
-
-const videoEl = document.getElementById('main-video');
-if (videoEl) {
-    videoEl.pause();
-    videoEl.src = '';
-    videoEl.style.display = 'none';
-}
-
-const fsBtn = document.querySelector('.fullscreen-btn');
-if (fsBtn) {
-    fsBtn.style.removeProperty('display');
-    fsBtn.style.display = '';
-}
-
-updateChatYouTube(false);
-
-console.log("[YouTube] Mode stopped, visualizer restored");
-updatePlaylistUI();
-
-if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-    const item = playlist[currentTrackIndex];
-    if (item.type !== 'youtube') {
-        const displayName = item.file?.name || item.name || 'Unknown';
-        updateTitleWithMarquee(displayName);
-        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
+    const container = document.getElementById('youtube-player-container');
+    if (container) {
+        container.innerHTML = '';
     }
-}
+
+    const videoEl = document.getElementById('main-video');
+    if (videoEl) {
+        videoEl.pause();
+        videoEl.src = '';
+        videoEl.style.display = 'none';
+    }
+
+    const fsBtn = document.querySelector('.fullscreen-btn');
+    if (fsBtn) {
+        fsBtn.style.removeProperty('display');
+        fsBtn.style.display = '';
+    }
+
+    updateChatYouTube(false);
+
+    console.log("[YouTube] Mode stopped, visualizer restored");
+    updatePlaylistUI();
+
+    if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
+        const item = playlist[currentTrackIndex];
+        if (item.type !== 'youtube') {
+            const displayName = item.file?.name || item.name || 'Unknown';
+            updateTitleWithMarquee(displayName);
+            document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
+        }
+    }
 }
 
 window.openMediaSourcePopup = openMediaSourcePopup;

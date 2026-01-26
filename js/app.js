@@ -563,7 +563,7 @@ function finalizeFileProcessing(file) {
     const isVideoBlob = file.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
     const shouldBeVideoMode = isVideoBlob;
 
-    console.log(`[Main] Finalizing processing from Worker-OPFS.`);
+    console.log(`[Main] Finalizing processing from Worker-OPFS. VideoMode: ${shouldBeVideoMode}`);
 
     setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
 
@@ -606,23 +606,7 @@ function finalizeFileProcessing(file) {
     transferState = TRANSFER_STATE.READY;
 }
 
-function checkVideoSync() {
-    if (currentState !== APP_STATE.IDLE && (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) && videoElement && !videoElement.paused && videoElement.readyState >= 3) {
-        // [HOST GUARD] Host in native video bypass mode should NOT sync to Tone.js clock.
-        // The video element itself is the master clock on the host.
-        if (!hostConn && currentState === APP_STATE.PLAYING_VIDEO) return;
-
-        // [Latency Compensation V3 for Video]
-        // Sync Video to Audio Time (Tone.now based startedAt)
-        const t = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
-        const diff = videoElement.currentTime - t;
-
-        if (Math.abs(diff) > 0.3) {
-            console.log(`[VideoSync] Correcting drift: ${diff.toFixed(3)}s (Target: ${t.toFixed(3)}s)`);
-            videoElement.currentTime = t;
-        }
-    }
-}
+// function checkVideoSync() { ... } [REMOVED POLLING]
 
 
 // --- Theme Logic ---
@@ -1831,7 +1815,7 @@ async function play(offset) {
     pausedAt = offset;
 
     startVisualizer();
-    timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 500 });
+    // timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 50 }); [REMOVED POLLING]
     loopUI();
 }
 
@@ -4652,7 +4636,7 @@ async function handleStatusSync(data) {
             const isOurPreload = preloadFileOpfs.name && (preloadMeta && (preloadMeta.index === hostTrackIndex || preloadMeta.name === item.name));
 
             // If it's a new track and we don't have it, ask for it
-            if (!hasBuffer && !hasBlob && (meta && meta.name !== item.name)) {
+            if (!hasBlob && ((!meta || meta.name !== item.name))) {
                 if (isOurPreload) {
                     console.log("[Sync] Track is being preloaded. Waiting for completion...");
                     showLoader(true, `파일 동기화 중: ${item.name}`);

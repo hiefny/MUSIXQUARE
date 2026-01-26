@@ -226,6 +226,30 @@ let startedAt = 0;
 
 let animationId;
 let isSeeking = false;
+
+// ✅ 새로 추가: 타이머 중앙 관리 객체
+const managedTimers = {
+    chunkWatchdog: null,
+    prepareWatchdog: null,
+    autoPlayTimer: null,
+    syncDebounce: null,
+    relayWaitTimeout: null,
+    preloadWatchdog: null
+};
+
+// ✅ 새로 추가: 타이머 정리 헬퍼 함수
+function clearManagedTimer(name) {
+    if (managedTimers[name]) {
+        clearTimeout(managedTimers[name]);
+        clearInterval(managedTimers[name]);
+        managedTimers[name] = null;
+    }
+}
+
+function clearAllManagedTimers() {
+    Object.keys(managedTimers).forEach(clearManagedTimer);
+}
+
 let channelMode = 0; // 0=Stereo, -1=Left, 1=Right, 2=Sub
 let isSurroundMode = false; // New 7.1 Mode
 let surroundChannelIndex = -1; // 0..7
@@ -338,6 +362,11 @@ let upstreamDataConn = null; // Connection to receive file chunks from (Host or 
 let downstreamDataPeers = []; // Peers I need to forward file chunks to
 const MAX_DIRECT_DATA_PEERS = 2; // Host sends data to max 2 people directly
 
+// [SECTION] RELAY MANAGEMENT - Queue & Back-pressure
+let relayChunkQueue = [];
+let isRelaying = false;
+const MAX_BUFFER_THRESHOLD = 65536; // 64KB
+
 // ============================================================================
 // [SECTION] CONSTANTS
 // ============================================================================
@@ -350,7 +379,6 @@ const WATCHDOG_TIMEOUT = 12000; // 12 seconds for chunk watchdog
 // ============================================================================
 // [SECTION] FILE TRANSFER STATE
 // ============================================================================
-let chunkWatchdog = null, prepareWatchdog = null;
 let lastChunkTime = 0;
 const TRANSFER_STATE = {
     IDLE: 'IDLE',
@@ -378,7 +406,6 @@ let playlist = [];
 let currentTrackIndex = -1;
 let repeatMode = 0;
 let isShuffle = false;
-let autoPlayTimer = null;  // Track 3-second auto-play timer
 let isFirstTrackLoad = true;  // Track if this is the first file load
 
 // ============================================================================
@@ -405,6 +432,8 @@ initNetwork();
 let preloadCount = 0;
 let preloadMeta = null;
 let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest side
+// ✅ 추가: 세션 기반 상태 관리
+const preloadSessionState = new Map(); // sessionId -> { skipped, progress, total }
 
 // OPFS Helper coordination (now handled by worker)
 function cleanupOPFSInWorker(filename, isPreload) {
@@ -439,57 +468,73 @@ function clearPreloadState() {
 
 // --- Worker for Background Timers (Blob URL for file:// support) ---
 // --- Worker for Background Timers and High-Performance OPFS Writes ---
-const timerWorker = new Worker('js/worker.js');
+const timerWorker = new Worker('worker.js');
+
+timerWorker.onerror = (e) => {
+    console.error("Worker Error: ", e.message);
+    showToast("워커 로드 실패! HTTPS 환경인지 확인하세요.");
+};
 
 timerWorker.onmessage = async (e) => {
-    const data = e.data;
-    if (data.type === 'TICK') {
-        const id = data.id;
-        if (id === 'heartbeat') {
-            if (hostConn && hostConn.open) hostConn.send({ type: 'heartbeat' });
-        } else if (id === 'ping') {
-            if (hostConn && hostConn.open) hostConn.send({ type: 'ping-latency', timestamp: Date.now() });
-        } else if (id === 'video-sync') {
-            checkVideoSync();
-        }
-    }
-    else if (data.type === 'OPFS_FILE_READY') {
-        console.log(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
-
-        // Re-retrieve file handle in main thread to get the File object
-        // (Handles are serialized shared state in some browsers, 
-        // but getting a fresh one from root is always safe)
-        const root = await navigator.storage.getDirectory();
-        const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_');
-        const fileHandle = await root.getFileHandle(safeName);
-        const file = await fileHandle.getFile();
-
-        if (data.isPreload) {
-            nextFileBlob = file;
-            nextMeta = preloadMeta;
-            nextTrackIndex = preloadMeta.index;
-
-            if (hostConn && hostConn.open) {
-                hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
+    try {
+        const data = e.data;
+        if (data.type === 'TICK') {
+            const id = data.id;
+            if (id === 'heartbeat') {
+                if (hostConn && hostConn.open) hostConn.send({ type: 'heartbeat' });
+            } else if (id === 'ping') {
+                if (hostConn && hostConn.open) hostConn.send({ type: 'ping-latency', timestamp: Date.now() });
+            } else if (id === 'video-sync') {
+                checkVideoSync();
             }
-
-            if (window._waitingForPreload && window._pendingFileIndex === nextTrackIndex) {
-                console.log("[Worker-OPFS] Guest was waiting for this track. Playing now.");
-                window._waitingForPreload = false;
-                showLoader(false);
-                loadPreloadedTrack();
-            }
-        } else {
-            // Check session ID if available (data.sessionId)
-            currentFileBlob = file;
-            window._waitingForRelayData = false;
-            finalizeFileProcessing(file);
         }
+        else if (data.type === 'OPFS_FILE_READY') {
+            console.log(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
+
+            // Re-retrieve file handle in main thread to get the File object
+            // (Handles are serialized shared state in some browsers, 
+            // but getting a fresh one from root is always safe)
+            const root = await navigator.storage.getDirectory();
+            const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_');
+            const fileHandle = await root.getFileHandle(safeName);
+            const file = await fileHandle.getFile();
+
+            if (data.isPreload) {
+                nextFileBlob = file;
+                nextMeta = preloadMeta;
+                nextTrackIndex = preloadMeta.index;
+
+                if (hostConn && hostConn.open) {
+                    hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
+                }
+
+                if (window._waitingForPreload && window._pendingFileIndex === nextTrackIndex) {
+                    console.log("[Worker-OPFS] Guest was waiting for this track. Playing now.");
+                    window._waitingForPreload = false;
+                    showLoader(false);
+                    loadPreloadedTrack();
+                }
+            } else {
+                // Check session ID if available (data.sessionId)
+                currentFileBlob = file;
+                window._waitingForRelayData = false;
+                finalizeFileProcessing(file);
+            }
+        }
+        else if (data.type === 'OPFS_ERROR') {
+            console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
+            showToast(`파일 저장 오류: ${data.filename}`);
+        }
+    } catch (err) {
+        console.error('[Worker Message] Processing error:', err);
+        showToast('워커 메시지 처리 중 오류');
     }
-    else if (data.type === 'OPFS_ERROR') {
-        console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
-        showToast(`파일 저장 오류: ${data.filename}`);
-    }
+};
+
+// ✅ 추가: 에러 핸들러
+timerWorker.onerror = (err) => {
+    console.error('[Worker Error]', err.message, err.filename, err.lineno);
+    showToast('백그라운드 작업 오류 발생');
 };
 
 /**
@@ -1192,10 +1237,7 @@ async function playTrack(index) {
     if (index < 0 || index >= playlist.length) return;
 
     // FIX: Clear existing autoplay timer to prevent audio overlap
-    if (autoPlayTimer) {
-        clearTimeout(autoPlayTimer);
-        autoPlayTimer = null;
-    }
+    clearManagedTimer('autoPlayTimer');
 
     // Auto-switch to Play tab when starting a track (Host only)
     if (!hostConn) switchTab('play');
@@ -1269,8 +1311,8 @@ async function playTrack(index) {
                 // Load first (paused), then auto-play after 3s
                 loadYouTubeVideo(item.videoId, item.playlistId, false);
                 showToast("3초 후 YouTube 재생...");
-                autoPlayTimer = setTimeout(() => {
-                    autoPlayTimer = null;
+                managedTimers.autoPlayTimer = setTimeout(() => {
+                    managedTimers.autoPlayTimer = null;
                     if (youtubePlayer && youtubePlayer.playVideo) {
                         youtubePlayer.playVideo();
                         // Broadcast play state sync
@@ -3555,13 +3597,78 @@ function showConnectionFailedOverlay(message) {
     document.getElementById('role-text').innerText = "연결 실패";
 }
 
-function leaveSession() {
-    if (confirm("모임에서 나가시겠습니까?")) {
-        isIntentionalDisconnect = true;
-        if (hostConn) hostConn.close();
-        // Reload without query parameters to become fresh Host
-        window.location.href = window.location.pathname;
+async function leaveSession() {
+    clearAllManagedTimers();
+    if (hostConn) {
+        showToast("Host만 실행할 수 있습니다.");
+        return;
     }
+
+    if (peer) {
+        peer.destroy();
+        peer = null;
+    }
+
+    if (hostConn) {
+        hostConn.close();
+        hostConn = null;
+    }
+
+    connectedPeers.forEach(p => p.conn.close());
+    connectedPeers = [];
+    downstreamDataPeers = [];
+
+    stopAllMedia();
+    resetUI();
+    showToast("세션 종료됨");
+    updateDeviceList();
+    updatePlaylistUI();
+    updateTitleWithMarquee("Welcome");
+    document.getElementById('track-artist').innerText = "No Track Loaded";
+    document.getElementById('play-btn').disabled = true;
+    document.getElementById('seek-slider').disabled = true;
+    document.getElementById('seek-slider').value = 0;
+    document.getElementById('time-curr').innerText = "00:00";
+    document.getElementById('time-dur').innerText = "00:00";
+    document.getElementById('my-id').innerText = '...';
+    document.getElementById('join-id-input').value = '';
+    document.getElementById('join-btn').disabled = false;
+    document.getElementById('create-btn').disabled = false;
+    document.getElementById('host-controls').style.display = 'none';
+    document.getElementById('guest-controls').style.display = 'none';
+    document.getElementById('player-controls').style.display = 'none';
+    document.getElementById('player-info').style.display = 'none';
+    document.getElementById('main-video').style.display = 'none';
+    document.getElementById('visualizer').style.display = 'block';
+    document.getElementById('chat-drawer').classList.remove('open');
+    document.getElementById('chat-preview-badge').classList.remove('show');
+    document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">채팅이 없습니다.</div>';
+    unreadChatCount = 0;
+    lastChatSender = '';
+    lastChatText = '';
+    isChatDrawerOpen = false;
+    currentTrackIndex = -1;
+    playlist = [];
+    meta = null;
+    currentFileBlob = null;
+    nextFileBlob = null;
+    preloadMeta = null;
+    receivedCount = 0;
+    incomingChunks = [];
+    localOffset = 0;
+    autoSyncOffset = 0;
+    currentYouTubeSubIndex = -1;
+    youtubeSubItemsMap = {};
+    currentTransferSessionId = 0;
+    window._activeBroadcastSession = null;
+    window._pendingFileName = null;
+    window._pendingFileIndex = null;
+    window._ytIOSWatchdog = null;
+    window._ytScriptLoading = false;
+    window.isYouTubeAPIReady = false;
+    if (window.BlobURLManager) BlobURLManager.clear();
+    setState(APP_STATE.IDLE);
+    console.log("Session left.");
 }
 
 // --- Data Handling ---
@@ -3634,36 +3741,33 @@ async function detectConnectionType() {
 function clearPreviousTrackState(reason = '') {
     console.log(`[State Clear] Clearing previous track state. Reason: ${reason}`);
 
-    // Stop chunk/prepare watchdogs if running
-    if (chunkWatchdog) {
-        clearInterval(chunkWatchdog);
-        chunkWatchdog = null;
-    }
-    if (prepareWatchdog) {
-        clearTimeout(prepareWatchdog);
-        prepareWatchdog = null;
-    }
+    // Stop timers (중앙화된 타이머 사용)
+    clearManagedTimer('chunkWatchdog');
+    clearManagedTimer('prepareWatchdog');
 
-    // Clear incoming file state (explicit null for GC before reassign)
-    incomingChunks = null; // [FIX #2] Force GC eligibility for large arrays
-    incomingChunks = [];
+    // ✅ 강화: 명시적 null 할당으로 GC 유도
+    if (incomingChunks && incomingChunks.length > 1000) {
+        console.log(`[GC] Releasing large chunk array (${incomingChunks.length} items)`);
+    }
+    incomingChunks = null; // GC 대상으로 만들기
+    incomingChunks = []; // 새 빈 배열
+
     receivedCount = 0;
-    meta = null; // Use null for GC
 
-    // Clear cached blob (CRITICAL: prevents serving stale data to late joiners)
+    // ✅ 개선: meta도 명시적 해제
+    if (meta) {
+        meta = null;
+    }
+    meta = {};
+
     currentFileBlob = null;
 
-    // Reset skip and guard flags
     window._skipIncomingFile = false;
     _isProcessingBlob = false;
-
-    // [FIX] Clear early chunks buffer to prevent data mixing
     window._pendingEarlyChunks = [];
 
-    // [FIX] Revoke active Blob URL when clearing track state
     BlobURLManager.revoke();
 
-    // Reset Video Element for safety
     if (videoElement) {
         videoElement.pause();
         videoElement.src = '';
@@ -3677,7 +3781,6 @@ function clearPreviousTrackState(reason = '') {
 // --- Data Message Handlers ---
 async function handleFilePrepare(data) {
     // Check if we already have this track preloaded!
-    // Match by index OR by filename
     const hasPreloadedByIndex = nextMeta && data.index !== undefined && data.index === nextMeta.index;
     const hasPreloadedByName = nextMeta && data.name && data.name === nextMeta.name;
 
@@ -3793,9 +3896,9 @@ async function handleFilePrepare(data) {
     } // Close the else block from isResuming check
 
     // FIX 5: Prepare Watchdog (Prevent Infinite Preparing...)
-    if (prepareWatchdog) clearTimeout(prepareWatchdog);
-    prepareWatchdog = setTimeout(() => {
-        if (!meta || meta.name !== data.name || receivedCount === 0) {
+    // Set fallback watchdog: If no chunks arrive within 12 seconds, something failed
+    managedTimers.prepareWatchdog = setTimeout(() => {
+        if (transferState === TRANSFER_STATE.IDLE || receivedCount === 0) {
             console.warn("[Prepare Watchdog] Timeout waiting for data start!");
             showToast("준비 지연 중... Host 복구 요청");
 
@@ -3845,7 +3948,7 @@ async function handleFileStart(data) {
     }
 
     // Clear Prepare Watchdog as we've started receiving
-    if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
+    clearManagedTimer('prepareWatchdog');
 
     // [FIX] Always reset processing guard at file-start to prevent stuck loader
     // This is safe because file-start means we're (re)starting the transfer
@@ -3855,7 +3958,7 @@ async function handleFileStart(data) {
     if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
         cleanupOPFSInWorker(currentFileOpfs.name, false);
     }
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
     currentFileOpfs.name = data.name;
 
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
@@ -3889,7 +3992,7 @@ async function handleFileStart(data) {
 
             // Resume with Worker (keepExistingData is default for OPFS_START if we handle logic there, 
             // but Worker implementation above creates fresh. Let's send START to ensure handles are open)
-            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
         }
         // Update meta but don't touch receivedCount
         meta = data;
@@ -3900,7 +4003,7 @@ async function handleFileStart(data) {
         showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
 
         // [OPFS-Worker] Start
-        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
         currentFileOpfs.name = data.name;
 
         incomingChunks = []; // Clear in-memory array
@@ -3929,15 +4032,15 @@ async function handleFileStart(data) {
     updateTitleWithMarquee(data.name);
 
     // Watchdog Start
-    if (chunkWatchdog) clearInterval(chunkWatchdog);
+    clearManagedTimer('chunkWatchdog');
     lastChunkTime = Date.now();
-    chunkWatchdog = setInterval(() => {
+    managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
         const isMetaInvalid = !meta || !meta.total;
 
         if (timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
             // Timeout or Invalid State!
-            clearInterval(chunkWatchdog);
+            clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
 
             // Detach bad relay info if present (so we show 'Host' in UI next time)
@@ -3984,13 +4087,13 @@ async function handleFileResume(data) {
     }
 
     // Clear Prepare Watchdog
-    if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
+    clearManagedTimer('prepareWatchdog');
 
     // RESUME TRANSFER
     window._skipIncomingFile = false;
 
     // [OPFS-Worker] Resume
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false });
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, keepExisting: true });
     currentFileOpfs.name = data.name;
 
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
@@ -4039,11 +4142,25 @@ async function handleFileResume(data) {
 }
 
 async function handleFileChunk(data) {
-    // [FIX] Session ID Validation
     const incomingSid = data.sessionId || 0;
-    if (incomingSid !== localTransferSessionId) {
-        // Silently ignore stale chunks except for debugging
-        if (data.index === 0) console.warn(`[Chunk] Stale session chunk ignored: ${incomingSid}`);
+
+    // ✅ 새 세션 감지 시 워커 리셋
+    if (incomingSid > localTransferSessionId) {
+        console.log(`[Chunk] New session detected: ${localTransferSessionId} → ${incomingSid}`);
+        localTransferSessionId = incomingSid;
+
+        // Worker 버퍼 명시적 클리어
+        timerWorker.postMessage({
+            command: 'OPFS_RESET',
+            isPreload: false
+        });
+
+        // 기존 상태 초기화
+        clearPreviousTrackState('session-change');
+    }
+
+    if (incomingSid < localTransferSessionId) {
+        if (data.index === 0) console.warn(`[Chunk] Stale session ignored: ${incomingSid}`);
         return;
     }
 
@@ -4068,6 +4185,12 @@ async function handleFileChunk(data) {
     const isValidIndex = idx >= 0 &&
         (!meta || !meta.total || idx < meta.total);
 
+    // [FIX] Prepare relay copy BEFORE sending chunkCopy to worker (to avoid detachment)
+    let relayCopy = null;
+    if (downstreamDataPeers.length > 0) {
+        relayCopy = new Uint8Array(chunkCopy);
+    }
+
     if (isValidIndex) {
         // [Worker-OPFS] Offload write
         timerWorker.postMessage({
@@ -4087,12 +4210,10 @@ async function handleFileChunk(data) {
     lastChunkTime = Date.now();
 
 
-    // RELAY LOGIC: Forward COPY to downstream WITH INDEX
-    if (downstreamDataPeers.length > 0) {
-        const fwdMsg = { type: 'file-chunk', chunk: chunkCopy, index: idx };
-        downstreamDataPeers.forEach(p => {
-            if (p.open) p.send(fwdMsg);
-        });
+    // RELAY LOGIC: Queue and Process (with Back-pressure)
+    if (relayCopy && downstreamDataPeers.length > 0) {
+        relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: idx });
+        processRelayQueue();
     }
 
     // Calculate percent with safety check
@@ -4145,8 +4266,8 @@ async function handleFileWait(data) {
     window._waitingForRelayData = true;
 
     // Set timeout: If no data comes within 10 seconds, fall back to Host
-    if (window._relayWaitTimeout) clearTimeout(window._relayWaitTimeout);
-    window._relayWaitTimeout = setTimeout(() => {
+    clearManagedTimer('relayWaitTimeout');
+    managedTimers.relayWaitTimeout = setTimeout(() => {
         if (window._waitingForRelayData && receivedCount === 0) {
             console.log("[Guest] Relay wait timeout - falling back to Host");
             showToast("릴레이 응답 없음. Host에서 직접 수신...");
@@ -4259,7 +4380,7 @@ async function handleYouTubePlay(data) {
 }
 
 async function handlePreloadStart(data) {
-    if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
+    clearManagedTimer('prepareWatchdog');
 
     // [Fix] Reliability: Match cache by Index OR Name (Fallback to currentTrackIndex)
     const matchIndex = (idx) => Number(idx) === Number(data.index);
@@ -4269,11 +4390,15 @@ async function handlePreloadStart(data) {
     const isNextPreloaded = nextFileBlob && (matchIndex(nextMeta?.index) || matchName(nextMeta?.name));
     const alreadyCachedLocally = isCurrentlyPlaying || isNextPreloaded;
 
+    const sessionId = data.sessionId || 0;
+
     // Skip if Host explicitly said so, or if we detected cache ourselves
     if (data.skipped || alreadyCachedLocally) {
-        console.log(`[Preload] Skipping download for ${data.name} - Already cached (Host Skip: ${!!data.skipped}, Local: ${alreadyCachedLocally})`);
+        console.log(`[Preload] Skipping session ${sessionId}`);
 
-        // Mark this session as a skip in current state to suppress warnings later
+        // ✅ 세션별 상태 저장
+        preloadSessionState.set(sessionId, { skipped: true });
+
         preloadChunks = [];
         preloadCount = 0;
         preloadMeta = { ...data, isSkipped: true };
@@ -4295,10 +4420,17 @@ async function handlePreloadStart(data) {
         return;
     }
 
+    // ✅ 세션 상태 초기화
+    preloadSessionState.set(sessionId, {
+        skipped: false,
+        progress: 0,
+        total: data.total
+    });
+
     console.log(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
 
     // [OPFS-Worker] Prepare preload file
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true });
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true, size: CHUNK_SIZE });
     preloadFileOpfs.name = data.name;
 
     preloadChunks = [];
@@ -4312,10 +4444,24 @@ async function handlePreloadStart(data) {
 }
 
 async function handlePreloadChunk(data) {
+    const sessionId = data.sessionId || 0;
+
+    // ✅ 세션 상태 확인
+    const sessionState = preloadSessionState.get(sessionId);
+    if (sessionState?.skipped) {
+        return; // 스킵된 세션의 청크 무시
+    }
+
     if (window._skipIncomingPreload) return;
 
     const idx = data.index;
     const chunkCopy = new Uint8Array(data.chunk);
+
+    // [FIX] Clone chunk for downstream BEFORE sending to worker (to avoid detachment)
+    let fwdMsg = null;
+    if (downstreamDataPeers.length > 0) {
+        fwdMsg = { type: 'preload-chunk', chunk: new Uint8Array(chunkCopy), index: idx };
+    }
 
     // [Worker-OPFS] Offload write
     timerWorker.postMessage({
@@ -4326,8 +4472,12 @@ async function handlePreloadChunk(data) {
     }, [chunkCopy.buffer]);
     preloadCount++;
 
-    if (downstreamDataPeers.length > 0) {
-        const fwdMsg = { type: 'preload-chunk', chunk: chunkCopy, index: idx };
+    // ✅ 진행률 업데이트
+    if (sessionState) {
+        sessionState.progress = preloadCount;
+    }
+
+    if (fwdMsg && downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(fwdMsg); });
     }
 
@@ -4932,17 +5082,15 @@ function handleAutoSync() {
 }
 
 // Tap Sync Logic
-let syncDebounceTimer = null;
 
 function nudgeSync(ms) {
-    const sec = ms / 1000;
-    localOffset += sec;
+    autoSyncOffset += (ms / 1000);
     updateSyncDisplay();
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             const currentTime = youtubePlayer.getCurrentTime();
-            youtubePlayer.seekTo(currentTime + sec, true);
+            youtubePlayer.seekTo(currentTime + (ms / 1000), true);
             showToast(`YouTube Sync: ${ms > 0 ? '+' : ''}${ms}ms`);
         } catch (e) {
             console.error("[YouTube] Nudge sync error:", e);
@@ -4951,16 +5099,14 @@ function nudgeSync(ms) {
         return;
     }
 
-    if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
-
-    syncDebounceTimer = setTimeout(() => {
+    // Debounce: Only broadcast after user stops nudging
+    clearManagedTimer('syncDebounce');
+    managedTimers.syncDebounce = setTimeout(() => {
         if (currentState !== APP_STATE.IDLE) {
             play(Tone.now() - startedAt);
             showToast("Sync Applied");
         }
     }, 300);
-
-    if (navigator.vibrate) navigator.vibrate(5);
 }
 
 function resetTotalSync() {
@@ -5145,17 +5291,15 @@ window.toggleOperator = function (peerId) {
 
 function handleOperatorRequest(data) {
     if (data.type === 'request-play') {
-        if (autoPlayTimer) {
-            clearTimeout(autoPlayTimer);
-            autoPlayTimer = null;
+        if (managedTimers.autoPlayTimer) {
+            clearManagedTimer('autoPlayTimer');
             showToast("자동 재생 취소됨 (OP)");
         }
         play(data.time);
         broadcast({ type: 'play', time: data.time });
     } else if (data.type === 'request-pause') {
-        if (autoPlayTimer) {
-            clearTimeout(autoPlayTimer);
-            autoPlayTimer = null;
+        if (managedTimers.autoPlayTimer) {
+            clearManagedTimer('autoPlayTimer');
         }
         pause();
         broadcast({ type: 'pause' });
@@ -6066,6 +6210,15 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
             window._ytScriptLoading = true;
             const tag = document.createElement('script');
             tag.src = 'https://www.youtube.com/iframe_api';
+
+            // ✅ 추가: YouTube API 로딩 에러 핸들링
+            tag.onload = () => console.log('[YouTube] API script loaded');
+            tag.onerror = () => {
+                console.error('[YouTube] Failed to load API script');
+                window._ytScriptLoading = false;
+                showToast('YouTube API 로드 실패. 인터넷 연결 확인!');
+            };
+
             document.head.appendChild(tag);
         }
         window.onYouTubeIframeAPIReady = () => {
@@ -6155,13 +6308,13 @@ function onYouTubePlayerReady(event) {
         return;
     }
 
-    if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
-    window.youtubeUILoop = setInterval(updateYouTubeUI, 500);
+    if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
+    managedTimers.youtubeUILoop = setInterval(updateYouTubeUI, 500);
 
     // [FIX] Ensure ONLY Host runs the sync loop
-    if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
+    if (managedTimers.youtubeSyncLoop) clearInterval(managedTimers.youtubeSyncLoop);
     if (!hostConn) {
-        window.youtubeSyncLoop = setInterval(broadcastYouTubeSync, 3000);
+        managedTimers.youtubeSyncLoop = setInterval(broadcastYouTubeSync, 3000);
     } else {
         console.log("[YouTube] Guest mode: sync loop disabled");
     }
@@ -6432,8 +6585,8 @@ function stopYouTubeMode() {
         setState(APP_STATE.IDLE);
     }
 
-    if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
-    if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
+    if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
+    if (managedTimers.youtubeSyncLoop) clearInterval(managedTimers.youtubeSyncLoop);
 
     if (youtubePlayer) {
         try {
@@ -6571,103 +6724,49 @@ document.getElementById('seek-slider').addEventListener('input', function () {
     }
 });
 
-const originalSkipTime = window.skipTime;
-window.skipTime = function (seconds) {
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        try {
-            const currentTime = youtubePlayer.getCurrentTime();
-            const newTime = Math.max(0, currentTime + seconds);
-            youtubePlayer.seekTo(newTime, true);
+// --- Relay Queue Processor (Back-pressure Control) ---
+async function processRelayQueue() {
+    if (isRelaying) return;
+    isRelaying = true;
 
-            if (!hostConn) {
-                broadcast({ type: 'youtube-sync', time: newTime, state: youtubePlayer.getPlayerState() });
+    while (relayChunkQueue.length > 0) {
+        const openPeers = downstreamDataPeers.filter(p => p.open);
+        if (openPeers.length === 0) {
+            relayChunkQueue = []; // No downstream peers, clear queue
+            break;
+        }
+
+        // Check back-pressure: find slowest peer's bufferedAmount
+        let maxBuffered = 0;
+        openPeers.forEach(p => {
+            // PeerJS DataConnection holds the underlying RTCDataChannel in 'dataChannel'
+            const dc = p.dataChannel;
+            if (dc && dc.bufferedAmount > maxBuffered) {
+                maxBuffered = dc.bufferedAmount;
             }
-        } catch (e) {
-            console.error("[YouTube] Skip error:", e);
-        }
-        return;
-    }
-
-    if (originalSkipTime) originalSkipTime(seconds);
-};
-
-const DEMO_VIDEO_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
-
-async function loadDemoMedia() {
-    if (hostConn) {
-        showToast("Host만 실행할 수 있습니다.");
-        return;
-    }
-
-    if (!confirm("시연 영상(Tears of Steel, ~15MB)을 다운로드하고 재생하시겠습니까?\n(데이터 요금이 부과될 수 있습니다)")) {
-        return;
-    }
-
-    const toastMsg = "곧 시연 영상과 음성이 재생됩니다.\n\"설정 탭\"에서 본인의 기기 역할을 설정해주세요!";
-    broadcast({ type: 'sys-toast', message: toastMsg });
-    showToast(toastMsg);
-
-    try {
-        showLoader(true, "Demo 다운로드 중...");
-
-        const response = await fetch(DEMO_VIDEO_URL);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-        const contentLength = +response.headers.get('Content-Length');
-        if (!contentLength) {
-            showLoader(true, "다운로드 중... (크기 알 수 없음)");
-        }
-
-        const reader = response.body.getReader();
-        let receivedLength = 0;
-        let chunks = [];
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            chunks.push(value);
-            receivedLength += value.length;
-
-            if (contentLength) {
-                const percent = Math.floor((receivedLength / contentLength) * 100);
-                const loaderText = document.getElementById('loader-text');
-                if (loaderText) loaderText.innerText = `Demo 다운로드 중... ${percent}%`;
-                if (typeof updateLoader === 'function') updateLoader(percent);
-            }
-        }
-
-        const blob = new Blob(chunks, { type: 'video/mp4' });
-        const file = new File([blob], "Tears_of_Steel_Demo.mp4", { type: "video/mp4" });
-
-        showLoader(true, "플레이리스트 추가 중...");
-
-        playlist.push({
-            type: 'local',
-            file: file,
-            name: file.name
-        });
-        updatePlaylistUI();
-
-        broadcast({
-            type: 'playlist-update',
-            list: playlist.map(item => ({
-                type: item.type || 'local',
-                name: item.name || item.file?.name || 'Unknown',
-                videoId: item.videoId || null,
-                playlistId: item.playlistId || null
-            }))
         });
 
-        playTrack(playlist.length - 1);
-        showLoader(false);
+        if (maxBuffered > MAX_BUFFER_THRESHOLD) {
+            // Buffer too high, wait 50ms and check again
+            await new Promise(resolve => setTimeout(resolve, 50));
+            continue;
+        }
 
-    } catch (e) {
-        console.error("[Demo] 로드 실패:", e);
-        showLoader(false);
-        showToast("Demo 로드 실패: " + e.message);
+        // Buffer safe, send one chunk from queue
+        const fwdMsg = relayChunkQueue.shift();
+        if (fwdMsg) {
+            openPeers.forEach(p => {
+                try {
+                    p.send(fwdMsg);
+                } catch (e) {
+                    console.error("[Relay] Send failed:", e);
+                }
+            });
+        }
     }
+
+    isRelaying = false;
 }
 
-window.loadDemoMedia = loadDemoMedia;
+// End of Script
 

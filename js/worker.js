@@ -2,10 +2,9 @@
 // Handles background timers and OPFS writes to prevent UI throttling
 
 const timers = {};
-
 // OPFS State inside Worker (Optimization: Use SyncAccessHandle)
-let currentFileOpfs = { handle: null, accessHandle: null, name: null };
-let preloadFileOpfs = { handle: null, accessHandle: null, name: null };
+let currentFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
+let preloadFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
 
 self.onmessage = async function (e) {
     const data = e.data;
@@ -29,8 +28,9 @@ self.onmessage = async function (e) {
 
     // --- OPFS Commands (Optimized with SyncAccessHandle) ---
     else if (command === 'OPFS_START') {
-        const { filename, isPreload } = data;
+        const { filename, isPreload, size } = data;
         const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+        if (size) opfsObj.chunkSize = size;
 
         try {
             // Cleanup previous if same type
@@ -38,14 +38,19 @@ self.onmessage = async function (e) {
                 opfsObj.accessHandle.close();
                 opfsObj.accessHandle = null;
             }
+            if (opfsObj.handle) {
+                opfsObj.handle = null; // ✅ 추가: handle 참조 해제
+            }
 
             const root = await navigator.storage.getDirectory();
             const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
 
-            // Delete existing file before start for fresh write
-            try {
-                await root.removeEntry(safeName);
-            } catch (e) { }
+            // Delete existing file before start for fresh write unless keepExisting is true
+            if (!data.keepExisting) {
+                try {
+                    await root.removeEntry(safeName);
+                } catch (e) { }
+            }
 
             opfsObj.handle = await root.getFileHandle(safeName, { create: true });
 
@@ -66,9 +71,9 @@ self.onmessage = async function (e) {
 
         if (opfsObj.accessHandle) {
             try {
-                // CHUNK size is 16384 (16KB)
+                // CHUNK size is dynamic (default 16384)
                 // Synchronous write in worker!
-                opfsObj.accessHandle.write(chunk, { at: index * 16384 });
+                opfsObj.accessHandle.write(chunk, { at: index * opfsObj.chunkSize });
                 // Optional: Use flush() sparingly or only at END for maximum speed
                 // opfsObj.accessHandle.flush(); 
             } catch (e) {
@@ -100,13 +105,44 @@ self.onmessage = async function (e) {
             }
         }
     }
+    else if (command === 'OPFS_RESET') {
+        const { isPreload } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        try {
+            if (opfsObj.accessHandle) {
+                opfsObj.accessHandle.close();
+                opfsObj.accessHandle = null;
+            }
+            if (opfsObj.handle) {
+                opfsObj.handle = null;
+            }
+            opfsObj.name = null;
+
+            console.log(`[Worker] Reset ${isPreload ? 'preload' : 'current'} OPFS state`);
+            self.postMessage({ type: 'OPFS_RESET_COMPLETE', isPreload });
+        } catch (e) {
+            console.error('[Worker] Reset failed:', e);
+        }
+    }
     else if (command === 'OPFS_CLEANUP') {
         const { filename, isPreload } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        // ✅ 사용 중인 파일은 정리하지 않음
+        if (opfsObj.accessHandle && opfsObj.name === filename) {
+            console.warn(`[Worker] Cannot cleanup ${filename} - still in use`);
+            return;
+        }
+
+        const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
+
         try {
             const root = await navigator.storage.getDirectory();
-            const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
             await root.removeEntry(safeName);
             console.log(`[Worker OPFS] Cleaned up: ${safeName}`);
-        } catch (e) { }
+        } catch (e) {
+            console.warn(`[Worker OPFS] Cleanup failed for ${safeName}:`, e);
+        }
     }
 };

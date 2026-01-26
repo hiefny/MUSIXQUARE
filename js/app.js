@@ -548,12 +548,9 @@ timerWorker.onerror = (err) => {
     showToast('백그라운드 작업 오류 발생');
 };
 
-/**
- * [HELPER] Finishes processing after OPFS file is ready
- */
 function finalizeFileProcessing(file) {
-    if (transferState === TRANSFER_STATE.PROCESSING) return; // Prevent double trigger
-    transferState = TRANSFER_STATE.PROCESSING;
+    // This is called when OPFS_FILE_READY comes back from worker.
+    // transferState was set to PROCESSING by handleFileChunk to prevent concurrent finishers.
 
     const isVideoBlob = file.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
     const shouldBeVideoMode = isVideoBlob;

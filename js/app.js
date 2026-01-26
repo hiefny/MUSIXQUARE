@@ -468,7 +468,7 @@ function clearPreloadState() {
 
 // --- Worker for Background Timers (Blob URL for file:// support) ---
 // --- Worker for Background Timers and High-Performance OPFS Writes ---
-const timerWorker = new Worker('worker.js');
+const timerWorker = new Worker('js/worker.js');
 
 timerWorker.onerror = (e) => {
     console.error("Worker Error: ", e.message);
@@ -1344,8 +1344,8 @@ async function playTrack(index) {
             showToast("파일 준비 완료! 재생 버튼을 눌러주세요.");
         } else {
             showToast("3초 후 재생 시작...");
-            autoPlayTimer = setTimeout(() => {
-                autoPlayTimer = null;
+            managedTimers.autoPlayTimer = setTimeout(() => {
+                managedTimers.autoPlayTimer = null;
                 play(0);
                 broadcast({ type: 'play', time: 0 });
             }, 3000);
@@ -1893,9 +1893,8 @@ function stopAllMedia() {
 
     // Clear any pending triggers
     window._pendingPlayTime = undefined;
-    if (autoPlayTimer) {
-        clearTimeout(autoPlayTimer);
-        autoPlayTimer = null;
+    if (managedTimers.autoPlayTimer) {
+        clearManagedTimer('autoPlayTimer');
     }
 
     setState(APP_STATE.IDLE, { skipCleanup: true });
@@ -1983,9 +1982,8 @@ function togglePlay() {
     const isActuallyPlaying = (videoElement && !videoElement.paused);
 
     // Cancel pending auto-play timer if host manually controls playback
-    if (!hostConn && autoPlayTimer) {
-        clearTimeout(autoPlayTimer);
-        autoPlayTimer = null;
+    if (!hostConn && managedTimers.autoPlayTimer) {
+        clearManagedTimer('autoPlayTimer');
         showToast("자동 재생 취소됨");
     }
 
@@ -4711,9 +4709,8 @@ async function handleWelcome(data) {
 }
 
 async function handlePlay(data) {
-    if (autoPlayTimer) {
-        clearTimeout(autoPlayTimer);
-        autoPlayTimer = null;
+    if (managedTimers.autoPlayTimer) {
+        clearManagedTimer('autoPlayTimer');
     }
 
     // [StrongSync] Index Check

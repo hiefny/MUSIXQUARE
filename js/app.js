@@ -1615,11 +1615,18 @@ async function loadAndBroadcastFile(file) {
                     console.log("[Host] Audio Extracted:", wavFile.name, wavFile.size);
                     showToast("오디오 변환 완료! 전송 시작...");
 
+                    // [FIX] Update currentFileBlob and playlist reference so Guests receive WAV
+                    currentFileBlob = wavFile;
+                    if (playlist[currentTrackIndex]) {
+                        playlist[currentTrackIndex].file = wavFile;
+                    }
+
                     // Broadcast the WAV file instead of the huge video
                     await broadcastFile(wavFile);
                 } catch (e) {
                     console.error("Audio Extraction Failed", e);
                     showToast("오디오 추출 실패. 원본 전송 시도...");
+                    currentFileBlob = file; // Fallback
                     await broadcastFile(file);
                 }
             } else {
@@ -3148,8 +3155,12 @@ function setupPeerEvents() {
         if (existingIdx !== -1) {
             console.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
             const oldPeer = connectedPeers[existingIdx];
-            if (oldPeer.conn) {
-                try { oldPeer.conn.close(); } catch (e) { }
+            if (oldPeer.conn && oldPeer.conn.open) {
+                try {
+                    // [FIX] Tag this closure so Guest doesn't auto-retry redundant connection
+                    oldPeer.conn.send({ type: 'force-close-duplicate' });
+                    oldPeer.conn.close();
+                } catch (e) { }
             }
             connectedPeers.splice(existingIdx, 1);
         }
@@ -3569,6 +3580,12 @@ function joinSession(retryAttempt = 0) {
         timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
 
         if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
+            // [FIX] If we are already in joinSession (isConnecting=true), don't trigger another one
+            if (isConnecting) {
+                console.log("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
+                return;
+            }
+
             isConnecting = false;
             console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
             showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
@@ -5532,9 +5549,13 @@ async function broadcastFile(file) {
     const eligiblePeers = getEligiblePeers();
 
     if (eligiblePeers.length === 0) {
-        console.log("[broadcastFile] All peers have preload, skipping file transfer");
+        console.log("[broadcastFile] All peers have preload or no peers, skipping file transfer");
         return;
     }
+
+    // [FIX] Session Guard: Prevent double-broadcast of the same file/session
+    if (window._activeBroadcastSession === sessionId) return;
+    window._activeBroadcastSession = sessionId;
 
     console.log(`[broadcastFile] Sending to ${eligiblePeers.length} peers (${connectedPeers.filter(p => p.status === 'connected').length - eligiblePeers.length} skipped due to preload)`);
 

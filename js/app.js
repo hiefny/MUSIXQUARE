@@ -140,8 +140,8 @@ function cleanupState(oldState) {
             if (videoElement) {
                 videoElement.pause();
             }
-            // Clear Blob URL on transition away from streaming modes
-            BlobURLManager.revoke();
+            // [Fix] Don't revoke URL here! It kills the visible source during sync/pause.
+            // Revocation is moved to clearPreviousTrackState.
             break;
 
         case APP_STATE.PLAYING_YOUTUBE:
@@ -569,6 +569,9 @@ function finalizeFileProcessing(file) {
 
     const url = BlobURLManager.create(file);
     videoElement.src = url;
+
+    // [New] Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
+    currentFileBlob = file;
 
     videoElement.onloadedmetadata = () => {
         document.getElementById('seek-slider').max = videoElement.duration;
@@ -1808,7 +1811,9 @@ async function play(offset) {
     }
 
     if (currentState !== APP_STATE.PLAYING_VIDEO) {
-        setState(APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
+        // [New] If current source is video, try to stay in PLAYING_VIDEO mode
+        const isVideo = currentFileBlob && (currentFileBlob.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name)));
+        setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
     }
 
     startedAt = Tone.now() - offset + (localOffset + autoSyncOffset);
@@ -3763,6 +3768,8 @@ function clearPreviousTrackState(reason = '') {
         videoElement.src = '';
         videoElement.load();
     }
+    // [New] Explicitly revoke Blob URL when clearing track state
+    BlobURLManager.revoke();
 
     // [New] Physically delete the OLD current file from OPFS when switching tracks
     if (currentFileOpfs.name) {

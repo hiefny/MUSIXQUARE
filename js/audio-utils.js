@@ -1,77 +1,15 @@
 // audio-utils.js
 // Handles Audio Extraction and WAV Encoding (Multi-channel support)
 
-/**
- * Extracts audio from a Video/Audio File and returns a WAV Blob.
- * 
- * @param {File} file - The source video or audio file.
- * @returns {Promise<Blob>} - A Promise resolving to a WAV Blob.
- */
+/* 
+// [STABILIZATION] Disabled to prevent mobile memory crashes (decodeAudioData)
 async function extractAudioToWav(file) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            console.log(`[AudioUtils] Starting extraction: ${file.name} (${file.type})`);
-
-            // 1. Read File to ArrayBuffer
-            const arrayBuffer = await file.arrayBuffer();
-
-            // 2. Decode Audio Data using OfflineContext (or standard Context)
-            // We use a temporary context to decode.
-            // Note: webkitAudioContext fallback not usually needed for modern decodeAudioData, 
-            // but standard 'AudioContext' is best.
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-            console.log(`[AudioUtils] Decoded: ${audioBuffer.numberOfChannels}ch, ${audioBuffer.sampleRate}Hz, ${audioBuffer.duration}s`);
-
-            // 3. Encode to WAV
-            const wavBlob = audioBufferToWav(audioBuffer);
-
-            // Clean up context if possible (close to save memory)
-            if (ctx.state !== 'closed') ctx.close();
-
-            // preserve original name but change extension
-            const originalName = file.name;
-            const newName = originalName.substring(0, originalName.lastIndexOf('.')) + ".wav";
-
-            // Return with metadata
-            // We attach a custom property 'name' to Blob if needed, but File constructor is better.
-            const wavFile = new File([wavBlob], newName, { type: "audio/wav" });
-
-            resolve(wavFile);
-
-        } catch (e) {
-            console.error("[AudioUtils] Extraction Failed:", e);
-            reject(e);
-        }
-    });
+    ...
 }
-
-/**
- * Encodes an AudioBuffer to a WAV format Blob.
- * Supports arbitrary channel counts (Mono, Stereo, 5.1, 7.1 etc.)
- * 
- * Reference logic adapted from standard WAV encoding practices.
- */
 function audioBufferToWav(buffer, opt) {
-    opt = opt || {};
-    const numChannels = buffer.numberOfChannels;
-    const sampleRate = buffer.sampleRate;
-    const format = opt.float32 ? 3 : 1; // 3 = IEEE Float, 1 = PCM
-    const bitDepth = format === 3 ? 32 : 16;
-
-    let result;
-    if (numChannels === 2) {
-        result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
-    } else if (numChannels === 1) {
-        result = buffer.getChannelData(0);
-    } else {
-        // Multi-channel Interleaving
-        result = interleaveMulti(buffer);
-    }
-
-    return encodeWAV(result, numChannels, sampleRate, format, bitDepth);
+    ...
 }
+*/
 
 function interleave(inputL, inputR) {
     const length = inputL.length + inputR.length;

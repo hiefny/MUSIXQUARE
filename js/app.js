@@ -480,7 +480,7 @@ timerWorker.onmessage = (e) => {
 };
 
 function checkVideoSync() {
-    if (currentState !== APP_STATE.IDLE && (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) && videoElement && !videoElement.paused) {
+    if (currentState !== APP_STATE.IDLE && (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) && videoElement && !videoElement.paused && videoElement.readyState >= 3) {
         // [HOST GUARD] Host in native video bypass mode should NOT sync to Tone.js clock.
         // The video element itself is the master clock on the host.
         if (!hostConn && currentState === APP_STATE.PLAYING_VIDEO) return;
@@ -1445,8 +1445,13 @@ function playNextTrack() {
 
     if (repeatMode === 2) {
         nextIndex = currentTrackIndex;
-    } else if (isShuffle) {
-        nextIndex = Math.floor(Math.random() * playlist.length);
+    } else if (isShuffle && playlist.length > 1) {
+        // [FIX] Prevent infinite loop and immediate repeats in Shuffle
+        do {
+            nextIndex = Math.floor(Math.random() * playlist.length);
+        } while (nextIndex === currentTrackIndex);
+    } else if (isShuffle && playlist.length === 1) {
+        nextIndex = 0;
     } else {
         nextIndex = currentTrackIndex + 1;
         if (nextIndex >= playlist.length) {
@@ -1611,6 +1616,11 @@ async function loadAndBroadcastFile(file) {
                 await new Promise(r => setTimeout(r, 100));
 
                 try {
+                    // [FIX] Mark as extracting to prevent late-joining Guests from receiving the huge MP4
+                    if (playlist[currentTrackIndex]) {
+                        playlist[currentTrackIndex]._isExtracting = true;
+                    }
+
                     const wavFile = await extractAudioToWav(file);
                     console.log("[Host] Audio Extracted:", wavFile.name, wavFile.size);
                     showToast("오디오 변환 완료! 전송 시작...");
@@ -1619,13 +1629,29 @@ async function loadAndBroadcastFile(file) {
                     currentFileBlob = wavFile;
                     if (playlist[currentTrackIndex]) {
                         playlist[currentTrackIndex].file = wavFile;
+                        playlist[currentTrackIndex]._isExtracting = false; // Clear guard
                     }
+
+                    // [FIX] Update global meta to reflect the NEW extracted file so late-comers get correct info
+                    const CHUNK = 16384;
+                    const total = Math.ceil(wavFile.size / CHUNK);
+                    meta = {
+                        type: 'file-start',
+                        name: wavFile.name,
+                        mime: wavFile.type,
+                        total: total,
+                        size: wavFile.size,
+                        index: currentTrackIndex
+                    };
 
                     // Broadcast the WAV file instead of the huge video
                     await broadcastFile(wavFile);
                 } catch (e) {
                     console.error("Audio Extraction Failed", e);
                     showToast("오디오 추출 실패. 원본 전송 시도...");
+                    if (playlist[currentTrackIndex]) {
+                        playlist[currentTrackIndex]._isExtracting = false;
+                    }
                     currentFileBlob = file; // Fallback
                     await broadcastFile(file);
                 }
@@ -3286,15 +3312,18 @@ function setupPeerEvents() {
 
             broadcastDeviceList();
 
-            if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
-                const item = playlist[currentTrackIndex];
-                if (item.type !== 'youtube') {
-                    conn.send({ type: 'file-prepare', name: item.name, index: currentTrackIndex });
-                }
+            if (item.type !== 'youtube') {
+                conn.send({ type: 'file-prepare', name: item.name, index: currentTrackIndex });
+            }
 
-                if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file) {
-                    unicastFile(conn, playlist[currentTrackIndex].file);
-                }
+            // [FIX] Late Joiner Media Guard:
+            // If Host is still extracting audio from a video, do NOT send the MP4 file yet.
+            // The guest will receive the WAV file automatically when broadcastFile(wavFile) is called later.
+            if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file && !playlist[currentTrackIndex]?._isExtracting) {
+                unicastFile(conn, playlist[currentTrackIndex].file);
+            } else if (playlist[currentTrackIndex]?._isExtracting) {
+                console.log(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
+                conn.send({ type: 'file-wait', message: '오디오 추출 중... 잠시만 기다려주세요.' });
             }
 
             // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
@@ -3734,7 +3763,7 @@ function clearPreviousTrackState(reason = '') {
     incomingChunks = null; // [FIX #2] Force GC eligibility for large arrays
     incomingChunks = [];
     receivedCount = 0;
-    meta = {};
+    meta = null; // Use null for GC
 
     // Clear cached blob (CRITICAL: prevents serving stale data to late joiners)
     currentFileBlob = null;
@@ -3878,13 +3907,20 @@ async function handleFilePrepare(data) {
                 const recoveryFileName = window._pendingFileName || '';
                 const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
 
-                console.log("[Prepare Watchdog Recovery] Requesting from Host:", recoveryFileName);
-                hostConn.send({
-                    type: 'request-data-recovery',
-                    nextChunk: 0,
-                    fileName: recoveryFileName,
-                    index: recoveryIndex
-                });
+                // [FIX] Consistent Jitter
+                const jitter = Math.random() * 1000 + 200;
+                console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
+                setTimeout(() => {
+                    if (hostConn && hostConn.open && (!buffer && !currentFileBlob)) {
+                        console.log("[Prepare Watchdog Recovery] Requesting from Host:", recoveryFileName);
+                        hostConn.send({
+                            type: 'request-data-recovery',
+                            nextChunk: 0,
+                            fileName: recoveryFileName,
+                            index: recoveryIndex
+                        });
+                    }
+                }, jitter);
             }
         }
     }, 15000); // 15s safety timer
@@ -4326,12 +4362,16 @@ async function handleFileChunk(data) {
             pausedAt = 0;
             updatePlayState(false);
             showToast("재생 준비 완료");
-            transferState = TRANSFER_STATE.READY;
-
             // Auto-sync after file load (1 second delay to avoid storm)
             setTimeout(() => {
                 console.log("[Guest] Auto-sync after streaming file load");
-                syncReset();
+                // [FIX] Correct time drift for Late Joiners
+                if (hostConn && hostConn.open) {
+                    console.log("[LateJoiner] Requesting fresh sync time from host...");
+                    hostConn.send({ type: 'get-sync-time' });
+                } else {
+                    syncReset();
+                }
             }, 1000);
 
             // Execute pending play command if any (streaming mode)
@@ -4341,6 +4381,11 @@ async function handleFileChunk(data) {
                 play(target);
                 window._pendingPlayTime = undefined;
             }
+
+            // [FIX] CRITICAL: Clear buffers to prevent re-entrance loops if duplicate chunks arrive
+            incomingChunks = [];
+            receivedCount = 0;
+            transferState = TRANSFER_STATE.READY;
 
         } else {
             // --- BUFFER MODE ---
@@ -4371,7 +4416,13 @@ async function handleFileChunk(data) {
 
                 setTimeout(() => {
                     console.log("[Guest] Auto-sync after buffer file load");
-                    syncReset();
+                    // [FIX] Correct time drift for Late Joiners
+                    if (hostConn && hostConn.open) {
+                        console.log("[LateJoiner] Requesting fresh sync time from host...");
+                        hostConn.send({ type: 'get-sync-time' });
+                    } else {
+                        syncReset();
+                    }
                 }, 1000);
 
                 if (window._pendingPlayTime !== undefined) {
@@ -4380,8 +4431,17 @@ async function handleFileChunk(data) {
                     play(target);
                     window._pendingPlayTime = undefined;
                 }
+
+                // [FIX] CRITICAL: Clear buffers to prevent re-entrance loops if duplicate chunks arrive
+                incomingChunks = [];
+                receivedCount = 0;
                 transferState = TRANSFER_STATE.READY;
             }).catch(err => {
+                // [FIX] Guard: Do not proceed if state changed to YouTube or other track during decoding
+                if (processingFileName !== (meta ? meta.name : '')) {
+                    console.warn("[Decode] State mismatch, discarding results");
+                    return;
+                }
                 console.error("Decoding Fail:", err);
                 showLoader(false);
                 showToast("오디오 디코딩 실패: 지원하지 않는 형식이거나 손상됨");
@@ -4725,13 +4785,20 @@ async function handlePlayPreloaded(data) {
             upstreamDataConn.send({ type: 'request-current-file' });
             showToast("릴레이에 파일 요청 중...");
         } else if (hostConn && hostConn.open) {
-            console.log("[Guest] Requesting file from Host:", trackName, "index:", data.index);
-            hostConn.send({
-                type: 'request-data-recovery',
-                nextChunk: 0,
-                fileName: trackName,
-                index: data.index
-            });
+            // [FIX] Consistent Jitter for fallback request
+            const jitter = Math.random() * 1000 + 200;
+            console.log(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
+            setTimeout(() => {
+                if (hostConn && hostConn.open && !nextFileBlob) {
+                    console.log("[Guest] Requesting file from Host:", trackName, "index:", data.index);
+                    hostConn.send({
+                        type: 'request-data-recovery',
+                        nextChunk: 0,
+                        fileName: trackName,
+                        index: data.index
+                    });
+                }
+            }, jitter);
             showToast("Host에 파일 요청 중...");
         } else {
             showToast("Host 연결 끊김 - 파일을 받을 수 없습니다");
@@ -4792,12 +4859,19 @@ async function handleStatusSync(data) {
                 if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
 
                 if (hostConn && hostConn.open) {
-                    hostConn.send({
-                        type: 'request-data-recovery',
-                        nextChunk: 0,
-                        fileName: item.name,
-                        index: hostTrackIndex
-                    });
+                    // [FIX] DDoS Mitigation: Add random delay for late joiners
+                    const jitter = Math.random() * 1000 + 200;
+                    console.log(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
+                    setTimeout(() => {
+                        if (currentTrackIndex === hostTrackIndex && (!buffer && !currentFileBlob)) {
+                            hostConn.send({
+                                type: 'request-data-recovery',
+                                nextChunk: 0,
+                                fileName: item.name,
+                                index: hostTrackIndex
+                            });
+                        }
+                    }, jitter);
                 }
             }
         } else if (item && item.type === 'youtube') {
@@ -5055,16 +5129,33 @@ const handlers = {
     'preload-end': handlePreloadEnd,
     'play-preloaded': handlePlayPreloaded,
     'status-sync': handleStatusSync,
+    'get-sync-time': handleGetSyncTime,
 };
 
-async function handleData(data) {
+async function handleGetSyncTime(data, conn) {
+    if (hostConn) return; // Guest ignores this
+    if (conn && conn.open) {
+        const t = getTrackPosition();
+        const isPlaying = (currentState !== APP_STATE.IDLE &&
+            (currentState === APP_STATE.PLAYING_AUDIO ? (player && player.state === 'started') : (videoElement && !videoElement.paused)));
+
+        conn.send({
+            type: 'sync-response',
+            time: t,
+            isPlaying: isPlaying
+        });
+        console.log(`[Host] Sent fresh sync time (${t.toFixed(2)}s) to peer ${conn.peer.substr(-4)}`);
+    }
+}
+
+async function handleData(data, conn) {
     // [Security] Generic validation for all messages
     if (!validateMessage(data, [])) return;
 
     const handler = handlers[data.type];
     if (handler) {
         try {
-            await handler(data);
+            await handler(data, conn);
         } catch (e) {
             console.error(`Error handling ${data.type}:`, e);
         }
@@ -6434,6 +6525,11 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
 }
 
 function initYouTubePlayer(videoId, playlistId = null, autoplay = true, subIndex = 0) {
+    // [FIX] Safety Guard: Ensure we are still in YouTube mode when player initializes
+    if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+        console.warn("[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state");
+        return;
+    }
     if (youtubePlayer && youtubePlayer.loadVideoById) {
         console.log("[YouTube] Re-using existing player instance");
         try {
@@ -6760,47 +6856,80 @@ function handleYouTubeSubTitleUpdate(data) {
 }
 
 function stopYouTubeMode() {
-    setState(APP_STATE.IDLE);
+    // [FIX] Avoid IDLE state if we are transitioning TO another state
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+        setState(APP_STATE.IDLE);
+    }
 
     if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
     if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
 
-    if (youtubePlayer) {
-        try { youtubePlayer.destroy(); } catch (e) { }
-        youtubePlayer = null;
+}
+
+const container = document.getElementById('youtube-player-container');
+if (container) {
+    container.innerHTML = '';
+}
+
+const videoEl = document.getElementById('main-video');
+if (videoEl) {
+    videoEl.pause();
+    videoEl.src = '';
+    videoEl.style.display = 'none';
+}
+
+const fsBtn = document.querySelector('.fullscreen-btn');
+if (fsBtn) {
+    fsBtn.style.removeProperty('display');
+    fsBtn.style.display = '';
+}
+
+updateChatYouTube(false);
+
+console.log("[YouTube] Mode stopped, visualizer restored");
+updatePlaylistUI();
+
+if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
+    const item = playlist[currentTrackIndex];
+    if (item.type !== 'youtube') {
+        const displayName = item.file?.name || item.name || 'Unknown';
+        updateTitleWithMarquee(displayName);
+        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
     }
+}
+}
 
-    const container = document.getElementById('youtube-player-container');
-    if (container) {
-        container.innerHTML = '';
+const container = document.getElementById('youtube-player-container');
+if (container) {
+    container.innerHTML = '';
+}
+
+const videoEl = document.getElementById('main-video');
+if (videoEl) {
+    videoEl.pause();
+    videoEl.src = '';
+    videoEl.style.display = 'none';
+}
+
+const fsBtn = document.querySelector('.fullscreen-btn');
+if (fsBtn) {
+    fsBtn.style.removeProperty('display');
+    fsBtn.style.display = '';
+}
+
+updateChatYouTube(false);
+
+console.log("[YouTube] Mode stopped, visualizer restored");
+updatePlaylistUI();
+
+if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
+    const item = playlist[currentTrackIndex];
+    if (item.type !== 'youtube') {
+        const displayName = item.file?.name || item.name || 'Unknown';
+        updateTitleWithMarquee(displayName);
+        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
     }
-
-    const videoEl = document.getElementById('main-video');
-    if (videoEl) {
-        videoEl.pause();
-        videoEl.src = '';
-        videoEl.style.display = 'none';
-    }
-
-    const fsBtn = document.querySelector('.fullscreen-btn');
-    if (fsBtn) {
-        fsBtn.style.removeProperty('display');
-        fsBtn.style.display = '';
-    }
-
-    updateChatYouTube(false);
-
-    console.log("[YouTube] Mode stopped, visualizer restored");
-    updatePlaylistUI();
-
-    if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-        const item = playlist[currentTrackIndex];
-        if (item.type !== 'youtube') {
-            const displayName = item.file?.name || item.name || 'Unknown';
-            updateTitleWithMarquee(displayName);
-            document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
-        }
-    }
+}
 }
 
 window.openMediaSourcePopup = openMediaSourcePopup;

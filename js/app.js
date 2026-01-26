@@ -263,32 +263,51 @@ let currentMediaObjectURL = null;
 
 const BlobURLManager = {
     _activeURL: null,
-    _pendingRevocations: new Set(),
+    _preparingURL: null,
+    _pendingRevocations: new Map(), // URL -> Blob reference for GC protection
 
     /**
-     * Create a new Blob URL and handle the transition from the previous one.
-     * The previous URL is scheduled for delayed revocation to prevent ERR_FILE_NOT_FOUND.
+     * Create a new Blob URL in 'Preparing' state.
+     * Use confirm() to move it to 'Active' state and schedule previous URL for revocation.
      */
     create: function (blob) {
         if (!blob) return null;
 
-        // Schedule previous URL for delayed revocation
-        if (this._activeURL) {
-            this.safeRevoke(this._activeURL);
+        // If we were preparing something else that never got confirmed, safeRevoke it
+        if (this._preparingURL) {
+            this.safeRevoke(this._preparingURL, null); // No blob to keep here maybe
         }
 
-        this._activeURL = URL.createObjectURL(blob);
-        console.log(`[BlobURL] Created: ${this._activeURL}`);
-        return this._activeURL;
+        this._preparingURL = URL.createObjectURL(blob);
+        console.log(`[BlobURL] Prepared: ${this._preparingURL}`);
+        return this._preparingURL;
+    },
+
+    /**
+     * Confirm the prepared URL as the active one.
+     * This triggers the 10s delayed revocation for the OLD active URL.
+     */
+    confirm: function (blob) {
+        if (!this._preparingURL) return;
+
+        // Schedule previous ACTIVE URL for delayed revocation
+        if (this._activeURL && this._activeURL !== this._preparingURL) {
+            this.safeRevoke(this._activeURL, currentFileBlob);
+        }
+
+        this._activeURL = this._preparingURL;
+        this._preparingURL = null;
+        console.log(`[BlobURL] Confirmed Active: ${this._activeURL}`);
     },
 
     /**
      * Schedule a specific URL for revocation after a safety delay.
+     * Holds a reference to the blob to prevent GC during the delay.
      */
-    safeRevoke: function (url) {
+    safeRevoke: function (url, blob) {
         if (!url || this._pendingRevocations.has(url)) return;
 
-        this._pendingRevocations.add(url);
+        this._pendingRevocations.set(url, blob);
         console.log(`[BlobURL] Scheduled for revocation (10s): ${url}`);
 
         setTimeout(() => {
@@ -298,18 +317,18 @@ const BlobURLManager = {
                 if (this._activeURL === url) this._activeURL = null;
                 console.log(`[BlobURL] Successfully revoked: ${url}`);
             } catch (e) {
-                console.warn(`[BlobURL] Revocation failed for ${url}:`, e);
+                console.warn(`[BlobURL] Revocation failed:`, e);
             }
-        }, 10000); // 10 second safety margin for decoding/fetching
+        }, 10000);
     },
 
     /**
-     * Helper to revoke the currently active URL (delayed).
-     * Typically called when stopping playback or clearing state.
+     * Revoke the current active URL.
+     * Called by cleanupState() when stopping/resetting.
      */
     revoke: function () {
         if (this._activeURL) {
-            this.safeRevoke(this._activeURL);
+            this.safeRevoke(this._activeURL, currentFileBlob);
         }
     }
 };
@@ -1497,6 +1516,7 @@ async function loadAndBroadcastFile(file) {
 
         // [FIX] Use BlobURLManager to create and track the URL
         const url = BlobURLManager.create(file);
+        currentFileBlob = file; // [FIX] Ensure reference is updated for confirm()
 
         // Determine Mode: Large File or Video -> Streaming Mode
         // Threshold: 100MB (Arbitrary safety limit for mobile decoding)
@@ -1533,6 +1553,8 @@ async function loadAndBroadcastFile(file) {
                     sSlider.max = dur;
                     sSlider.value = 0;
                 }
+                // [FIX] Confirm URL as active once metadata is loaded
+                BlobURLManager.confirm(file);
             };
 
             videoElement.load();
@@ -1551,6 +1573,9 @@ async function loadAndBroadcastFile(file) {
             buffer = null; // Clear old buffer
             const tempBuffer = new Tone.Buffer();
             await tempBuffer.load(url);
+
+            // [FIX] Confirm URL after Tone.Buffer loading is complete
+            BlobURLManager.confirm(file);
 
             // Only assign after fully loaded
             buffer = tempBuffer;
@@ -4260,6 +4285,9 @@ async function handleFileChunk(data) {
                 document.getElementById('seek-slider').max = videoElement.duration;
                 document.getElementById('seek-slider').value = 0;
                 document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
+
+                // [FIX] Confirm URL as active once streaming metadata is loaded
+                BlobURLManager.confirm(blob);
             };
             videoElement.load();
 
@@ -4294,6 +4322,10 @@ async function handleFileChunk(data) {
                 return ctx.decodeAudioData(buf);
             }).then(decoded => {
                 buffer = decoded;
+
+                // [FIX] Confirm URL after buffer decoding is successful
+                BlobURLManager.confirm(blob);
+
                 currentState = APP_STATE.PLAYING_AUDIO;
                 document.body.classList.remove('mode-video');
                 videoElement.style.display = 'none';
@@ -5794,7 +5826,11 @@ async function loadPreloadedTrack() {
 
             try {
                 await new Promise((resolve, reject) => {
-                    videoElement.onloadedmetadata = () => resolve();
+                    videoElement.onloadedmetadata = () => {
+                        // [FIX] Confirm URL as active once metadata is loaded
+                        BlobURLManager.confirm(file);
+                        resolve();
+                    };
                     videoElement.onerror = (e) => reject("Video Load Error");
                 });
 
@@ -5818,6 +5854,7 @@ async function loadPreloadedTrack() {
 
                 // [FIX] No longer revoking here; let BlobURLManager.create() or clearPreviousTrackState()
                 // handle it via safeRevoke(10s) to guarantee no race conditions.
+                BlobURLManager.confirm(file);
 
                 currentState = APP_STATE.PLAYING_AUDIO;
                 document.body.classList.remove('mode-video');

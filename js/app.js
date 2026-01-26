@@ -452,7 +452,7 @@ function cleanupOPFSInWorker(filename, isPreload) {
     timerWorker.postMessage({ command: 'OPFS_CLEANUP', filename, isPreload });
 }
 
-// Helper: Clear all preload state (call on track change, session leave, etc.)
+// Helper: Clear metadata for upcoming preload (Host side) or current preload (Guest side)
 function clearPreloadState() {
     // Host side
     nextTrackIndex = -1;
@@ -461,19 +461,27 @@ function clearPreloadState() {
     isPreloading = false;
 
     // Guest side
-    preloadChunks = [];
     preloadCount = 0;
     preloadMeta = null;
     window._skipIncomingPreload = false;
 
-    // [OPFS-Worker] Cleanup
-    if (currentFileOpfs.name) cleanupOPFSInWorker(currentFileOpfs.name, false);
-    if (preloadFileOpfs.name) cleanupOPFSInWorker(preloadFileOpfs.name, true);
+    // We do NOT call cleanupOPFSInWorker here anymore because it was deleting files
+    // that were about to be played.
+}
 
-    currentFileOpfs.name = null;
-    preloadFileOpfs.name = null;
-
-    console.log("[Cleanup] Previous track state cleared");
+// 명시적인 OPFS 물리 파일 삭제 (정말 필요할 때만 호출)
+function forceCleanupOPFS(isPreload) {
+    if (isPreload) {
+        if (preloadFileOpfs.name) {
+            cleanupOPFSInWorker(preloadFileOpfs.name, true);
+            preloadFileOpfs.name = null;
+        }
+    } else {
+        if (currentFileOpfs.name) {
+            cleanupOPFSInWorker(currentFileOpfs.name, false);
+            currentFileOpfs.name = null;
+        }
+    }
 }
 
 
@@ -3772,6 +3780,12 @@ function clearPreviousTrackState(reason = '') {
         videoElement.load();
     }
 
+    // [New] Physically delete the OLD current file from OPFS when switching tracks
+    if (currentFileOpfs.name) {
+        cleanupOPFSInWorker(currentFileOpfs.name, false);
+        currentFileOpfs.name = null;
+    }
+
     // Note: We do NOT clear preload state here (nextFileBlob, preloadChunks, etc.)
     // Those are intentionally preserved for upcoming track switch
 }
@@ -4482,8 +4496,8 @@ async function handlePreloadChunk(data) {
     if (preloadMeta && preloadCount >= preloadMeta.total) {
         console.log("[Preload] All chunks received via Worker-OPFS. Finalizing...");
         timerWorker.postMessage({ command: 'OPFS_END', filename: preloadMeta.name, isPreload: true });
-
-        preloadCount = 0;
+        // NOTE: We do NOT reset preloadCount to 0 here because it's needed for handlePreloadEnd's check.
+        // It will be reset in clearPreloadState().
     }
 }
 
@@ -6632,6 +6646,33 @@ window.closeMediaSourcePopup = closeMediaSourcePopup;
 window.openYouTubePopup = openYouTubePopup;
 window.closeYouTubePopup = closeYouTubePopup;
 window.loadYouTubeFromInput = loadYouTubeFromInput;
+
+async function loadDemoMedia() {
+    try {
+        const response = await fetch('dummy_audio.mp3');
+        const blob = await response.blob();
+        const file = new File([blob], 'Loyal_ODESZA_Loyal.mp3', { type: 'audio/mpeg' });
+
+        meta = { name: file.name, size: file.size, type: file.type, index: 0, total: 1 };
+        playlist = [{
+            type: 'audio',
+            file: file,
+            name: file.name,
+            title: file.name
+        }];
+        updatePlaylistUI();
+
+        // Host locally processes it
+        currentFileBlob = file;
+        finalizeFileProcessing(file);
+
+        showToast("데모 미디어가 로드되었습니다.");
+    } catch (e) {
+        console.error("Demo load failed:", e);
+        showToast("데모 로드 실패");
+    }
+}
+window.loadDemoMedia = loadDemoMedia;
 
 let youtubePreviewDebounce = null;
 

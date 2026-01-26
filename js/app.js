@@ -1684,12 +1684,28 @@ function setupMediaSource() {
 
     // HOST VIDEO BYPASS: On Host, skip Tone.js routing for video
     // This enables hardware acceleration on iOS/iPadOS
-    // Guests still use Tone.js (they receive WAV, not video)
     const isHost = !hostConn;
-    if (isHost && currentState === APP_STATE.PLAYING_VIDEO) {
-        console.log("[Host] Video mode: Using native playback (Tone.js bypassed for HW acceleration)");
-        videoElement.muted = false; // Use native audio
-        // Don't create MediaElementSource - let video play natively
+    const isVideoBypass = isHost && currentState === APP_STATE.PLAYING_VIDEO;
+
+    // 1. DISCONNECT PREVIOUS (Avoid overlap and effects leak)
+    if (player) {
+        try { player.disconnect(); } catch (e) { }
+    }
+    if (mediaSourceNode) {
+        try { mediaSourceNode.disconnect(); } catch (e) { }
+    }
+
+    if (isVideoBypass) {
+        if (mediaSourceNode) {
+            // [FIX] Route through masterGain (not destination) to keep Volume & Visualizer
+            console.log("[Host] Video: Already captured, routing direct to output (Bypass FX, keep Volume/Visuals)");
+            if (masterGain) mediaSourceNode.connect(masterGain);
+            else mediaSourceNode.connect(Tone.getDestination());
+        } else {
+            // Pure native playback (Best for HW acceleration)
+            console.log("[Host] Video: Pure native playback (Tone.js untouched)");
+        }
+        videoElement.muted = false;
         return;
     }
 
@@ -1706,13 +1722,11 @@ function setupMediaSource() {
         mediaDownmixNode = new Tone.Gain(1);
         // FORCE DOWNMIX (Standard Mode): 5.1/7.1 -> Stereo
         mediaDownmixNode.channelCount = 2;
-
         mediaDownmixNode.channelInterpretation = 'speakers';
     }
 
     if (!surroundSplitter) {
         // 8 Channel Splitter for 7.1
-        // (0:L, 1:R, 2:C, 3:LFE, 4:SL, 5:SR, 6:BL, 7:BR)
         surroundSplitter = new Tone.Split(8);
     }
 
@@ -1722,9 +1736,7 @@ function setupMediaSource() {
 
     // Connect logic
     try {
-        if (player) player.disconnect();
-
-        try { mediaSourceNode.disconnect(); } catch (e) { }
+        // Disconnect branches from their internal targets before re-routing
         try { mediaDownmixNode.disconnect(); } catch (e) { }
         try { surroundSplitter.disconnect(); } catch (e) { }
         try { surroundGain.disconnect(); } catch (e) { }
@@ -2669,6 +2681,17 @@ function setVolume(val) {
     masterVolume = val;
     // Tone.Master.volume is dB. We want linear gain on masterGain node.
     if (masterGain) masterGain.gain.rampTo(masterVolume, 0.1);
+
+    // [FIX] Support YouTube Volume Integration
+    if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+        try {
+            // YouTube API expects 0-100
+            youtubePlayer.setVolume(val * 100);
+        } catch (e) {
+            console.warn("[YouTube] Failed to set volume:", e);
+        }
+    }
+
     const vSlider = document.getElementById('volume-slider');
     if (vSlider) vSlider.value = val * 100;
 }

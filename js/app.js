@@ -4847,11 +4847,31 @@ async function handleStatusSync(data) {
 
         const item = playlist[currentTrackIndex];
         if (item && item.type !== 'youtube') {
-            // Check if we already have the file (decode buffer or blob)
-            const hasFile = buffer || currentFileBlob || nextFileBlob;
+            // [FIX] Check both current and preloaded data
+            const hasBuffer = (buffer && buffer.duration > 0);
+            const hasBlob = (currentFileBlob && currentFileBlob.size > 0);
+            const isPreloaded = nextFileBlob && (nextMeta && (nextMeta.index === hostTrackIndex || nextMeta.name === item.name));
+
+            // If it's preloaded, use it immediately
+            if (!hasBuffer && !hasBlob && isPreloaded) {
+                console.log("[Sync] Required track found in preload cache. Activating...");
+                loadPreloadedTrack();
+                return;
+            }
+
+            // Check if a preload is CURRENTLY in progress for this track
+            const isPreloadingThis = isPreloading && preloadMeta && (preloadMeta.index === hostTrackIndex || preloadMeta.name === item.name);
 
             // If it's a new track and we don't have it, ask for it
-            if (!hasFile || (meta && meta.name !== item.name)) {
+            if (!hasBuffer && !hasBlob && (meta && meta.name !== item.name)) {
+                if (isPreloadingThis) {
+                    console.log("[Sync] Track is being preloaded. Waiting for completion...");
+                    showLoader(true, `파일 동기화 중: ${item.name}`);
+                    window._waitingForPreload = true;
+                    window._pendingFileIndex = hostTrackIndex;
+                    return;
+                }
+
                 console.log("[Sync] Current track missing, requesting from host:", item.name);
                 showLoader(true, `파일 동기화 중: ${item.name}`);
                 clearPreviousTrackState('status-sync mismatch');
@@ -4860,22 +4880,27 @@ async function handleStatusSync(data) {
                 if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
 
                 if (hostConn && hostConn.open) {
-                    // [FIX] DDoS Mitigation: Add random delay for late joiners
                     const jitter = Math.random() * 1000 + 200;
-                    console.log(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
+                    console.log(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms`);
                     setTimeout(() => {
-                        if (currentTrackIndex === hostTrackIndex && (!buffer && !currentFileBlob)) {
+                        // Final check before sending recovery: did it arrive via sync/preload while we waited?
+                        const alreadyGotIt = buffer || currentFileBlob || nextFileBlob;
+                        if (currentTrackIndex === hostTrackIndex && !alreadyGotIt) {
                             hostConn.send({
                                 type: 'request-data-recovery',
                                 nextChunk: 0,
                                 fileName: item.name,
                                 index: hostTrackIndex
                             });
+                        } else if (alreadyGotIt) {
+                            console.log("[Sync] Aborting recovery request: file arrived during jitter delay");
+                            showLoader(false);
                         }
                     }, jitter);
                 }
             }
-        } else if (item && item.type === 'youtube') {
+        }
+        else if (item && item.type === 'youtube') {
             if (currentState !== APP_STATE.PLAYING_YOUTUBE || currentTrackIndex !== prevIndex) {
                 console.log("[Sync] Switching to YouTube mode for sync");
                 // YouTube mode switch is usually handled by youtube-play message,
@@ -4929,7 +4954,23 @@ async function handlePlay(data) {
         const item = playlist[currentTrackIndex];
         if (item && item.type !== 'youtube') {
             const hasFile = (buffer && buffer.duration > 0) || (currentFileBlob && currentFileBlob.size > 0);
-            if (!hasFile || (meta && meta.name !== item.name)) {
+            const isPreloaded = nextFileBlob && (nextMeta && (nextMeta.index === currentTrackIndex || nextMeta.name === item.name));
+
+            if (!hasFile && isPreloaded) {
+                console.log("[StrongSync] Required track found in preload cache. Activating...");
+                loadPreloadedTrack();
+            } else if (!hasFile || (meta && meta.name !== item.name)) {
+                // Check if currently preloading
+                const isPreloadingThis = isPreloading && preloadMeta && (preloadMeta.index === currentTrackIndex || preloadMeta.name === item.name);
+                if (isPreloadingThis) {
+                    console.log("[StrongSync] Track is being preloaded. Waiting...");
+                    showLoader(true, `파일 동기화 중: ${item.name}`);
+                    window._waitingForPreload = true;
+                    window._pendingFileIndex = currentTrackIndex;
+                    window._pendingPlayTime = data.time;
+                    return;
+                }
+
                 console.log("[StrongSync] Need file for new index, requesting...");
                 window._pendingPlayTime = data.time; // Resume after download
                 if (hostConn && hostConn.open) {

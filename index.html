@@ -50,7 +50,7 @@
         </div>
 
         <div class="video-wrapper">
-            <video id="main-video" class="video-screen" playsinline></video>
+            <video id="main-video" class="video-screen" playsinline webkit-playsinline></video>
             <button class="fullscreen-btn" onclick="toggleFullscreen()">
                 <svg viewBox="0 0 24 24">
                     <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
@@ -619,7 +619,8 @@
 
     <!-- Old fullscreen loader removed - now using vinyl-loader inside vinyl-wrapper -->
 
-    <audio id="silent-trigger" src="dummy_audio.mp3" preload="auto" x-webkit-airplay="allow" playsinline></audio>
+    <audio id="silent-trigger" src="dummy_audio.mp3" preload="auto" x-webkit-airplay="allow" playsinline
+        webkit-playsinline></audio>
     <div id="onboarding-overlay" class="onboarding-overlay">
         <div class="onboarding-card">
             <button class="ob-arrow ob-arrow-left" onclick="prevSlide()">

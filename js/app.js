@@ -1551,7 +1551,10 @@ async function play(offset) {
         try { await Tone.context.resume(); } catch (e) { console.warn("Resume failed:", e); }
     }
 
-    if (!buffer && currentState !== APP_STATE.PLAYING_VIDEO) return;
+    // [FIX] Support Streaming Mode (Large WAV/Video)
+    // Allow play if we have a buffer OR if the videoElement has a source
+    const hasSource = buffer || (videoElement && videoElement.src && videoElement.src.startsWith('blob:'));
+    if (!hasSource && currentState !== APP_STATE.PLAYING_VIDEO) return;
     initAudio();
 
     if (player.state === 'started') player.stop();
@@ -1572,14 +1575,18 @@ async function play(offset) {
         if (player.buffer !== buffer) player.buffer = buffer;
         player.start(undefined, offset);
         currentState = APP_STATE.PLAYING_AUDIO;
-    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-        // --- STREAMING MODE ---
+    } else if (currentState === APP_STATE.PLAYING_VIDEO || (videoElement && videoElement.src)) {
+        // --- STREAMING MODE (Video or Large WAV) ---
         // Ensure routing is set
         setupMediaSource();
         // Seek & Play
         videoElement.currentTime = offset;
         videoElement.play().catch(e => console.log('Video play failed', e));
-        currentState = APP_STATE.PLAYING_VIDEO;
+
+        // If we are playing a WAV (Audio) via video element, stay in AUDIO state for UI consistency
+        if (currentState !== APP_STATE.PLAYING_VIDEO) {
+            currentState = APP_STATE.PLAYING_AUDIO;
+        }
     }
 
     // [Time Sync Correction]
@@ -1624,7 +1631,7 @@ function handleEnded() {
     let curr = 0;
     if (buffer) {
         curr = (Tone.now() - startedAt) + localOffset;
-    } else if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) {
+    } else if ((currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) && videoElement && videoElement.src) {
         curr = videoElement.currentTime;
     }
 
@@ -1632,27 +1639,27 @@ function handleEnded() {
 
     if (currentState !== APP_STATE.IDLE && isPastEnd) {
         console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
+
+        // [FIX] Explicitly stop media first
+        stopAllMedia();
+
         currentState = APP_STATE.IDLE;
         updatePlayState(false);
         pausedAt = 0;
-        document.getElementById('seek-slider').value = 0;
-        document.getElementById('time-curr').innerText = fmtTime(0);
 
-        // Stop playback explicitly
-        if (player && player.state === 'started') {
-            try { player.stop(); } catch (e) { /* ignore */ }
-        }
-        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement && !videoElement.paused) {
-            videoElement.pause();
-        }
+        // Reset UI immediately
+        const slider = document.getElementById('seek-slider');
+        if (slider) slider.value = 0;
+        const timeCurr = document.getElementById('time-curr');
+        if (timeCurr) timeCurr.innerText = fmtTime(0);
 
         // Auto Advance (Host Only)
-        // Guests wait for Host command
         if (!hostConn) {
             if (repeatMode === 2) {
                 // Repeat One: Play same track again
                 console.log("Repeat One: Replaying current track...");
-                setTimeout(() => playTrack(currentTrackIndex), 500);
+                // Reset sync state for clean restart
+                setTimeout(() => playTrack(currentTrackIndex), 300);
             } else {
                 console.log("Auto-advancing to next track...");
                 setTimeout(() => playNextTrack(), 500);
@@ -3517,6 +3524,13 @@ async function handleFilePrepare(data) {
         preloadInProgress: preloadInProgressByIndex || preloadInProgressByName
     });
 
+    // [FIX] Verify Preload Index: Don't use stale preload metadata from a different track
+    const isMismatch = nextMeta && data.index !== undefined && data.index !== nextMeta.index;
+    if (isMismatch) {
+        console.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
+        clearPreloadState();
+    }
+
     if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
 
         console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
@@ -4398,21 +4412,26 @@ async function handlePlayPreloaded(data) {
         stopYouTubeMode();
     }
 
-    if (nextFileBlob) {
+    // [FIX] Strict Index Verification: Ensure preloaded data belongs to the requested track
+    const isPreloadTargetMatch = nextMeta && (nextMeta.index === data.index || nextMeta.name === data.name);
+
+    if (nextFileBlob && isPreloadTargetMatch) {
         // 프리로드된 파일이 있으면 사용
         console.log("[Guest] Using preloaded file for track", data.index);
         await loadPreloadedTrack();
 
-        // CRITICAL: Hide loader so play() doesn't think we're still downloading
+        // CRITICAL: Hide loader
         showLoader(false);
 
-        // CRITICAL: Skip any incoming file transfer (Host might send file-start after play-preloaded)
+        // Mark that we already loaded this track (prevent duplicate load from following messages)
+        window._preloadUsedForIndex = data.index;
         window._skipIncomingFile = true;
 
-        // Host will send 'play' command shortly
-
     } else {
-        // 프리로드 실패 - Host에게 파일 요청
+        // 프리로드 없음 혹은 인덱스 불일치 - Host에게 파일 요청
+        if (nextFileBlob && !isPreloadTargetMatch) {
+            console.warn(`[Guest] Stale preload detected (ID mismatched). Found index: ${nextMeta ? nextMeta.index : 'N/A'}, Expected: ${data.index}`);
+        }
         console.warn("[Guest] No preloaded file found for track", data.index, "- requesting from Host");
         showLoader(true, "파일 요청 중...");
 
@@ -5558,8 +5577,14 @@ function loopUI() {
         }
 
         if (isActuallyPlaying) {
-            const duration = buffer ? buffer.duration : (videoElement ? videoElement.duration : 0);
+            const hasVideoSrc = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
+            const duration = buffer ? buffer.duration : (hasVideoSrc ? videoElement.duration : 0);
             let t = (Tone.now() - startedAt) + localOffset;
+
+            // Use video current time for more accurate UI in streaming mode
+            if (!buffer && hasVideoSrc) {
+                t = videoElement.currentTime;
+            }
 
             // [Fix] Clamp UI time to duration to prevent "3:07 / 3:00" visuals
             if (duration > 0 && t > duration) t = duration;
@@ -5570,13 +5595,13 @@ function loopUI() {
                 const timeCurr = document.getElementById('time-curr');
                 if (timeCurr) timeCurr.innerText = fmtTime(t);
             }
+        }
 
-            // Throttle handleEnded
-            const now = Date.now();
-            if (!window._lastEndedCheck || now - window._lastEndedCheck > 500) {
-                window._lastEndedCheck = now;
-                handleEnded();
-            }
+        // [FIX] Run handleEnded even if just stopped, to catch the final transition
+        const now = Date.now();
+        if (!window._lastEndedCheck || now - window._lastEndedCheck > 500) {
+            window._lastEndedCheck = now;
+            handleEnded();
         }
 
         // Always continue loop if in playback state
@@ -6093,7 +6118,7 @@ switchTab = function (tabId) {
     const miniPlayer = document.getElementById('yt-mini-player');
     if (miniPlayer) {
         if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-            miniPlayer.style.display = 'block';
+            miniPlayer.style.display = 'none'; // [User Request] Removed black box from settings
         } else {
             miniPlayer.style.display = 'none';
         }

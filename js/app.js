@@ -3312,8 +3312,8 @@ function setupPeerEvents() {
 
             broadcastDeviceList();
 
-            if (item.type !== 'youtube') {
-                conn.send({ type: 'file-prepare', name: item.name, index: currentTrackIndex });
+            if (curItem && curItem.type !== 'youtube') {
+                conn.send({ type: 'file-prepare', name: curItem.name, index: currentTrackIndex });
             }
 
             // [FIX] Late Joiner Media Guard:

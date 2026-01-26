@@ -6,8 +6,31 @@ const timers = {};
 let currentFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
 let preloadFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
 
-self.onmessage = async function (e) {
-    const data = e.data;
+let isProcessing = false;
+const messageQueue = [];
+
+self.onmessage = function (e) {
+    messageQueue.push(e.data);
+    processQueue();
+};
+
+async function processQueue() {
+    if (isProcessing || messageQueue.length === 0) return;
+    isProcessing = true;
+
+    while (messageQueue.length > 0) {
+        const data = messageQueue.shift();
+        try {
+            await handleMessage(data);
+        } catch (err) {
+            console.error("[Worker] Message processing error:", err);
+        }
+    }
+
+    isProcessing = false;
+}
+
+async function handleMessage(data) {
     const { command, id, interval } = data;
 
     // --- Timer Commands ---
@@ -35,12 +58,15 @@ self.onmessage = async function (e) {
         try {
             // Cleanup previous if same type
             if (opfsObj.accessHandle) {
-                opfsObj.accessHandle.close();
+                console.log(`[Worker] Closing existing handle for ${opfsObj.name}...`);
+                try {
+                    opfsObj.accessHandle.close();
+                } catch (e) {
+                    console.warn("[Worker] Error closing handle:", e);
+                }
                 opfsObj.accessHandle = null;
             }
-            if (opfsObj.handle) {
-                opfsObj.handle = null; // ✅ 추가: handle 참조 해제
-            }
+            opfsObj.handle = null;
 
             const root = await navigator.storage.getDirectory();
             const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
@@ -55,6 +81,7 @@ self.onmessage = async function (e) {
             opfsObj.handle = await root.getFileHandle(safeName, { create: true });
 
             // Use SyncAccessHandle for maximum performance (Worker only)
+            console.log(`[Worker] Creating SyncAccessHandle for ${safeName}...`);
             opfsObj.accessHandle = await opfsObj.handle.createSyncAccessHandle();
             opfsObj.name = filename;
 
@@ -74,8 +101,6 @@ self.onmessage = async function (e) {
                 // CHUNK size is dynamic (default 16384)
                 // Synchronous write in worker!
                 opfsObj.accessHandle.write(chunk, { at: index * opfsObj.chunkSize });
-                // Optional: Use flush() sparingly or only at END for maximum speed
-                // opfsObj.accessHandle.flush(); 
             } catch (e) {
                 console.error(`[Worker-Sync] Write failed at ${index}:`, e);
             }
@@ -114,9 +139,7 @@ self.onmessage = async function (e) {
                 opfsObj.accessHandle.close();
                 opfsObj.accessHandle = null;
             }
-            if (opfsObj.handle) {
-                opfsObj.handle = null;
-            }
+            opfsObj.handle = null;
             opfsObj.name = null;
 
             console.log(`[Worker] Reset ${isPreload ? 'preload' : 'current'} OPFS state`);
@@ -145,4 +168,4 @@ self.onmessage = async function (e) {
             console.warn(`[Worker OPFS] Cleanup failed for ${safeName}:`, e);
         }
     }
-};
+}

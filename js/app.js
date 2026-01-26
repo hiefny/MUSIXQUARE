@@ -578,7 +578,7 @@ function finalizeFileProcessing(file) {
     if (Tone.context.state === 'suspended') Tone.context.resume();
 
     showLoader(false);
-    if (chunkWatchdog) clearInterval(chunkWatchdog);
+    clearManagedTimer('chunkWatchdog');
     pausedAt = 0;
     updatePlayState(false);
     showToast("재생 준비 완료");
@@ -4114,12 +4114,12 @@ async function handleFileResume(data) {
     showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
 
     // Restart watchdog
-    if (chunkWatchdog) clearInterval(chunkWatchdog);
+    clearManagedTimer('chunkWatchdog');
     lastChunkTime = Date.now();
-    chunkWatchdog = setInterval(() => {
+    managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
         if (timeSinceLast > 12000) {
-            clearInterval(chunkWatchdog);
+            clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
             if (upstreamDataConn) upstreamDataConn = null;
 
@@ -4357,7 +4357,7 @@ async function handleYouTubePlay(data) {
     // 2. [Reliability] Reset preload state when entering YouTube
     clearPreloadState();
     window._skipIncomingPreload = false;
-    if (prepareWatchdog) { clearTimeout(prepareWatchdog); prepareWatchdog = null; }
+    clearManagedTimer('prepareWatchdog');
 
     currentState = APP_STATE.PLAYING_YOUTUBE;
     // 3. Stop existing YouTube if playing

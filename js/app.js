@@ -349,6 +349,12 @@ const BlobURLManager = {
 let myId = null, peer = null, hostConn = null;
 window.hostConn = null; // Expose to other scripts (demo.js)
 let localOffset = 0;
+let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
+let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
+let myDeviceLabel = 'GUEST'; // Store my label for UI updates
+let lastLatencyMs = 0; // Store Median RTT (Robust)
+let latencyHistory = []; // Buffer to filter noise
+let syncRequestTime = 0; // Capture exact time of sync request
 
 let connectedPeers = [];
 let isOperator = false;
@@ -387,6 +393,11 @@ const TRANSFER_STATE = {
     READY: 'READY'
 };
 let transferState = TRANSFER_STATE.IDLE;
+let incomingChunks = [];
+let receivedCount = 0;
+let meta = {};
+let lastProgressAck = 0;
+let _isProcessingBlob = false;
 
 // OPFS State
 let currentFileOpfs = { handle: null, writable: null, name: null };
@@ -3670,15 +3681,7 @@ async function leaveSession() {
 }
 
 // --- Data Handling ---
-let meta = {}, receivedCount = 0;
 // Note: currentFileOpfs, preloadFileOpfs handles are used for storage
-let lastProgressAck = 0;
-let myDeviceLabel = 'GUEST'; // Store my label for UI updates
-let lastLatencyMs = 0; // Store Median RTT (Robust)
-let latencyHistory = []; // Buffer to filter noise
-let syncRequestTime = 0; // Capture exact time of sync request
-let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
-let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
 
 // Detect ICE connection type and set compensation mode
 async function detectConnectionType() {

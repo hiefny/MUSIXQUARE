@@ -2947,7 +2947,15 @@ function setupPeerEvents() {
         showToast(message);
 
         // If it's a critical initialization/network error, show the overlay with tips
+        // [FIX] Don't show overlay if we already have an active P2P session (signalling loss is transient)
+        const isSessionActive = (hostConn && hostConn.open) || (connectedPeers && connectedPeers.some(p => p.status === 'connected'));
+
         if (['server-error', 'network', 'browser-incompatible'].includes(err.type)) {
+            if (isSessionActive && err.type !== 'browser-incompatible') {
+                console.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
+                showToast("중계 서버와 연결이 끊겼습니다. (재연결 시도 중...)");
+                return;
+            }
             showConnectionFailedOverlay(
                 message + "\n\n" +
                 "1. VPN을 사용 중이라면 끄고 시도해보세요.\n" +

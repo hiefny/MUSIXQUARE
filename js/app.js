@@ -82,11 +82,10 @@ let buffer; // Holds the Tone.Buffer or AudioBuffer
 // [SECTION] APP STATE MACHINE (State Pattern)
 // ============================================================================
 const APP_STATE = {
-    IDLE: 'IDLE',                       // 아무것도 재생 안함
-    PLAYING_AUDIO: 'PLAYING_AUDIO',     // RAM 버퍼 재생 (Tone.js Player)
-    PLAYING_VIDEO: 'PLAYING_VIDEO',     // 비디오 스트리밍 (videoElement)
-    PLAYING_STREAMING: 'PLAYING_STREAMING', // [NEW] 대용량 오디오 스트리밍 (videoElement without visual)
-    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'  // 유튜브 모드
+    IDLE: 'IDLE',
+    PLAYING_VIDEO: 'PLAYING_VIDEO',     // 비디오 및 스트리밍 모드 통합
+    PLAYING_STREAMING: 'PLAYING_STREAMING', // 오디오 전용 스트리밍 (videoElement 사용하지만 화면 숨김)
+    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'
 };
 
 let currentState = APP_STATE.IDLE;
@@ -140,20 +139,13 @@ function cleanupState(oldState) {
         pausedAt = getTrackPosition();
     }
     switch (oldState) {
-        case APP_STATE.PLAYING_AUDIO:
-            // Tone.js Player 정지
-            if (player && player.state === 'started') {
-                try { player.stop(); } catch (e) { }
-            }
-            break;
-
         case APP_STATE.PLAYING_VIDEO:
         case APP_STATE.PLAYING_STREAMING:
             // Video Element 정지
             if (videoElement) {
                 videoElement.pause();
             }
-            // [NEW] Clear Blob URL on transition away from streaming modes
+            // Clear Blob URL on transition away from streaming modes
             BlobURLManager.revoke();
             break;
 
@@ -178,18 +170,14 @@ function cleanupState(oldState) {
  * 현재 트랙의 몇 초 지점인지를 반환합니다.
  * @param {boolean} useAudioClock - true면 비디오 요소 대신 Tone.js 클락(네트워크 기준)을 사용합니다.
  */
-function getTrackPosition(useAudioClock = false) {
+function getTrackPosition() {
     if (currentState === APP_STATE.IDLE) return pausedAt;
 
-    // 비디오/스트리밍 모드: videoElement.currentTime 사용 (더 정확함)
-    const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
-    if (!useAudioClock && usesVideoElement && videoElement && videoElement.src && videoElement.readyState >= 1) {
+    // 스트리밍 모드: videoElement.currentTime 사용
+    if (videoElement && videoElement.src && videoElement.readyState >= 1) {
         return videoElement.currentTime;
     }
 
-    // 오디오 모드: Tone.js 기반 계산
-    // startedAt은 '보정된' 시작 시간이므로 (Tone.now() - startedAt)이 순수 경과 시간입니다.
-    // 여기에 개별 보정치(localOffset, autoSyncOffset)를 더해 사용자가 의도한 위치를 구합니다.
     return (Tone.now() - startedAt) + localOffset + autoSyncOffset;
 }
 
@@ -488,11 +476,9 @@ function checkVideoSync() {
 
         // [Latency Compensation V3 for Video]
         // Sync Video to Audio Time (Tone.now based startedAt)
-        // Use useAudioClock=true to get the target sync point reliably
-        const t = getTrackPosition(true);
+        const t = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
         const diff = videoElement.currentTime - t;
 
-        // Increased threshold to 0.3s for host-bypass stability and jitter reduction
         if (Math.abs(diff) > 0.3) {
             console.log(`[VideoSync] Correcting drift: ${diff.toFixed(3)}s (Target: ${t.toFixed(3)}s)`);
             videoElement.currentTime = t;
@@ -1522,7 +1508,6 @@ async function loadAndBroadcastFile(file) {
     showLoader(true, `준비 중: ${file.name} `);
     stop();
 
-    // Stop YouTube mode if active
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         stopYouTubeMode();
     }
@@ -1531,15 +1516,10 @@ async function loadAndBroadcastFile(file) {
         await initAudio();
         if (Tone.context.state === 'suspended') await Tone.start();
 
-        // [FIX] Use BlobURLManager to create and track the URL
         const url = BlobURLManager.create(file);
-        currentFileBlob = file; // [FIX] Ensure reference is updated for confirm()
+        currentFileBlob = file;
 
-        // Determine Mode: Large File or Video -> Streaming Mode
-        // Threshold: 100MB (Arbitrary safety limit for mobile decoding)
-        let isLargeFile = file.size > 100 * 1024 * 1024;
         let isVideo = false;
-
         if (file.type.startsWith('video/')) {
             isVideo = true;
         } else if (!file.type && file.name) {
@@ -1547,80 +1527,39 @@ async function loadAndBroadcastFile(file) {
             if (['mp4', 'mkv', 'webm', 'mov'].includes(ext)) isVideo = true;
         }
 
-        // Force Streaming Mode if Video or Large File
-        if (isVideo || isLargeFile) {
-            console.log("Large File/Video detected. Using Streaming Mode (MediaElementSource).");
-            buffer = null; // No Tone.Buffer
+        // Always Streaming Mode
+        console.log("Streaming Mode (MediaElementSource) enabled for all files.");
+        buffer = null;
 
-            // UI & Engine Setup
-            setEngineMode(isVideo ? 'video' : 'audio');
+        setEngineMode(isVideo ? 'video' : 'streaming');
+        updateTitleWithMarquee(file.name);
+        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
+        videoElement.src = url;
 
-            // UI Info Update
-            updateTitleWithMarquee(file.name);
-            document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1} `;
-            videoElement.src = url;
-
-            // Wait for metadata to get duration
-            videoElement.onloadedmetadata = () => {
-                const dur = videoElement.duration;
-                // Safety check: sometimes duration is Infinity for streams
-                if (dur && isFinite(dur)) {
-                    document.getElementById('time-dur').innerText = fmtTime(dur);
-                    const sSlider = document.getElementById('seek-slider');
-                    sSlider.max = dur;
-                    sSlider.value = 0;
-                }
-                // [FIX] Confirm URL as active once metadata is loaded
-                BlobURLManager.confirm(file);
-            };
-
-            videoElement.load();
-
-            // Connect Video Element to Tone.js Graph
-            setupMediaSource();
-
-            showToast(isVideo ? "Video Mode (Streaming)" : "Large File Mode (Streaming)");
-        } else {
-            // Standard Tone.Buffer Mode (Small Files)
-            setEngineMode('audio');
-            videoElement.removeAttribute('src');
-            videoElement.load();
-
-            // Load into RAM (Safe Loader)
-            buffer = null; // Clear old buffer
-            const tempBuffer = new Tone.Buffer();
-            await tempBuffer.load(url);
-
-            // [FIX] Confirm URL after Tone.Buffer loading is complete
+        videoElement.onloadedmetadata = () => {
+            const dur = videoElement.duration;
+            if (dur && isFinite(dur)) {
+                document.getElementById('time-dur').innerText = fmtTime(dur);
+                const sSlider = document.getElementById('seek-slider');
+                sSlider.max = dur;
+                sSlider.value = 0;
+            }
             BlobURLManager.confirm(file);
+        };
 
-            // Only assign after fully loaded
-            buffer = tempBuffer;
+        videoElement.load();
+        setupMediaSource();
 
-            updateTitleWithMarquee(file.name);
-            document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1} `;
-            document.getElementById('time-dur').innerText = fmtTime(buffer.duration);
-
-            const sSlider = document.getElementById('seek-slider');
-            sSlider.max = buffer.duration;
-            sSlider.value = 0;
-        }
-
-        // Enable Play Button
         const isGuest = !!hostConn;
         document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
         if (connectedPeers.length > 0) {
             if (isVideo && !hostConn) {
-                // Host Logic for Video: Extract Audio -> Broadcast WAV
                 showLoader(true, "오디오 추출 및 변환 중...");
                 showToast("게스트용 오디오 추출 중...");
-
-                // Yield to UI
                 await new Promise(r => setTimeout(r, 100));
 
                 try {
-                    // [FIX] Mark as extracting to prevent late-joining Guests from receiving the huge MP4
                     if (playlist[currentTrackIndex]) {
                         playlist[currentTrackIndex]._isExtracting = true;
                     }
@@ -1629,14 +1568,12 @@ async function loadAndBroadcastFile(file) {
                     console.log("[Host] Audio Extracted:", wavFile.name, wavFile.size);
                     showToast("오디오 변환 완료! 전송 시작...");
 
-                    // [FIX] Update currentFileBlob and playlist reference so Guests receive WAV
                     currentFileBlob = wavFile;
                     if (playlist[currentTrackIndex]) {
                         playlist[currentTrackIndex].file = wavFile;
-                        playlist[currentTrackIndex]._isExtracting = false; // Clear guard
+                        playlist[currentTrackIndex]._isExtracting = false;
                     }
 
-                    // [FIX] Update global meta to reflect the NEW extracted file so late-comers get correct info
                     const CHUNK = 16384;
                     const total = Math.ceil(wavFile.size / CHUNK);
                     meta = {
@@ -1648,16 +1585,16 @@ async function loadAndBroadcastFile(file) {
                         index: currentTrackIndex
                     };
 
-                    // Broadcast the WAV file instead of the huge video
                     await broadcastFile(wavFile);
                 } catch (e) {
                     console.error("Audio Extraction Failed", e);
-                    showToast("오디오 추출 실패. 원본 전송 시도...");
+                    showToast("메모리 부족으로 전송 취소 (게스트 보호)");
                     if (playlist[currentTrackIndex]) {
                         playlist[currentTrackIndex]._isExtracting = false;
                     }
-                    currentFileBlob = file; // Fallback
-                    await broadcastFile(file);
+                    // DO NOT broadcast original heavy video if extraction fails
+                    showLoader(false);
+                    return;
                 }
             } else {
                 showToast("파일 전송 중...");
@@ -1665,7 +1602,6 @@ async function loadAndBroadcastFile(file) {
             }
         }
 
-        // Trigger Preload for next track (Host only)
         if (!hostConn) {
             preloadNextTrack();
         }
@@ -1832,24 +1768,7 @@ async function play(offset) {
 
     if (player.state === 'started') player.stop();
 
-    if (buffer) {
-        // --- BUFFER MODE ---
-        // Ensure Buffer is Ready (Tone.Buffer has .loaded, raw AudioBuffer does not)
-        if (buffer instanceof Tone.Buffer && !buffer.loaded) {
-            console.log("Buffer still loading, waiting...");
-            try { await buffer.loaded; } catch (e) { console.error("Buffer load failed", e); return; }
-        }
-
-        // Connect player to graph
-        player.disconnect();
-        if (isSurroundMode) player.connect(surroundSplitter);
-        else player.connect(widener);
-
-        if (player.buffer !== buffer) player.buffer = buffer;
-        player.start(undefined, offset);
-        setState(APP_STATE.PLAYING_AUDIO, { skipCleanup: true });
-
-    } else if (hasVideoSource) {
+    if (hasVideoSource) {
         // --- STREAMING MODE (Video or Large WAV) ---
         // Ensure routing is set
         setupMediaSource();
@@ -4057,52 +3976,21 @@ async function handleFileStart(data) {
                         currentFileBlob = blob;
                         window._waitingForRelayData = false;
 
-                        const isLarge = blob.size > 100 * 1024 * 1024;
                         const isVideo = meta.mime.startsWith('video/') || (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
 
-                        if (isLarge || isVideo) {
-                            buffer = null;
-                            currentState = APP_STATE.PLAYING_VIDEO;
-                            const url = BlobURLManager.create(blob);
-                            videoElement.src = url;
-                            if (isVideo) {
-                                document.body.classList.add('mode-video');
-                                videoElement.style.display = 'block';
-                            } else {
-                                videoElement.style.display = 'none';
-                            }
-                            videoElement.onloadedmetadata = () => {
-                                document.getElementById('seek-slider').max = videoElement.duration;
-                                document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
-                            };
-                            videoElement.load();
-                            document.getElementById('play-btn').disabled = !isOperator;
-                            showLoader(false);
-                            showToast("재생 준비 완료 (캐시 사용)");
-                        } else {
-                            blob.arrayBuffer().then(buf => {
-                                const ctx = Tone.context.rawContext;
-                                return ctx.decodeAudioData(buf);
-                            }).then(decoded => {
-                                buffer = decoded;
-                                currentState = APP_STATE.PLAYING_AUDIO;
-                                document.body.classList.remove('mode-video');
-                                videoElement.style.display = 'none';
-                                document.getElementById('seek-slider').max = buffer.duration;
-                                document.getElementById('time-dur').innerText = fmtTime(buffer.duration);
-                                document.getElementById('play-btn').disabled = !isOperator;
-                                showLoader(false);
-                                pausedAt = 0;
-                                updatePlayState(false);
-                                showToast("재생 준비 완료 (캐시 사용)");
-                                transferState = TRANSFER_STATE.READY;
-                                setTimeout(() => syncReset(), 1000);
-                            }).catch(err => {
-                                console.error("Decoding Fail:", err);
-                                showLoader(false);
-                                transferState = TRANSFER_STATE.IDLE;
-                            });
-                        }
+                        buffer = null;
+                        setEngineMode(isVideo ? 'video' : 'streaming');
+                        const url = BlobURLManager.create(blob);
+                        videoElement.src = url;
+                        videoElement.onloadedmetadata = () => {
+                            document.getElementById('seek-slider').max = videoElement.duration;
+                            document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
+                        };
+                        videoElement.load();
+                        setupMediaSource();
+                        document.getElementById('play-btn').disabled = !isOperator;
+                        showLoader(false);
+                        showToast("재생 준비 완료 (캐시 사용)");
                     } else {
                         transferState = TRANSFER_STATE.IDLE;
                     }
@@ -4388,138 +4276,56 @@ async function handleFileChunk(data) {
         }
 
         const blob = new Blob(validChunks, { type: meta.mime });
-        currentFileBlob = blob; // Cache for Relay Serving
-
-        // [FIX] Clear relay wait flag on file completion
+        currentFileBlob = blob;
         window._waitingForRelayData = false;
 
-        // Check for Large File / Video to avoid Decoding Crash
-        const isLarge = blob.size > 100 * 1024 * 1024;
-        const isVideoBlob = blob.type.startsWith('video/'); // Check ACTUAL blob type, not just extension
-        const isVideoExt = (meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
-
-        // If it's a video file, it's definitely Video Mode.
-        // If it was a video but we received a WAV, it's Audio Mode.
+        const isVideoBlob = blob.type.startsWith('video/');
         const shouldBeVideoMode = isVideoBlob;
 
-        if (isLarge || shouldBeVideoMode) {
-            // --- STREAMING MODE (No Decode) ---
-            console.log(`Guest: Large/Video (${blob.type}) detected. Using Streaming Mode.`);
-            buffer = null;
+        // --- ALWAYS STREAMING MODE ---
+        console.log(`Guest: Streaming (${blob.type}) enabled for all files.`);
+        buffer = null;
 
-            // Use 'streaming' for large audio, 'video' for actual video
-            setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
+        setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
 
-            const url = BlobURLManager.create(blob);
-            videoElement.src = url;
+        const url = BlobURLManager.create(blob);
+        videoElement.src = url;
 
-            // Get Duration from Video Element Metadata
-            videoElement.onloadedmetadata = () => {
-                document.getElementById('seek-slider').max = videoElement.duration;
-                document.getElementById('seek-slider').value = 0;
-                document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
+        videoElement.onloadedmetadata = () => {
+            document.getElementById('seek-slider').max = videoElement.duration;
+            document.getElementById('seek-slider').value = 0;
+            document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
+            BlobURLManager.confirm(blob);
+        };
+        videoElement.load();
+        setupMediaSource();
 
-                // [FIX] Confirm URL as active once streaming metadata is loaded
-                BlobURLManager.confirm(blob);
-            };
-            videoElement.load();
+        document.getElementById('play-btn').disabled = !isOperator;
+        if (Tone.context.state === 'suspended') Tone.context.resume();
 
-            document.getElementById('play-btn').disabled = !isOperator;
-            if (Tone.context.state === 'suspended') Tone.context.resume();
+        showLoader(false);
+        if (chunkWatchdog) clearInterval(chunkWatchdog);
+        pausedAt = 0;
+        updatePlayState(false);
+        showToast("재생 준비 완료");
 
-            showLoader(false);
-            if (chunkWatchdog) clearInterval(chunkWatchdog);
-            pausedAt = 0;
-            updatePlayState(false);
-            showToast("재생 준비 완료");
-            // Auto-sync after file load (1 second delay to avoid storm)
-            setTimeout(() => {
-                console.log("[Guest] Auto-sync after streaming file load");
-                // [FIX] Correct time drift for Late Joiners
-                if (hostConn && hostConn.open) {
-                    console.log("[LateJoiner] Requesting fresh sync time from host...");
-                    hostConn.send({ type: 'get-sync-time' });
-                } else {
-                    syncReset();
-                }
-            }, 1000);
-
-            // Execute pending play command if any (streaming mode)
-            if (window._pendingPlayTime !== undefined) {
-                console.log("[Guest] Executing pending play after streaming download");
-                const target = window._pendingPlayTime + localOffset;
-                play(target);
-                window._pendingPlayTime = undefined;
+        setTimeout(() => {
+            if (hostConn && hostConn.open) {
+                hostConn.send({ type: 'get-sync-time' });
+            } else {
+                syncReset();
             }
+        }, 1000);
 
-            // [FIX] CRITICAL: Clear buffers to prevent re-entrance loops if duplicate chunks arrive
-            incomingChunks = [];
-            receivedCount = 0;
-            transferState = TRANSFER_STATE.READY;
-
-        } else {
-            // --- BUFFER MODE ---
-            blob.arrayBuffer().then(buf => {
-                const ctx = Tone.context.rawContext;
-                return ctx.decodeAudioData(buf);
-            }).then(decoded => {
-                buffer = decoded;
-
-                // [FIX] Confirm URL after buffer decoding is successful
-                BlobURLManager.confirm(blob);
-
-                currentState = APP_STATE.PLAYING_AUDIO;
-                document.body.classList.remove('mode-video');
-                videoElement.style.display = 'none';
-
-                document.getElementById('seek-slider').max = buffer.duration;
-                document.getElementById('seek-slider').value = 0;
-                document.getElementById('time-dur').innerText = fmtTime(buffer.duration);
-                document.getElementById('play-btn').disabled = !isOperator;
-                if (Tone.context.state === 'suspended') Tone.context.resume();
-
-                showLoader(false);
-                if (chunkWatchdog) clearInterval(chunkWatchdog);
-                pausedAt = 0;
-                updatePlayState(false);
-                showToast("재생 준비 완료");
-
-                setTimeout(() => {
-                    console.log("[Guest] Auto-sync after buffer file load");
-                    // [FIX] Correct time drift for Late Joiners
-                    if (hostConn && hostConn.open) {
-                        console.log("[LateJoiner] Requesting fresh sync time from host...");
-                        hostConn.send({ type: 'get-sync-time' });
-                    } else {
-                        syncReset();
-                    }
-                }, 1000);
-
-                if (window._pendingPlayTime !== undefined) {
-                    console.log("[Guest] Executing pending play after download");
-                    const target = window._pendingPlayTime + localOffset;
-                    play(target);
-                    window._pendingPlayTime = undefined;
-                }
-
-                // [FIX] CRITICAL: Clear buffers to prevent re-entrance loops if duplicate chunks arrive
-                incomingChunks = [];
-                receivedCount = 0;
-                transferState = TRANSFER_STATE.READY;
-            }).catch(err => {
-                // [FIX] Guard: Do not proceed if state changed to YouTube or other track during decoding
-                if (processingFileName !== (meta ? meta.name : '')) {
-                    console.warn("[Decode] State mismatch, discarding results");
-                    return;
-                }
-                console.error("Decoding Fail:", err);
-                showLoader(false);
-                showToast("오디오 디코딩 실패: 지원하지 않는 형식이거나 손상됨");
-                transferState = TRANSFER_STATE.IDLE;
-                // [FIX] Reset state to idle to prevent "No media source" on play
-                currentState = APP_STATE.IDLE;
-            });
+        if (window._pendingPlayTime !== undefined) {
+            const target = window._pendingPlayTime + localOffset;
+            play(target);
+            window._pendingPlayTime = undefined;
         }
+
+        incomingChunks = [];
+        receivedCount = 0;
+        transferState = TRANSFER_STATE.READY;
     }
 }
 
@@ -6024,101 +5830,50 @@ window.toggleSurroundMode = toggleSurroundMode;
 window.setSurroundChannel = setSurroundChannel;
 
 async function loadPreloadedTrack() {
-    console.log("Switching to Preloaded Track...");
+    if (!nextFileBlob) return;
 
-    if (!nextBuffer && !nextFileBlob) {
-        console.error("[loadPreloadedTrack] No preloaded data available!");
-        showToast("프리로드된 파일이 없습니다");
-        return false;
-    }
+    try {
+        await initAudio();
+        currentFileBlob = nextFileBlob;
 
-    clearPreviousTrackState('loadPreloadedTrack');
+        const isVideo = nextMeta && (nextMeta.mime?.startsWith('video/') || (nextMeta.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name)));
 
-    currentFileBlob = nextFileBlob;
-    meta = nextMeta;
-    receivedCount = meta ? meta.total : 0;
+        // ALWAYS STREAMING
+        buffer = null;
+        setEngineMode(isVideo ? 'video' : 'streaming');
 
-    stop();
+        const url = BlobURLManager.create(nextFileBlob);
+        videoElement.src = url;
 
-    if (nextBuffer) {
-        buffer = nextBuffer;
-
-        currentState = APP_STATE.PLAYING_AUDIO;
-        document.body.classList.remove('mode-video');
-        videoElement.style.display = 'none';
-
-        updateUISlider(buffer.duration);
-
-    } else if (nextFileBlob) {
-        const file = nextFileBlob;
-
-        const url = BlobURLManager.create(file);
-
-        let isLargeFile = file.size > 100 * 1024 * 1024;
-        let isVideoType = (nextMeta && nextMeta.mime.startsWith('video/'));
-
-        if (isLargeFile || isVideoType) {
-            currentState = APP_STATE.PLAYING_VIDEO;
-            document.body.classList.add('mode-video');
-            videoElement.style.display = 'block';
-            videoElement.src = url;
-
-            try {
-                await new Promise((resolve, reject) => {
-                    videoElement.onloadedmetadata = () => {
-                        // [FIX] Confirm URL as active once metadata is loaded
-                        BlobURLManager.confirm(file);
-                        resolve();
-                    };
-                    videoElement.onerror = (e) => reject("Video Load Error");
-                });
-
-                setupMediaSource();
-                updateUISlider(videoElement.duration);
-
-            } catch (err) {
-                console.error("Failed to load video metadata:", err);
-                BlobURLManager.revoke();
-                alert("미디어를 불러오는데 실패했습니다.");
-                return;
+        videoElement.onloadedmetadata = () => {
+            const dur = videoElement.duration;
+            if (isFinite(dur)) {
+                document.getElementById('seek-slider').max = dur;
+                document.getElementById('time-dur').innerText = fmtTime(dur);
             }
+            BlobURLManager.confirm(nextFileBlob);
+        };
+        videoElement.load();
+        setupMediaSource();
 
-        } else {
-            // --- Decode Mode (RAM Buffer) ---
-            try {
-                const tempBuffer = new Tone.Buffer();
-                console.log(`[AudioEngine] Loading Tone.Buffer from ${url}...`);
-                await tempBuffer.load(url);
-                buffer = tempBuffer;
+        if (nextMeta && nextMeta.name) {
+            updateTitleWithMarquee(nextMeta.name);
+            document.getElementById('track-artist').innerText = `Track ${nextTrackIndex + 1}`;
+        }
 
-                // [FIX] No longer revoking here; let BlobURLManager.create() or clearPreviousTrackState()
-                // handle it via safeRevoke(10s) to guarantee no race conditions.
-                BlobURLManager.confirm(file);
+        document.getElementById('play-btn').disabled = !isOperator;
 
-                currentState = APP_STATE.PLAYING_AUDIO;
-                document.body.classList.remove('mode-video');
-                videoElement.style.display = 'none';
+        console.log("[Guest] Preloaded track ready via Streaming");
+        clearPreloadState();
 
-                updateUISlider(buffer.duration);
-            } catch (err) {
-                console.error("Audio Decode Error:", err);
-                showToast("오디오를 로드하는 중 오류가 발생했습니다.");
-                return;
-            }
+    } catch (e) {
+        console.error("[Preload] Play failed:", e);
+        showToast("프리로드 재생 실패 - 다시 로드합니다");
+        clearPreloadState();
+        if (hostConn && hostConn.open) {
+            hostConn.send({ type: 'request-current-file' });
         }
     }
-
-    if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
-        updateTitleWithMarquee(playlist[currentTrackIndex].name);
-        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
-    }
-
-    nextBuffer = null;
-    nextFileBlob = null;
-    nextMeta = null;
-    nextTrackIndex = -1;
-
-    console.log("Track switched successfully.");
 }
 
 function updateUISlider(duration) {

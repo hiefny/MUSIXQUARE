@@ -3009,230 +3009,138 @@ function setupPeerEvents() {
 
             if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
                 const item = playlist[currentTrackIndex];
-                // ONLY send 'file-prepare' for local files.
-                // YouTube tracks handle UI via 'youtube-play' above.
                 if (item.type !== 'youtube') {
                     conn.send({ type: 'file-prepare', name: item.name, index: currentTrackIndex });
                 }
 
-                // Only send actual data if they are a direct data target
-                // (If they are relayed, the relay should technically sync them, but for now
-                // the relay logic handles 'live' chunks. Late join during playback might need catchup logic.
-                // For Beta, we'll let 'broadcastFile' handle new files.
-                // If playing mid-file, they might miss out until next track or manual restart.
-                // Simplification: If direct, send. If relay, wait for next msg.)
                 if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file) {
                     unicastFile(conn, playlist[currentTrackIndex].file);
                 }
             }
-        });
 
-        conn.on('data', data => {
-            if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
-                peerObj.lastHeartbeat = Date.now();
+            // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
+            conn.on('data', data => {
+                if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
+                    peerObj.lastHeartbeat = Date.now();
 
-                // [Optimization] Playlist-Centric Sync: Respond with current status
-                if (!hostConn) { // Only genuine Host responds
+                    if (!hostConn) { // Only genuine Host responds
+                        let isActuallyPlaying = false;
+                        if (currentState === APP_STATE.PLAYING_AUDIO) {
+                            isActuallyPlaying = (player && player.state === 'started');
+                        } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+                            isActuallyPlaying = (videoElement && !videoElement.paused);
+                        }
+
+                        conn.send({
+                            type: 'status-sync',
+                            currentTrackIndex: currentTrackIndex,
+                            isPlaying: isActuallyPlaying,
+                            playlistMeta: playlist.map(item => ({
+                                type: item.type,
+                                name: item.name || item.title,
+                                videoId: item.videoId || null,
+                                playlistId: item.playlistId || null
+                            }))
+                        });
+                    }
+                    return;
+                }
+
+                if (data.type === 'ping-latency') {
+                    conn.send({ type: 'pong-latency', timestamp: data.timestamp });
+                    return;
+                }
+
+                if (data.type === 'get-sync-time') {
+                    const currentTime = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
                     let isActuallyPlaying = false;
                     if (currentState === APP_STATE.PLAYING_AUDIO) {
                         isActuallyPlaying = (player && player.state === 'started');
                     } else if (currentState === APP_STATE.PLAYING_VIDEO) {
                         isActuallyPlaying = (videoElement && !videoElement.paused);
                     }
-
-                    conn.send({
-                        type: 'status-sync',
-                        currentTrackIndex: currentTrackIndex,
-                        isPlaying: isActuallyPlaying,
-                        playlistMeta: playlist.map(item => ({
-                            type: item.type,
-                            name: item.name || item.title,
-                            videoId: item.videoId || null,
-                            playlistId: item.playlistId || null
-                        }))
-                    });
+                    conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
                 }
-                return;
-            }
-
-            // Latency Monitor: Reply to Guest pings for latency check
-            if (data.type === 'ping-latency') {
-                conn.send({ type: 'pong-latency', timestamp: data.timestamp });
-                return;
-            }
-
-            // Sync Completion Report
-            // Removed Sync Handler
-
-            if (data.type === 'get-sync-time') {
-                const currentTime = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
-
-                // [FIX] 진짜 재생 중인지 확인 (일시정지 상태면 false)
-                let isActuallyPlaying = false;
-                if (currentState === APP_STATE.PLAYING_AUDIO) {
-                    isActuallyPlaying = (player && player.state === 'started');
-                } else if (currentState === APP_STATE.PLAYING_VIDEO) {
-                    isActuallyPlaying = (videoElement && !videoElement.paused);
+                else if (peerObj.isOp) {
+                    handleOperatorRequest(data);
                 }
-
-                conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
-            }
-            // Removed Ping Handler
-            // Operator Requests
-            else if (peerObj.isOp) {
-                handleOperatorRequest(data);
-            }
-            // Preload Acknowledgment (Guest tells Host it has preload)
-            else if (data.type === 'preload-ack') {
-                const peer = connectedPeers.find(p => p.conn === conn);
-                if (peer) {
-                    if (!peer.preloadedIndexes) peer.preloadedIndexes = new Set();
-                    peer.preloadedIndexes.add(data.index);
-                    console.log(`[Host] Guest ${peer.id} confirmed preload for index ${data.index}`);
+                else if (data.type === 'preload-ack') {
+                    if (!peerObj.preloadedIndexes) peerObj.preloadedIndexes = new Set();
+                    peerObj.preloadedIndexes.add(data.index);
+                    console.log(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
                 }
-            }
-            // YouTube Playlist Info Request
-            else if (data.type === 'request-youtube-playlist-info') {
-                const pid = data.playlistId;
-                if (youtubeSubItemsMap[pid]) {
-                    conn.send({
-                        type: 'youtube-playlist-info',
-                        playlistId: pid,
-                        ids: youtubeSubItemsMap[pid].ids,
-                        titles: youtubeSubItemsMap[pid].titles
-                    });
-                }
-            }
-            // Auto-Recovery Request
-
-            else if (data.type === 'status-sync') {
-                // [Synchronization Logic] Playlist-Centric Model
-                const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
-
-                // 1. Sync Playlist Structure if different
-                const isPlaylistDifferent = JSON.stringify(playlist.map(it => it.name)) !== JSON.stringify(playlistMeta.map(it => it.name));
-                if (isPlaylistDifferent) {
-                    console.log("[Sync] Playlist out of sync, updating...");
-                    playlist = playlistMeta;
-                    updatePlaylistUI();
-                }
-
-                // 2. Sync Track Index and Trigger Auto-Recovery if needed
-                if (hostTrackIndex !== -1 && hostTrackIndex !== currentTrackIndex) {
-                    const prevIndex = currentTrackIndex;
-                    currentTrackIndex = hostTrackIndex;
-                    updatePlaylistUI();
-
-                    const item = playlist[currentTrackIndex];
-                    if (item && item.type !== 'youtube') {
-                        // Check if we already have the file (decode buffer or blob)
-                        const hasFile = buffer || currentFileBlob || nextFileBlob;
-
-                        // If it's a new track and we don't have it, ask for it
-                        if (!hasFile || (meta && meta.name !== item.name)) {
-                            console.log("[Sync] Current track missing, requesting from host:", item.name);
-                            showLoader(true, `파일 동기화 중: ${item.name}`);
-                            clearPreviousTrackState('status-sync mismatch');
-
-                            if (hostConn && hostConn.open) {
-                                hostConn.send({
-                                    type: 'request-data-recovery',
-                                    nextChunk: 0,
-                                    fileName: item.name,
-                                    index: hostTrackIndex
-                                });
-                            }
-                        }
-                    } else if (item && item.type === 'youtube') {
-                        if (currentState !== APP_STATE.PLAYING_YOUTUBE || currentTrackIndex !== prevIndex) {
-                            console.log("[Sync] Switching to YouTube mode for sync");
-                            // YouTube mode switch is usually handled by youtube-play message,
-                            // but this provides a fallback for late joiners.
-                        }
+                else if (data.type === 'request-youtube-playlist-info') {
+                    const pid = data.playlistId;
+                    if (youtubeSubItemsMap[pid]) {
+                        conn.send({
+                            type: 'youtube-playlist-info',
+                            playlistId: pid,
+                            ids: youtubeSubItemsMap[pid].ids,
+                            titles: youtubeSubItemsMap[pid].titles
+                        });
                     }
                 }
-            }
-            else if (data.type === 'request-data-recovery') {
-                const fileName = data.fileName;
-                const recoveryIndex = data.index;
-                const nextChunk = data.nextChunk || 0;
-                const peerId = conn.peer;
+                else if (data.type === 'request-data-recovery') {
+                    const fileName = data.fileName;
+                    const recoveryIndex = data.index;
+                    const nextChunk = data.nextChunk || 0;
+                    const peerId = conn.peer;
 
-                // Prevent duplicate recovery requests from same peer
-                if (!window._recoveryInProgress) window._recoveryInProgress = {};
-                if (window._recoveryInProgress[peerId]) {
-                    console.log("[Recovery] Already in progress for:", peerId);
-                    return;
-                }
+                    if (!window._recoveryInProgress) window._recoveryInProgress = {};
+                    if (window._recoveryInProgress[peerId]) return;
 
-                // Try to find file by name first, then fall back to index
-                let item = playlist.find(f => f.name === fileName);
-                if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
-                    item = playlist[recoveryIndex];
-                    console.log("[Recovery] Using index fallback:", recoveryIndex);
-                }
-
-                if (item && item.file) {
-                    // Mark recovery as in progress
-                    window._recoveryInProgress[peerId] = true;
-
-                    // Queue recovery with small delay to stagger multiple requests
-                    const queueDelay = Object.keys(window._recoveryInProgress).length * 200;
-                    console.log(`[Recovery] Queuing ${peerObj.label} with ${queueDelay}ms delay`);
-
-                    setTimeout(async () => {
-                        // [FIX #7] Wrap in try-finally to ensure cleanup on any error
-                        try {
-                            if (conn.open) {
-                                showToast(`Recovering ${peerObj.label}: chunk ${nextChunk}`);
-                                await unicastFile(conn, item.file, nextChunk);
-                            }
-                        } catch (recoveryErr) {
-                            console.error("[Recovery] Error during unicast:", recoveryErr);
-                        } finally {
-                            delete window._recoveryInProgress[peerId];
-                        }
-                    }, queueDelay);
-                } else {
-                    console.error("[Recovery] Failed - no file found for:", fileName, "index:", recoveryIndex);
-                }
-            }
-            // Chat Message from Guest: Display locally and rebroadcast to others (not sender)
-            else if (data.type === 'chat') {
-                // Show on Host UI
-                addChatMessage(data.sender, data.text, false);
-                // Broadcast to all guests EXCEPT the original sender
-                connectedPeers.forEach(p => {
-                    if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
-                        p.conn.send({ type: 'chat', sender: data.sender, text: data.text });
+                    let item = playlist.find(f => f.name === fileName);
+                    if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
+                        item = playlist[recoveryIndex];
                     }
-                });
-            }
-        });
 
-        conn.on('close', () => {
-            // [FIX #14] Clean up relay monitor interval
-            if (peerObj._relayMonitor) {
-                clearInterval(peerObj._relayMonitor);
-                peerObj._relayMonitor = null;
-            }
-            peerObj.status = 'disconnected';
-            peerObj.lastSeen = Date.now(); // [Optimization] Track for pruning
-            broadcastDeviceList();
-            showToast(`${deviceName} 연결 끊김`);
-
-            // [Optimization] Prune dead peers after 5 minutes to save resources
-            setTimeout(() => {
-                if (peerObj.status === 'disconnected') {
-                    connectedPeers = connectedPeers.filter(p => p.id !== peerObj.id);
-                    console.log(`[Host] Pruned stale peer ${peerObj.id} after inactivity`);
-                    broadcastDeviceList();
+                    if (item && item.file) {
+                        window._recoveryInProgress[peerId] = true;
+                        const queueDelay = Object.keys(window._recoveryInProgress).length * 200;
+                        setTimeout(async () => {
+                            try {
+                                if (conn.open) {
+                                    showToast(`Recovering ${peerObj.label}: chunk ${nextChunk}`);
+                                    await unicastFile(conn, item.file, nextChunk);
+                                }
+                            } finally {
+                                delete window._recoveryInProgress[peerId];
+                            }
+                        }, queueDelay);
+                    }
                 }
-            }, 30000); // 30 seconds (Reduced from 5 minutes to prevent ghosting)
-        });
-        conn.on('error', () => {
-            peerObj.status = 'disconnected';
-            broadcastDeviceList();
+                else if (data.type === 'chat') {
+                    addChatMessage(data.sender, data.text, false);
+                    connectedPeers.forEach(p => {
+                        if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
+                            p.conn.send({ type: 'chat', sender: data.sender, text: data.text });
+                        }
+                    });
+                }
+            });
+
+            conn.on('close', () => {
+                if (peerObj._relayMonitor) {
+                    clearInterval(peerObj._relayMonitor);
+                    peerObj._relayMonitor = null;
+                }
+                peerObj.status = 'disconnected';
+                peerObj.lastSeen = Date.now();
+                broadcastDeviceList();
+                showToast(`${deviceName} 연결 끊김`);
+
+                setTimeout(() => {
+                    if (peerObj.status === 'disconnected') {
+                        connectedPeers = connectedPeers.filter(p => p.id !== peerObj.id);
+                        broadcastDeviceList();
+                    }
+                }, 30000);
+            });
+
+            conn.on('error', () => {
+                peerObj.status = 'disconnected';
+                broadcastDeviceList();
+            });
         });
     });
 }

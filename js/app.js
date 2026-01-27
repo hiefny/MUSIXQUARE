@@ -1305,10 +1305,8 @@ async function playTrack(index) {
         await loadPreloadedTrack();
         play(0);
 
-        // Schedule Auto-Sync (5s later)
-        setTimeout(() => {
-            handleMainSyncBtn();
-        }, 5000);
+        // [Fix] Immediate Auto-Sync (User Request)
+        handleMainSyncBtn();
 
         // Trigger Next Preload
         preloadNextTrack();
@@ -1950,6 +1948,7 @@ function stopAllMedia() {
 
     // Clear any pending triggers
     window._pendingPlayTime = undefined;
+    preloadSessionId++; // [Fix] Invalidate any ongoing preloads
     if (managedTimers.autoPlayTimer) {
         clearManagedTimer('autoPlayTimer');
     }
@@ -3829,6 +3828,17 @@ async function handleFilePrepare(data) {
     const isMismatch = nextMeta && data.index !== undefined && data.index !== nextMeta.index;
     if (isMismatch) {
         console.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
+
+        // [FIX] Reset waiting flags to prevent getting stuck
+        if (window._waitingForPreload) {
+            window._waitingForPreload = false;
+            console.log("[Fixed] Cancelled stuck preload wait due to mismatch");
+        }
+        if (window._preloadWatchdog) {
+            clearTimeout(window._preloadWatchdog);
+            window._preloadWatchdog = null;
+        }
+
         clearPreloadState();
     }
 
@@ -4638,8 +4648,9 @@ async function handleStatusSync(data) {
             // Check if a preload is CURRENTLY in progress for this track
             const isOurPreload = preloadFileOpfs.name && (preloadMeta && (preloadMeta.index === hostTrackIndex || preloadMeta.name === item.name));
 
-            // If it's a new track and we don't have it, ask for it
-            if (!hasBlob && ((!meta || meta.name !== item.name))) {
+            // If it's a new track and we don't have it (or have the WRONG one), ask for it
+            const isWrongBlob = hasBlob && meta && meta.name !== item.name;
+            if (!hasBlob || isWrongBlob) {
                 if (isOurPreload) {
                     console.log("[Sync] Track is being preloaded. Waiting for completion...");
                     showLoader(true, `파일 동기화 중: ${item.name}`);
@@ -5774,7 +5785,9 @@ async function loadPreloadedTrack() {
                 document.getElementById('track-artist').innerText = `Track ${nextTrackIndex + 1}`;
             }
 
-            document.getElementById('play-btn').disabled = !isOperator;
+            // [Fix] Enable button for Host OR Operator
+            const isGuest = !!hostConn;
+            document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
             // Clear preload pointers so we don't accidentally reuse stale data
             const lastIndex = nextTrackIndex;
@@ -6286,6 +6299,16 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
     }
 
     updateTitleWithMarquee('YouTube Video');
+
+    // [Fix] Safety Timeout: prevents infinite loader if YouTube API fails silently
+    if (window._ytLoadTimeout) clearTimeout(window._ytLoadTimeout);
+    window._ytLoadTimeout = setTimeout(() => {
+        if (window._currentYouTubeSessionId === currentSessionId && (!youtubePlayer || !isYouTubeAPIReady)) {
+            console.warn('[YouTube] Load timeout triggered.');
+            showLoader(false);
+            showToast('YouTube 로드 시간 초과. 다시 시도해주세요.');
+        }
+    }, 15000);
     document.getElementById('track-artist').innerText = playlistId ? '플레이리스트 재생 중' : '재생 중';
 
     document.getElementById('play-btn').disabled = false;

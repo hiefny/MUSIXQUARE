@@ -4574,115 +4574,78 @@ async function handleFileChunk(data) {
     // Process all contiguous chunks in order
     while (sessionBuffer.has(nextExpectedChunk)) {
         const chunk = sessionBuffer.get(nextExpectedChunk);
+        const idx = nextExpectedChunk;
 
+        // CRITICAL: Clone the chunk! The underlying buffer might be reused or detached by PeerJS.
+        const chunkCopy = new Uint8Array(chunk);
+
+        // [FIX] Prepare relay copy BEFORE sending chunkCopy to worker (to avoid detachment)
+        let relayCopy = null;
+        if (downstreamDataPeers.length > 0) {
+            relayCopy = new Uint8Array(chunkCopy);
+        }
+
+        // [Worker-OPFS] Offload write
         timerWorker.postMessage({
             command: 'OPFS_WRITE',
-            chunk: chunk,
-            index: nextExpectedChunk,
+            chunk: chunkCopy,
+            index: idx,
             isPreload: false,
             filename: currentFileOpfs.name,
             sessionId: incomingSid
-        }, [chunk.buffer]);
+        }, [chunkCopy.buffer]);
 
-        sessionBuffer.delete(nextExpectedChunk);
+        receivedCount++;
+        lastChunkTime = Date.now();
+        sessionBuffer.delete(idx);
         nextExpectedChunk++;
+
+        // RELAY LOGIC: Queue and Process (with Back-pressure)
+        if (relayCopy && downstreamDataPeers.length > 0) {
+            relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: idx });
+            processRelayQueue();
+        }
+
+        // [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
+        if (meta && meta.total > 0 && receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
+            // [FIX #4] Set guard BEFORE any async operation to prevent race conditions
+            transferState = TRANSFER_STATE.PROCESSING;
+            const processingIndex = meta.index;
+
+            // [New] Notify Host that we have this file now
+            if (hostConn && hostConn.open && processingIndex !== undefined) {
+                hostConn.send({ type: 'preload-ack', index: processingIndex });
+                console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
+            }
+
+            // [Worker-OPFS] Finalize file
+            timerWorker.postMessage({ command: 'OPFS_END', filename: meta.name, isPreload: false, sessionId: incomingSid });
+
+            // [Stability Fix] Explicitly clear watchdog once file is fully received
+            clearManagedTimer('chunkWatchdog');
+
+            // Finalize UI/playback state will happen in Worker message handler
+            break;
+        }
     }
 
-    // Progress update...
-    if (currentFileOpfs.total > 0) {
-        updateLoader(Math.round((nextExpectedChunk / currentFileOpfs.total) * 100));
+    // Progress update UI
+    if (meta && meta.total > 0) {
+        const percent = Math.min(100, Math.floor((receivedCount / meta.total) * 100));
+        const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
+
+        let progressText = `${percent}%`;
+        if (meta.size) {
+            const totalMB = (meta.size / 1024 / 1024).toFixed(1);
+            const currentBytes = receivedCount * 16384;
+            const currentMB = (currentBytes / 1024 / 1024).toFixed(1);
+            progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
+        }
+
+        const headerText = document.getElementById('header-loading-text');
+        if (headerText) headerText.innerText = `${sourceLabel} 수신 중... ${progressText}`;
+        updateLoader(percent);
     }
-}
-
-// CRITICAL: Clone the chunk! The underlying buffer might be reused or detached by PeerJS.
-const chunkCopy = new Uint8Array(data.chunk);
-
-// INDEX-BASED REASSEMBLY (Fixes Data Corruption)
-const idx = data.index;
-
-// Debug logging for first few chunks
-if (idx < 5 || idx % 100 === 0) {
-    console.log(`[Chunk] Received idx=${idx}, total=${meta?.total}`);
-}
-
-// [FIX #12] Enhanced bounds check with meta.total validation
-const isValidIndex = idx >= 0 &&
-    (!meta || !meta.total || idx < meta.total);
-
-// [FIX] Prepare relay copy BEFORE sending chunkCopy to worker (to avoid detachment)
-let relayCopy = null;
-if (downstreamDataPeers.length > 0) {
-    relayCopy = new Uint8Array(chunkCopy);
-}
-
-if (isValidIndex) {
-    // [Worker-OPFS] Offload write
-    timerWorker.postMessage({
-        command: 'OPFS_WRITE',
-        chunk: chunkCopy,
-        index: idx,
-        isPreload: false,
-        filename: meta.name
-    }, [chunkCopy.buffer]);
-    receivedCount++;
-} else {
-    // [FIX] Buffer early chunks that arrive before file-start
-    console.log(`[Chunk] Buffering early chunk idx=${idx} (waiting for OPFS start)`);
-    if (!window._pendingEarlyChunks) window._pendingEarlyChunks = [];
-    window._pendingEarlyChunks.push({ index: idx, chunk: chunkCopy });
-}
-
-lastChunkTime = Date.now();
-
-
-// RELAY LOGIC: Queue and Process (with Back-pressure)
-if (relayCopy && downstreamDataPeers.length > 0) {
-    relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: idx });
-    processRelayQueue();
-}
-
-// Calculate percent with safety check
-let percent = 0;
-if (meta && meta.total > 0) {
-    percent = Math.min(100, Math.floor((receivedCount / meta.total) * 100));
-}
-
-const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
-
-let progressText = `${percent}%`;
-
-if (meta && meta.size) {
-    const totalMB = (meta.size / 1024 / 1024).toFixed(1);
-    // Estimate current based on chunks
-    const currentBytes = receivedCount * 16384;
-    const currentMB = (currentBytes / 1024 / 1024).toFixed(1);
-    progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
-}
-
-document.getElementById('header-loading-text').innerText = `${sourceLabel} 수신 중... ${progressText}`;
-updateLoader(percent);
-
-// [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
-if (receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
-    // [FIX #4] Set guard BEFORE any async operation to prevent race conditions
-    transferState = TRANSFER_STATE.PROCESSING;
-    const processingFileName = meta.name; // Capture filename for validation
-    const processingIndex = meta.index;   // [Fix] Capture track index for ACK
-
-    // [New] Notify Host that we have this file now
-    if (hostConn && hostConn.open && processingIndex !== undefined) {
-        hostConn.send({ type: 'preload-ack', index: processingIndex });
-        console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
-    }
-
-    // [Worker-OPFS] Finalize file
-    timerWorker.postMessage({ command: 'OPFS_END', filename: meta.name, isPreload: false, sessionId: incomingSid });
-
-    // [Stability Fix] Explicitly clear watchdog once file is fully received
-    clearManagedTimer('chunkWatchdog');
-
-    // Finalize UI/playback state will happen in Worker message handler
-    return;
 }
 
 async function handleFileWait(data) {

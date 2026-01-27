@@ -1810,8 +1810,8 @@ async function play(offset) {
         updatePlayState(true);
     }
 
-    if (currentState !== APP_STATE.PLAYING_VIDEO) {
-        // [New] If current source is video, try to stay in PLAYING_VIDEO mode
+    // [Fix] Only set state if we're not already in a playing state (VIDEO or STREAMING)
+    if (currentState !== APP_STATE.PLAYING_VIDEO && currentState !== APP_STATE.PLAYING_STREAMING) {
         const isVideo = currentFileBlob && (currentFileBlob.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name)));
         setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
     }
@@ -2821,7 +2821,7 @@ slider.addEventListener('change', () => {
         broadcast({ type: 'play', time: t });
     } else {
         pausedAt = t;
-        if (currentState === APP_STATE.PLAYING_VIDEO) videoElement.currentTime = t;
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) videoElement.currentTime = t;
         // Broadcast pause with updated time to sync guests without starting playback
         broadcast({ type: 'pause', time: t });
     }
@@ -5350,7 +5350,7 @@ function handleOperatorRequest(data) {
             return;
         }
 
-        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) play(data.time); else pausedAt = data.time;
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) play(data.time); else pausedAt = data.time;
         broadcast({ type: 'play', time: data.time });
     } else if (data.type === 'request-eq-reset') {
         resetEQ();
@@ -5852,7 +5852,7 @@ function seekToTime(seconds) {
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.seekTo) {
         youtubePlayer.seekTo(seconds, true);
         showToast(`${fmtTime(seconds)}로 이동`);
-    } else if (currentState === APP_STATE.PLAYING_VIDEO) {
+    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
         const video = document.getElementById('main-video');
         if (video) {
             video.currentTime = seconds;

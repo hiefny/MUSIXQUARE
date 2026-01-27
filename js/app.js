@@ -648,10 +648,7 @@ function switchTab(tabId) {
     }
 
     // YouTube mini-player logic
-    const miniPlayer = document.getElementById('yt-mini-player');
-    if (miniPlayer) {
-        miniPlayer.style.display = 'none';
-    }
+
 }
 
 // --- Audio System (Tone.js) ---

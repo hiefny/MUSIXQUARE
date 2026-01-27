@@ -115,6 +115,51 @@ header {
     position: sticky;
     top: 0;
     z-index: 50;
+    overflow: hidden;
+    /* Important for masking animations */
+    transition: background-color 0.3s ease;
+}
+
+/* Header Loading State - Progress Background */
+.header-progress-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    /* Animates from 0 to 100% */
+    background-color: var(--primary);
+    /* System Theme Color */
+    opacity: 0;
+    /* Hidden by default */
+    z-index: 1;
+    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+    pointer-events: none;
+}
+
+/* Show progress bar only when loading */
+header.loading .header-progress-bg {
+    opacity: 0.15;
+    /* Transparent but visible */
+}
+
+/* Header Content Wrapper for relative positioning */
+.header-content-wrapper {
+    position: relative;
+    /* Ensure it overlays the progress bg if needed, though they are siblings */
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+}
+
+/* Default Content (Logo, Help, Badge) */
+/* We target .header-default-content for the up/down animation */
+.header-default-content {
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    transform: translateY(0);
+    opacity: 1;
 }
 
 /* Logo Gradient Styling */
@@ -134,13 +179,52 @@ header {
     -webkit-text-fill-color: transparent;
 }
 
-/* Header Right Group (? button + role badge) */
+/* Loading Text (Hidden by default, moves up from below) */
+.header-loading-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+
+    transform: translateY(100%);
+    /* Start from below */
+    opacity: 0;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    z-index: 6;
+    pointer-events: none;
+}
+
+/* --- Loading Active State (Applied to <header>) --- */
+header.loading .header-default-content {
+    transform: translateY(-150%);
+    /* Move up and out */
+    opacity: 0;
+}
+
+header.loading .header-loading-text {
+    transform: translateY(0);
+    /* Move to center */
+    opacity: 1;
+}
+
+/* Update Header Right to be relative or fixed depending on need */
+/* In the HTML update, we moved .header-right inside header, so we adjust CSS */
 .header-right {
-    position: fixed;
-    top: calc(var(--header-height) / 2);
-    transform: translateY(-50%);
-    right: 24px;
-    z-index: 20001;
+    /* Reset fixed positioning since it's now inside flex header */
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    transform: none !important;
+    z-index: 5;
+
     display: flex;
     align-items: center;
     gap: 10px;

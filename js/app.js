@@ -509,7 +509,9 @@ timerWorker.onmessage = async (e) => {
             // (Handles are serialized shared state in some browsers, 
             // but getting a fresh one from root is always safe)
             const root = await navigator.storage.getDirectory();
-            const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_');
+            // [Fix] Use Instance ID for filename matching
+            const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + OPFS_INSTANCE_ID;
+
             const fileHandle = await root.getFileHandle(safeName);
             const file = await fileHandle.getFile();
 
@@ -1372,9 +1374,13 @@ async function playTrack(index) {
 
     const file = item.file;
     if (!hostConn) {
-        // Standard Load
-        broadcast({ type: 'file-prepare', name: file.name, index: index });
-        await loadAndBroadcastFile(file);
+        // [FIX] Generate Session ID UPFRONT to prevent race conditions
+        currentTransferSessionId++;
+        const sessionId = currentTransferSessionId;
+
+        // Standard Load with Session ID
+        broadcast({ type: 'file-prepare', name: file.name, index: index, sessionId: sessionId });
+        await loadAndBroadcastFile(file, sessionId);
 
         // After loading current, start preloading next
         // preloadNextTrack is already called inside loadAndBroadcastFile (line 773)
@@ -1660,7 +1666,7 @@ function playPrevTrack() {
 
 
 
-async function loadAndBroadcastFile(file) {
+async function loadAndBroadcastFile(file, sessionId = null) {
     showLoader(true, `준비 중: ${file.name} `);
     stopAllMedia();
 
@@ -1711,7 +1717,8 @@ async function loadAndBroadcastFile(file) {
         if (connectedPeers.length > 0) {
             // Always send original file directly to skip memory-heavy extraction
             showToast("파일 전송 중...");
-            await broadcastFile(file);
+            // Pass the pre-generated session ID (if any) or null
+            await broadcastFile(file, sessionId);
         }
 
         if (!hostConn) {
@@ -3817,6 +3824,14 @@ function clearPreviousTrackState(reason = '') {
 
 // --- Data Message Handlers ---
 async function handleFilePrepare(data) {
+    // [FIX] Immediate Session Check to invalidate old chunks
+    const incomingSid = data.sessionId;
+    if (incomingSid && incomingSid > localTransferSessionId) {
+        console.log(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
+        localTransferSessionId = incomingSid;
+        // Optionally clear previous state immediately if not already handling it below
+    }
+
     // Check if we already have this track preloaded!
     const hasPreloadedByIndex = nextMeta && data.index !== undefined && data.index === nextMeta.index;
     const hasPreloadedByName = nextMeta && data.name && data.name === nextMeta.name;
@@ -4256,7 +4271,7 @@ async function handleFileChunk(data) {
         progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
     }
 
-    document.getElementById('loader-text').innerText = `${sourceLabel} 수신 중... ${progressText}`;
+    document.getElementById('header-loading-text').innerText = `${sourceLabel} 수신 중... ${progressText}`;
     updateLoader(percent);
 
     // [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
@@ -4451,6 +4466,10 @@ async function handlePreloadStart(data) {
 
     console.log(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
 
+    // [New] Show Preload Status in Header
+    // "다음 곡 준비 중..."
+    showLoader(true, `다음 곡 준비 중... (${data.name})`);
+
     // [OPFS-Worker] Prepare preload file
     timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true, size: CHUNK_SIZE });
     preloadFileOpfs.name = data.name;
@@ -4499,6 +4518,14 @@ async function handlePreloadChunk(data) {
         sessionState.progress = preloadCount;
     }
 
+    // [New] Update UI for Preload
+    if (preloadMeta && preloadMeta.total > 0) {
+        const pct = Math.min(100, Math.floor((preloadCount / preloadMeta.total) * 100));
+        // Dynamically update text if needed, or just update bar
+        // showLoader(true, `다음 곡 준비 중... ${pct}%`); // Optional: avoid spamming text updates if not needed
+        updateLoader(pct);
+    }
+
     if (fwdMsg && downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(fwdMsg); });
     }
@@ -4529,6 +4556,9 @@ async function handlePreloadEnd(data) {
     if (hostConn && hostConn.open) {
         hostConn.send({ type: 'preload-ack', index: data.index });
     }
+
+    // [New] Hide Loader when Preload Complete
+    showLoader(false);
 }
 
 async function handlePlayPreloaded(data) {
@@ -5469,9 +5499,16 @@ function sendRecoveryRequest(forceChunk = null) {
     });
 }
 
-async function broadcastFile(file) {
-    currentTransferSessionId++;
-    const sessionId = currentTransferSessionId;
+async function broadcastFile(file, explicitSessionId = null) {
+    let sessionId;
+    if (explicitSessionId !== null) {
+        sessionId = explicitSessionId;
+        // Ensure global counter is at least equal to this (sync check)
+        if (sessionId > currentTransferSessionId) currentTransferSessionId = sessionId;
+    } else {
+        currentTransferSessionId++;
+        sessionId = currentTransferSessionId;
+    }
 
     const CHUNK = 16384;
     const total = Math.ceil(file.size / CHUNK);
@@ -5652,19 +5689,28 @@ function broadcast(msg) {
 }
 
 function updateLoader(percent) {
-    const circle = document.getElementById('loader-ring');
-    document.querySelector('.progress-ring').classList.remove('indeterminate');
-    const radius = circle.r.baseVal.value;
-    const circumference = radius * 2 * Math.PI;
-    const offset = circumference - (percent / 100) * circumference;
-    circle.style.strokeDashoffset = offset;
+    const progressBg = document.getElementById('header-progress-bg');
+    if (progressBg) {
+        progressBg.style.width = `${percent}%`;
+    }
 }
 
 function showLoader(show, txt) {
-    document.getElementById('loader').style.display = show ? 'flex' : 'none';
-    if (txt) document.getElementById('loader-text').innerText = txt;
+    const header = document.getElementById('main-header');
+    const loadingText = document.getElementById('header-loading-text');
+    const progressBg = document.getElementById('header-progress-bg');
+
     if (show) {
-        document.querySelector('.progress-ring').classList.add('indeterminate');
+        header?.classList.add('loading');
+        if (txt && loadingText) loadingText.innerText = txt;
+        if (progressBg && (progressBg.style.width === '0px' || progressBg.style.width === '')) {
+            progressBg.style.width = '0%';
+        }
+    } else {
+        header?.classList.remove('loading');
+        setTimeout(() => {
+            if (progressBg) progressBg.style.width = '0%';
+        }, 400);
     }
 }
 let toastTimer = null;

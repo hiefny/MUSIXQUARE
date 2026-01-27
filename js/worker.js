@@ -8,6 +8,7 @@ let preloadFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize:
 
 let isProcessing = false;
 const messageQueue = [];
+let instanceId = 'default'; // Unique ID for this tab/worker session
 
 self.onmessage = function (e) {
     messageQueue.push(e.data);
@@ -49,6 +50,11 @@ async function handleMessage(data) {
         }
     }
 
+    else if (command === 'INIT_INSTANCE') {
+        instanceId = data.instanceId;
+        console.log(`[Worker] Initialized with Instance ID: ${instanceId}`);
+    }
+
     // --- OPFS Commands (Optimized with SyncAccessHandle) ---
     else if (command === 'OPFS_START') {
         const { filename, isPreload, size } = data;
@@ -69,7 +75,8 @@ async function handleMessage(data) {
             opfsObj.handle = null;
 
             const root = await navigator.storage.getDirectory();
-            const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
+            // [Fix] Append instanceId to prevent collisions across tabs logic
+            const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + instanceId;
 
             // Delete existing file before start for fresh write unless keepExisting is true
             if (!data.keepExisting) {
@@ -158,7 +165,7 @@ async function handleMessage(data) {
             return;
         }
 
-        const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_');
+        const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + instanceId;
 
         try {
             const root = await navigator.storage.getDirectory();

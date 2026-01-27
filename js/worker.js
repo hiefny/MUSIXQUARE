@@ -9,6 +9,8 @@ let preloadFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize:
 let isProcessing = false;
 const messageQueue = [];
 let instanceId = 'default'; // Unique ID for this tab/worker session
+let currentSessionId = null;
+let preloadSessionId = null;
 
 self.onmessage = function (e) {
     messageQueue.push(e.data);
@@ -57,7 +59,12 @@ async function handleMessage(data) {
 
     // --- OPFS Commands (Optimized with SyncAccessHandle) ---
     else if (command === 'OPFS_START') {
-        const { filename, isPreload, size } = data;
+        const { filename, isPreload, size, sessionId } = data;
+        const sid = sessionId || Date.now();
+
+        if (isPreload) preloadSessionId = sid;
+        else currentSessionId = sid;
+
         const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
         if (size) opfsObj.chunkSize = size;
 
@@ -100,17 +107,26 @@ async function handleMessage(data) {
         }
     }
     else if (command === 'OPFS_WRITE') {
-        const { chunk, index, isPreload } = data;
+        const { chunk, index, isPreload, filename, sessionId } = data;
         const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
 
-        if (opfsObj.accessHandle) {
+        // [Fix #1] Session ID Verification: Prevent data corruption from stale/zombie chunks
+        const expectedSid = isPreload ? preloadSessionId : currentSessionId;
+        if (sessionId && sessionId !== expectedSid) {
+            console.warn(`[Worker] Session mismatch for ${filename}. Expected ${expectedSid}, got ${sessionId}. Ignoring chunk.`);
+            return;
+        }
+
+        // [Security Fix] Race Condition Guard: Verify filename matches open handle
+        if (opfsObj.accessHandle && opfsObj.name === filename) {
             try {
-                // CHUNK size is dynamic (default 16384)
                 // Synchronous write in worker!
                 opfsObj.accessHandle.write(chunk, { at: index * opfsObj.chunkSize });
             } catch (e) {
-                console.error(`[Worker-Sync] Write failed at ${index}:`, e);
+                console.error(`[Worker-Sync] Write failed at ${index} for ${filename}:`, e);
             }
+        } else if (opfsObj.accessHandle) {
+            console.warn(`[Worker-Sync] Ignoring write for stale filename: ${filename} (Active: ${opfsObj.name})`);
         }
     }
     else if (command === 'OPFS_END') {
@@ -171,8 +187,12 @@ async function handleMessage(data) {
             const root = await navigator.storage.getDirectory();
             await root.removeEntry(safeName);
             console.log(`[Worker OPFS] Cleaned up: ${safeName}`);
+
+            // [Fix #2] Notify main thread that cleanup is complete to prevent handle conflicts
+            self.postMessage({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
         } catch (e) {
             console.warn(`[Worker OPFS] Cleanup failed for ${safeName}:`, e);
+            self.postMessage({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload }); // Always notify even if fails
         }
     }
 }

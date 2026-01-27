@@ -12,59 +12,19 @@
  * - Worker & Timer (Background Tasks)
  * - Audio Engine (Tone.js Nodes & Init)
  * - Onboarding & Session Actions
-
-@@ -27,6757 +27,91 @@
- * GLOBAL VARIABLES REFERENCE
- * ============================================================================
- * * [AUDIO ENGINE - Tone.js Nodes]
- * toneSplit       : Tone.Split - 스테레오 채널 분리
- * toneMerge       : Tone.Merge - 채널 병합 (최종 출력 전 단계)
- * gainL, gainR    : Tone.Gain - L/R 채널별 독립 게인
- * masterGain      : Tone.Gain - 마스터 볼륨 및 최종 출력
- * widener         : Tone.StereoWidener - 가상 서라운드 너비 조절
- * preamp          : Tone.Gain - 이퀄라이저 전 증폭 단계
- * globalLowPass   : Tone.Filter - 우퍼/LFE 모드용 가변 저역필터
- * eqNodes[]       : Tone.Filter[] - 5밴드 그래픽 EQ
- * reverb          : Tone.Reverb - 리버브 엔진
- * rvbLowCut/HighCut : Tone.Filter - 리버브 댐핑 제어용 필터
- * rvbCrossFade    : Tone.CrossFade - 리버브 Wet/Dry 믹스
- * vbFilter/Cheby/Gain : Virtual Bass (Chebyshev) 엔진 체인
- * analyser        : Tone.Analyser - 비주얼라이저 데이터 분석기
- * * [PLAYBACK STATE]
- * currentState    : string - APP_STATE 머신 상태 (IDLE, PLAYING_...)
- * startedAt       : number - Tone.now() 기준 트랙 재생 시작 시점
- * pausedAt        : number - 일시정지된 트랙 위치 (초)
- * * [PLAYLIST]
- * playlist[]      : Array - 트랙 객체 배열 { type, file, name, videoId... }
- * currentTrackIndex : number - 현재 재생 또는 대기 중인 트랙 인덱스
- * repeatMode      : number - 0=Off, 1=All, 2=One
- * * [NETWORK & SYNC]
- * peer            : Peer - PeerJS 인스턴스
- * hostConn        : DataConnection - Guest→Host 연결 객체
- * connectedPeers[] : DataConnection[] - Host가 관리하는 모든 Guest 목록
- * localOffset     : number - 수동 싱크 보정 값 (초)
- * autoSyncOffset  : number - 자동 레이턴시 측정 보정 값 (초)
- * * [YOUTUBE]
- * youtubePlayer   : YT.Player - YouTube API 컨트롤러
-
-
-
-
-
-
-
-
  * * ============================================================================
  */
 
 // ============================================================================
 // [SECTION] GLOBAL CONSTANTS & INSTANCE ID
 // ============================================================================
-const OPFS_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).substr(2);
+const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : (Date.now().toString(36) + Math.random().toString(36).substr(2, 9));
 
 // [iOS Latency Engineering]
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const IOS_STARTUP_BIAS = -0.45; // [Default: -450ms] Bias applied to iOS on first start.
+const IOS_STARTUP_BIAS = 0; // [Unified Buffer Mode] Reset to 0 as Tone.Player handles precision.
 
 /**
  * [Diagnostics] Check if the browser environment supports required features.
@@ -98,6 +58,8 @@ checkSystemCompatibility();
 let toneSplit, toneMerge;
 let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
+let playerNode = null;   // [Unified Buffer Mode] Transient BufferSource for precise start
+let currentAudioBuffer = null; // [Unified Buffer Mode] Decoded PCM data in RAM
 let vbFilter, vbCheby, vbGain;
 let preamp, widener;
 let globalLowPass = null;
@@ -199,8 +161,23 @@ function cleanupState(oldState) {
 function getTrackPosition() {
     if (currentState === APP_STATE.IDLE) return pausedAt;
 
-    // 스트리밍 모드: videoElement.currentTime 사용
-    if (videoElement && videoElement.src && videoElement.readyState >= 1) {
+    // [Unified Buffer Mode]
+    // If we have a bufferPlayer loaded, we calculate time based on when we started it.
+    if (currentAudioBuffer && playerNode && playerNode.state === 'started') {
+        // Tone.BufferSource doesn't emit "currentTime" easily, so we calculate:
+        // CurrentTime = (Now - StartedTime) + Offset
+        // startedAt was set to (Tone.now() - offset) in play()
+        // So: Tone.now() - startedAt = (Tone.now() - (Tone.now() - offset)) = offset (Playing Time)
+        // We add localOffset and autoSyncOffset for display/sync logic if needed,
+        // but for pure track position, we just want "how long has it been playing + start offset"
+
+        // However, 'startedAt' is defined as: Tone.now() - offset + (localOpts...) in play()
+        // Let's use the standard formula:
+        return (Tone.now() - startedAt) + localOffset + autoSyncOffset;
+    }
+
+    // 스트리밍 모드: videoElement.currentTime 사용 (Buffer Mode가 아닐 때만)
+    if (videoElement && videoElement.src && videoElement.readyState >= 1 && !currentAudioBuffer) {
         return videoElement.currentTime;
     }
 
@@ -253,10 +230,15 @@ function updateUIForState(newState) {
 
 let startTime = 0;
 let pausedAt = 0;
+let startsAt = 0;
 let startedAt = 0;
+let activeLoadSessionId = 0; // [Fix] Prevent Zombie Loads
 
-let animationId;
+let animationId = null;
+let uiLoopId = null;
 let isSeeking = false;
+let _isPlayLocked = false; // [Fix #3] Prevent concurrent play conflicts
+
 
 // ✅ 새로 추가: 타이머 중앙 관리 객체
 const managedTimers = {
@@ -304,7 +286,10 @@ let currentMediaObjectURL = null;
 const BlobURLManager = {
     _activeURL: null,
     _preparingURL: null,
-    _pendingRevocations: new Map(), // URL -> Blob reference for GC protection
+    _pendingRevocations: new Map(),
+
+    // [Fix #1] BlobURL Queue: Avoid memory pressure during fast switching (Strict 5)
+    MAX_PENDING: 5,
 
     /**
      * Create a new Blob URL in 'Preparing' state.
@@ -332,7 +317,7 @@ const BlobURLManager = {
 
         // Schedule previous ACTIVE URL for delayed revocation
         if (this._activeURL && this._activeURL !== this._preparingURL) {
-            this.safeRevoke(this._activeURL, currentFileBlob);
+            this.safeRevoke(this._activeURL); // [Fix] No blob needed
         }
 
         this._activeURL = this._preparingURL;
@@ -344,10 +329,21 @@ const BlobURLManager = {
      * Schedule a specific URL for revocation after a safety delay.
      * Holds a reference to the blob to prevent GC during the delay.
      */
-    safeRevoke: function (url, blob) {
+    safeRevoke: function (url) {
         if (!url || this._pendingRevocations.has(url)) return;
 
-        this._pendingRevocations.set(url, blob);
+        // [Fix] Strict Queue management (Max 5)
+        if (this._pendingRevocations.size >= this.MAX_PENDING) {
+            const oldest = this._pendingRevocations.keys().next().value;
+            console.log(`[BlobURL] Queue Full. Explictly revoking oldest: ${oldest}`);
+            try {
+                URL.revokeObjectURL(oldest);
+            } catch (e) { }
+            this._pendingRevocations.delete(oldest);
+        }
+
+        // Store true instead of blob to allow GC to reclaim memory
+        this._pendingRevocations.set(url, true);
         console.log(`[BlobURL] Scheduled for revocation (10s): ${url}`);
 
         setTimeout(() => {
@@ -478,9 +474,27 @@ let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest 
 const preloadSessionState = new Map(); // sessionId -> { skipped, progress, total }
 
 // OPFS Helper coordination (now handled by worker)
-function cleanupOPFSInWorker(filename, isPreload) {
+// [Fix #5] Async Cleanup with Worker Acknowledgment
+async function cleanupOPFSInWorker(filename, isPreload) {
     if (!filename) return;
-    timerWorker.postMessage({ command: 'OPFS_CLEANUP', filename, isPreload });
+
+    return new Promise((resolve) => {
+        const cleanupId = Date.now() + Math.random();
+        const handler = (e) => {
+            if (e.data.type === 'OPFS_CLEANUP_COMPLETE' && e.data.filename === filename) {
+                timerWorker.removeEventListener('message', handler);
+                resolve();
+            }
+        };
+        timerWorker.addEventListener('message', handler);
+        timerWorker.postMessage({ command: 'OPFS_CLEANUP', filename, isPreload });
+
+        // Safety fallback: Continue if worker takes too long
+        setTimeout(() => {
+            timerWorker.removeEventListener('message', handler);
+            resolve();
+        }, 1500);
+    });
 }
 
 // Helper: Clear metadata for upcoming preload (Host side) or current preload (Guest side)
@@ -541,7 +555,7 @@ timerWorker.onmessage = async (e) => {
             console.log(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
 
             // Re-retrieve file handle in main thread to get the File object
-            // (Handles are serialized shared state in some browsers, 
+            // (Handles are serialized shared state in some browsers,
             // but getting a fresh one from root is always safe)
             const root = await navigator.storage.getDirectory();
             // [Fix] Use Instance ID for filename matching
@@ -583,57 +597,98 @@ timerWorker.onmessage = async (e) => {
 };
 
 
-function finalizeFileProcessing(file) {
-    // This is called when OPFS_FILE_READY comes back from worker.
-    // transferState was set to PROCESSING by handleFileChunk to prevent concurrent finishers.
+async function finalizeFileProcessing(file) {
+    // 무조건 오디오 메모리 모드(Buffer Mode)로 처리
+    console.log(`[Guest] Finalizing with Buffer Mode...`);
+    showLoader(true, "오디오 메모리 로드 중...");
 
-    const isVideoBlob = file.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name));
-    const shouldBeVideoMode = isVideoBlob;
+    try {
+        await initAudio();
+        if (Tone.context.state === 'suspended') await Tone.start();
 
-    console.log(`[Main] Finalizing processing from Worker-OPFS. VideoMode: ${shouldBeVideoMode}`);
+        // 1. ArrayBuffer로 변환 및 디코딩 (고정밀 싱크 보장)
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-    setEngineMode(shouldBeVideoMode ? 'video' : 'streaming');
+        // 2. 전역 변수 저장
+        if (currentAudioBuffer) {
+            const oldBuffer = currentAudioBuffer;
+            currentAudioBuffer = null;
 
-    const url = BlobURLManager.create(file);
-    videoElement.src = url;
-
-    // [New] Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
-    currentFileBlob = file;
-
-    videoElement.onloadedmetadata = () => {
-        document.getElementById('seek-slider').max = videoElement.duration;
-        document.getElementById('seek-slider').value = 0;
-        document.getElementById('time-dur').innerText = fmtTime(videoElement.duration);
-        BlobURLManager.confirm(file);
-    };
-    videoElement.load();
-    setupMediaSource();
-
-    document.getElementById('play-btn').disabled = !isOperator;
-    if (Tone.context.state === 'suspended') Tone.context.resume();
-
-    showLoader(false);
-    clearManagedTimer('chunkWatchdog');
-    pausedAt = 0;
-    updatePlayState(false);
-    showToast("재생 준비 완료");
-
-    setTimeout(() => {
-        if (hostConn && hostConn.open) {
-            hostConn.send({ type: 'get-sync-time' });
-        } else {
-            syncReset();
+            // requestIdleCallback으로 GC 시간 여유 제공
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => {
+                    // oldBuffer는 이제 스코프 밖으로 나가며 GC 대상
+                    if (oldBuffer) {
+                        console.log('[GC] Old AudioBuffer released');
+                    }
+                }, { timeout: 100 });
+            } else {
+                // Fallback
+                await new Promise(r => setTimeout(r, 50));
+            }
         }
-    }, 1000);
+        currentAudioBuffer = audioBuffer;
 
-    if (window._pendingPlayTime !== undefined) {
-        const target = window._pendingPlayTime + localOffset;
-        play(target);
-        window._pendingPlayTime = undefined;
+        // 3. 엔진 모드 설정 (비주얼라이저 작동을 위해 'audio' 혹은 'buffer' 케이스 처리)
+        setEngineMode('audio');
+
+        // 4. 비디오 엘리먼트는 '시각적 싱크'용으로만 사용 (음소거)
+        const url = BlobURLManager.create(file);
+        videoElement.src = url;
+        videoElement.muted = true; // 소리는 Tone.js가 냄
+
+        // [New] Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
+        currentFileBlob = file;
+
+        videoElement.onloadedmetadata = () => {
+            // 길이는 정확한 오디오 버퍼 기준
+            document.getElementById('seek-slider').max = audioBuffer.duration;
+            document.getElementById('seek-slider').value = 0;
+            document.getElementById('time-dur').innerText = fmtTime(audioBuffer.duration);
+            BlobURLManager.confirm(file);
+        };
+        videoElement.load();
+
+        // [Unified Buffer Mode] Buffer가 있다면 오디오 그래프 연결(MediaElementSource)을 하지 않음
+        if (!currentAudioBuffer) {
+            setupMediaSource();
+        } else if (mediaSourceNode) {
+            try { mediaSourceNode.disconnect(); } catch (e) { }
+        }
+
+        document.getElementById('play-btn').disabled = !isOperator;
+
+        showLoader(false);
+        clearManagedTimer('chunkWatchdog');
+        pausedAt = 0;
+        updatePlayState(false);
+        showToast("재생 준비 완료");
+
+        setTimeout(() => {
+            if (hostConn && hostConn.open) {
+                hostConn.send({ type: 'get-sync-time' });
+            } else {
+                syncReset();
+            }
+        }, 1000);
+
+        if (window._pendingPlayTime !== undefined) {
+            const target = window._pendingPlayTime + localOffset;
+            play(target);
+            window._pendingPlayTime = undefined;
+        }
+
+        receivedCount = 0;
+        transferState = TRANSFER_STATE.READY;
+        showLoader(false);
+
+    } catch (e) {
+        console.error("[Guest] Decoding failed", e);
+        showToast("오디오 디코딩 실패!");
+        showLoader(false);
+        transferState = TRANSFER_STATE.READY;
     }
-
-    receivedCount = 0;
-    transferState = TRANSFER_STATE.READY;
 }
 
 // --- Theme Logic ---
@@ -694,6 +749,11 @@ async function initAudio() {
     gainL = new Tone.Gain(1);
     gainR = new Tone.Gain(1);
 
+    // [New] Central Buffer Player for Unified Sync
+    // bufferPlayer = new Tone.Player(); // Removed, now using transient BufferSource
+    // bufferPlayer.fadeIn = 0.05;
+    // bufferPlayer.fadeOut = 0.05;
+
 
     toneSplit.connect(gainL, 0); // L -> gainL
     toneSplit.connect(gainR, 1); // R -> gainR
@@ -746,10 +806,10 @@ async function initAudio() {
 
     // 1. Pre-Processing (Stereo Width & Preamp)
     // Audio is piped via setupMediaSource() using videoElement
-    widener = new Tone.StereoWidener(1);
-    preamp = new Tone.Gain(1);
-
     widener.connect(preamp);
+
+    // [New] Connect Buffer Player to Effects Chain
+    // bufferPlayer.connect(widener); // Removed, now using transient BufferSource
 
     // 2. Channel Splitting
     preamp.connect(toneSplit);
@@ -807,7 +867,7 @@ function initOnboarding() {
     const params = new URLSearchParams(window.location.search);
     const hostId = params.get('host');
 
-    // [Critical Fix for LTE] Pre-fill ID immediately. 
+    // [Critical Fix for LTE] Pre-fill ID immediately.
     // waiting for peer.on('open') is too slow on mobile networks.
     if (hostId) {
         document.getElementById('join-id-input').value = hostId;
@@ -860,6 +920,7 @@ async function requestWakeLock() {
             console.log('Screen Wake Lock active');
             wakeLock.addEventListener('release', () => {
                 console.log('Screen Wake Lock released');
+                wakeLock = null; // [Fix #7] Explicitly null to allow recovery on visibilitychange
             });
         }
     } catch (err) {
@@ -869,7 +930,7 @@ async function requestWakeLock() {
 
 // Re-request wake lock when visibility changes
 document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible') {
+    if (wakeLock === null && document.visibilityState === 'visible') {
         await requestWakeLock();
     }
 });
@@ -1117,7 +1178,7 @@ function updatePlaylistUI() {
 
                     const sTitle = (subData.titles && subData.titles[sIdx]) ? subData.titles[sIdx] : `Video ${sIdx + 1}`;
                     sli.innerHTML = `
-                        <span class="sub-idx">${sIdx + 1}</span> 
+                        <span class="sub-idx">${sIdx + 1}</span>
                         <span class="sub-name">${sTitle}</span>
                         <div class="playing-indicator">
                             <div class="bar"></div>
@@ -1697,6 +1758,10 @@ function playPrevTrack() {
 
 
 async function loadAndBroadcastFile(file, sessionId = null) {
+    // [Fix #1] Prevent Zombie Loads: Increment session and capture ID
+    activeLoadSessionId++;
+    const myLoadId = activeLoadSessionId;
+
     showLoader(true, `준비 중: ${file.name} `);
     stopAllMedia();
 
@@ -1719,16 +1784,67 @@ async function loadAndBroadcastFile(file, sessionId = null) {
             if (['mp4', 'mkv', 'webm', 'mov'].includes(ext)) isVideo = true;
         }
 
-        // Always Streaming Mode
-        console.log("Streaming Mode (MediaElementSource) enabled.");
+        // [Unified Buffer Mode]
+        // Force Buffer Mode for ALL devices (Host & Guest) and ALL OSs.
+        // This eliminates sync drift by serving audio from RAM via WebAudio Clock.
+        const useBufferMode = true;
 
-        setEngineMode(isVideo ? 'video' : 'streaming');
+        if (useBufferMode) {
+            console.log("[BufferMode] Decoding audio for high-precision sync...");
+            showToast("고정밀 동기화 모드: 오디오 디코딩 중...");
+
+            // 1. Decode Audio
+            const arrayBuffer = await file.arrayBuffer();
+            const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+
+            // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
+            if (currentAudioBuffer) {
+                const oldBuf = currentAudioBuffer;
+                currentAudioBuffer = null;
+                await new Promise(resolve => {
+                    if (window.requestIdleCallback) {
+                        window.requestIdleCallback(() => {
+                            if (oldBuf._buffer) oldBuf._buffer = null;
+                            resolve();
+                        }, { timeout: 100 });
+                    } else {
+                        setTimeout(resolve, 100);
+                    }
+                });
+            }
+
+            // [핵심 수정] 작업이 끝난 후 여전히 최신 로딩 작업인지 확인
+            if (myLoadId !== activeLoadSessionId) {
+                console.log(`[Load] Stale loading session detected (${myLoadId} vs ${activeLoadSessionId}). Aborting.`);
+                return;
+            }
+
+            // 2. Load into State
+            currentAudioBuffer = audioBuffer;
+            console.log(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
+
+            // 3. Visual Sync (Background Video)
+            videoElement.src = url;
+            videoElement.muted = true;
+
+            setEngineMode('buffer');
+        } else {
+            // Standard Streaming Mode (Non-iOS / PC)
+            console.log("Streaming Mode (MediaElementSource) enabled.");
+            setEngineMode(isVideo ? 'video' : 'streaming');
+            videoElement.src = url;
+            videoElement.muted = false;
+        }
+
         updateTitleWithMarquee(file.name);
         document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
-        videoElement.src = url;
 
         videoElement.onloadedmetadata = () => {
-            const dur = videoElement.duration;
+            if (myLoadId !== activeLoadSessionId) return; // 여기도 방어
+
+            // Use Buffer Duration if in Buffer Mode for accuracy
+            const dur = (useBufferMode && currentAudioBuffer) ? currentAudioBuffer.duration : videoElement.duration;
+
             if (dur && isFinite(dur)) {
                 document.getElementById('time-dur').innerText = fmtTime(dur);
                 const sSlider = document.getElementById('seek-slider');
@@ -1739,16 +1855,23 @@ async function loadAndBroadcastFile(file, sessionId = null) {
         };
 
         videoElement.load();
-        setupMediaSource();
+
+        // [Unified Buffer Mode] Buffer가 있다면 오디오 그래프 연결(MediaElementSource)을 하지 않음
+        if (!currentAudioBuffer) {
+            setupMediaSource();
+        } else if (mediaSourceNode) {
+            try { mediaSourceNode.disconnect(); } catch (e) { }
+        }
 
         const isGuest = !!hostConn;
         document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
         if (connectedPeers.length > 0) {
-            // Always send original file directly to skip memory-heavy extraction
+            // [FIX] Do NOT await broadcastFile.
+            // This allows the Host to start playing and updates the UI immediately
+            // while chunks are sent in the background.
             showToast("파일 전송 중...");
-            // Pass the pre-generated session ID (if any) or null
-            await broadcastFile(file, sessionId);
+            broadcastFile(file, sessionId);
         }
 
         if (!hostConn) {
@@ -1763,6 +1886,12 @@ async function loadAndBroadcastFile(file, sessionId = null) {
         pausedAt = 0;
         updatePlayState(false);
 
+        // [Fix] Auto-play for Host on first load
+        if (!hostConn && currentTrackIndex === 0) {
+            console.log("[Host] Auto-playing first track...");
+            play(0);
+        }
+
         // [Fix] Ensure play button is enabled for Host even if load fails or halts
         if (!hostConn) {
             document.getElementById('play-btn').disabled = false;
@@ -1776,6 +1905,10 @@ async function loadAndBroadcastFile(file, sessionId = null) {
 let mediaSourceNode = null;
 
 function setupMediaSource() {
+    // [핵심 수정] Buffer Mode(램 재생)일 때는 비디오 태그 오디오 연결을 절대 금지!
+    // 이 코드가 없으면 서라운드 설정 등을 건드릴 때 소리가 다시 연결되어 겹쳐 들림
+    if (currentAudioBuffer) return;
+
     if (!videoElement) return;
 
     // 1. DISCONNECT PREVIOUS (Avoid overlap and effects leak)
@@ -1863,6 +1996,23 @@ function setupMediaSource() {
 }
 
 async function play(offset) {
+    if (_isPlayLocked) {
+        console.warn("[Play] Blocked: Already processing a play request");
+        return;
+    }
+    _isPlayLocked = true;
+
+    try {
+        await _internalPlay(offset);
+    } finally {
+        // [Fix #4] Play Lock Safety: Add small timeout to prevent rapid-fire command overlaps
+        setTimeout(() => {
+            _isPlayLocked = false;
+        }, 50);
+    }
+}
+
+async function _internalPlay(offset) {
     window._pendingPlayTime = undefined;
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -1875,35 +2025,104 @@ async function play(offset) {
     }
 
     const hasVideoSource = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
+    const hasBufferSource = !!currentAudioBuffer;
 
-    if (!hasVideoSource) {
+    if (!hasVideoSource && !hasBufferSource) {
         console.warn("[Play] No media source available");
         return;
     }
 
     initAudio();
 
-    // --- STREAMING MODE (Video or Large WAV) ---
-    setupMediaSource();
+    // --- BUFFER MODE (iOS / High Precision) ---
+    if (currentAudioBuffer) {
+        stopPlayerNode();
 
-    const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-    const effectiveTarget = offset - bias; // iOS: offset + 0.45 (Aim high to land on target)
-    videoElement.currentTime = effectiveTarget;
+        // Create fresh transient source node
+        playerNode = new Tone.BufferSource(currentAudioBuffer);
 
-    const onSeeked = () => {
-        videoElement.removeEventListener('seeked', onSeeked);
-        videoElement.play().catch(e => console.log('[Video] play failed', e));
-        updatePlayState(true);
-    };
+        // [수정] 서라운드 모드 여부에 따라 연결 경로 분기
+        if (isSurroundMode) {
+            // 1. 서라운드 노드가 없으면 생성 (안전장치)
+            if (!surroundSplitter) surroundSplitter = new Tone.Split(8);
+            if (!surroundGain) surroundGain = new Tone.Gain(1);
 
-    if (videoElement.seeking) {
-        videoElement.addEventListener('seeked', onSeeked);
+            // 2. 플레이어를 8채널 스플리터에 연결 (7.1 채널 분리)
+            playerNode.connect(surroundSplitter);
+
+            // 3. 스플리터 -> 게인 -> 프리앰프 연결 확인 및 복구
+            if (surroundChannelIndex !== -1) {
+                // 현재 선택된 채널로 소리가 나가도록 배선 연결
+                try {
+                    surroundGain.disconnect();
+                    surroundGain.connect(preamp);
+
+                    // 기존 연결 끊고 다시 해당 채널 연결
+                    surroundSplitter.disconnect();
+
+                    // (setSurroundChannel 로직과 동일하게 연결)
+                    const idx = surroundChannelIndex;
+                    if (idx === 6) { // Rear Left + Side L Fallback
+                        surroundSplitter.connect(surroundGain, 6, 0);
+                        surroundSplitter.connect(surroundGain, 4, 0);
+                    } else if (idx === 7) { // Rear Right + Side R Fallback
+                        surroundSplitter.connect(surroundGain, 7, 0);
+                        surroundSplitter.connect(surroundGain, 5, 0);
+                    } else {
+                        surroundSplitter.connect(surroundGain, idx, 0);
+                    }
+                } catch (e) { console.warn("Surround routing update failed", e); }
+            }
+            console.log(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
+
+        } else {
+            // [기존 방식] 일반 스테레오 모드
+            playerNode.connect(widener);
+            console.log(`[BufferMode] Playing in Stereo`);
+        }
+
+        playerNode.onended = () => {
+            if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_STREAMING) {
+                handleEnded();
+            }
+        };
+
+        playerNode.start(Tone.now(), offset);
+        startedAt = Tone.now() - offset; // [Fix] Essential for getTrackPosition()
+        console.log(`[BufferMode] Started transient node at ${offset}s (startedAt: ${startedAt})`);
+
+        // Sync Visuals (Muted Video)
+        if (videoElement.src) {
+            videoElement.currentTime = offset;
+            videoElement.muted = true; // [Double Audio Fix] 확실한 음소거
+            videoElement.volume = 0;   // [Double Audio Fix] 볼륨도 0으로
+            videoElement.play().catch(() => { });
+        }
+
     } else {
-        videoElement.play().catch(e => console.log('[Video] play failed', e));
-        updatePlayState(true);
+        // --- STREAMING MODE (Video or Large WAV) ---
+        if (videoElement.src && !videoElement.paused && currentState !== APP_STATE.IDLE) {
+            console.log("[Play] Fast-seek sync (Skipping MediaSource setup)");
+        } else {
+            setupMediaSource();
+        }
+
+        videoElement.currentTime = offset;
+
+        const onSeeked = () => {
+            videoElement.removeEventListener('seeked', onSeeked);
+            videoElement.play().catch(e => console.log('[Video] play failed', e));
+        };
+
+        if (videoElement.seeking) {
+            videoElement.addEventListener('seeked', onSeeked);
+        } else {
+            videoElement.play().catch(e => console.log('[Video] play failed', e));
+        }
     }
 
-    // [Fix] Only set state if we're not already in a playing state (VIDEO or STREAMING)
+    updatePlayState(true);
+
     if (currentState !== APP_STATE.PLAYING_VIDEO && currentState !== APP_STATE.PLAYING_STREAMING) {
         const isVideo = currentFileBlob && (currentFileBlob.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name)));
         setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
@@ -1913,9 +2132,28 @@ async function play(offset) {
     pausedAt = offset;
 
     startVisualizer();
-    // [Performance] Re-enable sync check but with a very long interval (2s) to avoid lag
     timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
-    loopUI();
+    if (!uiLoopId) loopUI();
+}
+
+function stopPlayerNode() {
+    if (playerNode) {
+        try {
+            // [핵심 수정] 멈추기 전에 onended 이벤트를 삭제해야 함
+            // 안 그러면 stop() 하는 순간 "곡 끝남!" 처리되어 다음 곡으로 또 넘어감 (무한 루프/겹침 원인)
+            playerNode.onended = null;
+
+            playerNode.stop();
+            playerNode.disconnect();
+            // dispose는 메모리 해제를 위해 호출하지만,
+            // Tone.js 버전에 따라 가끔 에러를 뱉으므로 try-catch 유지
+            playerNode.dispose();
+        } catch (e) {
+            console.warn("Error stopping/disposing playerNode:", e);
+        } finally {
+            playerNode = null;
+        }
+    }
 }
 
 function handleEnded() {
@@ -1939,1746 +2177,1815 @@ function handleEnded() {
         return;
     }
 
-    // [FIX] Use unified Track Position calculation
-    const curr = getTrackPosition();
+    // [Fix #8] Sync Debounce: Prevent correction feedback loops
+    let _lastSyncAttempt = 0;
 
-    const isPastEnd = (curr >= duration - 0.2);
+    function checkVideoSync() {
+        if (Date.now() - _lastSyncAttempt < 1000) return; // Wait at least 1s between corrections
+        _lastSyncAttempt = Date.now();
 
-    if (currentState !== APP_STATE.IDLE && isPastEnd) {
-        console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
+        if (!videoElement || !playerNode) return;
+        if (currentState === APP_STATE.IDLE) return;
+        if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
-        // [FIX] Use centralized stopAllMedia() which sets state to IDLE
-        stopAllMedia();
+        // [FIX] Use unified Track Position calculation
+        const curr = getTrackPosition();
 
-        // Note: stopAllMedia() already calls setState(IDLE) and updatePlayState(false)
-        pausedAt = 0;
+        // [FIX] Seek Guard: If the user is currently scrubbing the timeline, ignore end signals.
+        if (isSeeking) {
+            console.log("[handleEnded] Ignoring end signal while seeking");
+            return;
+        }
 
-        // Reset UI immediately
-        const slider = document.getElementById('seek-slider');
-        if (slider) slider.value = 0;
-        const timeCurr = document.getElementById('time-curr');
-        if (timeCurr) timeCurr.innerText = fmtTime(0);
+        const isPastEnd = (curr >= duration - 0.2);
 
-        // Auto Advance (Host Only)
-        if (!hostConn) {
-            if (repeatMode === 2) {
-                // Repeat One: Play same track again
-                console.log("Repeat One: Replaying current track...");
-                // Reset sync state for clean restart
-                setTimeout(() => playTrack(currentTrackIndex), 300);
-            } else {
-                console.log("Auto-advancing to next track...");
-                setTimeout(() => playNextTrack(), 500);
+        if (currentState !== APP_STATE.IDLE && isPastEnd) {
+            console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
+
+            // [FIX] Use centralized stopAllMedia() which sets state to IDLE
+            stopAllMedia();
+
+            // Note: stopAllMedia() already calls setState(IDLE) and updatePlayState(false)
+            pausedAt = 0;
+
+            // Reset UI immediately
+            const slider = document.getElementById('seek-slider');
+            if (slider) slider.value = 0;
+            const timeCurr = document.getElementById('time-curr');
+            if (timeCurr) timeCurr.innerText = fmtTime(0);
+
+            // Auto Advance (Host Only)
+            if (!hostConn) {
+                if (repeatMode === 2) {
+                    // Repeat One: Play same track again
+                    console.log("Repeat One: Replaying current track...");
+                    // Reset sync state for clean restart
+                    setTimeout(() => playTrack(currentTrackIndex), 300);
+                } else {
+                    console.log("Auto-advancing to next track...");
+                    setTimeout(() => playNextTrack(), 500);
+                }
             }
         }
     }
-}
 
-/**
- * [iOS Latency Fix] Perform subtle drift correction.
- * Called every 2s to keep devices in sync without heavy UI lag.
- */
-function checkVideoSync() {
-    if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-        if (!videoElement || videoElement.paused) return;
+    /**
+     * [iOS Latency Fix] Perform subtle drift correction.
+     * Called every 2s to keep devices in sync without heavy UI lag.
+     */
+    function checkVideoSync() {
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
+            if (!videoElement || videoElement.paused) return;
 
-        const targetTime = getTrackPosition();
-        const actualTime = videoElement.currentTime;
-        const drift = Math.abs(actualTime - targetTime);
+            const targetTime = getTrackPosition();
+            const actualTime = videoElement.currentTime;
+            const drift = Math.abs(actualTime - targetTime);
 
-        // Only correct if drift is significant (>300ms) to avoid constant stuttering
-        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
-        if (drift > 0.3) {
-            console.log(`[SyncCheck] Correcting drift: ${drift.toFixed(3)}s`);
-            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-            videoElement.currentTime = targetTime - bias;
+            // Only correct if drift is significant (>300ms) to avoid constant stuttering
+            // This is the "Real Engineering" threshold to prevent excessive seeking lag.
+            // Only correct if drift is significant (>300ms) to avoid constant stuttering
+            // This is the "Real Engineering" threshold to prevent excessive seeking lag.
+            if (drift > 0.3) {
+                console.log(`[SyncCheck] Correcting drift: ${drift.toFixed(3)}s`);
+                const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
+                const correction = targetTime - bias;
+
+                // [Unified Buffer Mode] Drift Correction via transient node
+                if (currentAudioBuffer) {
+                    stopPlayerNode();
+                    playerNode = new Tone.BufferSource(currentAudioBuffer);
+                    playerNode.connect(widener);
+                    playerNode.onended = () => {
+                        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_STREAMING) {
+                            handleEnded();
+                        }
+                    };
+                    playerNode.start(Tone.now(), correction);
+                }
+
+                videoElement.currentTime = correction;
+            }
         }
     }
-}
 
-/**
- * Stop EVERYTHING. Tone.js, Video, and YouTube.
- * Ensures no audio overlap during transitions.
- */
-function stopAllMedia() {
-    // 1. Stop Global Video
-    if (videoElement) {
-        videoElement.pause();
-        videoElement.currentTime = 0;
+    /**
+     * Stop EVERYTHING. Tone.js, Video, and YouTube.
+     * Ensures no audio overlap during transitions.
+     */
+    function stopAllMedia() {
+        // 1. Stop Global Video (확실하게 초기화)
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.removeAttribute('src'); // [추가] 소스 링크 해제
+            videoElement.load(); // [추가] 로딩 상태 초기화
+        }
+
+        // 2. Stop YouTube
+        if (youtubePlayer && youtubePlayer.stopVideo) {
+            try { youtubePlayer.stopVideo(); } catch (e) { }
+        }
+
+        // Clear any pending triggers
+        window._pendingPlayTime = undefined;
+        preloadSessionId++; // [Fix] Invalidate any ongoing preloads
+        if (managedTimers.autoPlayTimer) {
+            clearManagedTimer('autoPlayTimer');
+        }
+
+        setState(APP_STATE.IDLE, { skipCleanup: true });
+        updatePlayState(false);
+
+        // Stop all background sync timers
+        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
+        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'youtube-sync' });
+
+        // 여기서 수정된 stopPlayerNode가 호출되면서 안전하게 오디오가 꺼짐
+        stopPlayerNode();
+    }
+    /**
+     * Handle UI and state transitions between Audio, Video, Streaming, and YouTube modes.
+     * @param {string} mode - 'audio' | 'video' | 'streaming' | 'youtube'
+     */
+    function setEngineMode(mode) {
+        console.log(`[Engine] Switching mode to: ${mode}`);
+
+        // Map mode string to APP_STATE
+        let newState;
+        switch (mode) {
+            case 'video':
+                newState = APP_STATE.PLAYING_VIDEO;
+                break;
+            case 'streaming':
+                newState = APP_STATE.PLAYING_STREAMING;
+                break;
+            case 'youtube':
+                newState = APP_STATE.PLAYING_YOUTUBE;
+                break;
+            case 'buffer':
+            case 'audio':
+                newState = APP_STATE.PLAYING_AUDIO;
+                break;
+            default:
+                newState = APP_STATE.IDLE;
+        }
+
+        // Use centralized state transition (includes UI update)
+        setState(newState);
+
+        // Always sync UI after mode switch
+        updatePlaylistUI();
     }
 
-    // 2. Stop YouTube
-    if (youtubePlayer && youtubePlayer.stopVideo) {
-        try { youtubePlayer.stopVideo(); } catch (e) { }
-    }
-
-    // Clear any pending triggers
-    window._pendingPlayTime = undefined;
-    preloadSessionId++; // [Fix] Invalidate any ongoing preloads
-    if (managedTimers.autoPlayTimer) {
-        clearManagedTimer('autoPlayTimer');
-    }
-
-    setState(APP_STATE.IDLE, { skipCleanup: true });
-    updatePlayState(false);
-
-    // Stop all background sync timers
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'youtube-sync' });
-}
-
-/**
- * Handle UI and state transitions between Audio, Video, Streaming, and YouTube modes.
- * @param {string} mode - 'audio' | 'video' | 'streaming' | 'youtube'
- */
-function setEngineMode(mode) {
-    console.log(`[Engine] Switching mode to: ${mode}`);
-
-    // Map mode string to APP_STATE
-    let newState;
-    switch (mode) {
-        case 'video':
-            newState = APP_STATE.PLAYING_VIDEO;
-            break;
-        case 'streaming':
-            newState = APP_STATE.PLAYING_STREAMING;
-            break;
-        case 'youtube':
-            newState = APP_STATE.PLAYING_YOUTUBE;
-            break;
-        case 'audio':
-            newState = APP_STATE.PLAYING_AUDIO;
-            break;
-        default:
-            newState = APP_STATE.IDLE;
-    }
-
-    // Use centralized state transition (includes UI update)
-    setState(newState);
-
-    // Always sync UI after mode switch
-    updatePlaylistUI();
-}
 
 
 
+    function togglePlay() {
+        if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
 
-function togglePlay() {
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+        // YouTube Mode: Control via YT API
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
+            // OP: request Host to control YouTube
+            if (hostConn && isOperator) {
+                try {
+                    const state = youtubePlayer.getPlayerState();
+                    if (state === YT.PlayerState.PLAYING) {
+                        hostConn.send({ type: 'request-youtube-pause' });
+                    } else {
+                        hostConn.send({ type: 'request-youtube-play' });
+                    }
+                } catch (e) {
+                    console.error("[YouTube] OP toggle error:", e);
+                }
+                return;
+            }
 
-    // YouTube Mode: Control via YT API
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        // OP: request Host to control YouTube
-        if (hostConn && isOperator) {
+            // Host: execute directly
             try {
                 const state = youtubePlayer.getPlayerState();
                 if (state === YT.PlayerState.PLAYING) {
-                    hostConn.send({ type: 'request-youtube-pause' });
+                    youtubePlayer.pauseVideo();
+                    broadcast({ type: 'youtube-state', state: 2, time: youtubePlayer.getCurrentTime() });
                 } else {
-                    hostConn.send({ type: 'request-youtube-play' });
+                    youtubePlayer.playVideo();
+                    broadcast({ type: 'youtube-state', state: 1, time: youtubePlayer.getCurrentTime() });
                 }
             } catch (e) {
-                console.error("[YouTube] OP toggle error:", e);
+                console.error("[YouTube] Toggle play error:", e);
             }
+            return;
+        }
+
+        const isActuallyPlaying = (videoElement && !videoElement.paused);
+
+        // Cancel pending auto-play timer if host manually controls playback
+        if (!hostConn && managedTimers.autoPlayTimer) {
+            clearManagedTimer('autoPlayTimer');
+            showToast("자동 재생 취소됨");
+        }
+
+        if (isActuallyPlaying) {
+            if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
+            else if (isOperator) hostConn.send({ type: 'request-pause' });
+        } else {
+            if (!hostConn) { play(pausedAt); broadcast({ type: 'play', time: pausedAt }); }
+            else if (isOperator) hostConn.send({ type: 'request-play', time: pausedAt });
+        }
+    }
+
+    function pause() {
+        if (currentState !== APP_STATE.IDLE) {
+            if (videoElement) videoElement.pause();
+
+            // [Unified Buffer Mode]
+            stopPlayerNode();
+
+            pausedAt = getTrackPosition();
+            if (videoElement) videoElement.currentTime = pausedAt;
+        }
+        updatePlayState(false);
+        showToast("일시정지");
+        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
+    }
+
+    function skipTime(sec) {
+        // Guest (non-OP): blocked
+        if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+
+        // OP: request Host to skip time
+        if (hostConn && isOperator) {
+            hostConn.send({ type: 'request-skip-time', sec: sec });
             return;
         }
 
         // Host: execute directly
-        try {
-            const state = youtubePlayer.getPlayerState();
-            if (state === YT.PlayerState.PLAYING) {
-                youtubePlayer.pauseVideo();
-                broadcast({ type: 'youtube-state', state: 2, time: youtubePlayer.getCurrentTime() });
-            } else {
-                youtubePlayer.playVideo();
-                broadcast({ type: 'youtube-state', state: 1, time: youtubePlayer.getCurrentTime() });
-            }
-        } catch (e) {
-            console.error("[YouTube] Toggle play error:", e);
-        }
-        return;
-    }
-
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-    // Cancel pending auto-play timer if host manually controls playback
-    if (!hostConn && managedTimers.autoPlayTimer) {
-        clearManagedTimer('autoPlayTimer');
-        showToast("자동 재생 취소됨");
-    }
-
-    if (isActuallyPlaying) {
-        if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
-        else if (isOperator) hostConn.send({ type: 'request-pause' });
-    } else {
-        if (!hostConn) { play(pausedAt); broadcast({ type: 'play', time: pausedAt }); }
-        else if (isOperator) hostConn.send({ type: 'request-play', time: pausedAt });
-    }
-}
-
-function pause() {
-    if (currentState !== APP_STATE.IDLE) {
-        if (videoElement) videoElement.pause();
-        pausedAt = getTrackPosition();
-        if (videoElement) videoElement.currentTime = pausedAt;
-    }
-    updatePlayState(false);
-    showToast("일시정지");
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
-}
-
-function skipTime(sec) {
-    // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
-
-    // OP: request Host to skip time
-    if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-skip-time', sec: sec });
-        return;
-    }
-
-    // Host: execute directly
-    // YouTube mode: use YouTube API
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        try {
-            const currentTime = youtubePlayer.getCurrentTime();
-            const duration = youtubePlayer.getDuration();
-            let target = currentTime + sec;
-
-            if (target < 0) target = 0;
-            if (target > duration) target = duration;
-
-            youtubePlayer.seekTo(target, true);
-
-            // Broadcast to guests
-            broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: target });
-        } catch (e) {
-            console.error("[YouTube] Skip time error:", e);
-        }
-        return;
-    }
-
-    // Local mode
-    let current = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
-    if ((currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING)) current = videoElement.currentTime;
-
-    let target = current + sec;
-    const duration = videoElement ? videoElement.duration : 0;
-
-    if (target < 0) target = 0;
-    if (target > duration) target = duration;
-
-    // Broadcast
-    play(target);
-    broadcast({ type: 'play', time: target });
-}
-
-function updatePlayState(playing) {
-    document.getElementById('icon-play').style.display = playing ? 'none' : 'block';
-    document.getElementById('icon-pause').style.display = playing ? 'block' : 'none';
-}
-
-function adjustSync(val) {
-    localOffset += val;
-    showToast(`Sync: ${val > 0 ? '+' : ''}${val.toFixed(2)} s`);
-    // Use Tone.now()
-    if (currentState !== APP_STATE.IDLE) play((Tone.now() - startedAt) + val);
-    else pausedAt += val;
-}
-
-// --- Audio Graph Settings ---
-// --- Audio Graph Settings (Tone.js) ---
-function setChannelMode(mode) {
-    channelMode = mode;
-
-    // Remove Cutoff Visibility Toggle (Always Visible now)
-
-    if (!masterGain) return; // Not init
-    const ramp = 0.05;
-
-    // Reset LowPass to Full Range by default (Safety)
-    if (globalLowPass) globalLowPass.frequency.value = 20000;
-
-    // Reset Routing first
-    try {
-        gainL.disconnect();
-        gainR.disconnect();
-    } catch (e) { }
-
-    if (mode === 0) { // Stereo
-        // L -> Merge 0, R -> Merge 1
-        gainL.connect(toneMerge, 0, 0);
-        gainR.connect(toneMerge, 0, 1);
-
-        gainL.gain.rampTo(1, ramp);
-        gainR.gain.rampTo(1, ramp);
-        showToast("Mode: Stereo");
-
-    } else if (mode === -1) { // Left (Dual Mono)
-        // L -> Merge 0 AND 1
-        gainL.connect(toneMerge, 0, 0);
-        gainL.connect(toneMerge, 0, 1);
-
-        gainL.gain.rampTo(1, ramp);
-        showToast("Mode: Left Channel");
-
-    } else if (mode === 1) { // Right (Dual Mono)
-        // R -> Merge 0 AND 1
-        gainR.connect(toneMerge, 0, 0);
-        gainR.connect(toneMerge, 0, 1);
-
-        gainR.gain.rampTo(1, ramp);
-        showToast("Mode: Right Channel");
-
-    } else if (mode === 2) { // Sub
-        // Apply Subwoofer Frequency Immediately
-        if (globalLowPass) {
-            globalLowPass.frequency.value = subFreq;
-        }
-
-        // Summing L+R to both speakers
-        gainL.connect(toneMerge, 0, 0);
-        gainL.connect(toneMerge, 0, 1);
-        gainR.connect(toneMerge, 0, 0);
-        gainR.connect(toneMerge, 0, 1);
-
-        // Instant Gain Drop to prevent +6dB Spike during summing
-        gainL.gain.value = 0.5;
-        gainR.gain.value = 0.5;
-
-        showToast(`Mode: Subwoofer(${subFreq}Hz)`);
-    } else {
-        // Fallback
-        gainL.gain.rampTo(1, ramp);
-        gainR.gain.rampTo(1, ramp);
-    }
-    applySettings();
-}
-
-// --- 7.1 Surround Logic ---
-function toggleSurroundMode(enabled) {
-    isSurroundMode = enabled;
-
-    // UI Toggle
-    document.getElementById('grid-standard').style.display = enabled ? 'none' : 'grid';
-    document.getElementById('grid-surround').style.display = enabled ? 'grid' : 'none';
-
-    // Logic Switch
-    if (enabled) {
-        // Ensure 7.1 Graph Nodes exist
-        if (!surroundSplitter) setupMediaSource();
-
-        // Streaming/No Buffer defaults to Center
-        if (surroundChannelIndex === -1) setSurroundChannel(2, null);
-        else setSurroundChannel(surroundChannelIndex, null);
-
-        showToast("Surround Mode: Enabled");
-    }
-
-    // Streaming Mode: Restore MediaSource
-    setupMediaSource();
-    setChannelMode(channelMode); // Restore standard channel
-}
-
-function setSurroundChannel(idx, el, skipSetup = false) {
-    surroundChannelIndex = idx;
-
-    // UI Highlight Logic
-    const allOpts = document.querySelectorAll('.surround-grid .ch-opt');
-    allOpts.forEach(e => e.classList.remove('active'));
-
-    if (el) {
-        el.classList.add('active');
-    } else {
-        // Programmatic Update: Find button by onclick content
-        // This ensures the UI reflects default selection (e.g. FL)
-        for (let btn of allOpts) {
-            const onclickVal = btn.getAttribute('onclick');
-            if (onclickVal && onclickVal.includes(`(${idx}, `)) {
-                btn.classList.add('active');
-                break;
-            }
-        }
-    }
-
-    if (!surroundSplitter) return; // Wait for media setup
-
-    // Routing Logic:
-    // 1. Ensure Graph is in Surround Mode
-    if (!isSurroundMode) return;
-
-    // 2. Re-connect MediaSource if needed (to Splitter)
-    if (!skipSetup) setupMediaSource();
-
-    // 3. Connect selected Splitter Output to SurroundGain
-    try {
-        surroundGain.disconnect();
-        surroundGain.connect(preamp); // Feed into main chain
-
-        surroundSplitter.disconnect();
-
-        // 5.1 / 7.1 Compatibility Routing
-        // 5.1 Layout: L, R, C, LFE, SL, SR (No Rear L/R)
-        // 7.1 Layout: L, R, C, LFE, SL, SR, BL, BR
-
-        if (idx === 6) {
-            // User selected "Rear Left"
-            // If file is 5.1, Ch 6 is empty. capture Side Left (4) as fallback/fill.
-            surroundSplitter.connect(surroundGain, 6, 0); // Real Rear L
-            surroundSplitter.connect(surroundGain, 4, 0); // Side L (Fallback for 5.1)
-        } else if (idx === 7) {
-            // User selected "Rear Right"
-            surroundSplitter.connect(surroundGain, 7, 0); // Real Rear R
-            surroundSplitter.connect(surroundGain, 5, 0); // Side R (Fallback for 5.1)
-        } else if (idx === 3) {
-            // LFE (Sub) - Special Bass Management or Direct
-            // Just connect LFE. If user wants Bass Management, we can mix L/R here too?
-            // For now, Direct 1:1.
-            surroundSplitter.connect(surroundGain, 3, 0);
-        } else {
-            // Standard 1:1 Mapping
-            surroundSplitter.connect(surroundGain, idx, 0);
-        }
-
-        // Reset LowPass Filter (Safety for non-LFE channels)
-        // IF LFE (3), set to subFreq. ELSE set to 20000.
-        if (globalLowPass) {
-            if (idx === 3) globalLowPass.frequency.value = subFreq;
-            else globalLowPass.frequency.value = 20000;
-        }
-
-        // 4. Force Output to Dual Mono (L+R)
-        gainL.disconnect();
-        gainR.disconnect();
-
-        // Direct Mapping: GainL -> Left Spk, GainR -> Right Spk
-        // Since input is Mono (duplicated), this results in Dual Mono output.
-        gainL.connect(toneMerge, 0, 0);
-        gainR.connect(toneMerge, 0, 1);
-
-        gainL.gain.rampTo(1, 0.1);
-        gainR.gain.rampTo(1, 0.1);
-
-        const names = ["Front Left (L)", "Front Right (R)", "Center (Dialog)", "LFE (Sub)", "Side Left", "Side Right", "Rear Left (Back)", "Rear Right (Back)"];
-        showToast(`Ch: ${names[idx]}`);
-
-    } catch (e) {
-        console.warn(e);
-    }
-}
-
-function setChannel(mode, el) {
-    if (!masterGain) initAudio();
-    document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
-    el.classList.add('active');
-    setChannelMode(mode);
-}
-
-function updateSettings(type, val) {
-    if (type === 'cutoff') {
-        subFreq = Number(val);
-        document.getElementById('val-cutoff').innerText = subFreq + ' Hz';
-
-        if (vbFilter) vbFilter.frequency.rampTo(subFreq, 0.1);
-
-        // Update Main Filter ONLY if currently in Subwoofer/LFE mode
-        const isSubMode = (channelMode === 2 && !isSurroundMode);
-        const isLFE = (isSurroundMode && surroundChannelIndex === 3);
-
-        if (globalLowPass && (isSubMode || isLFE)) {
-            globalLowPass.frequency.rampTo(subFreq, 0.1);
-        }
-    }
-}
-
-function onReverbInput(val) { setReverbParam('mix', val); }
-function onReverbChange(val) {
-    if (!hostConn) broadcast({ type: 'reverb', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb', value: val });
-}
-
-function onReverbDecayInput(val) {
-    document.getElementById('val-rvb-decay').innerText = val + 's';
-}
-function onReverbDecayChange(val) {
-    setReverbParam('decay', val);
-    if (!hostConn) broadcast({ type: 'reverb-decay', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-decay', value: val });
-}
-
-function onReverbPreDelayInput(val) {
-    document.getElementById('val-rvb-predelay').innerText = val + 's';
-}
-function onReverbPreDelayChange(val) {
-    setReverbParam('predelay', val);
-    if (!hostConn) broadcast({ type: 'reverb-predelay', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-predelay', value: val });
-}
-
-function onReverbLowCutInput(val) {
-    const v = Number(val);
-    const freq = 20 * Math.pow(50, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
-    document.getElementById('val-rvb-lowcut').innerText = txt;
-}
-function onReverbLowCutChange(val) {
-    setReverbParam('lowcut', val);
-    if (!hostConn) broadcast({ type: 'reverb-lowcut', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-lowcut', value: val });
-}
-
-function onReverbHighCutInput(val) {
-    const v = Number(val);
-    const freq = 20000 * Math.pow(0.025, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
-    document.getElementById('val-rvb-highcut').innerText = txt;
-}
-function onReverbHighCutChange(val) {
-    setReverbParam('highcut', val);
-    if (!hostConn) broadcast({ type: 'reverb-highcut', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-highcut', value: val });
-}
-
-function setReverbParam(param, val) {
-    const v = Number(val);
-    if (!reverb) return;
-
-    switch (param) {
-        case 'mix':
-            reverbMix = v / 100;
-            document.getElementById('val-reverb').innerText = v + '%';
-            document.getElementById('reverb-slider').value = v;
-            applySettings();
-            break;
-        case 'decay':
-            reverb.decay = v;
-            reverb.generate();
-            document.getElementById('val-rvb-decay').innerText = v + 's';
-            document.getElementById('reverb-decay-slider').value = v;
-            break;
-        case 'predelay':
-            reverb.preDelay = v;
-            reverb.generate();
-            document.getElementById('val-rvb-predelay').innerText = v + 's';
-            document.getElementById('reverb-predelay-slider').value = v;
-            break;
-        case 'lowcut':
-            const lFreq = 20 * Math.pow(50, v / 100);
-            if (rvbLowCut) rvbLowCut.frequency.rampTo(lFreq, 0.1);
-            document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'k' : Math.round(lFreq) + 'Hz');
-            document.getElementById('reverb-lowcut-slider').value = v;
-            break;
-        case 'highcut':
-            const hFreq = 20000 * Math.pow(0.025, v / 100);
-            if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
-            document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'k' : Math.round(hFreq) + 'Hz');
-            document.getElementById('reverb-highcut-slider').value = v;
-            break;
-    }
-}
-
-// [FIX] Restore missing setters for updateAudioEffect and legacy handlers
-function setReverb(val, localOnly) { setReverbParam('mix', val); if (!localOnly) onReverbChange(val); }
-function setReverbDecay(val, localOnly) { setReverbParam('decay', val); if (!localOnly) onReverbDecayChange(val); }
-function setReverbPreDelay(val, localOnly) { setReverbParam('predelay', val); if (!localOnly) onReverbPreDelayChange(val); }
-function setReverbLowCut(val, localOnly) { setReverbParam('lowcut', val); if (!localOnly) onReverbLowCutChange(val); }
-function setReverbHighCut(val, localOnly) { setReverbParam('highcut', val); if (!localOnly) onReverbHighCutChange(val); }
-
-function resetReverbMix() { setReverbParam('mix', 0); onReverbChange(0); }
-function resetReverbDecay() { setReverbParam('decay', 5.0); onReverbDecayChange(5.0); }
-function resetReverbPreDelay() { setReverbParam('predelay', 0.1); onReverbPreDelayChange(0.1); }
-function resetReverbLowCut() { setReverbParam('lowcut', 0); onReverbLowCutChange(0); }
-function resetReverbHighCut() { setReverbParam('highcut', 0); onReverbHighCutChange(0); }
-
-
-function resetReverb() {
-    resetReverbMix();
-    resetReverbDecay();
-    resetReverbPreDelay();
-    resetReverbLowCut();
-    resetReverbHighCut();
-}
-
-// Graphic EQ
-function setEQ(idx, val, localOnly = false, fromSync = false) {
-    const bandIdx = Number(idx);
-    const bandVal = Number(val);
-
-    // Tone.js Update
-    if (eqNodes && eqNodes[bandIdx]) {
-        // eqNodes are Tone.Filter(peaking)
-        eqNodes[bandIdx].gain.value = bandVal;
-    }
-
-    // UI Update
-    const bands = document.querySelectorAll('.eq-band');
-    if (bands[bandIdx]) {
-        const slider = bands[bandIdx].querySelector('.eq-slider');
-        if (slider && parseFloat(slider.value) !== bandVal) slider.value = bandVal;
-    }
-
-    const label = document.getElementById(`eq-val-${bandIdx}`);
-    if (label) label.innerText = bandVal > 0 ? `+${bandVal}` : bandVal;
-
-    if (localOnly || fromSync) return;
-
-    if (!hostConn) {
-        broadcast({ type: 'eq-update', band: bandIdx, value: bandVal });
-    }
-    else if (isOperator) {
-        hostConn.send({ type: 'request-setting', settingType: 'eq', band: bandIdx, value: bandVal });
-    }
-}
-
-// Global:
-let userPreampGain = 1.0;
-
-function setPreamp(val, localOnly = false, fromSync = false) {
-    const db = Number(val);
-    userPreampGain = Math.pow(10, db / 20); // Store user intent
-
-    // UI Update
-    const disp = document.getElementById('val-preamp');
-    if (disp) disp.innerText = (db > 0 ? '+' : '') + db + 'dB';
-
-    const slider = document.getElementById('preamp-slider');
-    if (slider && slider.value != db) slider.value = db;
-
-    // Apply immediately via common function
-    applySettings();
-
-    if (localOnly || fromSync) return;
-
-    if (!hostConn) broadcast({ type: 'preamp', value: db });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'preamp', value: db });
-}
-
-function resetEQ(fromSync = false) {
-    if (isOperator && !fromSync) {
-        hostConn.send({ type: 'request-eq-reset' });
-        return;
-    }
-    document.querySelectorAll('.eq-slider').forEach((el, idx) => {
-        setEQ(idx, 0, false, true);
-    });
-    setPreamp(0, false, true);
-    if (!hostConn && !fromSync) broadcast({ type: 'eq-reset' });
-}
-
-// Virtual Stereo Width
-function setStereoWidth(val) {
-    stereoWidth = val / 100;
-    document.getElementById('val-width').innerText = val + '%';
-    document.getElementById('width-slider').value = val;
-    applySettings();
-}
-
-function onStereoWidthChange(val) {
-    if (!hostConn) broadcast({ type: 'stereo-width', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'stereo', value: val });
-}
-
-function resetStereo() { setStereoWidth(100); onStereoWidthChange(100); }
-
-// Virtual Bass Control
-function setVirtualBass(val) {
-    virtualBass = val / 100;
-    document.getElementById('val-vbass').innerText = val + '%';
-    document.getElementById('vbass-slider').value = val;
-    applySettings();
-}
-
-function onVirtualBassChange(val) {
-    if (!hostConn) broadcast({ type: 'vbass', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'vbass', value: val });
-}
-
-function applySettings() {
-    if (!masterGain) return;
-
-    // Reverb Mix (CrossFade)
-    if (rvbCrossFade) rvbCrossFade.fade.rampTo(reverbMix, 0.1);
-
-    // Stereo Width & Gain Compensation
-    if (widener) {
-        // Active in ALL modes now (Pre-Split processing)
-        widener.wet.rampTo(1, 0.1);
-        // Fix Mapping: 100% UI = 0.5 Tone.Widener (Normal)
-        // 200% UI = 1.0 Tone.Widener (Wide)
-        widener.width.rampTo(stereoWidth * 0.5, 0.1);
-
-        // Mono Compensation: When width -> 0, L+R sums energy (up to +6dB).
-        // We reduce gain to approx 0.6x (-4.5dB) at Mono to keep level consistent.
-        let compensation = 1.0;
-        if (stereoWidth < 1.0) {
-            compensation = 0.6 + (0.4 * stereoWidth);
-        }
-
-        if (preamp) preamp.gain.rampTo(userPreampGain * compensation, 0.1);
-    }
-
-    // Virtual Bass
-    // Boost factor: 0 to 1
-    if (vbGain) vbGain.gain.rampTo(virtualBass, 0.1);
-}
-
-function onVolInput(val) { setVolume(val / 100); }
-function onVolChange(val) {
-    if (!hostConn) {
-        broadcast({ type: 'volume', value: val / 100 });
-        showToast(`Volume: ${Math.round(val)}%`);
-    }
-}
-
-function toggleMute() {
-    if (masterVolume > 0) {
-        preMuteVolume = masterVolume;
-        setVolume(0);
-        showToast("Muted");
-        if (!hostConn) broadcast({ type: 'volume', value: 0 });
-    } else {
-        setVolume(preMuteVolume || 0.5); // Fallback to 50% if preMuteVolume was somehow 0
-        showToast(`Volume: ${Math.round(masterVolume * 100)}%`);
-        if (!hostConn) broadcast({ type: 'volume', value: masterVolume });
-    }
-}
-
-function updateVolumeIcon() {
-    const icon = document.getElementById('vol-icon-btn');
-    if (!icon) return;
-    const path = icon.querySelector('path');
-    if (!path) return;
-
-    if (masterVolume === 0) {
-        // Mute Icon
-        path.setAttribute('d', 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z');
-    } else {
-        // Normal Icon
-        path.setAttribute('d', 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z');
-    }
-}
-
-function setVolume(val) {
-    masterVolume = val;
-    // Tone.Master.volume is dB. We want linear gain on masterGain node.
-    if (masterGain) masterGain.gain.rampTo(masterVolume, 0.1);
-
-    // [FIX] Support YouTube Volume Integration
-    if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-        try {
-            // YouTube API expects 0-100
-            youtubePlayer.setVolume(val * 100);
-        } catch (e) {
-            console.warn("[YouTube] Failed to set volume:", e);
-        }
-    }
-
-    const vSlider = document.getElementById('volume-slider');
-    if (vSlider) vSlider.value = val * 100;
-
-    // [New] Support Video Element Volume sync (Especially for Host Native Playback)
-    if (videoElement) {
-        try {
-            videoElement.volume = val;
-        } catch (e) { }
-    }
-
-    updateVolumeIcon();
-}
-
-// ==============================================================
-// [Visualizer] Light/Dark Mode Supported
-// ==============================================================
-function startVisualizer() {
-    const canvas = document.getElementById('visualizerCanvas');
-    const ctx = canvas.getContext('2d');
-
-    // Check type of global analyser (Tone or Native)
-    const isToneAnalyser = (analyser && !analyser.getByteFrequencyData);
-
-    // Determine buffer size
-    const bufferLength = isToneAnalyser ? analyser.size : analyser.frequencyBinCount;
-    // Tone analyzer size is usually 1024 or 2048.
-    // If Tone, we map Float32 to Uint8 manually for compatibility with drawing logic
-    const dataArray = isToneAnalyser ? new Float32Array(bufferLength) : new Uint8Array(bufferLength);
-
-    // Canvas Scale Logic (High DPI)
-    const logicalSize = 240;
-    const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== logicalSize * dpr) {
-        canvas.width = logicalSize * dpr;
-        canvas.height = logicalSize * dpr;
-        canvas.style.width = `${logicalSize}px`;
-        canvas.style.height = `${logicalSize}px`;
-        ctx.scale(dpr, dpr);
-    }
-
-    function draw() {
-        if (currentState === APP_STATE.IDLE) return;
-        animationId = requestAnimationFrame(draw);
-
-        if (isToneAnalyser) {
-            const dbData = analyser.getValue();
-            for (let i = 0; i < bufferLength; i++) {
-                // Map -100dB ~ -30dB to 0 ~ 255 (brightness coefficient: 2.5)
-                let val = (dbData[i] + 100) * 2.5;
-                if (val < 0) val = 0; if (val > 255) val = 255;
-                dataArray[i] = val;
-            }
-
-            const theme = document.documentElement.getAttribute('data-theme');
-            const isLight = (theme === 'light');
-
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(18, 18, 18, 0.9)';
-            ctx.fillRect(0, 0, logicalSize, logicalSize);
-
-            // Bass: 0 ~ 260Hz (12 bins - sync.html style for better punch)
-            let bassSum = 0;
-            let bassCount = 12;
-            // Safety check for array bounds
-            if (bassCount > bufferLength) bassCount = bufferLength;
-            for (let i = 0; i < bassCount; i++) { bassSum += dataArray[i]; }
-            const bassAverage = bassSum / bassCount;
-
-            // Per-band smoothing: Bass only (0.8 = smooth, High = immediate)
-            if (typeof smoothedBass === 'undefined') smoothedBass = bassAverage;
-            smoothedBass = smoothedBass * 0.8 + bassAverage * 0.2;
-
-            const bassPunch = Math.pow(smoothedBass / 255, 2.5);
-
-            // High: 7.5kHz ~ 20kHz (0.7 ~ 1.0 of buffer)
-            let highSum = 0;
-            const highStart = Math.floor(bufferLength * 0.7);
-            const highEnd = bufferLength;
-            let highCountVal = highEnd - highStart;
-            if (highCountVal < 1) highCountVal = 1;
-
-            for (let i = highStart; i < highEnd; i++) { highSum += dataArray[i]; }
-            const highAverage = highSum / highCountVal;
-            const highPunch = Math.pow(highAverage / 255, 1.0);
-
-            if (isLight) ctx.globalCompositeOperation = 'source-over';
-            else ctx.globalCompositeOperation = 'lighter';
-
-            ctx.shadowBlur = 0;
-            ctx.lineWidth = 0;
-
-            const centerX = logicalSize / 2;
-            const centerY = logicalSize / 2;
-
-            // Circle 1: Bass (increased amplification: 80 -> 150)
-            const bassRadius = 40 + (bassPunch * 150);
-            const bassLightness = 20 + (bassPunch * 60);
-
-            if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
-            else ctx.fillStyle = `hsla(217, 91 %, ${bassLightness + 40}%, 0.4)`;
-
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
-            ctx.fill();
-
-            // Circle 2: High (30~130 range)
-            const highRadius = 30 + (highPunch * 100);
-            const highLightness = 40 + (highPunch * 60);
-
-            if (isLight) {
-                ctx.fillStyle = `rgba(96, 165, 250, 0.6)`;
-            } else {
-                ctx.fillStyle = `hsla(217, 100 %, ${highLightness + 30}%, 0.4)`;
-            }
-
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
-            ctx.fill();
-        }
-
-    }
-    // Correctly kickstart the loop once from outside
-    draw();
-}
-
-function fmtTime(s) {
-    if (isNaN(s)) return "0:00";
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec < 10 ? '0' : ''}${sec} `;
-}
-
-// --- Marquee Helper for Long Titles ---
-function updateTitleWithMarquee(text) {
-    const el = document.getElementById('track-title');
-    if (!el) return;
-
-    // Reset marquee state to measure accurately
-    el.classList.remove('marquee');
-    el.style.animation = 'none'; // Temporarily stop animation
-    el.innerText = text;
-    el.removeAttribute('data-text'); // No longer needed for CSS content
-
-    // Clear inline styles from previous marquee
-    el.style.removeProperty('--marquee-offset');
-    el.style.removeProperty('--marquee-duration');
-
-    // Use a small delay to allow DOM to calculate widths
-    setTimeout(() => {
-        const parent = el.parentElement;
-        if (!parent) return;
-
-        // Calculate Overflow
-        // scrollWidth: actual text width, clientWidth: visible container width
-        const overflowWidth = el.scrollWidth - parent.clientWidth;
-
-        // Add a small buffer (e.g., 32px) to ensure it clears the edge fully
-        const targetOffset = -(overflowWidth + 32); // +32 for padding/mask buffer
-
-        if (overflowWidth > 0) {
-            el.classList.add('marquee');
-
-            // Set CSS Variable for the exact travel distance
-            el.style.setProperty('--marquee-offset', `${targetOffset}px`);
-
-            // Calculate Duration based on Speed (Constant Pixels Per Second)
-            // e.g., 40px per second + 4s pause (2s start + 2s end)
-            const speed = 40; // px per second
-            const travelDuration = (Math.abs(targetOffset) / speed);
-            const totalDuration = travelDuration * 2 + 4; // *2 for round trip, +4 for pauses
-
-            el.style.setProperty('--marquee-duration', `${totalDuration}s`);
-
-            // Re-apply animation
-            el.style.animation = '';
-        }
-    }, 100);
-}
-
-
-// --- Seek & Interactions ---
-const slider = document.getElementById('seek-slider');
-slider.addEventListener('mousedown', () => isSeeking = true);
-slider.addEventListener('touchstart', () => isSeeking = true);
-slider.addEventListener('input', () => document.getElementById('time-curr').innerText = fmtTime(slider.value));
-slider.addEventListener('change', () => {
-    isSeeking = false;
-    const t = parseFloat(slider.value);
-
-    // Guest (non-OP): blocked
-    if (hostConn && !isOperator) {
-        return; // Guests can't seek
-    }
-
-    // OP: request Host to seek
-    if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-seek', time: t });
-        return;
-    }
-
-    // Host: execute directly
-    // YouTube mode: use YouTube API
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        try {
-            youtubePlayer.seekTo(t, true);  // t is already in seconds
-            broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: t });
-        } catch (e) {
-            console.error("[YouTube] Slider seek error:", e);
-        }
-        return;
-    }
-
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-    if (isActuallyPlaying) {
-        play(t);
-        broadcast({ type: 'play', time: t });
-    } else {
-        pausedAt = t;
-        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) videoElement.currentTime = t;
-        // Broadcast pause with updated time to sync guests without starting playback
-        broadcast({ type: 'pause', time: t });
-    }
-
-    // Schedule global resync after seek (Host only)
-    setTimeout(() => {
-        broadcast({ type: 'global-resync-request' });
-        console.log("[Host] Global resync requested after seek");
-    }, 1000);
-});
-
-// Additional handlers to ensure isSeeking is reset on pointer release
-slider.addEventListener('mouseup', () => isSeeking = false);
-slider.addEventListener('touchend', () => isSeeking = false);
-
-// --- Sync Button Logic ---
-function handleMainSyncBtn() {
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
-    if (!hostConn) {
-        // Host: Reset local offset and trigger Guest-side Sync
-        localOffset = 0;
-        updateSyncDisplay();
-        showToast("모든 기기 재동기화 요청...");
-        broadcast({ type: 'global-resync-request' });
-    } else {
-        // Guest: Manual local sync
-        syncReset();
-    }
-}
-
-function syncReset() {
-    if (!hostConn || !hostConn.open) return;
-    // [FIX] Do NOT clear localOffset here. 
-    // Users want to keep their manual hardware correction (e.g. BT delay) 
-    // even when network sync is recalibrated.
-    updateSyncDisplay();
-
-    showToast("동기화(Median Pattern) 적용 중...");
-    syncRequestTime = Date.now();
-    hostConn.send({ type: 'get-sync-time' });
-}
-
-function updateSyncBtnState(isGuest) {
-    const btn = document.getElementById('btn-auto-sync');
-    if (!btn) return; // Safety check
-
-    // Unify Icon (Refresh) and Text (AUTO SYNC) for both roles
-    btn.innerHTML = `< svg width = "14" height = "14" viewBox = "0 0 24 24" fill = "currentColor" > <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" /></svg > AUTO SYNC`;
-}
-
-// --- Networking (Updated from network.html) ---
-
-// 네트워크 초기화 코드
-async function initNetwork() {
-    try {
-        let turnConfig = { username: "", credential: "" };
-
-        // 1. 로컬/프라이빗 네트워크 감지
-        const hostname = window.location.hostname;
-        const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hostname) ||
-            hostname.startsWith('192.168.') ||
-            hostname.startsWith('10.') ||
-            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
-
-        if (!isLocal) {
+        // YouTube mode: use YouTube API
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
-                // 배달원에게 설정값 요청 (Netlify Function 호출)
-                const response = await fetch('/.netlify/functions/get-turn-config');
+                const currentTime = youtubePlayer.getCurrentTime();
+                const duration = youtubePlayer.getDuration();
+                let target = currentTime + sec;
 
-                if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
-                    turnConfig = await response.json();
-                    console.log("TURN 설정 로드 완료 (Netlify)");
-                } else {
-                    console.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
-                }
-            } catch (fetchErr) {
-                console.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
+                if (target < 0) target = 0;
+                if (target > duration) target = duration;
+
+                youtubePlayer.seekTo(target, true);
+
+                // Broadcast to guests
+                broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: target });
+            } catch (e) {
+                console.error("[YouTube] Skip time error:", e);
             }
+            return;
+        }
+
+        // Local mode
+        let current = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
+        if ((currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING)) current = videoElement.currentTime;
+
+        let target = current + sec;
+        const duration = videoElement ? videoElement.duration : 0;
+
+        if (target < 0) target = 0;
+        if (target > duration) target = duration;
+
+        // Broadcast
+        play(target);
+        broadcast({ type: 'play', time: target });
+    }
+
+    function updatePlayState(playing) {
+        document.getElementById('icon-play').style.display = playing ? 'none' : 'block';
+        document.getElementById('icon-pause').style.display = playing ? 'block' : 'none';
+    }
+
+    function adjustSync(val) {
+        localOffset += val;
+        showToast(`Sync: ${val > 0 ? '+' : ''}${val.toFixed(2)} s`);
+        // Use Tone.now()
+        if (currentState !== APP_STATE.IDLE) play((Tone.now() - startedAt) + val);
+        else pausedAt += val;
+    }
+
+    // --- Audio Graph Settings ---
+    // --- Audio Graph Settings (Tone.js) ---
+    function setChannelMode(mode) {
+        channelMode = mode;
+
+        // Remove Cutoff Visibility Toggle (Always Visible now)
+
+        if (!masterGain) return; // Not init
+        const ramp = 0.05;
+
+        // Reset LowPass to Full Range by default (Safety)
+        if (globalLowPass) globalLowPass.frequency.value = 20000;
+
+        // Reset Routing first
+        try {
+            gainL.disconnect();
+            gainR.disconnect();
+        } catch (e) { }
+
+        if (mode === 0) { // Stereo
+            // L -> Merge 0, R -> Merge 1
+            gainL.connect(toneMerge, 0, 0);
+            gainR.connect(toneMerge, 0, 1);
+
+            gainL.gain.rampTo(1, ramp);
+            gainR.gain.rampTo(1, ramp);
+            showToast("Mode: Stereo");
+
+        } else if (mode === -1) { // Left (Dual Mono)
+            // L -> Merge 0 AND 1
+            gainL.connect(toneMerge, 0, 0);
+            gainL.connect(toneMerge, 0, 1);
+
+            gainL.gain.rampTo(1, ramp);
+            showToast("Mode: Left Channel");
+
+        } else if (mode === 1) { // Right (Dual Mono)
+            // R -> Merge 0 AND 1
+            gainR.connect(toneMerge, 0, 0);
+            gainR.connect(toneMerge, 0, 1);
+
+            gainR.gain.rampTo(1, ramp);
+            showToast("Mode: Right Channel");
+
+        } else if (mode === 2) { // Sub
+            // Apply Subwoofer Frequency Immediately
+            if (globalLowPass) {
+                globalLowPass.frequency.value = subFreq;
+            }
+
+            // Summing L+R to both speakers
+            gainL.connect(toneMerge, 0, 0);
+            gainL.connect(toneMerge, 0, 1);
+            gainR.connect(toneMerge, 0, 0);
+            gainR.connect(toneMerge, 0, 1);
+
+            // Instant Gain Drop to prevent +6dB Spike during summing
+            gainL.gain.value = 0.5;
+            gainR.gain.value = 0.5;
+
+            showToast(`Mode: Subwoofer(${subFreq}Hz)`);
         } else {
-            console.log("[Network] Local/Private environment detected - skipping TURN configuration.");
+            // Fallback
+            gainL.gain.rampTo(1, ramp);
+            gainR.gain.rampTo(1, ramp);
+        }
+        applySettings();
+    }
+
+    // --- 7.1 Surround Logic ---
+    function toggleSurroundMode(enabled) {
+        isSurroundMode = enabled;
+
+        // UI Toggle
+        document.getElementById('grid-standard').style.display = enabled ? 'none' : 'grid';
+        document.getElementById('grid-surround').style.display = enabled ? 'grid' : 'none';
+
+        // Logic Switch
+        if (enabled) {
+            // Ensure 7.1 Graph Nodes exist
+            if (!surroundSplitter) setupMediaSource();
+
+            // Streaming/No Buffer defaults to Center
+            if (surroundChannelIndex === -1) setSurroundChannel(2, null);
+            else setSurroundChannel(surroundChannelIndex, null);
+
+            showToast("Surround Mode: Enabled");
         }
 
-        // 2. 받아온 설정으로 옵션 만들기
-        const iceServers = [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun.relay.metered.ca:80" }
-        ];
+        // Streaming Mode: Restore MediaSource
+        setupMediaSource();
+        setChannelMode(channelMode); // Restore standard channel
 
-        // 로컬이 아니고 TURN 설정이 있는 경우에만 TURN 서버 추가
-        if (!isLocal && turnConfig.username && turnConfig.credential) {
-            iceServers.push(
-                {
-                    urls: "turn:standard.relay.metered.ca:443",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
-                },
-                {
-                    urls: "turn:standard.relay.metered.ca:443?transport=tcp",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
-                },
-                {
-                    urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
+        // [New] Instant Refresh: If playing in Buffer Mode, restart play() to reflect mode change immediately
+        const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+        if (isPlaybackState && currentAudioBuffer && playerNode) {
+            console.log("[Surround] Instant mode refresh triggered");
+            play(getTrackPosition());
+        }
+    }
+
+    function setSurroundChannel(idx, el, skipSetup = false) {
+        surroundChannelIndex = idx;
+
+        // UI Highlight Logic
+        const allOpts = document.querySelectorAll('.surround-grid .ch-opt');
+        allOpts.forEach(e => e.classList.remove('active'));
+
+        if (el) {
+            el.classList.add('active');
+        } else {
+            // Programmatic Update: Find button by onclick content
+            // This ensures the UI reflects default selection (e.g. FL)
+            for (let btn of allOpts) {
+                const onclickVal = btn.getAttribute('onclick');
+                if (onclickVal && onclickVal.includes(`(${idx}, `)) {
+                    btn.classList.add('active');
+                    break;
                 }
-            );
-        }
-
-        const peerOpts = {
-            debug: 2,
-            config: {
-                iceServers: iceServers,
-                bundlePolicy: 'max-bundle',
-                sdpSemantics: 'unified-plan',
-                iceTransportPolicy: 'all',
-                iceCandidatePoolSize: 0 // [SAFARI FIX] Reduced from 10 to 0 for better iOS compatibility
             }
-        };
-
-        // 3. PeerJS 시작
-        peer = new Peer(null, peerOpts);
-
-        // --- 기존 이벤트 리스너들 ---
-        setupPeerEvents();
-
-    } catch (e) {
-        console.error("네트워크 초기화 중 치명적 오류:", e);
-        showToast("네트워크 초기화 실패 (새로고침 하세요)");
-    }
-}
-
-/**
- * QR 코드 업데이트 함수
- * @param {string} id - 세션 ID
- */
-function updateQrCode(id) {
-    const qrContainer = document.getElementById("qrcode");
-    if (!qrContainer) {
-        console.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
-        return;
-    }
-
-    qrContainer.innerHTML = "";
-
-    // QRCode.js 라이브러리 확인
-    if (typeof QRCode === 'undefined') {
-        console.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
-        return;
-    }
-
-    try {
-        new QRCode(qrContainer, {
-            text: `${window.location.origin}${window.location.pathname}?host=${id}`,
-            width: 160,
-            height: 160,
-            colorDark: "#000000",
-            colorLight: "#ffffff"
-        });
-    } catch (e) {
-        console.error("[QR] QR 코드 생성 실패:", e);
-    }
-
-    // ID 표시 업데이트
-    const myIdEl = document.getElementById('my-id');
-    if (myIdEl) {
-        myIdEl.innerText = hostConn ? "Host ID: " + id : id;
-    }
-}
-
-function setupPeerEvents() {
-
-    peer.on('error', (err) => {
-        console.error("PeerJS Global Error:", err);
-        console.error("Error Type:", err.type);
-
-        let message = "네트워크 오류가 발생했습니다.";
-        if (err.type === 'browser-incompatible') {
-            message = "브라우저가 오디오 동기화(WebRTC)를 지원하지 않습니다.";
-        } else if (err.type === 'server-error') {
-            message = "PeerJS 서버와 연결할 수 없습니다. (현재 밴되었거나 서버 점검 중일 수 있습니다)";
-        } else if (err.type === 'network') {
-            message = "네트워크 환경이 불안정하거나 방화벽에서 차단되었습니다.";
-        } else if (err.type === 'id-taken') {
-            message = "이미 사용 중인 ID입니다. 다시 시도해주세요.";
-        } else if (err.type === 'peer-unavailable') {
-            // This is often handled in joinSession, but as a global error it's good to log
-            message = "연결하려는 대상(Host)을 찾을 수 없습니다.";
         }
 
-        showToast(message);
+        if (!surroundSplitter) return; // Wait for media setup
 
-        // If it's a critical initialization/network error, show the overlay with tips
-        // [FIX] Don't show overlay if we already have an active P2P session (signalling loss is transient)
-        const isSessionActive = (hostConn && hostConn.open) || (connectedPeers && connectedPeers.some(p => p.status === 'connected'));
+        // Routing Logic:
+        // 1. Ensure Graph is in Surround Mode
+        if (!isSurroundMode) return;
 
-        if (['server-error', 'network', 'browser-incompatible'].includes(err.type)) {
-            if (isSessionActive && err.type !== 'browser-incompatible') {
-                console.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
-                showToast("중계 서버와 연결이 끊겼습니다. (재연결 시도 중...)");
+        // 2. Re-connect MediaSource if needed (to Splitter)
+        if (!skipSetup) setupMediaSource();
+
+        // 3. Connect selected Splitter Output to SurroundGain
+        try {
+            surroundGain.disconnect();
+            surroundGain.connect(preamp); // Feed into main chain
+
+            surroundSplitter.disconnect();
+
+            // 5.1 / 7.1 Compatibility Routing
+            // 5.1 Layout: L, R, C, LFE, SL, SR (No Rear L/R)
+            // 7.1 Layout: L, R, C, LFE, SL, SR, BL, BR
+
+            if (idx === 6) {
+                // User selected "Rear Left"
+                // If file is 5.1, Ch 6 is empty. capture Side Left (4) as fallback/fill.
+                surroundSplitter.connect(surroundGain, 6, 0); // Real Rear L
+                surroundSplitter.connect(surroundGain, 4, 0); // Side L (Fallback for 5.1)
+            } else if (idx === 7) {
+                // User selected "Rear Right"
+                surroundSplitter.connect(surroundGain, 7, 0); // Real Rear R
+                surroundSplitter.connect(surroundGain, 5, 0); // Side R (Fallback for 5.1)
+            } else if (idx === 3) {
+                // LFE (Sub) - Special Bass Management or Direct
+                // Just connect LFE. If user wants Bass Management, we can mix L/R here too?
+                // For now, Direct 1:1.
+                surroundSplitter.connect(surroundGain, 3, 0);
+            } else {
+                // Standard 1:1 Mapping
+                surroundSplitter.connect(surroundGain, idx, 0);
+            }
+
+            // Reset LowPass Filter (Safety for non-LFE channels)
+            // IF LFE (3), set to subFreq. ELSE set to 20000.
+            if (globalLowPass) {
+                if (idx === 3) globalLowPass.frequency.value = subFreq;
+                else globalLowPass.frequency.value = 20000;
+            }
+
+            // 4. Force Output to Dual Mono (L+R)
+            gainL.disconnect();
+            gainR.disconnect();
+
+            // Direct Mapping: GainL -> Left Spk, GainR -> Right Spk
+            // Since input is Mono (duplicated), this results in Dual Mono output.
+            gainL.connect(toneMerge, 0, 0);
+            gainR.connect(toneMerge, 0, 1);
+
+            gainL.gain.rampTo(1, 0.1);
+            gainR.gain.rampTo(1, 0.1);
+
+            const names = ["Front Left (L)", "Front Right (R)", "Center (Dialog)", "LFE (Sub)", "Side Left", "Side Right", "Rear Left (Back)", "Rear Right (Back)"];
+            showToast(`Ch: ${names[idx]}`);
+
+        } catch (e) {
+            console.warn(e);
+        }
+    }
+
+    function setChannel(mode, el) {
+        if (!masterGain) initAudio();
+        document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+        setChannelMode(mode);
+    }
+
+    function updateSettings(type, val) {
+        if (type === 'cutoff') {
+            subFreq = Number(val);
+            document.getElementById('val-cutoff').innerText = subFreq + ' Hz';
+
+            if (vbFilter) vbFilter.frequency.rampTo(subFreq, 0.1);
+
+            // Update Main Filter ONLY if currently in Subwoofer/LFE mode
+            const isSubMode = (channelMode === 2 && !isSurroundMode);
+            const isLFE = (isSurroundMode && surroundChannelIndex === 3);
+
+            if (globalLowPass && (isSubMode || isLFE)) {
+                globalLowPass.frequency.rampTo(subFreq, 0.1);
+            }
+        }
+    }
+
+    function onReverbInput(val) { setReverbParam('mix', val); }
+    function onReverbChange(val) {
+        if (!hostConn) broadcast({ type: 'reverb', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb', value: val });
+    }
+
+    function onReverbDecayInput(val) {
+        document.getElementById('val-rvb-decay').innerText = val + 's';
+    }
+    function onReverbDecayChange(val) {
+        setReverbParam('decay', val);
+        if (!hostConn) broadcast({ type: 'reverb-decay', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-decay', value: val });
+    }
+
+    function onReverbPreDelayInput(val) {
+        document.getElementById('val-rvb-predelay').innerText = val + 's';
+    }
+    function onReverbPreDelayChange(val) {
+        setReverbParam('predelay', val);
+        if (!hostConn) broadcast({ type: 'reverb-predelay', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-predelay', value: val });
+    }
+
+    function onReverbLowCutInput(val) {
+        const v = Number(val);
+        const freq = 20 * Math.pow(50, v / 100);
+        const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
+        document.getElementById('val-rvb-lowcut').innerText = txt;
+    }
+    function onReverbLowCutChange(val) {
+        setReverbParam('lowcut', val);
+        if (!hostConn) broadcast({ type: 'reverb-lowcut', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-lowcut', value: val });
+    }
+
+    function onReverbHighCutInput(val) {
+        const v = Number(val);
+        const freq = 20000 * Math.pow(0.025, v / 100);
+        const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
+        document.getElementById('val-rvb-highcut').innerText = txt;
+    }
+    function onReverbHighCutChange(val) {
+        setReverbParam('highcut', val);
+        if (!hostConn) broadcast({ type: 'reverb-highcut', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-highcut', value: val });
+    }
+
+    function setReverbParam(param, val) {
+        const v = Number(val);
+        if (!reverb) return;
+
+        switch (param) {
+            case 'mix':
+                reverbMix = v / 100;
+                document.getElementById('val-reverb').innerText = v + '%';
+                document.getElementById('reverb-slider').value = v;
+                applySettings();
+                break;
+            case 'decay':
+                reverb.decay = v;
+                reverb.generate();
+                document.getElementById('val-rvb-decay').innerText = v + 's';
+                document.getElementById('reverb-decay-slider').value = v;
+                break;
+            case 'predelay':
+                reverb.preDelay = v;
+                reverb.generate();
+                document.getElementById('val-rvb-predelay').innerText = v + 's';
+                document.getElementById('reverb-predelay-slider').value = v;
+                break;
+            case 'lowcut':
+                const lFreq = 20 * Math.pow(50, v / 100);
+                if (rvbLowCut) rvbLowCut.frequency.rampTo(lFreq, 0.1);
+                document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'k' : Math.round(lFreq) + 'Hz');
+                document.getElementById('reverb-lowcut-slider').value = v;
+                break;
+            case 'highcut':
+                const hFreq = 20000 * Math.pow(0.025, v / 100);
+                if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
+                document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'k' : Math.round(hFreq) + 'Hz');
+                document.getElementById('reverb-highcut-slider').value = v;
+                break;
+        }
+    }
+
+    // [FIX] Restore missing setters for updateAudioEffect and legacy handlers
+    function setReverb(val, localOnly) { setReverbParam('mix', val); if (!localOnly) onReverbChange(val); }
+    function setReverbDecay(val, localOnly) { setReverbParam('decay', val); if (!localOnly) onReverbDecayChange(val); }
+    function setReverbPreDelay(val, localOnly) { setReverbParam('predelay', val); if (!localOnly) onReverbPreDelayChange(val); }
+    function setReverbLowCut(val, localOnly) { setReverbParam('lowcut', val); if (!localOnly) onReverbLowCutChange(val); }
+    function setReverbHighCut(val, localOnly) { setReverbParam('highcut', val); if (!localOnly) onReverbHighCutChange(val); }
+
+    function resetReverbMix() { setReverbParam('mix', 0); onReverbChange(0); }
+    function resetReverbDecay() { setReverbParam('decay', 5.0); onReverbDecayChange(5.0); }
+    function resetReverbPreDelay() { setReverbParam('predelay', 0.1); onReverbPreDelayChange(0.1); }
+    function resetReverbLowCut() { setReverbParam('lowcut', 0); onReverbLowCutChange(0); }
+    function resetReverbHighCut() { setReverbParam('highcut', 0); onReverbHighCutChange(0); }
+
+
+    function resetReverb() {
+        resetReverbMix();
+        resetReverbDecay();
+        resetReverbPreDelay();
+        resetReverbLowCut();
+        resetReverbHighCut();
+    }
+
+    // Graphic EQ
+    function setEQ(idx, val, localOnly = false, fromSync = false) {
+        const bandIdx = Number(idx);
+        const bandVal = Number(val);
+
+        // Tone.js Update
+        if (eqNodes && eqNodes[bandIdx]) {
+            // eqNodes are Tone.Filter(peaking)
+            eqNodes[bandIdx].gain.value = bandVal;
+        }
+
+        // UI Update
+        const bands = document.querySelectorAll('.eq-band');
+        if (bands[bandIdx]) {
+            const slider = bands[bandIdx].querySelector('.eq-slider');
+            if (slider && parseFloat(slider.value) !== bandVal) slider.value = bandVal;
+        }
+
+        const label = document.getElementById(`eq-val-${bandIdx}`);
+        if (label) label.innerText = bandVal > 0 ? `+${bandVal}` : bandVal;
+
+        if (localOnly || fromSync) return;
+
+        if (!hostConn) {
+            broadcast({ type: 'eq-update', band: bandIdx, value: bandVal });
+        }
+        else if (isOperator) {
+            hostConn.send({ type: 'request-setting', settingType: 'eq', band: bandIdx, value: bandVal });
+        }
+    }
+
+    // Global:
+    let userPreampGain = 1.0;
+
+    function setPreamp(val, localOnly = false, fromSync = false) {
+        const db = Number(val);
+        userPreampGain = Math.pow(10, db / 20); // Store user intent
+
+        // UI Update
+        const disp = document.getElementById('val-preamp');
+        if (disp) disp.innerText = (db > 0 ? '+' : '') + db + 'dB';
+
+        const slider = document.getElementById('preamp-slider');
+        if (slider && slider.value != db) slider.value = db;
+
+        // Apply immediately via common function
+        applySettings();
+
+        if (localOnly || fromSync) return;
+
+        if (!hostConn) broadcast({ type: 'preamp', value: db });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'preamp', value: db });
+    }
+
+    function resetEQ(fromSync = false) {
+        if (isOperator && !fromSync) {
+            hostConn.send({ type: 'request-eq-reset' });
+            return;
+        }
+        document.querySelectorAll('.eq-slider').forEach((el, idx) => {
+            setEQ(idx, 0, false, true);
+        });
+        setPreamp(0, false, true);
+        if (!hostConn && !fromSync) broadcast({ type: 'eq-reset' });
+    }
+
+    // Virtual Stereo Width
+    function setStereoWidth(val) {
+        stereoWidth = val / 100;
+        document.getElementById('val-width').innerText = val + '%';
+        document.getElementById('width-slider').value = val;
+        applySettings();
+    }
+
+    function onStereoWidthChange(val) {
+        if (!hostConn) broadcast({ type: 'stereo-width', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'stereo', value: val });
+    }
+
+    function resetStereo() { setStereoWidth(100); onStereoWidthChange(100); }
+
+    // Virtual Bass Control
+    function setVirtualBass(val) {
+        virtualBass = val / 100;
+        document.getElementById('val-vbass').innerText = val + '%';
+        document.getElementById('vbass-slider').value = val;
+        applySettings();
+    }
+
+    function onVirtualBassChange(val) {
+        if (!hostConn) broadcast({ type: 'vbass', value: val });
+        else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'vbass', value: val });
+    }
+
+    function applySettings() {
+        if (!masterGain) return;
+
+        // Reverb Mix (CrossFade)
+        if (rvbCrossFade) rvbCrossFade.fade.rampTo(reverbMix, 0.1);
+
+        // Stereo Width & Gain Compensation
+        if (widener) {
+            // Active in ALL modes now (Pre-Split processing)
+            widener.wet.rampTo(1, 0.1);
+            // Fix Mapping: 100% UI = 0.5 Tone.Widener (Normal)
+            // 200% UI = 1.0 Tone.Widener (Wide)
+            widener.width.rampTo(stereoWidth * 0.5, 0.1);
+
+            // Mono Compensation: When width -> 0, L+R sums energy (up to +6dB).
+            // We reduce gain to approx 0.6x (-4.5dB) at Mono to keep level consistent.
+            let compensation = 1.0;
+            if (stereoWidth < 1.0) {
+                compensation = 0.6 + (0.4 * stereoWidth);
+            }
+
+            if (preamp) preamp.gain.rampTo(userPreampGain * compensation, 0.1);
+        }
+
+        // Virtual Bass
+        // Boost factor: 0 to 1
+        if (vbGain) vbGain.gain.rampTo(virtualBass, 0.1);
+    }
+
+    function onVolInput(val) { setVolume(val / 100); }
+    function onVolChange(val) {
+        if (!hostConn) {
+            broadcast({ type: 'volume', value: val / 100 });
+            showToast(`Volume: ${Math.round(val)}%`);
+        }
+    }
+
+    function toggleMute() {
+        if (masterVolume > 0) {
+            preMuteVolume = masterVolume;
+            setVolume(0);
+            showToast("Muted");
+            if (!hostConn) broadcast({ type: 'volume', value: 0 });
+        } else {
+            setVolume(preMuteVolume || 0.5); // Fallback to 50% if preMuteVolume was somehow 0
+            showToast(`Volume: ${Math.round(masterVolume * 100)}%`);
+            if (!hostConn) broadcast({ type: 'volume', value: masterVolume });
+        }
+    }
+
+    function updateVolumeIcon() {
+        const icon = document.getElementById('vol-icon-btn');
+        if (!icon) return;
+        const path = icon.querySelector('path');
+        if (!path) return;
+
+        if (masterVolume === 0) {
+            // Mute Icon
+            path.setAttribute('d', 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z');
+        } else {
+            // Normal Icon
+            path.setAttribute('d', 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z');
+        }
+    }
+
+    function setVolume(val) {
+        masterVolume = val;
+        // Tone.Master.volume is dB. We want linear gain on masterGain node.
+        if (masterGain) masterGain.gain.rampTo(masterVolume, 0.1);
+
+        // [FIX] Support YouTube Volume Integration
+        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+            try {
+                // YouTube API expects 0-100
+                youtubePlayer.setVolume(val * 100);
+            } catch (e) {
+                console.warn("[YouTube] Failed to set volume:", e);
+            }
+        }
+
+        const vSlider = document.getElementById('volume-slider');
+        if (vSlider) vSlider.value = val * 100;
+
+        // [New] Support Video Element Volume sync (Especially for Host Native Playback)
+        if (videoElement) {
+            // [Double Audio Fix] Prevent unmuting video if playing via Buffer Mode
+            if (currentAudioBuffer) {
+                videoElement.volume = 0;
+                videoElement.muted = true;
+            } else {
+                try {
+                    videoElement.volume = val;
+                } catch (e) { }
+            }
+        }
+
+        updateVolumeIcon();
+    }
+
+    // ==============================================================
+    // [Visualizer] Light/Dark Mode Supported
+    // ==============================================================
+    function startVisualizer() {
+        // [Fix #1] Prevent Loop Nesting: Clear previous loop if exists
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
+
+        const canvas = document.getElementById('visualizerCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // [Fix #2] Init Guard: If audio engine isn't ready (Race condition with play() -> initAudio()), retry next frame
+        if (!analyser) {
+            animationId = requestAnimationFrame(startVisualizer);
+            return;
+        }
+
+        // Check type of global analyser (Tone or Native)
+        const isToneAnalyser = (analyser && !analyser.getByteFrequencyData);
+
+        // Determine buffer size
+        const bufferLength = isToneAnalyser ? analyser.size : analyser.frequencyBinCount;
+        // Tone analyzer size is usually 1024 or 2048.
+        // If Tone, we map Float32 to Uint8 manually for compatibility with drawing logic
+        const dataArray = isToneAnalyser ? new Float32Array(bufferLength) : new Uint8Array(bufferLength);
+
+        // [Fix #4] Scope Pollution: Keep bass state local to the loop
+        let smoothedBass = 0;
+
+        // Canvas Scale Logic (High DPI)
+        const logicalSize = 240;
+        const dpr = window.devicePixelRatio || 1;
+        if (canvas.width !== logicalSize * dpr) {
+            canvas.width = logicalSize * dpr;
+            canvas.height = logicalSize * dpr;
+            canvas.style.width = `${logicalSize}px`;
+            canvas.style.height = `${logicalSize}px`;
+            ctx.scale(dpr, dpr);
+        }
+
+        function draw() {
+            if (currentState === APP_STATE.IDLE) return;
+            animationId = requestAnimationFrame(draw);
+
+            if (isToneAnalyser) {
+                const dbData = analyser.getValue();
+                for (let i = 0; i < bufferLength; i++) {
+                    // Map -100dB ~ -30dB to 0 ~ 255 (brightness coefficient: 2.5)
+                    let val = (dbData[i] + 100) * 2.5;
+                    if (val < 0) val = 0; if (val > 255) val = 255;
+                    dataArray[i] = val;
+                }
+
+                const theme = document.documentElement.getAttribute('data-theme');
+                const isLight = (theme === 'light');
+
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(18, 18, 18, 0.9)';
+                ctx.fillRect(0, 0, logicalSize, logicalSize);
+
+                // Bass: 0 ~ 260Hz (12 bins - sync.html style for better punch)
+                let bassSum = 0;
+                let bassCount = 12;
+                // Safety check for array bounds
+                if (bassCount > bufferLength) bassCount = bufferLength;
+                for (let i = 0; i < bassCount; i++) { bassSum += dataArray[i]; }
+                const bassAverage = bassSum / bassCount;
+
+                // Per-band smoothing: Bass only (0.8 = smooth, High = immediate)
+                smoothedBass = smoothedBass * 0.8 + bassAverage * 0.2;
+
+                const bassPunch = Math.pow(smoothedBass / 255, 2.5);
+
+                // High: 7.5kHz ~ 20kHz (0.7 ~ 1.0 of buffer)
+                let highSum = 0;
+                const highStart = Math.floor(bufferLength * 0.7);
+                const highEnd = bufferLength;
+                let highCountVal = highEnd - highStart;
+                if (highCountVal < 1) highCountVal = 1;
+
+                for (let i = highStart; i < highEnd; i++) { highSum += dataArray[i]; }
+                const highAverage = highSum / highCountVal;
+                const highPunch = Math.pow(highAverage / 255, 1.0);
+
+                if (isLight) ctx.globalCompositeOperation = 'source-over';
+                else ctx.globalCompositeOperation = 'lighter';
+
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 0;
+
+                const centerX = logicalSize / 2;
+                const centerY = logicalSize / 2;
+
+                // Circle 1: Bass (increased amplification: 80 -> 150)
+                const bassRadius = 40 + (bassPunch * 150);
+                const bassLightness = 20 + (bassPunch * 60);
+
+                if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
+                else ctx.fillStyle = `hsla(217, 91 %, ${bassLightness + 40}%, 0.4)`;
+
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Circle 2: High (30~130 range)
+                const highRadius = 30 + (highPunch * 100);
+                const highLightness = 40 + (highPunch * 60);
+
+                if (isLight) {
+                    ctx.fillStyle = `rgba(96, 165, 250, 0.6)`;
+                } else {
+                    ctx.fillStyle = `hsla(217, 100 %, ${highLightness + 30}%, 0.4)`;
+                }
+
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+        }
+        // Correctly kickstart the loop once from outside
+        draw();
+    }
+
+    function fmtTime(s) {
+        if (isNaN(s)) return "0:00";
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return `${m}:${sec < 10 ? '0' : ''}${sec} `;
+    }
+
+    // --- Marquee Helper for Long Titles ---
+    function updateTitleWithMarquee(text) {
+        const el = document.getElementById('track-title');
+        if (!el) return;
+
+        // Reset marquee state to measure accurately
+        el.classList.remove('marquee');
+        el.style.animation = 'none'; // Temporarily stop animation
+        el.innerText = text;
+        el.removeAttribute('data-text'); // No longer needed for CSS content
+
+        // Clear inline styles from previous marquee
+        el.style.removeProperty('--marquee-offset');
+        el.style.removeProperty('--marquee-duration');
+
+        // Use a small delay to allow DOM to calculate widths
+        setTimeout(() => {
+            const parent = el.parentElement;
+            if (!parent) return;
+
+            // Calculate Overflow
+            // scrollWidth: actual text width, clientWidth: visible container width
+            const overflowWidth = el.scrollWidth - parent.clientWidth;
+
+            // Add a small buffer (e.g., 32px) to ensure it clears the edge fully
+            const targetOffset = -(overflowWidth + 32); // +32 for padding/mask buffer
+
+            if (overflowWidth > 0) {
+                el.classList.add('marquee');
+
+                // Set CSS Variable for the exact travel distance
+                el.style.setProperty('--marquee-offset', `${targetOffset}px`);
+
+                // Calculate Duration based on Speed (Constant Pixels Per Second)
+                // e.g., 40px per second + 4s pause (2s start + 2s end)
+                const speed = 40; // px per second
+                const travelDuration = (Math.abs(targetOffset) / speed);
+                const totalDuration = travelDuration * 2 + 4; // *2 for round trip, +4 for pauses
+
+                el.style.setProperty('--marquee-duration', `${totalDuration}s`);
+
+                // Re-apply animation
+                el.style.animation = '';
+            }
+        }, 100);
+    }
+
+
+    // --- Seek & Interactions ---
+    const slider = document.getElementById('seek-slider');
+    slider.addEventListener('mousedown', () => isSeeking = true);
+    slider.addEventListener('touchstart', () => isSeeking = true);
+    slider.addEventListener('input', () => document.getElementById('time-curr').innerText = fmtTime(slider.value));
+    slider.addEventListener('change', () => {
+        isSeeking = false;
+        const t = parseFloat(slider.value);
+
+        // Guest (non-OP): blocked
+        if (hostConn && !isOperator) {
+            return; // Guests can't seek
+        }
+
+        // OP: request Host to seek
+        if (hostConn && isOperator) {
+            hostConn.send({ type: 'request-seek', time: t });
+            return;
+        }
+
+        // Host: execute directly
+        // YouTube mode: use YouTube API
+        if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
+            try {
+                youtubePlayer.seekTo(t, true);  // t is already in seconds
+                broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: t });
+            } catch (e) {
+                console.error("[YouTube] Slider seek error:", e);
+            }
+            return;
+        }
+
+        const isActuallyPlaying = (videoElement && !videoElement.paused);
+
+        if (isActuallyPlaying) {
+            play(t);
+            broadcast({ type: 'play', time: t });
+        } else {
+            pausedAt = t;
+            if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) videoElement.currentTime = t;
+            // Broadcast pause with updated time to sync guests without starting playback
+            broadcast({ type: 'pause', time: t });
+        }
+
+        // Schedule global resync after seek (Host only)
+        setTimeout(() => {
+            broadcast({ type: 'global-resync-request' });
+            console.log("[Host] Global resync requested after seek");
+        }, 1000);
+    });
+
+    // Additional handlers to ensure isSeeking is reset on pointer release
+    slider.addEventListener('mouseup', () => isSeeking = false);
+    slider.addEventListener('touchend', () => isSeeking = false);
+
+    // --- Sync Button Logic ---
+    function handleMainSyncBtn() {
+        const isActuallyPlaying = (videoElement && !videoElement.paused);
+
+        console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
+        if (!hostConn) {
+            // Host: Reset local offset and trigger Guest-side Sync
+            localOffset = 0;
+            updateSyncDisplay();
+            showToast("모든 기기 재동기화 요청...");
+            broadcast({ type: 'global-resync-request' });
+        } else {
+            // Guest: Manual local sync
+            syncReset();
+        }
+    }
+
+    function syncReset() {
+        if (!hostConn || !hostConn.open) return;
+        // [FIX] Do NOT clear localOffset here.
+        // Users want to keep their manual hardware correction (e.g. BT delay)
+        // even when network sync is recalibrated.
+        updateSyncDisplay();
+
+        showToast("최적 싱크 보정 적용 중...");
+        syncRequestTime = Date.now();
+        hostConn.send({ type: 'get-sync-time' });
+    }
+
+    function updateSyncBtnState(isGuest) {
+        const btn = document.getElementById('btn-auto-sync');
+        if (!btn) return; // Safety check
+
+        // Unify Icon (Refresh) and Text (AUTO SYNC) for both roles
+        btn.innerHTML = `< svg width = "14" height = "14" viewBox = "0 0 24 24" fill = "currentColor" > <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" /></svg > AUTO SYNC`;
+    }
+
+    // --- Networking (Updated from network.html) ---
+
+    // 네트워크 초기화 코드
+    async function initNetwork() {
+        try {
+            let turnConfig = { username: "", credential: "" };
+
+            // 1. 로컬/프라이빗 네트워크 감지
+            const hostname = window.location.hostname;
+            const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hostname) ||
+                hostname.startsWith('192.168.') ||
+                hostname.startsWith('10.') ||
+                /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+
+            if (!isLocal) {
+                try {
+                    // 배달원에게 설정값 요청 (Netlify Function 호출)
+                    const response = await fetch('/.netlify/functions/get-turn-config');
+
+                    if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
+                        turnConfig = await response.json();
+                        console.log("TURN 설정 로드 완료 (Netlify)");
+                    } else {
+                        console.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
+                    }
+                } catch (fetchErr) {
+                    console.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
+                }
+            } else {
+                console.log("[Network] Local/Private environment detected - skipping TURN configuration.");
+            }
+
+            // 2. 받아온 설정으로 옵션 만들기
+            const iceServers = [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun.relay.metered.ca:80" }
+            ];
+
+            // 로컬이 아니고 TURN 설정이 있는 경우에만 TURN 서버 추가
+            if (!isLocal && turnConfig.username && turnConfig.credential) {
+                iceServers.push(
+                    {
+                        urls: "turn:standard.relay.metered.ca:443",
+                        username: turnConfig.username,
+                        credential: turnConfig.credential
+                    },
+                    {
+                        urls: "turn:standard.relay.metered.ca:443?transport=tcp",
+                        username: turnConfig.username,
+                        credential: turnConfig.credential
+                    },
+                    {
+                        urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+                        username: turnConfig.username,
+                        credential: turnConfig.credential
+                    }
+                );
+            }
+
+            const peerOpts = {
+                debug: 2,
+                config: {
+                    iceServers: iceServers,
+                    bundlePolicy: 'max-bundle',
+                    sdpSemantics: 'unified-plan',
+                    iceTransportPolicy: 'all',
+                    iceCandidatePoolSize: 0 // [SAFARI FIX] Reduced from 10 to 0 for better iOS compatibility
+                }
+            };
+
+            // 3. PeerJS 시작
+            peer = new Peer(null, peerOpts);
+
+            // --- 기존 이벤트 리스너들 ---
+            setupPeerEvents();
+
+        } catch (e) {
+            console.error("네트워크 초기화 중 치명적 오류:", e);
+            showToast("네트워크 초기화 실패 (새로고침 하세요)");
+        }
+    }
+
+    /**
+     * QR 코드 업데이트 함수
+     * @param {string} id - 세션 ID
+     */
+    function updateQrCode(id) {
+        const qrContainer = document.getElementById("qrcode");
+        if (!qrContainer) {
+            console.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
+            return;
+        }
+
+        qrContainer.innerHTML = "";
+
+        // QRCode.js 라이브러리 확인
+        if (typeof QRCode === 'undefined') {
+            console.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
+            return;
+        }
+
+        try {
+            new QRCode(qrContainer, {
+                text: `${window.location.origin}${window.location.pathname}?host=${id}`,
+                width: 160,
+                height: 160,
+                colorDark: "#000000",
+                colorLight: "#ffffff"
+            });
+        } catch (e) {
+            console.error("[QR] QR 코드 생성 실패:", e);
+        }
+
+        // ID 표시 업데이트
+        const myIdEl = document.getElementById('my-id');
+        if (myIdEl) {
+            myIdEl.innerText = hostConn ? "Host ID: " + id : id;
+        }
+    }
+
+    function setupPeerEvents() {
+
+        peer.on('error', (err) => {
+            console.error("PeerJS Global Error:", err);
+            console.error("Error Type:", err.type);
+
+            let message = "네트워크 오류가 발생했습니다.";
+            if (err.type === 'browser-incompatible') {
+                message = "브라우저가 오디오 동기화(WebRTC)를 지원하지 않습니다.";
+            } else if (err.type === 'server-error') {
+                message = "PeerJS 서버와 연결할 수 없습니다. (현재 밴되었거나 서버 점검 중일 수 있습니다)";
+            } else if (err.type === 'network') {
+                message = "네트워크 환경이 불안정하거나 방화벽에서 차단되었습니다.";
+            } else if (err.type === 'id-taken') {
+                message = "이미 사용 중인 ID입니다. 다시 시도해주세요.";
+            } else if (err.type === 'peer-unavailable') {
+                // This is often handled in joinSession, but as a global error it's good to log
+                message = "연결하려는 대상(Host)을 찾을 수 없습니다.";
+            }
+
+            showToast(message);
+
+            // If it's a critical initialization/network error, show the overlay with tips
+            // [FIX] Don't show overlay if we already have an active P2P session (signalling loss is transient)
+            const isSessionActive = (hostConn && hostConn.open) || (connectedPeers && connectedPeers.some(p => p.status === 'connected'));
+
+            if (['server-error', 'network', 'browser-incompatible'].includes(err.type)) {
+                if (isSessionActive && err.type !== 'browser-incompatible') {
+                    console.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
+                    showToast("중계 서버와 연결이 끊겼습니다. (재연결 시도 중...)");
+                    return;
+                }
+                showConnectionFailedOverlay(
+                    message + "\n\n" +
+                    "1. VPN을 사용 중이라면 끄고 시도해보세요.\n" +
+                    "2. 브라우저 캐시를 지우거나 다른 브라우저(Chrome/Safari 권장)를 사용해보세요.\n" +
+                    "3. 공용 Wi-Fi나 회사/학교 망은 차단될 수 있습니다."
+                );
+            }
+        });
+
+        peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+
+        peer.on('open', id => {
+            myId = id;
+            const myIdEl = document.getElementById('my-id');
+            if (myIdEl) myIdEl.innerText = id;
+
+            updateQrCode(myId);
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('host')) {
+                const hostId = params.get('host');
+                document.getElementById('join-id-input').value = hostId;
+                console.log("[QR] Auto-joining host:", hostId);
+
+                // Auto-trigger join session for QR users
+                // This is safe because we are already inside peer.on('open')
+                setTimeout(() => joinSession(), 100);
+            } else {
+                const hostPanel = document.getElementById('host-panel');
+                if (hostPanel) hostPanel.classList.add('visible');
+
+                // [REF] Centralized Update
+                myDeviceLabel = 'HOST';
+                updateRoleBadge();
+
+                updateSyncBtnState(false);
+
+                renderDeviceList([
+                    { id: myId, label: 'HOST', status: 'connected', isHost: true }
+                ]);
+
+                // Heartbeat Monitor (Host checks for voluntary signals)
+                setInterval(() => {
+                    const now = Date.now();
+                    let changed = false;
+
+                    // 1. Check for Timeouts
+                    connectedPeers.forEach(p => {
+                        if (p.status === 'connected') {
+                            // Host does NOT ping. Waits for Guest.
+
+                            // Timeout: 15 seconds (allows 2 lost signals from 5s interval)
+                            if (now - p.lastHeartbeat > 15000) {
+                                console.warn(`Peer ${p.label} timed out.`);
+                                p.status = 'disconnected';
+                                changed = true;
+                                showToast(`${p.label} 제거됨(무응답)`);
+                            }
+                        }
+                    });
+
+                    // 2. Boldly Remove Disconnected Peers
+                    if (changed) {
+                        // FORCE UPDATE: Reassign global array and CLEAN UP orphans
+                        const disconnected = connectedPeers.filter(p => p.status !== 'connected');
+                        disconnected.forEach(p => {
+                            if (p._relayMonitor) clearInterval(p._relayMonitor);
+                            if (p._heartbeatTimer) clearInterval(p._heartbeatTimer);
+                        });
+                        connectedPeers = connectedPeers.filter(p => p.status === 'connected');
+                        broadcastDeviceList();
+                    }
+                }, 1000);
+            }
+        });
+
+        function broadcastDeviceList() {
+            const list = [
+                { id: myId, label: 'HOST', status: 'connected', isHost: true },
+                ...connectedPeers.map(p => ({
+                    id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
+                }))
+            ];
+
+            const msg = { type: 'device-list-update', list: list };
+            broadcast(msg);
+            renderDeviceList(list);
+        }
+
+        // Host Logic
+        peer.on('connection', conn => {
+            // Check for Data Relay Connection
+            if (conn.metadata && conn.metadata.type === 'data-relay') {
+                handleRelayConnection(conn);
                 return;
             }
-            showConnectionFailedOverlay(
-                message + "\n\n" +
-                "1. VPN을 사용 중이라면 끄고 시도해보세요.\n" +
-                "2. 브라우저 캐시를 지우거나 다른 브라우저(Chrome/Safari 권장)를 사용해보세요.\n" +
-                "3. 공용 Wi-Fi나 회사/학교 망은 차단될 수 있습니다."
-            );
-        }
-    });
 
-    peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+            // [GHOSTING FIX] Duplicate check: If this peer ID is already connected, close the old one
+            const existingIdx = connectedPeers.findIndex(p => p.id === conn.peer);
+            if (existingIdx !== -1) {
+                console.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
+                const oldPeer = connectedPeers[existingIdx];
+                if (oldPeer.conn && oldPeer.conn.open) {
+                    try {
+                        // [FIX] Tag this closure so Guest doesn't auto-retry redundant connection
+                        oldPeer.conn.send({ type: 'force-close-duplicate' });
+                        oldPeer.conn.close();
+                    } catch (e) { }
+                }
+                connectedPeers.splice(existingIdx, 1);
+            }
 
-    peer.on('open', id => {
-        myId = id;
-        const myIdEl = document.getElementById('my-id');
-        if (myIdEl) myIdEl.innerText = id;
+            conn.on('open', () => {
+                let deviceName;
 
-        updateQrCode(myId);
+                // 1. Label Memory 확인: 이전에 접속했던 기기인가?
+                if (peerLabels[conn.peer]) {
+                    deviceName = peerLabels[conn.peer];
+                    console.log(`[Network] Re-connection detected: ${deviceName} (${conn.peer})`);
+                } else {
+                    // 2. 신규 기기라면 카운터 증가 및 저장
+                    deviceCounter++;
+                    deviceName = `DEVICE ${deviceCounter} `; // 뒤에 공백 유지
+                    peerLabels[conn.peer] = deviceName;
+                }
 
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('host')) {
-            const hostId = params.get('host');
-            document.getElementById('join-id-input').value = hostId;
-            console.log("[QR] Auto-joining host:", hostId);
+                const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
 
-            // Auto-trigger join session for QR users
-            // This is safe because we are already inside peer.on('open')
-            setTimeout(() => joinSession(), 100);
-        } else {
-            const hostPanel = document.getElementById('host-panel');
-            if (hostPanel) hostPanel.classList.add('visible');
+                const peerObj = {
+                    id: conn.peer,
+                    label: deviceName,
+                    status: 'connected',
+                    conn: conn,
+                    isOp: false,
+                    isDataTarget: true, // Default: Receive data from Host
+                    lastHeartbeat: Date.now() // Heartbeat Init
+                };
+                connectedPeers.push(peerObj);
+                broadcastDeviceList();
 
-            // [REF] Centralized Update
-            myDeviceLabel = 'HOST';
-            updateRoleBadge();
+                showToast(`${deviceName} 연결됨`);
 
-            updateSyncBtnState(false);
+                // --- Relay Assignment Logic ---
+                // --- Relay Assignment Logic (2-Lane Stabilized) ---
+                if (connectedPeers.length > MAX_DIRECT_DATA_PEERS) {
+                    // 2-Lane System: Try to find a parent in the same lane (Odd/Even)
+                    // 2-Lane Relay Strategy: Find nearest same-lane ancestor (Odd/Even indices)
 
-            renderDeviceList([
-                { id: myId, label: 'HOST', status: 'connected', isHost: true }
-            ]);
+                    let assigned = false;
+                    for (let i = connectedPeers.length - 3; i >= 0; i -= 2) {
+                        const candidate = connectedPeers[i];
+                        // Must be connected AND have open channel to serve as relay
+                        if (candidate && candidate.status === 'connected' && candidate.conn.open) {
+                            conn.send({ type: 'assign-data-source', targetId: candidate.id });
+                            showToast(`Data Relay: ${deviceName} -> ${candidate.label} `);
 
-            // Heartbeat Monitor (Host checks for voluntary signals)
-            setInterval(() => {
-                const now = Date.now();
-                let changed = false;
-
-                // 1. Check for Timeouts
-                connectedPeers.forEach(p => {
-                    if (p.status === 'connected') {
-                        // Host does NOT ping. Waits for Guest.
-
-                        // Timeout: 15 seconds (allows 2 lost signals from 5s interval)
-                        if (now - p.lastHeartbeat > 15000) {
-                            console.warn(`Peer ${p.label} timed out.`);
-                            p.status = 'disconnected';
-                            changed = true;
-                            showToast(`${p.label} 제거됨(무응답)`);
+                            // Do NOT send data directly from Host to this new peer
+                            peerObj.isDataTarget = false;
+                            peerObj.assignedRelay = candidate.id; // [FIX #8] Track for monitoring
+                            assigned = true;
+                            break;
                         }
+                    }
+                    if (!assigned) {
+                        // If no active parent found in lane, fall back to Host (keep isDataTarget = true)
+                        showToast(`Relay Lane Unavailable: ${deviceName} joined Host Direct`);
+                    }
+                }
+                // -----------------------------
+
+                // [FIX #8] Set up relay lane reassignment on parent disconnect
+                if (!peerObj.isDataTarget && peerObj.assignedRelay) {
+                    // Monitor the assigned relay peer
+                    const monitorRelay = () => {
+                        const relay = connectedPeers.find(p => p.id === peerObj.assignedRelay);
+                        if (!relay || relay.status !== 'connected') {
+                            console.log(`[Relay] Parent ${peerObj.assignedRelay} disconnected, reassigning ${deviceName}`);
+                            peerObj.isDataTarget = true; // Fall back to Host direct
+                            showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
+
+                            // [Fix] Stop monitoring once reassigned to prevent interval spam
+                            if (peerObj._relayMonitor) {
+                                clearInterval(peerObj._relayMonitor);
+                                peerObj._relayMonitor = null;
+                            }
+                        }
+                    };
+                    // Check every RELAY_MONITOR_INTERVAL ms
+                    peerObj._relayMonitor = setInterval(monitorRelay, RELAY_MONITOR_INTERVAL);
+                }
+                // -----------------------------
+
+                conn.send({ type: 'welcome', label: deviceName });
+                conn.send({ type: 'volume', value: masterVolume });
+                conn.send({ type: 'reverb', value: reverbMix * 100 });
+                conn.send({
+                    type: 'playlist-update',
+                    list: playlist.map(item => ({
+                        type: item.type,
+                        name: item.name || item.title,
+                        videoId: item.videoId || null,
+                        playlistId: item.playlistId || null
+                    }))
+                });
+
+                // Send current YouTube state if active
+                if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
+                    try {
+                        const videoData = youtubePlayer.getVideoData();
+                        conn.send({
+                            type: 'youtube-play',
+                            videoId: (videoData && videoData.video_id) ? videoData.video_id : (curItem ? curItem.videoId : null),
+                            playlistId: curItem ? curItem.playlistId : null,
+                            index: currentTrackIndex,
+                            subIndex: currentYouTubeSubIndex
+                        });
+                        // Send current time sync after short delay (let guest load player first)
+                        setTimeout(() => {
+                            if (youtubePlayer && conn.open) {
+                                conn.send({
+                                    type: 'youtube-sync',
+                                    time: youtubePlayer.getCurrentTime(),
+                                    state: youtubePlayer.getPlayerState(),
+                                    subIndex: currentYouTubeSubIndex
+                                });
+                            }
+                        }, 3000);
+                    } catch (e) {
+                        console.error("[YouTube] Failed to send state to new guest:", e);
+                    }
+                }
+
+                broadcastDeviceList();
+
+                if (curItem && curItem.type !== 'youtube') {
+                    conn.send({ type: 'file-prepare', name: curItem.name, index: currentTrackIndex });
+                }
+
+                // [FIX] Late Joiner Media Guard:
+                // If Host is still extracting audio from a video, do NOT send the MP4 file yet.
+                // The guest will receive the WAV file automatically when broadcastFile(wavFile) is called later.
+                if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file && !playlist[currentTrackIndex]?._isExtracting) {
+                    unicastFile(conn, playlist[currentTrackIndex].file);
+                } else if (playlist[currentTrackIndex]?._isExtracting) {
+                    console.log(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
+                    conn.send({ type: 'file-wait', message: '오디오 추출 중... 잠시만 기다려주세요.' });
+                }
+
+                // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
+                conn.on('data', data => {
+                    // [FIX] Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
+                    if (conn.open && !connectedPeers.find(p => p.id === peerObj.id)) {
+                        console.log(`[Network] Reviving zombie connection: ${peerObj.label}`);
+                        peerObj.status = 'connected';
+                        peerObj.lastHeartbeat = Date.now();
+                        connectedPeers.push(peerObj);
+                        broadcastDeviceList();
+                    }
+
+                    if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
+                        peerObj.lastHeartbeat = Date.now();
+
+                        if (!hostConn) { // Only genuine Host responds
+                            const isActuallyPlaying = (videoElement && !videoElement.paused);
+
+                            conn.send({
+                                type: 'status-sync',
+                                currentTrackIndex: currentTrackIndex,
+                                isPlaying: isActuallyPlaying,
+                                playlistMeta: playlist.map(item => ({
+                                    type: item.type,
+                                    name: item.name || item.title,
+                                    videoId: item.videoId || null,
+                                    playlistId: item.playlistId || null
+                                }))
+                            });
+                        }
+                        return;
+                    }
+
+                    if (data.type === 'ping-latency') {
+                        conn.send({ type: 'pong-latency', timestamp: data.timestamp });
+                        return;
+                    }
+
+                    if (data.type === 'get-sync-time') {
+                        const currentTime = getTrackPosition();
+                        const isActuallyPlaying = (videoElement && !videoElement.paused);
+                        conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
+                    }
+                    else if (peerObj.isOp) {
+                        handleOperatorRequest(data);
+                    }
+                    else if (data.type === 'preload-ack') {
+                        if (!peerObj.preloadedIndexes) peerObj.preloadedIndexes = new Set();
+                        peerObj.preloadedIndexes.add(data.index);
+                        console.log(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
+                    }
+                    else if (data.type === 'request-youtube-playlist-info') {
+                        const pid = data.playlistId;
+                        if (youtubeSubItemsMap[pid]) {
+                            conn.send({
+                                type: 'youtube-playlist-info',
+                                playlistId: pid,
+                                ids: youtubeSubItemsMap[pid].ids,
+                                titles: youtubeSubItemsMap[pid].titles
+                            });
+                        }
+                    }
+                    else if (data.type === 'request-data-recovery') {
+                        const fileName = data.fileName;
+                        const recoveryIndex = data.index;
+                        const nextChunk = data.nextChunk || 0;
+                        const peerId = conn.peer;
+
+                        if (!window._recoveryInProgress) window._recoveryInProgress = {};
+                        if (window._recoveryInProgress[peerId]) return;
+
+                        let item = playlist.find(f => f.name === fileName);
+                        if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
+                            item = playlist[recoveryIndex];
+                        }
+
+                        if (item && item.file) {
+                            window._recoveryInProgress[peerId] = true;
+                            const queueDelay = Object.keys(window._recoveryInProgress).length * 200;
+                            setTimeout(async () => {
+                                try {
+                                    if (conn.open) {
+                                        showToast(`Recovering ${peerObj.label}: chunk ${nextChunk}`);
+                                        await unicastFile(conn, item.file, nextChunk);
+                                    }
+                                } finally {
+                                    delete window._recoveryInProgress[peerId];
+                                }
+                            }, queueDelay);
+                        }
+                    }
+                    else if (data.type === 'chat') {
+                        addChatMessage(data.sender, data.text, false);
+                        connectedPeers.forEach(p => {
+                            if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
+                                p.conn.send({ type: 'chat', sender: data.sender, text: data.text });
+                            }
+                        });
                     }
                 });
 
-                // 2. Boldly Remove Disconnected Peers
-                if (changed) {
-                    // FORCE UPDATE: Reassign global array and CLEAN UP orphans
-                    const disconnected = connectedPeers.filter(p => p.status !== 'connected');
-                    disconnected.forEach(p => {
-                        if (p._relayMonitor) clearInterval(p._relayMonitor);
-                        if (p._heartbeatTimer) clearInterval(p._heartbeatTimer);
-                    });
-                    connectedPeers = connectedPeers.filter(p => p.status === 'connected');
+                conn.on('close', () => {
+                    if (peerObj._relayMonitor) {
+                        clearInterval(peerObj._relayMonitor);
+                        peerObj._relayMonitor = null;
+                    }
+                    peerObj.status = 'disconnected';
+                    peerObj.lastSeen = Date.now();
                     broadcastDeviceList();
-                }
-            }, 1000);
-        }
-    });
+                    showToast(`${deviceName} 연결 끊김`);
 
-    function broadcastDeviceList() {
-        const list = [
-            { id: myId, label: 'HOST', status: 'connected', isHost: true },
-            ...connectedPeers.map(p => ({
-                id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
-            }))
-        ];
-
-        const msg = { type: 'device-list-update', list: list };
-        broadcast(msg);
-        renderDeviceList(list);
-    }
-
-    // Host Logic
-    peer.on('connection', conn => {
-        // Check for Data Relay Connection
-        if (conn.metadata && conn.metadata.type === 'data-relay') {
-            handleRelayConnection(conn);
-            return;
-        }
-
-        // [GHOSTING FIX] Duplicate check: If this peer ID is already connected, close the old one
-        const existingIdx = connectedPeers.findIndex(p => p.id === conn.peer);
-        if (existingIdx !== -1) {
-            console.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
-            const oldPeer = connectedPeers[existingIdx];
-            if (oldPeer.conn && oldPeer.conn.open) {
-                try {
-                    // [FIX] Tag this closure so Guest doesn't auto-retry redundant connection
-                    oldPeer.conn.send({ type: 'force-close-duplicate' });
-                    oldPeer.conn.close();
-                } catch (e) { }
-            }
-            connectedPeers.splice(existingIdx, 1);
-        }
-
-        conn.on('open', () => {
-            let deviceName;
-
-            // 1. Label Memory 확인: 이전에 접속했던 기기인가?
-            if (peerLabels[conn.peer]) {
-                deviceName = peerLabels[conn.peer];
-                console.log(`[Network] Re-connection detected: ${deviceName} (${conn.peer})`);
-            } else {
-                // 2. 신규 기기라면 카운터 증가 및 저장
-                deviceCounter++;
-                deviceName = `DEVICE ${deviceCounter} `; // 뒤에 공백 유지
-                peerLabels[conn.peer] = deviceName;
-            }
-
-            const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
-
-            const peerObj = {
-                id: conn.peer,
-                label: deviceName,
-                status: 'connected',
-                conn: conn,
-                isOp: false,
-                isDataTarget: true, // Default: Receive data from Host
-                lastHeartbeat: Date.now() // Heartbeat Init
-            };
-            connectedPeers.push(peerObj);
-            broadcastDeviceList();
-
-            showToast(`${deviceName} 연결됨`);
-
-            // --- Relay Assignment Logic ---
-            // --- Relay Assignment Logic (2-Lane Stabilized) ---
-            if (connectedPeers.length > MAX_DIRECT_DATA_PEERS) {
-                // 2-Lane System: Try to find a parent in the same lane (Odd/Even)
-                // 2-Lane Relay Strategy: Find nearest same-lane ancestor (Odd/Even indices)
-
-                let assigned = false;
-                for (let i = connectedPeers.length - 3; i >= 0; i -= 2) {
-                    const candidate = connectedPeers[i];
-                    // Must be connected AND have open channel to serve as relay
-                    if (candidate && candidate.status === 'connected' && candidate.conn.open) {
-                        conn.send({ type: 'assign-data-source', targetId: candidate.id });
-                        showToast(`Data Relay: ${deviceName} -> ${candidate.label} `);
-
-                        // Do NOT send data directly from Host to this new peer
-                        peerObj.isDataTarget = false;
-                        peerObj.assignedRelay = candidate.id; // [FIX #8] Track for monitoring
-                        assigned = true;
-                        break;
-                    }
-                }
-                if (!assigned) {
-                    // If no active parent found in lane, fall back to Host (keep isDataTarget = true)
-                    showToast(`Relay Lane Unavailable: ${deviceName} joined Host Direct`);
-                }
-            }
-            // -----------------------------
-
-            // [FIX #8] Set up relay lane reassignment on parent disconnect
-            if (!peerObj.isDataTarget && peerObj.assignedRelay) {
-                // Monitor the assigned relay peer
-                const monitorRelay = () => {
-                    const relay = connectedPeers.find(p => p.id === peerObj.assignedRelay);
-                    if (!relay || relay.status !== 'connected') {
-                        console.log(`[Relay] Parent ${peerObj.assignedRelay} disconnected, reassigning ${deviceName}`);
-                        peerObj.isDataTarget = true; // Fall back to Host direct
-                        showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
-
-                        // [Fix] Stop monitoring once reassigned to prevent interval spam
-                        if (peerObj._relayMonitor) {
-                            clearInterval(peerObj._relayMonitor);
-                            peerObj._relayMonitor = null;
-                        }
-                    }
-                };
-                // Check every RELAY_MONITOR_INTERVAL ms
-                peerObj._relayMonitor = setInterval(monitorRelay, RELAY_MONITOR_INTERVAL);
-            }
-            // -----------------------------
-
-            conn.send({ type: 'welcome', label: deviceName });
-            conn.send({ type: 'volume', value: masterVolume });
-            conn.send({ type: 'reverb', value: reverbMix * 100 });
-            conn.send({
-                type: 'playlist-update',
-                list: playlist.map(item => ({
-                    type: item.type,
-                    name: item.name || item.title,
-                    videoId: item.videoId || null,
-                    playlistId: item.playlistId || null
-                }))
-            });
-
-            // Send current YouTube state if active
-            if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-                try {
-                    const videoData = youtubePlayer.getVideoData();
-                    conn.send({
-                        type: 'youtube-play',
-                        videoId: (videoData && videoData.video_id) ? videoData.video_id : (curItem ? curItem.videoId : null),
-                        playlistId: curItem ? curItem.playlistId : null,
-                        index: currentTrackIndex,
-                        subIndex: currentYouTubeSubIndex
-                    });
-                    // Send current time sync after short delay (let guest load player first)
                     setTimeout(() => {
-                        if (youtubePlayer && conn.open) {
-                            conn.send({
-                                type: 'youtube-sync',
-                                time: youtubePlayer.getCurrentTime(),
-                                state: youtubePlayer.getPlayerState(),
-                                subIndex: currentYouTubeSubIndex
-                            });
+                        if (peerObj.status === 'disconnected') {
+                            connectedPeers = connectedPeers.filter(p => p.id !== peerObj.id);
+                            broadcastDeviceList();
                         }
-                    }, 3000);
-                } catch (e) {
-                    console.error("[YouTube] Failed to send state to new guest:", e);
-                }
-            }
+                    }, 30000);
+                });
 
-            broadcastDeviceList();
-
-            if (curItem && curItem.type !== 'youtube') {
-                conn.send({ type: 'file-prepare', name: curItem.name, index: currentTrackIndex });
-            }
-
-            // [FIX] Late Joiner Media Guard:
-            // If Host is still extracting audio from a video, do NOT send the MP4 file yet.
-            // The guest will receive the WAV file automatically when broadcastFile(wavFile) is called later.
-            if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file && !playlist[currentTrackIndex]?._isExtracting) {
-                unicastFile(conn, playlist[currentTrackIndex].file);
-            } else if (playlist[currentTrackIndex]?._isExtracting) {
-                console.log(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
-                conn.send({ type: 'file-wait', message: '오디오 추출 중... 잠시만 기다려주세요.' });
-            }
-
-            // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
-            conn.on('data', data => {
-                // [FIX] Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
-                if (conn.open && !connectedPeers.find(p => p.id === peerObj.id)) {
-                    console.log(`[Network] Reviving zombie connection: ${peerObj.label}`);
-                    peerObj.status = 'connected';
-                    peerObj.lastHeartbeat = Date.now();
-                    connectedPeers.push(peerObj);
+                conn.on('error', () => {
+                    peerObj.status = 'disconnected';
                     broadcastDeviceList();
-                }
-
-                if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
-                    peerObj.lastHeartbeat = Date.now();
-
-                    if (!hostConn) { // Only genuine Host responds
-                        const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-                        conn.send({
-                            type: 'status-sync',
-                            currentTrackIndex: currentTrackIndex,
-                            isPlaying: isActuallyPlaying,
-                            playlistMeta: playlist.map(item => ({
-                                type: item.type,
-                                name: item.name || item.title,
-                                videoId: item.videoId || null,
-                                playlistId: item.playlistId || null
-                            }))
-                        });
-                    }
-                    return;
-                }
-
-                if (data.type === 'ping-latency') {
-                    conn.send({ type: 'pong-latency', timestamp: data.timestamp });
-                    return;
-                }
-
-                if (data.type === 'get-sync-time') {
-                    const currentTime = getTrackPosition();
-                    const isActuallyPlaying = (videoElement && !videoElement.paused);
-                    conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
-                }
-                else if (peerObj.isOp) {
-                    handleOperatorRequest(data);
-                }
-                else if (data.type === 'preload-ack') {
-                    if (!peerObj.preloadedIndexes) peerObj.preloadedIndexes = new Set();
-                    peerObj.preloadedIndexes.add(data.index);
-                    console.log(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
-                }
-                else if (data.type === 'request-youtube-playlist-info') {
-                    const pid = data.playlistId;
-                    if (youtubeSubItemsMap[pid]) {
-                        conn.send({
-                            type: 'youtube-playlist-info',
-                            playlistId: pid,
-                            ids: youtubeSubItemsMap[pid].ids,
-                            titles: youtubeSubItemsMap[pid].titles
-                        });
-                    }
-                }
-                else if (data.type === 'request-data-recovery') {
-                    const fileName = data.fileName;
-                    const recoveryIndex = data.index;
-                    const nextChunk = data.nextChunk || 0;
-                    const peerId = conn.peer;
-
-                    if (!window._recoveryInProgress) window._recoveryInProgress = {};
-                    if (window._recoveryInProgress[peerId]) return;
-
-                    let item = playlist.find(f => f.name === fileName);
-                    if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
-                        item = playlist[recoveryIndex];
-                    }
-
-                    if (item && item.file) {
-                        window._recoveryInProgress[peerId] = true;
-                        const queueDelay = Object.keys(window._recoveryInProgress).length * 200;
-                        setTimeout(async () => {
-                            try {
-                                if (conn.open) {
-                                    showToast(`Recovering ${peerObj.label}: chunk ${nextChunk}`);
-                                    await unicastFile(conn, item.file, nextChunk);
-                                }
-                            } finally {
-                                delete window._recoveryInProgress[peerId];
-                            }
-                        }, queueDelay);
-                    }
-                }
-                else if (data.type === 'chat') {
-                    addChatMessage(data.sender, data.text, false);
-                    connectedPeers.forEach(p => {
-                        if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
-                            p.conn.send({ type: 'chat', sender: data.sender, text: data.text });
-                        }
-                    });
-                }
-            });
-
-            conn.on('close', () => {
-                if (peerObj._relayMonitor) {
-                    clearInterval(peerObj._relayMonitor);
-                    peerObj._relayMonitor = null;
-                }
-                peerObj.status = 'disconnected';
-                peerObj.lastSeen = Date.now();
-                broadcastDeviceList();
-                showToast(`${deviceName} 연결 끊김`);
-
-                setTimeout(() => {
-                    if (peerObj.status === 'disconnected') {
-                        connectedPeers = connectedPeers.filter(p => p.id !== peerObj.id);
-                        broadcastDeviceList();
-                    }
-                }, 30000);
-            });
-
-            conn.on('error', () => {
-                peerObj.status = 'disconnected';
-                broadcastDeviceList();
+                });
             });
         });
-    });
-}
-
-
-// Guest Logic
-let connectionRetryCount = 0;
-const MAX_CONNECTION_RETRIES = 3;
-const CONNECTION_TIMEOUT_MS = 7000; // [SAFARI FIX] Reduced from 10s to 7s for faster retry if it hangs
-let connectionTimeoutId = null;
-
-function joinSession(retryAttempt = 0) {
-    // 1. Peer 객체가 준비되지 않았을 때 (초기화 중)
-    if (!peer || !peer.open) {
-        // [FIX] 로그에 시도 횟수 표시
-        console.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
-
-        // [FIX] 20번(약 10초)까지만 기다려보고, 안 되면 포기 선언
-        if (retryAttempt > 20) {
-            showConnectionFailedOverlay(
-                "네트워크 초기화에 실패했습니다.\n\n" +
-                "1. 잠시 후 '새로고침' 해보세요. (서버 부팅 중일 수 있음)\n" +
-                "2. VPN이나 사내 보안망을 끄고 시도해보세요."
-            );
-            return;
-        }
-
-        // [FIX] 0.5초 뒤에 다시 확인하되, 카운트를 1 증가시킴
-        setTimeout(() => joinSession(retryAttempt + 1), 500);
-        return;
     }
 
-    if (isConnecting && retryAttempt === 0) {
-        console.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
-        return;
-    }
-    isConnecting = true;
 
-    const hostId = document.getElementById('join-id-input').value.trim();
-    if (!hostId) return showToast("ID 입력 필요");
+    // Guest Logic
+    let connectionRetryCount = 0;
+    const MAX_CONNECTION_RETRIES = 3;
+    const CONNECTION_TIMEOUT_MS = 7000; // [SAFARI FIX] Reduced from 10s to 7s for faster retry if it hangs
+    let connectionTimeoutId = null;
 
-    // New attempt: Reset intentional flag
-    isIntentionalDisconnect = false;
+    function joinSession(retryAttempt = 0) {
+        // 1. Peer 객체가 준비되지 않았을 때 (초기화 중)
+        if (!peer || !peer.open) {
+            // [FIX] 로그에 시도 횟수 표시
+            console.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
 
-    // UI Reset: Rebranding to "Connecting" state (Gray)
-    // [REF] Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
-    // For connecting state, we might manually override text after calling update (or update function to support it)
-    // For now, let's keep specific connection UI logic local but clean up the badge reset
-    const roleBadge = document.getElementById('role-badge');
-    if (roleBadge) {
-        roleBadge.classList.remove('connected');
-        roleBadge.style.background = '';
-        roleBadge.style.boxShadow = '';
-    }
-
-    // Show connection status
-    if (retryAttempt === 0) {
-        showToast("Host에 연결 중...");
-        document.getElementById('role-text').innerText = "연결 중...";
-    } else {
-        // 연결 시간 초과 토스트가 이미 표시되므로 여기서는 UI만 업데이트
-        document.getElementById('role-text').innerText = `재연결 ${retryAttempt}/${MAX_CONNECTION_RETRIES}`;
-    }
-
-    initAudio();
-    if (hostConn) hostConn.close();
-
-    // Clear any existing timeout
-    if (connectionTimeoutId) {
-        clearTimeout(connectionTimeoutId);
-        connectionTimeoutId = null;
-    }
-
-    hostConn = peer.connect(hostId, { reliable: true });
-    window.hostConn = hostConn; // Sync for demo.js access
-
-    // Connection Timeout Handler
-    connectionTimeoutId = setTimeout(() => {
-        if (hostConn && !hostConn.open) {
-            console.warn(`Connection timeout after ${CONNECTION_TIMEOUT_MS}ms`);
-            hostConn.close();
-
-            if (retryAttempt < MAX_CONNECTION_RETRIES) {
-                isConnecting = false;
-                showToast(`연결 시간 초과. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-                // [GHOSTING FIX] Exponential Backoff
-                const backoffDelay = 1000 * Math.pow(1.5, retryAttempt);
-                setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
-            } else {
-                isConnecting = false;
-                showConnectionFailedOverlay("연결 시간이 초과되었습니다. Host가 온라인인지 확인하세요.");
-            }
-        }
-    }, CONNECTION_TIMEOUT_MS);
-
-    hostConn.on('open', () => {
-        // Clear timeout on successful connection
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-        isConnecting = false;
-        connectionRetryCount = 0; // Reset retry counter
-
-        // Remove connection failed overlay if present (from retry)
-        const failedOverlay = document.getElementById('connection-failed-overlay');
-        if (failedOverlay) failedOverlay.remove();
-
-        showToast("Host 연결됨!");
-
-        // [REF] Centralized Update
-        myDeviceLabel = 'GUEST';
-        updateRoleBadge();
-
-        updateSyncBtnState(true);
-
-        updateQrCode(hostId);
-        const hostPanel = document.getElementById('host-panel');
-        if (hostPanel) hostPanel.classList.add('visible');
-
-        // Volunteer Heartbeat: Send to Host every 5s (Worker)
-        timerWorker.postMessage({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
-
-        // Latency Ping (2s) (Worker)
-        timerWorker.postMessage({ command: 'START_TIMER', id: 'ping', interval: 2000 });
-
-        // Detect ICE connection type after connection stabilizes
-        setTimeout(() => detectConnectionType(), 2000);
-
-        const leaveBtn = document.getElementById('btn-leave-session');
-        if (leaveBtn) leaveBtn.style.display = 'flex';
-        switchTab('play');
-    });
-
-    hostConn.on('error', (err) => {
-        console.error("PeerJS Connection Error:", err);
-
-        // Clear timeout
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-
-        // Retry logic with backoff
-        if (retryAttempt < MAX_CONNECTION_RETRIES) {
-            showToast(`연결 오류. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
-            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
-        } else {
-            showConnectionFailedOverlay("연결 오류 발생: " + err.type);
-        }
-    });
-
-    hostConn.on('data', handleData);
-    hostConn.on('close', () => {
-        // Clear timeout if still pending
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-
-        // Stop Worker Timers
-        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'heartbeat' });
-        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
-
-        if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
-            // [FIX] If we are already in joinSession (isConnecting=true), don't trigger another one
-            if (isConnecting) {
-                console.log("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
+            // [FIX] 20번(약 10초)까지만 기다려보고, 안 되면 포기 선언
+            if (retryAttempt > 20) {
+                showConnectionFailedOverlay(
+                    "네트워크 초기화에 실패했습니다.\n\n" +
+                    "1. 잠시 후 '새로고침' 해보세요. (서버 부팅 중일 수 있음)\n" +
+                    "2. VPN이나 사내 보안망을 끄고 시도해보세요."
+                );
                 return;
             }
 
-            isConnecting = false;
-            console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+            // [FIX] 0.5초 뒤에 다시 확인하되, 카운트를 1 증가시킴
+            setTimeout(() => joinSession(retryAttempt + 1), 500);
+            return;
+        }
 
-            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
-            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
+        if (isConnecting && retryAttempt === 0) {
+            console.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
+            return;
+        }
+        isConnecting = true;
+
+        const hostId = document.getElementById('join-id-input').value.trim();
+        if (!hostId) return showToast("ID 입력 필요");
+
+        // New attempt: Reset intentional flag
+        isIntentionalDisconnect = false;
+
+        // UI Reset: Rebranding to "Connecting" state (Gray)
+        // [REF] Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
+        // For connecting state, we might manually override text after calling update (or update function to support it)
+        // For now, let's keep specific connection UI logic local but clean up the badge reset
+        const roleBadge = document.getElementById('role-badge');
+        if (roleBadge) {
+            roleBadge.classList.remove('connected');
+            roleBadge.style.background = '';
+            roleBadge.style.boxShadow = '';
+        }
+
+        // Show connection status
+        if (retryAttempt === 0) {
+            showToast("Host에 연결 중...");
+            document.getElementById('role-text').innerText = "연결 중...";
         } else {
-            isConnecting = false;
-            if (!isIntentionalDisconnect) {
-                showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
+            // 연결 시간 초과 토스트가 이미 표시되므로 여기서는 UI만 업데이트
+            document.getElementById('role-text').innerText = `재연결 ${retryAttempt}/${MAX_CONNECTION_RETRIES}`;
+        }
+
+        initAudio();
+        if (hostConn) hostConn.close();
+
+        // Clear any existing timeout
+        if (connectionTimeoutId) {
+            clearTimeout(connectionTimeoutId);
+            connectionTimeoutId = null;
+        }
+
+        hostConn = peer.connect(hostId, { reliable: true });
+        window.hostConn = hostConn; // Sync for demo.js access
+
+        // Connection Timeout Handler
+        connectionTimeoutId = setTimeout(() => {
+            if (hostConn && !hostConn.open) {
+                console.warn(`Connection timeout after ${CONNECTION_TIMEOUT_MS}ms`);
+                hostConn.close();
+
+                if (retryAttempt < MAX_CONNECTION_RETRIES) {
+                    isConnecting = false;
+                    showToast(`연결 시간 초과. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+                    // [GHOSTING FIX] Exponential Backoff
+                    const backoffDelay = 1000 * Math.pow(1.5, retryAttempt);
+                    setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
+                } else {
+                    isConnecting = false;
+                    showConnectionFailedOverlay("연결 시간이 초과되었습니다. Host가 온라인인지 확인하세요.");
+                }
             }
-            showToast("Host 끊김");
+        }, CONNECTION_TIMEOUT_MS);
+
+        hostConn.on('open', () => {
+            // Clear timeout on successful connection
+            if (connectionTimeoutId) {
+                clearTimeout(connectionTimeoutId);
+                connectionTimeoutId = null;
+            }
+            isConnecting = false;
+            connectionRetryCount = 0; // Reset retry counter
+
+            // Remove connection failed overlay if present (from retry)
+            const failedOverlay = document.getElementById('connection-failed-overlay');
+            if (failedOverlay) failedOverlay.remove();
+
+            showToast("Host 연결됨!");
+
             // [REF] Centralized Update
+            myDeviceLabel = 'GUEST';
             updateRoleBadge();
 
-            // Clear any inline styles left by detectConnectionType
-            const roleBadge = document.getElementById('role-badge');
-            if (roleBadge) {
-                roleBadge.style.background = '';
-                roleBadge.style.boxShadow = '';
+            updateSyncBtnState(true);
+
+            updateQrCode(hostId);
+            const hostPanel = document.getElementById('host-panel');
+            if (hostPanel) hostPanel.classList.add('visible');
+
+            // Volunteer Heartbeat: Send to Host every 5s (Worker)
+            timerWorker.postMessage({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
+
+            // Latency Ping (2s) (Worker)
+            timerWorker.postMessage({ command: 'START_TIMER', id: 'ping', interval: 2000 });
+
+            // Detect ICE connection type after connection stabilizes
+            setTimeout(() => detectConnectionType(), 2000);
+
+            const leaveBtn = document.getElementById('btn-leave-session');
+            if (leaveBtn) leaveBtn.style.display = 'flex';
+            switchTab('play');
+        });
+
+        hostConn.on('error', (err) => {
+            console.error("PeerJS Connection Error:", err);
+
+            // Clear timeout
+            if (connectionTimeoutId) {
+                clearTimeout(connectionTimeoutId);
+                connectionTimeoutId = null;
             }
-            updateSyncBtnState(false);
-        }
-    });
-}
 
-// Helper: Show connection failed overlay with retry option
-function showConnectionFailedOverlay(message) {
-    // Remove existing overlay if any
-    const existing = document.getElementById('connection-failed-overlay');
-    if (existing) existing.remove();
+            // Retry logic with backoff
+            if (retryAttempt < MAX_CONNECTION_RETRIES) {
+                showToast(`연결 오류. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+                const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
+                setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
+            } else {
+                showConnectionFailedOverlay("연결 오류 발생: " + err.type);
+            }
+        });
 
-    const overlay = document.createElement('div');
-    overlay.id = 'connection-failed-overlay';
-    overlay.style.cssText = `
+        hostConn.on('data', handleData);
+        hostConn.on('close', () => {
+            // Clear timeout if still pending
+            if (connectionTimeoutId) {
+                clearTimeout(connectionTimeoutId);
+                connectionTimeoutId = null;
+            }
+
+            // Stop Worker Timers
+            timerWorker.postMessage({ command: 'STOP_TIMER', id: 'heartbeat' });
+            timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
+
+            if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
+                // [FIX] If we are already in joinSession (isConnecting=true), don't trigger another one
+                if (isConnecting) {
+                    console.log("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
+                    return;
+                }
+
+                isConnecting = false;
+                console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+                showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+
+                const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
+                setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
+            } else {
+                isConnecting = false;
+                if (!isIntentionalDisconnect) {
+                    showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
+                }
+                showToast("Host 끊김");
+                // [REF] Centralized Update
+                updateRoleBadge();
+
+                // Clear any inline styles left by detectConnectionType
+                const roleBadge = document.getElementById('role-badge');
+                if (roleBadge) {
+                    roleBadge.style.background = '';
+                    roleBadge.style.boxShadow = '';
+                }
+                updateSyncBtnState(false);
+            }
+        });
+    }
+
+    // Helper: Show connection failed overlay with retry option
+    function showConnectionFailedOverlay(message) {
+        // Remove existing overlay if any
+        const existing = document.getElementById('connection-failed-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'connection-failed-overlay';
+        overlay.style.cssText = `
         position: fixed; inset: 0; background: rgba(0,0,0,0.85);
         z-index: 9999; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 20px;
     `;
-    overlay.innerHTML = `
+        overlay.innerHTML = `
         <h2 style="color:white; font-size: 24px; text-align: center; padding: 0 20px;">${message}</h2>
         <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
             <button onclick="document.getElementById('connection-failed-overlay').remove(); joinSession(0);" style="
@@ -3691,575 +3998,630 @@ function showConnectionFailedOverlay(message) {
             ">나가기</button>
         </div>
     `;
-    document.body.appendChild(overlay);
+        document.body.appendChild(overlay);
 
-    document.getElementById('role-text').innerText = "연결 실패";
-}
-
-async function leaveSession() {
-    clearAllManagedTimers();
-    if (hostConn) {
-        showToast("Host만 실행할 수 있습니다.");
-        return;
+        document.getElementById('role-text').innerText = "연결 실패";
     }
 
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
-
-    if (hostConn) {
-        hostConn.close();
-        hostConn = null;
-    }
-
-    connectedPeers.forEach(p => p.conn.close());
-    connectedPeers = [];
-    downstreamDataPeers = [];
-
-    stopAllMedia();
-    resetUI();
-    showToast("세션 종료됨");
-    updateDeviceList();
-    updatePlaylistUI();
-    updateTitleWithMarquee("Welcome");
-    document.getElementById('track-artist').innerText = "No Track Loaded";
-    document.getElementById('play-btn').disabled = true;
-    document.getElementById('seek-slider').disabled = true;
-    document.getElementById('seek-slider').value = 0;
-    document.getElementById('time-curr').innerText = "00:00";
-    document.getElementById('time-dur').innerText = "00:00";
-    document.getElementById('my-id').innerText = '...';
-    document.getElementById('join-id-input').value = '';
-    document.getElementById('join-btn').disabled = false;
-    document.getElementById('create-btn').disabled = false;
-    document.getElementById('host-controls').style.display = 'none';
-    document.getElementById('guest-controls').style.display = 'none';
-    document.getElementById('player-controls').style.display = 'none';
-    document.getElementById('player-info').style.display = 'none';
-    document.getElementById('main-video').style.display = 'none';
-    document.getElementById('visualizer').style.display = 'block';
-    document.getElementById('chat-drawer').classList.remove('open');
-    document.getElementById('chat-preview-badge').classList.remove('show');
-    document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">채팅이 없습니다.</div>';
-    unreadChatCount = 0;
-    lastChatSender = '';
-    lastChatText = '';
-    isChatDrawerOpen = false;
-    currentTrackIndex = -1;
-    playlist = [];
-    meta = null;
-    currentFileBlob = null;
-    nextFileBlob = null;
-    preloadMeta = null;
-    receivedCount = 0;
-    incomingChunks = [];
-    localOffset = 0;
-    autoSyncOffset = 0;
-    currentYouTubeSubIndex = -1;
-    youtubeSubItemsMap = {};
-    currentTransferSessionId = 0;
-    window._activeBroadcastSession = null;
-    window._pendingFileName = null;
-    window._pendingFileIndex = null;
-    window._ytIOSWatchdog = null;
-    window._ytScriptLoading = false;
-    window.isYouTubeAPIReady = false;
-    if (window.BlobURLManager) BlobURLManager.clear();
-    setState(APP_STATE.IDLE);
-    console.log("Session left.");
-}
-
-// --- Data Handling ---
-// Note: currentFileOpfs, preloadFileOpfs handles are used for storage
-
-// Detect ICE connection type and set compensation mode
-async function detectConnectionType() {
-    if (!hostConn || !hostConn.peerConnection) {
-        console.log("[ICE] No peer connection available");
-        return;
-    }
-
-    try {
-        const stats = await hostConn.peerConnection.getStats();
-        let connectionType = 'unknown';
-
-        stats.forEach(report => {
-            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                // Check local and remote candidate types
-                const localId = report.localCandidateId;
-                const remoteId = report.remoteCandidateId;
-
-                stats.forEach(candidate => {
-                    if (candidate.id === localId || candidate.id === remoteId) {
-                        if (candidate.candidateType === 'relay') {
-                            connectionType = 'relay';
-                        } else if (connectionType !== 'relay') {
-                            connectionType = candidate.candidateType; // 'host' or 'srflx'
-                        }
-                    }
-                });
-            }
-        });
-
-        if (connectionType === 'relay') {
-            usePingCompensation = true;
-            console.log("[ICE] TURN Relay detected - Using RTT/2 compensation");
-            showToast("원격 네트워크 감지 - 자동 보정 활성화");
-
-            // 배지 주황색으로 변경 (릴레이)
-            const roleBadge = document.getElementById('role-badge');
-            if (roleBadge) {
-                roleBadge.style.background = '#fb923c';
-                roleBadge.title = '원격 네트워크 (릴레이)';
-            }
-        } else if (connectionType === 'host' || connectionType === 'srflx') {
-            usePingCompensation = false;
-            console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
-            showToast("로컬 네트워크 감지 - 직접 동기화");
-            // 기본 파란색 유지 (CSS에서 설정됨)
-        } else {
-            usePingCompensation = true; // Fallback: apply compensation
-            console.log("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");
-        }
-    } catch (e) {
-        console.error("[ICE] Detection failed:", e);
-        usePingCompensation = true; // Fallback
-    }
-}
-
-// Helper: Clear all previous track state to prevent data mixing
-function clearPreviousTrackState(reason = '') {
-    console.log(`[State Clear] Clearing previous track state. Reason: ${reason}`);
-
-    // Stop timers (중앙화된 타이머 사용)
-    clearManagedTimer('chunkWatchdog');
-    clearManagedTimer('prepareWatchdog');
-
-    // ✅ 강화: 명시적 null 할당으로 GC 유도
-    if (incomingChunks && incomingChunks.length > 1000) {
-        console.log(`[GC] Releasing large chunk array (${incomingChunks.length} items)`);
-    }
-    incomingChunks = null; // GC 대상으로 만들기
-    incomingChunks = []; // 새 빈 배열
-
-    receivedCount = 0;
-
-    // ✅ 개선: meta도 명시적 해제
-    if (meta) {
-        meta = null;
-    }
-    meta = {};
-
-    currentFileBlob = null;
-
-    window._skipIncomingFile = false;
-    _isProcessingBlob = false;
-    window._pendingEarlyChunks = [];
-
-    BlobURLManager.revoke();
-
-    if (videoElement) {
-        videoElement.pause();
-        videoElement.src = '';
-        videoElement.load();
-    }
-    // [New] Explicitly revoke Blob URL when clearing track state
-    BlobURLManager.revoke();
-
-    // [New] Physically delete the OLD current file from OPFS when switching tracks
-    if (currentFileOpfs.name) {
-        cleanupOPFSInWorker(currentFileOpfs.name, false);
-        currentFileOpfs.name = null;
-    }
-
-    // Note: We do NOT clear preload state here (nextFileBlob, preloadChunks, etc.)
-    // Those are intentionally preserved for upcoming track switch
-}
-
-// --- Data Message Handlers ---
-async function handleFilePrepare(data) {
-    // [FIX] Immediate Session Check to invalidate old chunks
-    const incomingSid = data.sessionId;
-    if (incomingSid && incomingSid > localTransferSessionId) {
-        console.log(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
-        localTransferSessionId = incomingSid;
-        // Optionally clear previous state immediately if not already handling it below
-    }
-
-    // Check if we already have this track preloaded!
-    const hasPreloadedByIndex = nextMeta && data.index !== undefined && data.index === nextMeta.index;
-    const hasPreloadedByName = nextMeta && data.name && data.name === nextMeta.name;
-
-    // Also check if preload is IN PROGRESS for this track
-    const preloadInProgressByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
-    const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
-
-    // DEBUG: Log preload matching status
-    console.log("[file-prepare] Checking preload:", {
-        dataIndex: data.index,
-        dataName: data.name,
-        nextMetaIndex: nextMeta?.index,
-        nextMetaName: nextMeta?.name,
-        hasNextFileBlob: !!nextFileBlob,
-        matchByIndex: hasPreloadedByIndex,
-        matchByName: hasPreloadedByName,
-        preloadInProgress: preloadInProgressByIndex || preloadInProgressByName
-    });
-
-    // [FIX] Verify Preload Index: Don't use stale preload metadata from a different track
-    const isMismatch = nextMeta && data.index !== undefined && data.index !== nextMeta.index;
-    if (isMismatch) {
-        console.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
-
-        // [FIX] Reset waiting flags to prevent getting stuck
-        if (window._waitingForPreload) {
-            window._waitingForPreload = false;
-            console.log("[Fixed] Cancelled stuck preload wait due to mismatch");
-        }
-        if (window._preloadWatchdog) {
-            clearTimeout(window._preloadWatchdog);
-            window._preloadWatchdog = null;
+    async function leaveSession() {
+        clearAllManagedTimers();
+        if (hostConn) {
+            showToast("Host만 실행할 수 있습니다.");
+            return;
         }
 
-        clearPreloadState();
-    }
+        if (peer) {
+            peer.destroy();
+            peer = null;
+        }
 
-    if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
+        if (hostConn) {
+            hostConn.close();
+            hostConn = null;
+        }
 
-        console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
-        showToast("프리로드된 파일 사용!");
+        connectedPeers.forEach(p => p.conn.close());
+        connectedPeers = [];
+        downstreamDataPeers = [];
 
         stopAllMedia();
-        currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
+        resetUI();
+        showToast("세션 종료됨");
+        updateDeviceList();
         updatePlaylistUI();
-
-        // Use preloaded file directly
-        await loadPreloadedTrack();
-
-        // CRITICAL: Hide loader so play() doesn't think we're still downloading
-        showLoader(false);
-
-        // Mark that we already loaded this track (prevent duplicate load from play-preloaded)
-        window._preloadUsedForIndex = data.index;
-
-        // Mark that we're skipping incoming file transfer
-        window._skipIncomingFile = true;
-        return;
+        updateTitleWithMarquee("Welcome");
+        document.getElementById('track-artist').innerText = "No Track Loaded";
+        document.getElementById('play-btn').disabled = true;
+        document.getElementById('seek-slider').disabled = true;
+        document.getElementById('seek-slider').value = 0;
+        document.getElementById('time-curr').innerText = "00:00";
+        document.getElementById('time-dur').innerText = "00:00";
+        document.getElementById('my-id').innerText = '...';
+        document.getElementById('join-id-input').value = '';
+        document.getElementById('join-btn').disabled = false;
+        document.getElementById('create-btn').disabled = false;
+        document.getElementById('host-controls').style.display = 'none';
+        document.getElementById('guest-controls').style.display = 'none';
+        document.getElementById('player-controls').style.display = 'none';
+        document.getElementById('player-info').style.display = 'none';
+        document.getElementById('main-video').style.display = 'none';
+        document.getElementById('visualizer').style.display = 'block';
+        document.getElementById('chat-drawer').classList.remove('open');
+        document.getElementById('chat-preview-badge').classList.remove('show');
+        document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">채팅이 없습니다.</div>';
+        unreadChatCount = 0;
+        lastChatSender = '';
+        lastChatText = '';
+        isChatDrawerOpen = false;
+        currentTrackIndex = -1;
+        playlist = [];
+        meta = null;
+        currentFileBlob = null;
+        nextFileBlob = null;
+        preloadMeta = null;
+        receivedCount = 0;
+        incomingChunks = [];
+        localOffset = 0;
+        autoSyncOffset = 0;
+        currentYouTubeSubIndex = -1;
+        youtubeSubItemsMap = {};
+        currentTransferSessionId = 0;
+        window._activeBroadcastSession = null;
+        window._pendingFileName = null;
+        window._pendingFileIndex = null;
+        window._ytIOSWatchdog = null;
+        window._ytScriptLoading = false;
+        window.isYouTubeAPIReady = false;
+        if (window.BlobURLManager) BlobURLManager.clear();
+        setState(APP_STATE.IDLE);
+        console.log("Session left.");
     }
 
+    // --- Data Handling ---
+    // Note: currentFileOpfs, preloadFileOpfs handles are used for storage
 
-    // CHECK: If preload is IN PROGRESS for this track, wait for it instead of starting new download
-    if (preloadInProgressByIndex || preloadInProgressByName) {
-        console.log("[file-prepare] Preload in progress for this track, waiting...");
-        showLoader(true, `프리로드 완료 대기 중: ${data.name}`);
+    // Detect ICE connection type and set compensation mode
+    async function detectConnectionType() {
+        if (!hostConn || !hostConn.peerConnection) {
+            console.log("[ICE] No peer connection available");
+            return;
+        }
 
-        // Set pending info
+        try {
+            const stats = await hostConn.peerConnection.getStats();
+            let connectionType = 'unknown';
+
+            stats.forEach(report => {
+                if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                    // Check local and remote candidate types
+                    const localId = report.localCandidateId;
+                    const remoteId = report.remoteCandidateId;
+
+                    stats.forEach(candidate => {
+                        if (candidate.id === localId || candidate.id === remoteId) {
+                            if (candidate.candidateType === 'relay') {
+                                connectionType = 'relay';
+                            } else if (connectionType !== 'relay') {
+                                connectionType = candidate.candidateType; // 'host' or 'srflx'
+                            }
+                        }
+                    });
+                }
+            });
+
+            if (connectionType === 'relay') {
+                usePingCompensation = true;
+                console.log("[ICE] TURN Relay detected - Using RTT/2 compensation");
+                showToast("원격 네트워크 감지 - 자동 보정 활성화");
+
+                // 배지 주황색으로 변경 (릴레이)
+                const roleBadge = document.getElementById('role-badge');
+                if (roleBadge) {
+                    roleBadge.style.background = '#fb923c';
+                    roleBadge.title = '원격 네트워크 (릴레이)';
+                }
+            } else if (connectionType === 'host' || connectionType === 'srflx') {
+                usePingCompensation = false;
+                console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
+                showToast("로컬 네트워크 감지 - 직접 동기화");
+                // 기본 파란색 유지 (CSS에서 설정됨)
+            } else {
+                usePingCompensation = true; // Fallback: apply compensation
+                console.log("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");
+            }
+        } catch (e) {
+            console.error("[ICE] Detection failed:", e);
+            usePingCompensation = true; // Fallback
+        }
+    }
+
+    // Helper: Clear all previous track state to prevent data mixing
+    function clearPreviousTrackState(reason = '') {
+        console.log(`[State Clear] Clearing previous track state. Reason: ${reason}`);
+
+        // Stop timers (중앙화된 타이머 사용)
+        clearManagedTimer('chunkWatchdog');
+        clearManagedTimer('prepareWatchdog');
+
+        // ✅ 강화: 명시적 null 할당으로 GC 유도
+        if (incomingChunks && incomingChunks.length > 1000) {
+            console.log(`[GC] Releasing large chunk array (${incomingChunks.length} items)`);
+        }
+        incomingChunks = null; // GC 대상으로 만들기
+        incomingChunks = []; // 새 빈 배열
+
+        // [Fix #5] Reorder Buffer Cleanup: Prevent memory growth across tracks
+        if (typeof fileReorderBuffer !== 'undefined') fileReorderBuffer.clear();
+        if (typeof preloadReorderBuffer !== 'undefined') preloadReorderBuffer.clear();
+        nextExpectedChunk = 0;
+        nextExpectedPreloadChunk = 0;
+
+        receivedCount = 0;
+
+        // ✅ 개선: meta도 명시적 해제
+        if (meta) {
+            meta = null;
+        }
+        meta = {};
+
+        currentFileBlob = null;
+
+        window._skipIncomingFile = false;
+        _isProcessingBlob = false;
+        window._pendingEarlyChunks = [];
+
+        BlobURLManager.revoke();
+
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.load();
+        }
+        // [New] Explicitly revoke Blob URL when clearing track state
+        BlobURLManager.revoke();
+
+        // [New] Physically delete the OLD current file from OPFS when switching tracks
+        if (currentFileOpfs.name) {
+            cleanupOPFSInWorker(currentFileOpfs.name, false);
+            currentFileOpfs.name = null;
+        }
+
+        // Note: We do NOT clear preload state here (nextFileBlob, preloadChunks, etc.)
+        // Those are intentionally preserved for upcoming track switch
+    }
+
+    // --- Data Message Handlers ---
+    async function handleFilePrepare(data) {
+        // [FIX] Immediate Session Check to invalidate old chunks
+        const incomingSid = data.sessionId;
+        if (incomingSid && incomingSid > localTransferSessionId) {
+            console.log(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
+            localTransferSessionId = incomingSid;
+            // Optionally clear previous state immediately if not already handling it below
+        }
+
+        // Check if we already have this track preloaded!
+        const hasPreloadedByIndex = nextMeta && data.index !== undefined && data.index === nextMeta.index;
+        const hasPreloadedByName = nextMeta && data.name && data.name === nextMeta.name;
+
+        // Also check if preload is IN PROGRESS for this track
+        const preloadInProgressByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
+        const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
+
+        // DEBUG: Log preload matching status
+        console.log("[file-prepare] Checking preload:", {
+            dataIndex: data.index,
+            dataName: data.name,
+            nextMetaIndex: nextMeta?.index,
+            nextMetaName: nextMeta?.name,
+            hasNextFileBlob: !!nextFileBlob,
+            matchByIndex: hasPreloadedByIndex,
+            matchByName: hasPreloadedByName,
+            preloadInProgress: preloadInProgressByIndex || preloadInProgressByName
+        });
+
+        // [FIX] Verify Preload Index: Don't use stale preload metadata from a different track
+        const isMismatch = nextMeta && data.index !== undefined && data.index !== nextMeta.index;
+        if (isMismatch) {
+            console.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
+
+            // [FIX] Reset waiting flags to prevent getting stuck
+            if (window._waitingForPreload) {
+                window._waitingForPreload = false;
+                console.log("[Fixed] Cancelled stuck preload wait due to mismatch");
+            }
+            if (window._preloadWatchdog) {
+                clearTimeout(window._preloadWatchdog);
+                window._preloadWatchdog = null;
+            }
+
+            clearPreloadState();
+        }
+
+        if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
+
+            console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
+            showToast("프리로드된 파일 사용!");
+
+            stopAllMedia();
+            currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
+            updatePlaylistUI();
+
+            // Use preloaded file directly
+            await loadPreloadedTrack();
+
+            // CRITICAL: Hide loader so play() doesn't think we're still downloading
+            showLoader(false);
+
+            // Mark that we already loaded this track (prevent duplicate load from play-preloaded)
+            window._preloadUsedForIndex = data.index;
+
+            // Mark that we're skipping incoming file transfer
+            window._skipIncomingFile = true;
+            return;
+        }
+
+
+        // CHECK: If preload is IN PROGRESS for this track, wait for it instead of starting new download
+        if (preloadInProgressByIndex || preloadInProgressByName) {
+            const incomingSid = data.sessionId || 0;
+
+            // [Fix #2] Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
+            if (incomingSid > localTransferSessionId) {
+                console.log("[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.");
+                localTransferSessionId = incomingSid;
+                clearPreloadState();
+                // Continue to normal flow below (window._skipIncomingFile = false)
+            } else {
+                console.log("[file-prepare] Preload in progress for this track, waiting...");
+                showLoader(true, `프리로드 완료 대기 중: ${data.name}`);
+
+                // Set pending info
+                window._pendingFileName = data.name;
+                window._pendingFileIndex = data.index;
+                window._waitingForPreload = true;
+                window._skipIncomingFile = true; // Skip any file-start that might come
+
+                currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
+                updatePlaylistUI();
+
+                // [FIX] Preload Watchdog: If preloading fails to complete, recover after 10s
+                if (window._preloadWatchdog) clearTimeout(window._preloadWatchdog);
+                window._preloadWatchdog = setTimeout(() => {
+                    if (window._waitingForPreload) {
+                        console.warn("[Guest] Preload wait timed out. Force recovering...");
+                        window._waitingForPreload = false;
+                        showLoader(false);
+                        if (hostConn && hostConn.open) hostConn.send({ type: 'request-current-file' });
+                    }
+                }, 10000);
+
+                return; // Don't start new download
+            }
+        }
+
+        // Normal flow: No preload available, prepare for download
+        window._skipIncomingFile = false;
+        window._waitingForPreload = false;
+
+        // Store pending file name for recovery requests
         window._pendingFileName = data.name;
         window._pendingFileIndex = data.index;
-        window._waitingForPreload = true;
-        window._skipIncomingFile = true; // Skip any file-start that might come
 
-        currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
-        updatePlaylistUI();
+        // CRITICAL: Don't clear state if we're resuming the SAME file!
+        // This preserves already-received chunks during recovery
+        const isSameFile = (meta && meta.name === data.name) ||
+            (window._pendingFileIndex !== undefined && window._pendingFileIndex === data.index);
+        const isResuming = isSameFile && receivedCount > 0;
 
-        // [FIX] Preload Watchdog: If preloading fails to complete, recover after 10s
-        if (window._preloadWatchdog) clearTimeout(window._preloadWatchdog);
-        window._preloadWatchdog = setTimeout(() => {
-            if (window._waitingForPreload) {
-                console.warn("[Guest] Preload wait timed out. Force recovering...");
-                window._waitingForPreload = false;
-                showLoader(false);
-                if (hostConn && hostConn.open) hostConn.send({ type: 'request-current-file' });
-            }
-        }, 10000);
-
-        return; // Don't start new download
-    }
-
-    // Normal flow: No preload available, prepare for download
-    window._skipIncomingFile = false;
-    window._waitingForPreload = false;
-
-    // Store pending file name for recovery requests
-    window._pendingFileName = data.name;
-    window._pendingFileIndex = data.index;
-
-    // CRITICAL: Don't clear state if we're resuming the SAME file!
-    // This preserves already-received chunks during recovery
-    const isSameFile = (meta && meta.name === data.name) ||
-        (window._pendingFileIndex !== undefined && window._pendingFileIndex === data.index);
-    const isResuming = isSameFile && receivedCount > 0;
-
-    if (isResuming) {
-        console.log(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
-        showLoader(true, `복구 대기 중: ${data.name}`);
-    } else {
-        // Clear previous track state before receiving new file
-        clearPreviousTrackState('file-prepare (new download)');
-        showLoader(true, `준비 중: ${data.name}`);
-        stopAllMedia();
-        if (data.index !== undefined) {
-            currentTrackIndex = data.index;
-            updatePlaylistUI();
-        }
-        // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
-        if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-            console.log("[file-prepare] Stopping YouTube mode for incoming local file");
-            stopYouTubeMode();
-        }
-        // [FIX] Set title LAST to ensure it's not overwritten
-        updateTitleWithMarquee(data.name);
-        document.getElementById('track-artist').innerText = `Track ${data.index + 1}`;
-    } // Close the else block from isResuming check
-
-    // FIX 5: Prepare Watchdog (Prevent Infinite Preparing...)
-    // Set fallback watchdog: If no chunks arrive within 12 seconds, something failed
-    managedTimers.prepareWatchdog = setTimeout(() => {
-        if (transferState === TRANSFER_STATE.IDLE || receivedCount === 0) {
-            console.warn("[Prepare Watchdog] Timeout waiting for data start!");
-            showToast("준비 지연 중... Host 복구 요청");
-
-            // Fallback: Request recovery directly from Host
-            if (hostConn && hostConn.open) {
-                const recoveryFileName = window._pendingFileName || '';
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
-
-                // [FIX] Consistent Jitter
-                const jitter = Math.random() * 1000 + 200;
-                console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
-                setTimeout(() => {
-                    if (hostConn && hostConn.open && !currentFileBlob) {
-                        sendRecoveryRequest(0);
-
-                    }
-                }, jitter);
-            }
-        }
-    }, 15000); // 15s safety timer
-}
-
-async function handleFileStart(data) {
-    // [FIX] Session ID Validation
-    const incomingSid = data.sessionId || 0;
-    if (incomingSid < localTransferSessionId) {
-        console.warn(`[file-start] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
-        return;
-    }
-
-    // If it's a newer session, reset state
-    if (incomingSid > localTransferSessionId) {
-        console.log(`[file-start] New session detected: ${incomingSid}. Resetting state.`);
-        localTransferSessionId = incomingSid;
-        clearPreviousTrackState('new-session-start');
-    }
-
-    // Skip if we're using preloaded file (already have the data)
-    if (window._skipIncomingFile) {
-        console.log("[file-start] Skipping - already using preloaded file");
-        return;
-    }
-
-    // Clear Prepare Watchdog as we've started receiving
-    clearManagedTimer('prepareWatchdog');
-
-    // [FIX] Always reset processing guard at file-start to prevent stuck loader
-    // This is safe because file-start means we're (re)starting the transfer
-    transferState = TRANSFER_STATE.IDLE;
-
-    // [OPFS-Worker] Start new session
-    if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
-        cleanupOPFSInWorker(currentFileOpfs.name, false);
-    }
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
-    currentFileOpfs.name = data.name;
-
-    const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
-
-    let sizeText = "";
-    if (data.size) {
-        sizeText = ` (${(data.size / 1024 / 1024).toFixed(1)}MB)`;
-    }
-
-    // CRITICAL: Check if we're receiving the SAME file (recovery scenario)
-    // If so, preserve existing chunks!
-    const isSameFile = meta && meta.name === data.name && meta.total === data.total;
-
-    if (isSameFile && receivedCount > 0) {
-        // RECOVERY MODE: Keep existing chunks (OPFS will overwrite or we seek)
-        console.log(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks (OPFS seek logic will follow)`);
-
-        // [FIX] If file is already 100% complete, reset guard and skip to end
-        if (receivedCount >= data.total) {
-            console.log("[file-start] File already complete, triggering immediate processing");
-            _isProcessingBlob = false; // Reset guard to allow reprocessing
-            meta = data; // Update meta first
-
-            // Trigger processing via worker notification
-            timerWorker.postMessage({ command: 'OPFS_END', filename: data.name, isPreload: false, sessionId: incomingSid });
-            return; // Skip rest of file-start handler
+        if (isResuming) {
+            console.log(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
+            showLoader(true, `복구 대기 중: ${data.name}`);
         } else {
-            showToast(`${sourceLabel}로부터 전송 이어받기`);
-            const pct = Math.round((receivedCount / data.total) * 100);
-            showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
+            // Clear previous track state before receiving new file
+            clearPreviousTrackState('file-prepare (new download)');
+            showLoader(true, `준비 중: ${data.name}`);
+            stopAllMedia();
+            if (data.index !== undefined) {
+                currentTrackIndex = data.index;
+                updatePlaylistUI();
+            }
+            // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
+            if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+                console.log("[file-prepare] Stopping YouTube mode for incoming local file");
+                stopYouTubeMode();
+            }
+            // [FIX] Set title LAST to ensure it's not overwritten
+            updateTitleWithMarquee(data.name);
+            document.getElementById('track-artist').innerText = `Track ${data.index + 1}`;
+        } // Close the else block from isResuming check
 
-            // Resume with Worker (keepExistingData is default for OPFS_START if we handle logic there, 
-            // but Worker implementation above creates fresh. Let's send START to ensure handles are open)
-            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
-        }
-        // Update meta but don't touch receivedCount
-        meta = data;
-    } else {
-        // NEW FILE: Initialize fresh
-        console.log(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
-        showToast(`${sourceLabel}로부터 파일 수신 시작`);
-        showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
+        // FIX 5: Prepare Watchdog (Prevent Infinite Preparing...)
+        // Set fallback watchdog: If no chunks arrive within 12 seconds, something failed
+        managedTimers.prepareWatchdog = setTimeout(() => {
+            if (transferState === TRANSFER_STATE.IDLE || receivedCount === 0) {
+                console.warn("[Prepare Watchdog] Timeout waiting for data start!");
+                showToast("준비 지연 중... Host 복구 요청");
 
-        // [OPFS-Worker] Start
-        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE });
-        currentFileOpfs.name = data.name;
+                // Fallback: Request recovery directly from Host
+                if (hostConn && hostConn.open) {
+                    const recoveryFileName = window._pendingFileName || '';
+                    const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
 
-        incomingChunks = []; // Clear in-memory array
-        receivedCount = 0;
-        meta = data;
-        transferState = TRANSFER_STATE.RECEIVING;
+                    // [FIX] Consistent Jitter
+                    const jitter = Math.random() * 1000 + 200;
+                    console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
+                    setTimeout(() => {
+                        if (hostConn && hostConn.open && !currentFileBlob) {
+                            sendRecoveryRequest(0);
 
-        // [FIX] Apply any pending chunks that arrived before file-start
-        if (window._pendingEarlyChunks && window._pendingEarlyChunks.length > 0) {
-            console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
-            for (const pending of window._pendingEarlyChunks) {
-                if (pending.index >= 0 && pending.index < data.total) {
-                    timerWorker.postMessage({
-                        command: 'OPFS_WRITE',
-                        chunk: pending.chunk,
-                        index: pending.index,
-                        isPreload: false
-                    }, [pending.chunk.buffer]);
-                    receivedCount++;
+                        }
+                    }, jitter);
                 }
             }
-            window._pendingEarlyChunks = []; // Clear pending buffer
-        }
+        }, 15000); // 15s safety timer
     }
 
-    updateTitleWithMarquee(data.name);
+    async function handleFileStart(data) {
+        // [FIX] Session ID Validation
+        const incomingSid = data.sessionId || 0;
+        if (incomingSid < localTransferSessionId) {
+            console.warn(`[file-start] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+            return;
+        }
 
-    // Watchdog Start
-    clearManagedTimer('chunkWatchdog');
-    lastChunkTime = Date.now();
-    managedTimers.chunkWatchdog = setInterval(() => {
-        const timeSinceLast = Date.now() - lastChunkTime;
-        const isMetaInvalid = !meta || !meta.total;
+        // If it's a newer session, reset state
+        if (incomingSid > localTransferSessionId) {
+            console.log(`[file-start] New session detected: ${incomingSid}. Resetting state.`);
+            localTransferSessionId = incomingSid;
+            clearPreviousTrackState('new-session-start');
+        }
 
-        if (timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
-            // Timeout or Invalid State!
-            clearManagedTimer('chunkWatchdog');
-            showToast("데이터 수신 불안정. Host 복구 요청...");
+        // Skip if we're using preloaded file (already have the data)
+        if (window._skipIncomingFile) {
+            console.log("[file-start] Skipping - already using preloaded file");
+            return;
+        }
 
-            // Detach bad relay info if present (so we show 'Host' in UI next time)
-            if (upstreamDataConn) upstreamDataConn = null;
+        // Clear Prepare Watchdog as we've started receiving
+        clearManagedTimer('prepareWatchdog');
 
-            if (hostConn && hostConn.open) {
-                // GAP-BASED RECOVERY: (Simplified usage of helper)
-                sendRecoveryRequest(receivedCount || 0);
+        // [FIX] Always reset processing guard at file-start to prevent stuck loader
+        // This is safe because file-start means we're (re)starting the transfer
+        transferState = TRANSFER_STATE.IDLE;
+
+        // [OPFS-Worker] Start new session
+        if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
+            cleanupOPFSInWorker(currentFileOpfs.name, false);
+        }
+        // [Fix #6] Session ID propagation to Worker
+        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
+        currentFileOpfs.name = data.name;
+
+        const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
+
+        let sizeText = "";
+        if (data.size) {
+            sizeText = ` (${(data.size / 1024 / 1024).toFixed(1)}MB)`;
+        }
+
+        // CRITICAL: Check if we're receiving the SAME file (recovery scenario)
+        // If so, preserve existing chunks!
+        const isSameFile = meta && meta.name === data.name && meta.total === data.total;
+
+        if (isSameFile && receivedCount > 0) {
+            // RECOVERY MODE: Keep existing chunks (OPFS will overwrite or we seek)
+            console.log(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks (OPFS seek logic will follow)`);
+
+            // [FIX] If file is already 100% complete, reset guard and skip to end
+            if (receivedCount >= data.total) {
+                console.log("[file-start] File already complete, triggering immediate processing");
+                _isProcessingBlob = false; // Reset guard to allow reprocessing
+                meta = data; // Update meta first
+
+                // Trigger processing via worker notification
+                timerWorker.postMessage({ command: 'OPFS_END', filename: data.name, isPreload: false, sessionId: incomingSid });
+                return; // Skip rest of file-start handler
+            } else {
+                showToast(`${sourceLabel}로부터 전송 이어받기`);
+                const pct = Math.round((receivedCount / data.total) * 100);
+                showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
+
+                // Resume with Worker (keepExistingData is default for OPFS_START if we handle logic there,
+                // (but Worker implementation above creates fresh. Let's send START to ensure handles are open)
+                timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
+            }
+            // Update meta but don't touch receivedCount
+            meta = data;
+        } else {
+            // NEW FILE: Initialize fresh
+            console.log(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
+            showToast(`${sourceLabel}로부터 파일 수신 시작`);
+            showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
+
+            // [OPFS-Worker] Start
+            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
+            currentFileOpfs.name = data.name;
+
+            incomingChunks = []; // Clear in-memory array
+            receivedCount = 0;
+            meta = data;
+            transferState = TRANSFER_STATE.RECEIVING;
+
+            // [FIX] Apply any pending chunks that arrived before file-start
+            if (window._pendingEarlyChunks && window._pendingEarlyChunks.length > 0) {
+                console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
+                for (const pending of window._pendingEarlyChunks) {
+                    if (pending.index >= 0 && pending.index < data.total) {
+                        timerWorker.postMessage({
+                            command: 'OPFS_WRITE',
+                            chunk: pending.chunk,
+                            index: pending.index,
+                            isPreload: false
+                        }, [pending.chunk.buffer]);
+                        receivedCount++;
+                    }
+                }
+                window._pendingEarlyChunks = []; // Clear pending buffer
             }
         }
-    }, 1000);
 
-    // RELAY LOGIC: Forward 'file-start' header to downstream (simplified)
-    // [FIX] Removed _waitingForFileStart logic that caused duplicate transmissions
-    if (downstreamDataPeers.length > 0) {
-        downstreamDataPeers.forEach(p => {
-            if (p.open) p.send(data);
-        });
-    }
-}
+        updateTitleWithMarquee(data.name);
 
-async function handleFileResume(data) {
-    // [FIX] Session ID Validation
-    const incomingSid = data.sessionId || 0;
-    if (incomingSid < localTransferSessionId) {
-        console.warn(`[file-resume] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
-        return;
-    }
+        // Watchdog Start
+        clearManagedTimer('chunkWatchdog');
+        lastChunkTime = Date.now();
+        managedTimers.chunkWatchdog = setInterval(() => {
+            const timeSinceLast = Date.now() - lastChunkTime;
+            const isMetaInvalid = !meta || !meta.total;
 
-    if (incomingSid > localTransferSessionId) {
-        console.log(`[file-resume] New session detected during resume: ${incomingSid}`);
-        localTransferSessionId = incomingSid;
-    }
+            if (timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
+                // Timeout or Invalid State!
+                clearManagedTimer('chunkWatchdog');
+                showToast("데이터 수신 불안정. Host 복구 요청...");
 
-    // Clear Prepare Watchdog
-    clearManagedTimer('prepareWatchdog');
+                // Detach bad relay info if present (so we show 'Host' in UI next time)
+                if (upstreamDataConn) upstreamDataConn = null;
 
-    // RESUME TRANSFER
-    window._skipIncomingFile = false;
-
-    // [OPFS-Worker] Resume
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, keepExisting: true });
-    currentFileOpfs.name = data.name;
-
-    const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
-    const startChunk = data.startChunk || 0;
-
-    console.log(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks (OPFS handles resume via keepExistingData)`);
-    showToast(`${sourceLabel}로부터 전송 재개 (${startChunk}부터)`);
-
-    transferState = TRANSFER_STATE.RECEIVING;
-
-    // Update meta
-    meta = data;
-    updateTitleWithMarquee(data.name);
-
-    let sizeText = data.size ? ` (${(data.size / 1024 / 1024).toFixed(1)}MB)` : "";
-    const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
-    showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
-
-    // Restart watchdog
-    clearManagedTimer('chunkWatchdog');
-    lastChunkTime = Date.now();
-    managedTimers.chunkWatchdog = setInterval(() => {
-        const timeSinceLast = Date.now() - lastChunkTime;
-        if (timeSinceLast > 12000) {
-            clearManagedTimer('chunkWatchdog');
-            showToast("데이터 수신 불안정. Host 복구 요청...");
-            if (upstreamDataConn) upstreamDataConn = null;
-
-            if (hostConn && hostConn.open) {
-                // Find first missing chunk via helper
-                sendRecoveryRequest(receivedCount || 0);
-
+                if (hostConn && hostConn.open) {
+                    // GAP-BASED RECOVERY: (Simplified usage of helper)
+                    sendRecoveryRequest(receivedCount || 0);
+                }
             }
+        }, 1000);
+
+        // RELAY LOGIC: Forward 'file-start' header to downstream (simplified)
+        // [FIX] Removed _waitingForFileStart logic that caused duplicate transmissions
+        if (downstreamDataPeers.length > 0) {
+            downstreamDataPeers.forEach(p => {
+                if (p.open) p.send(data);
+            });
         }
-    }, 1000);
-}
-
-async function handleFileChunk(data) {
-    const incomingSid = data.sessionId || 0;
-
-    // ✅ 새 세션 감지 시 워커 리셋
-    if (incomingSid > localTransferSessionId) {
-        console.log(`[Chunk] New session detected: ${localTransferSessionId} → ${incomingSid}`);
-        localTransferSessionId = incomingSid;
-
-        // Worker 버퍼 명시적 클리어
-        timerWorker.postMessage({
-            command: 'OPFS_RESET',
-            isPreload: false
-        });
-
-        // 기존 상태 초기화
-        clearPreviousTrackState('session-change');
     }
 
-    if (incomingSid < localTransferSessionId) {
-        if (data.index === 0) console.warn(`[Chunk] Stale session ignored: ${incomingSid}`);
-        return;
+    async function handleFileResume(data) {
+        // [FIX] Session ID Validation
+        const incomingSid = data.sessionId || 0;
+        if (incomingSid < localTransferSessionId) {
+            console.warn(`[file-resume] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+            return;
+        }
+
+        if (incomingSid > localTransferSessionId) {
+            console.log(`[file-resume] New session detected during resume: ${incomingSid}`);
+            localTransferSessionId = incomingSid;
+        }
+
+        // Clear Prepare Watchdog
+        clearManagedTimer('prepareWatchdog');
+
+        // RESUME TRANSFER
+        window._skipIncomingFile = false;
+
+        // [OPFS-Worker] Resume
+        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, keepExisting: true, sessionId: incomingSid });
+        currentFileOpfs.name = data.name;
+
+        const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
+        const startChunk = data.startChunk || 0;
+
+        console.log(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks (OPFS handles resume via keepExistingData)`);
+        showToast(`${sourceLabel}로부터 전송 재개 (${startChunk}부터)`);
+
+        transferState = TRANSFER_STATE.RECEIVING;
+
+        // Update meta
+        meta = data;
+        updateTitleWithMarquee(data.name);
+
+        let sizeText = data.size ? ` (${(data.size / 1024 / 1024).toFixed(1)}MB)` : "";
+        const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
+        showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
+
+        // Restart watchdog
+        clearManagedTimer('chunkWatchdog');
+        lastChunkTime = Date.now();
+        managedTimers.chunkWatchdog = setInterval(() => {
+            const timeSinceLast = Date.now() - lastChunkTime;
+            if (timeSinceLast > 12000) {
+                clearManagedTimer('chunkWatchdog');
+                showToast("데이터 수신 불안정. Host 복구 요청...");
+                if (upstreamDataConn) upstreamDataConn = null;
+
+                if (hostConn && hostConn.open) {
+                    // Find first missing chunk via helper
+                    sendRecoveryRequest(receivedCount || 0);
+
+                }
+            }
+        }, 1000);
     }
 
-    // Skip if we're using preloaded file
-    if (window._skipIncomingFile) {
-        console.log("[Chunk] Skipped - _skipIncomingFile is true");
-        return; // Silently ignore chunks when using preload
+    // [Fix #6] Network Data Integrity: Chunk Reordering Buffer
+    const fileReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
+    let nextExpectedChunk = 0;
+
+    async function handleFileChunk(data) {
+        const incomingSid = data.sessionId || 0;
+
+        // ✅ 새 세션 감지 시 워커 리셋
+        if (incomingSid > localTransferSessionId) {
+            console.log(`[Chunk] New session detected: ${localTransferSessionId} → ${incomingSid}`);
+            localTransferSessionId = incomingSid;
+
+            // Worker 버퍼 명시적 클리어
+            timerWorker.postMessage({
+                command: 'OPFS_RESET',
+                isPreload: false
+            });
+
+            // 기존 상태 초기화
+            clearPreviousTrackState('session-change');
+
+            // [New] Reorder Buffer Reset
+            fileReorderBuffer.set(incomingSid, new Map());
+            nextExpectedChunk = 0;
+        }
+
+        if (incomingSid < localTransferSessionId) {
+            if (data.index === 0) console.warn(`[Chunk] Stale session ignored: ${incomingSid}`);
+            return;
+        }
+
+        // Skip if we're using preloaded file
+        if (window._skipIncomingFile) {
+            return;
+        }
+
+        if (!fileReorderBuffer.has(incomingSid)) {
+            fileReorderBuffer.set(incomingSid, new Map());
+            nextExpectedChunk = 0;
+        }
+
+        const sessionBuffer = fileReorderBuffer.get(incomingSid);
+        sessionBuffer.set(data.index, data.chunk);
+
+        // Process all contiguous chunks in order
+        while (sessionBuffer.has(nextExpectedChunk)) {
+            const chunk = sessionBuffer.get(nextExpectedChunk);
+
+            timerWorker.postMessage({
+                command: 'OPFS_WRITE',
+                chunk: chunk,
+                index: nextExpectedChunk,
+                isPreload: false,
+                filename: currentFileOpfs.name,
+                sessionId: incomingSid
+            }, [chunk.buffer]);
+
+            sessionBuffer.delete(nextExpectedChunk);
+            nextExpectedChunk++;
+        }
+
+        // Progress update...
+        if (currentFileOpfs.total > 0) {
+            updateLoader(Math.round((nextExpectedChunk / currentFileOpfs.total) * 100));
+        }
     }
 
     // CRITICAL: Clone the chunk! The underlying buffer might be reused or detached by PeerJS.
@@ -4289,7 +4651,8 @@ async function handleFileChunk(data) {
             command: 'OPFS_WRITE',
             chunk: chunkCopy,
             index: idx,
-            isPreload: false
+            isPreload: false,
+            filename: meta.name
         }, [chunkCopy.buffer]);
         receivedCount++;
     } else {
@@ -4344,6 +4707,9 @@ async function handleFileChunk(data) {
 
         // [Worker-OPFS] Finalize file
         timerWorker.postMessage({ command: 'OPFS_END', filename: meta.name, isPreload: false, sessionId: incomingSid });
+
+        // [Stability Fix] Explicitly clear watchdog once file is fully received
+        clearManagedTimer('chunkWatchdog');
 
         // Finalize UI/playback state will happen in Worker message handler
         return;
@@ -4423,11 +4789,33 @@ async function handleSyncResponse(data) {
     // compensatedTime = HostCurrentTime (approx)
     const compensatedTime = data.time + oneWayLatencySeconds;
 
-    if (data.isPlaying) play(compensatedTime + localOffset);
+    // [Optimization] If already playing, perform a "Soft Sync" instead of a heavy restart
+    const currentPos = getTrackPosition();
+    const drift = Math.abs(currentPos - compensatedTime);
+
+    if (data.isPlaying) {
+        if (currentState !== APP_STATE.IDLE && drift < 1.0) {
+            console.log(`[AutoSync] Soft nudging drift: ${drift.toFixed(3)}s`);
+            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
+            const targetTime = compensatedTime + localOffset - bias;
+
+            // [Unified Buffer Mode] Soft Sync
+            if (playerNode) {
+                play(targetTime);
+            }
+
+            videoElement.currentTime = targetTime;
+            // Update internal clock
+            startedAt = Tone.now() - (compensatedTime + localOffset) + (localOffset + autoSyncOffset);
+            showToast(`자동 싱크 보정 (${Math.round(lastLatencyMs / 2)}ms)`);
+        } else {
+            play(compensatedTime + localOffset);
+        }
+    }
     else {
         stopAllMedia();
         pausedAt = compensatedTime;
-        loopUI();
+        if (!uiLoopId) loopUI();
     }
 
     if (usePingCompensation) {
@@ -4526,7 +4914,7 @@ async function handlePreloadStart(data) {
     showLoader(true, `다음 곡 준비 중... (${data.name})`);
 
     // [OPFS-Worker] Prepare preload file
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true, size: CHUNK_SIZE });
+    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true, size: CHUNK_SIZE, sessionId: sessionId });
     preloadFileOpfs.name = data.name;
 
     preloadChunks = [];
@@ -4539,6 +4927,10 @@ async function handlePreloadStart(data) {
     }
 }
 
+// [Fix #6] Network Data Integrity: Preload Reordering Buffer
+const preloadReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
+let nextExpectedPreloadChunk = 0;
+
 async function handlePreloadChunk(data) {
     const sessionId = data.sessionId || 0;
 
@@ -4550,23 +4942,31 @@ async function handlePreloadChunk(data) {
 
     if (window._skipIncomingPreload) return;
 
-    const idx = data.index;
-    const chunkCopy = new Uint8Array(data.chunk);
-
-    // [FIX] Clone chunk for downstream BEFORE sending to worker (to avoid detachment)
-    let fwdMsg = null;
-    if (downstreamDataPeers.length > 0) {
-        fwdMsg = { type: 'preload-chunk', chunk: new Uint8Array(chunkCopy), index: idx };
+    if (!preloadReorderBuffer.has(sessionId)) {
+        preloadReorderBuffer.set(sessionId, new Map());
+        nextExpectedPreloadChunk = 0;
     }
 
-    // [Worker-OPFS] Offload write
-    timerWorker.postMessage({
-        command: 'OPFS_WRITE',
-        chunk: chunkCopy,
-        index: idx,
-        isPreload: true
-    }, [chunkCopy.buffer]);
-    preloadCount++;
+    const sessionBuffer = preloadReorderBuffer.get(sessionId);
+    sessionBuffer.set(data.index, data.chunk);
+
+    while (sessionBuffer.has(nextExpectedPreloadChunk)) {
+        const chunk = sessionBuffer.get(nextExpectedPreloadChunk);
+
+        timerWorker.postMessage({
+            command: 'OPFS_WRITE',
+            chunk: chunk,
+            index: nextExpectedPreloadChunk,
+            isPreload: true,
+            filename: preloadMeta.name,
+            sessionId: sessionId
+        }, [chunk.buffer]);
+
+        sessionBuffer.delete(nextExpectedPreloadChunk);
+        nextExpectedPreloadChunk++;
+    }
+
+    preloadCount = nextExpectedPreloadChunk;
 
     // ✅ 진행률 업데이트
     if (sessionState) {
@@ -4656,16 +5056,17 @@ async function handlePlayPreloaded(data) {
         if (nextFileBlob && !isPreloadTargetMatch) {
             console.warn(`[Guest] Stale preload detected (ID mismatched). Found index: ${nextMeta ? nextMeta.index : 'N/A'}, Expected: ${data.index}`);
         }
+
+        // [Fix #3] Persistence: Capture metadata BEFORE clearing state
+        const trackName = data.name || playlist[data.index]?.name || (nextMeta ? nextMeta.name : '');
+        window._pendingFileName = trackName;
+        window._pendingFileIndex = data.index;
+
         console.warn("[Guest] No preloaded file found for track", data.index, "- requesting from Host");
         showLoader(true, "파일 요청 중...");
 
         // Clear any stale state
         clearPreviousTrackState('play-preloaded fallback');
-
-        // Request file from Relay (if available) or Host
-        const trackName = data.name || playlist[data.index]?.name || '';
-        window._pendingFileName = trackName;
-        window._pendingFileIndex = data.index;
 
         if (upstreamDataConn && upstreamDataConn.open) {
             console.log("[Guest] Requesting file from Relay:", trackName);
@@ -4879,7 +5280,7 @@ async function handlePlay(data) {
         window._pendingPlayTime = data.time;
         return;
     }
-    const target = data.time + localOffset;
+    const target = data.time + localOffset + autoSyncOffset;
     if (currentState === APP_STATE.IDLE || Math.abs((Tone.now() - startedAt) - target) > 0.15) play(target);
 }
 
@@ -5817,7 +6218,7 @@ function loopUI() {
 
         if (isActuallyPlaying) {
             const hasVideoSrc = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
-            const duration = hasVideoSrc ? videoElement.duration : 0;
+            const duration = hasVideoSrc ? videoElement.duration : (currentAudioBuffer ? currentAudioBuffer.duration : 0);
 
             let t = getTrackPosition();
 
@@ -5828,6 +6229,8 @@ function loopUI() {
                 if (slider) slider.value = t;
                 const timeCurr = document.getElementById('time-curr');
                 if (timeCurr) timeCurr.innerText = fmtTime(t);
+                const timeTotal = document.getElementById('time-total');
+                if (timeTotal && duration > 0) timeTotal.innerText = fmtTime(duration);
             }
         }
 
@@ -5837,7 +6240,9 @@ function loopUI() {
             handleEnded();
         }
 
-        requestAnimationFrame(loopUI);
+        uiLoopId = requestAnimationFrame(loopUI);
+    } else {
+        uiLoopId = null;
     }
 }
 
@@ -5872,6 +6277,31 @@ async function loadPreloadedTrack() {
         try {
             await initAudio();
             currentFileBlob = nextFileBlob;
+
+            // [🚨 긴급 추가] 이 줄이 없으면 싱크 맞출 때 곡 정보 불일치로 재다운로드 시도함
+            meta = { ...nextMeta };
+
+            // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
+            if (currentAudioBuffer) {
+                const oldBuf = currentAudioBuffer;
+                currentAudioBuffer = null;
+                await new Promise(resolve => {
+                    if (window.requestIdleCallback) {
+                        window.requestIdleCallback(() => {
+                            if (oldBuf._buffer) oldBuf._buffer = null;
+                            resolve();
+                        }, { timeout: 100 });
+                    } else {
+                        setTimeout(resolve, 100);
+                    }
+                });
+            }
+
+            // [🚨 추가 필수] Buffer Mode -> Streaming Mode 전환 시 오디오 연결을 위해 버퍼 비우기
+            // 이게 없으면 setupMediaSource()가 "어? 버퍼 모드네?" 하고 비디오 소리 연결을 거부함
+            if (currentAudioBuffer) {
+                currentAudioBuffer = null;
+            }
 
             // Robust Video Detection
             const blobMime = nextFileBlob.type || '';
@@ -7036,6 +7466,30 @@ async function processRelayQueue() {
 
     isRelaying = false;
 }
+
+// ============================================================================
+// [Unified Buffer Mode] Manual Sync Override
+// ============================================================================
+window.nudgeSync = function (amountMs) {
+    const amountSec = amountMs / 1000;
+    localOffset += amountSec;
+
+    // UI Update
+    updateSyncDisplay();
+    showToast(`싱크 보정: ${amountMs > 0 ? '+' : ''}${amountMs}ms (${(localOffset * 1000).toFixed(0)}ms)`);
+
+    // Apply to Active Engine
+    // 1. Buffer Mode
+    if (playerNode) {
+        // Restart transient node at new position
+        play(getTrackPosition());
+    }
+
+    // 2. Video/Streaming Mode
+    if (videoElement && !videoElement.paused) {
+        videoElement.currentTime += amountSec;
+    }
+};
 
 // ============================================================================
 // [SECTION] WINDOW EXPORTS (Public API for HTML/UI)

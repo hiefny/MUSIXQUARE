@@ -1126,10 +1126,9 @@ async function playTrack(index) {
         // 3. Broadcast ONLY play-preloaded command
         broadcast({ type: 'play-preloaded', index: index, name: fileName });
 
-        // 4. Start Playback
-        setTimeout(() => {
-            play(0);
-        }, 500);
+        // 4. Start Playback immediately after loading
+        await loadPreloadedTrack();
+        play(0);
 
         // Schedule Auto-Sync (5s later)
         setTimeout(() => {
@@ -1276,21 +1275,9 @@ async function preloadNextTrack() {
 
 // New: Broadcast for Background Preloading
 async function broadcastPreloadFile(file, index, sessionId) {
-    if (file.type.startsWith('video/') && !hostConn) {
-        // Host Logic for Video: Extract Audio -> Broadcast WAV (Background)
-        try {
-            // Check session before expensive operation
-            if (preloadSessionId !== sessionId) return;
-            const wavFile = await extractAudioToWav(file);
-            console.log("[Preload] Audio Extracted:", wavFile.name);
-            await backgroundTransfer(wavFile, index, sessionId);
-        } catch (e) {
-            console.error("Preload Extraction Failed", e);
-            await backgroundTransfer(file, index, sessionId);
-        }
-    } else {
-        await backgroundTransfer(file, index, sessionId);
-    }
+    // 비디오든 오디오든 추출 과정 없이 원본 파일 그대로 전송 (메모리 안전)
+    console.log("[Preload] Broadcasting original file:", file.name);
+    await backgroundTransfer(file, index, sessionId);
 }
 
 // Transfer without UI blocking
@@ -1540,52 +1527,9 @@ async function loadAndBroadcastFile(file) {
         document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
         if (connectedPeers.length > 0) {
-            if (isVideo && !hostConn) {
-                showLoader(true, "오디오 추출 및 변환 중...");
-                showToast("게스트용 오디오 추출 중...");
-                await new Promise(r => setTimeout(r, 100));
-
-                try {
-                    if (playlist[currentTrackIndex]) {
-                        playlist[currentTrackIndex]._isExtracting = true;
-                    }
-
-                    const wavFile = await extractAudioToWav(file);
-                    console.log("[Host] Audio Extracted:", wavFile.name, wavFile.size);
-                    showToast("오디오 변환 완료! 전송 시작...");
-
-                    currentFileBlob = wavFile;
-                    if (playlist[currentTrackIndex]) {
-                        playlist[currentTrackIndex].file = wavFile;
-                        playlist[currentTrackIndex]._isExtracting = false;
-                    }
-
-                    const CHUNK = 16384;
-                    const total = Math.ceil(wavFile.size / CHUNK);
-                    meta = {
-                        type: 'file-start',
-                        name: wavFile.name,
-                        mime: wavFile.type,
-                        total: total,
-                        size: wavFile.size,
-                        index: currentTrackIndex
-                    };
-
-                    await broadcastFile(wavFile);
-                } catch (e) {
-                    console.error("Audio Extraction Failed", e);
-                    showToast("메모리 부족으로 전송 취소 (게스트 보호)");
-                    if (playlist[currentTrackIndex]) {
-                        playlist[currentTrackIndex]._isExtracting = false;
-                    }
-                    // DO NOT broadcast original heavy video if extraction fails
-                    showLoader(false);
-                    return;
-                }
-            } else {
-                showToast("파일 전송 중...");
-                await broadcastFile(file);
-            }
+            // Always send original file directly to skip memory-heavy extraction
+            showToast("파일 전송 중...");
+            await broadcastFile(file);
         }
 
         if (!hostConn) {
@@ -1608,28 +1552,9 @@ let mediaSourceNode = null;
 function setupMediaSource() {
     if (!videoElement) return;
 
-    // HOST VIDEO BYPASS: On Host, skip Tone.js routing for video
-    // This enables hardware acceleration on iOS/iPadOS
-    const isHost = !hostConn;
-    const isVideoBypass = isHost && currentState === APP_STATE.PLAYING_VIDEO;
-
     // 1. DISCONNECT PREVIOUS (Avoid overlap and effects leak)
     if (mediaSourceNode) {
         try { mediaSourceNode.disconnect(); } catch (e) { }
-    }
-
-    if (isVideoBypass) {
-        if (mediaSourceNode) {
-            // [FIX] Route through masterGain (not destination) to keep Volume & Visualizer
-            console.log("[Host] Video: Already captured, routing direct to output (Bypass FX, keep Volume/Visuals)");
-            if (masterGain) mediaSourceNode.connect(masterGain);
-            else mediaSourceNode.connect(Tone.getDestination());
-        } else {
-            // Pure native playback (Best for HW acceleration)
-            console.log("[Host] Video: Pure native playback (Tone.js untouched)");
-        }
-        videoElement.muted = false;
-        return;
     }
 
     // Ensure Context
@@ -1639,6 +1564,10 @@ function setupMediaSource() {
     if (!mediaSourceNode) {
         // Use rawContext for native MediaElementSource
         mediaSourceNode = Tone.context.rawContext.createMediaElementSource(videoElement);
+    } else {
+        // [FIX] If mediaSourceNode exists but with a different element (unlikely but safe)
+        // or just ensure we don't recreate it on the same element which triggers browser errors.
+        console.log("[Audio] Reusing existing MediaElementSourceNode");
     }
 
     if (!mediaDownmixNode) {
@@ -3722,6 +3651,18 @@ async function handleFilePrepare(data) {
 
         currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
         updatePlaylistUI();
+
+        // [FIX] Preload Watchdog: If preloading fails to complete, recover after 10s
+        if (window._preloadWatchdog) clearTimeout(window._preloadWatchdog);
+        window._preloadWatchdog = setTimeout(() => {
+            if (window._waitingForPreload) {
+                console.warn("[Guest] Preload wait timed out. Force recovering...");
+                window._waitingForPreload = false;
+                showLoader(false);
+                if (hostConn && hostConn.open) hostConn.send({ type: 'request-current-file' });
+            }
+        }, 10000);
+
         return; // Don't start new download
     }
 
@@ -5446,20 +5387,19 @@ async function broadcastFile(file) {
     eligiblePeers.forEach(p => p.conn.send(header));
 
     for (let i = 0; i < total; i++) {
-        let congested = true;
-        let attempts = 0;
-        while (congested && attempts < 10) {
-            congested = false;
+        // Robust Back-pressure: Wait for buffers to clear below 64KB across ALL peers
+        // Max wait 30 seconds for safety
+        const startWait = Date.now();
+        while (true) {
+            let congested = false;
             for (const p of eligiblePeers) {
-                if (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 10 * 1024 * 1024) {
+                if (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 64 * 1024) {
                     congested = true;
                     break;
                 }
             }
-            if (congested) {
-                attempts++;
-                await new Promise(r => setTimeout(r, 50));
-            }
+            if (!congested || Date.now() - startWait > 30000) break;
+            await new Promise(r => setTimeout(r, 50));
         }
 
         const start = i * CHUNK;
@@ -5535,17 +5475,11 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
             }
 
             try {
-                if (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
-                    let attempts = 0;
-                    await new Promise(r => {
-                        const interval = setInterval(() => {
-                            attempts++;
-                            if (!conn.dataChannel || conn.dataChannel.bufferedAmount < 256 * 1024 || attempts > 40) {
-                                clearInterval(interval);
-                                r();
-                            }
-                        }, 50);
-                    });
+                // Robust Back-pressure for Unicast
+                const startWait = Date.now();
+                while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
+                    if (Date.now() - startWait > 30000) break;
+                    await new Promise(r => setTimeout(r, 50));
                 }
             } catch (bufferErr) {
                 console.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
@@ -5697,47 +5631,58 @@ window.setSurroundChannel = setSurroundChannel;
 async function loadPreloadedTrack() {
     if (!nextFileBlob) return;
 
-    try {
-        await initAudio();
-        currentFileBlob = nextFileBlob;
+    return new Promise(async (resolve, reject) => {
+        try {
+            await initAudio();
+            currentFileBlob = nextFileBlob;
 
-        const isVideo = nextMeta && (nextMeta.mime?.startsWith('video/') || (nextMeta.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name)));
+            const isVideo = nextMeta && (nextMeta.mime?.startsWith('video/') || (nextMeta.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name)));
 
-        // ALWAYS STREAMING
-        setEngineMode(isVideo ? 'video' : 'streaming');
+            // ALWAYS STREAMING
+            setEngineMode(isVideo ? 'video' : 'streaming');
 
-        const url = BlobURLManager.create(nextFileBlob);
-        videoElement.src = url;
+            const url = BlobURLManager.create(nextFileBlob);
 
-        videoElement.onloadedmetadata = () => {
-            const dur = videoElement.duration;
-            if (isFinite(dur)) {
-                document.getElementById('seek-slider').max = dur;
-                document.getElementById('time-dur').innerText = fmtTime(dur);
+            // Set up one-time listener for readiness
+            const onReady = () => {
+                videoElement.removeEventListener('canplaythrough', onReady);
+                console.log("[Guest] Preloaded track ready via Streaming");
+                resolve();
+            };
+            videoElement.addEventListener('canplaythrough', onReady);
+
+            videoElement.src = url;
+
+            videoElement.onloadedmetadata = () => {
+                const dur = videoElement.duration;
+                if (isFinite(dur)) {
+                    document.getElementById('seek-slider').max = dur;
+                    document.getElementById('time-dur').innerText = fmtTime(dur);
+                }
+                BlobURLManager.confirm(nextFileBlob);
+            };
+            videoElement.load();
+            setupMediaSource();
+
+            if (nextMeta && nextMeta.name) {
+                updateTitleWithMarquee(nextMeta.name);
+                document.getElementById('track-artist').innerText = `Track ${nextTrackIndex + 1}`;
             }
-            BlobURLManager.confirm(nextFileBlob);
-        };
-        videoElement.load();
-        setupMediaSource();
 
-        if (nextMeta && nextMeta.name) {
-            updateTitleWithMarquee(nextMeta.name);
-            document.getElementById('track-artist').innerText = `Track ${nextTrackIndex + 1}`;
+            document.getElementById('play-btn').disabled = !isOperator;
+
+            clearPreloadState();
+
+        } catch (e) {
+            console.error("[Preload] Play failed:", e);
+            showToast("프리로드 재생 실패 - 다시 로드합니다");
+            clearPreloadState();
+            if (hostConn && hostConn.open) {
+                hostConn.send({ type: 'request-current-file' });
+            }
+            reject(e);
         }
-
-        document.getElementById('play-btn').disabled = !isOperator;
-
-        console.log("[Guest] Preloaded track ready via Streaming");
-        clearPreloadState();
-
-    } catch (e) {
-        console.error("[Preload] Play failed:", e);
-        showToast("프리로드 재생 실패 - 다시 로드합니다");
-        clearPreloadState();
-        if (hostConn && hostConn.open) {
-            hostConn.send({ type: 'request-current-file' });
-        }
-    }
+    });
 }
 
 function updateUISlider(duration) {
@@ -6328,9 +6273,12 @@ function onYouTubePlayerReady(event) {
     if (window.youtubeUILoop) clearInterval(window.youtubeUILoop);
     window.youtubeUILoop = setInterval(updateYouTubeUI, 500);
 
+    // [FIX] Ensure ONLY Host runs the sync loop
+    if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
     if (!hostConn) {
-        if (window.youtubeSyncLoop) clearInterval(window.youtubeSyncLoop);
         window.youtubeSyncLoop = setInterval(broadcastYouTubeSync, 3000);
+    } else {
+        console.log("[YouTube] Guest mode: sync loop disabled");
     }
 
     // [Sync] Apply current master volume to YouTube player immediately

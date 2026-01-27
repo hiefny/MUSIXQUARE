@@ -987,8 +987,9 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         // Re-evaluate preload when new songs are added
         // Case 1: No preload queued yet -> trigger
         // Case 2: Current preload target is outdated (was looping to 0, but now there are new songs) -> re-trigger
+        // [FIX] Removed !isPreloading check to ensure we interrupt 'loop loop' to preload the NEW song immediately
         const wasLastTrack = (currentTrackIndex === playlist.length - files.length - 1);
-        const shouldRePreload = !isPreloading && (nextTrackIndex === -1 || wasLastTrack);
+        const shouldRePreload = (nextTrackIndex === -1 || wasLastTrack);
 
         if (shouldRePreload) {
             // Clear previous preload state if any
@@ -1425,6 +1426,9 @@ async function preloadNextTrack() {
     if (item.type === 'youtube') {
         console.log("[Preload] Next is YouTube, skipping preload");
         isPreloading = false;
+        // [FIX] Clear stale preload data so playTrack doesn't think we have a blob for this index
+        nextFileBlob = null;
+        nextMeta = null;
         return;
     }
 
@@ -3281,6 +3285,15 @@ function setupPeerEvents() {
 
             // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
             conn.on('data', data => {
+                // [FIX] Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
+                if (conn.open && !connectedPeers.find(p => p.id === peerObj.id)) {
+                    console.log(`[Network] Reviving zombie connection: ${peerObj.label}`);
+                    peerObj.status = 'connected';
+                    peerObj.lastHeartbeat = Date.now();
+                    connectedPeers.push(peerObj);
+                    broadcastDeviceList();
+                }
+
                 if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
                     peerObj.lastHeartbeat = Date.now();
 
@@ -5468,7 +5481,11 @@ async function broadcastFile(file) {
         return connectedPeers.filter(p => {
             const trackIdx = currentTrackIndex;
             const alreadyHasPreload = p.preloadedIndexes && p.preloadedIndexes.has(trackIdx);
-            return (p.status === 'connected' && p.conn.open && p.isDataTarget !== false && !alreadyHasPreload);
+
+            // [Fix] For direct playback (broadcastFile), always send even if they had it preloaded.
+            // Guests will ignore it via _skipIncomingFile if they still have the data.
+            // This prevents "Previous Track" from failing if Guest deleted the file.
+            return (p.status === 'connected' && p.conn.open && p.isDataTarget !== false);
         });
     };
 

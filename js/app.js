@@ -482,7 +482,11 @@ function forceCleanupOPFS(isPreload) {
 }
 
 
+// [Fix] Generate Unique Instance ID for OPFS Isolation (prevents multi-tab conflicts)
+const OPFS_INSTANCE_ID = Math.random().toString(36).substring(2, 9);
 const timerWorker = new Worker('js/worker.js');
+console.log(`[App] Initializing Worker with OPFS Instance ID: ${OPFS_INSTANCE_ID}`);
+timerWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 
 timerWorker.onerror = (e) => {
     console.error("Worker Error: ", e.message);

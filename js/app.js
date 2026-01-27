@@ -58,6 +58,11 @@
  */
 
 // ============================================================================
+// [SECTION] GLOBAL CONSTANTS & INSTANCE ID
+// ============================================================================
+const OPFS_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+// ============================================================================
 // [SECTION] AUDIO ENGINE - Tone.js Nodes
 // Dependencies: Tone.js CDN
 // ============================================================================
@@ -483,10 +488,11 @@ function forceCleanupOPFS(isPreload) {
 
 
 const timerWorker = new Worker('js/worker.js');
+timerWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 
 timerWorker.onerror = (e) => {
-    console.error("Worker Error: ", e.message);
-    showToast("워커 로드 실패! HTTPS 환경인지 확인하세요.");
+    console.error("[Worker Error]", e.message, e.filename, e.lineno);
+    showToast("워커 로드 실패 또는 백그라운드 작업 오류 발생! HTTPS 환경인지 확인하세요.");
 };
 
 timerWorker.onmessage = async (e) => {
@@ -547,11 +553,6 @@ timerWorker.onmessage = async (e) => {
     }
 };
 
-// ✅ 추가: 에러 핸들러
-timerWorker.onerror = (err) => {
-    console.error('[Worker Error]', err.message, err.filename, err.lineno);
-    showToast('백그라운드 작업 오류 발생');
-};
 
 function finalizeFileProcessing(file) {
     // This is called when OPFS_FILE_READY comes back from worker.

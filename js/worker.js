@@ -1,18 +1,45 @@
 // worker.js
-// Handles background timers to prevent browser throttling
+// Handles background timers and OPFS writes to prevent UI throttling
 
 const timers = {};
+// OPFS State inside Worker (Optimization: Use SyncAccessHandle)
+let currentFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
+let preloadFileOpfs = { handle: null, accessHandle: null, name: null, chunkSize: 16384 };
+
+let isProcessing = false;
+const messageQueue = [];
+let instanceId = 'default'; // Unique ID for this tab/worker session
 
 self.onmessage = function (e) {
-    const { command, id, interval } = e.data;
+    messageQueue.push(e.data);
+    processQueue();
+};
 
+async function processQueue() {
+    if (isProcessing || messageQueue.length === 0) return;
+    isProcessing = true;
+
+    while (messageQueue.length > 0) {
+        const data = messageQueue.shift();
+        try {
+            await handleMessage(data);
+        } catch (err) {
+            console.error("[Worker] Message processing error:", err);
+        }
+    }
+
+    isProcessing = false;
+}
+
+async function handleMessage(data) {
+    const { command, id, interval } = data;
+
+    // --- Timer Commands ---
     if (command === 'START_TIMER') {
         if (timers[id]) clearInterval(timers[id]);
-
         timers[id] = setInterval(() => {
             self.postMessage({ type: 'TICK', id: id });
         }, interval);
-
         console.log(`[Worker] Started timer: ${id} (${interval}ms)`);
     }
     else if (command === 'STOP_TIMER') {
@@ -22,4 +49,130 @@ self.onmessage = function (e) {
             console.log(`[Worker] Stopped timer: ${id}`);
         }
     }
-};
+
+    else if (command === 'INIT_INSTANCE') {
+        instanceId = data.instanceId;
+        console.log(`[Worker] Initialized with Instance ID: ${instanceId}`);
+    }
+
+    // --- OPFS Commands (Optimized with SyncAccessHandle) ---
+    else if (command === 'OPFS_START') {
+        const { filename, isPreload, size } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+        if (size) opfsObj.chunkSize = size;
+
+        try {
+            // Cleanup previous if same type
+            if (opfsObj.accessHandle) {
+                console.log(`[Worker] Closing existing handle for ${opfsObj.name}...`);
+                try {
+                    opfsObj.accessHandle.close();
+                } catch (e) {
+                    console.warn("[Worker] Error closing handle:", e);
+                }
+                opfsObj.accessHandle = null;
+            }
+            opfsObj.handle = null;
+
+            const root = await navigator.storage.getDirectory();
+            // [Fix] Append instanceId to prevent collisions across tabs logic
+            const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + instanceId;
+
+            // Delete existing file before start for fresh write unless keepExisting is true
+            if (!data.keepExisting) {
+                try {
+                    await root.removeEntry(safeName);
+                } catch (e) { }
+            }
+
+            opfsObj.handle = await root.getFileHandle(safeName, { create: true });
+
+            // Use SyncAccessHandle for maximum performance (Worker only)
+            console.log(`[Worker] Creating SyncAccessHandle for ${safeName}...`);
+            opfsObj.accessHandle = await opfsObj.handle.createSyncAccessHandle();
+            opfsObj.name = filename;
+
+            console.log(`[Worker-Sync] Started ${isPreload ? 'preload' : 'current'} file: ${filename}`);
+            self.postMessage({ type: 'OPFS_STARTED', filename, isPreload });
+        } catch (e) {
+            console.error(`[Worker-Sync] Start failed for ${filename}:`, e);
+            self.postMessage({ type: 'OPFS_ERROR', error: e.message, filename });
+        }
+    }
+    else if (command === 'OPFS_WRITE') {
+        const { chunk, index, isPreload } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        if (opfsObj.accessHandle) {
+            try {
+                // CHUNK size is dynamic (default 16384)
+                // Synchronous write in worker!
+                opfsObj.accessHandle.write(chunk, { at: index * opfsObj.chunkSize });
+            } catch (e) {
+                console.error(`[Worker-Sync] Write failed at ${index}:`, e);
+            }
+        }
+    }
+    else if (command === 'OPFS_END') {
+        const { filename, isPreload, sessionId } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        if (opfsObj.accessHandle && opfsObj.name === filename) {
+            try {
+                opfsObj.accessHandle.flush();
+                opfsObj.accessHandle.close();
+                opfsObj.accessHandle = null;
+
+                console.log(`[Worker-Sync] Finished: ${filename}`);
+
+                // Notify main thread
+                self.postMessage({
+                    type: 'OPFS_FILE_READY',
+                    filename,
+                    isPreload,
+                    sessionId
+                });
+            } catch (e) {
+                console.error(`[Worker-Sync] End failed for ${filename}:`, e);
+            }
+        }
+    }
+    else if (command === 'OPFS_RESET') {
+        const { isPreload } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        try {
+            if (opfsObj.accessHandle) {
+                opfsObj.accessHandle.close();
+                opfsObj.accessHandle = null;
+            }
+            opfsObj.handle = null;
+            opfsObj.name = null;
+
+            console.log(`[Worker] Reset ${isPreload ? 'preload' : 'current'} OPFS state`);
+            self.postMessage({ type: 'OPFS_RESET_COMPLETE', isPreload });
+        } catch (e) {
+            console.error('[Worker] Reset failed:', e);
+        }
+    }
+    else if (command === 'OPFS_CLEANUP') {
+        const { filename, isPreload } = data;
+        const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+
+        // ✅ 사용 중인 파일은 정리하지 않음
+        if (opfsObj.accessHandle && opfsObj.name === filename) {
+            console.warn(`[Worker] Cannot cleanup ${filename} - still in use`);
+            return;
+        }
+
+        const safeName = (isPreload ? "preload_" : "current_") + filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + instanceId;
+
+        try {
+            const root = await navigator.storage.getDirectory();
+            await root.removeEntry(safeName);
+            console.log(`[Worker OPFS] Cleaned up: ${safeName}`);
+        } catch (e) {
+            console.warn(`[Worker OPFS] Cleanup failed for ${safeName}:`, e);
+        }
+    }
+}

@@ -15,38 +15,32 @@
 
 <body>
 
-    <header>
-        <div class="app-logo">MUSI<span class="logo-fade">XQUARE</span></div>
-    </header>
+    <header id="main-header">
+        <div class="header-progress-bg" id="header-progress-bg"></div>
 
-    <div class="header-right">
-        <button class="help-btn" onclick="openHelpModal()">
-            <svg viewBox="0 0 24 24">
-                <path
-                    d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM12 6c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
-            </svg>
-        </button>
-        <div class="role-badge" id="role-badge">
-            <div class="role-dot"></div>
-            <span id="role-text">OFFLINE</span>
+        <div class="header-content-wrapper">
+            <div class="app-logo header-default-content">MUSI<span class="logo-fade">XQUARE</span></div>
+            <div class="header-loading-text" id="header-loading-text">Loading...</div>
         </div>
-    </div>
+
+        <div class="header-right header-default-content">
+            <button class="help-btn" onclick="openHelpModal()">
+                <svg viewBox="0 0 24 24">
+                    <path
+                        d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM12 6c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
+                </svg>
+            </button>
+            <div class="role-badge" id="role-badge">
+                <div class="role-dot"></div>
+                <span id="role-text">OFFLINE</span>
+            </div>
+        </div>
+    </header>
 
     <div id="tab-play" class="tab-content active">
         <div class="vinyl-wrapper">
             <canvas id="visualizerCanvas" width="240" height="240"></canvas>
-            <!-- Localized Loader Overlay (visualizer only) -->
-            <div class="vinyl-loader" id="loader">
-                <div class="progress-ring-container">
-                    <svg class="progress-ring" width="60" height="60">
-                        <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.1)" stroke-width="4"
-                            fill="transparent" r="26" cx="30" cy="30" />
-                        <circle class="progress-ring__circle" id="loader-ring" stroke="var(--primary)" stroke-width="4"
-                            fill="transparent" r="26" cx="30" cy="30" />
-                    </svg>
-                </div>
-                <div id="loader-text" class="vinyl-loader-text">Loading...</div>
-            </div>
+
         </div>
 
         <div class="video-wrapper">
@@ -311,8 +305,10 @@
                             0%, 올리면 공간감 증가</span></span>
                     <span class="val-disp" id="val-reverb">0%</span>
                 </div>
-                <input type="range" id="reverb-slider" min="0" max="100" value="0" oninput="onReverbInput(this.value)"
-                    onchange="onReverbChange(this.value)" ondblclick="resetReverbMix()">
+                <input type="range" id="reverb-slider" min="0" max="100" value="0"
+                    oninput="updateAudioEffect('reverb', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'mix', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'mix', 0)">
             </div>
 
             <!-- Decay Slider -->
@@ -324,8 +320,9 @@
                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                 </div>
                 <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
-                    oninput="onReverbDecayInput(this.value)" onchange="onReverbDecayChange(this.value)"
-                    ondblclick="resetReverbDecay()">
+                    oninput="updateAudioEffect('reverb', 'decay', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'decay', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'decay', 5.0)">
             </div>
 
             <!-- Pre-Delay Slider -->
@@ -337,8 +334,9 @@
                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                 </div>
                 <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
-                    oninput="onReverbPreDelayInput(this.value)" onchange="onReverbPreDelayChange(this.value)"
-                    ondblclick="resetReverbPreDelay()">
+                    oninput="updateAudioEffect('reverb', 'predelay', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'predelay', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'predelay', 0.1)">
             </div>
 
             <!-- Low Cut Slider (New) -->
@@ -350,8 +348,9 @@
                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                 </div>
                 <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
-                    oninput="onReverbLowCutInput(this.value)" onchange="onReverbLowCutChange(this.value)"
-                    ondblclick="resetReverbLowCut()">
+                    oninput="updateAudioEffect('reverb', 'lowcut', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'lowcut', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'lowcut', 0)">
             </div>
 
             <!-- High Cut Slider (New) -->
@@ -363,8 +362,9 @@
                     <span class="val-disp" id="val-rvb-highcut">20.0k</span>
                 </div>
                 <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
-                    oninput="onReverbHighCutInput(this.value)" onchange="onReverbHighCutChange(this.value)"
-                    ondblclick="resetReverbHighCut()">
+                    oninput="updateAudioEffect('reverb', 'highcut', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'highcut', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'highcut', 0)">
             </div>
         </div>
 
@@ -431,8 +431,9 @@
                             100, 줄이면 모노, 늘리면 서라운드</span></span>
                     <span class="val-disp" id="val-width">100%</span>
                 </div>
-                <input type="range" id="width-slider" min="0" max="200" value="100" oninput="setStereoWidth(this.value)"
-                    onchange="onStereoWidthChange(this.value)" ondblclick="resetStereo()">
+                <input type="range" id="width-slider" min="0" max="200" value="100"
+                    oninput="updateAudioEffect('stereo', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('stereo', 'mix', this.value)" ondblclick="resetStereo()">
             </div>
         </div>
 
@@ -447,8 +448,10 @@
                             늘리면 가상 베이스(왜곡 증가)</span></span>
                     <span class="val-disp" id="val-vbass">0%</span>
                 </div>
-                <input type="range" id="vbass-slider" min="0" max="100" value="0" oninput="setVirtualBass(this.value)"
-                    onchange="onVirtualBassChange(this.value)" ondblclick="setVirtualBass(0); onVirtualBassChange(0);">
+                <input type="range" id="vbass-slider" min="0" max="100" value="0"
+                    oninput="updateAudioEffect('vbass', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('vbass', 'mix', this.value)"
+                    ondblclick="updateAudioEffect('vbass', 'mix', 0)">
             </div>
         </div>
     </div>
@@ -476,11 +479,6 @@
                 </svg>
             </button>
         </div>
-    </div>
-
-    <!-- YouTube Mini Player Container -->
-    <div id="yt-mini-player"
-        style="display: none; position: fixed; bottom: 80px; right: 20px; width: 120px; height: 68px; background: black; z-index: 900; border: 2px solid var(--border); border-radius: 8px; overflow: hidden;">
     </div>
 
     <nav class="bottom-nav">
@@ -615,8 +613,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Old fullscreen loader removed - now using vinyl-loader inside vinyl-wrapper -->
 
     <audio id="silent-trigger" src="dummy_audio.mp3" preload="auto" x-webkit-airplay="allow" playsinline
         webkit-playsinline></audio>
@@ -757,7 +753,6 @@
     <div class="toast" id="toast"><span id="toast-msg">메시지</span></div>
 
     <!-- Media Source Popup -->
-    <!-- Media Source Popup -->
     <div id="media-source-overlay" class="manual-sync-overlay">
         <div class="sync-glass-panel">
             <div class="sync-header">
@@ -835,8 +830,22 @@
     </div>
 
 
-    <script src="js/audio-utils.js"></script>
     <script src="js/app.js"></script>
+    <!-- Global Loader Overlay -->
+    <!-- Global Loader Overlay (Deprecated/Hidden for Header Loader) -->
+    <!-- 
+    <div class="vinyl-loader" id="loader">
+        <div class="progress-ring-container">
+            <svg class="progress-ring" width="60" height="60">
+                <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.1)" stroke-width="4"
+                    fill="transparent" r="26" cx="30" cy="30" />
+                <circle class="progress-ring__circle" id="loader-ring" stroke="var(--primary)" stroke-width="4"
+                    fill="transparent" r="26" cx="30" cy="30" />
+            </svg>
+        </div>
+        <div id="loader-text" class="vinyl-loader-text">Loading...</div>
+    </div> 
+    -->
 </body>
 
 </html>

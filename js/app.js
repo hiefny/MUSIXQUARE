@@ -247,7 +247,8 @@ const managedTimers = {
     autoPlayTimer: null,
     syncDebounce: null,
     relayWaitTimeout: null,
-    preloadWatchdog: null
+    preloadWatchdog: null,
+    nextTrackTimer: null // ✅ [추가] 다음 곡 넘김 방지용 타이머
 };
 
 // ✅ 새로 추가: 타이머 정리 헬퍼 함수
@@ -2173,10 +2174,17 @@ function handleEnded() {
     pausedAt = 0;
 
     if (!hostConn) {
+        // ✅ [수정] 기존 setTimeout을 managedTimers.nextTrackTimer에 할당
         if (repeatMode === 2) {
-            setTimeout(() => playTrack(currentTrackIndex), 300);
+            managedTimers.nextTrackTimer = setTimeout(() => {
+                managedTimers.nextTrackTimer = null; // 실행 후 초기화
+                playTrack(currentTrackIndex);
+            }, 300);
         } else {
-            setTimeout(() => playNextTrack(), 500);
+            managedTimers.nextTrackTimer = setTimeout(() => {
+                managedTimers.nextTrackTimer = null; // 실행 후 초기화
+                playNextTrack();
+            }, 500);
         }
     }
 }
@@ -2243,6 +2251,8 @@ function checkVideoSync() {
  * Ensures no audio overlap during transitions.
  */
 function stopAllMedia() {
+    // ✅ [추가] 좀비처럼 살아난 다음 곡 재생 예약 취소
+    clearManagedTimer('nextTrackTimer');
     // 1. Stop Global Video (확실하게 초기화)
     if (videoElement) {
         videoElement.pause();
@@ -2363,6 +2373,9 @@ function togglePlay() {
 }
 
 function pause() {
+    // ✅ [추가] 일시정지 시에도 곡이 끝났다고 착각하고 다음 곡으로 넘어가는 것 방지
+    clearManagedTimer('nextTrackTimer');
+
     if (currentState !== APP_STATE.IDLE) {
         if (videoElement) videoElement.pause();
 

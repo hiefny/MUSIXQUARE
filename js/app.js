@@ -2852,7 +2852,9 @@ function handleMainSyncBtn() {
 
 function syncReset() {
     if (!hostConn || !hostConn.open) return;
-    localOffset = 0; // Manual Reset
+    // [FIX] Do NOT clear localOffset here. 
+    // Users want to keep their manual hardware correction (e.g. BT delay) 
+    // even when network sync is recalibrated.
     updateSyncDisplay();
 
     showToast("동기화(Median Pattern) 적용 중...");
@@ -5086,7 +5088,7 @@ function handleAutoSync() {
 // Tap Sync Logic
 
 function nudgeSync(ms) {
-    autoSyncOffset += (ms / 1000);
+    localOffset += (ms / 1000);
     updateSyncDisplay();
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
@@ -5105,7 +5107,8 @@ function nudgeSync(ms) {
     clearManagedTimer('syncDebounce');
     managedTimers.syncDebounce = setTimeout(() => {
         if (currentState !== APP_STATE.IDLE) {
-            play(Tone.now() - startedAt);
+            const target = (Tone.now() - startedAt);
+            play(target);
             showToast("Sync Applied");
         }
     }, 300);
@@ -6738,19 +6741,55 @@ function fetchYouTubePreview(url) {
 
 window.fetchYouTubePreview = fetchYouTubePreview;
 
+document.getElementById('seek-slider').addEventListener('mousedown', function () {
+    isSeeking = true;
+});
+
+document.getElementById('seek-slider').addEventListener('touchstart', function () {
+    isSeeking = true;
+}, { passive: true });
+
 document.getElementById('seek-slider').addEventListener('input', function () {
+    isSeeking = true;
+    const seekTime = parseFloat(this.value);
+    document.getElementById('time-curr').innerText = fmtTime(seekTime);
+
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
-            const seekTime = parseFloat(this.value);
             youtubePlayer.seekTo(seekTime, true);
-
-            if (!hostConn) {
-                broadcast({ type: 'youtube-sync', time: seekTime, state: youtubePlayer.getPlayerState() });
-            }
         } catch (e) {
             console.error("[YouTube] Seek error:", e);
         }
     }
+});
+
+document.getElementById('seek-slider').addEventListener('change', function () {
+    isSeeking = false;
+    const seekTime = parseFloat(this.value);
+
+    console.log("[Seek] Final position:", seekTime);
+
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
+        if (!hostConn) {
+            broadcast({ type: 'youtube-sync', time: seekTime, state: youtubePlayer.getPlayerState() });
+        }
+    } else {
+        // Local mode
+        if (!hostConn) {
+            play(seekTime);
+            broadcast({ type: 'play', time: seekTime });
+        } else if (isOperator) {
+            hostConn.send({ type: 'request-play', time: seekTime });
+        }
+    }
+});
+
+document.getElementById('seek-slider').addEventListener('mouseup', function () {
+    isSeeking = false;
+});
+
+document.getElementById('seek-slider').addEventListener('touchend', function () {
+    isSeeking = false;
 });
 
 // --- Relay Queue Processor (Back-pressure Control) ---

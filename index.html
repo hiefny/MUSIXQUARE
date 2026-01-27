@@ -311,8 +311,10 @@
                             0%, 올리면 공간감 증가</span></span>
                     <span class="val-disp" id="val-reverb">0%</span>
                 </div>
-                <input type="range" id="reverb-slider" min="0" max="100" value="0" oninput="onReverbInput(this.value)"
-                    onchange="onReverbChange(this.value)" ondblclick="resetReverbMix()">
+                <input type="range" id="reverb-slider" min="0" max="100" value="0"
+                    oninput="updateAudioEffect('reverb', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'mix', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'mix', 0)">
             </div>
 
             <!-- Decay Slider -->
@@ -324,8 +326,9 @@
                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                 </div>
                 <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
-                    oninput="onReverbDecayInput(this.value)" onchange="onReverbDecayChange(this.value)"
-                    ondblclick="resetReverbDecay()">
+                    oninput="updateAudioEffect('reverb', 'decay', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'decay', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'decay', 5.0)">
             </div>
 
             <!-- Pre-Delay Slider -->
@@ -337,8 +340,9 @@
                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                 </div>
                 <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
-                    oninput="onReverbPreDelayInput(this.value)" onchange="onReverbPreDelayChange(this.value)"
-                    ondblclick="resetReverbPreDelay()">
+                    oninput="updateAudioEffect('reverb', 'predelay', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'predelay', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'predelay', 0.1)">
             </div>
 
             <!-- Low Cut Slider (New) -->
@@ -350,8 +354,9 @@
                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                 </div>
                 <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
-                    oninput="onReverbLowCutInput(this.value)" onchange="onReverbLowCutChange(this.value)"
-                    ondblclick="resetReverbLowCut()">
+                    oninput="updateAudioEffect('reverb', 'lowcut', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'lowcut', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'lowcut', 0)">
             </div>
 
             <!-- High Cut Slider (New) -->
@@ -363,8 +368,9 @@
                     <span class="val-disp" id="val-rvb-highcut">20.0k</span>
                 </div>
                 <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
-                    oninput="onReverbHighCutInput(this.value)" onchange="onReverbHighCutChange(this.value)"
-                    ondblclick="resetReverbHighCut()">
+                    oninput="updateAudioEffect('reverb', 'highcut', this.value, true)"
+                    onchange="updateAudioEffect('reverb', 'highcut', this.value)"
+                    ondblclick="updateAudioEffect('reverb', 'highcut', 0)">
             </div>
         </div>
 
@@ -431,8 +437,9 @@
                             100, 줄이면 모노, 늘리면 서라운드</span></span>
                     <span class="val-disp" id="val-width">100%</span>
                 </div>
-                <input type="range" id="width-slider" min="0" max="200" value="100" oninput="setStereoWidth(this.value)"
-                    onchange="onStereoWidthChange(this.value)" ondblclick="resetStereo()">
+                <input type="range" id="width-slider" min="0" max="200" value="100"
+                    oninput="updateAudioEffect('stereo', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('stereo', 'mix', this.value)" ondblclick="resetStereo()">
             </div>
         </div>
 
@@ -447,8 +454,10 @@
                             늘리면 가상 베이스(왜곡 증가)</span></span>
                     <span class="val-disp" id="val-vbass">0%</span>
                 </div>
-                <input type="range" id="vbass-slider" min="0" max="100" value="0" oninput="setVirtualBass(this.value)"
-                    onchange="onVirtualBassChange(this.value)" ondblclick="setVirtualBass(0); onVirtualBassChange(0);">
+                <input type="range" id="vbass-slider" min="0" max="100" value="0"
+                    oninput="updateAudioEffect('vbass', 'mix', this.value, true)"
+                    onchange="updateAudioEffect('vbass', 'mix', this.value)"
+                    ondblclick="updateAudioEffect('vbass', 'mix', 0)">
             </div>
         </div>
     </div>
@@ -476,11 +485,6 @@
                 </svg>
             </button>
         </div>
-    </div>
-
-    <!-- YouTube Mini Player Container -->
-    <div id="yt-mini-player"
-        style="display: none; position: fixed; bottom: 80px; right: 20px; width: 120px; height: 68px; background: black; z-index: 900; border: 2px solid var(--border); border-radius: 8px; overflow: hidden;">
     </div>
 
     <nav class="bottom-nav">
@@ -754,7 +758,6 @@
 
     <div class="toast" id="toast"><span id="toast-msg">메시지</span></div>
 
-    <!-- Media Source Popup -->
     <!-- Media Source Popup -->
     <div id="media-source-overlay" class="manual-sync-overlay">
         <div class="sync-glass-panel">

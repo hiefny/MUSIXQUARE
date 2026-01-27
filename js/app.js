@@ -62,6 +62,35 @@
 // ============================================================================
 const OPFS_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+// [iOS Latency Engineering]
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const IOS_STARTUP_BIAS = -0.45; // [Default: -450ms] Bias applied to iOS on first start.
+
+/**
+ * [Diagnostics] Check if the browser environment supports required features.
+ * Distinguishes between insecure context (HTTP) and outdated browsers (No OPFS).
+ */
+function checkSystemCompatibility() {
+    const isSecure = window.isSecureContext;
+    const hasOPFS = !!(navigator.storage && navigator.storage.getDirectory);
+
+    // Give some time for UI/Toast engine to load
+    setTimeout(() => {
+        if (!isSecure) {
+            console.error("[Compatibility] Insecure context detected.");
+            showToast("HTTPS 필수: 보안 연결에서만 작동합니다.");
+        } else if (!hasOPFS) {
+            console.error("[Compatibility] OPFS not supported.");
+            showToast("브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.");
+        } else if (IS_IOS) {
+            showToast("IOS감지, 추가 보정 적용");
+        }
+    }, 1500);
+}
+
+// Run checks on startup
+checkSystemCompatibility();
+
 // ============================================================================
 // [SECTION] AUDIO ENGINE - Tone.js Nodes
 // Dependencies: Tone.js CDN
@@ -1857,7 +1886,9 @@ async function play(offset) {
     // --- STREAMING MODE (Video or Large WAV) ---
     setupMediaSource();
 
-    videoElement.currentTime = offset;
+    const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
+    const effectiveTarget = offset - bias; // iOS: offset + 0.45 (Aim high to land on target)
+    videoElement.currentTime = effectiveTarget;
 
     const onSeeked = () => {
         videoElement.removeEventListener('seeked', onSeeked);
@@ -1882,7 +1913,8 @@ async function play(offset) {
     pausedAt = offset;
 
     startVisualizer();
-    // timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 50 }); [REMOVED POLLING]
+    // [Performance] Re-enable sync check but with a very long interval (2s) to avoid lag
+    timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
     loopUI();
 }
 
@@ -1938,6 +1970,28 @@ function handleEnded() {
                 console.log("Auto-advancing to next track...");
                 setTimeout(() => playNextTrack(), 500);
             }
+        }
+    }
+}
+
+/**
+ * [iOS Latency Fix] Perform subtle drift correction.
+ * Called every 2s to keep devices in sync without heavy UI lag.
+ */
+function checkVideoSync() {
+    if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
+        if (!videoElement || videoElement.paused) return;
+
+        const targetTime = getTrackPosition();
+        const actualTime = videoElement.currentTime;
+        const drift = Math.abs(actualTime - targetTime);
+
+        // Only correct if drift is significant (>300ms) to avoid constant stuttering
+        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
+        if (drift > 0.3) {
+            console.log(`[SyncCheck] Correcting drift: ${drift.toFixed(3)}s`);
+            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
+            videoElement.currentTime = targetTime - bias;
         }
     }
 }
@@ -4877,7 +4931,9 @@ async function handlePlaylistUpdate(data) {
 }
 
 async function handleGlobalResyncRequest(data) {
-    showToast("Host 요청: 동기화 재설정 중...");
+    showToast("Host 요청: 싱크 초기화 및 재설정...");
+    localOffset = 0; // [RE-ENGINEERING] Reset manual tweaks for auto-sync
+    updateSyncDisplay();
     setTimeout(() => syncReset(), Math.random() * 500);
 }
 
@@ -5164,6 +5220,9 @@ function handleManualSync() {
 }
 
 function handleAutoSync() {
+    localOffset = 0; // [RE-ENGINEERING] Reset manual tweaks when clicking AUTO
+    autoSyncOffset = 0;
+    updateSyncDisplay();
     handleMainSyncBtn();
 }
 
@@ -5185,15 +5244,21 @@ function nudgeSync(ms) {
         return;
     }
 
-    // Debounce: Only broadcast after user stops nudging
+    // [iOS Latency Fix] Update internal clock immediately for visual feedback
+    // but debounce the heavy video seek/restart to avoid "freezing" UI.
+    const effectiveOffset = getTrackPosition();
+    startedAt = Tone.now() - effectiveOffset + (localOffset + autoSyncOffset);
+
     clearManagedTimer('syncDebounce');
     managedTimers.syncDebounce = setTimeout(() => {
         if (currentState !== APP_STATE.IDLE) {
-            const target = (Tone.now() - startedAt);
-            play(target);
-            showToast("Sync Applied");
+            const target = getTrackPosition();
+            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
+            // Perform a light re-sync
+            if (videoElement) videoElement.currentTime = target - bias;
+            showToast(`Sync Adjusted: ${ms > 0 ? '+' : ''}${ms}ms`);
         }
-    }, 300);
+    }, 450); // Balanced debounce
 }
 
 function resetTotalSync() {

@@ -2405,6 +2405,13 @@ function setReverbParam(param, val) {
     }
 }
 
+// [FIX] Restore missing setters for updateAudioEffect and legacy handlers
+function setReverb(val, localOnly) { setReverbParam('mix', val); if (!localOnly) onReverbChange(val); }
+function setReverbDecay(val, localOnly) { setReverbParam('decay', val); if (!localOnly) onReverbDecayChange(val); }
+function setReverbPreDelay(val, localOnly) { setReverbParam('predelay', val); if (!localOnly) onReverbPreDelayChange(val); }
+function setReverbLowCut(val, localOnly) { setReverbParam('lowcut', val); if (!localOnly) onReverbLowCutChange(val); }
+function setReverbHighCut(val, localOnly) { setReverbParam('highcut', val); if (!localOnly) onReverbHighCutChange(val); }
+
 function resetReverbMix() { setReverbParam('mix', 0); onReverbChange(0); }
 function resetReverbDecay() { setReverbParam('decay', 5.0); onReverbDecayChange(5.0); }
 function resetReverbPreDelay() { setReverbParam('predelay', 0.1); onReverbPreDelayChange(0.1); }
@@ -4775,12 +4782,12 @@ async function handleVolume(data) {
     showToast(`Volume: ${Math.round(data.value * 100)}%`);
 }
 
-async function handleReverb(data) { setReverb(data.value); }
-async function handleReverbType(data) { setReverbType(data.value); }
-async function handleReverbDecay(data) { setReverbDecay(data.value); }
-async function handleReverbPreDelay(data) { setReverbPreDelay(data.value); }
-async function handleReverbLowCut(data) { setReverbLowCut(data.value); }
-async function handleReverbHighCut(data) { setReverbHighCut(data.value); }
+async function handleReverb(data) { setReverbParam('mix', data.value); }
+async function handleReverbType(data) { /* Deprecated/Removed */ }
+async function handleReverbDecay(data) { setReverbParam('decay', data.value); }
+async function handleReverbPreDelay(data) { setReverbParam('predelay', data.value); }
+async function handleReverbLowCut(data) { setReverbParam('lowcut', data.value); }
+async function handleReverbHighCut(data) { setReverbParam('highcut', data.value); }
 
 async function handleEQUpdate(data) {
     setEQ(data.band, data.value, false, true);

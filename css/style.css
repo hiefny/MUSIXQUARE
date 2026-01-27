@@ -2655,3 +2655,40 @@ input:checked+.slider:before {
     opacity: 1;
     visibility: visible;
 }
+
+/* Theme Selector (Segmented Control) */
+.theme-selector {
+    background: var(--surface-2);
+    padding: 4px;
+    border-radius: 12px;
+    display: flex;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.theme-opt {
+    flex: 1;
+    text-align: center;
+    padding: 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-sub);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.theme-opt:hover {
+    color: var(--text-main);
+}
+
+.theme-opt.active {
+    background: var(--surface-3);
+    color: var(--text-main);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .theme-opt.active {
+    background: white;
+    color: black;
+}

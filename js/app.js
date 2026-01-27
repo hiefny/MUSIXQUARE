@@ -874,43 +874,61 @@ async function activateAudio() {
     requestWakeLock();
 }
 
-window.actionCreateRoom = async function () {
-    await activateAudio();
-    // Using setTimeout to allow UI update if needed, but alert blocks anyway.
-    setTimeout(() => {
-        alert("이제 당신이 호스트입니다.\n다른 사람을 초대하거나 다른 기기를 추가하려면\n'Connect' 탭의 QR코드 또는 링크를 공유하세요.");
-        document.getElementById('onboarding-overlay').style.display = 'none';
-        switchTab('connect');
+window.actionCreateRoom = function () {
+    // 1. [iOS] Start Tone.js immediately in the click event stack (synchronous start)
+    Tone.start();
 
-        // [RESTORED] Visual Update
-        myDeviceLabel = 'HOST';
-        updateRoleBadge();
-    }, 50);
+    // 2. Run remaining async logic
+    (async () => {
+        await activateAudio();
+        // Using setTimeout to allow UI update if needed, but alert blocks anyway.
+        setTimeout(() => {
+            alert("이제 당신이 호스트입니다.\n다른 사람을 초대하거나 다른 기기를 추가하려면\n'Connect' 탭의 QR코드 또는 링크를 공유하세요.");
+            document.getElementById('onboarding-overlay').style.display = 'none';
+            switchTab('connect');
+
+            // [RESTORED] Visual Update
+            myDeviceLabel = 'HOST';
+            updateRoleBadge();
+        }, 50);
+    })();
 };
 
-window.actionJoinRoom = async function () {
-    await activateAudio();
-    setTimeout(() => {
-        alert("호스트가 제공한 QR코드나 링크를 통해 접속하세요.\n'Connect' 탭에서 링크(ID)를 수동으로 입력하여 접속하실 수도 있습니다.");
+window.actionJoinRoom = function () {
+    // 1. [iOS] Start Tone.js immediately in the click event stack (synchronous start)
+    Tone.start();
+
+    // 2. Run remaining async logic
+    (async () => {
+        await activateAudio();
+        setTimeout(() => {
+            alert("호스트가 제공한 QR코드나 링크를 통해 접속하세요.\n'Connect' 탭에서 링크(ID)를 수동으로 입력하여 접속하실 수도 있습니다.");
+            document.getElementById('onboarding-overlay').style.display = 'none';
+            switchTab('connect');
+
+            // [RESTORED] Visual Update
+            myDeviceLabel = 'GUEST';
+            updateRoleBadge();
+        }, 50);
+    })();
+};
+
+window.actionEnterSession = function () {
+    // 1. [iOS] Start Tone.js immediately in the click event stack (synchronous start)
+    Tone.start();
+
+    // 2. Run remaining async logic
+    (async () => {
+        await activateAudio();
         document.getElementById('onboarding-overlay').style.display = 'none';
-        switchTab('connect');
 
         // [RESTORED] Visual Update
         myDeviceLabel = 'GUEST';
         updateRoleBadge();
-    }, 50);
-};
 
-window.actionEnterSession = async function () {
-    await activateAudio();
-    document.getElementById('onboarding-overlay').style.display = 'none';
-
-    // [RESTORED] Visual Update
-    myDeviceLabel = 'GUEST';
-    updateRoleBadge();
-
-    joinSession(); // This handles the connection and logic
-    switchTab('play'); // Guest goes to visualizer
+        joinSession(); // This handles the connection and logic
+        switchTab('play'); // Guest goes to visualizer
+    })();
 };
 
 /**

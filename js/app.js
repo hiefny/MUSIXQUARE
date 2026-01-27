@@ -489,8 +489,8 @@ console.log(`[App] Initializing Worker with OPFS Instance ID: ${OPFS_INSTANCE_ID
 timerWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 
 timerWorker.onerror = (e) => {
-    console.error("Worker Error: ", e.message);
-    showToast("워커 로드 실패! HTTPS 환경인지 확인하세요.");
+    console.error('[Worker Error]', e.message, e.filename, e.lineno);
+    showToast("워커 로드 또는 작업 실패! HTTPS 환경을 확인하세요.");
 };
 
 timerWorker.onmessage = async (e) => {
@@ -551,11 +551,7 @@ timerWorker.onmessage = async (e) => {
     }
 };
 
-// ✅ 추가: 에러 핸들러
-timerWorker.onerror = (err) => {
-    console.error('[Worker Error]', err.message, err.filename, err.lineno);
-    showToast('백그라운드 작업 오류 발생');
-};
+
 
 function finalizeFileProcessing(file) {
     // This is called when OPFS_FILE_READY comes back from worker.

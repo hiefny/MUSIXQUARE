@@ -882,6 +882,10 @@ window.actionCreateRoom = async function () {
         alert("이제 당신이 호스트입니다.\n다른 사람을 초대하거나 다른 기기를 추가하려면\n'Connect' 탭의 QR코드 또는 링크를 공유하세요.");
         document.getElementById('onboarding-overlay').style.display = 'none';
         switchTab('connect');
+
+        // [RESTORED] Visual Update
+        myDeviceLabel = 'HOST';
+        updateRoleBadge();
     }, 50);
 };
 
@@ -891,15 +895,51 @@ window.actionJoinRoom = async function () {
         alert("호스트가 제공한 QR코드나 링크를 통해 접속하세요.\n'Connect' 탭에서 링크(ID)를 수동으로 입력하여 접속하실 수도 있습니다.");
         document.getElementById('onboarding-overlay').style.display = 'none';
         switchTab('connect');
+
+        // [RESTORED] Visual Update
+        myDeviceLabel = 'GUEST';
+        updateRoleBadge();
     }, 50);
 };
 
 window.actionEnterSession = async function () {
     await activateAudio();
     document.getElementById('onboarding-overlay').style.display = 'none';
+
+    // [RESTORED] Visual Update
+    myDeviceLabel = 'GUEST';
+    updateRoleBadge();
+
     joinSession(); // This handles the connection and logic
     switchTab('play'); // Guest goes to visualizer
 };
+
+/**
+ * [RESTORED] UI Update Logic for Status Pill
+ */
+function updateRoleBadge() {
+    const badge = document.getElementById('role-badge');
+    const text = document.getElementById('role-text');
+
+    if (!badge || !text) return;
+
+    // 1. Reset
+    badge.classList.remove('connected');
+
+    // 2. Update based on state
+    if (hostConn) {
+        // Guest Mode
+        text.innerText = 'GUEST';
+        badge.classList.add('connected');
+    } else if (connectedPeers.length > 0 || myDeviceLabel === 'HOST') {
+        // Host Mode (connected or just started)
+        text.innerText = 'HOST';
+        badge.classList.add('connected');
+    } else {
+        // Offline / Setup
+        text.innerText = 'OFFLINE';
+    }
+}
 
 // Wrapper function to check guest before triggering file input
 function openFileSelector() {
@@ -3011,9 +3051,11 @@ function setupPeerEvents() {
         } else {
             const hostPanel = document.getElementById('host-panel');
             if (hostPanel) hostPanel.classList.add('visible');
-            const roleText = document.getElementById('role-text');
-            if (roleText) roleText.innerText = "HOST (ME)";
-            document.getElementById('role-badge').classList.add('connected');
+
+            // [REF] Centralized Update
+            myDeviceLabel = 'HOST';
+            updateRoleBadge();
+
             updateSyncBtnState(false);
 
             renderDeviceList([
@@ -3385,10 +3427,13 @@ function joinSession(retryAttempt = 0) {
     isIntentionalDisconnect = false;
 
     // UI Reset: Rebranding to "Connecting" state (Gray)
+    // [REF] Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
+    // For connecting state, we might manually override text after calling update (or update function to support it)
+    // For now, let's keep specific connection UI logic local but clean up the badge reset
     const roleBadge = document.getElementById('role-badge');
     if (roleBadge) {
         roleBadge.classList.remove('connected');
-        roleBadge.style.background = ''; // Clear inline colors (orange/blue)
+        roleBadge.style.background = '';
         roleBadge.style.boxShadow = '';
     }
 
@@ -3446,8 +3491,11 @@ function joinSession(retryAttempt = 0) {
         if (failedOverlay) failedOverlay.remove();
 
         showToast("Host 연결됨!");
-        const roleBadge = document.getElementById('role-badge');
-        if (roleBadge) roleBadge.classList.add('connected');
+
+        // [REF] Centralized Update
+        myDeviceLabel = 'GUEST';
+        updateRoleBadge();
+
         updateSyncBtnState(true);
 
         updateQrCode(hostId);
@@ -3518,10 +3566,12 @@ function joinSession(retryAttempt = 0) {
                 showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
             }
             showToast("Host 끊김");
-            document.getElementById('role-text').innerText = "OFFLINE";
+            // [REF] Centralized Update
+            updateRoleBadge();
+
+            // Clear any inline styles left by detectConnectionType
             const roleBadge = document.getElementById('role-badge');
             if (roleBadge) {
-                roleBadge.classList.remove('connected');
                 roleBadge.style.background = '';
                 roleBadge.style.boxShadow = '';
             }

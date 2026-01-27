@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     /* Palette - Deep & Clean & Flat */
     --bg: #000000;
     --bg-visualizer: #050505;
@@ -63,12 +63,17 @@
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(64, 64, 64, 0.5);
+    background: var(--surface-3);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
+}
+
+/* Hide scrollbar when not scrolling (optional - can be removed) */
+::-webkit-scrollbar-thumb {
+    background: rgba(64, 64, 64, 0.5);
 }
 
 ::-webkit-scrollbar-thumb:active {
@@ -89,7 +94,7 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-
+/* --- Animations --- */
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -100,6 +105,10 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.tab-content {
+    animation: fadeIn 0.3s ease-out;
 }
 
 /* --- Header --- */
@@ -167,6 +176,18 @@ header {
     transition: transform 0.2s, background 0.2s;
 }
 
+.file-select-btn:active {
+
+    transform: scale(0.96);
+    background: var(--surface-3);
+}
+
+.file-select-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
 .role-badge.connected {
     background: var(--primary);
     color: white;
@@ -176,26 +197,16 @@ header {
     background: white;
 }
 
+/* --- Layout --- */
 .tab-content {
-    animation: fadeIn 0.3s ease-out;
     flex: 1;
     display: none;
+    /* Revert to safe default */
     flex-direction: column;
     overflow-y: auto;
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
     scrollbar-width: none;
     -ms-overflow-style: none;
-}
-
-.tab-content::-webkit-scrollbar {
-    display: none;
-}
-
-.tab-content.active {
-    display: flex;
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -210,6 +221,20 @@ body.mode-video #tab-play:not(.active) {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+}
+
+.tab-content::-webkit-scrollbar {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    /* Back to original stable display for most tabs */
+    position: relative;
+    left: 0;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 /* Play tab needs flex for centering content */
@@ -287,7 +312,7 @@ body.mode-video #tab-play:not(.active) {
     border: 2px solid var(--bg);
 }
 
-
+/* --- TAB 1: PLAYER (Redesigned) --- */
 #tab-play {
     justify-content: space-evenly;
     padding-top: 10px;
@@ -759,7 +784,7 @@ input[type=range]:active::-webkit-slider-thumb {
     fill: currentColor;
 }
 
-
+/* --- TAB: PLAYLIST (Clean List) --- */
 .playlist-title-area {
     display: flex;
     align-items: center;
@@ -871,7 +896,7 @@ input[type=range]:active::-webkit-slider-thumb {
     }
 }
 
-
+/* --- Sub-Playlist (YouTube) --- */
 .sub-playlist {
     list-style: none;
     padding: 0 0 8px 48px;
@@ -958,7 +983,7 @@ input[type=range]:active::-webkit-slider-thumb {
     position: relative;
 }
 
-
+/* --- Common UI: Grouped Lists --- */
 .section-group {
     background: var(--surface-1);
     border-radius: var(--radius-m);
@@ -1089,6 +1114,59 @@ input[type=range]:active::-webkit-slider-thumb {
     height: 200px;
 }
 
+.eq-band {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex: 1;
+}
+
+.eq-val {
+    font-size: 11px;
+    color: var(--text-sub);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.eq-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 700;
+    flex: 0 0 14px;
+}
+
+/* Preamp Slider */
+/* Preamp Old Wrap Removed - new is using .slider-wrap logic */
+
+.preamp-label {
+    color: var(--primary);
+    font-weight: 800;
+    font-size: 11px;
+}
+
+.eq-band {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex: 1;
+}
+
+.eq-val {
+    font-size: 11px;
+    color: var(--text-sub);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.eq-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 700;
+}
 
 /* Vertical Slider Compact Logic */
 input[type=range].eq-slider {
@@ -1185,7 +1263,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s;
     border: 2px solid transparent;
 }
 
@@ -1509,7 +1587,58 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     color: #fff;
 }
 
+.gesture-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 5, 5, 0.95);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    display: none;
+    backdrop-filter: blur(20px);
+}
 
+.gesture-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    font-size: 24px;
+    font-weight: 800;
+    cursor: pointer;
+    animation: pulse 2s infinite;
+    font-family: inherit;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+#file-input {
+    display: none;
+}
+
+/* --- Onboarding Overlay Styles --- */
 .onboarding-overlay {
     position: fixed;
     inset: 0;
@@ -1536,6 +1665,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     overflow: hidden;
 }
 
+/* Glass effect for light mode */
 [data-theme="light"] .onboarding-card {
     background: rgba(255, 255, 255, 0.95);
 }
@@ -1625,7 +1755,21 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-top: 12px;
 }
 
-.btn-ob-primary,
+.btn-ob-primary {
+    width: 100%;
+    padding: 18px;
+    border-radius: 18px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+}
+
 .btn-ob-secondary {
     width: 100%;
     padding: 18px;
@@ -1634,34 +1778,26 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     font-weight: 700;
     cursor: pointer;
     border: none;
-    font-family: inherit;
-    transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-}
-
-.btn-ob-primary {
-    background: var(--primary);
-    color: white;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.btn-ob-secondary {
     background: var(--surface-2);
     color: var(--text-main);
-}
-
-.btn-ob-primary:active,
-.btn-ob-secondary:active {
-    transform: scale(0.96);
+    font-family: inherit;
+    transition: transform 0.2s;
 }
 
 .btn-ob-primary:active {
+    transform: scale(0.96);
     box-shadow: none;
 }
 
 .btn-ob-secondary:active {
+    transform: scale(0.96);
     background: var(--surface-3);
 }
 
+/* Hide Legacy Gesture Overlay */
+#gesture-overlay {
+    display: none !important;
+}
 
 /* Navigation Arrows */
 .ob-arrow {
@@ -1684,7 +1820,22 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 /* Manual Sync Overlay */
+.manual-sync-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 4000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
 
+.manual-sync-overlay.show {
+    display: flex;
+    opacity: 1;
+}
 
 .sync-card {
     background: var(--surface-1);
@@ -2084,7 +2235,7 @@ input:checked+.slider:before {
     border-radius: 50%;
 }
 
-
+/* --- Header Help Button --- */
 .help-btn {
     background: var(--surface-2);
     border: none;
@@ -2110,7 +2261,7 @@ input:checked+.slider:before {
     fill: currentColor;
 }
 
-
+/* --- Help Modal Overlay --- */
 .help-modal-overlay {
     position: fixed;
     inset: 0;
@@ -2282,7 +2433,7 @@ input:checked+.slider:before {
     font-size: 14px;
 }
 
-
+/* --- Chat UI --- */
 
 /* Chat YouTube 미니 플레이어 */
 .chat-youtube-container {

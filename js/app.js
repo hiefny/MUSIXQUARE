@@ -1137,7 +1137,7 @@ function updateMediaSessionMetadata(item) {
             artwork = [{ src: item.thumbnail, sizes: '480x360', type: 'image/jpeg' }];
         }
     } else {
-        artwork = [{ src: 'HFNY4ren.svg', sizes: '512x512', type: 'image/svg+xml' }];
+        artwork = [{ src: 'favicon.svg', sizes: '512x512', type: 'image/svg+xml' }];
     }
 
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -1623,7 +1623,7 @@ function playPrevTrack() {
 
 async function loadAndBroadcastFile(file) {
     showLoader(true, `준비 중: ${file.name} `);
-    stop();
+    stopAllMedia();
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         stopYouTubeMode();
@@ -1951,9 +1951,7 @@ function setEngineMode(mode) {
     updatePlaylistUI();
 }
 
-function stop() {
-    stopAllMedia();
-}
+
 
 
 function togglePlay() {
@@ -3778,7 +3776,7 @@ async function handleFilePrepare(data) {
         console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
         showToast("프리로드된 파일 사용!");
 
-        stop();
+        stopAllMedia();
         currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
         updatePlaylistUI();
 
@@ -3846,7 +3844,7 @@ async function handleFilePrepare(data) {
         // Clear previous track state before receiving new file
         clearPreviousTrackState('file-prepare (new download)');
         showLoader(true, `준비 중: ${data.name}`);
-        stop();
+        stopAllMedia();
         if (data.index !== undefined) {
             currentTrackIndex = data.index;
             updatePlaylistUI();
@@ -3878,13 +3876,8 @@ async function handleFilePrepare(data) {
                 console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
                 setTimeout(() => {
                     if (hostConn && hostConn.open && !currentFileBlob) {
-                        console.log("[Prepare Watchdog Recovery] Requesting from Host:", recoveryFileName);
-                        hostConn.send({
-                            type: 'request-data-recovery',
-                            nextChunk: 0,
-                            fileName: recoveryFileName,
-                            index: recoveryIndex
-                        });
+                        sendRecoveryRequest(0);
+
                     }
                 }, jitter);
             }
@@ -4013,19 +4006,8 @@ async function handleFileStart(data) {
             if (upstreamDataConn) upstreamDataConn = null;
 
             if (hostConn && hostConn.open) {
-                const recoveryFileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
-
-                // GAP-BASED RECOVERY: (Simplified: using receivedCount as fallback since we don't have bitset here)
-                let firstMissing = receivedCount || 0;
-
-                console.log("[Watchdog Recovery] Requesting from index:", firstMissing, "FileName:", recoveryFileName);
-                hostConn.send({
-                    type: 'request-data-recovery',
-                    nextChunk: firstMissing,
-                    fileName: recoveryFileName,
-                    index: recoveryIndex
-                });
+                // GAP-BASED RECOVERY: (Simplified usage of helper)
+                sendRecoveryRequest(receivedCount || 0);
             }
         }
     }, 1000);
@@ -4089,19 +4071,9 @@ async function handleFileResume(data) {
             if (upstreamDataConn) upstreamDataConn = null;
 
             if (hostConn && hostConn.open) {
-                const recoveryFileName = meta?.name || window._pendingFileName || '';
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+                // Find first missing chunk via helper
+                sendRecoveryRequest(receivedCount || 0);
 
-                // Find first missing chunk (Simplified: in OPFS we'd need a tracking bitset for perfect gaps, using receivedCount as fallback)
-                let firstMissing = receivedCount || 0;
-
-                console.log("[Resume Watchdog] Requesting from index:", firstMissing);
-                hostConn.send({
-                    type: 'request-data-recovery',
-                    nextChunk: firstMissing,
-                    fileName: recoveryFileName,
-                    index: recoveryIndex
-                });
             }
         }
     }, 1000);
@@ -4299,7 +4271,7 @@ async function handleSyncResponse(data) {
 
     if (data.isPlaying) play(compensatedTime + localOffset);
     else {
-        stop();
+        stopAllMedia();
         pausedAt = compensatedTime;
         loopUI();
     }
@@ -4317,7 +4289,7 @@ async function handleYouTubePlay(data) {
     console.log("[Guest] Received youtube-play:", data);
 
     // 1. Stop any local audio/video first
-    stop();
+    stopAllMedia();
 
     // 2. [Reliability] Reset preload state when entering YouTube
     clearPreloadState();
@@ -4568,7 +4540,7 @@ async function handleStatusSync(data) {
         playlist = [];
         currentTrackIndex = -1;
         updatePlaylistUI();
-        stop();
+        stopAllMedia();
         return;
     }
 
@@ -4813,7 +4785,7 @@ async function handleYouTubePlaylistInfo(data) {
 async function handleYouTubeStop(data) {
     console.log("[Guest] Received youtube-stop, switching to local mode");
     if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
-    stop();
+    stopAllMedia();
 }
 
 async function handleOperatorGrant(data) {
@@ -4825,9 +4797,65 @@ async function handleOperatorGrant(data) {
 
 async function handleOperatorRevoke(data) {
     isOperator = false;
-    showToast("Operator 권한이 회수되었습니다.");
-    document.getElementById('play-btn').disabled = true;
-    document.getElementById('role-badge').innerHTML = `<span class="role-dot"></span> HOST SYNC`;
+    showToast("Operator 권한이 해제되었습니다.");
+    // document.getElementById('play-btn').disabled = true; // Host가 아니면 기본 비활성 (재생 동기화로 제어)
+    document.getElementById('role-badge').innerHTML = `<span class="role-dot"></span> HOST SYNC (Guest)`;
+}
+
+// ============================================================================
+// [SECTION] UI HELPERS (Fixes for ReferenceError)
+// ============================================================================
+
+/**
+ * Wrapper for Audio Effect UI controls to route to specific setter functions.
+ * Handles the 'oninput' (local preview) vs 'onchange' (broadcast) logic.
+ *
+ * @param {string} type - Effect type ('reverb', 'stereo', 'vbass', 'cutoff')
+ * @param {string} param - Parameter name ('mix', 'decay', 'predelay', 'lowcut', 'highcut', or null)
+ * @param {number|string} value - The new value from range slider
+ * @param {boolean} isInput - True if 'oninput' (dragging), False if 'onchange' (release)
+ */
+function updateAudioEffect(type, param, value, isInput = false) {
+    const val = parseFloat(value);
+    const isLocalOnly = isInput; // Don't broadcast while dragging
+
+    // 1. Reverb
+    if (type === 'reverb') {
+        switch (param) {
+            case 'mix':
+                if (typeof setReverb === 'function') setReverb(val, isLocalOnly);
+                break;
+            case 'decay':
+                if (typeof setReverbDecay === 'function') setReverbDecay(val, isLocalOnly);
+                break;
+            case 'predelay':
+                if (typeof setReverbPreDelay === 'function') setReverbPreDelay(val, isLocalOnly);
+                break;
+            case 'lowcut':
+                if (typeof setReverbLowCut === 'function') setReverbLowCut(val, isLocalOnly);
+                break;
+            case 'highcut':
+                if (typeof setReverbHighCut === 'function') setReverbHighCut(val, isLocalOnly);
+                break;
+        }
+    }
+    // 2. Stereo Width
+    else if (type === 'stereo') {
+        // setStereoWidth updates local. onStereoWidthChange broadcasts.
+        if (typeof setStereoWidth === 'function') setStereoWidth(val);
+
+        if (!isInput && typeof onStereoWidthChange === 'function') {
+            onStereoWidthChange(val);
+        }
+    }
+    // 3. Virtual Bass
+    else if (type === 'vbass') {
+        if (typeof setVirtualBass === 'function') setVirtualBass(val);
+
+        if (!isInput && typeof onVirtualBassChange === 'function') {
+            onVirtualBassChange(val);
+        }
+    }
 }
 
 async function handleDeviceListUpdate(data) {
@@ -4842,9 +4870,7 @@ async function handleDeviceListUpdate(data) {
     renderDeviceList(data.list);
 }
 
-async function handleSysToast(data) {
-    showToast(data.message);
-}
+
 
 async function handleChat(data) {
     const isMine = (data.sender === myDeviceLabel);
@@ -4910,7 +4936,7 @@ const handlers = {
     'operator-grant': handleOperatorGrant,
     'operator-revoke': handleOperatorRevoke,
     'device-list-update': handleDeviceListUpdate,
-    'sys-toast': handleSysToast,
+    'sys-toast': (data) => showToast(data.message),
     'chat': handleChat,
     'assign-data-source': handleAssignDataSource,
     'preload-start': handlePreloadStart,
@@ -4996,31 +5022,10 @@ function connectToRelay(targetId) {
         showToast("Relay Disconnected. Recovering...");
         upstreamDataConn = null;
 
-        const totalExpected = meta?.total || 0;
         if (receivedCount < totalExpected) {
             if (hostConn && hostConn.open) {
-                const recoveryFileName = meta?.name || window._pendingFileName || '';
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
-
-                let firstMissing = 0;
-                if (incomingChunks && incomingChunks.length > 0) {
-                    for (let j = 0; j < incomingChunks.length; j++) {
-                        if (!incomingChunks[j]) {
-                            firstMissing = j;
-                            break;
-                        }
-                    }
-                } else {
-                    firstMissing = receivedCount || 0;
-                }
-
-                showToast(`Recovering from chunk ${firstMissing}...`);
-                hostConn.send({
-                    type: 'request-data-recovery',
-                    nextChunk: firstMissing,
-                    fileName: recoveryFileName,
-                    index: recoveryIndex
-                });
+                showToast(`Recovering...`);
+                sendRecoveryRequest(); // Auto-detect missing
             }
         }
     });
@@ -5348,6 +5353,35 @@ function handleOperatorRequest(data) {
             }
         }
     }
+}
+
+
+function sendRecoveryRequest(forceChunk = null) {
+    if (!hostConn || !hostConn.open) return;
+
+    const fileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
+    const index = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+
+    let chunkToAsk = forceChunk;
+    if (chunkToAsk === null) {
+        chunkToAsk = receivedCount || 0;
+        if (typeof incomingChunks !== 'undefined' && incomingChunks.length > 0) {
+            for (let j = 0; j < incomingChunks.length; j++) {
+                if (!incomingChunks[j]) {
+                    chunkToAsk = j;
+                    break;
+                }
+            }
+        }
+    }
+
+    console.log(`[Recovery] Requesting: ${fileName} (Chunk: ${chunkToAsk})`);
+    hostConn.send({
+        type: 'request-data-recovery',
+        nextChunk: chunkToAsk,
+        fileName: fileName,
+        index: index
+    });
 }
 
 async function broadcastFile(file) {
@@ -5853,7 +5887,7 @@ function seekToTime(seconds) {
             showToast(`${fmtTime(seconds)}로 이동`);
         }
     } else if (videoElement && videoElement.src) {
-        stop();
+        stopAllMedia();
         play(seconds);
         showToast(`${fmtTime(seconds)}로 이동`);
     } else {
@@ -6774,7 +6808,7 @@ window.setChannel = setChannel;
 window.setSurroundChannel = setSurroundChannel;
 window.updateSettings = updateSettings;
 window.resetReverb = resetReverb;
-window.updateAudioEffect = updateAudioEffect;
+
 window.resetEQ = resetEQ;
 window.setPreamp = setPreamp;
 window.setEQ = setEQ;
@@ -6794,5 +6828,6 @@ window.closeMediaSourcePopup = closeMediaSourcePopup;
 window.closeYouTubePopup = closeYouTubePopup;
 window.fetchYouTubePreview = fetchYouTubePreview;
 window.loadYouTubeFromInput = loadYouTubeFromInput;
+window.updateAudioEffect = updateAudioEffect;
 
 // End of Script

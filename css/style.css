@@ -1114,59 +1114,6 @@ input[type=range]:active::-webkit-slider-thumb {
     height: 200px;
 }
 
-.eq-band {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px;
-    flex: 1;
-}
-
-.eq-val {
-    font-size: 11px;
-    color: var(--text-sub);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-}
-
-.eq-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 700;
-    flex: 0 0 14px;
-}
-
-/* Preamp Slider */
-/* Preamp Old Wrap Removed - new is using .slider-wrap logic */
-
-.preamp-label {
-    color: var(--primary);
-    font-weight: 800;
-    font-size: 11px;
-}
-
-.eq-band {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px;
-    flex: 1;
-}
-
-.eq-val {
-    font-size: 11px;
-    color: var(--text-sub);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-}
-
-.eq-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 700;
-}
 
 /* Vertical Slider Compact Logic */
 input[type=range].eq-slider {

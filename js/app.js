@@ -8,56 +8,54 @@
  * - PeerJS (WebRTC P2P)
  * - QRCode.js (QR Generation)
  * * [SECTION INDEX]
- * - 전역 변수 선언
- * - Worker & Timer
- * - Audio Engine (Tone.js)
+ * - 전역 변수 선언 (Global Variables)
+ * - Worker & Timer (Background Tasks)
+ * - Audio Engine (Tone.js Nodes & Init)
  * - Onboarding & Session Actions
  * - Playlist & Track Management
- * - Playback Engine
+ * - Playback Engine (Play, Pause, Stop)
  * - Audio Settings (EQ, Reverb, VB, Surround)
  * - Visualizer & UI Helpers
- * - Networking (PeerJS)
- * - Data Handlers (File Transfer, Sync)
- * - Relay & Broadcast
- * - UI Functions (Toast, Loader, Help)
- * - Chat System
- * - YouTube Integration
+ * - Networking (PeerJS Initialization & ID Management)
+ * - Peer Data Message Handlers (Sync, File Transfer)
+ * - Relay & Broadcast Management
+ * - UI Components (Toast, Loader, QR, Help)
+ * - Chat System (Real-time Messaging & URL Detection)
+ * - YouTube Integration (API IFrame Player)
+ * - WINDOW EXPORTS (Public API for HTML/UI)
  * * ============================================================================
  * GLOBAL VARIABLES REFERENCE
  * ============================================================================
  * * [AUDIO ENGINE - Tone.js Nodes]
  * toneSplit       : Tone.Split - 스테레오 채널 분리
- * toneMerge       : Tone.Merge - 채널 병합
- * gainL, gainR    : Tone.Gain - L/R 채널 게인
- * masterGain      : Tone.Gain - 마스터 볼륨
- * reverb          : Tone.Reverb - 리버브 이펙트
- * eqNodes[]       : Tone.Filter[] - 5밴드 EQ
- * vbFilter/Cheby/Gain : Virtual Bass 체인
- * analyser        : Tone.Analyser - 비주얼라이저용
+ * toneMerge       : Tone.Merge - 채널 병합 (최종 출력 전 단계)
+ * gainL, gainR    : Tone.Gain - L/R 채널별 독립 게인
+ * masterGain      : Tone.Gain - 마스터 볼륨 및 최종 출력
+ * widener         : Tone.StereoWidener - 가상 서라운드 너비 조절
+ * preamp          : Tone.Gain - 이퀄라이저 전 증폭 단계
+ * globalLowPass   : Tone.Filter - 우퍼/LFE 모드용 가변 저역필터
+ * eqNodes[]       : Tone.Filter[] - 5밴드 그래픽 EQ
+ * reverb          : Tone.Reverb - 리버브 엔진
+ * rvbLowCut/HighCut : Tone.Filter - 리버브 댐핑 제어용 필터
+ * rvbCrossFade    : Tone.CrossFade - 리버브 Wet/Dry 믹스
+ * vbFilter/Cheby/Gain : Virtual Bass (Chebyshev) 엔진 체인
+ * analyser        : Tone.Analyser - 비주얼라이저 데이터 분석기
  * * [PLAYBACK STATE]
- * currentState    : string - APP_STATE 머신 상태
- * startedAt       : number - Tone.now() 기준 재생 시작 시간
- * pausedAt        : number - 일시정지 위치 (초)
+ * currentState    : string - APP_STATE 머신 상태 (IDLE, PLAYING_...)
+ * startedAt       : number - Tone.now() 기준 트랙 재생 시작 시점
+ * pausedAt        : number - 일시정지된 트랙 위치 (초)
  * * [PLAYLIST]
- * playlist[]      : Array - { type, file, name, videoId, playlistId, ... }
- * currentTrackIndex : number - 현재 재생 중인 트랙 인덱스
- * repeatMode      : 0=끔, 1=전체반복, 2=한곡반복
- * isShuffle       : boolean - 셔플 모드
- * * [NETWORK - PeerJS]
+ * playlist[]      : Array - 트랙 객체 배열 { type, file, name, videoId... }
+ * currentTrackIndex : number - 현재 재생 또는 대기 중인 트랙 인덱스
+ * repeatMode      : number - 0=Off, 1=All, 2=One
+ * * [NETWORK & SYNC]
  * peer            : Peer - PeerJS 인스턴스
- * myId            : string - 내 Peer ID
- * hostConn        : DataConnection - Guest→Host 연결 (Guest만 사용)
- * connectedPeers[] : DataConnection[] - Host가 관리하는 Guest 연결 목록
- * isOperator      : boolean - Guest가 OP 권한 보유 여부
- * * [SYNC]
- * localOffset     : number - 수동 싱크 오프셋 (초)
- * autoSyncOffset  : number - 자동 레이턴시 보정 (초)
- * * [PRELOAD]
- * nextTrackIndex  : number - 프리로드된 다음 트랙 인덱스
- * nextFileBlob    : Blob - 프리로드된 파일 (Guest 전송용)
+ * hostConn        : DataConnection - Guest→Host 연결 객체
+ * connectedPeers[] : DataConnection[] - Host가 관리하는 모든 Guest 목록
+ * localOffset     : number - 수동 싱크 보정 값 (초)
+ * autoSyncOffset  : number - 자동 레이턴시 측정 보정 값 (초)
  * * [YOUTUBE]
- * youtubePlayer   : YT.Player - YouTube IFrame Player
- * youtubeSubItemsMap : object - 플레이리스트별 비디오 ID/제목 캐시
+ * youtubePlayer   : YT.Player - YouTube API 컨트롤러
  * * ============================================================================
  */
 
@@ -78,6 +76,7 @@ let analyser;
 // ============================================================================
 const APP_STATE = {
     IDLE: 'IDLE',
+    PLAYING_AUDIO: 'PLAYING_AUDIO',
     PLAYING_VIDEO: 'PLAYING_VIDEO',     // 비디오 및 스트리밍 모드 통합
     PLAYING_STREAMING: 'PLAYING_STREAMING', // 오디오 전용 스트리밍 (videoElement 사용하지만 화면 숨김)
     PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'
@@ -160,7 +159,7 @@ function cleanupState(oldState) {
 }
 
 /**
- * [NEW] 중앙화된 현재 트랙 재생 위치 계산 함수
+ * 중앙화된 현재 트랙 재생 위치 계산 함수
  * startedAt, localOffset, autoSyncOffset을 모두 고려하여
  * 현재 트랙의 몇 초 지점인지를 반환합니다.
  * @param {boolean} useAudioClock - true면 비디오 요소 대신 Tone.js 클락(네트워크 기준)을 사용합니다.
@@ -251,7 +250,7 @@ function clearAllManagedTimers() {
 }
 
 let channelMode = 0; // 0=Stereo, -1=Left, 1=Right, 2=Sub
-let isSurroundMode = false; // New 7.1 Mode
+let isSurroundMode = false; // 7.1 Mode
 let surroundChannelIndex = -1; // 0..7
 let surroundSplitter = null; // Split Source into 8 channels
 let surroundGain = null; // Gain for selected surround channel
@@ -485,8 +484,6 @@ function forceCleanupOPFS(isPreload) {
 }
 
 
-// --- Worker for Background Timers (Blob URL for file:// support) ---
-// --- Worker for Background Timers and High-Performance OPFS Writes ---
 const timerWorker = new Worker('js/worker.js');
 
 timerWorker.onerror = (e) => {
@@ -609,9 +606,6 @@ function finalizeFileProcessing(file) {
     transferState = TRANSFER_STATE.READY;
 }
 
-// function checkVideoSync() { ... } [REMOVED POLLING]
-
-
 // --- Theme Logic ---
 function setTheme(mode) {
     let theme = mode;
@@ -648,6 +642,17 @@ function switchTab(tabId) {
     if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
         // Use timeout to ensure tab transition is complete
         setTimeout(() => refreshYouTubeDisplay(), 50);
+    }
+
+    // Chat drawer logic (previously in a separate wrapper)
+    if (isChatDrawerOpen) {
+        toggleChatDrawer();
+    }
+
+    // YouTube mini-player logic
+    const miniPlayer = document.getElementById('yt-mini-player');
+    if (miniPlayer) {
+        miniPlayer.style.display = 'none';
     }
 }
 
@@ -1251,8 +1256,8 @@ async function playTrack(index) {
         currentTrackIndex = index;
         updatePlaylistUI();
 
-        // 1. Host Switches Locally Fast
-        await loadPreloadedTrack();
+        // 1. Unified Stop for clean state
+        stopAllMedia();
 
         // 2. Get track info for Guest fallback
         const item = playlist[index];
@@ -1261,7 +1266,7 @@ async function playTrack(index) {
         // 3. Broadcast ONLY play-preloaded command
         broadcast({ type: 'play-preloaded', index: index, name: fileName });
 
-        // 4. Start Playback immediately after loading
+        // 4. Activate preloaded track and play
         await loadPreloadedTrack();
         play(0);
 
@@ -1396,6 +1401,11 @@ async function preloadNextTrack() {
 
     // 1. Host Loads Locally (Background)
     // Strategy: Decode small audio immediately, keep large files/video as Blob to save RAM.
+
+    // [Fix] Host side state tracking: Assign blob and meta locally too
+    const total = Math.ceil(file.size / CHUNK_SIZE);
+    nextFileBlob = file;
+    nextMeta = { name: file.name, index: nextIdx, mime: file.type, total: total, size: file.size, sessionId: currentSession };
 
     // 2. Broadcast Preload
     // Special function to broadcast without stopping playback
@@ -2276,93 +2286,30 @@ function updateSettings(type, val) {
     }
 }
 
-function onReverbInput(val) { setReverb(val); }
+function onReverbInput(val) { setReverbParam('mix', val); }
 function onReverbChange(val) {
     if (!hostConn) broadcast({ type: 'reverb', value: val });
     else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb', value: val });
-}
-
-function setReverb(val) {
-    reverbMix = val / 100;
-    document.getElementById('val-reverb').innerText = val + '%';
-    document.getElementById('reverb-slider').value = val;
-    applySettings();
-}
-
-function resetReverbMix() {
-    setReverb(0);
-    onReverbChange(0);
-}
-
-function setReverbType(type) {
-    if (!reverb) return;
-    reverbType = type;
-    document.querySelectorAll('.rvb-chip').forEach(el => el.classList.remove('active'));
-    document.getElementById(`rvb - ${type}`).classList.add('active');
-
-    // Preset Decay Times
-    let decay = 1.5;
-    if (type === 'room') decay = 1.5;
-    else if (type === 'hall') decay = 3.0; // Standard Hall
-    else if (type === 'church') decay = 6.0; // Long
-    else if (type === 'plate') decay = 2.5; // Bright/Medium
-
-    // Update Audio & Slider UI
-    setReverbDecay(decay);
-
-    if (!hostConn) broadcast({ type: 'reverb-type', value: type });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-type', value: type });
 }
 
 function onReverbDecayInput(val) {
     document.getElementById('val-rvb-decay').innerText = val + 's';
 }
 function onReverbDecayChange(val) {
-    setReverbDecay(val);
+    setReverbParam('decay', val);
     if (!hostConn) broadcast({ type: 'reverb-decay', value: val });
     else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-decay', value: val });
-}
-function setReverbDecay(val) {
-    const v = Number(val);
-    if (reverb) {
-        reverb.decay = v;
-        reverb.generate();
-    }
-    const label = document.getElementById('val-rvb-decay');
-    if (label) label.innerText = v + 's';
-    const slider = document.getElementById('reverb-decay-slider');
-    if (slider) slider.value = v;
-}
-function resetReverbDecay() {
-    setReverbDecay(5.0);
-    onReverbDecayChange(5.0);
 }
 
 function onReverbPreDelayInput(val) {
     document.getElementById('val-rvb-predelay').innerText = val + 's';
 }
 function onReverbPreDelayChange(val) {
-    setReverbPreDelay(val);
+    setReverbParam('predelay', val);
     if (!hostConn) broadcast({ type: 'reverb-predelay', value: val });
     else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-predelay', value: val });
 }
-function setReverbPreDelay(val) {
-    const v = Number(val);
-    if (reverb) {
-        reverb.preDelay = v;
-        reverb.generate();
-    }
-    const label = document.getElementById('val-rvb-predelay');
-    if (label) label.innerText = v + 's';
-    const slider = document.getElementById('reverb-predelay-slider');
-    if (slider) slider.value = v;
-}
-function resetReverbPreDelay() {
-    setReverbPreDelay(0.1);
-    onReverbPreDelayChange(0.1);
-}
 
-// Reverb Low Cut (HPF)
 function onReverbLowCutInput(val) {
     const v = Number(val);
     const freq = 20 * Math.pow(50, v / 100);
@@ -2370,28 +2317,11 @@ function onReverbLowCutInput(val) {
     document.getElementById('val-rvb-lowcut').innerText = txt;
 }
 function onReverbLowCutChange(val) {
-    setReverbLowCut(val);
+    setReverbParam('lowcut', val);
     if (!hostConn) broadcast({ type: 'reverb-lowcut', value: val });
     else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-lowcut', value: val });
 }
-function setReverbLowCut(val) {
-    const v = Number(val);
-    // 0% -> 20Hz (Off), 100% -> 1000Hz
-    const freq = 20 * Math.pow(50, v / 100);
-    if (rvbLowCut) rvbLowCut.frequency.rampTo(freq, 0.1);
 
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
-    const label = document.getElementById('val-rvb-lowcut');
-    if (label) label.innerText = txt;
-    const slider = document.getElementById('reverb-lowcut-slider');
-    if (slider) slider.value = v;
-}
-function resetReverbLowCut() {
-    setReverbLowCut(0);
-    onReverbLowCutChange(0);
-}
-
-// Reverb High Cut (LPF)
 function onReverbHighCutInput(val) {
     const v = Number(val);
     const freq = 20000 * Math.pow(0.025, v / 100);
@@ -2399,26 +2329,55 @@ function onReverbHighCutInput(val) {
     document.getElementById('val-rvb-highcut').innerText = txt;
 }
 function onReverbHighCutChange(val) {
-    setReverbHighCut(val);
+    setReverbParam('highcut', val);
     if (!hostConn) broadcast({ type: 'reverb-highcut', value: val });
     else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-highcut', value: val });
 }
-function setReverbHighCut(val) {
-    const v = Number(val);
-    // 0% -> 20k (Off), 100% -> 500Hz
-    const freq = 20000 * Math.pow(0.025, v / 100);
-    if (rvbHighCut) rvbHighCut.frequency.rampTo(freq, 0.1);
 
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
-    const label = document.getElementById('val-rvb-highcut');
-    if (label) label.innerText = txt;
-    const slider = document.getElementById('reverb-highcut-slider');
-    if (slider) slider.value = v;
+function setReverbParam(param, val) {
+    const v = Number(val);
+    if (!reverb) return;
+
+    switch (param) {
+        case 'mix':
+            reverbMix = v / 100;
+            document.getElementById('val-reverb').innerText = v + '%';
+            document.getElementById('reverb-slider').value = v;
+            applySettings();
+            break;
+        case 'decay':
+            reverb.decay = v;
+            reverb.generate();
+            document.getElementById('val-rvb-decay').innerText = v + 's';
+            document.getElementById('reverb-decay-slider').value = v;
+            break;
+        case 'predelay':
+            reverb.preDelay = v;
+            reverb.generate();
+            document.getElementById('val-rvb-predelay').innerText = v + 's';
+            document.getElementById('reverb-predelay-slider').value = v;
+            break;
+        case 'lowcut':
+            const lFreq = 20 * Math.pow(50, v / 100);
+            if (rvbLowCut) rvbLowCut.frequency.rampTo(lFreq, 0.1);
+            document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'k' : Math.round(lFreq) + 'Hz');
+            document.getElementById('reverb-lowcut-slider').value = v;
+            break;
+        case 'highcut':
+            const hFreq = 20000 * Math.pow(0.025, v / 100);
+            if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
+            document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'k' : Math.round(hFreq) + 'Hz');
+            document.getElementById('reverb-highcut-slider').value = v;
+            break;
+    }
 }
-function resetReverbHighCut() {
-    setReverbHighCut(0);
-    onReverbHighCutChange(0);
-}
+
+function resetReverbMix() { setReverbParam('mix', 0); onReverbChange(0); }
+function resetReverbDecay() { setReverbParam('decay', 5.0); onReverbDecayChange(5.0); }
+function resetReverbPreDelay() { setReverbParam('predelay', 0.1); onReverbPreDelayChange(0.1); }
+function resetReverbLowCut() { setReverbParam('lowcut', 0); onReverbLowCutChange(0); }
+function resetReverbHighCut() { setReverbParam('highcut', 0); onReverbHighCutChange(0); }
+
 
 function resetReverb() {
     resetReverbMix();
@@ -2876,7 +2835,7 @@ function updateSyncBtnState(isGuest) {
 
 // --- Networking (Updated from network.html) ---
 
-// [수정된 네트워크 초기화 코드]
+// 네트워크 초기화 코드
 async function initNetwork() {
     try {
         let turnConfig = { username: "", credential: "" };
@@ -5424,46 +5383,59 @@ async function broadcastFile(file) {
 
     eligiblePeers.forEach(p => p.conn.send(header));
 
+    const chunkPromises = [];
     for (let i = 0; i < total; i++) {
-        // Robust Back-pressure: Wait for buffers to clear below 64KB across ALL peers
-        // Max wait 30 seconds for safety
-        const startWait = Date.now();
-        while (true) {
-            let congested = false;
-            for (const p of eligiblePeers) {
-                if (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 64 * 1024) {
-                    congested = true;
-                    break;
-                }
-            }
-            if (!congested || Date.now() - startWait > 30000) break;
-            await new Promise(r => setTimeout(r, 50));
-        }
-
         const start = i * CHUNK;
         const end = Math.min(start + CHUNK, file.size);
         const chunkBlob = file.slice(start, end);
         const chunkBuf = await chunkBlob.arrayBuffer();
         const chunk = new Uint8Array(chunkBuf);
-
         const chunkMsg = { type: 'file-chunk', chunk: chunk, index: i, sessionId: sessionId };
 
+        // [HoLB Fix] Send to each peer independently and wait for their own backpressure
         for (const p of eligiblePeers) {
-            try {
-                if (p.conn.open) p.conn.send(chunkMsg);
-            } catch (e) {
-                console.warn(`[broadcastFile] Send failed for peer ${p.id.substr(-4)}:`, e);
+            if (!p.openSender) {
+                p.openSender = (async () => {
+                    p.chunkQueue = [];
+                    p.isSending = false;
+                    p.processQueue = async () => {
+                        if (p.isSending || p.chunkQueue.length === 0) return;
+                        p.isSending = true;
+                        while (p.chunkQueue.length > 0) {
+                            const msg = p.chunkQueue.shift();
+                            // Per-peer backpressure check
+                            while (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 64 * 1024) {
+                                await new Promise(r => setTimeout(r, 50));
+                                if (!p.conn.open) break;
+                            }
+                            if (p.conn.open) {
+                                try { p.conn.send(msg); } catch (e) { console.warn(`[Send] Failed for ${p.label}:`, e); }
+                            } else {
+                                p.chunkQueue = [];
+                                break;
+                            }
+                        }
+                        p.isSending = false;
+                    };
+                })();
+            }
+            if (p.conn.open) {
+                p.chunkQueue.push(chunkMsg);
+                p.processQueue();
             }
         }
 
+        // Slight throttle to prevent main thread starvation during large file slicing
         if (i % 50 === 0) await new Promise(r => setTimeout(r, 10));
     }
 
+    // Prepare end message and send to all
     const endMsg = { type: 'file-end', name: file.name, mime: file.type, sessionId: sessionId };
     eligiblePeers.forEach(p => {
-        try {
-            if (p.conn.open) p.conn.send(endMsg);
-        } catch (e) { }
+        if (p.conn.open) {
+            p.chunkQueue.push(endMsg);
+            p.processQueue();
+        }
     });
 }
 
@@ -5656,25 +5628,27 @@ function toggleFullscreen() {
 }
 
 
-window.playlist = playlist;
-window.playTrack = playTrack;
-window.updatePlaylistUI = updatePlaylistUI;
-window.broadcast = broadcast;
-window.broadcastFile = broadcastFile;
-window.initAudio = initAudio;
-
-window.toggleSurroundMode = toggleSurroundMode;
-window.setSurroundChannel = setSurroundChannel;
 
 async function loadPreloadedTrack() {
-    if (!nextFileBlob) return;
+    if (!nextFileBlob) {
+        console.warn("[Preload] No preloaded blob found in cache!");
+        return;
+    }
 
     return new Promise(async (resolve, reject) => {
         try {
             await initAudio();
             currentFileBlob = nextFileBlob;
 
-            const isVideo = nextMeta && (nextMeta.mime?.startsWith('video/') || (nextMeta.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name)));
+            // Robust Video Detection
+            const blobMime = nextFileBlob.type || '';
+            const metaMime = nextMeta?.mime || '';
+            const fileName = nextMeta?.name || '';
+            const isVideo = blobMime.startsWith('video/') ||
+                metaMime.startsWith('video/') ||
+                /\.(mp4|mkv|webm|mov)$/i.test(fileName);
+
+            console.log(`[Preload] Activating track. VideoMode: ${isVideo}`);
 
             // ALWAYS STREAMING
             setEngineMode(isVideo ? 'video' : 'streaming');
@@ -5684,7 +5658,7 @@ async function loadPreloadedTrack() {
             // Set up one-time listener for readiness
             const onReady = () => {
                 videoElement.removeEventListener('canplaythrough', onReady);
-                console.log("[Guest] Preloaded track ready via Streaming");
+                console.log("[Audio] Preloaded track ready via Streaming");
                 resolve();
             };
             videoElement.addEventListener('canplaythrough', onReady);
@@ -5709,10 +5683,15 @@ async function loadPreloadedTrack() {
 
             document.getElementById('play-btn').disabled = !isOperator;
 
+            // Clear preload pointers so we don't accidentally reuse stale data
+            const lastIndex = nextTrackIndex;
             clearPreloadState();
 
+            // [Fix] restore the index we just cleared if needed for logic elsewhere
+            // but usually nextTrackIndex is only for the "next" track.
+
         } catch (e) {
-            console.error("[Preload] Play failed:", e);
+            console.error("[Preload] Activation failed:", e);
             showToast("프리로드 재생 실패 - 다시 로드합니다");
             clearPreloadState();
             if (hostConn && hostConn.open) {
@@ -5778,19 +5757,29 @@ function sendChatMessage() {
 function addChatMessage(sender, text, isMine) {
     const container = document.getElementById('chat-messages');
 
-    const empty = container.querySelector('.chat-empty');
-    if (empty) empty.remove();
+    if (container) {
+        const empty = container.querySelector('.chat-empty');
+        if (empty) empty.remove();
 
-    const bubble = document.createElement('div');
-    bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-    bubble.innerHTML = `
-        <div class="chat-sender">${escapeHtml(sender)}</div>
-        <div class="chat-text">${parseMessageContent(text)}</div>
-    `;
+        const bubble = document.createElement('div');
+        bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
+        bubble.innerHTML = `
+            <div class="chat-sender">${escapeHtml(sender)}</div>
+            <div class="chat-text">${parseMessageContent(text)}</div>
+        `;
 
-    container.appendChild(bubble);
+        container.appendChild(bubble);
+        container.scrollTop = container.scrollHeight;
+    }
 
-    container.scrollTop = container.scrollHeight;
+    // Update preview state
+    lastChatSender = sender;
+    lastChatText = text;
+    updateChatPreviewText();
+
+    if (!isMine) {
+        incrementUnread();
+    }
 }
 
 function escapeHtml(text) {
@@ -5987,38 +5976,6 @@ function clearUnread() {
     updateChatBadgeDisplay();
 }
 
-const originalAddChatMessage = addChatMessage;
-addChatMessage = function (sender, text, isMine) {
-    originalAddChatMessage(sender, text, isMine);
-    lastChatSender = sender;
-    lastChatText = text;
-    updateChatPreviewText();
-
-    if (!isMine) {
-        incrementUnread();
-    }
-};
-
-const originalSwitchTab = switchTab;
-switchTab = function (tabId) {
-    originalSwitchTab(tabId);
-    if (isChatDrawerOpen) {
-        toggleChatDrawer();
-    }
-
-    const miniPlayer = document.getElementById('yt-mini-player');
-    if (miniPlayer) {
-        if (tabId === 'settings' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-            miniPlayer.style.display = 'none';
-        } else {
-            miniPlayer.style.display = 'none';
-        }
-
-        if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-            miniPlayer.style.display = 'none';
-        }
-    }
-};
 
 function toggleChatDrawer() {
     const drawer = document.getElementById('chat-drawer');
@@ -6081,10 +6038,7 @@ function updateChatYouTube(active) {
     }
 }
 
-window.sendChatMessage = sendChatMessage;
-window.addChatMessage = addChatMessage;
-window.toggleChatDrawer = toggleChatDrawer;
-window.updateChatYouTube = updateChatYouTube;
+
 
 let youtubePlayer = null;
 let youtubeSessionId = 0;
@@ -6639,24 +6593,22 @@ function stopYouTubeMode() {
     }
 }
 
-window.openMediaSourcePopup = openMediaSourcePopup;
-window.closeMediaSourcePopup = closeMediaSourcePopup;
-window.openYouTubePopup = openYouTubePopup;
-window.closeYouTubePopup = closeYouTubePopup;
-window.loadYouTubeFromInput = loadYouTubeFromInput;
+
 
 async function loadDemoMedia() {
+    const DEMO_VIDEO_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
     try {
-        const response = await fetch('dummy_audio.mp3');
+        showLoader(true, "데모 영상 다운로드 중...");
+        const response = await fetch(DEMO_VIDEO_URL);
         const blob = await response.blob();
-        const file = new File([blob], 'Loyal_ODESZA_Loyal.mp3', { type: 'audio/mpeg' });
+        const file = new File([blob], 'TearsOfSteel.mp4', { type: 'video/mp4' });
 
         meta = { name: file.name, size: file.size, type: file.type, index: 0, total: 1 };
         playlist = [{
-            type: 'audio',
+            type: 'video',
             file: file,
             name: file.name,
-            title: file.name
+            title: 'Tears of Steel (Demo)'
         }];
         updatePlaylistUI();
 
@@ -6664,13 +6616,13 @@ async function loadDemoMedia() {
         currentFileBlob = file;
         finalizeFileProcessing(file);
 
-        showToast("데모 미디어가 로드되었습니다.");
+        showToast("데모 영상이 로드되었습니다.");
     } catch (e) {
         console.error("Demo load failed:", e);
-        showToast("데모 로드 실패");
+        showToast("데모 로드 실패 (CORS 또는 네트워크 확인)");
+        showLoader(false);
     }
 }
-window.loadDemoMedia = loadDemoMedia;
 
 let youtubePreviewDebounce = null;
 
@@ -6743,9 +6695,7 @@ function fetchYouTubePreview(url) {
     }, 500);
 }
 
-window.fetchYouTubePreview = fetchYouTubePreview;
-
-// NOTE: Seek slider event handlers are defined at ~line 2785-2834
+// NOTE: Seek slider event handlers are defined around line 2785
 // Do not add duplicate handlers here
 
 // --- Relay Queue Processor (Back-pressure Control) ---
@@ -6754,43 +6704,80 @@ async function processRelayQueue() {
     isRelaying = true;
 
     while (relayChunkQueue.length > 0) {
+        const msg = relayChunkQueue.shift();
         const openPeers = downstreamDataPeers.filter(p => p.open);
+
         if (openPeers.length === 0) {
-            relayChunkQueue = []; // No downstream peers, clear queue
+            relayChunkQueue = [];
             break;
         }
 
-        // Check back-pressure: find slowest peer's bufferedAmount
-        let maxBuffered = 0;
+        // [HoLB Fix] Dispatch to each peer's individual queue
         openPeers.forEach(p => {
-            // PeerJS DataConnection holds the underlying RTCDataChannel in 'dataChannel'
-            const dc = p.dataChannel;
-            if (dc && dc.bufferedAmount > maxBuffered) {
-                maxBuffered = dc.bufferedAmount;
+            if (!p._relayQueue) {
+                p._relayQueue = [];
+                p._relayBusy = false;
+                p._processRelay = async () => {
+                    if (p._relayBusy || p._relayQueue.length === 0) return;
+                    p._relayBusy = true;
+                    while (p._relayQueue.length > 0) {
+                        const m = p._relayQueue.shift();
+                        // Per-peer buffer check
+                        while (p.dataChannel && p.dataChannel.bufferedAmount > MAX_BUFFER_THRESHOLD) {
+                            await new Promise(r => setTimeout(r, 50));
+                            if (!p.open) break;
+                        }
+                        if (p.open) {
+                            try { p.send(m); } catch (e) { console.warn(`[Relay] Send failed:`, e); }
+                        } else {
+                            p._relayQueue = [];
+                            break;
+                        }
+                    }
+                    p._relayBusy = false;
+                };
             }
+            p._relayQueue.push(msg);
+            p._processRelay();
         });
 
-        if (maxBuffered > MAX_BUFFER_THRESHOLD) {
-            // Buffer too high, wait 50ms and check again
-            await new Promise(resolve => setTimeout(resolve, 50));
-            continue;
-        }
-
-        // Buffer safe, send one chunk from queue
-        const fwdMsg = relayChunkQueue.shift();
-        if (fwdMsg) {
-            openPeers.forEach(p => {
-                try {
-                    p.send(fwdMsg);
-                } catch (e) {
-                    console.error("[Relay] Send failed:", e);
-                }
-            });
+        // Yield to prevent blocking UI thread if queue is huge
+        if (relayChunkQueue.length % 50 === 0) {
+            await new Promise(r => setTimeout(r, 0));
         }
     }
 
     isRelaying = false;
 }
+
+// ============================================================================
+// [SECTION] WINDOW EXPORTS
+// ============================================================================
+window.playlist = playlist;
+window.playTrack = playTrack;
+window.updatePlaylistUI = updatePlaylistUI;
+window.broadcast = broadcast;
+window.broadcastFile = broadcastFile;
+window.initAudio = initAudio;
+window.toggleSurroundMode = toggleSurroundMode;
+window.setSurroundChannel = setSurroundChannel;
+window.openHelpModal = openHelpModal;
+window.closeHelpModal = closeHelpModal;
+window.parseMessageContent = parseMessageContent;
+window.seekToTime = seekToTime;
+window.loadYouTubeFromChat = loadYouTubeFromChat;
+window.insertEmoji = insertEmoji;
+window.sendChatMessage = sendChatMessage;
+window.addChatMessage = addChatMessage;
+window.toggleChatDrawer = toggleChatDrawer;
+window.updateChatYouTube = updateChatYouTube;
+window.openMediaSourcePopup = openMediaSourcePopup;
+window.closeMediaSourcePopup = closeMediaSourcePopup;
+window.openYouTubePopup = openYouTubePopup;
+window.closeYouTubePopup = closeYouTubePopup;
+window.loadYouTubeFromInput = loadYouTubeFromInput;
+window.loadDemoMedia = loadDemoMedia;
+window.fetchYouTubePreview = fetchYouTubePreview;
 
 // End of Script
 

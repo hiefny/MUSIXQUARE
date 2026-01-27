@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     /* Palette - Deep & Clean & Flat */
     --bg: #000000;
     --bg-visualizer: #050505;
@@ -63,17 +63,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--surface-3);
+    background: rgba(64, 64, 64, 0.5);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
-}
-
-/* Hide scrollbar when not scrolling (optional - can be removed) */
-::-webkit-scrollbar-thumb {
-    background: rgba(64, 64, 64, 0.5);
 }
 
 ::-webkit-scrollbar-thumb:active {
@@ -94,7 +89,7 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* --- Animations --- */
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -105,10 +100,6 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
-}
-
-.tab-content {
-    animation: fadeIn 0.3s ease-out;
 }
 
 /* --- Header --- */
@@ -124,6 +115,51 @@ header {
     position: sticky;
     top: 0;
     z-index: 50;
+    overflow: hidden;
+    /* Important for masking animations */
+    transition: background-color 0.3s ease;
+}
+
+/* Header Loading State - Progress Background */
+.header-progress-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    /* Animates from 0 to 100% */
+    background-color: var(--primary);
+    /* System Theme Color */
+    opacity: 0;
+    /* Hidden by default */
+    z-index: 1;
+    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+    pointer-events: none;
+}
+
+/* Show progress bar only when loading */
+header.loading .header-progress-bg {
+    opacity: 0.15;
+    /* Transparent but visible */
+}
+
+/* Header Content Wrapper for relative positioning */
+.header-content-wrapper {
+    position: relative;
+    /* Ensure it overlays the progress bg if needed, though they are siblings */
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+}
+
+/* Default Content (Logo, Help, Badge) */
+/* We target .header-default-content for the up/down animation */
+.header-default-content {
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    transform: translateY(0);
+    opacity: 1;
 }
 
 /* Logo Gradient Styling */
@@ -143,13 +179,52 @@ header {
     -webkit-text-fill-color: transparent;
 }
 
-/* Header Right Group (? button + role badge) */
+/* Loading Text (Hidden by default, moves up from below) */
+.header-loading-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+
+    transform: translateY(100%);
+    /* Start from below */
+    opacity: 0;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    z-index: 6;
+    pointer-events: none;
+}
+
+/* --- Loading Active State (Applied to <header>) --- */
+header.loading .header-default-content {
+    transform: translateY(-150%);
+    /* Move up and out */
+    opacity: 0;
+}
+
+header.loading .header-loading-text {
+    transform: translateY(0);
+    /* Move to center */
+    opacity: 1;
+}
+
+/* Update Header Right to be relative or fixed depending on need */
+/* In the HTML update, we moved .header-right inside header, so we adjust CSS */
 .header-right {
-    position: fixed;
-    top: calc(var(--header-height) / 2);
-    transform: translateY(-50%);
-    right: 24px;
-    z-index: 20001;
+    /* Reset fixed positioning since it's now inside flex header */
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    transform: none !important;
+    z-index: 5;
+
     display: flex;
     align-items: center;
     gap: 10px;
@@ -176,18 +251,6 @@ header {
     transition: transform 0.2s, background 0.2s;
 }
 
-.file-select-btn:active {
-
-    transform: scale(0.96);
-    background: var(--surface-3);
-}
-
-.file-select-btn svg {
-    width: 20px;
-    height: 20px;
-    fill: currentColor;
-}
-
 .role-badge.connected {
     background: var(--primary);
     color: white;
@@ -197,16 +260,26 @@ header {
     background: white;
 }
 
-/* --- Layout --- */
 .tab-content {
+    animation: fadeIn 0.3s ease-out;
     flex: 1;
     display: none;
-    /* Revert to safe default */
     flex-direction: column;
     overflow-y: auto;
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
     scrollbar-width: none;
     -ms-overflow-style: none;
+}
+
+.tab-content::-webkit-scrollbar {
+    display: none;
+}
+
+.tab-content.active {
+    display: flex;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -221,20 +294,6 @@ body.mode-video #tab-play:not(.active) {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-}
-
-.tab-content::-webkit-scrollbar {
-    display: none;
-}
-
-.tab-content.active {
-    display: block;
-    /* Back to original stable display for most tabs */
-    position: relative;
-    left: 0;
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
 }
 
 /* Play tab needs flex for centering content */
@@ -312,7 +371,7 @@ body.mode-video #tab-play:not(.active) {
     border: 2px solid var(--bg);
 }
 
-/* --- TAB 1: PLAYER (Redesigned) --- */
+
 #tab-play {
     justify-content: space-evenly;
     padding-top: 10px;
@@ -784,7 +843,7 @@ input[type=range]:active::-webkit-slider-thumb {
     fill: currentColor;
 }
 
-/* --- TAB: PLAYLIST (Clean List) --- */
+
 .playlist-title-area {
     display: flex;
     align-items: center;
@@ -896,7 +955,7 @@ input[type=range]:active::-webkit-slider-thumb {
     }
 }
 
-/* --- Sub-Playlist (YouTube) --- */
+
 .sub-playlist {
     list-style: none;
     padding: 0 0 8px 48px;
@@ -983,12 +1042,32 @@ input[type=range]:active::-webkit-slider-thumb {
     position: relative;
 }
 
-/* --- Common UI: Grouped Lists --- */
+
 .section-group {
     background: var(--surface-1);
     border-radius: var(--radius-m);
     margin: 0 20px 24px;
+    margin: 0 20px 24px;
+    /* overflow: hidden; Removed to prevent clipping shadows/popups - Using child radius instead */
+}
+
+/* Ensure children respect the rounded corners */
+.section-group> :first-child {
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+.section-group> :last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+}
+
+/* Also ensure device list items don't overflow if list is the last child */
+#device-list:last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
     overflow: hidden;
+    /* Only clip the list itself if needed, or rely on item radius below */
 }
 
 .section-header-row {
@@ -1054,6 +1133,8 @@ input[type=range]:active::-webkit-slider-thumb {
     border-radius: var(--radius-m);
     padding: 4px;
     margin: 10px 20px 20px;
+    gap: 4px;
+    /* Added gap */
 }
 
 .theme-opt {
@@ -1114,59 +1195,6 @@ input[type=range]:active::-webkit-slider-thumb {
     height: 200px;
 }
 
-.eq-band {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px;
-    flex: 1;
-}
-
-.eq-val {
-    font-size: 11px;
-    color: var(--text-sub);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-}
-
-.eq-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 700;
-    flex: 0 0 14px;
-}
-
-/* Preamp Slider */
-/* Preamp Old Wrap Removed - new is using .slider-wrap logic */
-
-.preamp-label {
-    color: var(--primary);
-    font-weight: 800;
-    font-size: 11px;
-}
-
-.eq-band {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px;
-    flex: 1;
-}
-
-.eq-val {
-    font-size: 11px;
-    color: var(--text-sub);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-}
-
-.eq-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 700;
-}
 
 /* Vertical Slider Compact Logic */
 input[type=range].eq-slider {
@@ -1234,12 +1262,22 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-bottom: auto;
     /* Push to top */
     z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
 }
 
 .eq-label {
     margin-top: auto;
     /* Push to bottom */
     z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
 }
 
 
@@ -1263,7 +1301,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border: 2px solid transparent;
 }
 
@@ -1509,18 +1547,22 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: flex;
 }
 
-/* Localized Loader (visualizer area only) */
+/* Global Loader (Fixed overlay) */
 .vinyl-loader {
-    position: absolute;
+    position: fixed;
+    /* [Fix] Fixed to viewport, escapes all stacking contexts */
     inset: 0;
+    pointer-events: none;
     background: rgba(0, 0, 0, 0.75);
-    z-index: 10;
+    z-index: 99999;
+    /* [Fix] Absolute Top */
     display: none;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     backdrop-filter: blur(4px);
-    border-radius: inherit;
+    border-radius: 0;
+    /* Full screen */
 }
 
 .vinyl-loader-text {
@@ -1587,58 +1629,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     color: #fff;
 }
 
-.gesture-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(5, 5, 5, 0.95);
-    z-index: 500;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    display: none;
-    backdrop-filter: blur(20px);
-}
 
-.gesture-btn {
-    background: var(--primary);
-    color: white;
-    border: none;
-    width: 180px;
-    height: 180px;
-    border-radius: 50%;
-    font-size: 24px;
-    font-weight: 800;
-    cursor: pointer;
-    animation: pulse 2s infinite;
-    font-family: inherit;
-}
-
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
-
-    50% {
-        transform: scale(1.05);
-    }
-
-    100% {
-        transform: scale(1);
-    }
-}
-
-@keyframes spin {
-    100% {
-        transform: rotate(360deg);
-    }
-}
-
-#file-input {
-    display: none;
-}
-
-/* --- Onboarding Overlay Styles --- */
 .onboarding-overlay {
     position: fixed;
     inset: 0;
@@ -1665,7 +1656,6 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     overflow: hidden;
 }
 
-/* Glass effect for light mode */
 [data-theme="light"] .onboarding-card {
     background: rgba(255, 255, 255, 0.95);
 }
@@ -1755,21 +1745,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-top: 12px;
 }
 
-.btn-ob-primary {
-    width: 100%;
-    padding: 18px;
-    border-radius: 18px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    border: none;
-    background: var(--primary);
-    color: white;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-    transition: transform 0.2s, box-shadow 0.2s;
-    font-family: inherit;
-}
-
+.btn-ob-primary,
 .btn-ob-secondary {
     width: 100%;
     padding: 18px;
@@ -1778,26 +1754,34 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     font-weight: 700;
     cursor: pointer;
     border: none;
+    font-family: inherit;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.btn-ob-primary {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-ob-secondary {
     background: var(--surface-2);
     color: var(--text-main);
-    font-family: inherit;
-    transition: transform 0.2s;
+}
+
+.btn-ob-primary:active,
+.btn-ob-secondary:active {
+    transform: scale(0.96);
 }
 
 .btn-ob-primary:active {
-    transform: scale(0.96);
     box-shadow: none;
 }
 
 .btn-ob-secondary:active {
-    transform: scale(0.96);
     background: var(--surface-3);
 }
 
-/* Hide Legacy Gesture Overlay */
-#gesture-overlay {
-    display: none !important;
-}
 
 /* Navigation Arrows */
 .ob-arrow {
@@ -1820,22 +1804,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 /* Manual Sync Overlay */
-.manual-sync-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.9);
-    z-index: 4000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.3s;
-}
 
-.manual-sync-overlay.show {
-    display: flex;
-    opacity: 1;
-}
 
 .sync-card {
     background: var(--surface-1);
@@ -2235,7 +2204,7 @@ input:checked+.slider:before {
     border-radius: 50%;
 }
 
-/* --- Header Help Button --- */
+
 .help-btn {
     background: var(--surface-2);
     border: none;
@@ -2261,7 +2230,7 @@ input:checked+.slider:before {
     fill: currentColor;
 }
 
-/* --- Help Modal Overlay --- */
+
 .help-modal-overlay {
     position: fixed;
     inset: 0;
@@ -2433,7 +2402,7 @@ input:checked+.slider:before {
     font-size: 14px;
 }
 
-/* --- Chat UI --- */
+
 
 /* Chat YouTube 미니 플레이어 */
 .chat-youtube-container {
@@ -2805,4 +2774,14 @@ input:checked+.slider:before {
 .chat-drawer-backdrop.show {
     opacity: 1;
     visibility: visible;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }

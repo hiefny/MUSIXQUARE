@@ -963,7 +963,27 @@ input[type=range]:active::-webkit-slider-thumb {
     background: var(--surface-1);
     border-radius: var(--radius-m);
     margin: 0 20px 24px;
+    margin: 0 20px 24px;
+    /* overflow: hidden; Removed to prevent clipping shadows/popups - Using child radius instead */
+}
+
+/* Ensure children respect the rounded corners */
+.section-group> :first-child {
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+.section-group> :last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+}
+
+/* Also ensure device list items don't overflow if list is the last child */
+#device-list:last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
     overflow: hidden;
+    /* Only clip the list itself if needed, or rely on item radius below */
 }
 
 .section-header-row {
@@ -1029,6 +1049,8 @@ input[type=range]:active::-webkit-slider-thumb {
     border-radius: var(--radius-m);
     padding: 4px;
     margin: 10px 20px 20px;
+    gap: 4px;
+    /* Added gap */
 }
 
 .theme-opt {
@@ -1156,12 +1178,22 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-bottom: auto;
     /* Push to top */
     z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
 }
 
 .eq-label {
     margin-top: auto;
     /* Push to bottom */
     z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
 }
 
 
@@ -1431,18 +1463,22 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: flex;
 }
 
-/* Localized Loader (visualizer area only) */
+/* Global Loader (Fixed overlay) */
 .vinyl-loader {
-    position: absolute;
+    position: fixed;
+    /* [Fix] Fixed to viewport, escapes all stacking contexts */
     inset: 0;
+    pointer-events: none;
     background: rgba(0, 0, 0, 0.75);
-    z-index: 10;
+    z-index: 99999;
+    /* [Fix] Absolute Top */
     display: none;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     backdrop-filter: blur(4px);
-    border-radius: inherit;
+    border-radius: 0;
+    /* Full screen */
 }
 
 .vinyl-loader-text {
@@ -2656,39 +2692,12 @@ input:checked+.slider:before {
     visibility: visible;
 }
 
-/* Theme Selector (Segmented Control) */
-.theme-selector {
-    background: var(--surface-2);
-    padding: 4px;
-    border-radius: 12px;
-    display: flex;
-    gap: 4px;
-    margin-top: 10px;
-}
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
 
-.theme-opt {
-    flex: 1;
-    text-align: center;
-    padding: 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-sub);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.theme-opt:hover {
-    color: var(--text-main);
-}
-
-.theme-opt.active {
-    background: var(--surface-3);
-    color: var(--text-main);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-[data-theme="light"] .theme-opt.active {
-    background: white;
-    color: black;
+    100% {
+        transform: rotate(360deg);
+    }
 }

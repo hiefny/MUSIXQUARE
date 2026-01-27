@@ -35,18 +35,7 @@
     <div id="tab-play" class="tab-content active">
         <div class="vinyl-wrapper">
             <canvas id="visualizerCanvas" width="240" height="240"></canvas>
-            <!-- Localized Loader Overlay (visualizer only) -->
-            <div class="vinyl-loader" id="loader">
-                <div class="progress-ring-container">
-                    <svg class="progress-ring" width="60" height="60">
-                        <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.1)" stroke-width="4"
-                            fill="transparent" r="26" cx="30" cy="30" />
-                        <circle class="progress-ring__circle" id="loader-ring" stroke="var(--primary)" stroke-width="4"
-                            fill="transparent" r="26" cx="30" cy="30" />
-                    </svg>
-                </div>
-                <div id="loader-text" class="vinyl-loader-text">Loading...</div>
-            </div>
+
         </div>
 
         <div class="video-wrapper">
@@ -837,6 +826,18 @@
 
 
     <script src="js/app.js"></script>
+    <!-- Global Loader Overlay -->
+    <div class="vinyl-loader" id="loader">
+        <div class="progress-ring-container">
+            <svg class="progress-ring" width="60" height="60">
+                <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.1)" stroke-width="4"
+                    fill="transparent" r="26" cx="30" cy="30" />
+                <circle class="progress-ring__circle" id="loader-ring" stroke="var(--primary)" stroke-width="4"
+                    fill="transparent" r="26" cx="30" cy="30" />
+            </svg>
+        </div>
+        <div id="loader-text" class="vinyl-loader-text">Loading...</div>
+    </div>
 </body>
 
 </html>

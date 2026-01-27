@@ -1723,6 +1723,13 @@ async function loadAndBroadcastFile(file) {
         showLoader(false);
         pausedAt = 0;
         updatePlayState(false);
+
+        // [Fix] Ensure play button is enabled for Host even if load fails or halts
+        if (!hostConn) {
+            document.getElementById('play-btn').disabled = false;
+        } else if (isOperator) {
+            document.getElementById('play-btn').disabled = false;
+        }
     }
 }
 
@@ -2445,8 +2452,8 @@ function setEQ(idx, val, localOnly = false, fromSync = false) {
         if (slider && parseFloat(slider.value) !== bandVal) slider.value = bandVal;
     }
 
-    const label = document.getElementById(`eq - val - ${bandIdx}`);
-    if (label) label.innerText = bandVal > 0 ? `+ ${bandVal}` : bandVal;
+    const label = document.getElementById(`eq-val-${bandIdx}`);
+    if (label) label.innerText = bandVal > 0 ? `+${bandVal}` : bandVal;
 
     if (localOnly || fromSync) return;
 
@@ -6685,27 +6692,69 @@ async function loadDemoMedia() {
     const DEMO_VIDEO_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4";
     try {
         showLoader(true, "데모 영상 다운로드 중...");
+
         const response = await fetch(DEMO_VIDEO_URL);
-        const blob = await response.blob();
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+        let loaded = 0;
+
+        const reader = response.body.getReader();
+        const chunks = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            chunks.push(value);
+            loaded += value.length;
+
+            if (total > 0) {
+                const percent = Math.floor((loaded / total) * 100);
+                const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+                const totalMB = (total / 1024 / 1024).toFixed(1);
+                showLoader(true, `데모 다운로드... ${loadedMB} / ${totalMB} MB (${percent}%)`);
+                updateLoader(percent);
+            } else {
+                const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+                showLoader(true, `데모 다운로드... ${loadedMB} MB`);
+            }
+        }
+
+        const blob = new Blob(chunks, { type: 'video/mp4' });
         const file = new File([blob], 'TearsOfSteel.mp4', { type: 'video/mp4' });
 
-        meta = { name: file.name, size: file.size, type: file.type, index: 0, total: 1 };
-        playlist = [{
+        // [Refactor] Append to playlist instead of overwrite
+        const newTrack = {
             type: 'video',
             file: file,
             name: file.name,
             title: 'Tears of Steel (Demo)'
-        }];
+        };
+        playlist.push(newTrack);
+
+        // Update UI
         updatePlaylistUI();
 
-        // Host locally processes it
-        currentFileBlob = file;
-        finalizeFileProcessing(file);
+        // Broadcast playlist update
+        const metaList = playlist.map(item => ({
+            type: item.type,
+            name: item.name || item.title,
+            videoId: item.videoId || null,
+            playlistId: item.playlistId || null
+        }));
+        broadcast({ type: 'playlist-update', list: metaList });
 
-        showToast("데모 영상이 로드되었습니다.");
+        showToast("데모 영상 다운로드 완료. 재생을 시작합니다.");
+
+        // [Refactor] Use standard playTrack flow
+        // This handles broadcastFile, UI state, button enabling, etc.
+        playTrack(playlist.length - 1);
+
     } catch (e) {
         console.error("Demo load failed:", e);
-        showToast("데모 로드 실패 (CORS 또는 네트워크 확인)");
+        showToast("데모 로드 실패: " + (e.name === 'AbortError' ? '시간 초과' : e.message));
         showLoader(false);
     }
 }

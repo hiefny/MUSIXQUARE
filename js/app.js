@@ -2833,6 +2833,10 @@ slider.addEventListener('change', () => {
     }, 1000);
 });
 
+// Additional handlers to ensure isSeeking is reset on pointer release
+slider.addEventListener('mouseup', () => isSeeking = false);
+slider.addEventListener('touchend', () => isSeeking = false);
+
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
     const isActuallyPlaying = (videoElement && !videoElement.paused);
@@ -6741,56 +6745,8 @@ function fetchYouTubePreview(url) {
 
 window.fetchYouTubePreview = fetchYouTubePreview;
 
-document.getElementById('seek-slider').addEventListener('mousedown', function () {
-    isSeeking = true;
-});
-
-document.getElementById('seek-slider').addEventListener('touchstart', function () {
-    isSeeking = true;
-}, { passive: true });
-
-document.getElementById('seek-slider').addEventListener('input', function () {
-    isSeeking = true;
-    const seekTime = parseFloat(this.value);
-    document.getElementById('time-curr').innerText = fmtTime(seekTime);
-
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        try {
-            youtubePlayer.seekTo(seekTime, true);
-        } catch (e) {
-            console.error("[YouTube] Seek error:", e);
-        }
-    }
-});
-
-document.getElementById('seek-slider').addEventListener('change', function () {
-    isSeeking = false;
-    const seekTime = parseFloat(this.value);
-
-    console.log("[Seek] Final position:", seekTime);
-
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        if (!hostConn) {
-            broadcast({ type: 'youtube-sync', time: seekTime, state: youtubePlayer.getPlayerState() });
-        }
-    } else {
-        // Local mode
-        if (!hostConn) {
-            play(seekTime);
-            broadcast({ type: 'play', time: seekTime });
-        } else if (isOperator) {
-            hostConn.send({ type: 'request-play', time: seekTime });
-        }
-    }
-});
-
-document.getElementById('seek-slider').addEventListener('mouseup', function () {
-    isSeeking = false;
-});
-
-document.getElementById('seek-slider').addEventListener('touchend', function () {
-    isSeeking = false;
-});
+// NOTE: Seek slider event handlers are defined at ~line 2785-2834
+// Do not add duplicate handlers here
 
 // --- Relay Queue Processor (Back-pressure Control) ---
 async function processRelayQueue() {

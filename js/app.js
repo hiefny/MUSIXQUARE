@@ -224,33 +224,44 @@ function getTrackPosition() {
  * Update UI classes and elements based on state.
  */
 function updateUIForState(newState) {
-    // Reset CSS classes
+    // 1. Reset CSS classes (Centralized)
     document.body.classList.remove('mode-video', 'mode-youtube');
 
-    // Hide YouTube container
+    // Toggle mode-video based on state
+    const isVideoMode = (newState === APP_STATE.PLAYING_VIDEO || newState === APP_STATE.PLAYING_YOUTUBE);
+    document.body.classList.toggle('mode-video', isVideoMode);
+
+    // 2. Hide YouTube container (Global)
     const ytContainer = document.getElementById('youtube-player-container');
     if (ytContainer) {
         ytContainer.style.opacity = '0';
         ytContainer.style.pointerEvents = 'none';
+        ytContainer.style.display = 'none';
     }
 
-    // Hide video element (default)
-    if (videoElement) videoElement.style.display = 'none';
+    // 3. Robust Video Wrapper Visibility
+    const videoWrapper = document.querySelector('.video-wrapper');
+    if (videoWrapper) {
+        videoWrapper.style.display = isVideoMode ? 'flex' : 'none';
+    }
+
+    // 4. Hide main video element (Internal)
+    if (videoElement) {
+        videoElement.style.display = (newState === APP_STATE.PLAYING_VIDEO) ? 'block' : 'none';
+    }
 
     switch (newState) {
         case APP_STATE.PLAYING_VIDEO:
-            document.body.classList.add('mode-video');
-            if (videoElement) videoElement.style.display = 'block';
+            // Handled by isVideoMode logic above
             break;
 
         case APP_STATE.PLAYING_STREAMING:
-            // Streaming audio: use videoElement but keep hidden
-            // (so visualizer remains visible)
+            // Streaming audio: videoElement used for sync but hidden
             break;
 
         case APP_STATE.PLAYING_YOUTUBE:
-            document.body.classList.add('mode-youtube');
             if (ytContainer) {
+                ytContainer.style.display = 'block';
                 ytContainer.style.opacity = '1';
                 ytContainer.style.pointerEvents = 'auto';
             }
@@ -259,7 +270,7 @@ function updateUIForState(newState) {
         case APP_STATE.PLAYING_AUDIO:
         case APP_STATE.IDLE:
         default:
-            // Default state: show visualizer
+            // Default: show visualizer
             break;
     }
 }
@@ -2420,8 +2431,14 @@ function stopAllMedia() {
         videoElement.load(); // [추가] 로딩 상태 초기화
     }
 
-    // 2. Stop YouTube
-    if (youtubePlayer && youtubePlayer.stopVideo) {
+    // 2. Stop YouTube (Full Teardown)
+    // Use the comprehensive stopYouTubeMode if it exists, otherwise manual teardown
+    if (typeof stopYouTubeMode === 'function') {
+        // [Fix] stopYouTubeMode internally calls setState(IDLE). 
+        // We ensure it doesn't cause recursion by checking state or using flags if needed.
+        // For now, stopYouTubeMode is safe as it checks currentState === PLAYING_YOUTUBE
+        stopYouTubeMode();
+    } else if (youtubePlayer && youtubePlayer.stopVideo) {
         try { youtubePlayer.stopVideo(); } catch (e) { }
     }
 
@@ -3725,6 +3742,13 @@ function setupPeerEvents() {
                     if (!relay || relay.status !== 'connected') {
                         console.log(`[Relay] Parent ${peerObj.assignedRelay} disconnected, reassigning ${deviceName}`);
                         peerObj.isDataTarget = true; // Fall back to Host direct
+                        peerObj.assignedRelay = null; // Clear assignment
+
+                        // [Fix] Explicitly notify the Guest to revert to Host Direct
+                        if (conn.open) {
+                            conn.send({ type: 'assign-data-source', targetId: null, reason: 'parent-lost' });
+                        }
+
                         showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
 
                         // [Fix] Stop monitoring once reassigned to prevent interval spam
@@ -5834,6 +5858,17 @@ async function handleAssignDataSource(data) {
     if (targetId && targetId !== myId) {
         showToast(`Connecting to Relay: ...${targetId.substr(-4)}`);
         connectToRelay(targetId);
+    } else if (targetId === null) {
+        // [FIX] Fallback to Host Direct
+        console.log("[Relay] Fallback to Host requested by server.");
+        if (upstreamDataConn) {
+            upstreamDataConn.close();
+            upstreamDataConn = null;
+        }
+        showToast("Host 직결로 전환되었습니다 (릴레이 끊김)");
+
+        // Trigger recovery to get missing data from Host
+        sendRecoveryRequest();
     }
 }
 
@@ -6874,11 +6909,15 @@ function addChatMessage(sender, text, isMine) {
         const empty = container.querySelector('.chat-empty');
         if (empty) empty.remove();
 
+        const now = new Date();
+        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
         const bubble = document.createElement('div');
         bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
         bubble.innerHTML = `
             <div class="chat-sender">${escapeHtml(sender)}</div>
             <div class="chat-text">${parseMessageContent(text)}</div>
+            <div class="chat-time">${timeStr}</div>
         `;
 
         container.appendChild(bubble);
@@ -6903,7 +6942,6 @@ function escapeHtml(text) {
 
 function parseMessageContent(text) {
     const ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]{11}[^\s]*/gi;
-
     const tsRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
 
     const combinedRegex = new RegExp(
@@ -6926,7 +6964,17 @@ function parseMessageContent(text) {
             ytRegex.lastIndex = 0;
             const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
             const safeUrl = cleanUrl.replace(/'/g, "\\'");
-            result += `<button class="chat-youtube-btn" onclick="loadYouTubeFromChat('${safeUrl}')">▶ 재생</button>`;
+            const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
+
+            result += `
+                <button class="chat-youtube-btn" onclick="loadYouTubeFromChat('${safeUrl}')">
+                    <span class="chat-yt-play-row">▶ YouTube 재생하기</span>
+                    <span id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</span>
+                </button>
+            `;
+
+            // Async title fetch
+            setTimeout(() => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
         }
         else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
             const seconds = parseTimestamp(matchedText);
@@ -6944,6 +6992,27 @@ function parseMessageContent(text) {
     }
 
     return result;
+}
+
+/**
+ * YouTube oEmbed API를 사용하여 영상 제목을 가져와 업데이트합니다.
+ */
+async function updateYouTubeChatTitle(elementId, url) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    try {
+        const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+        const response = await fetch(oEmbedUrl);
+        if (response.ok) {
+            const data = await response.json();
+            if (data && data.title) {
+                el.innerText = data.title;
+            }
+        }
+    } catch (e) {
+        console.warn("[YouTube] Failed to fetch oEmbed title:", e);
+    }
 }
 
 
@@ -7263,10 +7332,8 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
 
     showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
 
-    document.body.classList.add('mode-video');
-
-    const videoElement = document.getElementById('main-video');
-    videoElement.style.display = 'none';
+    // [MOD] UI state is now centrally managed by setState -> updateUIForState
+    // document.body.classList.add('mode-video'); // REMOVED
 
     const wrapper = document.querySelector('.video-wrapper');
     let container = document.getElementById('youtube-player-container');

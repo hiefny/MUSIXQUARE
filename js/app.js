@@ -6912,15 +6912,32 @@ function addChatMessage(sender, text, isMine) {
         const now = new Date();
         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-        const bubble = document.createElement('div');
-        bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-        bubble.innerHTML = `
-            <div class="chat-sender">${escapeHtml(sender)}</div>
-            <div class="chat-text">${parseMessageContent(text)}</div>
-            <div class="chat-time">${timeStr}</div>
-        `;
+        const row = document.createElement('div');
+        row.className = `chat-row ${isMine ? 'mine' : 'others'}`;
 
-        container.appendChild(bubble);
+        const bubble = document.createElement('div');
+        bubble.className = `chat-bubble`;
+
+        let bubbleContent = '';
+        if (!isMine) {
+            bubbleContent += `<div class="chat-sender">${escapeHtml(sender)}</div>`;
+        }
+        bubbleContent += `<div class="chat-text">${parseMessageContent(text)}</div>`;
+        bubble.innerHTML = bubbleContent;
+
+        const timeNode = document.createElement('div');
+        timeNode.className = 'chat-time';
+        timeNode.innerText = timeStr;
+
+        if (isMine) {
+            row.appendChild(timeNode);
+            row.appendChild(bubble);
+        } else {
+            row.appendChild(bubble);
+            row.appendChild(timeNode);
+        }
+
+        container.appendChild(row);
         container.scrollTop = container.scrollHeight;
     }
 

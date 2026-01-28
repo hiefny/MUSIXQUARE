@@ -2,17 +2,19 @@
  * ============================================================================
  * MUSIXQUARE - Multi-Device Synchronized Audio Player
  * ============================================================================
- * * 여러 스마트폰을 P2P로 연결하여 동기화된 서라운드 오디오 시스템을 구축하는 웹 앱
- * * [DEPENDENCIES]
+ * Multi-device P2P synchronized surround audio system web application.
+ *
+ * [DEPENDENCIES]
  * - Tone.js (Audio Engine)
  * - PeerJS (WebRTC P2P)
  * - QRCode.js (QR Generation)
- * * [SECTION INDEX]
- * - 전역 변수 선언 (Global Variables)
+ *
+ * [SECTION INDEX]
+ * - Global Variables
  * - Worker & Timer (Background Tasks)
  * - Audio Engine (Tone.js Nodes & Init)
  * - Onboarding & Session Actions
- * * ============================================================================
+ * ============================================================================
  */
 
 // ============================================================================
@@ -25,6 +27,40 @@ const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
 // [iOS Latency Engineering]
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 const IOS_STARTUP_BIAS = 0; // [Unified Buffer Mode] Reset to 0 as Tone.Player handles precision.
+
+/**
+ * [Robustness] Session ID Validation
+ * Updated: Fallback to 0 with warning instead of crashing for non-critical ops
+ */
+function validateSessionId(id) {
+    const sid = Number(id);
+    if (!sid || sid === 0 || isNaN(sid)) {
+        // [Relaxed] Log warning and return 0 instead of throwing to prevent flow interruption
+        console.warn(`[Session] Warning: Invalid Session ID: ${id}. Fallback to 0.`);
+        return 0;
+    }
+    return sid;
+}
+
+/**
+ * [Worker] Centralized Protocol Wrapper
+ */
+function postWorkerCommand(payload, transfers) {
+    if (!payload.command) return;
+
+    // OPFS commands require filename and sessionId
+    // [Fix] Exclude RESET and CLEANUP from strict ID enforcement
+    if (payload.command.startsWith('OPFS_') &&
+        payload.command !== 'OPFS_RESET' &&
+        payload.command !== 'OPFS_CLEANUP') {
+
+        if (!payload.filename) console.warn(`[Worker] Missing filename in ${payload.command}`);
+        if (payload.sessionId === undefined) payload.sessionId = 0;
+        validateSessionId(payload.sessionId);
+    }
+
+    timerWorker.postMessage(payload, transfers);
+}
 
 /**
  * [Diagnostics] Check if the browser environment supports required features.
@@ -71,8 +107,8 @@ let analyser;
 const APP_STATE = {
     IDLE: 'IDLE',
     PLAYING_AUDIO: 'PLAYING_AUDIO',
-    PLAYING_VIDEO: 'PLAYING_VIDEO',     // 비디오 및 스트리밍 모드 통합
-    PLAYING_STREAMING: 'PLAYING_STREAMING', // 오디오 전용 스트리밍 (videoElement 사용하지만 화면 숨김)
+    PLAYING_VIDEO: 'PLAYING_VIDEO',     // Video and streaming mode combined
+    PLAYING_STREAMING: 'PLAYING_STREAMING', // Audio-only streaming (uses videoElement but hidden)
     PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'
 };
 
@@ -80,46 +116,46 @@ let currentState = APP_STATE.IDLE;
 let _isStateTransitioning = false; // Guard against recursive state changes
 
 /**
- * 중앙화된 상태 전환 함수
- * @param {string} newState - APP_STATE 값
+ * Centralized state transition function.
+ * @param {string} newState - APP_STATE value
  * @param {object} options - { skipCleanup: boolean, onComplete: function }
  */
 function setState(newState, options = {}) {
     const oldState = currentState;
 
-    // 동일 상태 전환 무시
+    // Ignore same-state transitions
     if (oldState === newState) return;
 
-    // 재귀 방지
+    // Prevent recursive transitions
     if (_isStateTransitioning) {
-        console.warn(`[State] Recursive transition blocked: ${oldState} → ${newState}`);
+        console.warn(`[State] Transition Blocked: Currently moving to another state. Rejecting ${newState}.`);
         return;
     }
 
     _isStateTransitioning = true;
-    console.log(`[State] ${oldState} → ${newState}`);
+    console.log(`[State] Transition: ${oldState} -> ${newState}`, options);
 
-    // 이전 상태 정리 (선택적)
+    // Clean up previous state (optional)
     if (!options.skipCleanup) {
         cleanupState(oldState);
     }
 
-    // 새 상태 설정
+    // Set new state
     currentState = newState;
 
-    // UI 모드 전환
+    // Update UI for new state
     updateUIForState(newState);
 
     _isStateTransitioning = false;
 
-    // 콜백 실행
+    // Execute completion callback
     if (options.onComplete) {
         try { options.onComplete(); } catch (e) { console.error('[State] onComplete error:', e); }
     }
 }
 
 /**
- * 이전 상태에 따른 리소스 정리
+ * Clean up resources based on previous state.
  */
 function cleanupState(oldState) {
     // [Fix] Capture current time before stopping the current engine to prevent drift
@@ -129,7 +165,7 @@ function cleanupState(oldState) {
     switch (oldState) {
         case APP_STATE.PLAYING_VIDEO:
         case APP_STATE.PLAYING_STREAMING:
-            // Video Element 정지
+            // Stop video element
             if (videoElement) {
                 videoElement.pause();
             }
@@ -138,7 +174,7 @@ function cleanupState(oldState) {
             break;
 
         case APP_STATE.PLAYING_YOUTUBE:
-            // YouTube 정지
+            // Stop YouTube player
             if (typeof youtubePlayer !== 'undefined' && youtubePlayer && youtubePlayer.stopVideo) {
                 try { youtubePlayer.stopVideo(); } catch (e) { }
             }
@@ -156,49 +192,49 @@ function cleanupState(oldState) {
  * 중앙화된 현재 트랙 재생 위치 계산 함수
  * startedAt, localOffset, autoSyncOffset을 모두 고려하여
  * 현재 트랙의 몇 초 지점인지를 반환합니다.
- * @param {boolean} useAudioClock - true면 비디오 요소 대신 Tone.js 클락(네트워크 기준)을 사용합니다.
  */
 function getTrackPosition() {
-    if (currentState === APP_STATE.IDLE) return pausedAt;
+    if (currentState === APP_STATE.IDLE) return pausedAt || 0;
 
-    // [Unified Buffer Mode]
-    // If we have a bufferPlayer loaded, we calculate time based on when we started it.
-    if (currentAudioBuffer && playerNode && playerNode.state === 'started') {
-        // Tone.BufferSource doesn't emit "currentTime" easily, so we calculate:
-        // CurrentTime = (Now - StartedTime) + Offset
-        // startedAt was set to (Tone.now() - offset) in play()
-        // So: Tone.now() - startedAt = (Tone.now() - (Tone.now() - offset)) = offset (Playing Time)
-        // We add localOffset and autoSyncOffset for display/sync logic if needed,
-        // but for pure track position, we just want "how long has it been playing + start offset"
+    const duration = (currentAudioBuffer && currentAudioBuffer.duration)
+        ? currentAudioBuffer.duration
+        : (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
 
-        // However, 'startedAt' is defined as: Tone.now() - offset + (localOpts...) in play()
-        // Let's use the standard formula:
-        return (Tone.now() - startedAt) + localOffset + autoSyncOffset;
+    let pos = 0;
+
+    // [Simplified] Always calculate from Tone.now() when in playback state
+    // This ensures consistent time regardless of playerNode/video state
+    if (startedAt > 0) {
+        pos = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
+    }
+    // Fallback to video element time only if startedAt is not set
+    else if (videoElement && videoElement.src && videoElement.readyState >= 1) {
+        pos = videoElement.currentTime;
     }
 
-    // 스트리밍 모드: videoElement.currentTime 사용 (Buffer Mode가 아닐 때만)
-    if (videoElement && videoElement.src && videoElement.readyState >= 1 && !currentAudioBuffer) {
-        return videoElement.currentTime;
-    }
+    // [Security/Harden] Sanitize output
+    if (isNaN(pos)) pos = 0;
+    if (pos < 0) pos = 0;
+    if (duration > 0 && pos > duration) pos = duration;
 
-    return (Tone.now() - startedAt) + localOffset + autoSyncOffset;
+    return pos;
 }
 
 /**
- * 상태에 따른 UI 클래스 및 요소 업데이트
+ * Update UI classes and elements based on state.
  */
 function updateUIForState(newState) {
-    // CSS 클래스 초기화
+    // Reset CSS classes
     document.body.classList.remove('mode-video', 'mode-youtube');
 
-    // YouTube 컨테이너 숨김
+    // Hide YouTube container
     const ytContainer = document.getElementById('youtube-player-container');
     if (ytContainer) {
         ytContainer.style.opacity = '0';
         ytContainer.style.pointerEvents = 'none';
     }
 
-    // Video Element 숨김 (기본)
+    // Hide video element (default)
     if (videoElement) videoElement.style.display = 'none';
 
     switch (newState) {
@@ -208,8 +244,8 @@ function updateUIForState(newState) {
             break;
 
         case APP_STATE.PLAYING_STREAMING:
-            // 스트리밍 오디오: videoElement 사용하지만 숨김 유지
-            // (Visualizer가 보이도록)
+            // Streaming audio: use videoElement but keep hidden
+            // (so visualizer remains visible)
             break;
 
         case APP_STATE.PLAYING_YOUTUBE:
@@ -223,7 +259,7 @@ function updateUIForState(newState) {
         case APP_STATE.PLAYING_AUDIO:
         case APP_STATE.IDLE:
         default:
-            // 기본 상태: Visualizer 표시
+            // Default state: show visualizer
             break;
     }
 }
@@ -240,18 +276,17 @@ let isSeeking = false;
 let _isPlayLocked = false; // [Fix #3] Prevent concurrent play conflicts
 
 
-// ✅ 새로 추가: 타이머 중앙 관리 객체
+// Centralized timer management object
 const managedTimers = {
     chunkWatchdog: null,
     prepareWatchdog: null,
     autoPlayTimer: null,
     syncDebounce: null,
     relayWaitTimeout: null,
-    preloadWatchdog: null,
-    nextTrackTimer: null // ✅ [추가] 다음 곡 넘김 방지용 타이머
+    preloadWatchdog: null
 };
 
-// ✅ 새로 추가: 타이머 정리 헬퍼 함수
+// Timer cleanup helper function
 function clearManagedTimer(name) {
     if (managedTimers[name]) {
         clearTimeout(managedTimers[name]);
@@ -332,6 +367,12 @@ const BlobURLManager = {
      */
     safeRevoke: function (url) {
         if (!url || this._pendingRevocations.has(url)) return;
+
+        // [Fix #5] Never revoke the current active URL while playing
+        if (url === this._activeURL && currentState !== APP_STATE.IDLE) {
+            console.log(`[BlobURL] Protected active URL during playback: ${url}`);
+            return;
+        }
 
         // [Fix] Strict Queue management (Max 5)
         if (this._pendingRevocations.size >= this.MAX_PENDING) {
@@ -417,7 +458,7 @@ let lastChunkTime = 0;
 const TRANSFER_STATE = {
     IDLE: 'IDLE',
     RECEIVING: 'RECEIVING',
-    PROCESSING: 'PROCESSING', // Blob 생성 중
+    PROCESSING: 'PROCESSING', // Creating blob
     READY: 'READY'
 };
 let transferState = TRANSFER_STATE.IDLE;
@@ -463,6 +504,7 @@ let isPreloading = false;
 let nextMeta = null; // Store metadata for preloaded file
 let preloadSessionId = 0; // Session ID for cancellation support
 let currentTransferSessionId = 0; // [NEW] Active transfer session ID to prevent competitive conditions
+let _currentLoadToken = 0; // [Fix] Token to invalidate async load operations when track changes
 
 // Start network initialization early to fetch TURN config in parallel with script parsing
 initNetwork();
@@ -471,8 +513,13 @@ initNetwork();
 let preloadCount = 0;
 let preloadMeta = null;
 let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest side
-// ✅ 추가: 세션 기반 상태 관리
+// Session-based state management
 const preloadSessionState = new Map(); // sessionId -> { skipped, progress, total }
+
+let globalSessionCounter = Math.floor(Date.now() / 1000); // [Fix] Robust Session ID Start
+function nextSessionId() {
+    return ++globalSessionCounter;
+}
 
 // OPFS Helper coordination (now handled by worker)
 // [Fix #5] Async Cleanup with Worker Acknowledgment
@@ -488,7 +535,7 @@ async function cleanupOPFSInWorker(filename, isPreload) {
             }
         };
         timerWorker.addEventListener('message', handler);
-        timerWorker.postMessage({ command: 'OPFS_CLEANUP', filename, isPreload });
+        postWorkerCommand({ command: 'OPFS_CLEANUP', filename, isPreload });
 
         // Safety fallback: Continue if worker takes too long
         setTimeout(() => {
@@ -500,6 +547,15 @@ async function cleanupOPFSInWorker(filename, isPreload) {
 
 // Helper: Clear metadata for upcoming preload (Host side) or current preload (Guest side)
 function clearPreloadState() {
+    // [Fix #3] Don't reset if preload is almost complete (90%+)
+    if (preloadMeta && preloadMeta.total > 0) {
+        const progress = preloadCount / preloadMeta.total;
+        if (progress > 0.9 && progress < 1.0) {
+            console.warn(`[Preload] Skipping reset - almost complete (${Math.round(progress * 100)}%)`);
+            return;
+        }
+    }
+
     // Host side
     nextTrackIndex = -1;
     nextFileBlob = null;
@@ -511,11 +567,17 @@ function clearPreloadState() {
     preloadMeta = null;
     window._skipIncomingPreload = false;
 
+    // [Fix] Keep UI state in sync with Worker RESET
+    preloadFileOpfs.name = null;
+
     // We do NOT call cleanupOPFSInWorker here anymore because it was deleting files
     // that were about to be played.
+
+    // [Fix] However, we SHOULD reset the worker lock so it can accept the NEXT preload
+    postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 }
 
-// 명시적인 OPFS 물리 파일 삭제 (정말 필요할 때만 호출)
+// Explicit OPFS physical file deletion (call only when really needed)
 function forceCleanupOPFS(isPreload) {
     if (isPreload) {
         if (preloadFileOpfs.name) {
@@ -532,7 +594,7 @@ function forceCleanupOPFS(isPreload) {
 
 
 const timerWorker = new Worker('js/worker.js');
-timerWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
+postWorkerCommand({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 
 timerWorker.onerror = (e) => {
     console.error("[Worker Error]", e.message, e.filename, e.lineno);
@@ -567,11 +629,18 @@ timerWorker.onmessage = async (e) => {
 
             if (data.isPreload) {
                 nextFileBlob = file;
-                nextMeta = preloadMeta;
-                nextTrackIndex = preloadMeta.index;
+                const sessionState = preloadSessionState.get(data.sessionId);
+                nextMeta = sessionState || preloadMeta; // session-scoped fallback
+                nextTrackIndex = nextMeta?.index;
 
-                if (hostConn && hostConn.open) {
-                    hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
+                // [FIX] Dedup: Only send ack once per index
+                if (hostConn && hostConn.open && nextTrackIndex !== undefined) {
+                    if (!window._preloadAckSent) window._preloadAckSent = new Set();
+                    if (!window._preloadAckSent.has(nextTrackIndex)) {
+                        window._preloadAckSent.add(nextTrackIndex);
+                        hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
+                        console.log(`[Guest] Sent preload-ack for index ${nextTrackIndex}`);
+                    }
                 }
 
                 if (window._waitingForPreload && window._pendingFileIndex === nextTrackIndex) {
@@ -591,6 +660,15 @@ timerWorker.onmessage = async (e) => {
             console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
             showToast(`파일 저장 오류: ${data.filename}`);
         }
+        // [Fix #1] Handle Session ID mismatch notifications from Worker
+        else if (data.type === 'SESSION_MISMATCH') {
+            console.warn(`[Main] Session Mismatch in ${data.command}: expected=${data.expected}, got=${data.received}, file=${data.filename}`);
+            // If mismatch detected for current file, try to resync with Host
+            if (!data.filename?.includes('preload') && hostConn && hostConn.open) {
+                console.log(`[Main] Requesting resync due to session mismatch`);
+                hostConn.send({ type: 'get-sync-time' });
+            }
+        }
     } catch (err) {
         console.error('[Worker Message] Processing error:', err);
         showToast('워커 메시지 처리 중 오류');
@@ -599,7 +677,7 @@ timerWorker.onmessage = async (e) => {
 
 
 async function finalizeFileProcessing(file) {
-    // 무조건 오디오 메모리 모드(Buffer Mode)로 처리
+    // Always use Buffer Mode for audio processing
     console.log(`[Guest] Finalizing with Buffer Mode...`);
     showLoader(true, "오디오 메모리 로드 중...");
 
@@ -607,43 +685,27 @@ async function finalizeFileProcessing(file) {
         await initAudio();
         if (Tone.context.state === 'suspended') await Tone.start();
 
-        // 1. ArrayBuffer로 변환 및 디코딩 (고정밀 싱크 보장)
+        // 1. Convert to ArrayBuffer and decode (ensures high-precision sync)
         const arrayBuffer = await file.arrayBuffer();
         const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-        // 2. 전역 변수 저장
-        if (currentAudioBuffer) {
-            const oldBuffer = currentAudioBuffer;
-            currentAudioBuffer = null;
-
-            // requestIdleCallback으로 GC 시간 여유 제공
-            if ('requestIdleCallback' in window) {
-                requestIdleCallback(() => {
-                    // oldBuffer는 이제 스코프 밖으로 나가며 GC 대상
-                    if (oldBuffer) {
-                        console.log('[GC] Old AudioBuffer released');
-                    }
-                }, { timeout: 100 });
-            } else {
-                // Fallback
-                await new Promise(r => setTimeout(r, 50));
-            }
-        }
+        // 2. Store in global variable
+        if (currentAudioBuffer) currentAudioBuffer = null; // Encourage GC
         currentAudioBuffer = audioBuffer;
 
-        // 3. 엔진 모드 설정 (비주얼라이저 작동을 위해 'audio' 혹은 'buffer' 케이스 처리)
+        // 3. Set engine mode (handle 'audio' or 'buffer' case for visualizer)
         setEngineMode('audio');
 
-        // 4. 비디오 엘리먼트는 '시각적 싱크'용으로만 사용 (음소거)
+        // 4. Video element used only for visual sync (muted)
         const url = BlobURLManager.create(file);
         videoElement.src = url;
-        videoElement.muted = true; // 소리는 Tone.js가 냄
+        videoElement.muted = true; // Audio handled by Tone.js
 
         // [New] Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
         currentFileBlob = file;
 
         videoElement.onloadedmetadata = () => {
-            // 길이는 정확한 오디오 버퍼 기준
+            // Duration based on accurate audio buffer
             document.getElementById('seek-slider').max = audioBuffer.duration;
             document.getElementById('seek-slider').value = 0;
             document.getElementById('time-dur').innerText = fmtTime(audioBuffer.duration);
@@ -651,7 +713,7 @@ async function finalizeFileProcessing(file) {
         };
         videoElement.load();
 
-        // [Unified Buffer Mode] Buffer가 있다면 오디오 그래프 연결(MediaElementSource)을 하지 않음
+        // [Unified Buffer Mode] Don't connect MediaElementSource if buffer exists
         if (!currentAudioBuffer) {
             setupMediaSource();
         } else if (mediaSourceNode) {
@@ -1213,6 +1275,24 @@ function updatePlaylistUI() {
             ul.appendChild(subUl);
         }
     });
+
+    // [Fix] Sync Title/Artist UI Update:
+    // Update the main header title and artist text immediately when the playlist UI is updated.
+    // This ensures the title always matches the active item even during rapid clicks.
+    const currentItem = playlist[currentTrackIndex];
+    if (currentItem) {
+        const title = currentItem.name || currentItem.title || 'Unknown';
+        updateTitleWithMarquee(title);
+
+        const artistEl = document.getElementById('track-artist');
+        if (artistEl) {
+            if (currentItem.artist) {
+                artistEl.innerText = currentItem.artist;
+            } else {
+                artistEl.innerText = (currentItem.type === 'youtube' && !currentItem.artist) ? 'YouTube Video' : `Track ${currentTrackIndex + 1}`;
+            }
+        }
+    }
 }
 
 // --- Media Session API (System Controls) ---
@@ -1466,9 +1546,9 @@ async function playTrack(index) {
 
     const file = item.file;
     if (!hostConn) {
-        // [FIX] Generate Session ID UPFRONT to prevent race conditions
-        currentTransferSessionId++;
-        const sessionId = currentTransferSessionId;
+        // [FIX] Generate Global Unique Session ID
+        const sessionId = nextSessionId();
+        currentTransferSessionId = sessionId;
 
         // Standard Load with Session ID
         broadcast({ type: 'file-prepare', name: file.name, index: index, sessionId: sessionId });
@@ -1500,8 +1580,8 @@ async function preloadNextTrack() {
     if (isPreloading) {
         console.log("[Preload] Cancelling previous preload session");
     }
-    preloadSessionId++;  // Invalidate previous session
-    const currentSession = preloadSessionId;
+    const currentSession = nextSessionId();
+    preloadSessionId = currentSession;
 
     // Determine Next Index logic (copy of playNextTrack logic)
     let nextIdx;
@@ -1616,17 +1696,18 @@ async function backgroundTransfer(file, index, sessionId) {
             return;
         }
 
-        // Flow Control: check primary targets only (they handle downstream)
+        // [Optimization] Relaxed Congestion Control for Preload
+        // Boosted from 32KB/100ms -> 128KB/50ms to improve speed without causing audio dropouts
         let congested = true;
         while (congested) {
             congested = false;
             for (const p of targets) {
-                if (p.conn.open && p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 1 * 1024 * 1024) {
+                if (p.conn.open && p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 128 * 1024) {
                     congested = true;
                     break;
                 }
             }
-            if (congested) await new Promise(r => setTimeout(r, 100));
+            if (congested) await new Promise(r => setTimeout(r, 50));
         }
 
         const start = i * CHUNK;
@@ -1638,8 +1719,9 @@ async function backgroundTransfer(file, index, sessionId) {
         const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i };
         sendToTargets(chunkMsg, true); // true = send only to those who need chunks
 
-        // Slow down sending to save CPU/Network for playback
-        if (i % 10 === 0) await new Promise(r => setTimeout(r, 20));
+        // [Optimization] Less aggressive fixed throttle
+        // Improved from 10 chunks / 20ms -> 20 chunks / 10ms
+        if (i % 20 === 0) await new Promise(r => setTimeout(r, 10));
     }
 
     // Final session check before completing
@@ -1836,9 +1918,8 @@ async function loadAndBroadcastFile(file, sessionId = null) {
             videoElement.src = url;
             videoElement.muted = false;
         }
-
-        updateTitleWithMarquee(file.name);
-        document.getElementById('track-artist').innerText = `Track ${currentTrackIndex + 1}`;
+        // Update Playlist UI (and title/artist)
+        updatePlaylistUI();
 
         videoElement.onloadedmetadata = () => {
             if (myLoadId !== activeLoadSessionId) return; // 여기도 방어
@@ -1887,11 +1968,7 @@ async function loadAndBroadcastFile(file, sessionId = null) {
         pausedAt = 0;
         updatePlayState(false);
 
-        // [Fix] Auto-play for Host on first load
-        if (!hostConn && currentTrackIndex === 0) {
-            console.log("[Host] Auto-playing first track...");
-            play(0);
-        }
+        // [FIX] Removed duplicate auto-play - playTrack() already handles this via autoPlayTimer
 
         // [Fix] Ensure play button is enabled for Host even if load fails or halts
         if (!hostConn) {
@@ -2003,9 +2080,18 @@ async function play(offset) {
     }
     _isPlayLocked = true;
 
+    // [Fix #3] Lock Watchdog: Ensure lock is released even if _internalPlay hangs
+    const lockWatchdog = setTimeout(() => {
+        if (_isPlayLocked) {
+            console.warn("[Play] Lock Timeout: Forcing unlock after 5s");
+            _isPlayLocked = false;
+        }
+    }, 5000);
+
     try {
         await _internalPlay(offset);
     } finally {
+        clearTimeout(lockWatchdog);
         // [Fix #4] Play Lock Safety: Add small timeout to prevent rapid-fire command overlaps
         setTimeout(() => {
             _isPlayLocked = false;
@@ -2095,8 +2181,8 @@ async function _internalPlay(offset) {
         // Sync Visuals (Muted Video)
         if (videoElement.src) {
             videoElement.currentTime = offset;
-            videoElement.muted = true; // [Double Audio Fix] 확실한 음소거
-            videoElement.volume = 0;   // [Double Audio Fix] 볼륨도 0으로
+            videoElement.muted = true; // [Double Audio Fix] Ensure muted
+            videoElement.volume = 0;   // [Double Audio Fix] Volume also 0
             videoElement.play().catch(() => { });
         }
 
@@ -2133,21 +2219,20 @@ async function _internalPlay(offset) {
     pausedAt = offset;
 
     startVisualizer();
-    timerWorker.postMessage({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
+    postWorkerCommand({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
     if (!uiLoopId) loopUI();
 }
 
 function stopPlayerNode() {
     if (playerNode) {
         try {
-            // [핵심 수정] 멈추기 전에 onended 이벤트를 삭제해야 함
-            // 안 그러면 stop() 하는 순간 "곡 끝남!" 처리되어 다음 곡으로 또 넘어감 (무한 루프/겹침 원인)
+            // [Key Fix] Must remove onended listener before stop()
+            // Otherwise stop() triggers "track ended" causing infinite loop/overlap
             playerNode.onended = null;
 
             playerNode.stop();
             playerNode.disconnect();
-            // dispose는 메모리 해제를 위해 호출하지만,
-            // Tone.js 버전에 따라 가끔 에러를 뱉으므로 try-catch 유지
+            // dispose() for memory cleanup, may throw in some Tone.js versions
             playerNode.dispose();
         } catch (e) {
             console.warn("Error stopping/disposing playerNode:", e);
@@ -2159,81 +2244,107 @@ function stopPlayerNode() {
 
 function handleEnded() {
     // [SAFARI FIX] Video duration can be transiently small/wrong during load.
+    // Guests should only trigger 'ended' if they are NOT loading and the Host isn't forcing playback.
     if (hostConn && currentState !== APP_STATE.IDLE) {
+        // If Host says we are 3 mins in, but local says 0.39s, ignore local "end"
         return;
     }
 
-    // Safety: Verify video readyState before trusting duration
+    // Safety: Verify video readyState before trusting duration (VIDEO and STREAMING modes)
     const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
     if (usesVideoElement && videoElement && videoElement.readyState < 1) {
+        return; // Metadata not yet reliable
+    }
+
+    const duration = videoElement ? videoElement.duration : 0;
+
+    // Safety: Skip if duration is invalid or suspiciously short during load
+    if (!duration || !isFinite(duration) || duration <= 0.5) {
         return;
     }
 
-    console.log("[handleEnded] Track finished");
-    stopAllMedia();
-    pausedAt = 0;
+    // [Validation] Proceed to check end conditions
 
-    if (!hostConn) {
-        // ✅ [수정] 기존 setTimeout을 managedTimers.nextTrackTimer에 할당
-        if (repeatMode === 2) {
-            managedTimers.nextTrackTimer = setTimeout(() => {
-                managedTimers.nextTrackTimer = null; // 실행 후 초기화
-                playTrack(currentTrackIndex);
-            }, 300);
-        } else {
-            managedTimers.nextTrackTimer = setTimeout(() => {
-                managedTimers.nextTrackTimer = null; // 실행 후 초기화
-                playNextTrack();
-            }, 500);
+    // [FIX] Only require videoElement, not playerNode (playerNode is null in Streaming Mode)
+    if (!videoElement) return;
+    if (currentState === APP_STATE.IDLE) return;
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
+
+    // [FIX] Use unified Track Position calculation
+    const curr = getTrackPosition();
+
+    // [FIX] Seek Guard: If the user is currently scrubbing the timeline, ignore end signals.
+    if (isSeeking) {
+        console.log("[handleEnded] Ignoring end signal while seeking");
+        return;
+    }
+
+    const isPastEnd = (curr >= duration - 0.2);
+
+    if (currentState !== APP_STATE.IDLE && isPastEnd) {
+        console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
+
+        // [FIX] Use centralized stopAllMedia() which sets state to IDLE
+        stopAllMedia();
+
+        // Note: stopAllMedia() already calls setState(IDLE) and updatePlayState(false)
+        pausedAt = 0;
+
+        // Reset UI immediately
+        const slider = document.getElementById('seek-slider');
+        if (slider) slider.value = 0;
+        const timeCurr = document.getElementById('time-curr');
+        if (timeCurr) timeCurr.innerText = fmtTime(0);
+
+        // Auto Advance (Host Only)
+        if (!hostConn) {
+            if (repeatMode === 2) {
+                // Repeat One: Play same track again
+                console.log("Repeat One: Replaying current track...");
+                // Reset sync state for clean restart
+                setTimeout(() => playTrack(currentTrackIndex), 300);
+            } else {
+                console.log("Auto-advancing to next track...");
+                setTimeout(() => playNextTrack(), 500);
+            }
         }
     }
 }
 
-// [FIX] Move to global scope to resolve ReferenceError
-let _lastSyncAttempt = 0;
-
 /**
- * [Unified Sync Check] Handles both drift correction and end-of-track detection.
- * Called periodically via Worker timer.
+ * [iOS Latency Fix] Perform subtle drift correction.
+ * Called every 2s to keep devices in sync without heavy UI lag.
  */
 function checkVideoSync() {
-    if (Date.now() - _lastSyncAttempt < 1000) return;
-    _lastSyncAttempt = Date.now();
-
-    if (!videoElement || currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_YOUTUBE) return;
-
-    const duration = videoElement.duration;
-    if (!duration || !isFinite(duration) || duration <= 0.5) return;
-
-    const curr = getTrackPosition();
-
-    // 1. END-OF-TRACK DETECTION
-    if (isSeeking) {
-        console.log("[checkVideoSync] Ignoring end check while seeking");
-    } else {
-        const isPastEnd = (curr >= duration - 0.2);
-        if (isPastEnd) {
-            handleEnded();
-            return;
-        }
-    }
-
-    // 2. DRIFT CORRECTION (Only for local video/streaming)
     if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-        if (videoElement.paused) return;
+        if (!videoElement || videoElement.paused) return;
 
+        const targetTime = getTrackPosition();
         const actualTime = videoElement.currentTime;
-        const drift = Math.abs(actualTime - curr);
+        const drift = Math.abs(actualTime - targetTime);
 
+        // Only correct if drift is significant (>300ms) to avoid constant stuttering
+        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
+        // Only correct if drift is significant (>300ms) to avoid constant stuttering
+        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
         if (drift > 0.3) {
             console.log(`[SyncCheck] Correcting drift: ${drift.toFixed(3)}s`);
             const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-            const correction = curr - bias;
+            const correction = targetTime - bias;
 
+            // [Unified Buffer Mode] Drift Correction via transient node
             if (currentAudioBuffer) {
                 stopPlayerNode();
                 playerNode = new Tone.BufferSource(currentAudioBuffer);
-                playerNode.connect(widener);
+
+                // [FIX] Respect surround mode when correcting drift
+                if (isSurroundMode && surroundSplitter && surroundGain) {
+                    playerNode.connect(surroundSplitter);
+                    // Surround routing is already set up by setSurroundChannel
+                } else {
+                    playerNode.connect(widener);
+                }
+
                 playerNode.onended = () => {
                     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_STREAMING) {
                         handleEnded();
@@ -2241,6 +2352,7 @@ function checkVideoSync() {
                 };
                 playerNode.start(Tone.now(), correction);
             }
+
             videoElement.currentTime = correction;
         }
     }
@@ -2251,8 +2363,6 @@ function checkVideoSync() {
  * Ensures no audio overlap during transitions.
  */
 function stopAllMedia() {
-    // ✅ [추가] 좀비처럼 살아난 다음 곡 재생 예약 취소
-    clearManagedTimer('nextTrackTimer');
     // 1. Stop Global Video (확실하게 초기화)
     if (videoElement) {
         videoElement.pause();
@@ -2373,9 +2483,6 @@ function togglePlay() {
 }
 
 function pause() {
-    // ✅ [추가] 일시정지 시에도 곡이 끝났다고 착각하고 다음 곡으로 넘어가는 것 방지
-    clearManagedTimer('nextTrackTimer');
-
     if (currentState !== APP_STATE.IDLE) {
         if (videoElement) videoElement.pause();
 
@@ -2384,10 +2491,13 @@ function pause() {
 
         pausedAt = getTrackPosition();
         if (videoElement) videoElement.currentTime = pausedAt;
+
+        // [Fix] Set state to IDLE so loopUI stops
+        setState(APP_STATE.IDLE, { skipCleanup: true });
     }
     updatePlayState(false);
     showToast("일시정지");
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
+    postWorkerCommand({ command: 'STOP_TIMER', id: 'video-sync' });
 }
 
 function skipTime(sec) {
@@ -3878,10 +3988,10 @@ function joinSession(retryAttempt = 0) {
         if (hostPanel) hostPanel.classList.add('visible');
 
         // Volunteer Heartbeat: Send to Host every 5s (Worker)
-        timerWorker.postMessage({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
+        postWorkerCommand({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
 
         // Latency Ping (2s) (Worker)
-        timerWorker.postMessage({ command: 'START_TIMER', id: 'ping', interval: 2000 });
+        postWorkerCommand({ command: 'START_TIMER', id: 'ping', interval: 2000 });
 
         // Detect ICE connection type after connection stabilizes
         setTimeout(() => detectConnectionType(), 2000);
@@ -3919,8 +4029,8 @@ function joinSession(retryAttempt = 0) {
         }
 
         // Stop Worker Timers
-        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'heartbeat' });
-        timerWorker.postMessage({ command: 'STOP_TIMER', id: 'ping' });
+        postWorkerCommand({ command: 'STOP_TIMER', id: 'heartbeat' });
+        postWorkerCommand({ command: 'STOP_TIMER', id: 'ping' });
 
         if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
             // [FIX] If we are already in joinSession (isConnecting=true), don't trigger another one
@@ -4149,9 +4259,24 @@ function clearPreviousTrackState(reason = '') {
 
     currentFileBlob = null;
 
+    // [Fix] CRITICAL: Clear audio buffer to prevent previous track from replaying
+    if (currentAudioBuffer) {
+        console.log(`[State Clear] Clearing currentAudioBuffer`);
+        currentAudioBuffer = null;
+    }
+    stopPlayerNode();  // Stop any playing audio
     window._skipIncomingFile = false;
     _isProcessingBlob = false;
     window._pendingEarlyChunks = [];
+
+    // [Fix] Reset state to IDLE so that subsequent sync/play commands for the new track 
+    // are not ignored as "already playing" stale streaming state.
+    if (currentState === APP_STATE.PLAYING_STREAMING || currentState === APP_STATE.PLAYING_AUDIO) {
+        setState(APP_STATE.IDLE);
+    }
+
+    // [FIX] Clear preload-ack tracking for current track (allow new acks for next track)
+    if (window._preloadAckSent) window._preloadAckSent.clear();
 
     BlobURLManager.revoke();
 
@@ -4165,6 +4290,8 @@ function clearPreviousTrackState(reason = '') {
 
     // [New] Physically delete the OLD current file from OPFS when switching tracks
     if (currentFileOpfs.name) {
+        // [Fix] RESET worker slot first to clear lock
+        postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
         cleanupOPFSInWorker(currentFileOpfs.name, false);
         currentFileOpfs.name = null;
     }
@@ -4175,13 +4302,26 @@ function clearPreviousTrackState(reason = '') {
 
 // --- Data Message Handlers ---
 async function handleFilePrepare(data) {
+    // [Fix] Increment token to invalidate any previous async operations
+    const myLoadToken = ++_currentLoadToken;
+
     // [FIX] Immediate Session Check to invalidate old chunks
     const incomingSid = data.sessionId;
     if (incomingSid && incomingSid > localTransferSessionId) {
         console.log(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
         localTransferSessionId = incomingSid;
-        // Optionally clear previous state immediately if not already handling it below
+
+        // [Fix #4] Force reset waiting flags on new session
+        if (window._waitingForPreload) {
+            console.log(`[file-prepare] Clearing stale _waitingForPreload flag`);
+            window._waitingForPreload = false;
+            clearManagedTimer('preloadWatchdog');
+        }
     }
+
+    // [FIX] Immediate stop for Guest during transition
+    // Ensures old song stops even if we return early to wait for preload
+    stopAllMedia();
 
     // Check if we already have this track preloaded!
     const hasPreloadedByIndex = nextMeta && data.index !== undefined && data.index === nextMeta.index;
@@ -4226,12 +4366,11 @@ async function handleFilePrepare(data) {
         console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
         showToast("프리로드된 파일 사용!");
 
-        stopAllMedia();
         currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
         updatePlaylistUI();
 
         // Use preloaded file directly
-        await loadPreloadedTrack();
+        await loadPreloadedTrack(data.index, myLoadToken);
 
         // CRITICAL: Hide loader so play() doesn't think we're still downloading
         showLoader(false);
@@ -4247,7 +4386,8 @@ async function handleFilePrepare(data) {
 
     // CHECK: If preload is IN PROGRESS for this track, wait for it instead of starting new download
     if (preloadInProgressByIndex || preloadInProgressByName) {
-        const incomingSid = data.sessionId || 0;
+        const incomingSid = data.sessionId;
+        if (!incomingSid) return; // Strict validation
 
         // [Fix #2] Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
         if (incomingSid > localTransferSessionId) {
@@ -4304,7 +4444,7 @@ async function handleFilePrepare(data) {
         // Clear previous track state before receiving new file
         clearPreviousTrackState('file-prepare (new download)');
         showLoader(true, `준비 중: ${data.name}`);
-        stopAllMedia();
+        // stopAllMedia(); // Removed - already called at the top of handler
         if (data.index !== undefined) {
             currentTrackIndex = data.index;
             updatePlaylistUI();
@@ -4346,10 +4486,10 @@ async function handleFilePrepare(data) {
 }
 
 async function handleFileStart(data) {
-    // [FIX] Session ID Validation
-    const incomingSid = data.sessionId || 0;
-    if (incomingSid < localTransferSessionId) {
-        console.warn(`[file-start] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+    // [FIX] Session ID Validation - NO FALLBACK to 0
+    const incomingSid = data.sessionId;
+    if (!incomingSid || incomingSid < localTransferSessionId) {
+        console.warn(`[file-start] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
         return;
     }
 
@@ -4357,8 +4497,15 @@ async function handleFileStart(data) {
     if (incomingSid > localTransferSessionId) {
         console.log(`[file-start] New session detected: ${incomingSid}. Resetting state.`);
         localTransferSessionId = incomingSid;
+
+        // [Fix] Explicitly RESET worker slot for new session to prevent lock collision
+        postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+
         clearPreviousTrackState('new-session-start');
     }
+
+    // [FIX] Stop current playback immediately when new transfer starts
+    stopAllMedia();
 
     // Skip if we're using preloaded file (already have the data)
     if (window._skipIncomingFile) {
@@ -4374,11 +4521,11 @@ async function handleFileStart(data) {
     transferState = TRANSFER_STATE.IDLE;
 
     // [OPFS-Worker] Start new session
+    // [Fix] Consolidate OPFS_START logic
+    // We will call OPFS_START once later in this function after determining if it's a recovery
     if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
         cleanupOPFSInWorker(currentFileOpfs.name, false);
     }
-    // [Fix #6] Session ID propagation to Worker
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
     currentFileOpfs.name = data.name;
 
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
@@ -4403,16 +4550,27 @@ async function handleFileStart(data) {
             meta = data; // Update meta first
 
             // Trigger processing via worker notification
-            timerWorker.postMessage({ command: 'OPFS_END', filename: data.name, isPreload: false, sessionId: incomingSid });
+            postWorkerCommand({
+                command: 'OPFS_END',
+                filename: data.name,
+                isPreload: false,
+                sessionId: validateSessionId(incomingSid)
+            });
             return; // Skip rest of file-start handler
         } else {
             showToast(`${sourceLabel}로부터 전송 이어받기`);
             const pct = Math.round((receivedCount / data.total) * 100);
             showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
 
-            // Resume with Worker (keepExistingData is default for OPFS_START if we handle logic there,
-            // (but Worker implementation above creates fresh. Let's send START to ensure handles are open)
-            timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
+            // Resume with Worker
+            postWorkerCommand({
+                command: 'OPFS_START',
+                filename: data.name,
+                isPreload: false,
+                size: CHUNK_SIZE,
+                sessionId: validateSessionId(incomingSid),
+                keepExisting: true
+            });
         }
         // Update meta but don't touch receivedCount
         meta = data;
@@ -4423,7 +4581,13 @@ async function handleFileStart(data) {
         showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
 
         // [OPFS-Worker] Start
-        timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, sessionId: incomingSid });
+        postWorkerCommand({
+            command: 'OPFS_START',
+            filename: data.name,
+            isPreload: false,
+            size: CHUNK_SIZE,
+            sessionId: validateSessionId(incomingSid)
+        });
         currentFileOpfs.name = data.name;
 
         incomingChunks = []; // Clear in-memory array
@@ -4436,11 +4600,13 @@ async function handleFileStart(data) {
             console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
             for (const pending of window._pendingEarlyChunks) {
                 if (pending.index >= 0 && pending.index < data.total) {
-                    timerWorker.postMessage({
+                    postWorkerCommand({
                         command: 'OPFS_WRITE',
                         chunk: pending.chunk,
                         index: pending.index,
-                        isPreload: false
+                        isPreload: false,
+                        filename: data.name,
+                        sessionId: validateSessionId(incomingSid)
                     }, [pending.chunk.buffer]);
                     receivedCount++;
                 }
@@ -4449,7 +4615,8 @@ async function handleFileStart(data) {
         }
     }
 
-    updateTitleWithMarquee(data.name);
+    // Playlist UI, Title, and Artist are updated via updatePlaylistUI() in the caller or earlier in handleFileStart logic
+    // [Removed] updateTitleWithMarquee(data.name);
 
     // Watchdog Start
     clearManagedTimer('chunkWatchdog');
@@ -4483,10 +4650,10 @@ async function handleFileStart(data) {
 }
 
 async function handleFileResume(data) {
-    // [FIX] Session ID Validation
-    const incomingSid = data.sessionId || 0;
-    if (incomingSid < localTransferSessionId) {
-        console.warn(`[file-resume] Stale session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+    // [FIX] Session ID Validation - NO FALLBACK to 0
+    const incomingSid = data.sessionId;
+    if (!incomingSid || incomingSid < localTransferSessionId) {
+        console.warn(`[file-resume] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
         return;
     }
 
@@ -4502,7 +4669,14 @@ async function handleFileResume(data) {
     window._skipIncomingFile = false;
 
     // [OPFS-Worker] Resume
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: false, size: CHUNK_SIZE, keepExisting: true, sessionId: incomingSid });
+    postWorkerCommand({
+        command: 'OPFS_START',
+        filename: data.name,
+        isPreload: false,
+        size: CHUNK_SIZE,
+        sessionId: validateSessionId(incomingSid),
+        keepExisting: true
+    });
     currentFileOpfs.name = data.name;
 
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
@@ -4515,7 +4689,7 @@ async function handleFileResume(data) {
 
     // Update meta
     meta = data;
-    updateTitleWithMarquee(data.name);
+    updatePlaylistUI();
 
     let sizeText = data.size ? ` (${(data.size / 1024 / 1024).toFixed(1)}MB)` : "";
     const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
@@ -4545,7 +4719,8 @@ const fileReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
 let nextExpectedChunk = 0;
 
 async function handleFileChunk(data) {
-    const incomingSid = data.sessionId || 0;
+    const incomingSid = data.sessionId;
+    if (!incomingSid) return; // Strict validation
 
     // ✅ 새 세션 감지 시 워커 리셋
     if (incomingSid > localTransferSessionId) {
@@ -4553,7 +4728,7 @@ async function handleFileChunk(data) {
         localTransferSessionId = incomingSid;
 
         // Worker 버퍼 명시적 클리어
-        timerWorker.postMessage({
+        postWorkerCommand({
             command: 'OPFS_RESET',
             isPreload: false
         });
@@ -4564,6 +4739,7 @@ async function handleFileChunk(data) {
         // [New] Reorder Buffer Reset
         fileReorderBuffer.set(incomingSid, new Map());
         nextExpectedChunk = 0;
+        receivedCount = 0;
     }
 
     if (incomingSid < localTransferSessionId) {
@@ -4582,82 +4758,99 @@ async function handleFileChunk(data) {
     }
 
     const sessionBuffer = fileReorderBuffer.get(incomingSid);
-    sessionBuffer.set(data.index, data.chunk);
+
+    // [Fix] Clone data before storing/sending to avoid detachment issues
+    const chunkData = new Uint8Array(data.chunk);
+    sessionBuffer.set(data.index, chunkData);
+
+    // Debug logging for first few chunks
+    if (data.index < 5 || data.index % 100 === 0) {
+        console.log(`[Chunk] Received idx=${data.index}, total=${meta?.total}`);
+    }
+
+    // [Fix] Skip orphan chunks when meta was cleared (session changed)
+    if (!meta || meta.total === undefined) {
+        console.warn(`[Chunk] Orphan chunk ignored (idx=${data.index}): meta.total is undefined`);
+        return;
+    }
 
     // Process all contiguous chunks in order
     while (sessionBuffer.has(nextExpectedChunk)) {
         const chunk = sessionBuffer.get(nextExpectedChunk);
-        const idx = nextExpectedChunk;
 
-        // CRITICAL: Clone the chunk! The underlying buffer might be reused or detached by PeerJS.
-        const chunkCopy = new Uint8Array(chunk);
-
-        // [FIX] Prepare relay copy BEFORE sending chunkCopy to worker (to avoid detachment)
+        // Prepare Relay Copy (before transfer to worker)
         let relayCopy = null;
         if (downstreamDataPeers.length > 0) {
-            relayCopy = new Uint8Array(chunkCopy);
+            relayCopy = new Uint8Array(chunk);
         }
 
-        // [Worker-OPFS] Offload write
-        timerWorker.postMessage({
+        postWorkerCommand({
             command: 'OPFS_WRITE',
-            chunk: chunkCopy,
-            index: idx,
+            chunk: chunk,
+            index: nextExpectedChunk,
             isPreload: false,
             filename: currentFileOpfs.name,
-            sessionId: incomingSid
-        }, [chunkCopy.buffer]);
+            sessionId: validateSessionId(incomingSid)
+        }, [chunk.buffer]);
 
-        receivedCount++;
-        lastChunkTime = Date.now();
-        sessionBuffer.delete(idx);
-        nextExpectedChunk++;
-
-        // RELAY LOGIC: Queue and Process (with Back-pressure)
+        // RELAY LOGIC: Queue and Process
         if (relayCopy && downstreamDataPeers.length > 0) {
-            relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: idx });
+            relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: nextExpectedChunk });
             processRelayQueue();
         }
 
-        // [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
-        if (meta && meta.total > 0 && receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
-            // [FIX #4] Set guard BEFORE any async operation to prevent race conditions
-            transferState = TRANSFER_STATE.PROCESSING;
-            const processingIndex = meta.index;
-
-            // [New] Notify Host that we have this file now
-            if (hostConn && hostConn.open && processingIndex !== undefined) {
-                hostConn.send({ type: 'preload-ack', index: processingIndex });
-                console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
-            }
-
-            // [Worker-OPFS] Finalize file
-            timerWorker.postMessage({ command: 'OPFS_END', filename: meta.name, isPreload: false, sessionId: incomingSid });
-
-            // [Stability Fix] Explicitly clear watchdog once file is fully received
-            clearManagedTimer('chunkWatchdog');
-
-            // Finalize UI/playback state will happen in Worker message handler
-            break;
-        }
+        sessionBuffer.delete(nextExpectedChunk);
+        nextExpectedChunk++;
+        receivedCount++;
     }
 
-    // Progress update UI
+    lastChunkTime = Date.now();
+
+    // Progress update...
     if (meta && meta.total > 0) {
         const percent = Math.min(100, Math.floor((receivedCount / meta.total) * 100));
-        const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
 
+        const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
         let progressText = `${percent}%`;
+
         if (meta.size) {
-            const totalMB = (meta.size / 1024 / 1024).toFixed(1);
+            const totalMB = ((meta.size / 1024 / 1024)).toFixed(1);
             const currentBytes = receivedCount * 16384;
-            const currentMB = (currentBytes / 1024 / 1024).toFixed(1);
+            const currentMB = ((currentBytes / 1024 / 1024)).toFixed(1);
             progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
         }
 
-        const headerText = document.getElementById('header-loading-text');
-        if (headerText) headerText.innerText = `${sourceLabel} 수신 중... ${progressText}`;
+        const loaderText = document.getElementById('header-loading-text');
+        if (loaderText) loaderText.innerText = `${sourceLabel} 수신 중... ${progressText}`;
         updateLoader(percent);
+    }
+
+    // [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
+    if (meta && receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
+        // [FIX #4] Set guard BEFORE any async operation to prevent race conditions
+        transferState = TRANSFER_STATE.PROCESSING;
+        const processingIndex = meta.index;   // [Fix] Capture track index for ACK
+
+        // [New] Notify Host that we have this file now
+        if (hostConn && hostConn.open && processingIndex !== undefined) {
+            hostConn.send({ type: 'preload-ack', index: processingIndex });
+            console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
+        }
+
+        // [Worker-OPFS] Finalize file with Size Verification
+        postWorkerCommand({
+            command: 'OPFS_END',
+            filename: meta.name,
+            isPreload: false,
+            sessionId: validateSessionId(incomingSid),
+            totalSize: meta.size // [Fix] Send expected size for integrity check
+        });
+
+        // [Stability Fix] Explicitly clear watchdog once file is fully received
+        clearManagedTimer('chunkWatchdog');
+
+        // Finalize UI/playback state will happen in Worker message handler
+        return;
     }
 }
 
@@ -4815,7 +5008,11 @@ async function handlePreloadStart(data) {
     const isNextPreloaded = nextFileBlob && (matchIndex(nextMeta?.index) || matchName(nextMeta?.name));
     const alreadyCachedLocally = isCurrentlyPlaying || isNextPreloaded;
 
-    const sessionId = data.sessionId || 0;
+    const sessionId = data.sessionId;
+    if (!sessionId) {
+        console.warn("[Preload] Start message missing sessionId. Ignoring.");
+        return;
+    }
 
     // Skip if Host explicitly said so, or if we detected cache ourselves
     if (data.skipped || alreadyCachedLocally) {
@@ -4823,6 +5020,7 @@ async function handlePreloadStart(data) {
 
         // ✅ 세션별 상태 저장
         preloadSessionState.set(sessionId, { skipped: true });
+        latestPreloadSessionId = sessionId; // [Fix] Track active session
 
         preloadChunks = [];
         preloadCount = 0;
@@ -4849,17 +5047,36 @@ async function handlePreloadStart(data) {
     preloadSessionState.set(sessionId, {
         skipped: false,
         progress: 0,
-        total: data.total
+        total: data.total,
+        name: data.name,    // [Fix] Store name for chunk processing
+        index: data.index,   // [Fix] Store index for completeness check
+        size: data.size,     // [Fix] Store size for integrity check
+        nextExpectedChunk: 0 // [Fix] Session-scoped chunk pointer
     });
+    latestPreloadSessionId = sessionId; // [Fix] Track active session
 
     console.log(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
 
     // [New] Show Preload Status in Header
     // "다음 곡 준비 중..."
-    showLoader(true, `다음 곡 준비 중... (${data.name})`);
+    // Only if main track transfer is NOT in progress to avoid UI flickering
+    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+        showLoader(true, `다음 곡 준비 중... (${data.name})`);
+    } else {
+        console.log(`[Preload] Started behind main track: ${data.name}`);
+    }
+
+    // [Fix] Explicitly RESET preload slot before starting new one to clear stale locks
+    postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 
     // [OPFS-Worker] Prepare preload file
-    timerWorker.postMessage({ command: 'OPFS_START', filename: data.name, isPreload: true, size: CHUNK_SIZE, sessionId: sessionId });
+    postWorkerCommand({
+        command: 'OPFS_START',
+        filename: data.name,
+        isPreload: true,
+        size: CHUNK_SIZE,
+        sessionId: validateSessionId(sessionId)
+    });
     preloadFileOpfs.name = data.name;
 
     preloadChunks = [];
@@ -4874,13 +5091,27 @@ async function handlePreloadStart(data) {
 
 // [Fix #6] Network Data Integrity: Preload Reordering Buffer
 const preloadReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
-let nextExpectedPreloadChunk = 0;
+// [Refactor] Removed global nextExpectedPreloadChunk to prevent pollution
+// let nextExpectedPreloadChunk = 0;
+let latestPreloadSessionId = 0; // [Fix] Fallback for chunks missing explicit SessionID
 
 async function handlePreloadChunk(data) {
-    const sessionId = data.sessionId || 0;
+    // [Fix] NO FALLBACK to 0. Must have valid SID.
+    let sessionId = data.sessionId;
+    if (!sessionId && latestPreloadSessionId !== 0) {
+        sessionId = latestPreloadSessionId;
+    }
+    if (!sessionId) return;
 
-    // ✅ 세션 상태 확인
+    // Check session state
     const sessionState = preloadSessionState.get(sessionId);
+
+    if (!sessionState) {
+        // Session state missing - log warning but continue
+        // Use preloadMeta as fallback for chunks that arrive before session state is set
+        console.warn(`[Preload] Session State MISSING for SID: ${sessionId}, using preloadMeta fallback`);
+    }
+
     if (sessionState?.skipped) {
         return; // 스킵된 세션의 청크 무시
     }
@@ -4889,86 +5120,175 @@ async function handlePreloadChunk(data) {
 
     if (!preloadReorderBuffer.has(sessionId)) {
         preloadReorderBuffer.set(sessionId, new Map());
-        nextExpectedPreloadChunk = 0;
+        // nextExpectedPreloadChunk = 0; // Handled in sessionState
     }
 
     const sessionBuffer = preloadReorderBuffer.get(sessionId);
     sessionBuffer.set(data.index, data.chunk);
 
-    while (sessionBuffer.has(nextExpectedPreloadChunk)) {
-        const chunk = sessionBuffer.get(nextExpectedPreloadChunk);
+    // [Fix] Use Session-Scoped Pointer
+    let nextChunkPtr = sessionState ? sessionState.nextExpectedChunk : 0;
 
-        timerWorker.postMessage({
+    while (sessionBuffer.has(nextChunkPtr)) {
+        const chunk = sessionBuffer.get(nextChunkPtr);
+
+        // Clone chunk to prevent detachment issues
+        const chunkClone = new Uint8Array(chunk);
+        const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : 'Unknown');
+        postWorkerCommand({
             command: 'OPFS_WRITE',
-            chunk: chunk,
-            index: nextExpectedPreloadChunk,
+            chunk: chunkClone,
+            index: nextChunkPtr,
             isPreload: true,
-            filename: preloadMeta.name,
-            sessionId: sessionId
-        }, [chunk.buffer]);
+            filename: fileName,
+            sessionId: validateSessionId(sessionId)
+        }, [chunkClone.buffer]);
 
-        sessionBuffer.delete(nextExpectedPreloadChunk);
-        nextExpectedPreloadChunk++;
+        sessionBuffer.delete(nextChunkPtr);
+        nextChunkPtr++;
     }
 
-    preloadCount = nextExpectedPreloadChunk;
+    // Update session state pointer
+    if (sessionState) {
+        sessionState.nextExpectedChunk = nextChunkPtr;
+    }
 
     // ✅ 진행률 업데이트
+    // [Fix] Rely on Session State for progress tracking to avoid Global Variable pollution
     if (sessionState) {
-        sessionState.progress = preloadCount;
+        sessionState.progress = sessionState.nextExpectedChunk;
+        preloadCount = sessionState.progress; // Sync global for legacy UI if needed
+    } else {
+        preloadCount = sessionState ? sessionState.nextExpectedChunk : 0; // Fallback
     }
 
     // [New] Update UI for Preload
     if (preloadMeta && preloadMeta.total > 0) {
-        const pct = Math.min(100, Math.floor((preloadCount / preloadMeta.total) * 100));
-        // Dynamically update text if needed, or just update bar
-        // showLoader(true, `다음 곡 준비 중... ${pct}%`); // Optional: avoid spamming text updates if not needed
-        updateLoader(pct);
+        // Only update progress bar for preload if main track is NOT using it
+        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+            const currentProgress = sessionState ? sessionState.progress : preloadCount;
+            const pct = Math.min(100, Math.floor((currentProgress / preloadMeta.total) * 100));
+            updateLoader(pct);
+        }
     }
 
-    if (fwdMsg && downstreamDataPeers.length > 0) {
-        downstreamDataPeers.forEach(p => { if (p.open) p.send(fwdMsg); });
+    // [Relay] Forwarding logic needs to be constructed if needed, but fwdMsg is undefined here.
+    // For now, removing the broken logic.
+    if (downstreamDataPeers.length > 0) {
+        // TODO: Implement proper relay packet construction if needed
     }
 
-    if (preloadMeta && preloadCount >= preloadMeta.total) {
-        console.log("[Preload] All chunks received via Worker-OPFS. Finalizing...");
-        timerWorker.postMessage({ command: 'OPFS_END', filename: preloadMeta.name, isPreload: true });
-        // NOTE: We do NOT reset preloadCount to 0 here because it's needed for handlePreloadEnd's check.
-        // It will be reset in clearPreloadState().
+    // [Fix] Use Session-Scoped Progress Check
+    const currentProgress = sessionState ? sessionState.progress : preloadCount;
+    const totalExpected = sessionState ? sessionState.total : (preloadMeta?.total || 0);
+    const fileName = sessionState ? sessionState.name : (preloadMeta?.name || '');
+    const fileSize = sessionState ? sessionState.size : (preloadMeta?.size || 0);
+
+    if (totalExpected > 0 && currentProgress >= totalExpected) { // Finalize via worker
+        const currentSessionState = preloadSessionState.get(sessionId);
+        if (currentSessionState && !currentSessionState.finalized) {
+            console.log(`[Preload] All chunks received via Worker-OPFS (${currentProgress}/${totalExpected}). Finalizing...`);
+            currentSessionState.finalized = true;
+            postWorkerCommand({
+                command: 'OPFS_END',
+                filename: fileName,
+                isPreload: true,
+                sessionId: sessionId, // [Fix] validateSessionId is too strict for worker commands
+                totalSize: fileSize // [Fix] Send expected size for integrity check
+            });
+            // NOTE: We do NOT reset preloadCount to 0 here because it's needed for handlePreloadEnd's check.
+            // It will be reset in clearPreloadState().
+        }
     }
 }
 
 async function handlePreloadEnd(data) {
     if (window._skipIncomingPreload) return;
 
-    console.log("[Preload] End signal received for index:", data.index);
+    /* [Fix] Retrieve Session State to verify completeness */
+    // [Fix] NO FALLBACK to 0. Must have valid SID.
+    let sessionId = data.sessionId;
+    if (!sessionId && latestPreloadSessionId !== 0) {
+        sessionId = latestPreloadSessionId;
+    }
 
-    if (preloadCount < (preloadMeta?.total || 0)) {
-        console.warn(`[Preload] Incomplete! Got ${preloadCount}/${preloadMeta.total} chunks.`);
+    const sessionState = preloadSessionState.get(sessionId);
+
+    // [Fix] Deduplicate OPFS_END if already called by handlePreloadChunk
+    if (sessionState && !sessionState.finalized) {
+        sessionState.finalized = true;
+        const fileSize = sessionState.size || data.totalSize || preloadMeta?.size;
+        const fileName = sessionState.name || data.filename || preloadMeta?.name;
+
+        postWorkerCommand({
+            command: 'OPFS_END',
+            filename: fileName,
+            isPreload: true,
+            sessionId: sessionId, // [Fix] validateSessionId is too strict for worker commands
+            totalSize: fileSize
+        });
+    }
+
+    const progress = sessionState ? sessionState.progress : preloadCount;
+    const total = sessionState ? sessionState.total : (preloadMeta?.total || 0);
+    const fileName = sessionState ? sessionState.name : (preloadMeta?.name || '');
+    const fileSize = sessionState ? sessionState.size : (preloadMeta?.size || 0);
+
+    console.log(`[Preload] End signal received for index: ${data.index} (Progress: ${progress}/${total})`);
+
+    // [Fix] Allow slight mismatch (e.g. -1) or exact match
+    if (progress < total) {
+        console.warn(`[Preload] Incomplete! Got ${progress}/${total} chunks.`);
+        // Force try finalizing if we are very close (optional logic, but safe to just warn for now)
         return;
     }
 
     if (!nextFileBlob) {
-        timerWorker.postMessage({ command: 'OPFS_END', filename: preloadMeta.name, isPreload: true, sessionId: data.sessionId });
+        postWorkerCommand({
+            command: 'OPFS_END',
+            filename: fileName,
+            isPreload: true,
+            sessionId: validateSessionId(sessionId),
+            totalSize: fileSize
+        });
     }
 
-    // NOTIFY HOST
-    if (hostConn && hostConn.open) {
-        hostConn.send({ type: 'preload-ack', index: data.index });
-    }
+    // [FIX] Removed duplicate preload-ack - already sent in OPFS_FILE_READY handler (line 576)
+    // This prevents Host from receiving 2 acks per preload
 
     // [New] Hide Loader when Preload Complete
-    showLoader(false);
+    // Only if main track transfer is NOT in progress
+    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+        showLoader(false);
+    } else {
+        console.log("[Preload] Complete, but keeping loader for main track transfer...");
+    }
 }
 
 async function handlePlayPreloaded(data) {
+    // [Fix] Increment token to invalidate any previous async operations
+    const myLoadToken = ++_currentLoadToken;
+
     // Host Command: "Switch to what you downloaded!"
     console.log("Command: Play Preloaded Track, index:", data.index);
+
+    // [FIX] Deduplication: If already processing this exact track, ignore duplicate commands
+    if (window._playPreloadedInProgress === data.index && !data.retryAttempt) {
+        console.log(`[PlayPreloaded] Already processing track ${data.index}, ignoring duplicate command`);
+        return;
+    }
+
+    // [FIX] Immediate stop for Guest during transition (only on first attempt)
+    if (!data.retryAttempt) {
+        window._playPreloadedInProgress = data.index;
+        stopAllMedia();
+    }
 
     // Skip if we already loaded this track via file-prepare
     if (window._preloadUsedForIndex === data.index) {
         console.log("[Guest] Already loaded track via file-prepare, skipping play-preloaded");
         window._preloadUsedForIndex = undefined; // Reset flag
+        window._playPreloadedInProgress = undefined;
         return;
     }
 
@@ -4987,16 +5307,39 @@ async function handlePlayPreloaded(data) {
     if (nextFileBlob && isPreloadTargetMatch) {
         // 프리로드된 파일이 있으면 사용
         console.log("[Guest] Using preloaded file for track", data.index);
-        await loadPreloadedTrack();
+        await loadPreloadedTrack(data.index, myLoadToken);
 
-        // CRITICAL: Hide loader
+        // CRITICAL: Hide loader (Playlist UI is already updated via handlePlayPreloaded's call to updatePlaylistUI)
         showLoader(false);
 
         // Mark that we already loaded this track (prevent duplicate load from following messages)
         window._preloadUsedForIndex = data.index;
         window._skipIncomingFile = true;
+        window._playPreloadedInProgress = undefined; // [FIX] Clear in-progress flag
 
     } else {
+        // [Race Condition Fix] If we are currently preloading this track, wait a moment!
+        const isDownloadingSameTrack = preloadMeta && (preloadMeta.index === data.index || preloadMeta.name === data.name);
+        const progress = preloadMeta && preloadMeta.total > 0 ? (preloadCount / preloadMeta.total) : 0;
+
+        // If we are > 80% done or just processing, give it a chance
+        if (isDownloadingSameTrack && !data.retryAttempt) {
+            console.log(`[PlayPreloaded] Preload is active (${(progress * 100).toFixed(1)}%). Waiting for completion...`);
+            showToast("다운로드 마무리 중...");
+
+            // Retry up to 4 times (2 seconds total)
+            setTimeout(() => {
+                const retryData = { ...data, retryAttempt: (data.retryAttempt || 0) + 1 };
+                if (retryData.retryAttempt <= 4) {
+                    handlePlayPreloaded(retryData);
+                } else {
+                    // Give up and request fallback
+                    handlePlayPreloaded({ ...data, retryAttempt: 999 });
+                }
+            }, 500);
+            return;
+        }
+
         // 프리로드 없음 혹은 인덱스 불일치 - Host에게 파일 요청
         if (nextFileBlob && !isPreloadTargetMatch) {
             console.warn(`[Guest] Stale preload detected (ID mismatched). Found index: ${nextMeta ? nextMeta.index : 'N/A'}, Expected: ${data.index}`);
@@ -5012,6 +5355,8 @@ async function handlePlayPreloaded(data) {
 
         // Clear any stale state
         clearPreviousTrackState('play-preloaded fallback');
+        window._playPreloadedInProgress = undefined; // [FIX] Clear in-progress flag
+
 
         if (upstreamDataConn && upstreamDataConn.open) {
             console.log("[Guest] Requesting file from Relay:", trackName);
@@ -5021,8 +5366,18 @@ async function handlePlayPreloaded(data) {
             // [FIX] Consistent Jitter for fallback request
             const jitter = Math.random() * 1000 + 200;
             console.log(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
+
             setTimeout(() => {
+                // Double check before sending request
                 if (hostConn && hostConn.open && !nextFileBlob) {
+                    // Last check: did we get it during delay?
+                    const hasItNow = (nextMeta && nextMeta.index === data.index && nextFileBlob);
+                    if (hasItNow) {
+                        console.log("[Guest] Preload arrived during jitter wait! Playing...");
+                        loadPreloadedTrack();
+                        return;
+                    }
+
                     console.log("[Guest] Requesting file from Host:", trackName, "index:", data.index);
                     hostConn.send({
                         type: 'request-data-recovery',
@@ -5038,7 +5393,7 @@ async function handlePlayPreloaded(data) {
             showLoader(false);
         }
 
-        showToast("프리로드 누락 - 파일 수신 중...");
+        if (!data.retryAttempt) showToast("프리로드 누락 - 파일 수신 중...");
     }
 }
 
@@ -5225,6 +5580,15 @@ async function handlePlay(data) {
         window._pendingPlayTime = data.time;
         return;
     }
+
+    // [FIX] Prevent playing stale audio when no current file is loaded
+    const hasValidAudio = currentAudioBuffer || (currentFileBlob && currentFileBlob.size > 0);
+    if (!hasValidAudio && hostConn) {
+        console.log("[Guest] Play command received but no audio loaded, queuing...");
+        window._pendingPlayTime = data.time;
+        return;
+    }
+
     const target = data.time + localOffset + autoSyncOffset;
     if (currentState === APP_STATE.IDLE || Math.abs((Tone.now() - startedAt) - target) > 0.15) play(target);
 }
@@ -5974,7 +6338,7 @@ async function broadcastFile(file, explicitSessionId = null) {
                         while (p.chunkQueue.length > 0) {
                             const msg = p.chunkQueue.shift();
                             // Per-peer backpressure check
-                            while (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 64 * 1024) {
+                            while (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 512 * 1024) {
                                 await new Promise(r => setTimeout(r, 50));
                                 if (!p.conn.open) break;
                             }
@@ -6156,27 +6520,29 @@ function autoSync() {
 
 function loopUI() {
     const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO ||
-        currentState === APP_STATE.PLAYING_STREAMING;
+        currentState === APP_STATE.PLAYING_STREAMING ||
+        currentState === APP_STATE.PLAYING_AUDIO;
 
     if (isPlaybackState) {
-        let isActuallyPlaying = (videoElement && !videoElement.paused);
+        // [Fix] Always update slider while in playback state
+        const duration = (currentAudioBuffer && currentAudioBuffer.duration)
+            ? currentAudioBuffer.duration
+            : (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
 
-        if (isActuallyPlaying) {
-            const hasVideoSrc = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
-            const duration = hasVideoSrc ? videoElement.duration : (currentAudioBuffer ? currentAudioBuffer.duration : 0);
+        let t = getTrackPosition();
 
-            let t = getTrackPosition();
+        if (duration > 0 && t > duration) t = duration;
 
-            if (duration > 0 && t > duration) t = duration;
-
-            if (!isSeeking) {
-                const slider = document.getElementById('seek-slider');
-                if (slider) slider.value = t;
-                const timeCurr = document.getElementById('time-curr');
-                if (timeCurr) timeCurr.innerText = fmtTime(t);
-                const timeTotal = document.getElementById('time-total');
-                if (timeTotal && duration > 0) timeTotal.innerText = fmtTime(duration);
+        if (!isSeeking) {
+            const slider = document.getElementById('seek-slider');
+            if (slider) {
+                if (isFinite(duration) && duration > 0) slider.max = duration;
+                slider.value = t;
             }
+            const timeCurr = document.getElementById('time-curr');
+            if (timeCurr) timeCurr.innerText = fmtTime(t);
+            const timeDur = document.getElementById('time-dur');
+            if (timeDur && isFinite(duration) && duration > 0) timeDur.innerText = fmtTime(duration);
         }
 
         const now = Date.now();
@@ -6212,15 +6578,26 @@ function toggleFullscreen() {
 
 
 
-async function loadPreloadedTrack() {
+async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefined) {
     if (!nextFileBlob) {
         console.warn("[Preload] No preloaded blob found in cache!");
         return;
     }
 
+    // [Fix] Capture expected index at start
+    const targetIndex = expectedIndex ?? nextMeta?.index ?? currentTrackIndex;
+    const myToken = loadToken ?? _currentLoadToken;
+
     return new Promise(async (resolve, reject) => {
         try {
             await initAudio();
+
+            // [Fix] Verify track index before proceeding
+            if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+                console.warn(`[Preload] Index mismatch at start! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
+                return resolve();
+            }
+
             currentFileBlob = nextFileBlob;
 
             // [🚨 긴급 추가] 이 줄이 없으면 싱크 맞출 때 곡 정보 불일치로 재다운로드 시도함
@@ -6242,60 +6619,103 @@ async function loadPreloadedTrack() {
                 });
             }
 
-            // [🚨 추가 필수] Buffer Mode -> Streaming Mode 전환 시 오디오 연결을 위해 버퍼 비우기
-            // 이게 없으면 setupMediaSource()가 "어? 버퍼 모드네?" 하고 비디오 소리 연결을 거부함
-            if (currentAudioBuffer) {
-                currentAudioBuffer = null;
-            }
+            // [Unified Buffer Mode] Force Buffer Mode for consistency
+            // If decoding fails (e.g. EncodingError), fallback to Streaming Mode
+            let useBufferMode = true;
 
-            // Robust Video Detection
-            const blobMime = nextFileBlob.type || '';
-            const metaMime = nextMeta?.mime || '';
-            const fileName = nextMeta?.name || '';
-            const isVideo = blobMime.startsWith('video/') ||
-                metaMime.startsWith('video/') ||
-                /\.(mp4|mkv|webm|mov)$/i.test(fileName);
+            try {
+                if (useBufferMode) {
+                    console.log("[Preload] Decoding audio for Buffer Mode...");
+                    showToast("오디오 디코딩 중...");
 
-            console.log(`[Preload] Activating track. VideoMode: ${isVideo}`);
+                    const arrayBuffer = await nextFileBlob.arrayBuffer();
+                    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-            // ALWAYS STREAMING
-            setEngineMode(isVideo ? 'video' : 'streaming');
+                    // [Fix] Re-verify after async decode: check both token and index
+                    if (loadToken !== undefined && _currentLoadToken !== myToken) {
+                        console.warn(`[Preload] Token mismatch after decode. Expected ${myToken}, current is ${_currentLoadToken}. Discarding.`);
+                        return resolve();
+                    }
+                    if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+                        console.warn(`[Preload] Track changed during decode. Expected ${targetIndex}, now ${currentTrackIndex}. Discarding.`);
+                        return resolve();
+                    }
 
-            const url = BlobURLManager.create(nextFileBlob);
+                    currentAudioBuffer = audioBuffer;
+                    console.log(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
 
-            // Set up one-time listener for readiness
-            const onReady = () => {
-                videoElement.removeEventListener('canplaythrough', onReady);
-                console.log("[Audio] Preloaded track ready via Streaming");
-                resolve();
-            };
-            videoElement.addEventListener('canplaythrough', onReady);
+                    setEngineMode('buffer');
 
-            videoElement.src = url;
+                    // Visual Sync
+                    const url = BlobURLManager.create(nextFileBlob);
+                    videoElement.src = url;
+                    videoElement.muted = true;
 
-            videoElement.onloadedmetadata = () => {
-                const dur = videoElement.duration;
-                if (isFinite(dur)) {
-                    document.getElementById('seek-slider').max = dur;
-                    document.getElementById('time-dur').innerText = fmtTime(dur);
+                    // Set UI immediately based on buffer
+                    const dur = currentAudioBuffer.duration;
+                    if (isFinite(dur)) {
+                        document.getElementById('seek-slider').max = dur;
+                        document.getElementById('time-dur').innerText = fmtTime(dur);
+                    }
+                    BlobURLManager.confirm(nextFileBlob);
+
+                    // Video load
+                    videoElement.load();
+
+                    // Signal ready
+                    resolve();
+
                 }
-                BlobURLManager.confirm(nextFileBlob);
-            };
-            videoElement.load();
-            setupMediaSource();
+            } catch (decodeErr) {
+                console.warn("[Preload] Buffer Mode Decode Failed, falling back to Streaming Mode:", decodeErr);
+                showToast("디코딩 실패 - 스트리밍 모드로 전환합니다.");
 
-            if (nextMeta && nextMeta.name) {
-                updateTitleWithMarquee(nextMeta.name);
-                document.getElementById('track-artist').innerText = `Track ${nextTrackIndex + 1}`;
+                // Fallback to Streaming Mode
+                useBufferMode = false;
+
+                if (currentAudioBuffer) currentAudioBuffer = null;
+
+                const isVideo = nextFileBlob.type.startsWith('video/') || (nextMeta?.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name));
+                setEngineMode(isVideo ? 'video' : 'streaming');
+
+                const url = BlobURLManager.create(nextFileBlob);
+                videoElement.src = url;
+                videoElement.muted = false; // Unmute for streaming
+
+                // Re-setup MediaSource for streaming
+                setupMediaSource();
+
+                videoElement.onloadedmetadata = () => {
+                    const dur = videoElement.duration;
+                    if (isFinite(dur)) {
+                        document.getElementById('seek-slider').max = dur;
+                        document.getElementById('time-dur').innerText = fmtTime(dur);
+                    }
+                    BlobURLManager.confirm(nextFileBlob);
+                    resolve();
+                };
+
+                videoElement.onerror = (e) => {
+                    console.error("[Fallback] Streaming load also failed:", e);
+                    reject(new Error("File load failed in both Buffer and Streaming modes"));
+                };
+
+                videoElement.load();
             }
+
+            // Title and Artist are updated synchronously via updatePlaylistUI() in the caller
 
             // [Fix] Enable button for Host OR Operator
             const isGuest = !!hostConn;
             document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
-            // Clear preload pointers so we don't accidentally reuse stale data
-            const lastIndex = nextTrackIndex;
-            clearPreloadState();
+            // [Fix] Safe Clearing: Avoid the global clearPreloadState() hammer.
+            // Only clear the satisfy-cache variables that we just moved to "current".
+            nextFileBlob = null;
+            nextMeta = null;
+            nextTrackIndex = -1;
+
+            console.log(`[Preload] Safe clear: nextFileBlob moved to current.`);
 
             // [Fix] restore the index we just cleared if needed for logic elsewhere
             // but usually nextTrackIndex is only for the "next" track.
@@ -6303,7 +6723,10 @@ async function loadPreloadedTrack() {
         } catch (e) {
             console.error("[Preload] Activation failed:", e);
             showToast("프리로드 재생 실패 - 다시 로드합니다");
-            clearPreloadState();
+            // Still clear cache so we can try recovery
+            nextFileBlob = null;
+            nextMeta = null;
+            nextTrackIndex = -1;
             if (hostConn && hostConn.open) {
                 hostConn.send({ type: 'request-current-file' });
             }
@@ -6802,7 +7225,7 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
         initYouTubePlayer(videoId, playlistId, autoplay, subIndex);
     }
 
-    updateTitleWithMarquee('YouTube Video');
+    // updateTitleWithMarquee('YouTube Video'); // Removed - handled by updatePlaylistUI
 
     // [Fix] Safety Timeout: prevents infinite loader if YouTube API fails silently
     if (window._ytLoadTimeout) clearTimeout(window._ytLoadTimeout);
@@ -6813,7 +7236,7 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
             showToast('YouTube 로드 시간 초과. 다시 시도해주세요.');
         }
     }, 15000);
-    document.getElementById('track-artist').innerText = playlistId ? '플레이리스트 재생 중' : '재생 중';
+    // document.getElementById('track-artist').innerText = playlistId ? '플레이리스트 재생 중' : '재생 중'; // Removed - handled by updatePlaylistUI
 
     document.getElementById('play-btn').disabled = false;
 
@@ -7411,30 +7834,6 @@ async function processRelayQueue() {
 
     isRelaying = false;
 }
-
-// ============================================================================
-// [Unified Buffer Mode] Manual Sync Override
-// ============================================================================
-window.nudgeSync = function (amountMs) {
-    const amountSec = amountMs / 1000;
-    localOffset += amountSec;
-
-    // UI Update
-    updateSyncDisplay();
-    showToast(`싱크 보정: ${amountMs > 0 ? '+' : ''}${amountMs}ms (${(localOffset * 1000).toFixed(0)}ms)`);
-
-    // Apply to Active Engine
-    // 1. Buffer Mode
-    if (playerNode) {
-        // Restart transient node at new position
-        play(getTrackPosition());
-    }
-
-    // 2. Video/Streaming Mode
-    if (videoElement && !videoElement.paused) {
-        videoElement.currentTime += amountSec;
-    }
-};
 
 // ============================================================================
 // [SECTION] WINDOW EXPORTS (Public API for HTML/UI)

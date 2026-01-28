@@ -1,0 +1,252 @@
+/* CSS for Premium Manual Sync UI */
+
+.manual-sync-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Strong blur backlight */
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.manual-sync-overlay.show {
+    display: flex;
+    opacity: 1;
+    animation: fadeInZoom 0.3s forwards;
+}
+
+@keyframes fadeInZoom {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.sync-glass-panel {
+    width: 320px;
+    /* Mobile Friendly Width */
+    background: rgba(30, 30, 30, 0.85);
+    /* Dark Glass */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 24px 48px -12px rgba(0, 0, 0, 0.6),
+        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    border-radius: 32px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Header & Value Display */
+.sync-header {
+    width: 100%;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.sync-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--text-sub);
+    opacity: 0.6;
+}
+
+.sync-value-wrapper {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+}
+
+.sync-main-val {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+    line-height: 1;
+}
+
+.sync-unit {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* Big Pads */
+.sync-pads-container {
+    display: flex;
+    width: 100%;
+    height: 140px;
+    gap: 12px;
+}
+
+.sync-pad {
+    flex: 1;
+    border: none;
+    border-radius: 20px;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.1s;
+    /* Clean Gradient Backgrounds */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.sync-pad:active {
+    transform: scale(0.96);
+}
+
+.pad-left {
+    background: linear-gradient(145deg, #f59e0b, #d97706);
+    /* Amber */
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+}
+
+.pad-right {
+    background: linear-gradient(145deg, #06b6d4, #0891b2);
+    /* Cyan */
+    box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+}
+
+.pad-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+}
+
+.pad-icon {
+    width: 28px;
+    height: 28px;
+    fill: rgba(255, 255, 255, 0.9);
+}
+
+.pad-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    opacity: 0.9;
+}
+
+.pad-sub {
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 2px 6px;
+    border-radius: 8px;
+}
+
+/* Fine Tune Bar */
+.sync-fine-tune-bar {
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 100px;
+    padding: 4px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.fine-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-sub);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 0;
+    cursor: pointer;
+    border-radius: 100px;
+    transition: background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.fine-btn svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+    opacity: 0.7;
+}
+
+.fine-btn:active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+}
+
+.fine-divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Done Button */
+/* Action Buttons Row */
+.sync-actions-row {
+    display: flex;
+    width: 100%;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.sync-reset-btn,
+.sync-done-btn {
+    padding: 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: transform 0.1s, background 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sync-reset-btn {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-sub);
+}
+
+.sync-done-btn {
+    flex: 2;
+    background: #000000;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.sync-reset-btn:active,
+.sync-done-btn:active {
+    transform: scale(0.96);
+}

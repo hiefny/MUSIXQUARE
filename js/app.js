@@ -44,6 +44,7 @@ function validateSessionId(id) {
 
 /**
  * [Worker] Centralized Protocol Wrapper
+ * Routes commands to either SyncWorker (timers) or TransferWorker (OPFS)
  */
 function postWorkerCommand(payload, transfers) {
     if (!payload.command) return;
@@ -59,7 +60,16 @@ function postWorkerCommand(payload, transfers) {
         validateSessionId(payload.sessionId);
     }
 
-    timerWorker.postMessage(payload, transfers);
+    // [ROUTING]
+    if (payload.command.startsWith('OPFS_')) {
+        if (typeof transferWorker !== 'undefined') {
+            transferWorker.postMessage(payload, transfers);
+        }
+    } else {
+        if (typeof syncWorker !== 'undefined') {
+            syncWorker.postMessage(payload, transfers);
+        }
+    }
 }
 
 /**
@@ -106,10 +116,9 @@ let analyser;
 // ============================================================================
 const APP_STATE = {
     IDLE: 'IDLE',
-    PLAYING_AUDIO: 'PLAYING_AUDIO',
-    PLAYING_VIDEO: 'PLAYING_VIDEO',     // Video and streaming mode combined
-    PLAYING_STREAMING: 'PLAYING_STREAMING', // Audio-only streaming (uses videoElement but hidden)
-    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'
+    PLAYING_AUDIO: 'PLAYING_AUDIO',     // Audio playback (Buffer Mode with Tone.js)
+    PLAYING_VIDEO: 'PLAYING_VIDEO',     // Video playback (uses videoElement)
+    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'  // YouTube embedded player
 };
 
 let currentState = APP_STATE.IDLE;
@@ -164,7 +173,7 @@ function cleanupState(oldState) {
     }
     switch (oldState) {
         case APP_STATE.PLAYING_VIDEO:
-        case APP_STATE.PLAYING_STREAMING:
+        case APP_STATE.PLAYING_AUDIO:
             // Stop video element
             if (videoElement) {
                 videoElement.pause();
@@ -188,6 +197,22 @@ function cleanupState(oldState) {
     }
 }
 
+function isMediaVideo(blob, metadata) {
+    if (!blob) return false;
+
+    // 1. Check MIME type (Real File on Host or Metadata from broadcast)
+    if (blob.type && blob.type.startsWith('video/')) return true;
+    if (metadata) {
+        if (metadata.mime && metadata.mime.startsWith('video/')) return true;
+        if (metadata.type && metadata.type.startsWith('video/')) return true;
+    }
+
+    // 2. Check Extension (Prioritize original metadata name from Host)
+    const fileName = (metadata && metadata.name) || blob.name || "";
+    const ext = fileName.split('.').pop().toLowerCase();
+    return ['mp4', 'mkv', 'webm', 'mov'].includes(ext);
+}
+
 /**
  * 중앙화된 현재 트랙 재생 위치 계산 함수
  * startedAt, localOffset, autoSyncOffset을 모두 고려하여
@@ -202,9 +227,9 @@ function getTrackPosition() {
 
     let pos = 0;
 
-    // [Simplified] Always calculate from Tone.now() when in playback state
-    // This ensures consistent time regardless of playerNode/video state
-    if (startedAt > 0) {
+    // [Simplified] Calculate from Tone.now() and add offsets dynamically
+    // startedAt !== 0 handles negative values for long tracks
+    if (startedAt !== 0) {
         pos = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
     }
     // Fallback to video element time only if startedAt is not set
@@ -255,9 +280,6 @@ function updateUIForState(newState) {
             // Handled by isVideoMode logic above
             break;
 
-        case APP_STATE.PLAYING_STREAMING:
-            // Streaming audio: videoElement used for sync but hidden
-            break;
 
         case APP_STATE.PLAYING_YOUTUBE:
             if (ytContainer) {
@@ -275,9 +297,7 @@ function updateUIForState(newState) {
     }
 }
 
-let startTime = 0;
 let pausedAt = 0;
-let startsAt = 0;
 let startedAt = 0;
 let activeLoadSessionId = 0; // [Fix] Prevent Zombie Loads
 
@@ -328,7 +348,6 @@ let preMuteVolume = 1.0; // Store volume before muting
 // ============================================================================
 // [SECTION] RESOURCE MANAGEMENT (Blob URLs)
 // ============================================================================
-let currentMediaObjectURL = null;
 
 const BlobURLManager = {
     _activeURL: null,
@@ -417,7 +436,7 @@ const BlobURLManager = {
      */
     revoke: function () {
         if (this._activeURL) {
-            this.safeRevoke(this._activeURL, currentFileBlob);
+            this.safeRevoke(this._activeURL);
         }
     }
 };
@@ -465,23 +484,23 @@ const WATCHDOG_TIMEOUT = 12000; // 12 seconds for chunk watchdog
 // ============================================================================
 // [SECTION] FILE TRANSFER STATE
 // ============================================================================
-let lastChunkTime = 0;
 const TRANSFER_STATE = {
     IDLE: 'IDLE',
     RECEIVING: 'RECEIVING',
-    PROCESSING: 'PROCESSING', // Creating blob
+    PROCESSING: 'PROCESSING',
     READY: 'READY'
 };
 let transferState = TRANSFER_STATE.IDLE;
 let incomingChunks = [];
 let receivedCount = 0;
 let meta = {};
-let lastProgressAck = 0;
 let _isProcessingBlob = false;
 
-// OPFS State
-let currentFileOpfs = { handle: null, writable: null, name: null };
-let preloadFileOpfs = { handle: null, writable: null, name: null };
+// ============================================================================
+// [SECTION] OPFS STATE
+// ============================================================================
+let currentFileOpfs = { name: null };
+let preloadFileOpfs = { name: null };
 
 // ============================================================================
 // [SECTION] YOUTUBE STATE
@@ -541,16 +560,16 @@ async function cleanupOPFSInWorker(filename, isPreload) {
         const cleanupId = Date.now() + Math.random();
         const handler = (e) => {
             if (e.data.type === 'OPFS_CLEANUP_COMPLETE' && e.data.filename === filename) {
-                timerWorker.removeEventListener('message', handler);
+                transferWorker.removeEventListener('message', handler);
                 resolve();
             }
         };
-        timerWorker.addEventListener('message', handler);
+        transferWorker.addEventListener('message', handler);
         postWorkerCommand({ command: 'OPFS_CLEANUP', filename, isPreload });
 
         // Safety fallback: Continue if worker takes too long
         setTimeout(() => {
-            timerWorker.removeEventListener('message', handler);
+            transferWorker.removeEventListener('message', handler);
             resolve();
         }, 1500);
     });
@@ -604,15 +623,24 @@ function forceCleanupOPFS(isPreload) {
 }
 
 
-const timerWorker = new Worker('js/worker.js');
-postWorkerCommand({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
+const syncWorker = new Worker('js/sync.worker.js');
+const transferWorker = new Worker('js/transfer.worker.js');
 
-timerWorker.onerror = (e) => {
+// Initialize both workers
+postWorkerCommand({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
+// Backup: explicitly send to both if routing might filter based on command name
+syncWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
+transferWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
+
+const handleWorkerError = (e) => {
     console.error("[Worker Error]", e.message, e.filename, e.lineno);
-    showToast("워커 로드 실패 또는 백그라운드 작업 오류 발생! HTTPS 환경인지 확인하세요.");
+    showToast("워커 작업 중 오류 발생!");
 };
 
-timerWorker.onmessage = async (e) => {
+syncWorker.onerror = handleWorkerError;
+transferWorker.onerror = handleWorkerError;
+
+const handleWorkerMessage = async (e) => {
     try {
         const data = e.data;
         if (data.type === 'TICK') {
@@ -686,6 +714,8 @@ timerWorker.onmessage = async (e) => {
     }
 };
 
+syncWorker.onmessage = handleWorkerMessage;
+transferWorker.onmessage = handleWorkerMessage;
 
 async function finalizeFileProcessing(file) {
     // Always use Buffer Mode for audio processing
@@ -704,8 +734,11 @@ async function finalizeFileProcessing(file) {
         if (currentAudioBuffer) currentAudioBuffer = null; // Encourage GC
         currentAudioBuffer = audioBuffer;
 
-        // 3. Set engine mode (handle 'audio' or 'buffer' case for visualizer)
-        setEngineMode('audio');
+        // 3. Set engine mode dynamically based on file type
+        const isVideo = isMediaVideo(file, meta);
+
+        console.log(`[Guest] Auto-detecting mode: ${isVideo ? 'VIDEO' : 'AUDIO'} (Type: ${file.type || meta?.mime}, Name: ${meta?.name})`);
+        setEngineMode(isVideo ? 'video' : 'audio');
 
         // 4. Video element used only for visual sync (muted)
         const url = BlobURLManager.create(file);
@@ -724,12 +757,6 @@ async function finalizeFileProcessing(file) {
         };
         videoElement.load();
 
-        // [Unified Buffer Mode] Don't connect MediaElementSource if buffer exists
-        if (!currentAudioBuffer) {
-            setupMediaSource();
-        } else if (mediaSourceNode) {
-            try { mediaSourceNode.disconnect(); } catch (e) { }
-        }
 
         document.getElementById('play-btn').disabled = !isOperator;
 
@@ -754,15 +781,12 @@ async function finalizeFileProcessing(file) {
             window._pendingPlayTime = undefined;
         }
 
-        receivedCount = 0;
-        transferState = TRANSFER_STATE.READY;
-        showLoader(false);
 
     } catch (e) {
         console.error("[Guest] Decoding failed", e);
         showToast("오디오 디코딩 실패!");
         showLoader(false);
-        transferState = TRANSFER_STATE.READY;
+
     }
 }
 
@@ -824,12 +848,6 @@ async function initAudio() {
     gainL = new Tone.Gain(1);
     gainR = new Tone.Gain(1);
 
-    // [New] Central Buffer Player for Unified Sync
-    // bufferPlayer = new Tone.Player(); // Removed, now using transient BufferSource
-    // bufferPlayer.fadeIn = 0.05;
-    // bufferPlayer.fadeOut = 0.05;
-
-
     toneSplit.connect(gainL, 0); // L -> gainL
     toneSplit.connect(gainR, 1); // R -> gainR
 
@@ -880,11 +898,8 @@ async function initAudio() {
     // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
 
     // 1. Pre-Processing (Stereo Width & Preamp)
-    // Audio is piped via setupMediaSource() using videoElement
+    // Audio is handled via Tone.js (Buffer Mode)
     widener.connect(preamp);
-
-    // [New] Connect Buffer Player to Effects Chain
-    // bufferPlayer.connect(widener); // Removed, now using transient BufferSource
 
     // 2. Channel Splitting
     preamp.connect(toneSplit);
@@ -1515,7 +1530,7 @@ async function playTrack(index) {
         const fileName = item?.file?.name || item?.name || `Track ${index}`;
 
         // 3. Broadcast ONLY play-preloaded command
-        broadcast({ type: 'play-preloaded', index: index, name: fileName });
+        broadcast({ type: 'play-preloaded', index: index, name: fileName, mime: item?.file?.type });
 
         // 4. Activate preloaded track and play
         await loadPreloadedTrack();
@@ -1593,7 +1608,7 @@ async function playTrack(index) {
         currentTransferSessionId = sessionId;
 
         // Standard Load with Session ID
-        broadcast({ type: 'file-prepare', name: file.name, index: index, sessionId: sessionId });
+        broadcast({ type: 'file-prepare', name: file.name, index: index, sessionId: sessionId, mime: file.type });
         await loadAndBroadcastFile(file, sessionId);
 
         // After loading current, start preloading next
@@ -1650,7 +1665,22 @@ async function preloadNextTrack() {
 
     // Update State
     nextTrackIndex = nextIdx;
+
+    // [FIX] Guard against invalid index or missing item
+    if (nextIdx < 0 || nextIdx >= playlist.length) {
+        console.log("[Preload] No valid next track (end of list or invalid index)");
+        isPreloading = false;
+        nextFileBlob = null;
+        nextMeta = null;
+        return;
+    }
+
     const item = playlist[nextIdx];
+    if (!item) {
+        console.warn("[Preload] Next item is undefined, skipping");
+        isPreloading = false;
+        return;
+    }
 
     // Skip preload for YouTube items
     if (item.type === 'youtube') {
@@ -1748,18 +1778,18 @@ async function backgroundTransfer(file, index, sessionId) {
             return;
         }
 
-        // [Optimization] Relaxed Congestion Control for Preload
-        // Boosted from 32KB/100ms -> 128KB/50ms to improve speed without causing audio dropouts
+        // [Optimization] Dynamic Congestion Control for Preload
+        // Optimized to 256KB/30ms for maximum throughput with dual-worker architecture
         let congested = true;
         while (congested) {
             congested = false;
             for (const p of targets) {
-                if (p.conn.open && p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 128 * 1024) {
+                if (p.conn.open && p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 256 * 1024) {
                     congested = true;
                     break;
                 }
             }
-            if (congested) await new Promise(r => setTimeout(r, 50));
+            if (congested) await new Promise(r => setTimeout(r, 30));
         }
 
         const start = i * CHUNK;
@@ -1770,10 +1800,6 @@ async function backgroundTransfer(file, index, sessionId) {
 
         const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i };
         sendToTargets(chunkMsg, true); // true = send only to those who need chunks
-
-        // [Optimization] Less aggressive fixed throttle
-        // Improved from 10 chunks / 20ms -> 20 chunks / 10ms
-        if (i % 20 === 0) await new Promise(r => setTimeout(r, 10));
     }
 
     // Final session check before completing
@@ -1931,62 +1957,57 @@ async function loadAndBroadcastFile(file, sessionId = null) {
         // [Unified Buffer Mode]
         // Force Buffer Mode for ALL devices (Host & Guest) and ALL OSs.
         // This eliminates sync drift by serving audio from RAM via WebAudio Clock.
-        const useBufferMode = true;
+        console.log("[BufferMode] Decoding audio for high-precision sync...");
+        showToast("고정밀 동기화 모드: 오디오 디코딩 중...");
 
-        if (useBufferMode) {
-            console.log("[BufferMode] Decoding audio for high-precision sync...");
-            showToast("고정밀 동기화 모드: 오디오 디코딩 중...");
+        // 1. Decode Audio
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-            // 1. Decode Audio
-            const arrayBuffer = await file.arrayBuffer();
-            const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-            // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
-            if (currentAudioBuffer) {
-                const oldBuf = currentAudioBuffer;
-                currentAudioBuffer = null;
-                await new Promise(resolve => {
-                    if (window.requestIdleCallback) {
-                        window.requestIdleCallback(() => {
-                            if (oldBuf._buffer) oldBuf._buffer = null;
-                            resolve();
-                        }, { timeout: 100 });
-                    } else {
-                        setTimeout(resolve, 100);
-                    }
-                });
-            }
-
-            // [핵심 수정] 작업이 끝난 후 여전히 최신 로딩 작업인지 확인
-            if (myLoadId !== activeLoadSessionId) {
-                console.log(`[Load] Stale loading session detected (${myLoadId} vs ${activeLoadSessionId}). Aborting.`);
-                return;
-            }
-
-            // 2. Load into State
-            currentAudioBuffer = audioBuffer;
-            console.log(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
-
-            // 3. Visual Sync (Background Video)
-            videoElement.src = url;
-            videoElement.muted = true;
-
-            setEngineMode('buffer');
-        } else {
-            // Standard Streaming Mode (Non-iOS / PC)
-            console.log("Streaming Mode (MediaElementSource) enabled.");
-            setEngineMode(isVideo ? 'video' : 'streaming');
-            videoElement.src = url;
-            videoElement.muted = false;
+        // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
+        if (currentAudioBuffer) {
+            const oldBuf = currentAudioBuffer;
+            currentAudioBuffer = null;
+            await new Promise(resolve => {
+                if (window.requestIdleCallback) {
+                    window.requestIdleCallback(() => {
+                        if (oldBuf._buffer) oldBuf._buffer = null;
+                        resolve();
+                    }, { timeout: 100 });
+                } else {
+                    setTimeout(resolve, 100);
+                }
+            });
         }
+
+        // [핵심 수정] 작업이 끝난 후 여전히 최신 로딩 작업인지 확인
+        if (myLoadId !== activeLoadSessionId) {
+            console.log(`[Load] Stale loading session detected (${myLoadId} vs ${activeLoadSessionId}). Aborting.`);
+            return;
+        }
+
+        // 2. Load into State
+        currentAudioBuffer = audioBuffer;
+        console.log(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
+
+        // 3. Visual Sync (Background Video)
+        videoElement.src = url;
+        videoElement.muted = true;
+
+        // [Fix] meta is updated here for Host
+        meta = { name: file.name, type: file.type };
+
+        // [Fix] redundant setEngineMode('buffer') removed.
+        // _internalPlay will handle the state transition correctly soon.
+
         // Update Playlist UI (and title/artist)
         updatePlaylistUI();
 
         videoElement.onloadedmetadata = () => {
             if (myLoadId !== activeLoadSessionId) return; // 여기도 방어
 
-            // Use Buffer Duration if in Buffer Mode for accuracy
-            const dur = (useBufferMode && currentAudioBuffer) ? currentAudioBuffer.duration : videoElement.duration;
+            // Use Buffer Duration for accuracy
+            const dur = currentAudioBuffer ? currentAudioBuffer.duration : videoElement.duration;
 
             if (dur && isFinite(dur)) {
                 document.getElementById('time-dur').innerText = fmtTime(dur);
@@ -1999,12 +2020,6 @@ async function loadAndBroadcastFile(file, sessionId = null) {
 
         videoElement.load();
 
-        // [Unified Buffer Mode] Buffer가 있다면 오디오 그래프 연결(MediaElementSource)을 하지 않음
-        if (!currentAudioBuffer) {
-            setupMediaSource();
-        } else if (mediaSourceNode) {
-            try { mediaSourceNode.disconnect(); } catch (e) { }
-        }
 
         const isGuest = !!hostConn;
         document.getElementById('play-btn').disabled = isGuest && !isOperator;
@@ -2041,98 +2056,7 @@ async function loadAndBroadcastFile(file, sessionId = null) {
 }
 
 // --- Playback Engine (Tone.js) ---
-let mediaSourceNode = null;
-
-function setupMediaSource() {
-    // [핵심 수정] Buffer Mode(램 재생)일 때는 비디오 태그 오디오 연결을 절대 금지!
-    // 이 코드가 없으면 서라운드 설정 등을 건드릴 때 소리가 다시 연결되어 겹쳐 들림
-    if (currentAudioBuffer) return;
-
-    if (!videoElement) return;
-
-    // 1. DISCONNECT PREVIOUS (Avoid overlap and effects leak)
-    if (mediaSourceNode) {
-        try { mediaSourceNode.disconnect(); } catch (e) { }
-    }
-
-    // Ensure Context
-    if (Tone.context.state !== 'running') Tone.context.resume();
-
-    // Create Source ONLY ONCE per element to avoid errors
-    if (!mediaSourceNode) {
-        // Use rawContext for native MediaElementSource
-        mediaSourceNode = Tone.context.rawContext.createMediaElementSource(videoElement);
-    } else {
-        // [FIX] If mediaSourceNode exists but with a different element (unlikely but safe)
-        // or just ensure we don't recreate it on the same element which triggers browser errors.
-        console.log("[Audio] Reusing existing MediaElementSourceNode");
-    }
-
-    if (!mediaDownmixNode) {
-        mediaDownmixNode = new Tone.Gain(1);
-        // FORCE DOWNMIX (Standard Mode): 5.1/7.1 -> Stereo
-        mediaDownmixNode.channelCount = 2;
-        mediaDownmixNode.channelInterpretation = 'speakers';
-    }
-
-    if (!surroundSplitter) {
-        // 8 Channel Splitter for 7.1
-        surroundSplitter = new Tone.Split(8);
-    }
-
-    if (!surroundGain) {
-        surroundGain = new Tone.Gain(1); // Mono feeder
-    }
-
-    // Connect logic
-    try {
-        // Disconnect branches from their internal targets before re-routing
-        try { mediaDownmixNode.disconnect(); } catch (e) { }
-        try { surroundSplitter.disconnect(); } catch (e) { }
-        try { surroundGain.disconnect(); } catch (e) { }
-
-        // Branch 1: Standard Stereo Path (Downmix -> Widener)
-        // If Surround Mode is OFF, we use this.
-        // If Surround Mode is ON, we use Branch 2.
-
-        // Connect MediaSource to both Downmixer (Stereo) and Splitter (Surround) paths.
-
-        if (isSurroundMode) {
-            // Surround Path: Source -> Splitter -> (Select 1) -> SurroundGain -> Preamp
-            Tone.connect(mediaSourceNode, surroundSplitter);
-
-            // Connector from Splitter to SurroundGain is managed by setSurroundChannel()
-            // But we need to ensure SurroundGain connects to graph
-            surroundGain.connect(preamp);
-
-            // Restore Channel Selection (Routing: Splitter -> Gain)
-            // We pass true to skip calling setupMediaSource again (recursion)
-            if (surroundChannelIndex !== -1) {
-                setSurroundChannel(surroundChannelIndex, null, true);
-            }
-        } else {
-            // Standard Path: Source -> Downmix -> Widener -> Preamp
-            Tone.connect(mediaSourceNode, mediaDownmixNode);
-            mediaDownmixNode.connect(widener);
-
-            // Safety Re-connect Chain
-            try {
-                widener.disconnect();
-                widener.connect(preamp);
-
-                preamp.disconnect();
-                preamp.connect(toneSplit);
-                // Preamp also feeds vbFilter (Virtual Bass)
-                preamp.connect(vbFilter);
-            } catch (e) { console.warn("Chain reconnect warn", e); }
-        }
-
-        videoElement.muted = false;
-
-    } catch (e) {
-        console.warn("MediaSource Setup Error:", e);
-    }
-}
+// --- Playback Engine (Tone.js) ---
 
 async function play(offset) {
     if (_isPlayLocked) {
@@ -2230,13 +2154,14 @@ async function _internalPlay(offset) {
         }
 
         playerNode.onended = () => {
-            if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_STREAMING) {
+            if (currentState === APP_STATE.PLAYING_AUDIO) {
                 handleEnded();
             }
         };
 
         playerNode.start(Tone.now(), offset);
-        startedAt = Tone.now() - offset; // [Fix] Essential for getTrackPosition()
+        // [FIX] Unified Formula: startedAt represents the RAW start time point
+        startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
         console.log(`[BufferMode] Started transient node at ${offset}s (startedAt: ${startedAt})`);
 
         // Sync Visuals (Muted Video)
@@ -2248,39 +2173,26 @@ async function _internalPlay(offset) {
         }
 
     } else {
-        // --- STREAMING MODE (Video or Large WAV) ---
-        if (videoElement.src && !videoElement.paused && currentState !== APP_STATE.IDLE) {
-            console.log("[Play] Fast-seek sync (Skipping MediaSource setup)");
-        } else {
-            setupMediaSource();
-        }
-
-        videoElement.currentTime = offset;
-
-        const onSeeked = () => {
-            videoElement.removeEventListener('seeked', onSeeked);
-            videoElement.play().catch(e => console.log('[Video] play failed', e));
-        };
-
-        if (videoElement.seeking) {
-            videoElement.addEventListener('seeked', onSeeked);
-        } else {
-            videoElement.play().catch(e => console.log('[Video] play failed', e));
-        }
+        // --- NO SOURCE (Safety) ---
+        console.warn("[Play] Attempted to play without AudioBuffer.");
+        return;
     }
+
+    // [FIX] Formula Refactor: startedAt represents the RAW start time point.
+    // getTrackPosition will dynamically add (localOffset + autoSyncOffset).
+    startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
+    pausedAt = offset;
 
     updatePlayState(true);
 
-    if (currentState !== APP_STATE.PLAYING_VIDEO && currentState !== APP_STATE.PLAYING_STREAMING) {
-        const isVideo = currentFileBlob && (currentFileBlob.type.startsWith('video/') || (meta && meta.name && /\.(mp4|mkv|webm|mov)$/i.test(meta.name)));
-        setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_STREAMING, { skipCleanup: true });
-    }
-
-    startedAt = Tone.now() - offset + (localOffset + autoSyncOffset);
-    pausedAt = offset;
+    // [FIX] Use robust helper for video detection (prevents Host stale meta bug)
+    const isVideo = isMediaVideo(currentFileBlob, meta);
+    setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO, { skipCleanup: true });
 
     startVisualizer();
-    postWorkerCommand({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
+    if (isVideo) {
+        postWorkerCommand({ command: 'START_TIMER', id: 'video-sync', interval: 2000 });
+    }
     if (!uiLoopId) loopUI();
 }
 
@@ -2311,8 +2223,8 @@ function handleEnded() {
         return;
     }
 
-    // Safety: Verify video readyState before trusting duration (VIDEO and STREAMING modes)
-    const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+    // Safety: Verify video readyState before trusting duration (VIDEO mode)
+    const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
     if (usesVideoElement && videoElement && videoElement.readyState < 1) {
         return; // Metadata not yet reliable
     }
@@ -2377,45 +2289,38 @@ function handleEnded() {
  * Called every 2s to keep devices in sync without heavy UI lag.
  */
 function checkVideoSync() {
-    if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
-        if (!videoElement || videoElement.paused) return;
+    // [FIX] Sync check is critical for both PLAYING_VIDEO and PLAYING_AUDIO (if video visual exists)
+    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_YOUTUBE) return;
+    if (!videoElement || !videoElement.src) return;
 
-        const targetTime = getTrackPosition();
-        const actualTime = videoElement.currentTime;
-        const drift = Math.abs(actualTime - targetTime);
+    const targetTime = getTrackPosition();
+    const actualTime = videoElement.currentTime;
+    const drift = Math.abs(actualTime - targetTime);
 
-        // Only correct if drift is significant (>300ms) to avoid constant stuttering
-        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
-        // Only correct if drift is significant (>300ms) to avoid constant stuttering
-        // This is the "Real Engineering" threshold to prevent excessive seeking lag.
-        if (drift > 0.3) {
-            console.log(`[SyncCheck] Correcting drift: ${drift.toFixed(3)}s`);
-            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-            const correction = targetTime - bias;
+    // Only correct if drift is significant (>300ms)
+    if (drift > 0.3) {
+        // [FIX] Guard: Do not seek if already seeking (prevents infinite seek loops)
+        if (videoElement.seeking) return;
 
-            // [Unified Buffer Mode] Drift Correction via transient node
-            if (currentAudioBuffer) {
-                stopPlayerNode();
-                playerNode = new Tone.BufferSource(currentAudioBuffer);
+        console.log(`[SyncCheck] Correcting video drift: ${drift.toFixed(3)}s`);
 
-                // [FIX] Respect surround mode when correcting drift
-                if (isSurroundMode && surroundSplitter && surroundGain) {
-                    playerNode.connect(surroundSplitter);
-                    // Surround routing is already set up by setSurroundChannel
-                } else {
-                    playerNode.connect(widener);
-                }
-
-                playerNode.onended = () => {
-                    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_STREAMING) {
-                        handleEnded();
-                    }
-                };
-                playerNode.start(Tone.now(), correction);
-            }
-
-            videoElement.currentTime = correction;
+        // [KICKSTART] If drift is exactly the check interval (2.0s), video is likely frozen.
+        // Try to force play() to resume the video engine.
+        if (drift >= 1.9 && videoElement.paused) {
+            console.warn("[SyncCheck] Video appears frozen. Attempting kickstart...");
+            videoElement.play().catch(() => { });
         }
+
+        // [FIX] In Buffer Mode, just sync video to Tone.js master clock
+        if (currentAudioBuffer) {
+            videoElement.currentTime = targetTime;
+            return;
+        }
+
+        // --- NON-BUFFER MODE (Direct Streaming) ---
+        // Safety: If no buffer and not paused, only seek video element.
+        // (Removing the buggy BufferSource creation that used null currentAudioBuffer)
+        videoElement.currentTime = targetTime;
     }
 }
 
@@ -2453,15 +2358,19 @@ function stopAllMedia() {
     updatePlayState(false);
 
     // Stop all background sync timers
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'video-sync' });
-    timerWorker.postMessage({ command: 'STOP_TIMER', id: 'youtube-sync' });
+    postWorkerCommand({ command: 'STOP_TIMER', id: 'video-sync' });
+    postWorkerCommand({ command: 'STOP_TIMER', id: 'youtube-sync' });
 
     // 여기서 수정된 stopPlayerNode가 호출되면서 안전하게 오디오가 꺼짐
     stopPlayerNode();
+
+    // [FIX] Reset master clock and offsets
+    startedAt = 0;
+    pausedAt = 0;
 }
 /**
- * Handle UI and state transitions between Audio, Video, Streaming, and YouTube modes.
- * @param {string} mode - 'audio' | 'video' | 'streaming' | 'youtube'
+ * Handle UI and state transitions between Audio, Video, and YouTube modes.
+ * @param {string} mode - 'audio' | 'buffer' | 'video' | 'youtube'
  */
 function setEngineMode(mode) {
     console.log(`[Engine] Switching mode to: ${mode}`);
@@ -2471,9 +2380,6 @@ function setEngineMode(mode) {
     switch (mode) {
         case 'video':
             newState = APP_STATE.PLAYING_VIDEO;
-            break;
-        case 'streaming':
-            newState = APP_STATE.PLAYING_STREAMING;
             break;
         case 'youtube':
             newState = APP_STATE.PLAYING_YOUTUBE;
@@ -2599,8 +2505,7 @@ function skipTime(sec) {
     }
 
     // Local mode
-    let current = (currentState !== APP_STATE.IDLE) ? (Tone.now() - startedAt) : pausedAt;
-    if ((currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING)) current = videoElement.currentTime;
+    let current = getTrackPosition();
 
     let target = current + sec;
     const duration = videoElement ? videoElement.duration : 0;
@@ -2620,9 +2525,8 @@ function updatePlayState(playing) {
 
 function adjustSync(val) {
     localOffset += val;
-    showToast(`Sync: ${val > 0 ? '+' : ''}${val.toFixed(2)} s`);
-    // Use Tone.now()
-    if (currentState !== APP_STATE.IDLE) play((Tone.now() - startedAt) + val);
+    updateSyncDisplay(); // [FIX] Ensure UI updates immediately
+    if (currentState !== APP_STATE.IDLE) play(getTrackPosition());
     else pausedAt += val;
 }
 
@@ -2706,21 +2610,22 @@ function toggleSurroundMode(enabled) {
     // Logic Switch
     if (enabled) {
         // Ensure 7.1 Graph Nodes exist
-        if (!surroundSplitter) setupMediaSource();
+        if (!surroundSplitter) {
+            surroundSplitter = new Tone.Split(8);
+            surroundGain = new Tone.Gain(1);
+        }
 
-        // Streaming/No Buffer defaults to Center
+        // Defaults to Center
         if (surroundChannelIndex === -1) setSurroundChannel(2, null);
         else setSurroundChannel(surroundChannelIndex, null);
 
         showToast("Surround Mode: Enabled");
     }
 
-    // Streaming Mode: Restore MediaSource
-    setupMediaSource();
     setChannelMode(channelMode); // Restore standard channel
 
     // [New] Instant Refresh: If playing in Buffer Mode, restart play() to reflect mode change immediately
-    const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+    const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
     if (isPlaybackState && currentAudioBuffer && playerNode) {
         console.log("[Surround] Instant mode refresh triggered");
         play(getTrackPosition());
@@ -2753,9 +2658,6 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     // Routing Logic:
     // 1. Ensure Graph is in Surround Mode
     if (!isSurroundMode) return;
-
-    // 2. Re-connect MediaSource if needed (to Splitter)
-    if (!skipSetup) setupMediaSource();
 
     // 3. Connect selected Splitter Output to SurroundGain
     try {
@@ -3359,7 +3261,7 @@ slider.addEventListener('change', () => {
         broadcast({ type: 'play', time: t });
     } else {
         pausedAt = t;
-        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) videoElement.currentTime = t;
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) videoElement.currentTime = t;
         // Broadcast pause with updated time to sync guests without starting playback
         broadcast({ type: 'pause', time: t });
     }
@@ -4348,8 +4250,8 @@ function clearPreviousTrackState(reason = '') {
     window._pendingEarlyChunks = [];
 
     // [Fix] Reset state to IDLE so that subsequent sync/play commands for the new track 
-    // are not ignored as "already playing" stale streaming state.
-    if (currentState === APP_STATE.PLAYING_STREAMING || currentState === APP_STATE.PLAYING_AUDIO) {
+    // are not ignored as "already playing" stale state.
+    if (currentState === APP_STATE.PLAYING_AUDIO) {
         setState(APP_STATE.IDLE);
     }
 
@@ -4527,6 +4429,14 @@ async function handleFilePrepare(data) {
             currentTrackIndex = data.index;
             updatePlaylistUI();
         }
+
+        // [Fix] Ensure meta is populated for fallback/recovery logic
+        meta = {
+            name: data.name || window._pendingFileName || '',
+            index: data.index !== undefined ? data.index : window._pendingFileIndex,
+            size: data.size || 0,
+            mime: data.mime || ''
+        };
         // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
             console.log("[file-prepare] Stopping YouTube mode for incoming local file");
@@ -5005,28 +4915,12 @@ async function handleSyncResponse(data) {
     // compensatedTime = HostCurrentTime (approx)
     const compensatedTime = data.time + oneWayLatencySeconds;
 
-    // [Optimization] If already playing, perform a "Soft Sync" instead of a heavy restart
-    const currentPos = getTrackPosition();
-    const drift = Math.abs(currentPos - compensatedTime);
+    // [Simplified] Always perform a "Hard Sync" for maximum accuracy
+    console.log(`[AutoSync] Hard sync triggered (Compensated time: ${compensatedTime.toFixed(3)}s)`);
 
     if (data.isPlaying) {
-        if (currentState !== APP_STATE.IDLE && drift < 1.0) {
-            console.log(`[AutoSync] Soft nudging drift: ${drift.toFixed(3)}s`);
-            const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-            const targetTime = compensatedTime + localOffset - bias;
-
-            // [Unified Buffer Mode] Soft Sync
-            if (playerNode) {
-                play(targetTime);
-            }
-
-            videoElement.currentTime = targetTime;
-            // Update internal clock
-            startedAt = Tone.now() - (compensatedTime + localOffset) + (localOffset + autoSyncOffset);
-            showToast(`자동 싱크 보정 (${Math.round(lastLatencyMs / 2)}ms)`);
-        } else {
-            play(compensatedTime + localOffset);
-        }
+        // [Fixed] Always restart the playback engine at the precise corrected time
+        play(compensatedTime + localOffset);
     }
     else {
         stopAllMedia();
@@ -5129,6 +5023,7 @@ async function handlePreloadStart(data) {
         name: data.name,    // [Fix] Store name for chunk processing
         index: data.index,   // [Fix] Store index for completeness check
         size: data.size,     // [Fix] Store size for integrity check
+        mime: data.mime,      // [Fix] Store mime for video detection
         nextExpectedChunk: 0 // [Fix] Session-scoped chunk pointer
     });
     latestPreloadSessionId = sessionId; // [Fix] Track active session
@@ -5482,8 +5377,11 @@ async function handleStatusSync(data) {
     // [Synchronization Logic] Playlist-Centric Model
     const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
 
-    // [FIX] Empty Playlist Defense
+    // [FIX] Empty Playlist Defense - Skip if already in empty state
     if (!playlistMeta || playlistMeta.length === 0) {
+        if (playlist.length === 0 && currentState === APP_STATE.IDLE) {
+            return; // Already in empty state, skip redundant processing
+        }
         console.log("[StatusSync] Received empty playlist, clearing local state");
         playlist = [];
         currentTrackIndex = -1;
@@ -5682,7 +5580,7 @@ async function handlePlay(data) {
 async function handlePause(data) {
     if (data.time !== undefined) {
         pausedAt = data.time;
-        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING;
+        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
         if (usesVideo && videoElement) videoElement.currentTime = data.time;
         document.getElementById('seek-slider').value = data.time;
         document.getElementById('time-curr').innerText = fmtTime(data.time);
@@ -6061,17 +5959,21 @@ function nudgeSync(ms) {
         return;
     }
 
-    // [iOS Latency Fix] Update internal clock immediately for visual feedback
-    // but debounce the heavy video seek/restart to avoid "freezing" UI.
-    const effectiveOffset = getTrackPosition();
-    startedAt = Tone.now() - effectiveOffset + (localOffset + autoSyncOffset);
+    // [Refactored] Formula is now handled dynamically by getTrackPosition()
+    // startedAt remains a constant reference to the raw start time point.
 
     clearManagedTimer('syncDebounce');
     managedTimers.syncDebounce = setTimeout(() => {
         if (currentState !== APP_STATE.IDLE) {
             const target = getTrackPosition();
             const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
-            // Perform a light re-sync
+
+            // [Unified Buffer Mode] Force hard sync on nudge to immediately affect audio
+            if (currentAudioBuffer) {
+                console.log(`[Nudge] Applying hard sync for audio: ${target.toFixed(3)}s`);
+                play(target);
+            }
+
             if (videoElement) videoElement.currentTime = target - bias;
             showToast(`Sync Adjusted: ${ms > 0 ? '+' : ''}${ms}ms`);
         }
@@ -6317,7 +6219,7 @@ function handleOperatorRequest(data) {
             return;
         }
 
-        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) play(data.time); else pausedAt = data.time;
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) play(data.time); else pausedAt = data.time;
         broadcast({ type: 'play', time: data.time });
     } else if (data.type === 'request-eq-reset') {
         resetEQ();
@@ -6627,7 +6529,6 @@ function autoSync() {
 
 function loopUI() {
     const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO ||
-        currentState === APP_STATE.PLAYING_STREAMING ||
         currentState === APP_STATE.PLAYING_AUDIO;
 
     if (isPlaybackState) {
@@ -6751,7 +6652,9 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
                     currentAudioBuffer = audioBuffer;
                     console.log(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
 
-                    setEngineMode('buffer');
+                    // [FIX] Proper mode based on file type (video shows video UI, audio shows visualizer)
+                    const isVideo = isMediaVideo(nextFileBlob, nextMeta);
+                    setEngineMode(isVideo ? 'video' : 'buffer');
 
                     // Visual Sync
                     const url = BlobURLManager.create(nextFileBlob);
@@ -6774,40 +6677,9 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
 
                 }
             } catch (decodeErr) {
-                console.warn("[Preload] Buffer Mode Decode Failed, falling back to Streaming Mode:", decodeErr);
-                showToast("디코딩 실패 - 스트리밍 모드로 전환합니다.");
-
-                // Fallback to Streaming Mode
-                useBufferMode = false;
-
-                if (currentAudioBuffer) currentAudioBuffer = null;
-
-                const isVideo = nextFileBlob.type.startsWith('video/') || (nextMeta?.name && /\.(mp4|mkv|webm|mov)$/i.test(nextMeta.name));
-                setEngineMode(isVideo ? 'video' : 'streaming');
-
-                const url = BlobURLManager.create(nextFileBlob);
-                videoElement.src = url;
-                videoElement.muted = false; // Unmute for streaming
-
-                // Re-setup MediaSource for streaming
-                setupMediaSource();
-
-                videoElement.onloadedmetadata = () => {
-                    const dur = videoElement.duration;
-                    if (isFinite(dur)) {
-                        document.getElementById('seek-slider').max = dur;
-                        document.getElementById('time-dur').innerText = fmtTime(dur);
-                    }
-                    BlobURLManager.confirm(nextFileBlob);
-                    resolve();
-                };
-
-                videoElement.onerror = (e) => {
-                    console.error("[Fallback] Streaming load also failed:", e);
-                    reject(new Error("File load failed in both Buffer and Streaming modes"));
-                };
-
-                videoElement.load();
+                console.error("[Preload] Buffer Mode Decode Failed:", decodeErr);
+                showToast("디코딩 실패: 재생할 수 없습니다.");
+                reject(decodeErr);
             }
 
             // Title and Artist are updated synchronously via updatePlaylistUI() in the caller
@@ -7047,7 +6919,7 @@ function seekToTime(seconds) {
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.seekTo) {
         youtubePlayer.seekTo(seconds, true);
         showToast(`${fmtTime(seconds)}로 이동`);
-    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_STREAMING) {
+    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {
         const video = document.getElementById('main-video');
         if (video) {
             video.currentTime = seconds;

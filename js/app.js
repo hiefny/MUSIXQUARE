@@ -737,7 +737,8 @@ async function finalizeFileProcessing(file) {
         }, 1000);
 
         if (window._pendingPlayTime !== undefined) {
-            const target = window._pendingPlayTime + localOffset;
+            const target = window._pendingPlayTime + localOffset + autoSyncOffset;
+            console.log(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
             play(target);
             window._pendingPlayTime = undefined;
         }
@@ -1161,8 +1162,22 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 });
 
 function toggleRepeat() {
-    repeatMode = (repeatMode + 1) % 3;
+    const nextMode = (repeatMode + 1) % 3;
+    setRepeatMode(nextMode);
+
+    // Broadcast if Host or requested by OP
+    if (!hostConn) {
+        broadcast({ type: 'repeat-mode', value: nextMode });
+    } else if (isOperator) {
+        hostConn.send({ type: 'request-setting', settingType: 'repeat-mode', value: nextMode });
+    }
+}
+
+function setRepeatMode(mode) {
+    repeatMode = mode;
     const btn = document.getElementById('btn-repeat');
+    if (!btn) return;
+
     btn.classList.remove('active', 'active-one');
     if (repeatMode === 1) {
         btn.classList.add('active');
@@ -1176,8 +1191,23 @@ function toggleRepeat() {
 }
 
 function toggleShuffle() {
-    isShuffle = !isShuffle;
-    document.getElementById('btn-shuffle').classList.toggle('active', isShuffle);
+    const nextShuffle = !isShuffle;
+    setShuffle(nextShuffle);
+
+    // Broadcast if Host or requested by OP
+    if (!hostConn) {
+        broadcast({ type: 'shuffle-mode', value: nextShuffle });
+    } else if (isOperator) {
+        hostConn.send({ type: 'request-setting', settingType: 'shuffle-mode', value: nextShuffle });
+    }
+}
+
+function setShuffle(enabled) {
+    isShuffle = enabled;
+    const btn = document.getElementById('btn-shuffle');
+    if (btn) {
+        btn.classList.toggle('active', isShuffle);
+    }
     showToast(isShuffle ? "셔플: 켜짐" : "셔플: 꺼짐");
 }
 
@@ -1479,6 +1509,7 @@ async function playTrack(index) {
         // 4. Activate preloaded track and play
         await loadPreloadedTrack();
         play(0);
+        broadcast({ type: 'play', time: 0 }); // Explicitly broadcast play for guests
 
         // [Fix] Immediate Auto-Sync (User Request)
         handleMainSyncBtn();
@@ -1583,17 +1614,27 @@ async function preloadNextTrack() {
     const currentSession = nextSessionId();
     preloadSessionId = currentSession;
 
-    // Determine Next Index logic (copy of playNextTrack logic)
-    let nextIdx;
-    if (repeatMode === 2) nextIdx = currentTrackIndex; // Repeat One
-    else if (isShuffle) {
-        // Simple shuffle: valid random
+    // Determine Next Index logic
+    let nextIdx = -1;
+    if (playlist.length === 0) {
+        nextTrackIndex = -1;
+        return;
+    }
+
+    if (repeatMode === 2) {
+        nextIdx = currentTrackIndex; // Repeat One
+    } else if (isShuffle && playlist.length > 1) {
         do {
             nextIdx = Math.floor(Math.random() * playlist.length);
-        } while (nextIdx === currentTrackIndex && playlist.length > 1);
+        } while (nextIdx === currentTrackIndex);
+    } else if (isShuffle && playlist.length === 1) {
+        nextIdx = 0;
     } else {
         nextIdx = currentTrackIndex + 1;
-        if (nextIdx >= playlist.length) nextIdx = 0; // Loop list
+        if (nextIdx >= playlist.length) {
+            if (repeatMode === 1) nextIdx = 0; // Loop list
+            else nextIdx = -1; // Stop at end (Repeat OFF)
+        }
     }
 
     // Update State
@@ -1760,13 +1801,7 @@ function playNextTrack() {
         }
     }
 
-    // If we have a preloaded track ready with actual data, use it
-    if (nextTrackIndex !== -1 && nextFileBlob) {
-        playTrack(nextTrackIndex);
-        return;
-    }
-
-    let nextIndex;
+    let nextIndex = -1;
     if (playlist.length === 0) return;
 
     if (repeatMode === 2) {
@@ -1782,10 +1817,25 @@ function playNextTrack() {
         nextIndex = currentTrackIndex + 1;
         if (nextIndex >= playlist.length) {
             if (repeatMode === 1) nextIndex = 0;
-            else return; // Stop at end
+            else {
+                console.log("[Host] End of playlist reached (Repeat OFF). Stopping.");
+                stopAllMedia();
+                broadcast({ type: 'pause', time: 0 }); // Explicit pause for guests if needed
+                return;
+            }
         }
     }
-    playTrack(nextIndex);
+
+    // [FIX] If we have a preloaded track ready for THIS SPECIFIC index, use it
+    if (nextIndex !== -1 && nextTrackIndex === nextIndex && nextFileBlob) {
+        console.log(`[Host] Using preloaded track for index ${nextIndex}`);
+        playTrack(nextIndex);
+        return;
+    }
+
+    if (nextIndex !== -1) {
+        playTrack(nextIndex);
+    }
 }
 
 function playPrevTrack() {
@@ -3692,6 +3742,8 @@ function setupPeerEvents() {
             conn.send({ type: 'welcome', label: deviceName });
             conn.send({ type: 'volume', value: masterVolume });
             conn.send({ type: 'reverb', value: reverbMix * 100 });
+            conn.send({ type: 'repeat-mode', value: repeatMode });
+            conn.send({ type: 'shuffle-mode', value: isShuffle });
             conn.send({
                 type: 'playlist-update',
                 list: playlist.map(item => ({
@@ -3766,6 +3818,8 @@ function setupPeerEvents() {
                             type: 'status-sync',
                             currentTrackIndex: currentTrackIndex,
                             isPlaying: isActuallyPlaying,
+                            repeatMode: repeatMode,
+                            isShuffle: isShuffle,
                             playlistMeta: playlist.map(item => ({
                                 type: item.type,
                                 name: item.name || item.title,
@@ -5414,6 +5468,14 @@ async function handleStatusSync(data) {
         return;
     }
 
+    // 0. Sync Repeat/Shuffle State
+    if (data.repeatMode !== undefined && data.repeatMode !== repeatMode) {
+        setRepeatMode(data.repeatMode);
+    }
+    if (data.isShuffle !== undefined && data.isShuffle !== isShuffle) {
+        setShuffle(data.isShuffle);
+    }
+
     // 1. Sync Playlist Structure if different
     const isPlaylistDifferent = JSON.stringify(playlist.map(it => it.name)) !== JSON.stringify(playlistMeta.map(it => it.name));
     if (isPlaylistDifferent) {
@@ -5635,6 +5697,14 @@ async function handleVBass(data) {
     setVirtualBass(data.value);
 }
 
+async function handleShuffle(data) {
+    setShuffle(data.value);
+}
+
+async function handleRepeatMode(data) {
+    setRepeatMode(data.value);
+}
+
 async function handlePlaylistUpdate(data) {
     playlist = data.list;
     updatePlaylistUI();
@@ -5807,6 +5877,8 @@ const handlers = {
     'vbass': handleVBass,
     'playlist-update': handlePlaylistUpdate,
     'sync-response': handleSyncResponse,
+    'shuffle-mode': handleShuffle,
+    'repeat-mode': handleRepeatMode,
     'global-resync-request': handleGlobalResyncRequest,
     'force-sync-play': handleForceSyncPlay,
     'youtube-play': handleYouTubePlay,
@@ -6716,6 +6788,14 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
             nextTrackIndex = -1;
 
             console.log(`[Preload] Safe clear: nextFileBlob moved to current.`);
+
+            // [FIX] Consume pending play time if Host already sent it (Crucial for first track)
+            if (hostConn && window._pendingPlayTime !== undefined) {
+                const target = window._pendingPlayTime + localOffset + autoSyncOffset;
+                console.log(`[Preload] Found pending play time after activation, starting at ${target.toFixed(2)}s`);
+                play(target);
+                window._pendingPlayTime = undefined;
+            }
 
             // [Fix] restore the index we just cleared if needed for logic elsewhere
             // but usually nextTrackIndex is only for the "next" track.

@@ -67,6 +67,6 @@ Created with ❤️ by **HIEFNY**
 
 ---
 
-## 📝 License
+## License
 
 Distributed under the MIT License.

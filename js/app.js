@@ -450,7 +450,7 @@ window.hostConn = null; // Expose to other scripts (demo.js)
 let localOffset = 0;
 let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
 let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
-let myDeviceLabel = 'GUEST'; // Store my label for UI updates
+let myDeviceLabel = 'HOST'; // Store my label for UI updates
 let lastLatencyMs = 0; // Store Median RTT (Robust)
 let latencyHistory = []; // Buffer to filter noise
 let syncRequestTime = 0; // Capture exact time of sync request
@@ -1147,7 +1147,10 @@ function updateRoleBadge() {
     badge.classList.remove('connected');
 
     // 2. Update based on state
-    if (hostConn) {
+    if (isConnecting) {
+        text.innerText = '연결 중...';
+        // Keep the idle look or use a neutral color
+    } else if (hostConn) {
         // Guest Mode
         text.innerText = 'GUEST';
         badge.classList.add('connected');
@@ -4221,7 +4224,7 @@ async function leaveSession() {
     stopAllMedia();
 
     // Clear Core State
-    myDeviceLabel = 'GUEST';
+    myDeviceLabel = 'HOST';
     isOperator = false;
     isConnecting = false;
 
@@ -4242,7 +4245,7 @@ async function leaveSession() {
 
     // Reset UI
     updatePlaylistUI();
-    updateDeviceList();
+    renderDeviceList([]);
     updateRoleBadge();
     updateTitleWithMarquee("MUSIXQUARE");
 

@@ -232,4 +232,48 @@ async function handleMessage(data) {
             self.postMessage({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
         }
     }
+    else if (command === 'OPFS_READ') {
+        const { filename, index, isPreload, sessionId, requestId } = data;
+        const safeName = (isPreload ? "preload_" : "current_") +
+            filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + instanceId;
+
+        try {
+            // [FIX] Reuse existing Handle if already open for writing (Prevents Lock Collision)
+            const activeOpfs = isPreload ? preloadFileOpfs : currentFileOpfs;
+            let accessHandle = null;
+            let shouldClose = false;
+
+            if (activeOpfs.isLocked && activeOpfs.name === filename && activeOpfs.accessHandle) {
+                accessHandle = activeOpfs.accessHandle;
+                // console.log(`[TransferWorker] Reusing active handle for READ: ${filename}`);
+            } else {
+                // Not open, create temp handle
+                const root = await navigator.storage.getDirectory();
+                const fileHandle = await root.getFileHandle(safeName);
+                accessHandle = await fileHandle.createSyncAccessHandle();
+                shouldClose = true;
+            }
+
+            const chunkSize = activeOpfs.chunkSize || 16384;
+            const buffer = new Uint8Array(chunkSize);
+            const bytesRead = accessHandle.read(buffer, { at: index * chunkSize });
+
+            const chunk = bytesRead === chunkSize ? buffer : buffer.slice(0, bytesRead);
+
+            self.postMessage({
+                type: 'OPFS_READ_COMPLETE',
+                chunk: chunk,
+                index,
+                filename,
+                requestId,
+                sessionId
+            }, [chunk.buffer]);
+
+            if (shouldClose) {
+                await accessHandle.close();
+            }
+        } catch (e) {
+            self.postMessage({ type: 'OPFS_READ_ERROR', error: e.message, filename, index, requestId });
+        }
+    }
 }

@@ -577,6 +577,10 @@ async function cleanupOPFSInWorker(filename, isPreload) {
 
 // Helper: Clear metadata for upcoming preload (Host side) or current preload (Guest side)
 function clearPreloadState() {
+    // [Fix] Protect the blob that is currently being transitioned to
+    // If we clear this while a relay peer is requesting it, the relay fails.
+    const isNextTrackActive = nextMeta && (nextMeta.index === currentTrackIndex);
+
     // [Fix #3] Don't reset if preload is almost complete (90%+)
     if (preloadMeta && preloadMeta.total > 0) {
         const progress = preloadCount / preloadMeta.total;
@@ -588,13 +592,17 @@ function clearPreloadState() {
 
     // Host side
     nextTrackIndex = -1;
-    nextFileBlob = null;
-    nextMeta = null;
+    if (!isNextTrackActive) {
+        nextFileBlob = null;
+        nextMeta = null;
+    }
     isPreloading = false;
 
     // Guest side
     preloadCount = 0;
-    preloadMeta = null;
+    if (!isNextTrackActive) {
+        preloadMeta = null;
+    }
     window._skipIncomingPreload = false;
 
     // [Fix] Keep UI state in sync with Worker RESET
@@ -695,9 +703,25 @@ const handleWorkerMessage = async (e) => {
                 finalizeFileProcessing(file);
             }
         }
-        else if (data.type === 'OPFS_ERROR') {
+        else if (data.type === 'OPFS_READ_COMPLETE') {
+            const { chunk, index, filename, requestId, sessionId } = data;
+            const peerId = requestId; // We used peerId as requestId
+            const dConn = downstreamDataPeers.find(p => p.peer === peerId);
+            if (dConn && dConn.open) {
+                // [FIX] Use Relay Queue for recovered chunks to enforce back-pressure
+                relayChunkQueue.push({
+                    type: 'file-chunk',
+                    chunk,
+                    index,
+                    sessionId,
+                    targetPeerId: peerId // Optional: target specific if needed, but processRelayQueue handles all
+                });
+                processRelayQueue();
+            }
+        }
+        else if (data.type === 'OPFS_ERROR' || data.type === 'OPFS_READ_ERROR') {
             console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
-            showToast(`파일 저장 오류: ${data.filename}`);
+            if (data.type === 'OPFS_ERROR') showToast(`파일 저장 오류: ${data.filename}`);
         }
         // [Fix #1] Handle Session ID mismatch notifications from Worker
         else if (data.type === 'SESSION_MISMATCH') {
@@ -2348,7 +2372,9 @@ function stopAllMedia() {
     }
 
     // Clear any pending triggers
-    window._pendingPlayTime = undefined;
+    // [Fix] DO NOT clear _pendingPlayTime here. 
+    // It should persist if we just finished loading and are waiting for Host to start (3s count).
+    // It is safely cleared in clearPreviousTrackState when track actually changes.
     preloadSessionId++; // [Fix] Invalidate any ongoing preloads
     if (managedTimers.autoPlayTimer) {
         clearManagedTimer('autoPlayTimer');
@@ -3491,8 +3517,9 @@ function setupPeerEvents() {
             console.log("[QR] Auto-joining host:", hostId);
 
             // Auto-trigger join session for QR users
-            // This is safe because we are already inside peer.on('open')
-            setTimeout(() => joinSession(), 100);
+            // [FIX] Removed auto-trigger. Users must click "I'm invited!" button
+            // to ensure audio context is unlocked and prevent double-connection race.
+            // setTimeout(() => joinSession(), 100);
         } else {
             const hostPanel = document.getElementById('host-panel');
             if (hostPanel) hostPanel.classList.add('visible');
@@ -3530,12 +3557,13 @@ function setupPeerEvents() {
                 // 2. Boldly Remove Disconnected Peers
                 if (changed) {
                     // FORCE UPDATE: Reassign global array and CLEAN UP orphans
-                    const disconnected = connectedPeers.filter(p => p.status !== 'connected');
-                    disconnected.forEach(p => {
+                    const toRemove = connectedPeers.filter(p => p.status === 'disconnected');
+                    toRemove.forEach(p => {
                         if (p._relayMonitor) clearInterval(p._relayMonitor);
                         if (p._heartbeatTimer) clearInterval(p._heartbeatTimer);
                     });
-                    connectedPeers = connectedPeers.filter(p => p.status === 'connected');
+
+                    connectedPeers = connectedPeers.filter(p => p.status !== 'disconnected');
                     broadcastDeviceList();
                 }
             }, 1000);
@@ -3545,9 +3573,11 @@ function setupPeerEvents() {
     function broadcastDeviceList() {
         const list = [
             { id: myId, label: 'HOST', status: 'connected', isHost: true },
-            ...connectedPeers.map(p => ({
-                id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
-            }))
+            ...connectedPeers
+                .sort((a, b) => a.joinOrder - b.joinOrder) // [FIX] Maintain stable visual order
+                .map(p => ({
+                    id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
+                }))
         ];
 
         const msg = { type: 'device-list-update', list: list };
@@ -3570,7 +3600,6 @@ function setupPeerEvents() {
             const oldPeer = connectedPeers[existingIdx];
             if (oldPeer.conn && oldPeer.conn.open) {
                 try {
-                    // [FIX] Tag this closure so Guest doesn't auto-retry redundant connection
                     oldPeer.conn.send({ type: 'force-close-duplicate' });
                     oldPeer.conn.close();
                 } catch (e) { }
@@ -3578,60 +3607,85 @@ function setupPeerEvents() {
             connectedPeers.splice(existingIdx, 1);
         }
 
-        conn.on('open', () => {
-            let deviceName;
+        // [STABILIZATION] 1. Label/Counter memory check
+        if (!peerLabels[conn.peer]) {
+            deviceCounter++;
+            peerLabels[conn.peer] = `DEVICE ${deviceCounter} `;
+        }
+        const deviceName = peerLabels[conn.peer];
+        const numericOrder = parseInt((deviceName.match(/\d+/) || [0])[0]);
 
-            // 1. Label Memory 확인: 이전에 접속했던 기기인가?
-            if (peerLabels[conn.peer]) {
-                deviceName = peerLabels[conn.peer];
-                console.log(`[Network] Re-connection detected: ${deviceName} (${conn.peer})`);
-            } else {
-                // 2. 신규 기기라면 카운터 증가 및 저장
-                deviceCounter++;
-                deviceName = `DEVICE ${deviceCounter} `; // 뒤에 공백 유지
-                peerLabels[conn.peer] = deviceName;
-            }
+        // [STABILIZATION] 2. Immediate Peer Registration (Prevent duplicate race)
+        const peerObj = {
+            id: conn.peer,
+            label: deviceName,
+            joinOrder: numericOrder, // Stable monotonic ID for loop prevention
+            status: 'connecting',
+            conn: conn,
+            isOp: false,
+            isDataTarget: true,
+            lastHeartbeat: Date.now()
+        };
+        connectedPeers.push(peerObj);
+
+        conn.on('open', () => {
+            peerObj.status = 'connected';
+            peerObj.lastHeartbeat = Date.now();
+            console.log(`[Network] Connection opened for ${deviceName} (${conn.peer})`);
 
             const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
 
-            const peerObj = {
-                id: conn.peer,
-                label: deviceName,
-                status: 'connected',
-                conn: conn,
-                isOp: false,
-                isDataTarget: true, // Default: Receive data from Host
-                lastHeartbeat: Date.now() // Heartbeat Init
-            };
-            connectedPeers.push(peerObj);
             broadcastDeviceList();
-
             showToast(`${deviceName} 연결됨`);
 
-            // --- Relay Assignment Logic ---
-            // --- Relay Assignment Logic (2-Lane Stabilized) ---
+            // --- Relay Assignment Logic (STABLE ACYCLIC STRATEGY) ---
+            // Direct peers: 1, 2. Relays: 3, 4, 5...
+            // Strategy: Peer N picks Peer (N-2) or (N-4) as parent.
+            // Since (N-x) < N, a cycle is mathematically impossible.
             if (connectedPeers.length > MAX_DIRECT_DATA_PEERS) {
-                // 2-Lane System: Try to find a parent in the same lane (Odd/Even)
-                // 2-Lane Relay Strategy: Find nearest same-lane ancestor (Odd/Even indices)
-
                 let assigned = false;
-                for (let i = connectedPeers.length - 3; i >= 0; i -= 2) {
-                    const candidate = connectedPeers[i];
-                    // Must be connected AND have open channel to serve as relay
-                    if (candidate && candidate.status === 'connected' && candidate.conn.open) {
-                        conn.send({ type: 'assign-data-source', targetId: candidate.id });
-                        showToast(`Data Relay: ${deviceName} -> ${candidate.label} `);
 
-                        // Do NOT send data directly from Host to this new peer
-                        peerObj.isDataTarget = false;
-                        peerObj.assignedRelay = candidate.id; // [FIX #8] Track for monitoring
-                        assigned = true;
-                        break;
+                // Sort by joinOrder to be absolutely sure about seniority
+                const seniors = connectedPeers
+                    .filter(p => p.status === 'connected' && p.joinOrder < peerObj.joinOrder && p.id !== conn.peer)
+                    .sort((a, b) => b.joinOrder - a.joinOrder); // Newest senior first
+
+                console.log(`[Relay] Evaluating ${deviceName} (joinOrder: ${peerObj.joinOrder}) for relay. Seniors found: ${seniors.length}`);
+
+                for (const candidate of seniors) {
+                    if (candidate.conn && candidate.conn.open) {
+                        // Lane Logic: Prefer same parity (Odd/Even joinOrder)
+                        const candidateParity = candidate.joinOrder % 2;
+                        const myParity = peerObj.joinOrder % 2;
+                        console.log(`[Relay] Checking candidate ${candidate.label} (Parity: ${candidateParity}, MyParity: ${myParity})`);
+
+                        if (candidateParity === myParity) {
+                            console.log(`[Relay] Assigned ${deviceName} -> ${candidate.label}`);
+                            conn.send({ type: 'assign-data-source', targetId: candidate.id });
+                            showToast(`Data Relay: ${deviceName} -> ${candidate.label}`);
+                            peerObj.isDataTarget = false;
+                            peerObj.assignedRelay = candidate.id;
+                            assigned = true;
+                            break;
+                        }
                     }
                 }
+
+                // Fallback to any senior if lane match fails
+                if (!assigned && seniors.length > 0) {
+                    const candidate = seniors[0];
+                    if (candidate.conn && candidate.conn.open) {
+                        console.log(`[Relay] Fallback Assignment: ${deviceName} -> ${candidate.label}`);
+                        conn.send({ type: 'assign-data-source', targetId: candidate.id });
+                        showToast(`Data Relay (Lane Fallback): ${deviceName} -> ${candidate.label}`);
+                        peerObj.isDataTarget = false;
+                        peerObj.assignedRelay = candidate.id;
+                        assigned = true;
+                    }
+                }
+
                 if (!assigned) {
-                    // If no active parent found in lane, fall back to Host (keep isDataTarget = true)
-                    showToast(`Relay Lane Unavailable: ${deviceName} joined Host Direct`);
+                    console.warn(`[Relay] Could not assign relay for ${deviceName} even though seniors existed.`);
                 }
             }
             // -----------------------------
@@ -3642,21 +3696,44 @@ function setupPeerEvents() {
                 const monitorRelay = () => {
                     const relay = connectedPeers.find(p => p.id === peerObj.assignedRelay);
                     if (!relay || relay.status !== 'connected') {
-                        console.log(`[Relay] Parent ${peerObj.assignedRelay} disconnected, reassigning ${deviceName}`);
-                        peerObj.isDataTarget = true; // Fall back to Host direct
-                        peerObj.assignedRelay = null; // Clear assignment
+                        console.log(`[Relay] Parent ${peerObj.assignedRelay} lost, attempting recovery for ${deviceName}`);
 
-                        // [Fix] Explicitly notify the Guest to revert to Host Direct
-                        if (conn.open) {
-                            conn.send({ type: 'assign-data-source', targetId: null, reason: 'parent-lost' });
+                        // Find a new parent: nearest senior in the same lane
+                        const juniors = connectedPeers
+                            .filter(p => p.status === 'connected' && p.joinOrder < peerObj.joinOrder && p.id !== conn.peer)
+                            .sort((a, b) => b.joinOrder - a.joinOrder);
+
+                        let newParent = null;
+                        for (const candidate of juniors) {
+                            if (candidate.conn && candidate.conn.open && (candidate.joinOrder % 2) === (peerObj.joinOrder % 2)) {
+                                newParent = candidate;
+                                break;
+                            }
                         }
 
-                        showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
+                        if (newParent) {
+                            console.log(`[Relay] Reassigning ${deviceName} to senior ${newParent.label}`);
+                            peerObj.assignedRelay = newParent.id;
+                            peerObj.isDataTarget = false;
+                            if (conn.open) {
+                                conn.send({ type: 'assign-data-source', targetId: newParent.id, reason: 'parent-lost' });
+                            }
+                            showToast(`${deviceName} -> ${newParent.label} (릴레이 재배정)`);
+                        } else {
+                            console.log(`[Relay] No seniors in lane, reassigning ${deviceName} to Host Direct`);
+                            peerObj.isDataTarget = true;
+                            peerObj.assignedRelay = null;
 
-                        // [Fix] Stop monitoring once reassigned to prevent interval spam
-                        if (peerObj._relayMonitor) {
-                            clearInterval(peerObj._relayMonitor);
-                            peerObj._relayMonitor = null;
+                            if (conn.open) {
+                                conn.send({ type: 'assign-data-source', targetId: null, reason: 'parent-lost' });
+                            }
+                            showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
+
+                            // Stop monitoring once reassigned to Host (no more seniors will ever exist for this joinOrder)
+                            if (peerObj._relayMonitor) {
+                                clearInterval(peerObj._relayMonitor);
+                                peerObj._relayMonitor = null;
+                            }
                         }
                     }
                 };
@@ -3710,7 +3787,12 @@ function setupPeerEvents() {
             broadcastDeviceList();
 
             if (curItem && curItem.type !== 'youtube') {
-                conn.send({ type: 'file-prepare', name: curItem.name, index: currentTrackIndex });
+                conn.send({
+                    type: 'file-prepare',
+                    name: curItem.name,
+                    index: currentTrackIndex,
+                    sessionId: currentTransferSessionId // [FIX] Include session ID for late joiners
+                });
             }
 
             // [FIX] Late Joiner Media Guard:
@@ -4248,6 +4330,7 @@ function clearPreviousTrackState(reason = '') {
     window._skipIncomingFile = false;
     _isProcessingBlob = false;
     window._pendingEarlyChunks = [];
+    window._pendingPlayTime = undefined; // [FIX] Clear pending play intention on track change
 
     // [Fix] Reset state to IDLE so that subsequent sync/play commands for the new track 
     // are not ignored as "already playing" stale state.
@@ -4431,11 +4514,14 @@ async function handleFilePrepare(data) {
         }
 
         // [Fix] Ensure meta is populated for fallback/recovery logic
+        // [FIX] Merge with existing meta to preserve 'total' and other fields
         meta = {
-            name: data.name || window._pendingFileName || '',
-            index: data.index !== undefined ? data.index : window._pendingFileIndex,
-            size: data.size || 0,
-            mime: data.mime || ''
+            ...meta,
+            name: data.name || window._pendingFileName || (meta ? meta.name : ''),
+            index: data.index !== undefined ? data.index : (window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex),
+            size: data.size || (meta ? meta.size : 0),
+            mime: data.mime || (meta ? meta.mime : ''),
+            sessionId: data.sessionId || localTransferSessionId // [FIX] Store sessionId in meta
         };
         // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -4474,6 +4560,11 @@ async function handleFilePrepare(data) {
 }
 
 async function handleFileStart(data) {
+    // RELAY LOGIC: Forward to downstream
+    if (downstreamDataPeers.length > 0) {
+        downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
+    }
+
     // [FIX] Session ID Validation - NO FALLBACK to 0
     const incomingSid = data.sessionId;
     if (!incomingSid || incomingSid < localTransferSessionId) {
@@ -4679,6 +4770,13 @@ async function handleFileResume(data) {
     meta = data;
     updatePlaylistUI();
 
+    // RELAY LOGIC: Forward to downstream
+    if (downstreamDataPeers.length > 0) {
+        downstreamDataPeers.forEach(p => {
+            if (p.open) p.send(data);
+        });
+    }
+
     let sizeText = data.size ? ` (${(data.size / 1024 / 1024).toFixed(1)}MB)` : "";
     const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
     showLoader(true, `${sourceLabel} 수신 중... ${pct}%${sizeText}`);
@@ -4783,7 +4881,12 @@ async function handleFileChunk(data) {
 
         // RELAY LOGIC: Queue and Process
         if (relayCopy && downstreamDataPeers.length > 0) {
-            relayChunkQueue.push({ type: 'file-chunk', chunk: relayCopy, index: nextExpectedChunk });
+            relayChunkQueue.push({
+                type: 'file-chunk',
+                chunk: relayCopy,
+                index: nextExpectedChunk,
+                sessionId: incomingSid // [FIX] Include session ID for relay sync
+            });
             processRelayQueue();
         }
 
@@ -4839,6 +4942,22 @@ async function handleFileChunk(data) {
 
         // Finalize UI/playback state will happen in Worker message handler
         return;
+    }
+}
+
+async function handleFileEnd(data) {
+    if (window._skipIncomingFile) return;
+
+    // RELAY LOGIC: Forward to downstream
+    if (downstreamDataPeers.length > 0) {
+        downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
+    }
+
+    console.log(`[file-end] Received end signal for: ${data.name}`);
+
+    // [Fix] Integrity check: if we haven't hit the total yet, something is wrong
+    if (meta && receivedCount < meta.total) {
+        console.warn(`[file-end] Received before all chunks! Got ${receivedCount}/${meta.total}`);
     }
 }
 
@@ -4923,6 +5042,12 @@ async function handleSyncResponse(data) {
         play(compensatedTime + localOffset);
     }
     else {
+        // [FIX] Don't stop if we are waiting for a scheduled play command (Host countdown)
+        if (window._pendingPlayTime) {
+            console.log("[AutoSync] Host is not playing yet, but we have a pending start. Keeping status quo.");
+            pausedAt = compensatedTime; // Sync time for when we DO start
+            return;
+        }
         stopAllMedia();
         pausedAt = compensatedTime;
         if (!uiLoopId) loopUI();
@@ -5105,9 +5230,22 @@ async function handlePreloadChunk(data) {
     while (sessionBuffer.has(nextChunkPtr)) {
         const chunk = sessionBuffer.get(nextChunkPtr);
 
-        // Clone chunk to prevent detachment issues
+        // Clone chunk to prevent detachment issues (one for relay, one for worker)
         const chunkClone = new Uint8Array(chunk);
         const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : 'Unknown');
+
+        // RELAY LOGIC: Forward to downstream
+        if (downstreamDataPeers.length > 0) {
+            const relayCopy = new Uint8Array(chunk);
+            relayChunkQueue.push({
+                type: 'preload-chunk',
+                chunk: relayCopy,
+                index: nextChunkPtr,
+                sessionId: sessionId
+            });
+            processRelayQueue();
+        }
+
         postWorkerCommand({
             command: 'OPFS_WRITE',
             chunk: chunkClone,
@@ -5143,12 +5281,6 @@ async function handlePreloadChunk(data) {
             const pct = Math.min(100, Math.floor((currentProgress / preloadMeta.total) * 100));
             updateLoader(pct);
         }
-    }
-
-    // [Relay] Forwarding logic needs to be constructed if needed, but fwdMsg is undefined here.
-    // For now, removing the broken logic.
-    if (downstreamDataPeers.length > 0) {
-        // TODO: Implement proper relay packet construction if needed
     }
 
     // [Fix] Use Session-Scoped Progress Check
@@ -5209,6 +5341,11 @@ async function handlePreloadEnd(data) {
 
     console.log(`[Preload] End signal received for index: ${data.index} (Progress: ${progress}/${total})`);
 
+    // RELAY LOGIC: Forward to downstream
+    if (downstreamDataPeers.length > 0) {
+        downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
+    }
+
     // [Fix] Allow slight mismatch (e.g. -1) or exact match
     if (progress < total) {
         console.warn(`[Preload] Incomplete! Got ${progress}/${total} chunks.`);
@@ -5235,6 +5372,13 @@ async function handlePreloadEnd(data) {
         showLoader(false);
     } else {
         console.log("[Preload] Complete, but keeping loader for main track transfer...");
+    }
+
+    // RELAY LOGIC: Forward to downstream
+    if (downstreamDataPeers.length > 0) {
+        downstreamDataPeers.forEach(p => {
+            if (p.open) p.send(data);
+        });
     }
 }
 
@@ -5290,6 +5434,12 @@ async function handlePlayPreloaded(data) {
         window._skipIncomingFile = true;
         window._playPreloadedInProgress = undefined; // [FIX] Clear in-progress flag
 
+        // RELAY LOGIC: Forward to downstream
+        if (downstreamDataPeers.length > 0) {
+            downstreamDataPeers.forEach(p => {
+                if (p.open) p.send(data);
+            });
+        }
     } else {
         // [Race Condition Fix] If we are currently preloading this track, wait a moment!
         const isDownloadingSameTrack = preloadMeta && (preloadMeta.index === data.index || preloadMeta.name === data.name);
@@ -5333,7 +5483,11 @@ async function handlePlayPreloaded(data) {
 
         if (upstreamDataConn && upstreamDataConn.open) {
             console.log("[Guest] Requesting file from Relay:", trackName);
-            upstreamDataConn.send({ type: 'request-current-file' });
+            upstreamDataConn.send({
+                type: 'request-current-file',
+                name: trackName,
+                index: data.index
+            });
             showToast("릴레이에 파일 요청 중...");
         } else if (hostConn && hostConn.open) {
             // [FIX] Consistent Jitter for fallback request
@@ -5593,7 +5747,25 @@ async function handleVolume(data) {
 }
 
 async function handleReverb(data) { setReverbParam('mix', data.value); }
-async function handleReverbType(data) { /* Deprecated/Removed */ }
+async function handleReverbType(data) {
+    if (reverb) {
+        // [New] Dynamic Reverb Type dispatcher
+        // Currently Tone.Reverb doesn't have internal presets, but we can adjust parameters
+        // to simulate different types (e.g. 'room', 'hall', 'space')
+        if (data.value === 'room') {
+            reverb.decay = 1.5;
+            reverb.preDelay = 0.05;
+        } else if (data.value === 'hall') {
+            reverb.decay = 3.5;
+            reverb.preDelay = 0.1;
+        } else if (data.value === 'space') {
+            reverb.decay = 7.0;
+            reverb.preDelay = 0.2;
+        }
+        reverb.generate();
+        showToast(`리버브 타입: ${data.value}`);
+    }
+}
 async function handleReverbDecay(data) { setReverbParam('decay', data.value); }
 async function handleReverbPreDelay(data) { setReverbParam('predelay', data.value); }
 async function handleReverbLowCut(data) { setReverbParam('lowcut', data.value); }
@@ -5756,6 +5928,8 @@ async function handleAssignDataSource(data) {
     if (targetId && targetId !== myId) {
         showToast(`Connecting to Relay: ...${targetId.substr(-4)}`);
         connectToRelay(targetId);
+    } else if (targetId === myId) {
+        console.warn("[Relay] Ignored self-assignment request from Host.");
     } else if (targetId === null) {
         // [FIX] Fallback to Host Direct
         console.log("[Relay] Fallback to Host requested by server.");
@@ -5793,6 +5967,7 @@ const handlers = {
     'file-start': handleFileStart,
     'file-resume': handleFileResume,
     'file-chunk': handleFileChunk,
+    'file-end': handleFileEnd,
     'file-wait': handleFileWait,
     'play': handlePlay,
     'pause': handlePause,
@@ -5867,6 +6042,13 @@ async function handleData(data, conn) {
 // --- Relay Functions ---
 
 function connectToRelay(targetId) {
+    // [FIX] Close existing relay connection if we are reassigning
+    if (upstreamDataConn) {
+        console.log(`[Relay] Closing existing relay connection (...${upstreamDataConn.peer.substr(-4)}) for new assignment`);
+        upstreamDataConn.close();
+        upstreamDataConn = null;
+    }
+
     const conn = peer.connect(targetId, {
         metadata: { type: 'data-relay', label: myId }
     });
@@ -5909,10 +6091,11 @@ function connectToRelay(targetId) {
         showToast("Relay Disconnected. Recovering...");
         upstreamDataConn = null;
 
-        if (receivedCount < totalExpected) {
+        if (receivedCount < (meta?.total || 0)) {
             if (hostConn && hostConn.open) {
                 showToast(`Recovering...`);
-                sendRecoveryRequest(); // Auto-detect missing
+                // [엄마-형-동생] If mom is still there, ask for recovery
+                sendRecoveryRequest();
             }
         }
     });
@@ -6012,40 +6195,90 @@ function updateSyncDisplay() {
 function handleRelayConnection(conn) {
     conn.on('open', () => {
         console.log("Accepted Relay Connection from", conn.peer);
-        showToast(`Relay: ${conn.peer.substr(-4)} 연결됨`);
-        downstreamDataPeers.push(conn);
+        // [FIX] Deduplicate downstream peers
+        if (!downstreamDataPeers.find(p => p.peer === conn.peer)) {
+            downstreamDataPeers.push(conn);
+            showToast(`Relay: ${conn.peer.substr(-4)} 연결됨`);
+        }
     });
 
     conn.on('data', async data => {
         if (data.type === 'request-current-file') {
-            const currentTrackName = playlist[currentTrackIndex]?.name;
-            const hasValidMeta = meta && meta.name && meta.name === currentTrackName;
+            const reqName = data.name;
+            const reqIndex = data.index;
 
-            if (currentFileBlob && hasValidMeta) {
-                showToast(`Relay Request: Serving blob to ${conn.peer.substr(-4)}`);
+            const currentTrackName = playlist[currentTrackIndex]?.name;
+
+            // [FIX] More intelligent source selection based on name/index
+            const isMatchCurrent = currentFileBlob && (!reqName || meta.name === reqName);
+            const isMatchPreload = nextFileBlob && (
+                (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
+                (reqName && nextMeta?.name === reqName) ||
+                (!reqName && nextMeta?.index === currentTrackIndex)
+            );
+
+            if (isMatchCurrent) {
+                console.log(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta.name}`);
                 unicastFile(conn, currentFileBlob);
             }
-            else if (nextFileBlob && preloadMeta && preloadMeta.index === currentTrackIndex) {
-                showToast(`Relay Request: Serving preloaded blob to ${conn.peer.substr(-4)}`);
+            else if (isMatchPreload) {
+                console.log(`[Relay] Serving preloaded file to ${conn.peer.substr(-4)}: ${nextMeta.name}`);
                 unicastFile(conn, nextFileBlob);
             }
-            else if (preloadMeta && nextFileBlob) {
-                showToast(`Relay Request: Serving preload to ${conn.peer.substr(-4)}`);
-                unicastFile(conn, nextFileBlob);
+            else if (meta?.name && (meta.name === (reqName || currentTrackName) || currentTrackName)) {
+                // [엄마-형-동생] Mid-download bootstrapping
+                // If "Brother" (형) is still receiving chunks, start "Sibling" (동생) with what we have
+                const bootName = meta.name || reqName || currentTrackName;
+                console.log(`[Relay] Bootstrapping "동생" for ${bootName} (In-progress: ${receivedCount}/${meta.total || '?'})`);
+
+                // 1. Send header first
+                // [FIX] Ensure type is file-start and sessionId is explicitly included
+                conn.send({
+                    ...meta,
+                    type: 'file-start',
+                    name: bootName,
+                    sessionId: meta.sessionId || localTransferSessionId
+                });
+
+                // 2. Catch-up: Proactively trigger recovery for chunks "형" already has stored in worker
+                // [Optimized] Removed artificial throttling at user request; processRelayQueue handles back-pressure.
+                if (receivedCount > 0) {
+                    for (let i = 0; i < receivedCount; i++) {
+                        postWorkerCommand({
+                            command: 'OPFS_READ',
+                            filename: meta.name,
+                            index: i,
+                            isPreload: false,
+                            sessionId: localTransferSessionId,
+                            requestId: conn.peer
+                        });
+                    }
+                }
             }
             else {
-                console.log("[Relay] No data yet, telling downstream to wait...");
-                conn.send({ type: 'file-wait', message: 'Relay waiting for data from upstream' });
-                conn._waitingForDataRelay = true;
-                showToast(`${conn.peer.substr(-4)}에게 대기 요청`);
+                console.log("[Relay] No matching data yet for", reqName || 'current');
+                conn.send({ type: 'file-wait', message: 'Relay source not ready yet' });
             }
+        }
+        else if (data.type === 'request-data-recovery') {
+            // [Relay Recovery] Handle missed chunk requests from downstream peers
+            const { fileName, index: trackIdx, nextChunk, sessionId } = data;
+            console.log(`[Relay Recovery] PEER ${conn.peer.substr(-4)} requested chunk ${nextChunk} of ${fileName}`);
+
+            // Request worker to read the chunk and send back to this peer
+            postWorkerCommand({
+                command: 'OPFS_READ',
+                filename: fileName,
+                index: nextChunk,
+                isPreload: false, // Recovery is usually for current track
+                sessionId: sessionId,
+                requestId: conn.peer // Tag it so we know where to send the response
+            });
         }
     });
 
-    conn._waitingForFileStart = false;
-
     conn.on('close', () => {
-        downstreamDataPeers = downstreamDataPeers.filter(p => p !== conn);
+        downstreamDataPeers = downstreamDataPeers.filter(p => p.peer !== conn.peer);
     });
 }
 
@@ -6079,7 +6312,7 @@ async function relayPreloadFromCache(blob, index, sessionId) {
         const chunkBuf = await chunkBlob.arrayBuffer();
         const chunk = new Uint8Array(chunkBuf);
 
-        const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i };
+        const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i, sessionId: sessionId };
         activeDownstream.forEach(p => p.send(chunkMsg));
 
         if (i % 10 === 0) await new Promise(r => setTimeout(r, 40));
@@ -6092,10 +6325,17 @@ async function relayPreloadFromCache(blob, index, sessionId) {
     console.log(`[Preload Relay] Finished relaying index ${index}`);
 }
 
-function broadcastData(msg) {
+/**
+ * Broadcasts a message to all connected peers.
+ * @param {Object} msg - The message to broadcast.
+ * @param {Boolean} isDataOnly - If true, only send to peers designated as data targets (relay nodes).
+ */
+function broadcast(msg, isDataOnly = false) {
     connectedPeers.forEach(p => {
-        if (p.status === 'connected' && p.conn.open && p.isDataTarget !== false) {
-            p.conn.send(msg);
+        if (p.status === 'connected' && p.conn.open) {
+            if (!isDataOnly || p.isDataTarget !== false) {
+                p.conn.send(msg);
+            }
         }
     });
 }
@@ -6257,10 +6497,14 @@ function handleOperatorRequest(data) {
 
 
 function sendRecoveryRequest(forceChunk = null) {
-    if (!hostConn || !hostConn.open) return;
+    // [FIX] Prefer Relay Node for recovery if assigned
+    const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
+
+    if (!targetConn || !targetConn.open) return;
 
     const fileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
     const index = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+    const currentSid = localTransferSessionId || currentTransferSessionId;
 
     let chunkToAsk = forceChunk;
     if (chunkToAsk === null) {
@@ -6275,12 +6519,15 @@ function sendRecoveryRequest(forceChunk = null) {
         }
     }
 
-    console.log(`[Recovery] Requesting: ${fileName} (Chunk: ${chunkToAsk})`);
-    hostConn.send({
+    const sourceLabel = targetConn === upstreamDataConn ? "Relay" : "Host";
+    console.log(`[Recovery] Requesting from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk})`);
+
+    targetConn.send({
         type: 'request-data-recovery',
         nextChunk: chunkToAsk,
         fileName: fileName,
-        index: index
+        index: index,
+        sessionId: currentSid
     });
 }
 
@@ -6469,9 +6716,7 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
     }
 }
 
-function broadcast(msg) {
-    connectedPeers.forEach(p => { if (p.status === 'connected' && p.conn.open) p.conn.send(msg); });
-}
+// [Consolidated] Use broadcast(msg, isDataOnly) above
 
 function updateLoader(percent) {
     const progressBg = document.getElementById('header-progress-bg');
@@ -6788,7 +7033,7 @@ function addChatMessage(sender, text, isMine) {
         row.className = `chat-row ${isMine ? 'mine' : 'others'}`;
 
         const bubble = document.createElement('div');
-        bubble.className = `chat-bubble`;
+        bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
 
         let bubbleContent = '';
         if (!isMine) {
@@ -6816,7 +7061,7 @@ function addChatMessage(sender, text, isMine) {
     // Update preview state
     lastChatSender = sender;
     lastChatText = text;
-    updateChatPreviewText();
+    updateChatPreview(sender, text);
 
     if (!isMine) {
         incrementUnread();
@@ -7016,35 +7261,18 @@ let lastChatSender = '';
 let lastChatText = '';
 let isChatDrawerOpen = false;
 
-function updateChatBadgeDisplay() {
-    const badge = document.getElementById('chat-preview-badge');
-    if (!badge) return;
-
-    if (unreadChatCount > 0) {
-        badge.textContent = unreadChatCount > 9 ? '9+' : unreadChatCount;
-        badge.classList.add('show');
-    } else {
-        badge.classList.remove('show');
-    }
-}
-
-function updateChatPreviewText() {
-    const previewText = document.getElementById('chat-preview-text');
-    if (previewText && lastChatSender && lastChatText) {
-        previewText.textContent = `${lastChatSender}: ${lastChatText}`;
-    }
-}
+// [Consolidated] merged into updateChatBadge(count) and updateChatPreview(sender, text)
 
 function incrementUnread() {
     if (!isChatDrawerOpen) {
         unreadChatCount++;
-        updateChatBadgeDisplay();
+        updateChatBadge(unreadChatCount);
     }
 }
 
 function clearUnread() {
     unreadChatCount = 0;
-    updateChatBadgeDisplay();
+    updateChatBadge(0);
 }
 
 
@@ -7066,13 +7294,6 @@ function toggleChatDrawer() {
     }
 }
 
-function updateChatPreview(sender, text) {
-    const previewText = document.getElementById('chat-preview-text');
-    if (previewText && sender && text) {
-        previewText.textContent = `${sender}: ${text}`;
-    }
-}
-
 function updateChatBadge(count) {
     const badge = document.getElementById('chat-preview-badge');
     if (!badge) return;
@@ -7082,6 +7303,13 @@ function updateChatBadge(count) {
         badge.classList.add('show');
     } else {
         badge.classList.remove('show');
+    }
+}
+
+function updateChatPreview(sender, text) {
+    const previewText = document.getElementById('chat-preview-text');
+    if (previewText && sender && text) {
+        previewText.textContent = `${sender}: ${text}`;
     }
 }
 
@@ -7588,6 +7816,11 @@ function handleYouTubeSync(data) {
     }
 }
 
+/**
+ * [HACK] Forces a layout recalculation for the YouTube iframe.
+ * This resolves a race condition in mobile browsers where the player
+ * appears as a black screen until the next layout pass (e.g. on scroll/resize).
+ */
 function refreshYouTubeDisplay() {
     const container = document.getElementById('youtube-player-container');
     if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
@@ -7596,12 +7829,12 @@ function refreshYouTubeDisplay() {
     const iframe = container.querySelector('iframe');
 
     container.style.display = 'none';
-    container.offsetHeight;
+    container.offsetHeight; // Force reflow
     container.style.display = 'block';
 
     if (iframe) {
         iframe.style.visibility = 'hidden';
-        iframe.offsetHeight;
+        iframe.offsetHeight; // Force reflow
         iframe.style.visibility = 'visible';
     }
 
@@ -7624,7 +7857,7 @@ function handleYouTubeSubTitleUpdate(data) {
 function stopYouTubeMode() {
     // [FIX] Avoid IDLE state if we are transitioning TO another state
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        setState(APP_STATE.IDLE);
+        setState(APP_STATE.IDLE, { skipCleanup: true });
     }
 
     if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
@@ -7834,7 +8067,20 @@ async function processRelayQueue() {
         }
 
         // [HoLB Fix] Dispatch to each peer's individual queue
-        openPeers.forEach(p => {
+        openPeers.forEach((p, pIdx) => {
+            // [New] Support targeting specific peers for catch-up data
+            if (msg.targetPeerId && msg.targetPeerId !== p.peer) return;
+
+            // [FIX] Multi-peer Detachment Protection
+            // Clone the message if there are multiple peers to ensure they each get a fresh buffer
+            let peerMsg = msg;
+            if (openPeers.length > 1 && msg.chunk instanceof Uint8Array) {
+                // Clone for all but the last peer to save one allocation
+                if (pIdx < openPeers.length - 1) {
+                    peerMsg = { ...msg, chunk: new Uint8Array(msg.chunk) };
+                }
+            }
+
             if (!p._relayQueue) {
                 p._relayQueue = [];
                 p._relayBusy = false;
@@ -7844,7 +8090,8 @@ async function processRelayQueue() {
                     while (p._relayQueue.length > 0) {
                         const m = p._relayQueue.shift();
                         // Per-peer buffer check
-                        while (p.dataChannel && p.dataChannel.bufferedAmount > MAX_BUFFER_THRESHOLD) {
+                        // [Optimized] Lower threshold (128KB) for faster feedback
+                        while (p.dataChannel && p.dataChannel.bufferedAmount > 128 * 1024) {
                             await new Promise(r => setTimeout(r, 50));
                             if (!p.open) break;
                         }
@@ -7858,7 +8105,7 @@ async function processRelayQueue() {
                     p._relayBusy = false;
                 };
             }
-            p._relayQueue.push(msg);
+            p._relayQueue.push(peerMsg);
             p._processRelay();
         });
 
@@ -7870,6 +8117,62 @@ async function processRelayQueue() {
 
     isRelaying = false;
 }
+
+// ============================================================================
+// [SECTION] RELAY DEBUG CONSOLE
+// ============================================================================
+window.relayDebug = function () {
+    console.log("=== RELAY DEBUG (엄마/형/동생) ===");
+    console.log("My Peer ID:", myId);
+    console.log("Is Host?", !hostConn);
+    console.log("Upstream (Received from):", upstreamDataConn ? upstreamDataConn.peer.substr(-4) : "HOST Direct");
+    console.log("Downstream (Relaying to):", downstreamDataPeers.length, "peers");
+
+    downstreamDataPeers.forEach(p => {
+        const buf = p.dataChannel ? p.dataChannel.bufferedAmount : 0;
+        const qLen = p._relayQueue ? p._relayQueue.length : 0;
+        console.log(`- Peer ...${p.peer.substr(-4)}: [Queue: ${qLen}, Buffer: ${(buf / 1024).toFixed(1)}KB, Open: ${p.open}]`);
+    });
+
+    console.log("Global Relay Queue:", relayChunkQueue.length);
+    console.log("Transfer State:", transferState);
+    console.log("Received Count:", receivedCount, "/", (meta?.total || 0));
+};
+
+window.toggleRelayOverlay = function () {
+    let overlay = document.getElementById('relay-debug-overlay');
+    if (overlay) {
+        overlay.remove();
+        return;
+    }
+
+    overlay = document.createElement('div');
+    overlay.id = 'relay-debug-overlay';
+    overlay.style = `
+        position: fixed; top: 10px; left: 10px; z-index: 9999;
+        background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
+        padding: 10px; border-radius: 8px; font-size: 11px; pointer-events: none;
+        box-shadow: 0 0 10px rgba(0,255,0,0.3); border: 1px solid #333;
+    `;
+    document.body.appendChild(overlay);
+
+    const update = () => {
+        if (!document.getElementById('relay-debug-overlay')) return;
+        let html = `<div><b>[RELAY DEBUG]</b></div>`;
+        html += `<div>Source: ${upstreamDataConn ? 'Relay' : 'Direct'}</div>`;
+        html += `<div>Progress: ${receivedCount} / ${meta?.total || 0}</div>`;
+        html += `<div>Queued: ${relayChunkQueue.length}</div>`;
+        html += `<hr style="border:0; border-top:1px solid #444; margin:5px 0">`;
+        downstreamDataPeers.forEach(p => {
+            const buf = p.dataChannel ? p.dataChannel.bufferedAmount : 0;
+            const qLen = p._relayQueue ? p._relayQueue.length : 0;
+            html += `<div>...${p.peer.substr(-4)}: Q:${qLen} B:${(buf / 1024).toFixed(0)}K</div>`;
+        });
+        overlay.innerHTML = html;
+        requestAnimationFrame(update);
+    };
+    update();
+};
 
 // ============================================================================
 // [SECTION] WINDOW EXPORTS (Public API for HTML/UI)
@@ -7918,5 +8221,7 @@ window.closeYouTubePopup = closeYouTubePopup;
 window.fetchYouTubePreview = fetchYouTubePreview;
 window.loadYouTubeFromInput = loadYouTubeFromInput;
 window.updateAudioEffect = updateAudioEffect;
+window.toggleRelayOverlay = toggleRelayOverlay;
+window.relayDebug = relayDebug;
 
 // End of Script

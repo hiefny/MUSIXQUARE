@@ -64,7 +64,7 @@ This project is optimized for deployment on **Netlify**. It includes a `netlify.
 
 Created with ❤️ by **HIEFNY**
 
-[[Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hiefny)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hiefny)
 
 ---
 

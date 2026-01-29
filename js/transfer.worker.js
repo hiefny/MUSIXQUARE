@@ -78,8 +78,11 @@ function acquireLock(opfsObj, sessionId, filename, isPreload) {
     }
 
     if (opfsObj.isLocked) {
-        if (sessionId > opfsObj.sessionId) {
-            console.log(`[TransferWorker] Preempting session ${opfsObj.sessionId} with ${sessionId}`);
+        // [FIX] Allow preemption if sessionId is newer (or same, meaning state changed)
+        if (sessionId >= opfsObj.sessionId) {
+            if (opfsObj.name !== filename) {
+                console.log(`[TransferWorker] Preempting session ${opfsObj.sessionId} (${opfsObj.name}) with ${sessionId} (${filename})`);
+            }
         } else if (now - opfsObj.lockTime < timeout) {
             return false;
         }

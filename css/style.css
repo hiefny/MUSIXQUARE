@@ -114,7 +114,7 @@ header {
     border-bottom: 1px solid var(--surface-2);
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: 40000;
     overflow: hidden;
     /* Important for masking animations */
     transition: background-color 0.3s ease;
@@ -1613,7 +1613,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     opacity: 0;
     pointer-events: none;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 50000;
+    z-index: 100000;
     /* Highest priority - above all modals including help modal (30000) */
     white-space: nowrap;
 }
@@ -2225,8 +2225,8 @@ input:checked+.slider:before {
 }
 
 .help-btn svg {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     fill: currentColor;
 }
 

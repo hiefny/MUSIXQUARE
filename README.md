@@ -1,25 +1,26 @@
-# MUSIXQUARE 
+# MUSIXQUARE 🎵
 
 **Multi-Device Synchronized Surround Audio System**
 
 MUSIXQUARE is an innovative web-based party app that transforms multiple smartphones into a single, massive surround sound system. No installation required—just open your browser and start the party.
 
 **Live Demo**: [musixquare.netlify.app](https://musixquare.netlify.app)
----
-
-##  Key Features
-
-- **Instant Connection, No App Needed**: Works instantly on iOS, Android, and PC via any modern web browser.
-- **Precision Synchronization**: Real-time playback tracking allows all guest devices to sync with the host within 0.1s accuracy.
-- **Virtual Surround & 7.1 Support**: Configure devices as Left, Right, Center, or Woofer. Supports advanced 7.1 surround mapping.
-- **YouTube Sync**: Watch YouTube videos together with perfectly synchronized audio across all connected devices.
-- **Professional Audio Engine**: Built-in 5-band EQ, Reverb, Virtual Bass, and Stereo Width controls powered by Tone.js.
-- **Smart Social Chat**: Share links, timestamps, and communicate in real-time. Link titles are automatically extracted for YouTube.
-- **High-Performance OPFS Storage**: Uses next-gen Origin Private File System (OPFS) for seamless streaming of large media files.
 
 ---
 
-## Technology Stack
+## ✨ Key Features
+
+- **🚀 Instant Connection, No App Needed**: Works instantly on iOS, Android, and PC via any modern web browser.
+- **⏱️ Precision Synchronization**: Real-time playback tracking allows all guest devices to sync with the host within 0.1s accuracy.
+- **🔊 Virtual Surround & 7.1 Support**: Configure devices as Left, Right, Center, or Woofer. Supports advanced 7.1 surround mapping.
+- **🎥 YouTube Sync**: Watch YouTube videos together with perfectly synchronized audio across all connected devices.
+- **🛠️ Professional Audio Engine**: Built-in 5-band EQ, Reverb, Virtual Bass, and Stereo Width controls powered by Tone.js.
+- **💬 Smart Social Chat**: Share links, timestamps, and communicate in real-time. Link titles are automatically extracted for YouTube.
+- **💾 High-Performance OPFS Storage**: Uses next-gen Origin Private File System (OPFS) for seamless streaming of large media files.
+
+---
+
+## 🛠️ Technology Stack
 
 - **[Tone.js](https://tonejs.github.io/)**: High-performance Web Audio framework for the synchronized sound engine.
 - **[PeerJS](https://peerjs.com/)**: WebRTC P2P networking for low-latency communication and relay.
@@ -28,7 +29,7 @@ MUSIXQUARE is an innovative web-based party app that transforms multiple smartph
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Local Development
 
@@ -46,7 +47,7 @@ This project is optimized for deployment on **Netlify**. It includes a `netlify.
 
 ---
 
-## How to Use
+## 📖 How to Use
 
 1. **Host (The DJ)**:
    - Open the app and click **Connect** to get your Link or QR Code.
@@ -60,7 +61,7 @@ This project is optimized for deployment on **Netlify**. It includes a `netlify.
 
 ---
 
-## Author
+## 👨‍💻 Author
 
 Created with ❤️ by **HIEFNY**
 
@@ -68,6 +69,6 @@ Created with ❤️ by **HIEFNY**
 
 ---
 
-## License
+## 📝 License
 
 Distributed under the MIT License.

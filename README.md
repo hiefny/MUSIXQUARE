@@ -3,6 +3,7 @@
 **Multi-Device Synchronized Surround Audio System**
 
 MUSIXQUARE is an innovative web-based party app that transforms multiple smartphones into a single, massive surround sound system. No installation required—just open your browser and start the party.
+
 **Live Demo**: [musixquare.netlify.app](https://musixquare.netlify.app)
 ---
 

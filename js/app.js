@@ -10,23 +10,51 @@
  * - QRCode.js (QR Generation)
  *
  * [SECTION INDEX]
- * - Global Variables
- * - Worker & Timer (Background Tasks)
- * - Audio Engine (Tone.js Nodes & Init)
- * - Onboarding & Session Actions
+ * - Global Constants & State Machine
+ * - Resource Management (Blob URLs)
+ * - Network & File Transfer (PeerJS / OPFS)
+ * - Audio Engine (Tone.js) & Effects
+ * - Playback Engine & Playlist
+ * - YouTube Integration
+ * - Chat & UI
+ * - Window Exports (Public API)
  * ============================================================================
  */
 
 // ============================================================================
 // [SECTION] GLOBAL CONSTANTS & INSTANCE ID
 // ============================================================================
+
+// [Error Boundary] Catch uncaught exceptions and unhandled promise rejections
+window.onerror = function (msg, src, line, col, err) {
+    console.error(`[Global Error] ${msg} at ${src}:${line}:${col}`, err);
+    return false; // Allow default browser handling
+};
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Unhandled Promise Rejection]', event.reason);
+});
+
+// Log Level System: set window.LOG_LEVEL = 0 for DEBUG output
+const LOG_LEVEL = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3, SILENT: 4 };
+let _logLevel = LOG_LEVEL.INFO;
+Object.defineProperty(window, 'LOG_LEVEL', {
+    get: () => _logLevel,
+    set: (v) => { _logLevel = v; console.info(`[Log] Level set to ${Object.keys(LOG_LEVEL).find(k => LOG_LEVEL[k] === v) || v}`); }
+});
+const log = {
+    debug: (...args) => { if (_logLevel <= LOG_LEVEL.DEBUG) console.debug(...args); },
+    info: (...args) => { if (_logLevel <= LOG_LEVEL.INFO) console.info(...args); },
+    warn: (...args) => { if (_logLevel <= LOG_LEVEL.WARN) console.warn(...args); },
+    error: (...args) => { if (_logLevel <= LOG_LEVEL.ERROR) console.error(...args); },
+};
+
 const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
     ? crypto.randomUUID()
     : (Date.now().toString(36) + Math.random().toString(36).substr(2, 9));
 
 // [iOS Latency Engineering]
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const IOS_STARTUP_BIAS = 0; // [Unified Buffer Mode] Reset to 0 as Tone.Player handles precision.
+const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
 /**
  * [Robustness] Session ID Validation
@@ -36,7 +64,7 @@ function validateSessionId(id) {
     const sid = Number(id);
     if (!sid || sid === 0 || isNaN(sid)) {
         // [Relaxed] Log warning and return 0 instead of throwing to prevent flow interruption
-        console.warn(`[Session] Warning: Invalid Session ID: ${id}. Fallback to 0.`);
+        log.warn(`[Session] Warning: Invalid Session ID: ${id}. Fallback to 0.`);
         return 0;
     }
     return sid;
@@ -50,12 +78,12 @@ function postWorkerCommand(payload, transfers) {
     if (!payload.command) return;
 
     // OPFS commands require filename and sessionId
-    // [Fix] Exclude RESET and CLEANUP from strict ID enforcement
+    // Exclude RESET and CLEANUP from strict ID enforcement
     if (payload.command.startsWith('OPFS_') &&
         payload.command !== 'OPFS_RESET' &&
         payload.command !== 'OPFS_CLEANUP') {
 
-        if (!payload.filename) console.warn(`[Worker] Missing filename in ${payload.command}`);
+        if (!payload.filename) log.warn(`[Worker] Missing filename in ${payload.command}`);
         if (payload.sessionId === undefined) payload.sessionId = 0;
         validateSessionId(payload.sessionId);
     }
@@ -83,10 +111,10 @@ function checkSystemCompatibility() {
     // Give some time for UI/Toast engine to load
     setTimeout(() => {
         if (!isSecure) {
-            console.error("[Compatibility] Insecure context detected.");
+            log.error("[Compatibility] Insecure context detected.");
             showToast("HTTPS 필수: 보안 연결에서만 작동합니다.");
         } else if (!hasOPFS) {
-            console.error("[Compatibility] OPFS not supported.");
+            log.error("[Compatibility] OPFS not supported.");
             showToast("브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.");
         } else if (IS_IOS) {
             showToast("IOS감지, 추가 보정 적용");
@@ -104,8 +132,8 @@ checkSystemCompatibility();
 let toneSplit, toneMerge;
 let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
-let playerNode = null;   // [Unified Buffer Mode] Transient BufferSource for precise start
-let currentAudioBuffer = null; // [Unified Buffer Mode] Decoded PCM data in RAM
+let playerNode = null;   // Transient BufferSource for precise start
+let currentAudioBuffer = null; // Decoded PCM data in RAM
 let vbFilter, vbCheby, vbGain;
 let preamp, widener;
 let globalLowPass = null;
@@ -137,12 +165,12 @@ function setState(newState, options = {}) {
 
     // Prevent recursive transitions
     if (_isStateTransitioning) {
-        console.warn(`[State] Transition Blocked: Currently moving to another state. Rejecting ${newState}.`);
+        log.warn(`[State] Transition Blocked: Currently moving to another state. Rejecting ${newState}.`);
         return;
     }
 
     _isStateTransitioning = true;
-    console.log(`[State] Transition: ${oldState} -> ${newState}`, options);
+    log.debug(`[State] Transition: ${oldState} -> ${newState}`, options);
 
     // Clean up previous state (optional)
     if (!options.skipCleanup) {
@@ -159,7 +187,7 @@ function setState(newState, options = {}) {
 
     // Execute completion callback
     if (options.onComplete) {
-        try { options.onComplete(); } catch (e) { console.error('[State] onComplete error:', e); }
+        try { options.onComplete(); } catch (e) { log.error('[State] onComplete error:', e); }
     }
 }
 
@@ -167,7 +195,7 @@ function setState(newState, options = {}) {
  * Clean up resources based on previous state.
  */
 function cleanupState(oldState) {
-    // [Fix] Capture current time before stopping the current engine to prevent drift
+    // Capture current time before stopping the current engine to prevent drift
     if (oldState !== APP_STATE.IDLE) {
         pausedAt = getTrackPosition();
     }
@@ -178,14 +206,14 @@ function cleanupState(oldState) {
             if (videoElement) {
                 videoElement.pause();
             }
-            // [Fix] Don't revoke URL here! It kills the visible source during sync/pause.
+            // Don't revoke URL here! It kills the visible source during sync/pause.
             // Revocation is moved to clearPreviousTrackState.
             break;
 
         case APP_STATE.PLAYING_YOUTUBE:
             // Stop YouTube player
             if (typeof youtubePlayer !== 'undefined' && youtubePlayer && youtubePlayer.stopVideo) {
-                try { youtubePlayer.stopVideo(); } catch (e) { }
+                try { youtubePlayer.stopVideo(); } catch (e) { /* best-effort cleanup */ }
             }
             // Ensure any active Blob URL is cleared when entering YouTube mode
             BlobURLManager.revoke();
@@ -280,7 +308,6 @@ function updateUIForState(newState) {
             // Handled by isVideoMode logic above
             break;
 
-
         case APP_STATE.PLAYING_YOUTUBE:
             if (ytContainer) {
                 ytContainer.style.display = 'block';
@@ -299,12 +326,12 @@ function updateUIForState(newState) {
 
 let pausedAt = 0;
 let startedAt = 0;
-let activeLoadSessionId = 0; // [Fix] Prevent Zombie Loads
+let activeLoadSessionId = 0; // Prevent Zombie Loads
 
 let animationId = null;
 let uiLoopId = null;
 let isSeeking = false;
-let _isPlayLocked = false; // [Fix #3] Prevent concurrent play conflicts
+let _isPlayLocked = false; // Prevent concurrent play conflicts
 
 
 // Centralized timer management object
@@ -314,7 +341,10 @@ const managedTimers = {
     autoPlayTimer: null,
     syncDebounce: null,
     relayWaitTimeout: null,
-    preloadWatchdog: null
+    preloadWatchdog: null,
+    heartbeatMonitor: null,
+    youtubeUILoop: null,
+    youtubeSyncLoop: null
 };
 
 // Timer cleanup helper function
@@ -354,7 +384,7 @@ const BlobURLManager = {
     _preparingURL: null,
     _pendingRevocations: new Map(),
 
-    // [Fix #1] BlobURL Queue: Avoid memory pressure during fast switching (Strict 5)
+    // BlobURL Queue: Avoid memory pressure during fast switching (Strict 5)
     MAX_PENDING: 5,
 
     /**
@@ -370,7 +400,7 @@ const BlobURLManager = {
         }
 
         this._preparingURL = URL.createObjectURL(blob);
-        console.log(`[BlobURL] Prepared: ${this._preparingURL}`);
+        log.debug(`[BlobURL] Prepared: ${this._preparingURL}`);
         return this._preparingURL;
     },
 
@@ -383,12 +413,12 @@ const BlobURLManager = {
 
         // Schedule previous ACTIVE URL for delayed revocation
         if (this._activeURL && this._activeURL !== this._preparingURL) {
-            this.safeRevoke(this._activeURL); // [Fix] No blob needed
+            this.safeRevoke(this._activeURL); // No blob needed
         }
 
         this._activeURL = this._preparingURL;
         this._preparingURL = null;
-        console.log(`[BlobURL] Confirmed Active: ${this._activeURL}`);
+        log.debug(`[BlobURL] Confirmed Active: ${this._activeURL}`);
     },
 
     /**
@@ -398,36 +428,36 @@ const BlobURLManager = {
     safeRevoke: function (url) {
         if (!url || this._pendingRevocations.has(url)) return;
 
-        // [Fix #5] Never revoke the current active URL while playing
+        // Never revoke the current active URL while playing
         if (url === this._activeURL && currentState !== APP_STATE.IDLE) {
-            console.log(`[BlobURL] Protected active URL during playback: ${url}`);
+            log.debug(`[BlobURL] Protected active URL during playback: ${url}`);
             return;
         }
 
-        // [Fix] Strict Queue management (Max 5)
+        // Strict Queue management (Max 5)
         if (this._pendingRevocations.size >= this.MAX_PENDING) {
             const oldest = this._pendingRevocations.keys().next().value;
-            console.log(`[BlobURL] Queue Full. Explictly revoking oldest: ${oldest}`);
+            log.debug(`[BlobURL] Queue Full. Explicitly revoking oldest: ${oldest}`);
             try {
                 URL.revokeObjectURL(oldest);
-            } catch (e) { }
+            } catch (e) { log.debug('[BlobURL] Revoke failed (non-critical):', e.message); }
             this._pendingRevocations.delete(oldest);
         }
 
         // Store true instead of blob to allow GC to reclaim memory
         this._pendingRevocations.set(url, true);
-        console.log(`[BlobURL] Scheduled for revocation (10s): ${url}`);
+        log.debug(`[BlobURL] Scheduled for revocation (10s): ${url}`);
 
         setTimeout(() => {
             try {
                 URL.revokeObjectURL(url);
                 this._pendingRevocations.delete(url);
                 if (this._activeURL === url) this._activeURL = null;
-                console.log(`[BlobURL] Successfully revoked: ${url}`);
+                log.debug(`[BlobURL] Successfully revoked: ${url}`);
             } catch (e) {
-                console.warn(`[BlobURL] Revocation failed:`, e);
+                log.warn(`[BlobURL] Revocation failed:`, e);
             }
-        }, 10000);
+        }, DELAY.BLOB_REVOCATION);
     },
 
     /**
@@ -446,7 +476,7 @@ const BlobURLManager = {
 // Dependencies: PeerJS CDN
 // ============================================================================
 let myId = null, peer = null, hostConn = null;
-window.hostConn = null; // Expose to other scripts (demo.js)
+window.hostConn = null; // Expose for inline onclick handlers (e.g. demo button in Help modal)
 let localOffset = 0;
 let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
 let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
@@ -481,6 +511,86 @@ const RELAY_MONITOR_INTERVAL = 10000; // 10 seconds
 const ENDED_CHECK_THROTTLE = 500; // 500ms throttle for handleEnded
 const WATCHDOG_TIMEOUT = 12000; // 12 seconds for chunk watchdog
 
+// Delay constants (ms)
+const DELAY = {
+    TICK: 10,             // Micro-yield for main thread breathing
+    BACKPRESSURE: 50,     // Backpressure polling interval
+    UI_REFRESH: 100,      // UI state refresh / short debounce
+    RETRY: 200,           // Retry / reconnection pause
+    TRANSITION: 300,      // UI transition / animation settling
+    DEBOUNCE: 500,        // Standard debounce / throttle
+    CONNECTION_CHECK: 500, // Peer connection readiness check
+    BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
+    JOIN_TIMEOUT: 10000,  // Max wait for peer.open
+    RECOVERY_COOLDOWN: 5000, // Rate-limit recovery requests
+};
+
+const MSG = {
+    ASSIGN_DATA_SOURCE: 'assign-data-source',
+    CHAT: 'chat',
+    DATA_RELAY: 'data-relay',
+    DEVICE_LIST_UPDATE: 'device-list-update',
+    EQ_RESET: 'eq-reset',
+    EQ_UPDATE: 'eq-update',
+    FILE_CHUNK: 'file-chunk',
+    FILE_END: 'file-end',
+    FILE_PREPARE: 'file-prepare',
+    FILE_RESUME: 'file-resume',
+    FILE_START: 'file-start',
+    FILE_WAIT: 'file-wait',
+    FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
+    GET_SYNC_TIME: 'get-sync-time',
+    GLOBAL_RESYNC_REQUEST: 'global-resync-request',
+    HEARTBEAT: 'heartbeat',
+    HEARTBEAT_ACK: 'heartbeat-ack',
+    PAUSE: 'pause',
+    PING_LATENCY: 'ping-latency',
+    PLAY: 'play',
+    PLAYLIST: 'playlist',
+    PLAYLIST_UPDATE: 'playlist-update',
+    PLAY_PRELOADED: 'play-preloaded',
+    PONG_LATENCY: 'pong-latency',
+    PREAMP: 'preamp',
+    PRELOAD_ACK: 'preload-ack',
+    PRELOAD_CHUNK: 'preload-chunk',
+    PRELOAD_END: 'preload-end',
+    PRELOAD_START: 'preload-start',
+    REPEAT_MODE: 'repeat-mode',
+    REQUEST_CURRENT_FILE: 'request-current-file',
+    REQUEST_DATA_RECOVERY: 'request-data-recovery',
+    REQUEST_EQ_RESET: 'request-eq-reset',
+    REQUEST_NEXT_TRACK: 'request-next-track',
+    REQUEST_PAUSE: 'request-pause',
+    REQUEST_PLAY: 'request-play',
+    REQUEST_PREV_TRACK: 'request-prev-track',
+    REQUEST_SEEK: 'request-seek',
+    REQUEST_SETTING: 'request-setting',
+    REQUEST_SKIP_TIME: 'request-skip-time',
+    REQUEST_TRACK_CHANGE: 'request-track-change',
+    REQUEST_YOUTUBE_PAUSE: 'request-youtube-pause',
+    REQUEST_YOUTUBE_PLAY: 'request-youtube-play',
+    REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
+    REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
+    REVERB: 'reverb',
+    REVERB_DECAY: 'reverb-decay',
+    REVERB_HIGHCUT: 'reverb-highcut',
+    REVERB_LOWCUT: 'reverb-lowcut',
+    REVERB_PREDELAY: 'reverb-predelay',
+    REVERB_TYPE: 'reverb-type',
+    SHUFFLE_MODE: 'shuffle-mode',
+    STATUS_SYNC: 'status-sync',
+    STEREO_WIDTH: 'stereo-width',
+    SYNC_RESPONSE: 'sync-response',
+    VBASS: 'vbass',
+    VOLUME: 'volume',
+    WELCOME: 'welcome',
+    YOUTUBE_PLAY: 'youtube-play',
+    YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
+    YOUTUBE_STATE: 'youtube-state',
+    YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
+    YOUTUBE_SYNC: 'youtube-sync',
+};
+
 // ============================================================================
 // [SECTION] FILE TRANSFER STATE
 // ============================================================================
@@ -501,6 +611,27 @@ let _isProcessingBlob = false;
 // ============================================================================
 let currentFileOpfs = { name: null };
 let preloadFileOpfs = { name: null };
+
+// ============================================================================
+// [SECTION] INTERNAL FLAGS (previously attached to window._)
+// ============================================================================
+let _activeBroadcastSession = null;
+let _currentYouTubeSessionId = null;
+let _lastEndedCheck = 0;
+let _pendingFileIndex = undefined;
+let _pendingPlayTime = undefined;
+let _preloadAckSent = false;
+let _preloadUsedForIndex = null;
+let _preloadWatchdog = null;
+let _recoveryInProgress = {};
+let _recoveryLastRequest = {};
+let _skipIncomingFile = false;
+let _skipIncomingPreload = false;
+let _waitingForPreload = false;
+let _waitingForRelayData = false;
+let _ytIOSWatchdog = null;
+let _ytLoadTimeout = null;
+let _ytScriptLoading = false;
 
 // ============================================================================
 // [SECTION] YOUTUBE STATE
@@ -534,10 +665,9 @@ let isPreloading = false;
 let nextMeta = null; // Store metadata for preloaded file
 let preloadSessionId = 0; // Session ID for cancellation support
 let currentTransferSessionId = 0; // [NEW] Active transfer session ID to prevent competitive conditions
-let _currentLoadToken = 0; // [Fix] Token to invalidate async load operations when track changes
+let _currentLoadToken = 0; // Token to invalidate async load operations when track changes
 
-// Start network initialization early to fetch TURN config in parallel with script parsing
-initNetwork();
+// Network initialization is deferred to DOMContentLoaded (see listener below)
 
 // Guest Side
 let preloadCount = 0;
@@ -546,13 +676,13 @@ let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest 
 // Session-based state management
 const preloadSessionState = new Map(); // sessionId -> { skipped, progress, total }
 
-let globalSessionCounter = Math.floor(Date.now() / 1000); // [Fix] Robust Session ID Start
+let globalSessionCounter = Math.floor(Date.now() / 1000); // Robust Session ID Start
 function nextSessionId() {
     return ++globalSessionCounter;
 }
 
 // OPFS Helper coordination (now handled by worker)
-// [Fix #5] Async Cleanup with Worker Acknowledgment
+// Async Cleanup with Worker Acknowledgment
 async function cleanupOPFSInWorker(filename, isPreload) {
     if (!filename) return;
 
@@ -577,15 +707,15 @@ async function cleanupOPFSInWorker(filename, isPreload) {
 
 // Helper: Clear metadata for upcoming preload (Host side) or current preload (Guest side)
 function clearPreloadState() {
-    // [Fix] Protect the blob that is currently being transitioned to
+    // Protect the blob that is currently being transitioned to
     // If we clear this while a relay peer is requesting it, the relay fails.
     const isNextTrackActive = nextMeta && (nextMeta.index === currentTrackIndex);
 
-    // [Fix #3] Don't reset if preload is almost complete (90%+)
+    // Don't reset if preload is almost complete (90%+)
     if (preloadMeta && preloadMeta.total > 0) {
         const progress = preloadCount / preloadMeta.total;
         if (progress > 0.9 && progress < 1.0) {
-            console.warn(`[Preload] Skipping reset - almost complete (${Math.round(progress * 100)}%)`);
+            log.warn(`[Preload] Skipping reset - almost complete (${Math.round(progress * 100)}%)`);
             return;
         }
     }
@@ -603,15 +733,15 @@ function clearPreloadState() {
     if (!isNextTrackActive) {
         preloadMeta = null;
     }
-    window._skipIncomingPreload = false;
+    _skipIncomingPreload = false;
 
-    // [Fix] Keep UI state in sync with Worker RESET
+    // Keep UI state in sync with Worker RESET
     preloadFileOpfs.name = null;
 
     // We do NOT call cleanupOPFSInWorker here anymore because it was deleting files
     // that were about to be played.
 
-    // [Fix] However, we SHOULD reset the worker lock so it can accept the NEXT preload
+    // However, we SHOULD reset the worker lock so it can accept the NEXT preload
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 }
 
@@ -630,18 +760,15 @@ function forceCleanupOPFS(isPreload) {
     }
 }
 
-
 const syncWorker = new Worker('js/sync.worker.js');
 const transferWorker = new Worker('js/transfer.worker.js');
 
-// Initialize both workers
-postWorkerCommand({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
-// Backup: explicitly send to both if routing might filter based on command name
+// Initialize both workers directly (routing only sends to one)
 syncWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 transferWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
 
 const handleWorkerError = (e) => {
-    console.error("[Worker Error]", e.message, e.filename, e.lineno);
+    log.error("[Worker Error]", e.message, e.filename, e.lineno);
     showToast("워커 작업 중 오류 발생!");
 };
 
@@ -653,26 +780,26 @@ const handleWorkerMessage = async (e) => {
         const data = e.data;
         if (data.type === 'TICK') {
             const id = data.id;
-            if (id === 'heartbeat') {
+            if (id === MSG.HEARTBEAT) {
                 if (hostConn && typeof hostConn.send === 'function' && hostConn.open) {
-                    hostConn.send({ type: 'heartbeat' });
+                    hostConn.send({ type: MSG.HEARTBEAT });
                 }
             } else if (id === 'ping') {
                 if (hostConn && typeof hostConn.send === 'function' && hostConn.open) {
-                    hostConn.send({ type: 'ping-latency', timestamp: Date.now() });
+                    hostConn.send({ type: MSG.PING_LATENCY, timestamp: Date.now() });
                 }
             } else if (id === 'video-sync') {
                 checkVideoSync();
             }
         }
         else if (data.type === 'OPFS_FILE_READY') {
-            console.log(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
+            log.debug(`[Main] File ready in OPFS: ${data.filename} (${data.isPreload ? 'preload' : 'current'})`);
 
             // Re-retrieve file handle in main thread to get the File object
             // (Handles are serialized shared state in some browsers,
             // but getting a fresh one from root is always safe)
             const root = await navigator.storage.getDirectory();
-            // [Fix] Use Instance ID for filename matching
+            // Use Instance ID for filename matching
             const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + OPFS_INSTANCE_ID;
 
             const fileHandle = await root.getFileHandle(safeName);
@@ -684,19 +811,19 @@ const handleWorkerMessage = async (e) => {
                 nextMeta = sessionState || preloadMeta; // session-scoped fallback
                 nextTrackIndex = nextMeta?.index;
 
-                // [FIX] Dedup: Only send ack once per index
+                // Dedup: Only send ack once per index
                 if (hostConn && typeof hostConn.send === 'function' && hostConn.open && nextTrackIndex !== undefined) {
-                    if (!window._preloadAckSent) window._preloadAckSent = new Set();
-                    if (!window._preloadAckSent.has(nextTrackIndex)) {
-                        window._preloadAckSent.add(nextTrackIndex);
-                        hostConn.send({ type: 'preload-ack', index: nextTrackIndex });
-                        console.log(`[Guest] Sent preload-ack for index ${nextTrackIndex}`);
+                    if (!_preloadAckSent) _preloadAckSent = new Set();
+                    if (!_preloadAckSent.has(nextTrackIndex)) {
+                        _preloadAckSent.add(nextTrackIndex);
+                        hostConn.send({ type: MSG.PRELOAD_ACK, index: nextTrackIndex });
+                        log.debug(`[Guest] Sent preload-ack for index ${nextTrackIndex}`);
                     }
                 }
 
-                if (window._waitingForPreload && window._pendingFileIndex === nextTrackIndex) {
-                    console.log("[Worker-OPFS] Guest was waiting for this track. Playing now.");
-                    window._waitingForPreload = false;
+                if (_waitingForPreload && _pendingFileIndex === nextTrackIndex) {
+                    log.debug("[Worker-OPFS] Guest was waiting for this track. Playing now.");
+                    _waitingForPreload = false;
                     showLoader(false);
                     _currentLoadToken++;
                     loadPreloadedTrack(nextTrackIndex, _currentLoadToken);
@@ -704,50 +831,60 @@ const handleWorkerMessage = async (e) => {
             } else {
                 // Check session ID if available (data.sessionId)
                 currentFileBlob = file;
-                window._waitingForRelayData = false;
+                _waitingForRelayData = false;
                 finalizeFileProcessing(file);
             }
         }
         else if (data.type === 'OPFS_READ_COMPLETE') {
             const { chunk, index, filename, requestId, sessionId } = data;
             const peerId = requestId; // We used peerId as requestId
+
+            // Session guard: discard stale catch-up chunks from old track
+            if (sessionId && sessionId < localTransferSessionId) {
+                log.warn(`[OPFS_READ] Stale session chunk discarded (got ${sessionId}, current ${localTransferSessionId})`);
+                return;
+            }
+
             const dConn = downstreamDataPeers.find(p => p.peer === peerId);
             if (dConn && dConn.open) {
-                // [FIX] Use Relay Queue for recovered chunks to enforce back-pressure
+                // Use Relay Queue for recovered chunks to enforce back-pressure
+                // Include metadata for downstream peers that missed file-start
                 relayChunkQueue.push({
-                    type: 'file-chunk',
+                    type: MSG.FILE_CHUNK,
                     chunk,
                     index,
                     sessionId,
-                    targetPeerId: peerId // Optional: target specific if needed, but processRelayQueue handles all
+                    total: meta?.total,
+                    name: meta?.name || filename,
+                    targetPeerId: peerId
                 });
                 processRelayQueue();
             }
         }
         else if (data.type === 'OPFS_ERROR' || data.type === 'OPFS_READ_ERROR') {
-            console.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
+            log.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
             if (data.type === 'OPFS_ERROR') showToast(`파일 저장 오류: ${data.filename}`);
         }
-        // [Fix #1] Handle Session ID mismatch notifications from Worker
+        // Handle Session ID mismatch notifications from Worker
         else if (data.type === 'SESSION_MISMATCH') {
-            console.warn(`[Main] Session Mismatch in ${data.command}: expected=${data.expected}, got=${data.received}, file=${data.filename}`);
+            log.warn(`[Main] Session Mismatch in ${data.command}: expected=${data.expected}, got=${data.received}, file=${data.filename}`);
 
             // [Enhanced Fix] Dampen resync loops: 
             // If expected is null, it means the worker wasn't in an active session (e.g. churn).
             // Requesting a resync here often triggers an infinite loop if the Host is skipped again.
             if (data.expected === null) {
-                console.log(`[Main] Ignoring resync for null-session mismatch (Host churn)`);
+                log.debug(`[Main] Ignoring resync for null-session mismatch (Host churn)`);
                 return;
             }
 
             // If mismatch detected for current file, try to resync with Host
             if (!data.filename?.includes('preload') && hostConn && typeof hostConn.send === 'function' && hostConn.open) {
-                console.log(`[Main] Requesting resync due to session mismatch`);
-                hostConn.send({ type: 'get-sync-time' });
+                log.debug(`[Main] Requesting resync due to session mismatch`);
+                hostConn.send({ type: MSG.GET_SYNC_TIME });
             }
         }
     } catch (err) {
-        console.error('[Worker Message] Processing error:', err);
+        log.error('[Worker Message] Processing error:', err);
         showToast('워커 메시지 처리 중 오류');
     }
 };
@@ -757,7 +894,7 @@ transferWorker.onmessage = handleWorkerMessage;
 
 async function finalizeFileProcessing(file) {
     // Always use Buffer Mode for audio processing
-    console.log(`[Guest] Finalizing with Buffer Mode...`);
+    log.debug(`[Guest] Finalizing with Buffer Mode...`);
     showLoader(true, "오디오 메모리 로드 중...");
 
     try {
@@ -775,7 +912,7 @@ async function finalizeFileProcessing(file) {
         // 3. Set engine mode dynamically based on file type
         const isVideo = isMediaVideo(file, meta);
 
-        console.log(`[Guest] Auto-detecting mode: ${isVideo ? 'VIDEO' : 'AUDIO'} (Type: ${file.type || meta?.mime}, Name: ${meta?.name})`);
+        log.debug(`[Guest] Auto-detecting mode: ${isVideo ? 'VIDEO' : 'AUDIO'} (Type: ${file.type || meta?.mime}, Name: ${meta?.name})`);
         setEngineMode(isVideo ? 'video' : 'audio');
 
         // 4. Video element used only for visual sync (muted)
@@ -783,18 +920,18 @@ async function finalizeFileProcessing(file) {
         videoElement.src = url;
         videoElement.muted = true; // Audio handled by Tone.js
 
-        // [New] Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
+        // Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
         currentFileBlob = file;
 
-        videoElement.onloadedmetadata = () => {
+        videoElement.addEventListener('loadedmetadata', function _onMetaLoaded() {
+            videoElement.removeEventListener('loadedmetadata', _onMetaLoaded);
             // Duration based on accurate audio buffer
             document.getElementById('seek-slider').max = audioBuffer.duration;
             document.getElementById('seek-slider').value = 0;
             document.getElementById('time-dur').innerText = fmtTime(audioBuffer.duration);
             BlobURLManager.confirm(file);
-        };
+        });
         videoElement.load();
-
 
         document.getElementById('play-btn').disabled = !isOperator;
 
@@ -806,24 +943,24 @@ async function finalizeFileProcessing(file) {
 
         setTimeout(() => {
             if (hostConn && hostConn.open) {
-                hostConn.send({ type: 'get-sync-time' });
+                hostConn.send({ type: MSG.GET_SYNC_TIME });
             } else {
                 syncReset();
             }
         }, 1000);
 
-        if (window._pendingPlayTime !== undefined) {
-            const target = window._pendingPlayTime + localOffset + autoSyncOffset;
-            console.log(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
+        if (_pendingPlayTime !== undefined) {
+            const target = _pendingPlayTime + localOffset + autoSyncOffset;
+            log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
             play(target);
-            window._pendingPlayTime = undefined;
+            _pendingPlayTime = undefined;
         }
 
-        // [FIX] Reset state to READY so that subsequent preloads can show UI
+        // Reset state to READY so that subsequent preloads can show UI
         transferState = TRANSFER_STATE.READY;
 
     } catch (e) {
-        console.error("[Guest] Decoding failed", e);
+        log.error("[Guest] Decoding failed", e);
         showToast("오디오 디코딩 실패!");
         showLoader(false);
 
@@ -863,7 +1000,7 @@ function switchTab(tabId) {
     }
 
     // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
-    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (tabId === MSG.PLAY && currentState === APP_STATE.PLAYING_YOUTUBE) {
         // Use timeout to ensure tab transition is complete
         setTimeout(() => refreshYouTubeDisplay(), 50);
     }
@@ -872,9 +1009,6 @@ function switchTab(tabId) {
     if (isChatDrawerOpen) {
         toggleChatDrawer();
     }
-
-    // YouTube mini-player logic
-
 }
 
 // --- Audio System (Tone.js) ---
@@ -988,7 +1122,6 @@ async function initAudio() {
     applySettings();
 }
 
-// --- Gesture Unlock ---
 // --- Onboarding Logic ---
 let obCurrentSlide = 0;
 
@@ -1047,14 +1180,14 @@ async function requestWakeLock() {
     try {
         if ('wakeLock' in navigator) {
             wakeLock = await navigator.wakeLock.request('screen');
-            console.log('Screen Wake Lock active');
+            log.debug('Screen Wake Lock active');
             wakeLock.addEventListener('release', () => {
-                console.log('Screen Wake Lock released');
-                wakeLock = null; // [Fix #7] Explicitly null to allow recovery on visibilitychange
+                log.debug('Screen Wake Lock released');
+                wakeLock = null; // Explicitly null to allow recovery on visibilitychange
             });
         }
     } catch (err) {
-        console.warn(`${err.name}, ${err.message}`);
+        log.warn(`${err.name}, ${err.message}`);
     }
 }
 
@@ -1079,19 +1212,17 @@ async function activateAudio() {
     // 3. Silent Mode Bypass (iOS) - Play HTML5 Audio + Video Unlock
     const silentAudio = document.getElementById('silent-trigger');
     if (silentAudio) {
-        silentAudio.play().catch(e => console.log("Silent Audio play failed", e));
+        silentAudio.play().catch(e => log.debug("Silent Audio play failed", e));
     }
 
     if (videoElement) {
         // [iOS Protection] Briefly play and pause video to unlock programmatic control later
         videoElement.play().then(() => {
             videoElement.pause();
-        }).catch(e => console.log("Video unlock failed", e));
+        }).catch(e => log.debug("Video unlock failed", e));
     }
 
-
-
-    // 5. Wake Lock
+    // 4. Wake Lock
     requestWakeLock();
 }
 
@@ -1117,7 +1248,7 @@ window.actionJoinRoom = async function () {
         switchTab('connect');
 
         // [RESTORED] Visual Update
-        myDeviceLabel = 'GUEST';
+        myDeviceLabel = 'HOST';
         updateRoleBadge();
     }, 50);
 };
@@ -1174,7 +1305,138 @@ function openFileSelector() {
 }
 
 // Auto-run init
-document.addEventListener('DOMContentLoaded', initOnboarding);
+function initEventListeners() {
+    // Helper: safely bind events by ID (null-safe)
+    const $on = (id, evt, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); };
+
+    // --- Header ---
+    $on('btn-help', 'click', openHelpModal);
+    $on('btn-fullscreen', 'click', toggleFullscreen);
+
+    // --- Player Controls ---
+    $on('btn-prev', 'click', playPrevTrack);
+    $on('play-btn', 'click', togglePlay);
+    $on('btn-next', 'click', playNextTrack);
+    $on('vol-icon-btn', 'click', toggleMute);
+    $on('volume-slider', 'input', function () { onVolInput(this.value); });
+    $on('volume-slider', 'change', function () { onVolChange(this.value); });
+    $on('chat-preview-btn', 'click', toggleChatDrawer);
+    $on('btn-sync', 'click', handleManualSync);
+    $on('btn-media-source', 'click', openMediaSourcePopup);
+
+    // --- Playlist Tab ---
+    $on('btn-repeat', 'click', toggleRepeat);
+    $on('btn-shuffle', 'click', toggleShuffle);
+    $on('btn-add-media', 'click', openMediaSourcePopup);
+
+    // --- Connect Tab ---
+    $on('btn-copy-link', 'click', copyLink);
+    $on('btn-leave-session', 'click', leaveSession);
+    $on('btn-join', 'click', joinSession);
+
+    // --- Settings: Theme ---
+    $on('theme-light', 'click', () => setTheme('light'));
+    $on('theme-dark', 'click', () => setTheme('dark'));
+    $on('theme-system', 'click', () => setTheme('system'));
+
+    // --- Settings: Surround Mode ---
+    $on('chk-surround', 'change', function () { toggleSurroundMode(this.checked); });
+
+    // --- Settings: Channel Grid (Standard) ---
+    document.querySelectorAll('#grid-standard .ch-opt[data-ch]').forEach(el => {
+        el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch), el));
+    });
+
+    // --- Settings: Surround Grid (7.1) ---
+    document.querySelectorAll('#grid-surround .ch-opt[data-sch]').forEach(el => {
+        el.addEventListener('click', () => setSurroundChannel(parseInt(el.dataset.sch), el));
+    });
+
+    // --- Settings: Subwoofer Cutoff ---
+    $on('cutoff-slider', 'input', function () { updateSettings('cutoff', this.value); });
+    $on('cutoff-slider', 'dblclick', function () { updateSettings('cutoff', 120); this.value = 120; });
+
+    // --- Settings: Reverb ---
+    $on('btn-reset-reverb', 'click', resetReverb);
+    const reverbSliders = [
+        { id: 'reverb-slider', param: 'mix', resetVal: 0 },
+        { id: 'reverb-decay-slider', param: 'decay', resetVal: 5.0 },
+        { id: 'reverb-predelay-slider', param: 'predelay', resetVal: 0.1 },
+        { id: 'reverb-lowcut-slider', param: 'lowcut', resetVal: 0 },
+        { id: 'reverb-highcut-slider', param: 'highcut', resetVal: 0 },
+    ];
+    reverbSliders.forEach(({ id, param, resetVal }) => {
+        $on(id, 'input', function () { updateAudioEffect('reverb', param, this.value, true); });
+        $on(id, 'change', function () { updateAudioEffect('reverb', param, this.value); });
+        $on(id, 'dblclick', function () { updateAudioEffect('reverb', param, resetVal); });
+    });
+
+    // --- Settings: EQ ---
+    $on('btn-reset-eq', 'click', resetEQ);
+    $on('preamp-slider', 'input', function () { setPreamp(this.value, true); });
+    $on('preamp-slider', 'change', function () { setPreamp(this.value); });
+    $on('preamp-slider', 'dblclick', () => setPreamp(0));
+    for (let i = 0; i < 5; i++) {
+        $on(`eq-slider-${i}`, 'input', function () { setEQ(i, this.value, true); });
+        $on(`eq-slider-${i}`, 'change', function () { setEQ(i, this.value); });
+        $on(`eq-slider-${i}`, 'dblclick', () => setEQ(i, 0));
+    }
+
+    // --- Settings: Stereo Width ---
+    $on('width-slider', 'input', function () { updateAudioEffect('stereo', 'mix', this.value, true); });
+    $on('width-slider', 'change', function () { updateAudioEffect('stereo', 'mix', this.value); });
+    $on('width-slider', 'dblclick', resetStereo);
+
+    // --- Settings: Virtual Bass ---
+    $on('vbass-slider', 'input', function () { updateAudioEffect('vbass', 'mix', this.value, true); });
+    $on('vbass-slider', 'change', function () { updateAudioEffect('vbass', 'mix', this.value); });
+    $on('vbass-slider', 'dblclick', () => updateAudioEffect('vbass', 'mix', 0));
+
+    // --- Chat Drawer ---
+    $on('btn-chat-close', 'click', toggleChatDrawer);
+    $on('btn-chat-send', 'click', sendChatMessage);
+
+    // --- Bottom Navigation ---
+    document.querySelectorAll('.bottom-nav .nav-item[data-tab]').forEach(el => {
+        el.addEventListener('click', () => switchTab(el.dataset.tab));
+    });
+
+    // --- Help Modal ---
+    $on('help-modal', 'click', (e) => closeHelpModal(e));
+    $on('btn-help-close', 'click', closeHelpModal);
+    $on('btn-demo', 'click', () => { loadDemoMedia(); if (!window.hostConn) closeHelpModal(); });
+
+    // --- Onboarding ---
+    $on('ob-arrow-left', 'click', prevSlide);
+    $on('ob-arrow-right', 'click', nextSlide);
+    document.querySelectorAll('#ob-dots .ob-dot[data-slide]').forEach(el => {
+        el.addEventListener('click', () => goToSlide(parseInt(el.dataset.slide)));
+    });
+
+    // --- Manual Sync Popup ---
+    $on('btn-nudge-minus10', 'click', () => nudgeSync(-10));
+    $on('btn-nudge-minus1', 'click', () => nudgeSync(-1));
+    $on('btn-nudge-plus1', 'click', () => nudgeSync(1));
+    $on('btn-nudge-plus10', 'click', () => nudgeSync(10));
+    $on('btn-auto-sync', 'click', handleAutoSync);
+    $on('btn-sync-done', 'click', closeManualSync);
+
+    // --- Media Source Popup ---
+    $on('btn-local-file', 'click', () => { closeMediaSourcePopup(); openFileSelector(); });
+    $on('btn-youtube-source', 'click', () => { closeMediaSourcePopup(); openYouTubePopup(); });
+    $on('btn-close-media-popup', 'click', closeMediaSourcePopup);
+
+    // --- YouTube URL Popup ---
+    $on('youtube-url-input', 'input', function () { fetchYouTubePreview(this.value); });
+    $on('btn-yt-cancel', 'click', closeYouTubePopup);
+    $on('youtube-play-btn', 'click', loadYouTubeFromInput);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initOnboarding();
+    initEventListeners();
+    initNetwork(); // Deferred from top-level to ensure DOM and UI functions are ready
+});
 
 // --- Playlist & Player Logic ---
 document.getElementById('file-input').addEventListener('change', async (e) => {
@@ -1185,7 +1447,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     try {
         if (Tone.context.state !== 'running') await Tone.start();
         await initAudio();
-    } catch (err) { console.error(err); }
+    } catch (err) { log.error(err); }
 
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -1199,11 +1461,11 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         videoId: item.videoId || null,
         playlistId: item.playlistId || null
     }));
-    broadcast({ type: 'playlist-update', list: metaList });
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-    // [Optimization] Clear all cache metadata on Host side when playlist structure changes
+    // Clear all cache metadata on Host side when playlist structure changes
     connectedPeers.forEach(p => { if (p.preloadedIndexes) p.preloadedIndexes.clear(); });
-    console.log("[Host] Playlist changed, cleared all peer cache tracking");
+    log.debug("[Host] Playlist changed, cleared all peer cache tracking");
 
     if (currentTrackIndex === -1) {
         playTrack(0);
@@ -1213,14 +1475,14 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         // Re-evaluate preload when new songs are added
         // Case 1: No preload queued yet -> trigger
         // Case 2: Current preload target is outdated (was looping to 0, but now there are new songs) -> re-trigger
-        // [FIX] Removed !isPreloading check to ensure we interrupt 'loop loop' to preload the NEW song immediately
+        // Removed !isPreloading check to ensure we interrupt 'loop loop' to preload the NEW song immediately
         const wasLastTrack = (currentTrackIndex === playlist.length - files.length - 1);
         const shouldRePreload = (nextTrackIndex === -1 || wasLastTrack);
 
         if (shouldRePreload) {
             // Clear previous preload state if any
             if (nextTrackIndex !== -1) {
-                console.log("[Preload] New songs added, re-evaluating next track...");
+                log.debug("[Preload] New songs added, re-evaluating next track...");
                 clearPreloadState();
             }
             preloadNextTrack();
@@ -1236,9 +1498,9 @@ function toggleRepeat() {
 
     // Broadcast if Host or requested by OP
     if (!hostConn) {
-        broadcast({ type: 'repeat-mode', value: nextMode });
+        broadcast({ type: MSG.REPEAT_MODE, value: nextMode });
     } else if (isOperator) {
-        hostConn.send({ type: 'request-setting', settingType: 'repeat-mode', value: nextMode });
+        hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'repeat-mode', value: nextMode });
     }
 }
 
@@ -1265,9 +1527,9 @@ function toggleShuffle() {
 
     // Broadcast if Host or requested by OP
     if (!hostConn) {
-        broadcast({ type: 'shuffle-mode', value: nextShuffle });
+        broadcast({ type: MSG.SHUFFLE_MODE, value: nextShuffle });
     } else if (isOperator) {
-        hostConn.send({ type: 'request-setting', settingType: 'shuffle-mode', value: nextShuffle });
+        hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'shuffle-mode', value: nextShuffle });
     }
 }
 
@@ -1310,12 +1572,12 @@ function updatePlaylistUI() {
         const displayName = item.name || item.title || 'Unknown';
         li.onclick = () => {
             if (!hostConn) playTrack(idx);
-            else if (isOperator) hostConn.send({ type: 'request-track-change', index: idx });
+            else if (isOperator) hostConn.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
         };
 
         li.innerHTML = `
             <div class="track-idx">${idx + 1}</div>
-            <div class="track-name">${icon} ${displayName}</div>
+            <div class="track-name">${icon} ${escapeHtml(displayName)}</div>
             ${expandBtn}
             <div class="playing-indicator">
                 <div class="bar"></div>
@@ -1341,7 +1603,7 @@ function updatePlaylistUI() {
                     const sTitle = (subData.titles && subData.titles[sIdx]) ? subData.titles[sIdx] : `Video ${sIdx + 1}`;
                     sli.innerHTML = `
                         <span class="sub-idx">${sIdx + 1}</span>
-                        <span class="sub-name">${sTitle}</span>
+                        <span class="sub-name">${escapeHtml(sTitle)}</span>
                         <div class="playing-indicator">
                             <div class="bar"></div>
                             <div class="bar"></div>
@@ -1363,7 +1625,7 @@ function updatePlaylistUI() {
                             }
                         } else {
                             // OP request
-                            hostConn.send({ type: 'request-youtube-sub-seek', playlistIdx: idx, subIdx: sIdx });
+                            hostConn.send({ type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
                         }
                     };
                     subUl.appendChild(sli);
@@ -1375,7 +1637,7 @@ function updatePlaylistUI() {
         }
     });
 
-    // [Fix] Sync Title/Artist UI Update:
+    // Sync Title/Artist UI Update:
     // Update the main header title and artist text immediately when the playlist UI is updated.
     // This ensures the title always matches the active item even during rapid clicks.
     const currentItem = playlist[currentTrackIndex];
@@ -1398,7 +1660,7 @@ function updatePlaylistUI() {
 function initMediaSession() {
     if (!('mediaSession' in navigator)) return;
 
-    console.log("[MediaSession] Initializing action handlers...");
+    log.debug("[MediaSession] Initializing action handlers...");
 
     navigator.mediaSession.setActionHandler('play', () => {
         if (currentState === APP_STATE.IDLE) togglePlay();
@@ -1423,7 +1685,7 @@ function initMediaSession() {
         navigator.mediaSession.setActionHandler('stop', () => {
             stop();
         });
-    } catch (e) { }
+    } catch (e) { log.debug('[MediaSession] Handler setup skipped:', e.message); }
 }
 
 function updateMediaSessionMetadata(item) {
@@ -1471,7 +1733,7 @@ function toggleExpansion(idx) {
             if (youtubePlayer && youtubePlayer.getPlaylist && playlist[currentTrackIndex] && playlist[currentTrackIndex].playlistId === pid) {
                 try {
                     ids = youtubePlayer.getPlaylist() || [];
-                } catch (e) { }
+                } catch (e) { /* YouTube player may not be ready */ }
             }
 
             // 2. Initial map setup
@@ -1491,7 +1753,7 @@ function toggleExpansion(idx) {
             if (hostConn) {
                 // Guest: Request info from Host if map is missing or empty (double check)
                 if (!youtubeSubItemsMap[pid] || !youtubeSubItemsMap[pid].ids || youtubeSubItemsMap[pid].ids.length === 0) {
-                    hostConn.send({ type: 'request-youtube-playlist-info', playlistId: pid });
+                    hostConn.send({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId: pid });
                 }
             }
         }
@@ -1509,7 +1771,7 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
     if (data._isFetching) return; // Dedupe
     data._isFetching = true;
 
-    console.log(`[YouTube Feed] Starting title fetch for playlist: ${playlistId} (${ids.length} items)`);
+    log.debug(`[YouTube Feed] Starting title fetch for playlist: ${playlistId} (${ids.length} items)`);
 
     for (let i = 0; i < ids.length; i++) {
         // Skip if already has title
@@ -1523,7 +1785,7 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
 
             if (json && json.title) {
                 data.titles[i] = json.title;
-                console.log(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
+                log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 
                 // Update UI
                 updatePlaylistUI();
@@ -1531,7 +1793,7 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
                 // Only Host broadcasts to others to keep it centralized
                 if (!hostConn) {
                     broadcast({
-                        type: 'youtube-sub-title-update',
+                        type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
                         playlistId: playlistId,
                         subIdx: i,
                         title: json.title
@@ -1539,16 +1801,14 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
                 }
             }
         } catch (e) {
-            console.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
+            log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
         }
 
         // 200ms delay between requests
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, DELAY.RETRY));
     }
     data._isFetching = false;
 }
-
-
 
 async function playTrack(index) {
     if (index < 0 || index >= playlist.length) return;
@@ -1564,7 +1824,7 @@ async function playTrack(index) {
 
     // Check if this track is already preloaded (Host Side Check)
     if (index === nextTrackIndex && nextFileBlob && !hostConn) {
-        console.log("[Host] Using Preloaded Track:", index);
+        log.debug("[Host] Using Preloaded Track:", index);
         currentTrackIndex = index;
         updatePlaylistUI();
 
@@ -1576,23 +1836,20 @@ async function playTrack(index) {
         const fileName = item?.file?.name || item?.name || `Track ${index}`;
 
         // 3. Broadcast ONLY play-preloaded command
-        broadcast({ type: 'play-preloaded', index: index, name: fileName, mime: item?.file?.type });
+        broadcast({ type: MSG.PLAY_PRELOADED, index: index, name: fileName, mime: item?.file?.type });
 
         // 4. Activate preloaded track and play
         await loadPreloadedTrack(index, myLoadToken);
         play(0);
-        broadcast({ type: 'play', time: 0 }); // Explicitly broadcast play for guests
+        broadcast({ type: MSG.PLAY, time: 0 }); // Explicitly broadcast play for guests
 
-        // [Fix] Immediate Auto-Sync (User Request)
+        // Immediate Auto-Sync (User Request)
         handleMainSyncBtn();
 
         // Trigger Next Preload
         preloadNextTrack();
         return;
     }
-
-
-
 
     currentTrackIndex = index;
     updatePlaylistUI();
@@ -1613,7 +1870,7 @@ async function playTrack(index) {
 
             // IMMEDIATELY broadcast to guests so they switch too
             broadcast({
-                type: 'youtube-play',
+                type: MSG.YOUTUBE_PLAY,
                 videoId: item.videoId,
                 playlistId: item.playlistId,
                 index: index,
@@ -1649,12 +1906,12 @@ async function playTrack(index) {
 
     const file = item.file;
     if (!hostConn) {
-        // [FIX] Generate Global Unique Session ID
+        // Generate Global Unique Session ID
         const sessionId = nextSessionId();
         currentTransferSessionId = sessionId;
 
         // Standard Load with Session ID
-        broadcast({ type: 'file-prepare', name: file.name, index: index, sessionId: sessionId, mime: file.type });
+        broadcast({ type: MSG.FILE_PREPARE, name: file.name, index: index, sessionId: sessionId, mime: file.type });
         await loadAndBroadcastFile(file, sessionId, false, myLoadToken);
 
         // After loading current, start preloading next
@@ -1670,7 +1927,7 @@ async function playTrack(index) {
             managedTimers.autoPlayTimer = setTimeout(() => {
                 managedTimers.autoPlayTimer = null;
                 play(0);
-                broadcast({ type: 'play', time: 0 });
+                broadcast({ type: MSG.PLAY, time: 0 });
             }, 3000);
         }
     }
@@ -1681,7 +1938,7 @@ async function preloadNextTrack() {
 
     // Cancel previous preload if running
     if (isPreloading) {
-        console.log("[Preload] Cancelling previous preload session");
+        log.debug("[Preload] Cancelling previous preload session");
     }
     const currentSession = nextSessionId();
     preloadSessionId = currentSession;
@@ -1712,9 +1969,9 @@ async function preloadNextTrack() {
     // Update State
     nextTrackIndex = nextIdx;
 
-    // [FIX] Guard against invalid index or missing item
+    // Guard against invalid index or missing item
     if (nextIdx < 0 || nextIdx >= playlist.length) {
-        console.log("[Preload] No valid next track (end of list or invalid index)");
+        log.debug("[Preload] No valid next track (end of list or invalid index)");
         isPreloading = false;
         nextFileBlob = null;
         nextMeta = null;
@@ -1723,29 +1980,29 @@ async function preloadNextTrack() {
 
     const item = playlist[nextIdx];
     if (!item) {
-        console.warn("[Preload] Next item is undefined, skipping");
+        log.warn("[Preload] Next item is undefined, skipping");
         isPreloading = false;
         return;
     }
 
     // Skip preload for YouTube items
     if (item.type === 'youtube') {
-        console.log("[Preload] Next is YouTube, skipping preload");
+        log.debug("[Preload] Next is YouTube, skipping preload");
         isPreloading = false;
-        // [FIX] Clear stale preload data so playTrack doesn't think we have a blob for this index
+        // Clear stale preload data so playTrack doesn't think we have a blob for this index
         nextFileBlob = null;
         nextMeta = null;
         return;
     }
 
     const file = item.file;
-    console.log("[Preload] Starting for:", file.name, "session:", currentSession);
+    log.debug("[Preload] Starting for:", file.name, "session:", currentSession);
     isPreloading = true;
 
     // 1. Host Loads Locally (Background)
     // Strategy: Decode small audio immediately, keep large files/video as Blob to save RAM.
 
-    // [Fix] Host side state tracking: Assign blob and meta locally too
+    // Host side state tracking: Assign blob and meta locally too
     const total = Math.ceil(file.size / CHUNK_SIZE);
     nextFileBlob = file;
     nextMeta = { name: file.name, index: nextIdx, mime: file.type, total: total, size: file.size, sessionId: currentSession };
@@ -1760,11 +2017,10 @@ async function preloadNextTrack() {
     }
 }
 
-
 // New: Broadcast for Background Preloading
 async function broadcastPreloadFile(file, index, sessionId) {
-    // 비디오든 오디오든 추출 과정 없이 원본 파일 그대로 전송 (메모리 안전)
-    console.log("[Preload] Broadcasting original file:", file.name);
+    // Send original file as-is without extraction (memory safe)
+    log.debug("[Preload] Broadcasting original file:", file.name);
     await backgroundTransfer(file, index, sessionId);
 }
 
@@ -1773,13 +2029,13 @@ async function backgroundTransfer(file, index, sessionId) {
     const CHUNK = 16384;
     const total = Math.ceil(file.size / CHUNK);
     const header = {
-        type: 'preload-start',
+        type: MSG.PRELOAD_START,
         name: file.name,
         mime: file.type,
         total: total,
         size: file.size,
         index: index,
-        sessionId: sessionId // [Optimization] Included for tracking/cancellation
+        sessionId: sessionId // Included for tracking/cancellation
     };
 
     // Transfer to direct data targets (who will relay to others)
@@ -1794,18 +2050,18 @@ async function backgroundTransfer(file, index, sessionId) {
     const targets = getTargets();
 
     if (targets.length === 0) {
-        console.log("[Preload] No active data targets, skipping transfer");
+        log.debug("[Preload] No active data targets, skipping transfer");
         return;
     }
 
     // Determine which targets actually need the data chunks
     const targetsWhoNeedChunks = targets.filter(p => !p.preloadedIndexes || !p.preloadedIndexes.has(index));
 
-    // [Optimization] Send header UNICAST so we can tell each peer if we are skipping chunks
+    // Send header UNICAST so we can tell each peer if we are skipping chunks
     targets.forEach(p => {
         const peerNeedsChunks = !p.preloadedIndexes || !p.preloadedIndexes.has(index);
         if (p.conn.open) {
-            // [Fix] Peer-specific header
+            // Peer-specific header
             p.conn.send({ ...header, skipped: !peerNeedsChunks });
         }
     });
@@ -1820,11 +2076,11 @@ async function backgroundTransfer(file, index, sessionId) {
     for (let i = 0; i < total; i++) {
         // Check if this preload session was cancelled
         if (preloadSessionId !== sessionId) {
-            console.log("[Preload] Session cancelled, stopping transfer at chunk", i);
+            log.debug("[Preload] Session cancelled, stopping transfer at chunk", i);
             return;
         }
 
-        // [Optimization] Dynamic Congestion Control for Preload
+        // Dynamic Congestion Control for Preload
         // Optimized to 256KB/30ms for maximum throughput with dual-worker architecture
         let congested = true;
         while (congested) {
@@ -1835,7 +2091,7 @@ async function backgroundTransfer(file, index, sessionId) {
                     break;
                 }
             }
-            if (congested) await new Promise(r => setTimeout(r, 30));
+            if (congested) await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
         }
 
         const start = i * CHUNK;
@@ -1844,14 +2100,14 @@ async function backgroundTransfer(file, index, sessionId) {
         const chunkBuf = await chunkBlob.arrayBuffer();
         const chunk = new Uint8Array(chunkBuf);
 
-        const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i };
+        const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk: chunk, index: i };
         sendToTargets(chunkMsg, true); // true = send only to those who need chunks
     }
 
     // Final session check before completing
     if (preloadSessionId === sessionId) {
-        sendToTargets({ type: 'preload-end', name: file.name, index: index, sessionId: sessionId });
-        console.log("[Preload] Complete for index:", index);
+        sendToTargets({ type: MSG.PRELOAD_END, name: file.name, index: index, sessionId: sessionId });
+        log.debug("[Preload] Complete for index:", index);
     }
 }
 
@@ -1862,7 +2118,7 @@ function playNextTrack() {
 
     // OP: request Host to change track
     if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-next-track' });
+        hostConn.send({ type: MSG.REQUEST_NEXT_TRACK });
         return;
     }
 
@@ -1875,12 +2131,12 @@ function playNextTrack() {
             const currentIndex = youtubePlayer.getPlaylistIndex();
 
             if (playlistIds.length > 0 && currentIndex < playlistIds.length - 1) {
-                console.log("[YouTube] Next internal video:", currentIndex + 1);
+                log.debug("[YouTube] Next internal video:", currentIndex + 1);
                 youtubePlayer.nextVideo();
                 return; // Stay on the same MUSIXQUARE track
             }
         } catch (e) {
-            console.warn("[YouTube] Internal next failed:", e);
+            log.warn("[YouTube] Internal next failed:", e);
         }
     }
 
@@ -1890,7 +2146,7 @@ function playNextTrack() {
     if (repeatMode === 2) {
         nextIndex = currentTrackIndex;
     } else if (isShuffle && playlist.length > 1) {
-        // [FIX] Prevent infinite loop and immediate repeats in Shuffle
+        // Prevent infinite loop and immediate repeats in Shuffle
         do {
             nextIndex = Math.floor(Math.random() * playlist.length);
         } while (nextIndex === currentTrackIndex);
@@ -1901,17 +2157,17 @@ function playNextTrack() {
         if (nextIndex >= playlist.length) {
             if (repeatMode === 1) nextIndex = 0;
             else {
-                console.log("[Host] End of playlist reached (Repeat OFF). Stopping.");
+                log.debug("[Host] End of playlist reached (Repeat OFF). Stopping.");
                 stopAllMedia();
-                broadcast({ type: 'pause', time: 0 }); // Explicit pause for guests if needed
+                broadcast({ type: MSG.PAUSE, time: 0 }); // Explicit pause for guests if needed
                 return;
             }
         }
     }
 
-    // [FIX] If we have a preloaded track ready for THIS SPECIFIC index, use it
+    // If we have a preloaded track ready for THIS SPECIFIC index, use it
     if (nextIndex !== -1 && nextTrackIndex === nextIndex && nextFileBlob) {
-        console.log(`[Host] Using preloaded track for index ${nextIndex}`);
+        log.debug(`[Host] Using preloaded track for index ${nextIndex}`);
         playTrack(nextIndex);
         return;
     }
@@ -1927,7 +2183,7 @@ function playPrevTrack() {
 
     // OP: request Host to change track
     if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-prev-track' });
+        hostConn.send({ type: MSG.REQUEST_PREV_TRACK });
         return;
     }
 
@@ -1942,18 +2198,18 @@ function playPrevTrack() {
 
             if (currentTime > 3) {
                 youtubePlayer.seekTo(0, true);
-                broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 1, time: 0 });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 1, time: 0 });
                 return;
             }
 
             // Internal YouTube Playlist Navigation
             if (playlistIds && playlistIds.length > 0 && subIndex > 0) {
-                console.log("[YouTube] Prev internal video:", subIndex - 1);
+                log.debug("[YouTube] Prev internal video:", subIndex - 1);
                 youtubePlayer.previousVideo();
                 return;
             }
         } catch (e) {
-            console.error("[YouTube] Prev track error:", e);
+            log.error("[YouTube] Prev track error:", e);
         }
         // If < 3 seconds or at start of sub-playlist, go to previous track in MUSIXQUARE playlist
         if (currentTrackIndex > 0) playTrack(currentTrackIndex - 1);
@@ -1964,7 +2220,7 @@ function playPrevTrack() {
     // Local mode
     if (Tone.context && Tone.now() - startedAt > 3) {
         play(0); // Restart current
-        broadcast({ type: 'play', time: 0 });
+        broadcast({ type: MSG.PLAY, time: 0 });
         return;
     }
     if (currentTrackIndex > 0) playTrack(currentTrackIndex - 1);
@@ -1974,7 +2230,7 @@ function playPrevTrack() {
 
 
 async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false, loadToken = undefined) {
-    // [Fix #1] Prevent Zombie Loads: Increment session and capture ID
+    // Prevent Zombie Loads: Increment session and capture ID
     activeLoadSessionId++;
     const myLoadId = activeLoadSessionId;
     const myToken = loadToken ?? _currentLoadToken;
@@ -2001,23 +2257,22 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
             if (['mp4', 'mkv', 'webm', 'mov'].includes(ext)) isVideo = true;
         }
 
-        // [Unified Buffer Mode]
-        // Force Buffer Mode for ALL devices (Host & Guest) and ALL OSs.
+        // // Force Buffer Mode for ALL devices (Host & Guest) and ALL OSs.
         // This eliminates sync drift by serving audio from RAM via WebAudio Clock.
-        console.log("[BufferMode] Decoding audio for high-precision sync...");
+        log.debug("[BufferMode] Decoding audio for high-precision sync...");
         showToast("고정밀 동기화 모드: 오디오 디코딩 중...");
 
         // 1. Decode Audio
         const arrayBuffer = await file.arrayBuffer();
         const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
 
-        // [Fix] Re-verify after async decode
+        // Re-verify after async decode
         if (loadToken !== undefined && _currentLoadToken !== myToken) {
-            console.warn(`[Load] Token mismatch after decode (${myToken} vs ${_currentLoadToken}). Aborting.`);
+            log.warn(`[Load] Token mismatch after decode (${myToken} vs ${_currentLoadToken}). Aborting.`);
             return;
         }
 
-        // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
+        // Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
         if (currentAudioBuffer) {
             const oldBuf = currentAudioBuffer;
             currentAudioBuffer = null;
@@ -2033,31 +2288,32 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
             });
         }
 
-        // [핵심 수정] 작업이 끝난 후 여전히 최신 로딩 작업인지 확인
+        // Verify this is still the latest load session after work completes
         if (myLoadId !== activeLoadSessionId) {
-            console.log(`[Load] Stale loading session detected (${myLoadId} vs ${activeLoadSessionId}). Aborting.`);
+            log.debug(`[Load] Stale loading session detected (${myLoadId} vs ${activeLoadSessionId}). Aborting.`);
             return;
         }
 
         // 2. Load into State
         currentAudioBuffer = audioBuffer;
-        console.log(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
+        log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
         // 3. Visual Sync (Background Video)
         videoElement.src = url;
         videoElement.muted = true;
 
-        // [Fix] meta is updated here for Host
+        // meta is updated here for Host
         meta = { name: file.name, type: file.type };
 
-        // [Fix] redundant setEngineMode('buffer') removed.
+        // redundant setEngineMode('buffer') removed.
         // _internalPlay will handle the state transition correctly soon.
 
         // Update Playlist UI (and title/artist)
         updatePlaylistUI();
 
-        videoElement.onloadedmetadata = () => {
-            if (myLoadId !== activeLoadSessionId) return; // 여기도 방어
+        videoElement.addEventListener('loadedmetadata', function _onMetaLoaded() {
+            videoElement.removeEventListener('loadedmetadata', _onMetaLoaded);
+            if (myLoadId !== activeLoadSessionId) return;
 
             // Use Buffer Duration for accuracy
             const dur = currentAudioBuffer ? currentAudioBuffer.duration : videoElement.duration;
@@ -2069,16 +2325,15 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
                 sSlider.value = 0;
             }
             BlobURLManager.confirm(file);
-        };
+        });
 
         videoElement.load();
-
 
         const isGuest = !!hostConn;
         document.getElementById('play-btn').disabled = isGuest && !isOperator;
 
         if (connectedPeers.length > 0) {
-            // [FIX] Do NOT await broadcastFile.
+            // Do NOT await broadcastFile.
             // This allows the Host to start playing and updates the UI immediately
             // while chunks are sent in the background.
             showToast("파일 전송 중...");
@@ -2090,16 +2345,16 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         }
 
     } catch (err) {
-        console.error(err);
+        log.error(err);
         showToast(`Load Failed: ${err.message} `);
     } finally {
         showLoader(false);
         pausedAt = 0;
         updatePlayState(false);
 
-        // [FIX] Removed duplicate auto-play - playTrack() already handles this via autoPlayTimer
+        // Removed duplicate auto-play - playTrack() already handles this via autoPlayTimer
 
-        // [Fix] Ensure play button is enabled for Host even if load fails or halts
+        // Ensure play button is enabled for Host even if load fails or halts
         if (!hostConn) {
             document.getElementById('play-btn').disabled = false;
         } else if (isOperator) {
@@ -2109,19 +2364,18 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
 }
 
 // --- Playback Engine (Tone.js) ---
-// --- Playback Engine (Tone.js) ---
 
 async function play(offset) {
     if (_isPlayLocked) {
-        console.warn("[Play] Blocked: Already processing a play request");
+        log.warn("[Play] Blocked: Already processing a play request");
         return;
     }
     _isPlayLocked = true;
 
-    // [Fix #3] Lock Watchdog: Ensure lock is released even if _internalPlay hangs
+    // Lock Watchdog: Ensure lock is released even if _internalPlay hangs
     const lockWatchdog = setTimeout(() => {
         if (_isPlayLocked) {
-            console.warn("[Play] Lock Timeout: Forcing unlock after 5s");
+            log.warn("[Play] Lock Timeout: Forcing unlock after 5s");
             _isPlayLocked = false;
         }
     }, 5000);
@@ -2130,7 +2384,7 @@ async function play(offset) {
         await _internalPlay(offset);
     } finally {
         clearTimeout(lockWatchdog);
-        // [Fix #4] Play Lock Safety: Add small timeout to prevent rapid-fire command overlaps
+        // Play Lock Safety: Add small timeout to prevent rapid-fire command overlaps
         setTimeout(() => {
             _isPlayLocked = false;
         }, 50);
@@ -2138,22 +2392,22 @@ async function play(offset) {
 }
 
 async function _internalPlay(offset) {
-    window._pendingPlayTime = undefined;
+    _pendingPlayTime = undefined;
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        console.warn("[Audio] Blocked play() call while in YouTube mode");
+        log.warn("[Audio] Blocked play() call while in YouTube mode");
         return;
     }
 
     if (Tone.context.state !== 'running') {
-        try { await Tone.context.resume(); } catch (e) { console.warn("Resume failed:", e); }
+        try { await Tone.context.resume(); } catch (e) { log.warn("Resume failed:", e); }
     }
 
     const hasVideoSource = videoElement && videoElement.src && videoElement.src.startsWith('blob:');
     const hasBufferSource = !!currentAudioBuffer;
 
     if (!hasVideoSource && !hasBufferSource) {
-        console.warn("[Play] No media source available");
+        log.warn("[Play] No media source available");
         return;
     }
 
@@ -2166,26 +2420,26 @@ async function _internalPlay(offset) {
         // Create fresh transient source node
         playerNode = new Tone.BufferSource(currentAudioBuffer);
 
-        // [수정] 서라운드 모드 여부에 따라 연결 경로 분기
+        // Branch connection path based on surround mode
         if (isSurroundMode) {
-            // 1. 서라운드 노드가 없으면 생성 (안전장치)
+            // 1. Create surround nodes if missing (safety guard)
             if (!surroundSplitter) surroundSplitter = new Tone.Split(8);
             if (!surroundGain) surroundGain = new Tone.Gain(1);
 
-            // 2. 플레이어를 8채널 스플리터에 연결 (7.1 채널 분리)
+            // 2. Connect player to 8-channel splitter (7.1 separation)
             playerNode.connect(surroundSplitter);
 
-            // 3. 스플리터 -> 게인 -> 프리앰프 연결 확인 및 복구
+            // 3. Verify and restore splitter -> gain -> preamp chain
             if (surroundChannelIndex !== -1) {
-                // 현재 선택된 채널로 소리가 나가도록 배선 연결
+                // Wire output to currently selected channel
                 try {
                     surroundGain.disconnect();
                     surroundGain.connect(preamp);
 
-                    // 기존 연결 끊고 다시 해당 채널 연결
+                    // Disconnect existing and reconnect to target channel
                     surroundSplitter.disconnect();
 
-                    // (setSurroundChannel 로직과 동일하게 연결)
+                    // (Same wiring logic as setSurroundChannel)
                     const idx = surroundChannelIndex;
                     if (idx === 6) { // Rear Left + Side L Fallback
                         surroundSplitter.connect(surroundGain, 6, 0);
@@ -2196,14 +2450,14 @@ async function _internalPlay(offset) {
                     } else {
                         surroundSplitter.connect(surroundGain, idx, 0);
                     }
-                } catch (e) { console.warn("Surround routing update failed", e); }
+                } catch (e) { log.warn("Surround routing update failed", e); }
             }
-            console.log(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
+            log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
 
         } else {
-            // [기존 방식] 일반 스테레오 모드
+            // Standard stereo mode
             playerNode.connect(widener);
-            console.log(`[BufferMode] Playing in Stereo`);
+            log.debug(`[BufferMode] Playing in Stereo`);
         }
 
         playerNode.onended = () => {
@@ -2213,9 +2467,9 @@ async function _internalPlay(offset) {
         };
 
         playerNode.start(Tone.now(), offset);
-        // [FIX] Unified Formula: startedAt represents the RAW start time point
+        // Unified Formula: startedAt represents the RAW start time point
         startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
-        console.log(`[BufferMode] Started transient node at ${offset}s (startedAt: ${startedAt})`);
+        log.debug(`[BufferMode] Started transient node at ${offset}s (startedAt: ${startedAt})`);
 
         // Sync Visuals (Muted Video)
         if (videoElement.src) {
@@ -2227,18 +2481,18 @@ async function _internalPlay(offset) {
 
     } else {
         // --- NO SOURCE (Safety) ---
-        console.warn("[Play] Attempted to play without AudioBuffer.");
+        log.warn("[Play] Attempted to play without AudioBuffer.");
         return;
     }
 
-    // [FIX] Formula Refactor: startedAt represents the RAW start time point.
+    // Formula Refactor: startedAt represents the RAW start time point.
     // getTrackPosition will dynamically add (localOffset + autoSyncOffset).
     startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
     pausedAt = offset;
 
     updatePlayState(true);
 
-    // [FIX] Use robust helper for video detection (prevents Host stale meta bug)
+    // Use robust helper for video detection (prevents Host stale meta bug)
     const isVideo = isMediaVideo(currentFileBlob, meta);
     setState(isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO, { skipCleanup: true });
 
@@ -2261,7 +2515,7 @@ function stopPlayerNode() {
             // dispose() for memory cleanup, may throw in some Tone.js versions
             playerNode.dispose();
         } catch (e) {
-            console.warn("Error stopping/disposing playerNode:", e);
+            log.warn("Error stopping/disposing playerNode:", e);
         } finally {
             playerNode = null;
         }
@@ -2269,7 +2523,7 @@ function stopPlayerNode() {
 }
 
 function handleEnded() {
-    // [SAFARI FIX] Video duration can be transiently small/wrong during load.
+    // Video duration can be transiently small/wrong during load.
     // Guests should only trigger 'ended' if they are NOT loading and the Host isn't forcing playback.
     if (hostConn && currentState !== APP_STATE.IDLE) {
         // If Host says we are 3 mins in, but local says 0.39s, ignore local "end"
@@ -2289,28 +2543,28 @@ function handleEnded() {
         return;
     }
 
-    // [Validation] Proceed to check end conditions
+    // Proceed to check end conditions
 
-    // [FIX] Only require videoElement, not playerNode (playerNode is null in Streaming Mode)
+    // Only require videoElement, not playerNode (playerNode is null in Streaming Mode)
     if (!videoElement) return;
     if (currentState === APP_STATE.IDLE) return;
     if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
-    // [FIX] Use unified Track Position calculation
+    // Use unified Track Position calculation
     const curr = getTrackPosition();
 
-    // [FIX] Seek Guard: If the user is currently scrubbing the timeline, ignore end signals.
+    // Seek Guard: If the user is currently scrubbing the timeline, ignore end signals.
     if (isSeeking) {
-        console.log("[handleEnded] Ignoring end signal while seeking");
+        log.debug("[handleEnded] Ignoring end signal while seeking");
         return;
     }
 
     const isPastEnd = (curr >= duration - 0.2);
 
     if (currentState !== APP_STATE.IDLE && isPastEnd) {
-        console.log(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
+        log.debug(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
 
-        // [FIX] Use centralized stopAllMedia() which sets state to IDLE
+        // Use centralized stopAllMedia() which sets state to IDLE
         stopAllMedia();
 
         // Note: stopAllMedia() already calls setState(IDLE) and updatePlayState(false)
@@ -2326,11 +2580,11 @@ function handleEnded() {
         if (!hostConn) {
             if (repeatMode === 2) {
                 // Repeat One: Play same track again
-                console.log("Repeat One: Replaying current track...");
+                log.debug("Repeat One: Replaying current track...");
                 // Reset sync state for clean restart
                 setTimeout(() => playTrack(currentTrackIndex), 300);
             } else {
-                console.log("Auto-advancing to next track...");
+                log.debug("Auto-advancing to next track...");
                 setTimeout(() => playNextTrack(), 500);
             }
         }
@@ -2342,7 +2596,7 @@ function handleEnded() {
  * Called every 2s to keep devices in sync without heavy UI lag.
  */
 function checkVideoSync() {
-    // [FIX] Sync check is critical for both PLAYING_VIDEO and PLAYING_AUDIO (if video visual exists)
+    // Sync check is critical for both PLAYING_VIDEO and PLAYING_AUDIO (if video visual exists)
     if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_YOUTUBE) return;
     if (!videoElement || !videoElement.src) return;
 
@@ -2352,19 +2606,19 @@ function checkVideoSync() {
 
     // Only correct if drift is significant (>300ms)
     if (drift > 0.3) {
-        // [FIX] Guard: Do not seek if already seeking (prevents infinite seek loops)
+        // Guard: Do not seek if already seeking (prevents infinite seek loops)
         if (videoElement.seeking) return;
 
-        console.log(`[SyncCheck] Correcting video drift: ${drift.toFixed(3)}s`);
+        log.debug(`[SyncCheck] Correcting video drift: ${drift.toFixed(3)}s`);
 
         // [KICKSTART] If drift is exactly the check interval (2.0s), video is likely frozen.
         // Try to force play() to resume the video engine.
         if (drift >= 1.9 && videoElement.paused) {
-            console.warn("[SyncCheck] Video appears frozen. Attempting kickstart...");
+            log.warn("[SyncCheck] Video appears frozen. Attempting kickstart...");
             videoElement.play().catch(() => { });
         }
 
-        // [FIX] In Buffer Mode, just sync video to Tone.js master clock
+        // In Buffer Mode, just sync video to Tone.js master clock
         if (currentAudioBuffer) {
             videoElement.currentTime = targetTime;
             return;
@@ -2382,29 +2636,29 @@ function checkVideoSync() {
  * Ensures no audio overlap during transitions.
  */
 function stopAllMedia() {
-    // 1. Stop Global Video (확실하게 초기화)
+    // 1. Stop global video (full reset)
     if (videoElement) {
         videoElement.pause();
-        videoElement.removeAttribute('src'); // [추가] 소스 링크 해제
-        videoElement.load(); // [추가] 로딩 상태 초기화
+        videoElement.removeAttribute('src'); // Detach source link
+        videoElement.load(); // Reset loading state
     }
 
     // 2. Stop YouTube (Full Teardown)
     // Use the comprehensive stopYouTubeMode if it exists, otherwise manual teardown
     if (typeof stopYouTubeMode === 'function') {
-        // [Fix] stopYouTubeMode internally calls setState(IDLE). 
+        // stopYouTubeMode internally calls setState(IDLE). 
         // We ensure it doesn't cause recursion by checking state or using flags if needed.
         // For now, stopYouTubeMode is safe as it checks currentState === PLAYING_YOUTUBE
         stopYouTubeMode();
     } else if (youtubePlayer && youtubePlayer.stopVideo) {
-        try { youtubePlayer.stopVideo(); } catch (e) { }
+        try { youtubePlayer.stopVideo(); } catch (e) { /* best-effort cleanup */ }
     }
 
     // Clear any pending triggers
-    // [Fix] DO NOT clear _pendingPlayTime here. 
+    // DO NOT clear _pendingPlayTime here. 
     // It should persist if we just finished loading and are waiting for Host to start (3s count).
     // It is safely cleared in clearPreviousTrackState when track actually changes.
-    preloadSessionId++; // [Fix] Invalidate any ongoing preloads
+    preloadSessionId++; // Invalidate any ongoing preloads
     if (managedTimers.autoPlayTimer) {
         clearManagedTimer('autoPlayTimer');
     }
@@ -2416,10 +2670,16 @@ function stopAllMedia() {
     postWorkerCommand({ command: 'STOP_TIMER', id: 'video-sync' });
     postWorkerCommand({ command: 'STOP_TIMER', id: 'youtube-sync' });
 
-    // 여기서 수정된 stopPlayerNode가 호출되면서 안전하게 오디오가 꺼짐
+    // Modified stopPlayerNode safely stops audio here
     stopPlayerNode();
 
-    // [FIX] Reset master clock and offsets
+    // Clear relay queues to prevent stale file chunks during mode transitions
+    relayChunkQueue = [];
+    downstreamDataPeers.forEach(p => {
+        if (p._relayQueue) p._relayQueue = [];
+    });
+
+    // Reset master clock and offsets
     startedAt = 0;
     pausedAt = 0;
 }
@@ -2428,7 +2688,7 @@ function stopAllMedia() {
  * @param {string} mode - 'audio' | 'buffer' | 'video' | 'youtube'
  */
 function setEngineMode(mode) {
-    console.log(`[Engine] Switching mode to: ${mode}`);
+    log.debug(`[Engine] Switching mode to: ${mode}`);
 
     // Map mode string to APP_STATE
     let newState;
@@ -2467,12 +2727,12 @@ function togglePlay() {
             try {
                 const state = youtubePlayer.getPlayerState();
                 if (state === YT.PlayerState.PLAYING) {
-                    hostConn.send({ type: 'request-youtube-pause' });
+                    hostConn.send({ type: MSG.REQUEST_YOUTUBE_PAUSE });
                 } else {
-                    hostConn.send({ type: 'request-youtube-play' });
+                    hostConn.send({ type: MSG.REQUEST_YOUTUBE_PLAY });
                 }
             } catch (e) {
-                console.error("[YouTube] OP toggle error:", e);
+                log.error("[YouTube] OP toggle error:", e);
             }
             return;
         }
@@ -2482,13 +2742,13 @@ function togglePlay() {
             const state = youtubePlayer.getPlayerState();
             if (state === YT.PlayerState.PLAYING) {
                 youtubePlayer.pauseVideo();
-                broadcast({ type: 'youtube-state', state: 2, time: youtubePlayer.getCurrentTime() });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: youtubePlayer.getCurrentTime() });
             } else {
                 youtubePlayer.playVideo();
-                broadcast({ type: 'youtube-state', state: 1, time: youtubePlayer.getCurrentTime() });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: youtubePlayer.getCurrentTime() });
             }
         } catch (e) {
-            console.error("[YouTube] Toggle play error:", e);
+            log.error("[YouTube] Toggle play error:", e);
         }
         return;
     }
@@ -2502,11 +2762,11 @@ function togglePlay() {
     }
 
     if (isActuallyPlaying) {
-        if (!hostConn) { pause(); broadcast({ type: 'pause' }); }
-        else if (isOperator) hostConn.send({ type: 'request-pause' });
+        if (!hostConn) { pause(); broadcast({ type: MSG.PAUSE }); }
+        else if (isOperator) hostConn.send({ type: MSG.REQUEST_PAUSE });
     } else {
-        if (!hostConn) { play(pausedAt); broadcast({ type: 'play', time: pausedAt }); }
-        else if (isOperator) hostConn.send({ type: 'request-play', time: pausedAt });
+        if (!hostConn) { play(pausedAt); broadcast({ type: MSG.PLAY, time: pausedAt }); }
+        else if (isOperator) hostConn.send({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
 }
 
@@ -2514,13 +2774,12 @@ function pause() {
     if (currentState !== APP_STATE.IDLE) {
         if (videoElement) videoElement.pause();
 
-        // [Unified Buffer Mode]
-        stopPlayerNode();
+        // stopPlayerNode();
 
         pausedAt = getTrackPosition();
         if (videoElement) videoElement.currentTime = pausedAt;
 
-        // [Fix] Set state to IDLE so loopUI stops
+        // Set state to IDLE so loopUI stops
         setState(APP_STATE.IDLE, { skipCleanup: true });
     }
     updatePlayState(false);
@@ -2534,7 +2793,7 @@ function skipTime(sec) {
 
     // OP: request Host to skip time
     if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-skip-time', sec: sec });
+        hostConn.send({ type: MSG.REQUEST_SKIP_TIME, sec: sec });
         return;
     }
 
@@ -2552,9 +2811,9 @@ function skipTime(sec) {
             youtubePlayer.seekTo(target, true);
 
             // Broadcast to guests
-            broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: target });
+            broadcast({ type: MSG.YOUTUBE_STATE, state: youtubePlayer.getPlayerState(), time: target });
         } catch (e) {
-            console.error("[YouTube] Skip time error:", e);
+            log.error("[YouTube] Skip time error:", e);
         }
         return;
     }
@@ -2570,7 +2829,7 @@ function skipTime(sec) {
 
     // Broadcast
     play(target);
-    broadcast({ type: 'play', time: target });
+    broadcast({ type: MSG.PLAY, time: target });
 }
 
 function updatePlayState(playing) {
@@ -2580,12 +2839,11 @@ function updatePlayState(playing) {
 
 function adjustSync(val) {
     localOffset += val;
-    updateSyncDisplay(); // [FIX] Ensure UI updates immediately
+    updateSyncDisplay(); // Ensure UI updates immediately
     if (currentState !== APP_STATE.IDLE) play(getTrackPosition());
     else pausedAt += val;
 }
 
-// --- Audio Graph Settings ---
 // --- Audio Graph Settings (Tone.js) ---
 function setChannelMode(mode) {
     channelMode = mode;
@@ -2602,7 +2860,7 @@ function setChannelMode(mode) {
     try {
         gainL.disconnect();
         gainR.disconnect();
-    } catch (e) { }
+    } catch (e) { /* expected during audio graph reconfiguration */ }
 
     if (mode === 0) { // Stereo
         // L -> Merge 0, R -> Merge 1
@@ -2679,10 +2937,10 @@ function toggleSurroundMode(enabled) {
 
     setChannelMode(channelMode); // Restore standard channel
 
-    // [New] Instant Refresh: If playing in Buffer Mode, restart play() to reflect mode change immediately
+    // Instant Refresh: If playing in Buffer Mode, restart play() to reflect mode change immediately
     const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
     if (isPlaybackState && currentAudioBuffer && playerNode) {
-        console.log("[Surround] Instant mode refresh triggered");
+        log.debug("[Surround] Instant mode refresh triggered");
         play(getTrackPosition());
     }
 }
@@ -2714,7 +2972,7 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     // 1. Ensure Graph is in Surround Mode
     if (!isSurroundMode) return;
 
-    // 3. Connect selected Splitter Output to SurroundGain
+    // 2. Connect selected Splitter Output to SurroundGain
     try {
         surroundGain.disconnect();
         surroundGain.connect(preamp); // Feed into main chain
@@ -2751,7 +3009,7 @@ function setSurroundChannel(idx, el, skipSetup = false) {
             else globalLowPass.frequency.value = 20000;
         }
 
-        // 4. Force Output to Dual Mono (L+R)
+        // 3. Force Output to Dual Mono (L+R)
         gainL.disconnect();
         gainR.disconnect();
 
@@ -2767,7 +3025,7 @@ function setSurroundChannel(idx, el, skipSetup = false) {
         showToast(`Ch: ${names[idx]}`);
 
     } catch (e) {
-        console.warn(e);
+        log.warn(e);
     }
 }
 
@@ -2797,8 +3055,8 @@ function updateSettings(type, val) {
 
 function onReverbInput(val) { setReverbParam('mix', val); }
 function onReverbChange(val) {
-    if (!hostConn) broadcast({ type: 'reverb', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb', value: val });
+    if (!hostConn) broadcast({ type: MSG.REVERB, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb', value: val });
 }
 
 function onReverbDecayInput(val) {
@@ -2806,8 +3064,8 @@ function onReverbDecayInput(val) {
 }
 function onReverbDecayChange(val) {
     setReverbParam('decay', val);
-    if (!hostConn) broadcast({ type: 'reverb-decay', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-decay', value: val });
+    if (!hostConn) broadcast({ type: MSG.REVERB_DECAY, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-decay', value: val });
 }
 
 function onReverbPreDelayInput(val) {
@@ -2815,8 +3073,8 @@ function onReverbPreDelayInput(val) {
 }
 function onReverbPreDelayChange(val) {
     setReverbParam('predelay', val);
-    if (!hostConn) broadcast({ type: 'reverb-predelay', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-predelay', value: val });
+    if (!hostConn) broadcast({ type: MSG.REVERB_PREDELAY, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-predelay', value: val });
 }
 
 function onReverbLowCutInput(val) {
@@ -2827,8 +3085,8 @@ function onReverbLowCutInput(val) {
 }
 function onReverbLowCutChange(val) {
     setReverbParam('lowcut', val);
-    if (!hostConn) broadcast({ type: 'reverb-lowcut', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-lowcut', value: val });
+    if (!hostConn) broadcast({ type: MSG.REVERB_LOWCUT, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-lowcut', value: val });
 }
 
 function onReverbHighCutInput(val) {
@@ -2839,8 +3097,8 @@ function onReverbHighCutInput(val) {
 }
 function onReverbHighCutChange(val) {
     setReverbParam('highcut', val);
-    if (!hostConn) broadcast({ type: 'reverb-highcut', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'reverb-highcut', value: val });
+    if (!hostConn) broadcast({ type: MSG.REVERB_HIGHCUT, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-highcut', value: val });
 }
 
 function setReverbParam(param, val) {
@@ -2881,7 +3139,7 @@ function setReverbParam(param, val) {
     }
 }
 
-// [FIX] Restore missing setters for updateAudioEffect and legacy handlers
+// Restore missing setters for updateAudioEffect and legacy handlers
 function setReverb(val, localOnly) { setReverbParam('mix', val); if (!localOnly) onReverbChange(val); }
 function setReverbDecay(val, localOnly) { setReverbParam('decay', val); if (!localOnly) onReverbDecayChange(val); }
 function setReverbPreDelay(val, localOnly) { setReverbParam('predelay', val); if (!localOnly) onReverbPreDelayChange(val); }
@@ -2927,10 +3185,10 @@ function setEQ(idx, val, localOnly = false, fromSync = false) {
     if (localOnly || fromSync) return;
 
     if (!hostConn) {
-        broadcast({ type: 'eq-update', band: bandIdx, value: bandVal });
+        broadcast({ type: MSG.EQ_UPDATE, band: bandIdx, value: bandVal });
     }
     else if (isOperator) {
-        hostConn.send({ type: 'request-setting', settingType: 'eq', band: bandIdx, value: bandVal });
+        hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band: bandIdx, value: bandVal });
     }
 }
 
@@ -2953,20 +3211,20 @@ function setPreamp(val, localOnly = false, fromSync = false) {
 
     if (localOnly || fromSync) return;
 
-    if (!hostConn) broadcast({ type: 'preamp', value: db });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'preamp', value: db });
+    if (!hostConn) broadcast({ type: MSG.PREAMP, value: db });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'preamp', value: db });
 }
 
 function resetEQ(fromSync = false) {
     if (isOperator && !fromSync) {
-        hostConn.send({ type: 'request-eq-reset' });
+        hostConn.send({ type: MSG.REQUEST_EQ_RESET });
         return;
     }
     document.querySelectorAll('.eq-slider').forEach((el, idx) => {
         setEQ(idx, 0, false, true);
     });
     setPreamp(0, false, true);
-    if (!hostConn && !fromSync) broadcast({ type: 'eq-reset' });
+    if (!hostConn && !fromSync) broadcast({ type: MSG.EQ_RESET });
 }
 
 // Virtual Stereo Width
@@ -2978,8 +3236,8 @@ function setStereoWidth(val) {
 }
 
 function onStereoWidthChange(val) {
-    if (!hostConn) broadcast({ type: 'stereo-width', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'stereo', value: val });
+    if (!hostConn) broadcast({ type: MSG.STEREO_WIDTH, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value: val });
 }
 
 function resetStereo() { setStereoWidth(100); onStereoWidthChange(100); }
@@ -2993,8 +3251,8 @@ function setVirtualBass(val) {
 }
 
 function onVirtualBassChange(val) {
-    if (!hostConn) broadcast({ type: 'vbass', value: val });
-    else if (isOperator) hostConn.send({ type: 'request-setting', settingType: 'vbass', value: val });
+    if (!hostConn) broadcast({ type: MSG.VBASS, value: val });
+    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'vbass', value: val });
 }
 
 function applySettings() {
@@ -3029,7 +3287,7 @@ function applySettings() {
 function onVolInput(val) { setVolume(val / 100); }
 function onVolChange(val) {
     if (!hostConn) {
-        broadcast({ type: 'volume', value: val / 100 });
+        broadcast({ type: MSG.VOLUME, value: val / 100 });
         showToast(`Volume: ${Math.round(val)}%`);
     }
 }
@@ -3039,11 +3297,11 @@ function toggleMute() {
         preMuteVolume = masterVolume;
         setVolume(0);
         showToast("Muted");
-        if (!hostConn) broadcast({ type: 'volume', value: 0 });
+        if (!hostConn) broadcast({ type: MSG.VOLUME, value: 0 });
     } else {
         setVolume(preMuteVolume || 0.5); // Fallback to 50% if preMuteVolume was somehow 0
         showToast(`Volume: ${Math.round(masterVolume * 100)}%`);
-        if (!hostConn) broadcast({ type: 'volume', value: masterVolume });
+        if (!hostConn) broadcast({ type: MSG.VOLUME, value: masterVolume });
     }
 }
 
@@ -3067,20 +3325,20 @@ function setVolume(val) {
     // Tone.Master.volume is dB. We want linear gain on masterGain node.
     if (masterGain) masterGain.gain.rampTo(masterVolume, 0.1);
 
-    // [FIX] Support YouTube Volume Integration
+    // Support YouTube Volume Integration
     if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
         try {
             // YouTube API expects 0-100
             youtubePlayer.setVolume(val * 100);
         } catch (e) {
-            console.warn("[YouTube] Failed to set volume:", e);
+            log.warn("[YouTube] Failed to set volume:", e);
         }
     }
 
     const vSlider = document.getElementById('volume-slider');
     if (vSlider) vSlider.value = val * 100;
 
-    // [New] Support Video Element Volume sync (Especially for Host Native Playback)
+    // Support Video Element Volume sync (Especially for Host Native Playback)
     if (videoElement) {
         // [Double Audio Fix] Prevent unmuting video if playing via Buffer Mode
         if (currentAudioBuffer) {
@@ -3089,7 +3347,7 @@ function setVolume(val) {
         } else {
             try {
                 videoElement.volume = val;
-            } catch (e) { }
+            } catch (e) { log.debug('[Volume] Video element volume set failed:', e.message); }
         }
     }
 
@@ -3100,7 +3358,7 @@ function setVolume(val) {
 // [Visualizer] Light/Dark Mode Supported
 // ==============================================================
 function startVisualizer() {
-    // [Fix #1] Prevent Loop Nesting: Clear previous loop if exists
+    // Prevent Loop Nesting: Clear previous loop if exists
     if (animationId) {
         cancelAnimationFrame(animationId);
         animationId = null;
@@ -3109,7 +3367,7 @@ function startVisualizer() {
     const canvas = document.getElementById('visualizerCanvas');
     const ctx = canvas.getContext('2d');
 
-    // [Fix #2] Init Guard: If audio engine isn't ready (Race condition with play() -> initAudio()), retry next frame
+    // Init Guard: If audio engine isn't ready (Race condition with play() -> initAudio()), retry next frame
     if (!analyser) {
         animationId = requestAnimationFrame(startVisualizer);
         return;
@@ -3124,7 +3382,7 @@ function startVisualizer() {
     // If Tone, we map Float32 to Uint8 manually for compatibility with drawing logic
     const dataArray = isToneAnalyser ? new Float32Array(bufferLength) : new Uint8Array(bufferLength);
 
-    // [Fix #4] Scope Pollution: Keep bass state local to the loop
+    // Scope Pollution: Keep bass state local to the loop
     let smoothedBass = 0;
 
     // Canvas Scale Logic (High DPI)
@@ -3209,7 +3467,7 @@ function startVisualizer() {
             if (isLight) {
                 ctx.fillStyle = `rgba(96, 165, 250, 0.6)`;
             } else {
-                ctx.fillStyle = `hsla(217, 100 %, ${highLightness + 30}%, 0.4)`;
+                ctx.fillStyle = `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
             }
 
             ctx.beginPath();
@@ -3226,7 +3484,7 @@ function fmtTime(s) {
     if (isNaN(s)) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
-    return `${m}:${sec < 10 ? '0' : ''}${sec} `;
+    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
 }
 
 // --- Marquee Helper for Long Titles ---
@@ -3293,7 +3551,7 @@ slider.addEventListener('change', () => {
 
     // OP: request Host to seek
     if (hostConn && isOperator) {
-        hostConn.send({ type: 'request-seek', time: t });
+        hostConn.send({ type: MSG.REQUEST_SEEK, time: t });
         return;
     }
 
@@ -3302,9 +3560,9 @@ slider.addEventListener('change', () => {
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
         try {
             youtubePlayer.seekTo(t, true);  // t is already in seconds
-            broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: t });
+            broadcast({ type: MSG.YOUTUBE_STATE, state: youtubePlayer.getPlayerState(), time: t });
         } catch (e) {
-            console.error("[YouTube] Slider seek error:", e);
+            log.error("[YouTube] Slider seek error:", e);
         }
         return;
     }
@@ -3313,18 +3571,18 @@ slider.addEventListener('change', () => {
 
     if (isActuallyPlaying) {
         play(t);
-        broadcast({ type: 'play', time: t });
+        broadcast({ type: MSG.PLAY, time: t });
     } else {
         pausedAt = t;
         if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) videoElement.currentTime = t;
         // Broadcast pause with updated time to sync guests without starting playback
-        broadcast({ type: 'pause', time: t });
+        broadcast({ type: MSG.PAUSE, time: t });
     }
 
     // Schedule global resync after seek (Host only)
     setTimeout(() => {
-        broadcast({ type: 'global-resync-request' });
-        console.log("[Host] Global resync requested after seek");
+        broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+        log.debug("[Host] Global resync requested after seek");
     }, 1000);
 });
 
@@ -3336,13 +3594,13 @@ slider.addEventListener('touchend', () => isSeeking = false);
 function handleMainSyncBtn() {
     const isActuallyPlaying = (videoElement && !videoElement.paused);
 
-    console.log("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
+    log.debug("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
     if (!hostConn) {
         // Host: Reset local offset and trigger Guest-side Sync
         localOffset = 0;
         updateSyncDisplay();
         showToast("모든 기기 재동기화 요청...");
-        broadcast({ type: 'global-resync-request' });
+        broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
     } else {
         // Guest: Manual local sync
         syncReset();
@@ -3351,14 +3609,14 @@ function handleMainSyncBtn() {
 
 function syncReset() {
     if (!hostConn || !hostConn.open) return;
-    // [FIX] Do NOT clear localOffset here.
+    // Do NOT clear localOffset here.
     // Users want to keep their manual hardware correction (e.g. BT delay)
     // even when network sync is recalibrated.
     updateSyncDisplay();
 
     showToast("최적 싱크 보정 적용 중...");
     syncRequestTime = Date.now();
-    hostConn.send({ type: 'get-sync-time' });
+    hostConn.send({ type: MSG.GET_SYNC_TIME });
 }
 
 function updateSyncBtnState(isGuest) {
@@ -3366,17 +3624,17 @@ function updateSyncBtnState(isGuest) {
     if (!btn) return; // Safety check
 
     // Unify Icon (Refresh) and Text (AUTO SYNC) for both roles
-    btn.innerHTML = `< svg width = "14" height = "14" viewBox = "0 0 24 24" fill = "currentColor" > <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" /></svg > AUTO SYNC`;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> AUTO SYNC`;
 }
 
 // --- Networking (Updated from network.html) ---
 
-// 네트워크 초기화 코드
+// Network initialization
 async function initNetwork() {
     try {
         let turnConfig = { username: "", credential: "" };
 
-        // 1. 로컬/프라이빗 네트워크 감지
+        // 1. Detect local/private network
         const hostname = window.location.hostname;
         const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hostname) ||
             hostname.startsWith('192.168.') ||
@@ -3385,29 +3643,29 @@ async function initNetwork() {
 
         if (!isLocal) {
             try {
-                // 배달원에게 설정값 요청 (Netlify Function 호출)
+                // Request config from relay (Netlify Function call)
                 const response = await fetch('/.netlify/functions/get-turn-config');
 
                 if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
                     turnConfig = await response.json();
-                    console.log("TURN 설정 로드 완료 (Netlify)");
+                    log.debug("TURN 설정 로드 완료 (Netlify)");
                 } else {
-                    console.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
+                    log.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
                 }
             } catch (fetchErr) {
-                console.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
+                log.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
             }
         } else {
-            console.log("[Network] Local/Private environment detected - skipping TURN configuration.");
+            log.debug("[Network] Local/Private environment detected - skipping TURN configuration.");
         }
 
-        // 2. 받아온 설정으로 옵션 만들기
+        // 2. Build options from fetched config
         const iceServers = [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun.relay.metered.ca:80" }
         ];
 
-        // 로컬이 아니고 TURN 설정이 있는 경우에만 TURN 서버 추가
+        // Add TURN server only when not local and TURN config exists
         if (!isLocal && turnConfig.username && turnConfig.credential) {
             iceServers.push(
                 {
@@ -3435,18 +3693,18 @@ async function initNetwork() {
                 bundlePolicy: 'max-bundle',
                 sdpSemantics: 'unified-plan',
                 iceTransportPolicy: 'all',
-                iceCandidatePoolSize: 0 // [SAFARI FIX] Reduced from 10 to 0 for better iOS compatibility
+                iceCandidatePoolSize: 0 // Reduced from 10 to 0 for better iOS compatibility
             }
         };
 
-        // 3. PeerJS 시작
+        // 3. Start PeerJS
         peer = new Peer(null, peerOpts);
 
-        // --- 기존 이벤트 리스너들 ---
+        // --- Event listeners ---
         setupPeerEvents();
 
     } catch (e) {
-        console.error("네트워크 초기화 중 치명적 오류:", e);
+        log.error("네트워크 초기화 중 치명적 오류:", e);
         showToast("네트워크 초기화 실패 (새로고침 하세요)");
     }
 }
@@ -3458,15 +3716,15 @@ async function initNetwork() {
 function updateQrCode(id) {
     const qrContainer = document.getElementById("qrcode");
     if (!qrContainer) {
-        console.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
+        log.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
         return;
     }
 
     qrContainer.innerHTML = "";
 
-    // QRCode.js 라이브러리 확인
+    // Verify QRCode.js library
     if (typeof QRCode === 'undefined') {
-        console.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
+        log.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
         return;
     }
 
@@ -3479,10 +3737,10 @@ function updateQrCode(id) {
             colorLight: "#ffffff"
         });
     } catch (e) {
-        console.error("[QR] QR 코드 생성 실패:", e);
+        log.error("[QR] QR 코드 생성 실패:", e);
     }
 
-    // ID 표시 업데이트
+    // Update ID display
     const myIdEl = document.getElementById('my-id');
     if (myIdEl) {
         myIdEl.innerText = hostConn ? "Host ID: " + id : id;
@@ -3492,8 +3750,8 @@ function updateQrCode(id) {
 function setupPeerEvents() {
 
     peer.on('error', (err) => {
-        console.error("PeerJS Global Error:", err);
-        console.error("Error Type:", err.type);
+        log.error("PeerJS Global Error:", err);
+        log.error("Error Type:", err.type);
 
         let message = "네트워크 오류가 발생했습니다.";
         if (err.type === 'browser-incompatible') {
@@ -3512,12 +3770,12 @@ function setupPeerEvents() {
         showToast(message);
 
         // If it's a critical initialization/network error, show the overlay with tips
-        // [FIX] Don't show overlay if we already have an active P2P session (signalling loss is transient)
+        // Don't show overlay if we already have an active P2P session (signalling loss is transient)
         const isSessionActive = (hostConn && hostConn.open) || (connectedPeers && connectedPeers.some(p => p.status === 'connected'));
 
         if (['server-error', 'network', 'browser-incompatible'].includes(err.type)) {
             if (isSessionActive && err.type !== 'browser-incompatible') {
-                console.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
+                log.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
                 showToast("중계 서버와 연결이 끊겼습니다. (재연결 시도 중...)");
                 return;
             }
@@ -3543,17 +3801,17 @@ function setupPeerEvents() {
         if (params.get('host')) {
             const hostId = params.get('host');
             document.getElementById('join-id-input').value = hostId;
-            console.log("[QR] Auto-joining host:", hostId);
+            log.debug("[QR] Auto-joining host:", hostId);
 
             // Auto-trigger join session for QR users
-            // [FIX] Removed auto-trigger. Users must click "I'm invited!" button
+            // Removed auto-trigger. Users must click "I'm invited!" button
             // to ensure audio context is unlocked and prevent double-connection race.
             // setTimeout(() => joinSession(), 100);
         } else {
             const hostPanel = document.getElementById('host-panel');
             if (hostPanel) hostPanel.classList.add('visible');
 
-            // [REF] Centralized Update
+            // Centralized Update
             myDeviceLabel = 'HOST';
             updateRoleBadge();
 
@@ -3564,7 +3822,8 @@ function setupPeerEvents() {
             ]);
 
             // Heartbeat Monitor (Host checks for voluntary signals)
-            setInterval(() => {
+            clearManagedTimer('heartbeatMonitor');
+            managedTimers.heartbeatMonitor = setInterval(() => {
                 const now = Date.now();
                 let changed = false;
 
@@ -3575,7 +3834,7 @@ function setupPeerEvents() {
 
                         // Timeout: 15 seconds (allows 2 lost signals from 5s interval)
                         if (now - p.lastHeartbeat > 15000) {
-                            console.warn(`Peer ${p.label} timed out.`);
+                            log.warn(`Peer ${p.label} timed out.`);
                             p.status = 'disconnected';
                             changed = true;
                             showToast(`${p.label} 제거됨(무응답)`);
@@ -3599,39 +3858,24 @@ function setupPeerEvents() {
         }
     });
 
-    function broadcastDeviceList() {
-        const list = [
-            { id: myId, label: 'HOST', status: 'connected', isHost: true },
-            ...connectedPeers
-                .sort((a, b) => a.joinOrder - b.joinOrder) // [FIX] Maintain stable visual order
-                .map(p => ({
-                    id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
-                }))
-        ];
-
-        const msg = { type: 'device-list-update', list: list };
-        broadcast(msg);
-        renderDeviceList(list);
-    }
-
     // Host Logic
     peer.on('connection', conn => {
         // Check for Data Relay Connection
-        if (conn.metadata && conn.metadata.type === 'data-relay') {
+        if (conn.metadata && conn.metadata.type === MSG.DATA_RELAY) {
             handleRelayConnection(conn);
             return;
         }
 
-        // [GHOSTING FIX] Duplicate check: If this peer ID is already connected, close the old one
+        // Duplicate check: If this peer ID is already connected, close the old one
         const existingIdx = connectedPeers.findIndex(p => p.id === conn.peer);
         if (existingIdx !== -1) {
-            console.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
+            log.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
             const oldPeer = connectedPeers[existingIdx];
             if (oldPeer.conn && oldPeer.conn.open) {
                 try {
-                    oldPeer.conn.send({ type: 'force-close-duplicate' });
+                    oldPeer.conn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
                     oldPeer.conn.close();
-                } catch (e) { }
+                } catch (e) { /* best-effort close on duplicate peer */ }
             }
             connectedPeers.splice(existingIdx, 1);
         }
@@ -3639,7 +3883,7 @@ function setupPeerEvents() {
         // [STABILIZATION] 1. Label/Counter memory check
         if (!peerLabels[conn.peer]) {
             deviceCounter++;
-            peerLabels[conn.peer] = `DEVICE ${deviceCounter} `;
+            peerLabels[conn.peer] = `DEVICE ${deviceCounter}`;
         }
         const deviceName = peerLabels[conn.peer];
         const numericOrder = parseInt((deviceName.match(/\d+/) || [0])[0]);
@@ -3660,7 +3904,7 @@ function setupPeerEvents() {
         conn.on('open', () => {
             peerObj.status = 'connected';
             peerObj.lastHeartbeat = Date.now();
-            console.log(`[Network] Connection opened for ${deviceName} (${conn.peer})`);
+            log.debug(`[Network] Connection opened for ${deviceName} (${conn.peer})`);
 
             const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
 
@@ -3679,18 +3923,18 @@ function setupPeerEvents() {
                     .filter(p => p.status === 'connected' && p.joinOrder < peerObj.joinOrder && p.id !== conn.peer)
                     .sort((a, b) => b.joinOrder - a.joinOrder); // Newest senior first
 
-                console.log(`[Relay] Evaluating ${deviceName} (joinOrder: ${peerObj.joinOrder}) for relay. Seniors found: ${seniors.length}`);
+                log.debug(`[Relay] Evaluating ${deviceName} (joinOrder: ${peerObj.joinOrder}) for relay. Seniors found: ${seniors.length}`);
 
                 for (const candidate of seniors) {
                     if (candidate.conn && candidate.conn.open) {
                         // Lane Logic: Prefer same parity (Odd/Even joinOrder)
                         const candidateParity = candidate.joinOrder % 2;
                         const myParity = peerObj.joinOrder % 2;
-                        console.log(`[Relay] Checking candidate ${candidate.label} (Parity: ${candidateParity}, MyParity: ${myParity})`);
+                        log.debug(`[Relay] Checking candidate ${candidate.label} (Parity: ${candidateParity}, MyParity: ${myParity})`);
 
                         if (candidateParity === myParity) {
-                            console.log(`[Relay] Assigned ${deviceName} -> ${candidate.label}`);
-                            conn.send({ type: 'assign-data-source', targetId: candidate.id });
+                            log.debug(`[Relay] Assigned ${deviceName} -> ${candidate.label}`);
+                            conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: candidate.id });
                             showToast(`Data Relay: ${deviceName} -> ${candidate.label}`);
                             peerObj.isDataTarget = false;
                             peerObj.assignedRelay = candidate.id;
@@ -3704,8 +3948,8 @@ function setupPeerEvents() {
                 if (!assigned && seniors.length > 0) {
                     const candidate = seniors[0];
                     if (candidate.conn && candidate.conn.open) {
-                        console.log(`[Relay] Fallback Assignment: ${deviceName} -> ${candidate.label}`);
-                        conn.send({ type: 'assign-data-source', targetId: candidate.id });
+                        log.debug(`[Relay] Fallback Assignment: ${deviceName} -> ${candidate.label}`);
+                        conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: candidate.id });
                         showToast(`Data Relay (Lane Fallback): ${deviceName} -> ${candidate.label}`);
                         peerObj.isDataTarget = false;
                         peerObj.assignedRelay = candidate.id;
@@ -3714,18 +3958,18 @@ function setupPeerEvents() {
                 }
 
                 if (!assigned) {
-                    console.warn(`[Relay] Could not assign relay for ${deviceName} even though seniors existed.`);
+                    log.warn(`[Relay] Could not assign relay for ${deviceName} even though seniors existed.`);
                 }
             }
             // -----------------------------
 
-            // [FIX #8] Set up relay lane reassignment on parent disconnect
+            // Set up relay lane reassignment on parent disconnect
             if (!peerObj.isDataTarget && peerObj.assignedRelay) {
                 // Monitor the assigned relay peer
                 const monitorRelay = () => {
                     const relay = connectedPeers.find(p => p.id === peerObj.assignedRelay);
                     if (!relay || relay.status !== 'connected') {
-                        console.log(`[Relay] Parent ${peerObj.assignedRelay} lost, attempting recovery for ${deviceName}`);
+                        log.debug(`[Relay] Parent ${peerObj.assignedRelay} lost, attempting recovery for ${deviceName}`);
 
                         // Find a new parent: nearest senior in the same lane
                         const juniors = connectedPeers
@@ -3741,20 +3985,20 @@ function setupPeerEvents() {
                         }
 
                         if (newParent) {
-                            console.log(`[Relay] Reassigning ${deviceName} to senior ${newParent.label}`);
+                            log.debug(`[Relay] Reassigning ${deviceName} to senior ${newParent.label}`);
                             peerObj.assignedRelay = newParent.id;
                             peerObj.isDataTarget = false;
                             if (conn.open) {
-                                conn.send({ type: 'assign-data-source', targetId: newParent.id, reason: 'parent-lost' });
+                                conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: newParent.id, reason: 'parent-lost' });
                             }
                             showToast(`${deviceName} -> ${newParent.label} (릴레이 재배정)`);
                         } else {
-                            console.log(`[Relay] No seniors in lane, reassigning ${deviceName} to Host Direct`);
+                            log.debug(`[Relay] No seniors in lane, reassigning ${deviceName} to Host Direct`);
                             peerObj.isDataTarget = true;
                             peerObj.assignedRelay = null;
 
                             if (conn.open) {
-                                conn.send({ type: 'assign-data-source', targetId: null, reason: 'parent-lost' });
+                                conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: null, reason: 'parent-lost' });
                             }
                             showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
 
@@ -3771,13 +4015,13 @@ function setupPeerEvents() {
             }
             // -----------------------------
 
-            conn.send({ type: 'welcome', label: deviceName });
-            conn.send({ type: 'volume', value: masterVolume });
-            conn.send({ type: 'reverb', value: reverbMix * 100 });
-            conn.send({ type: 'repeat-mode', value: repeatMode });
-            conn.send({ type: 'shuffle-mode', value: isShuffle });
+            conn.send({ type: MSG.WELCOME, label: deviceName });
+            conn.send({ type: MSG.VOLUME, value: masterVolume });
+            conn.send({ type: MSG.REVERB, value: reverbMix * 100 });
+            conn.send({ type: MSG.REPEAT_MODE, value: repeatMode });
+            conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle });
             conn.send({
-                type: 'playlist-update',
+                type: MSG.PLAYLIST_UPDATE,
                 list: playlist.map(item => ({
                     type: item.type,
                     name: item.name || item.title,
@@ -3791,7 +4035,7 @@ function setupPeerEvents() {
                 try {
                     const videoData = youtubePlayer.getVideoData();
                     conn.send({
-                        type: 'youtube-play',
+                        type: MSG.YOUTUBE_PLAY,
                         videoId: (videoData && videoData.video_id) ? videoData.video_id : (curItem ? curItem.videoId : null),
                         playlistId: curItem ? curItem.playlistId : null,
                         index: currentTrackIndex,
@@ -3801,7 +4045,7 @@ function setupPeerEvents() {
                     setTimeout(() => {
                         if (youtubePlayer && conn.open) {
                             conn.send({
-                                type: 'youtube-sync',
+                                type: MSG.YOUTUBE_SYNC,
                                 time: youtubePlayer.getCurrentTime(),
                                 state: youtubePlayer.getPlayerState(),
                                 subIndex: currentYouTubeSubIndex
@@ -3809,7 +4053,7 @@ function setupPeerEvents() {
                         }
                     }, 3000);
                 } catch (e) {
-                    console.error("[YouTube] Failed to send state to new guest:", e);
+                    log.error("[YouTube] Failed to send state to new guest:", e);
                 }
             }
 
@@ -3817,42 +4061,42 @@ function setupPeerEvents() {
 
             if (curItem && curItem.type !== 'youtube') {
                 conn.send({
-                    type: 'file-prepare',
+                    type: MSG.FILE_PREPARE,
                     name: curItem.name,
                     index: currentTrackIndex,
-                    sessionId: currentTransferSessionId // [FIX] Include session ID for late joiners
+                    sessionId: currentTransferSessionId // Include session ID for late joiners
                 });
             }
 
-            // [FIX] Late Joiner Media Guard:
+            // Late Joiner Media Guard:
             // If Host is still extracting audio from a video, do NOT send the MP4 file yet.
             // The guest will receive the WAV file automatically when broadcastFile(wavFile) is called later.
             if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file && !playlist[currentTrackIndex]?._isExtracting) {
                 unicastFile(conn, playlist[currentTrackIndex].file);
             } else if (playlist[currentTrackIndex]?._isExtracting) {
-                console.log(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
-                conn.send({ type: 'file-wait', message: '오디오 추출 중... 잠시만 기다려주세요.' });
+                log.debug(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
+                conn.send({ type: MSG.FILE_WAIT, message: '오디오 추출 중... 잠시만 기다려주세요.' });
             }
 
-            // [FIX] Move all conditional listeners INSIDE open callback so peerObj is in scope
+            // Move all conditional listeners INSIDE open callback so peerObj is in scope
             conn.on('data', data => {
-                // [FIX] Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
+                // Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
                 if (conn.open && !connectedPeers.find(p => p.id === peerObj.id)) {
-                    console.log(`[Network] Reviving zombie connection: ${peerObj.label}`);
+                    log.debug(`[Network] Reviving zombie connection: ${peerObj.label}`);
                     peerObj.status = 'connected';
                     peerObj.lastHeartbeat = Date.now();
                     connectedPeers.push(peerObj);
                     broadcastDeviceList();
                 }
 
-                if (data.type === 'heartbeat' || data.type === 'heartbeat-ack') {
+                if (data.type === MSG.HEARTBEAT || data.type === MSG.HEARTBEAT_ACK) {
                     peerObj.lastHeartbeat = Date.now();
 
                     if (!hostConn) { // Only genuine Host responds
                         const isActuallyPlaying = (videoElement && !videoElement.paused);
 
                         conn.send({
-                            type: 'status-sync',
+                            type: MSG.STATUS_SYNC,
                             currentTrackIndex: currentTrackIndex,
                             isPlaying: isActuallyPlaying,
                             repeatMode: repeatMode,
@@ -3868,43 +4112,52 @@ function setupPeerEvents() {
                     return;
                 }
 
-                if (data.type === 'ping-latency') {
-                    conn.send({ type: 'pong-latency', timestamp: data.timestamp });
+                if (data.type === MSG.PING_LATENCY) {
+                    conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp });
                     return;
                 }
 
-                if (data.type === 'get-sync-time') {
+                if (data.type === MSG.GET_SYNC_TIME) {
                     const currentTime = getTrackPosition();
                     const isActuallyPlaying = (videoElement && !videoElement.paused);
-                    conn.send({ type: 'sync-response', time: currentTime, isPlaying: isActuallyPlaying });
+                    conn.send({ type: MSG.SYNC_RESPONSE, time: currentTime, isPlaying: isActuallyPlaying });
                 }
                 else if (peerObj.isOp) {
                     handleOperatorRequest(data);
                 }
-                else if (data.type === 'preload-ack') {
+                else if (data.type === MSG.PRELOAD_ACK) {
                     if (!peerObj.preloadedIndexes) peerObj.preloadedIndexes = new Set();
                     peerObj.preloadedIndexes.add(data.index);
-                    console.log(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
+                    log.debug(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
                 }
-                else if (data.type === 'request-youtube-playlist-info') {
+                else if (data.type === MSG.REQUEST_YOUTUBE_PLAYLIST_INFO) {
                     const pid = data.playlistId;
                     if (youtubeSubItemsMap[pid]) {
                         conn.send({
-                            type: 'youtube-playlist-info',
+                            type: MSG.YOUTUBE_PLAYLIST_INFO,
                             playlistId: pid,
                             ids: youtubeSubItemsMap[pid].ids,
                             titles: youtubeSubItemsMap[pid].titles
                         });
                     }
                 }
-                else if (data.type === 'request-data-recovery') {
+                else if (data.type === MSG.REQUEST_DATA_RECOVERY) {
                     const fileName = data.fileName;
                     const recoveryIndex = data.index;
                     const nextChunk = data.nextChunk || 0;
                     const peerId = conn.peer;
 
-                    if (!window._recoveryInProgress) window._recoveryInProgress = {};
-                    if (window._recoveryInProgress[peerId]) return;
+                    // Rate-limit recovery requests per peer (min 5s between requests)
+                    const RECOVERY_COOLDOWN_MS = 5000;
+                    if (!_recoveryInProgress) _recoveryInProgress = {};
+                    if (!_recoveryLastRequest) _recoveryLastRequest = {};
+                    if (_recoveryInProgress[peerId]) return;
+                    const lastReq = _recoveryLastRequest[peerId] || 0;
+                    if (Date.now() - lastReq < RECOVERY_COOLDOWN_MS) {
+                        log.warn(`[Recovery] Rate-limited request from ${peerId.substr(-4)}`);
+                        return;
+                    }
+                    _recoveryLastRequest[peerId] = Date.now();
 
                     let item = playlist.find(f => f.name === fileName);
                     if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
@@ -3912,8 +4165,8 @@ function setupPeerEvents() {
                     }
 
                     if (item && item.file) {
-                        window._recoveryInProgress[peerId] = true;
-                        const queueDelay = Object.keys(window._recoveryInProgress).length * 200;
+                        _recoveryInProgress[peerId] = true;
+                        const queueDelay = Object.keys(_recoveryInProgress).length * 200;
                         setTimeout(async () => {
                             try {
                                 if (conn.open) {
@@ -3921,16 +4174,16 @@ function setupPeerEvents() {
                                     await unicastFile(conn, item.file, nextChunk);
                                 }
                             } finally {
-                                delete window._recoveryInProgress[peerId];
+                                delete _recoveryInProgress[peerId];
                             }
                         }, queueDelay);
                     }
                 }
-                else if (data.type === 'chat') {
+                else if (data.type === MSG.CHAT) {
                     addChatMessage(data.sender, data.text, false);
                     connectedPeers.forEach(p => {
                         if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
-                            p.conn.send({ type: 'chat', sender: data.sender, text: data.text });
+                            p.conn.send({ type: MSG.CHAT, sender: data.sender, text: data.text });
                         }
                     });
                 }
@@ -3966,16 +4219,16 @@ function setupPeerEvents() {
 // Guest Logic
 let connectionRetryCount = 0;
 const MAX_CONNECTION_RETRIES = 3;
-const CONNECTION_TIMEOUT_MS = 7000; // [SAFARI FIX] Reduced from 10s to 7s for faster retry if it hangs
+const CONNECTION_TIMEOUT_MS = 7000; // Reduced from 10s to 7s for faster retry if it hangs
 let connectionTimeoutId = null;
 
 function joinSession(retryAttempt = 0) {
-    // 1. Peer 객체가 준비되지 않았을 때 (초기화 중)
+    // 1. When Peer object is not ready (initializing)
     if (!peer || !peer.open) {
-        // [FIX] 로그에 시도 횟수 표시
-        console.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
+        // Log retry count
+        log.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
 
-        // [FIX] 20번(약 10초)까지만 기다려보고, 안 되면 포기 선언
+        // Wait up to 20 retries (~10s), then give up
         if (retryAttempt > 20) {
             showConnectionFailedOverlay(
                 "네트워크 초기화에 실패했습니다.\n\n" +
@@ -3985,13 +4238,13 @@ function joinSession(retryAttempt = 0) {
             return;
         }
 
-        // [FIX] 0.5초 뒤에 다시 확인하되, 카운트를 1 증가시킴
+        // Retry after 0.5s with incremented count
         setTimeout(() => joinSession(retryAttempt + 1), 500);
         return;
     }
 
     if (isConnecting && retryAttempt === 0) {
-        console.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
+        log.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
         return;
     }
     isConnecting = true;
@@ -4003,7 +4256,7 @@ function joinSession(retryAttempt = 0) {
     isIntentionalDisconnect = false;
 
     // UI Reset: Rebranding to "Connecting" state (Gray)
-    // [REF] Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
+    // Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
     // For connecting state, we might manually override text after calling update (or update function to support it)
     // For now, let's keep specific connection UI logic local but clean up the badge reset
     const roleBadge = document.getElementById('role-badge');
@@ -4016,9 +4269,9 @@ function joinSession(retryAttempt = 0) {
     // Show connection status
     if (retryAttempt === 0) {
         showToast("Host에 연결 중...");
-        document.getElementById('role-text').innerText = "연결 중...";
+        updateRoleBadge();
     } else {
-        // 연결 시간 초과 토스트가 이미 표시되므로 여기서는 UI만 업데이트
+        // Connection timeout toast already shown, just update UI
         document.getElementById('role-text').innerText = `재연결 ${retryAttempt}/${MAX_CONNECTION_RETRIES}`;
     }
 
@@ -4037,13 +4290,13 @@ function joinSession(retryAttempt = 0) {
     // Connection Timeout Handler
     connectionTimeoutId = setTimeout(() => {
         if (hostConn && !hostConn.open) {
-            console.warn(`Connection timeout after ${CONNECTION_TIMEOUT_MS}ms`);
+            log.warn(`Connection timeout after ${CONNECTION_TIMEOUT_MS}ms`);
             hostConn.close();
 
             if (retryAttempt < MAX_CONNECTION_RETRIES) {
                 isConnecting = false;
                 showToast(`연결 시간 초과. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-                // [GHOSTING FIX] Exponential Backoff
+                // Exponential Backoff
                 const backoffDelay = 1000 * Math.pow(1.5, retryAttempt);
                 setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
             } else {
@@ -4068,7 +4321,7 @@ function joinSession(retryAttempt = 0) {
 
         showToast("Host 연결됨!");
 
-        // [REF] Centralized Update
+        // Centralized Update
         myDeviceLabel = 'GUEST';
         updateRoleBadge();
 
@@ -4093,7 +4346,7 @@ function joinSession(retryAttempt = 0) {
     });
 
     hostConn.on('error', (err) => {
-        console.error("PeerJS Connection Error:", err);
+        log.error("PeerJS Connection Error:", err);
 
         // Clear timeout
         if (connectionTimeoutId) {
@@ -4124,14 +4377,14 @@ function joinSession(retryAttempt = 0) {
         postWorkerCommand({ command: 'STOP_TIMER', id: 'ping' });
 
         if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
-            // [FIX] If we are already in joinSession (isConnecting=true), don't trigger another one
+            // If we are already in joinSession (isConnecting=true), don't trigger another one
             if (isConnecting) {
-                console.log("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
+                log.debug("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
                 return;
             }
 
             isConnecting = false;
-            console.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
+            log.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
             showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
 
             const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
@@ -4142,7 +4395,7 @@ function joinSession(retryAttempt = 0) {
                 showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
             }
             showToast("Host 끊김");
-            // [REF] Centralized Update
+            // Centralized Update
             updateRoleBadge();
 
             // Clear any inline styles left by detectConnectionType
@@ -4188,9 +4441,9 @@ function showConnectionFailedOverlay(message) {
 }
 
 async function leaveSession() {
-    console.log("[Musixquare] Leaving session and resetting state...");
+    log.debug("[Musixquare] Leaving session and resetting state...");
 
-    // [Fix] Set intentional disconnect flag first to prevent retry logic
+    // Set intentional disconnect flag first to prevent retry logic
     isIntentionalDisconnect = true;
 
     clearAllManagedTimers();
@@ -4199,7 +4452,7 @@ async function leaveSession() {
     if (hostConn) {
         try {
             if (typeof hostConn.close === 'function') hostConn.close();
-        } catch (e) { }
+        } catch (e) { /* best-effort close on host connection */ }
         hostConn = null;
         window.hostConn = null;
     }
@@ -4207,7 +4460,7 @@ async function leaveSession() {
     if (peer) {
         try {
             if (typeof peer.destroy === 'function') peer.destroy();
-        } catch (e) { }
+        } catch (e) { /* best-effort destroy on peer instance */ }
         peer = null;
     }
 
@@ -4215,7 +4468,7 @@ async function leaveSession() {
     connectedPeers.forEach(p => {
         try {
             if (p.conn && typeof p.conn.close === 'function') p.conn.close();
-        } catch (e) { }
+        } catch (e) { /* best-effort close on guest connection */ }
     });
     connectedPeers = [];
     downstreamDataPeers = [];
@@ -4278,18 +4531,18 @@ async function leaveSession() {
     isChatDrawerOpen = false;
 
     // Global Window State
-    window._activeBroadcastSession = null;
-    window._pendingFileName = null;
-    window._pendingFileIndex = null;
-    window._ytIOSWatchdog = null;
-    window._ytScriptLoading = false;
+    _activeBroadcastSession = null;
+    _pendingFileName = null;
+    _pendingFileIndex = null;
+    _ytIOSWatchdog = null;
+    _ytScriptLoading = false;
     window.isYouTubeAPIReady = false;
 
     if (window.BlobURLManager) BlobURLManager.revoke();
 
     setState(APP_STATE.IDLE);
 
-    // [Fix] Re-run network init to get a fresh ID for next time
+    // Re-run network init to get a fresh ID for next time
     // We wait for previous destruction and clear state before starting new one
     await initNetwork();
 
@@ -4299,7 +4552,7 @@ async function leaveSession() {
     const leaveBtn = document.getElementById('btn-leave-session');
     if (leaveBtn) leaveBtn.style.display = 'none';
 
-    console.log("[Musixquare] Session left and state reset.");
+    log.debug("[Musixquare] Session left and state reset.");
 }
 
 // --- Data Handling ---
@@ -4308,7 +4561,7 @@ async function leaveSession() {
 // Detect ICE connection type and set compensation mode
 async function detectConnectionType() {
     if (!hostConn || !hostConn.peerConnection) {
-        console.log("[ICE] No peer connection available");
+        log.debug("[ICE] No peer connection available");
         return;
     }
 
@@ -4336,10 +4589,10 @@ async function detectConnectionType() {
 
         if (connectionType === 'relay') {
             usePingCompensation = true;
-            console.log("[ICE] TURN Relay detected - Using RTT/2 compensation");
+            log.debug("[ICE] TURN Relay detected - Using RTT/2 compensation");
             showToast("원격 네트워크 감지 - 자동 보정 활성화");
 
-            // 배지 주황색으로 변경 (릴레이)
+            // Change badge to orange (relay)
             const roleBadge = document.getElementById('role-badge');
             if (roleBadge) {
                 roleBadge.style.background = '#fb923c';
@@ -4347,35 +4600,40 @@ async function detectConnectionType() {
             }
         } else if (connectionType === 'host' || connectionType === 'srflx') {
             usePingCompensation = false;
-            console.log(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
+            log.debug(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
             showToast("로컬 네트워크 감지 - 직접 동기화");
-            // 기본 파란색 유지 (CSS에서 설정됨)
+            // Keep default blue (set by CSS)
         } else {
             usePingCompensation = true; // Fallback: apply compensation
-            console.log("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");
+            log.debug("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");
         }
     } catch (e) {
-        console.error("[ICE] Detection failed:", e);
+        log.error("[ICE] Detection failed:", e);
         usePingCompensation = true; // Fallback
     }
 }
 
 // Helper: Clear all previous track state to prevent data mixing
 function clearPreviousTrackState(reason = '') {
-    console.log(`[State Clear] Clearing previous track state. Reason: ${reason}`);
+    log.debug(`[State Clear] Clearing previous track state. Reason: ${reason}`);
 
-    // Stop timers (중앙화된 타이머 사용)
+    // Stop timers (using centralized timer system)
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('prepareWatchdog');
 
-    // ✅ 강화: 명시적 null 할당으로 GC 유도
-    if (incomingChunks && incomingChunks.length > 1000) {
-        console.log(`[GC] Releasing large chunk array (${incomingChunks.length} items)`);
-    }
-    incomingChunks = null; // GC 대상으로 만들기
-    incomingChunks = []; // 새 빈 배열
+    // Clear relay queues to prevent stale chunks from being forwarded
+    relayChunkQueue = [];
+    downstreamDataPeers.forEach(p => {
+        if (p._relayQueue) p._relayQueue = [];
+    });
 
-    // [Fix #5] Reorder Buffer Cleanup: Prevent memory growth across tracks
+    // Release old chunk array for GC, then create new one
+    if (incomingChunks && incomingChunks.length > 1000) {
+        log.debug(`[GC] Releasing large chunk array (${incomingChunks.length} items)`);
+    }
+    incomingChunks = []; // Replaces old reference, old array becomes GC target
+
+    // Reorder Buffer Cleanup: Prevent memory growth across tracks
     if (typeof fileReorderBuffer !== 'undefined') fileReorderBuffer.clear();
     if (typeof preloadReorderBuffer !== 'undefined') preloadReorderBuffer.clear();
     nextExpectedChunk = 0;
@@ -4383,33 +4641,29 @@ function clearPreviousTrackState(reason = '') {
 
     receivedCount = 0;
 
-    // ✅ 개선: meta도 명시적 해제
-    if (meta) {
-        meta = null;
-    }
-    meta = {};
+    meta = {}; // Old meta reference released for GC
 
     currentFileBlob = null;
 
-    // [Fix] CRITICAL: Clear audio buffer to prevent previous track from replaying
+    // CRITICAL: Clear audio buffer to prevent previous track from replaying
     if (currentAudioBuffer) {
-        console.log(`[State Clear] Clearing currentAudioBuffer`);
+        log.debug(`[State Clear] Clearing currentAudioBuffer`);
         currentAudioBuffer = null;
     }
     stopPlayerNode();  // Stop any playing audio
-    window._skipIncomingFile = false;
+    _skipIncomingFile = false;
     _isProcessingBlob = false;
     window._pendingEarlyChunks = [];
-    window._pendingPlayTime = undefined; // [FIX] Clear pending play intention on track change
+    _pendingPlayTime = undefined; // Clear pending play intention on track change
 
-    // [Fix] Reset state to IDLE so that subsequent sync/play commands for the new track 
+    // Reset state to IDLE so that subsequent sync/play commands for the new track 
     // are not ignored as "already playing" stale state.
     if (currentState === APP_STATE.PLAYING_AUDIO) {
         setState(APP_STATE.IDLE);
     }
 
-    // [FIX] Clear preload-ack tracking for current track (allow new acks for next track)
-    if (window._preloadAckSent) window._preloadAckSent.clear();
+    // Clear preload-ack tracking for current track (allow new acks for next track)
+    if (_preloadAckSent) _preloadAckSent.clear();
 
     BlobURLManager.revoke();
 
@@ -4418,12 +4672,9 @@ function clearPreviousTrackState(reason = '') {
         videoElement.src = '';
         videoElement.load();
     }
-    // [New] Explicitly revoke Blob URL when clearing track state
-    BlobURLManager.revoke();
-
-    // [New] Physically delete the OLD current file from OPFS when switching tracks
+    // Physically delete the OLD current file from OPFS when switching tracks
     if (currentFileOpfs.name) {
-        // [Fix] RESET worker slot first to clear lock
+        // RESET worker slot first to clear lock
         postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
         cleanupOPFSInWorker(currentFileOpfs.name, false);
         currentFileOpfs.name = null;
@@ -4435,24 +4686,24 @@ function clearPreviousTrackState(reason = '') {
 
 // --- Data Message Handlers ---
 async function handleFilePrepare(data) {
-    // [Fix] Increment token to invalidate any previous async operations
+    // Increment token to invalidate any previous async operations
     const myLoadToken = ++_currentLoadToken;
 
-    // [FIX] Immediate Session Check to invalidate old chunks
+    // Immediate Session Check to invalidate old chunks
     const incomingSid = data.sessionId;
     if (incomingSid && incomingSid > localTransferSessionId) {
-        console.log(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
+        log.debug(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
         localTransferSessionId = incomingSid;
 
-        // [Fix #4] Force reset waiting flags on new session
-        if (window._waitingForPreload) {
-            console.log(`[file-prepare] Clearing stale _waitingForPreload flag`);
-            window._waitingForPreload = false;
+        // Force reset waiting flags on new session
+        if (_waitingForPreload) {
+            log.debug(`[file-prepare] Clearing stale _waitingForPreload flag`);
+            _waitingForPreload = false;
             clearManagedTimer('preloadWatchdog');
         }
     }
 
-    // [FIX] Immediate stop for Guest during transition
+    // Immediate stop for Guest during transition
     // Ensures old song stops even if we return early to wait for preload
     stopAllMedia();
 
@@ -4465,7 +4716,7 @@ async function handleFilePrepare(data) {
     const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
 
     // DEBUG: Log preload matching status
-    console.log("[file-prepare] Checking preload:", {
+    log.debug("[file-prepare] Checking preload:", {
         dataIndex: data.index,
         dataName: data.name,
         nextMetaIndex: nextMeta?.index,
@@ -4476,19 +4727,19 @@ async function handleFilePrepare(data) {
         preloadInProgress: preloadInProgressByIndex || preloadInProgressByName
     });
 
-    // [FIX] Verify Preload Index: Don't use stale preload metadata from a different track
+    // Verify Preload Index: Don't use stale preload metadata from a different track
     const isMismatch = nextMeta && data.index !== undefined && data.index !== nextMeta.index;
     if (isMismatch) {
-        console.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
+        log.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${nextMeta.index}. Clearing stale preload.`);
 
-        // [FIX] Reset waiting flags to prevent getting stuck
-        if (window._waitingForPreload) {
-            window._waitingForPreload = false;
-            console.log("[Fixed] Cancelled stuck preload wait due to mismatch");
+        // Reset waiting flags to prevent getting stuck
+        if (_waitingForPreload) {
+            _waitingForPreload = false;
+            log.debug("Cancelled stuck preload wait due to mismatch");
         }
-        if (window._preloadWatchdog) {
-            clearTimeout(window._preloadWatchdog);
-            window._preloadWatchdog = null;
+        if (_preloadWatchdog) {
+            clearTimeout(_preloadWatchdog);
+            _preloadWatchdog = null;
         }
 
         clearPreloadState();
@@ -4496,7 +4747,7 @@ async function handleFilePrepare(data) {
 
     if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
 
-        console.log("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
+        log.debug("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
         showToast("프리로드된 파일 사용!");
 
         currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
@@ -4509,10 +4760,10 @@ async function handleFilePrepare(data) {
         showLoader(false);
 
         // Mark that we already loaded this track (prevent duplicate load from play-preloaded)
-        window._preloadUsedForIndex = data.index;
+        _preloadUsedForIndex = data.index;
 
         // Mark that we're skipping incoming file transfer
-        window._skipIncomingFile = true;
+        _skipIncomingFile = true;
         return;
     }
 
@@ -4522,33 +4773,33 @@ async function handleFilePrepare(data) {
         const incomingSid = data.sessionId;
         if (!incomingSid) return; // Strict validation
 
-        // [Fix #2] Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
+        // Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
         if (incomingSid > localTransferSessionId) {
-            console.log("[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.");
+            log.debug("[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.");
             localTransferSessionId = incomingSid;
             clearPreloadState();
-            // Continue to normal flow below (window._skipIncomingFile = false)
+            // Continue to normal flow below (_skipIncomingFile = false)
         } else {
-            console.log("[file-prepare] Preload in progress for this track, waiting...");
+            log.debug("[file-prepare] Preload in progress for this track, waiting...");
             showLoader(true, `프리로드 완료 대기 중: ${data.name}`);
 
             // Set pending info
             window._pendingFileName = data.name;
-            window._pendingFileIndex = data.index;
-            window._waitingForPreload = true;
-            window._skipIncomingFile = true; // Skip any file-start that might come
+            _pendingFileIndex = data.index;
+            _waitingForPreload = true;
+            _skipIncomingFile = true; // Skip any file-start that might come
 
             currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
             updatePlaylistUI();
 
-            // [FIX] Preload Watchdog: If preloading fails to complete, recover after 10s
-            if (window._preloadWatchdog) clearTimeout(window._preloadWatchdog);
-            window._preloadWatchdog = setTimeout(() => {
-                if (window._waitingForPreload) {
-                    console.warn("[Guest] Preload wait timed out. Force recovering...");
-                    window._waitingForPreload = false;
+            // Preload Watchdog: If preloading fails to complete, recover after 10s
+            if (_preloadWatchdog) clearTimeout(_preloadWatchdog);
+            _preloadWatchdog = setTimeout(() => {
+                if (_waitingForPreload) {
+                    log.warn("[Guest] Preload wait timed out. Force recovering...");
+                    _waitingForPreload = false;
                     showLoader(false);
-                    if (hostConn && hostConn.open) hostConn.send({ type: 'request-current-file' });
+                    if (hostConn && hostConn.open) hostConn.send({ type: MSG.REQUEST_CURRENT_FILE });
                 }
             }, 10000);
 
@@ -4557,21 +4808,21 @@ async function handleFilePrepare(data) {
     }
 
     // Normal flow: No preload available, prepare for download
-    window._skipIncomingFile = false;
-    window._waitingForPreload = false;
+    _skipIncomingFile = false;
+    _waitingForPreload = false;
 
     // Store pending file name for recovery requests
     window._pendingFileName = data.name;
-    window._pendingFileIndex = data.index;
+    _pendingFileIndex = data.index;
 
     // CRITICAL: Don't clear state if we're resuming the SAME file!
     // This preserves already-received chunks during recovery
     const isSameFile = (meta && meta.name === data.name) ||
-        (window._pendingFileIndex !== undefined && window._pendingFileIndex === data.index);
+        (_pendingFileIndex !== undefined && _pendingFileIndex === data.index);
     const isResuming = isSameFile && receivedCount > 0;
 
     if (isResuming) {
-        console.log(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
+        log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
         showLoader(true, `복구 대기 중: ${data.name}`);
     } else {
         // Clear previous track state before receiving new file
@@ -4583,22 +4834,22 @@ async function handleFilePrepare(data) {
             updatePlaylistUI();
         }
 
-        // [Fix] Ensure meta is populated for fallback/recovery logic
-        // [FIX] Merge with existing meta to preserve 'total' and other fields
+        // Ensure meta is populated for fallback/recovery logic
+        // Merge with existing meta to preserve 'total' and other fields
         meta = {
             ...meta,
             name: data.name || window._pendingFileName || (meta ? meta.name : ''),
-            index: data.index !== undefined ? data.index : (window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex),
+            index: data.index !== undefined ? data.index : (_pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex),
             size: data.size || (meta ? meta.size : 0),
             mime: data.mime || (meta ? meta.mime : ''),
-            sessionId: data.sessionId || localTransferSessionId // [FIX] Store sessionId in meta
+            sessionId: data.sessionId || localTransferSessionId // Store sessionId in meta
         };
-        // [FIX] Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
+        // Stop YouTube mode AFTER updatePlaylistUI to prevent title overwrite
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-            console.log("[file-prepare] Stopping YouTube mode for incoming local file");
+            log.debug("[file-prepare] Stopping YouTube mode for incoming local file");
             stopYouTubeMode();
         }
-        // [FIX] Set title LAST to ensure it's not overwritten
+        // Set title LAST to ensure it's not overwritten
         updateTitleWithMarquee(data.name);
         document.getElementById('track-artist').innerText = `Track ${data.index + 1}`;
     } // Close the else block from isResuming check
@@ -4607,17 +4858,17 @@ async function handleFilePrepare(data) {
     // Set fallback watchdog: If no chunks arrive within 12 seconds, something failed
     managedTimers.prepareWatchdog = setTimeout(() => {
         if (transferState === TRANSFER_STATE.IDLE || receivedCount === 0) {
-            console.warn("[Prepare Watchdog] Timeout waiting for data start!");
+            log.warn("[Prepare Watchdog] Timeout waiting for data start!");
             showToast("준비 지연 중... Host 복구 요청");
 
             // Fallback: Request recovery directly from Host
             if (hostConn && hostConn.open) {
                 const recoveryFileName = window._pendingFileName || '';
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+                const recoveryIndex = _pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex;
 
-                // [FIX] Consistent Jitter
+                // Consistent Jitter
                 const jitter = Math.random() * 1000 + 200;
-                console.log(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
+                log.debug(`[Watchdog] Delaying recovery request by ${Math.round(jitter)}ms for DDoS mitigation`);
                 setTimeout(() => {
                     if (hostConn && hostConn.open && !currentFileBlob) {
                         sendRecoveryRequest(0);
@@ -4635,43 +4886,43 @@ async function handleFileStart(data) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 
-    // [FIX] Session ID Validation - NO FALLBACK to 0
+    // Session ID Validation - NO FALLBACK to 0
     const incomingSid = data.sessionId;
     if (!incomingSid || incomingSid < localTransferSessionId) {
-        console.warn(`[file-start] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+        log.warn(`[file-start] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
         return;
     }
 
     // If it's a newer session, reset state
     if (incomingSid > localTransferSessionId) {
-        console.log(`[file-start] New session detected: ${incomingSid}. Resetting state.`);
+        log.debug(`[file-start] New session detected: ${incomingSid}. Resetting state.`);
         localTransferSessionId = incomingSid;
-        _currentLoadToken++; // [Fix] Invalidate any stale decodes for the old session
+        _currentLoadToken++; // Invalidate any stale decodes for the old session
 
-        // [Fix] Explicitly RESET worker slot for new session to prevent lock collision
+        // Explicitly RESET worker slot for new session to prevent lock collision
         postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
 
         clearPreviousTrackState('new-session-start');
     }
 
-    // [FIX] Stop current playback immediately when new transfer starts
+    // Stop current playback immediately when new transfer starts
     stopAllMedia();
 
     // Skip if we're using preloaded file (already have the data)
-    if (window._skipIncomingFile) {
-        console.log("[file-start] Skipping - already using preloaded file");
+    if (_skipIncomingFile) {
+        log.debug("[file-start] Skipping - already using preloaded file");
         return;
     }
 
     // Clear Prepare Watchdog as we've started receiving
     clearManagedTimer('prepareWatchdog');
 
-    // [FIX] Always reset processing guard at file-start to prevent stuck loader
+    // Always reset processing guard at file-start to prevent stuck loader
     // This is safe because file-start means we're (re)starting the transfer
     transferState = TRANSFER_STATE.IDLE;
 
     // [OPFS-Worker] Start new session
-    // [Fix] Consolidate OPFS_START logic
+    // Consolidate OPFS_START logic
     // We will call OPFS_START once later in this function after determining if it's a recovery
     if (currentFileOpfs.name && currentFileOpfs.name !== data.name) {
         cleanupOPFSInWorker(currentFileOpfs.name, false);
@@ -4691,11 +4942,11 @@ async function handleFileStart(data) {
 
     if (isSameFile && receivedCount > 0) {
         // RECOVERY MODE: Keep existing chunks (OPFS will overwrite or we seek)
-        console.log(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks (OPFS seek logic will follow)`);
+        log.debug(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks (OPFS seek logic will follow)`);
 
-        // [FIX] If file is already 100% complete, reset guard and skip to end
+        // If file is already 100% complete, reset guard and skip to end
         if (receivedCount >= data.total) {
-            console.log("[file-start] File already complete, triggering immediate processing");
+            log.debug("[file-start] File already complete, triggering immediate processing");
             _isProcessingBlob = false; // Reset guard to allow reprocessing
             meta = data; // Update meta first
 
@@ -4726,7 +4977,7 @@ async function handleFileStart(data) {
         meta = data;
     } else {
         // NEW FILE: Initialize fresh
-        console.log(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
+        log.debug(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
         showToast(`${sourceLabel}로부터 파일 수신 시작`);
         showLoader(true, `${sourceLabel} 수신 중... 0%${sizeText}`);
 
@@ -4745,9 +4996,9 @@ async function handleFileStart(data) {
         meta = data;
         transferState = TRANSFER_STATE.RECEIVING;
 
-        // [FIX] Apply any pending chunks that arrived before file-start
+        // Apply any pending chunks that arrived before file-start
         if (window._pendingEarlyChunks && window._pendingEarlyChunks.length > 0) {
-            console.log(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
+            log.debug(`[file-start] Applying ${window._pendingEarlyChunks.length} early chunks to Worker-OPFS`);
             for (const pending of window._pendingEarlyChunks) {
                 if (pending.index >= 0 && pending.index < data.total) {
                     postWorkerCommand({
@@ -4791,7 +5042,7 @@ async function handleFileStart(data) {
     }, 1000);
 
     // RELAY LOGIC: Forward 'file-start' header to downstream (simplified)
-    // [FIX] Removed _waitingForFileStart logic that caused duplicate transmissions
+    // Removed _waitingForFileStart logic that caused duplicate transmissions
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => {
             if (p.open) p.send(data);
@@ -4800,15 +5051,15 @@ async function handleFileStart(data) {
 }
 
 async function handleFileResume(data) {
-    // [FIX] Session ID Validation - NO FALLBACK to 0
+    // Session ID Validation - NO FALLBACK to 0
     const incomingSid = data.sessionId;
     if (!incomingSid || incomingSid < localTransferSessionId) {
-        console.warn(`[file-resume] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
+        log.warn(`[file-resume] Stale or invalid session ignored. Current: ${localTransferSessionId}, Received: ${incomingSid}`);
         return;
     }
 
     if (incomingSid > localTransferSessionId) {
-        console.log(`[file-resume] New session detected during resume: ${incomingSid}`);
+        log.debug(`[file-resume] New session detected during resume: ${incomingSid}`);
         localTransferSessionId = incomingSid;
     }
 
@@ -4816,7 +5067,7 @@ async function handleFileResume(data) {
     clearManagedTimer('prepareWatchdog');
 
     // RESUME TRANSFER
-    window._skipIncomingFile = false;
+    _skipIncomingFile = false;
 
     // [OPFS-Worker] Resume
     postWorkerCommand({
@@ -4832,7 +5083,7 @@ async function handleFileResume(data) {
     const sourceLabel = upstreamDataConn ? `Relay(${upstreamDataConn.peer.substr(-4)})` : "Host";
     const startChunk = data.startChunk || 0;
 
-    console.log(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks (OPFS handles resume via keepExistingData)`);
+    log.debug(`[Resume] Continuing from chunk ${startChunk}, already have ${receivedCount} chunks (OPFS handles resume via keepExistingData)`);
     showToast(`${sourceLabel}로부터 전송 재개 (${startChunk}부터)`);
 
     transferState = TRANSFER_STATE.RECEIVING;
@@ -4871,7 +5122,7 @@ async function handleFileResume(data) {
     }, 1000);
 }
 
-// [Fix #6] Network Data Integrity: Chunk Reordering Buffer
+// Network Data Integrity: Chunk Reordering Buffer
 const fileReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
 let nextExpectedChunk = 0;
 
@@ -4879,33 +5130,33 @@ async function handleFileChunk(data) {
     const incomingSid = data.sessionId;
     if (!incomingSid) return; // Strict validation
 
-    // ✅ 새 세션 감지 시 워커 리셋
+    // Reset worker on new session detection
     if (incomingSid > localTransferSessionId) {
-        console.log(`[Chunk] New session detected: ${localTransferSessionId} → ${incomingSid}`);
+        log.debug(`[Chunk] New session detected: ${localTransferSessionId} → ${incomingSid}`);
         localTransferSessionId = incomingSid;
 
-        // Worker 버퍼 명시적 클리어
+        // Explicitly clear worker buffers
         postWorkerCommand({
             command: 'OPFS_RESET',
             isPreload: false
         });
 
-        // 기존 상태 초기화
+        // Reset existing state
         clearPreviousTrackState('session-change');
 
-        // [New] Reorder Buffer Reset
+        // Reorder Buffer Reset
         fileReorderBuffer.set(incomingSid, new Map());
         nextExpectedChunk = 0;
         receivedCount = 0;
     }
 
     if (incomingSid < localTransferSessionId) {
-        if (data.index === 0) console.warn(`[Chunk] Stale session ignored: ${incomingSid}`);
+        if (data.index === 0) log.warn(`[Chunk] Stale session ignored: ${incomingSid}`);
         return;
     }
 
     // Skip if we're using preloaded file
-    if (window._skipIncomingFile) {
+    if (_skipIncomingFile) {
         return;
     }
 
@@ -4916,19 +5167,19 @@ async function handleFileChunk(data) {
 
     const sessionBuffer = fileReorderBuffer.get(incomingSid);
 
-    // [Fix] Clone data before storing/sending to avoid detachment issues
+    // Clone data before storing/sending to avoid detachment issues
     const chunkData = new Uint8Array(data.chunk);
     sessionBuffer.set(data.index, chunkData);
 
     // Debug logging for first few chunks
     if (data.index < 5 || data.index % 100 === 0) {
-        console.log(`[Chunk] Received idx=${data.index}, total=${meta?.total}`);
+        log.debug(`[Chunk] Received idx=${data.index}, total=${meta?.total}`);
     }
 
-    // [FIX] Skip orphan chunks when meta was cleared (session changed)
+    // Skip orphan chunks when meta was cleared (session changed)
     if (!meta || meta.total === undefined) {
         if (data.total !== undefined) {
-            console.log(`[Chunk] Recovering meta from chunk idx=${data.index} (total=${data.total})`);
+            log.debug(`[Chunk] Recovering meta from chunk idx=${data.index} (total=${data.total})`);
             meta = {
                 ...meta,
                 name: data.name || (meta ? meta.name : ''),
@@ -4936,21 +5187,21 @@ async function handleFileChunk(data) {
                 sessionId: incomingSid,
                 size: data.size || (meta ? meta.size : 0)
             };
-            // [FIX] Synchronize OPFS filename immediately and START worker session
+            // Synchronize OPFS filename immediately and START worker session
             // This prevents "expected=null" mismatches if handleFileStart was missed due to rapid skip
             if (meta.name) {
                 currentFileOpfs.name = meta.name;
-                console.log(`[Chunk] Auto-starting worker session for recovered meta: ${meta.name} (SID: ${incomingSid})`);
+                log.debug(`[Chunk] Auto-starting worker session for recovered meta: ${meta.name} (SID: ${incomingSid})`);
                 postWorkerCommand({
                     command: 'OPFS_START',
                     filename: meta.name,
                     isPreload: false,
                     sessionId: incomingSid,
-                    keepExisting: true // [Fix] Don't wipe if some chunks already arrived
+                    keepExisting: true // Don't wipe if some chunks already arrived
                 });
             }
         } else {
-            console.warn(`[Chunk] Orphan chunk ignored (idx=${data.index}): meta.total is undefined and no recovery data`);
+            log.warn(`[Chunk] Orphan chunk ignored (idx=${data.index}): meta.total is undefined and no recovery data`);
             return;
         }
     }
@@ -4977,10 +5228,10 @@ async function handleFileChunk(data) {
         // RELAY LOGIC: Queue and Process
         if (relayCopy && downstreamDataPeers.length > 0) {
             relayChunkQueue.push({
-                type: 'file-chunk',
+                type: MSG.FILE_CHUNK,
                 chunk: relayCopy,
                 index: nextExpectedChunk,
-                sessionId: incomingSid // [FIX] Include session ID for relay sync
+                sessionId: incomingSid // Include session ID for relay sync
             });
             processRelayQueue();
         }
@@ -5011,16 +5262,16 @@ async function handleFileChunk(data) {
         updateLoader(percent);
     }
 
-    // [FIX] Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
+    // Use >= instead of === to handle edge cases where receivedCount slightly exceeds total
     if (meta && receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
-        // [FIX #4] Set guard BEFORE any async operation to prevent race conditions
+        // Set guard BEFORE any async operation to prevent race conditions
         transferState = TRANSFER_STATE.PROCESSING;
-        const processingIndex = meta.index;   // [Fix] Capture track index for ACK
+        const processingIndex = meta.index;   // Capture track index for ACK
 
-        // [New] Notify Host that we have this file now
+        // Notify Host that we have this file now
         if (hostConn && hostConn.open && processingIndex !== undefined) {
-            hostConn.send({ type: 'preload-ack', index: processingIndex });
-            console.log(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
+            hostConn.send({ type: MSG.PRELOAD_ACK, index: processingIndex });
+            log.debug(`[Guest] Confirmed cache for index ${processingIndex} to Host`);
         }
 
         // [Worker-OPFS] Finalize file with Size Verification
@@ -5029,7 +5280,7 @@ async function handleFileChunk(data) {
             filename: meta.name,
             isPreload: false,
             sessionId: validateSessionId(incomingSid),
-            totalSize: meta.size // [Fix] Send expected size for integrity check
+            totalSize: meta.size // Send expected size for integrity check
         });
 
         // [Stability Fix] Explicitly clear watchdog once file is fully received
@@ -5041,35 +5292,35 @@ async function handleFileChunk(data) {
 }
 
 async function handleFileEnd(data) {
-    if (window._skipIncomingFile) return;
+    if (_skipIncomingFile) return;
 
     // RELAY LOGIC: Forward to downstream
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 
-    console.log(`[file-end] Received end signal for: ${data.name}`);
+    log.debug(`[file-end] Received end signal for: ${data.name}`);
 
-    // [Fix] Integrity check: if we haven't hit the total yet, something is wrong
+    // Integrity check: if we haven't hit the total yet, something is wrong
     if (meta && receivedCount < meta.total) {
-        console.warn(`[file-end] Received before all chunks! Got ${receivedCount}/${meta.total}`);
+        log.warn(`[file-end] Received before all chunks! Got ${receivedCount}/${meta.total}`);
     }
 }
 
 async function handleFileWait(data) {
-    console.log("[Guest] Relay has no data yet, waiting for forwarded data...");
+    log.debug("[Guest] Relay has no data yet, waiting for forwarded data...");
     showToast("릴레이 대기 중... 잠시만 기다려주세요");
 
     // Mark that we're waiting for relay data
-    window._waitingForRelayData = true;
+    _waitingForRelayData = true;
 
     // Set timeout: If no data comes within 10 seconds, fall back to Host
     clearManagedTimer('relayWaitTimeout');
     managedTimers.relayWaitTimeout = setTimeout(() => {
-        if (window._waitingForRelayData && receivedCount === 0) {
-            console.log("[Guest] Relay wait timeout - falling back to Host");
+        if (_waitingForRelayData && receivedCount === 0) {
+            log.debug("[Guest] Relay wait timeout - falling back to Host");
             showToast("릴레이 응답 없음. Host에서 직접 수신...");
-            window._waitingForRelayData = false;
+            _waitingForRelayData = false;
 
             // Disconnect from relay
             if (upstreamDataConn) {
@@ -5080,25 +5331,25 @@ async function handleFileWait(data) {
             // Request file from Host
             if (hostConn && hostConn.open) {
                 const recoveryFileName = window._pendingFileName || '';
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+                const recoveryIndex = _pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex;
 
                 // VALIDATION: Don't send recovery request with invalid index
                 if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
-                    console.warn("[file-wait timeout] Invalid index, skipping recovery:", recoveryIndex);
+                    log.warn("[file-wait timeout] Invalid index, skipping recovery:", recoveryIndex);
                     showLoader(false);
                     return;
                 }
 
                 // Check if preload is in progress for this track
                 if (preloadMeta && preloadMeta.index === recoveryIndex) {
-                    console.log("[file-wait timeout] Preload in progress for this track, waiting...");
+                    log.debug("[file-wait timeout] Preload in progress for this track, waiting...");
                     showToast("프리로드 완료 대기 중...");
                     return; // Let preload finish naturally
                 }
 
-                console.log("[file-wait timeout] Requesting from Host:", recoveryFileName, "index:", recoveryIndex);
+                log.debug("[file-wait timeout] Requesting from Host:", recoveryFileName, "index:", recoveryIndex);
                 hostConn.send({
-                    type: 'request-data-recovery',
+                    type: MSG.REQUEST_DATA_RECOVERY,
                     nextChunk: 0,
                     fileName: recoveryFileName,
                     index: recoveryIndex
@@ -5130,16 +5381,16 @@ async function handleSyncResponse(data) {
     const compensatedTime = data.time + oneWayLatencySeconds;
 
     // [Simplified] Always perform a "Hard Sync" for maximum accuracy
-    console.log(`[AutoSync] Hard sync triggered (Compensated time: ${compensatedTime.toFixed(3)}s)`);
+    log.debug(`[AutoSync] Hard sync triggered (Compensated time: ${compensatedTime.toFixed(3)}s)`);
 
     if (data.isPlaying) {
-        // [Fixed] Always restart the playback engine at the precise corrected time
+        // Always restart the playback engine at the precise corrected time
         play(compensatedTime + localOffset);
     }
     else {
-        // [FIX] Don't stop if we are waiting for a scheduled play command (Host countdown)
-        if (window._pendingPlayTime) {
-            console.log("[AutoSync] Host is not playing yet, but we have a pending start. Keeping status quo.");
+        // Don't stop if we are waiting for a scheduled play command (Host countdown)
+        if (_pendingPlayTime) {
+            log.debug("[AutoSync] Host is not playing yet, but we have a pending start. Keeping status quo.");
             pausedAt = compensatedTime; // Sync time for when we DO start
             return;
         }
@@ -5158,22 +5409,23 @@ async function handleSyncResponse(data) {
 
 async function handleYouTubePlay(data) {
     // Guest receives YouTube play command from Host
-    console.log("[Guest] Received youtube-play:", data);
+    log.debug("[Guest] Received youtube-play:", data);
 
     // 1. Stop any local audio/video first
     stopAllMedia();
 
     // 2. [Reliability] Reset preload state when entering YouTube
     clearPreloadState();
-    window._skipIncomingPreload = false;
+    _skipIncomingPreload = false;
     clearManagedTimer('prepareWatchdog');
 
-    currentState = APP_STATE.PLAYING_YOUTUBE;
     // 3. Stop existing YouTube if playing
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-        try { youtubePlayer.destroy(); } catch (e) { }
+        try { youtubePlayer.destroy(); } catch (e) { /* best-effort cleanup before re-init */ }
         youtubePlayer = null;
     }
+
+    currentState = APP_STATE.PLAYING_YOUTUBE;
 
     // 4. Sync track index
     if (data.index !== undefined) {
@@ -5181,18 +5433,18 @@ async function handleYouTubePlay(data) {
         updatePlaylistUI();
     }
 
-    // 4. Load YouTube (autoplay based on Host's command)
+    // 5. Load YouTube (autoplay based on Host's command)
     showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
     loadYouTubeVideo(data.videoId, data.playlistId, data.autoplay !== false, data.subIndex || 0);
 
-    // 5. Hide Loader (Prevent hang from accidental file-prepare)
+    // 6. Hide Loader (Prevent hang from accidental file-prepare)
     showLoader(false);
 }
 
 async function handlePreloadStart(data) {
     clearManagedTimer('prepareWatchdog');
 
-    // [Fix] Reliability: Match cache by Index OR Name (Fallback to currentTrackIndex)
+    // Reliability: Match cache by Index OR Name (Fallback to currentTrackIndex)
     const matchIndex = (idx) => Number(idx) === Number(data.index);
     const matchName = (n) => n && data.name && n === data.name;
 
@@ -5202,28 +5454,28 @@ async function handlePreloadStart(data) {
 
     const sessionId = data.sessionId;
     if (!sessionId) {
-        console.warn("[Preload] Start message missing sessionId. Ignoring.");
+        log.warn("[Preload] Start message missing sessionId. Ignoring.");
         return;
     }
 
     // Skip if Host explicitly said so, or if we detected cache ourselves
     if (data.skipped || alreadyCachedLocally) {
-        console.log(`[Preload] Skipping session ${sessionId}`);
+        log.debug(`[Preload] Skipping session ${sessionId}`);
 
-        // ✅ 세션별 상태 저장
+        // Save per-session state
         preloadSessionState.set(sessionId, { skipped: true });
-        latestPreloadSessionId = sessionId; // [Fix] Track active session
+        latestPreloadSessionId = sessionId; // Track active session
 
         preloadChunks = [];
         preloadCount = 0;
         preloadMeta = { ...data, isSkipped: true };
-        window._skipIncomingPreload = true;
+        _skipIncomingPreload = true;
 
         // Relay from whatever cache we have to downstream
         const sourceBlob = isNextPreloaded ? nextFileBlob : (currentFileBlob || null);
 
         if (downstreamDataPeers.length > 0) {
-            console.log(`[Relay] Forwarding preload-start for cached track ${data.index} (relayed from this node)`);
+            log.debug(`[Relay] Forwarding preload-start for cached track ${data.index} (relayed from this node)`);
             // [CRITICAL FIX] Always clear skipped=true for downstream peers because THIS node will send chunks!
             const forwardHeader = { ...data, skipped: false };
             downstreamDataPeers.forEach(p => { if (p.open) p.send(forwardHeader); });
@@ -5235,31 +5487,31 @@ async function handlePreloadStart(data) {
         return;
     }
 
-    // ✅ 세션 상태 초기화
+    // Initialize session state
     preloadSessionState.set(sessionId, {
         skipped: false,
         progress: 0,
         total: data.total,
-        name: data.name,    // [Fix] Store name for chunk processing
-        index: data.index,   // [Fix] Store index for completeness check
-        size: data.size,     // [Fix] Store size for integrity check
-        mime: data.mime,      // [Fix] Store mime for video detection
-        nextExpectedChunk: 0 // [Fix] Session-scoped chunk pointer
+        name: data.name,    // Store name for chunk processing
+        index: data.index,   // Store index for completeness check
+        size: data.size,     // Store size for integrity check
+        mime: data.mime,      // Store mime for video detection
+        nextExpectedChunk: 0 // Session-scoped chunk pointer
     });
-    latestPreloadSessionId = sessionId; // [Fix] Track active session
+    latestPreloadSessionId = sessionId; // Track active session
 
-    console.log(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
+    log.debug(`[Preload] Starting Worker-OPFS preload for: ${data.name}`);
 
-    // [New] Show Preload Status in Header
-    // "다음 곡 준비 중..."
+    // Show Preload Status in Header
+    // "Preparing next track..."
     // Only if main track transfer is NOT in progress to avoid UI flickering
     if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
         showLoader(true, `다음 곡 준비 중... (${data.name})`);
     } else {
-        console.log(`[Preload] Started behind main track: ${data.name}`);
+        log.debug(`[Preload] Started behind main track: ${data.name}`);
     }
 
-    // [Fix] Explicitly RESET preload slot before starting new one to clear stale locks
+    // Explicitly RESET preload slot before starting new one to clear stale locks
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 
     // [OPFS-Worker] Prepare preload file
@@ -5275,21 +5527,21 @@ async function handlePreloadStart(data) {
     preloadChunks = [];
     preloadCount = 0;
     preloadMeta = data;
-    window._skipIncomingPreload = false;
+    _skipIncomingPreload = false;
 
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 }
 
-// [Fix #6] Network Data Integrity: Preload Reordering Buffer
+// Network Data Integrity: Preload Reordering Buffer
 const preloadReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
 // [Refactor] Removed global nextExpectedPreloadChunk to prevent pollution
 // let nextExpectedPreloadChunk = 0;
-let latestPreloadSessionId = 0; // [Fix] Fallback for chunks missing explicit SessionID
+let latestPreloadSessionId = 0; // Fallback for chunks missing explicit SessionID
 
 async function handlePreloadChunk(data) {
-    // [Fix] NO FALLBACK to 0. Must have valid SID.
+    // NO FALLBACK to 0. Must have valid SID.
     let sessionId = data.sessionId;
     if (!sessionId && latestPreloadSessionId !== 0) {
         sessionId = latestPreloadSessionId;
@@ -5302,14 +5554,14 @@ async function handlePreloadChunk(data) {
     if (!sessionState) {
         // Session state missing - log warning but continue
         // Use preloadMeta as fallback for chunks that arrive before session state is set
-        console.warn(`[Preload] Session State MISSING for SID: ${sessionId}, using preloadMeta fallback`);
+        log.warn(`[Preload] Session State MISSING for SID: ${sessionId}, using preloadMeta fallback`);
     }
 
     if (sessionState?.skipped) {
-        return; // 스킵된 세션의 청크 무시
+        return; // Ignore chunks from skipped session
     }
 
-    if (window._skipIncomingPreload) return;
+    if (_skipIncomingPreload) return;
 
     if (!preloadReorderBuffer.has(sessionId)) {
         preloadReorderBuffer.set(sessionId, new Map());
@@ -5319,7 +5571,7 @@ async function handlePreloadChunk(data) {
     const sessionBuffer = preloadReorderBuffer.get(sessionId);
     sessionBuffer.set(data.index, data.chunk);
 
-    // [Fix] Use Session-Scoped Pointer
+    // Use Session-Scoped Pointer
     let nextChunkPtr = sessionState ? sessionState.nextExpectedChunk : 0;
 
     while (sessionBuffer.has(nextChunkPtr)) {
@@ -5333,7 +5585,7 @@ async function handlePreloadChunk(data) {
         if (downstreamDataPeers.length > 0) {
             const relayCopy = new Uint8Array(chunk);
             relayChunkQueue.push({
-                type: 'preload-chunk',
+                type: MSG.PRELOAD_CHUNK,
                 chunk: relayCopy,
                 index: nextChunkPtr,
                 sessionId: sessionId
@@ -5359,8 +5611,8 @@ async function handlePreloadChunk(data) {
         sessionState.nextExpectedChunk = nextChunkPtr;
     }
 
-    // ✅ 진행률 업데이트
-    // [Fix] Rely on Session State for progress tracking to avoid Global Variable pollution
+    // Update progress
+    // Rely on Session State for progress tracking to avoid Global Variable pollution
     if (sessionState) {
         sessionState.progress = sessionState.nextExpectedChunk;
         preloadCount = sessionState.progress; // Sync global for legacy UI if needed
@@ -5368,7 +5620,7 @@ async function handlePreloadChunk(data) {
         preloadCount = sessionState ? sessionState.nextExpectedChunk : 0; // Fallback
     }
 
-    // [New] Update UI for Preload
+    // Update UI for Preload
     if (preloadMeta && preloadMeta.total > 0) {
         // Only update progress bar for preload if main track is NOT using it
         if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
@@ -5378,7 +5630,7 @@ async function handlePreloadChunk(data) {
         }
     }
 
-    // [Fix] Use Session-Scoped Progress Check
+    // Use Session-Scoped Progress Check
     const currentProgress = sessionState ? sessionState.progress : preloadCount;
     const totalExpected = sessionState ? sessionState.total : (preloadMeta?.total || 0);
     const fileName = sessionState ? sessionState.name : (preloadMeta?.name || '');
@@ -5387,14 +5639,14 @@ async function handlePreloadChunk(data) {
     if (totalExpected > 0 && currentProgress >= totalExpected) { // Finalize via worker
         const currentSessionState = preloadSessionState.get(sessionId);
         if (currentSessionState && !currentSessionState.finalized) {
-            console.log(`[Preload] All chunks received via Worker-OPFS (${currentProgress}/${totalExpected}). Finalizing...`);
+            log.debug(`[Preload] All chunks received via Worker-OPFS (${currentProgress}/${totalExpected}). Finalizing...`);
             currentSessionState.finalized = true;
             postWorkerCommand({
                 command: 'OPFS_END',
                 filename: fileName,
                 isPreload: true,
-                sessionId: sessionId, // [Fix] validateSessionId is too strict for worker commands
-                totalSize: fileSize // [Fix] Send expected size for integrity check
+                sessionId: sessionId, // validateSessionId is too strict for worker commands
+                totalSize: fileSize // Send expected size for integrity check
             });
             // NOTE: We do NOT reset preloadCount to 0 here because it's needed for handlePreloadEnd's check.
             // It will be reset in clearPreloadState().
@@ -5403,10 +5655,10 @@ async function handlePreloadChunk(data) {
 }
 
 async function handlePreloadEnd(data) {
-    if (window._skipIncomingPreload) return;
+    if (_skipIncomingPreload) return;
 
-    /* [Fix] Retrieve Session State to verify completeness */
-    // [Fix] NO FALLBACK to 0. Must have valid SID.
+    /* Retrieve Session State to verify completeness */
+    // NO FALLBACK to 0. Must have valid SID.
     let sessionId = data.sessionId;
     if (!sessionId && latestPreloadSessionId !== 0) {
         sessionId = latestPreloadSessionId;
@@ -5414,7 +5666,7 @@ async function handlePreloadEnd(data) {
 
     const sessionState = preloadSessionState.get(sessionId);
 
-    // [Fix] Deduplicate OPFS_END if already called by handlePreloadChunk
+    // Deduplicate OPFS_END if already called by handlePreloadChunk
     if (sessionState && !sessionState.finalized) {
         sessionState.finalized = true;
         const fileSize = sessionState.size || data.totalSize || preloadMeta?.size;
@@ -5424,7 +5676,7 @@ async function handlePreloadEnd(data) {
             command: 'OPFS_END',
             filename: fileName,
             isPreload: true,
-            sessionId: sessionId, // [Fix] validateSessionId is too strict for worker commands
+            sessionId: sessionId, // validateSessionId is too strict for worker commands
             totalSize: fileSize
         });
     }
@@ -5434,72 +5686,58 @@ async function handlePreloadEnd(data) {
     const fileName = sessionState ? sessionState.name : (preloadMeta?.name || '');
     const fileSize = sessionState ? sessionState.size : (preloadMeta?.size || 0);
 
-    console.log(`[Preload] End signal received for index: ${data.index} (Progress: ${progress}/${total})`);
+    log.debug(`[Preload] End signal received for index: ${data.index} (Progress: ${progress}/${total})`);
 
     // RELAY LOGIC: Forward to downstream
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 
-    // [Fix] Allow slight mismatch (e.g. -1) or exact match
+    // Allow slight mismatch (e.g. -1) or exact match
     if (progress < total) {
-        console.warn(`[Preload] Incomplete! Got ${progress}/${total} chunks.`);
+        log.warn(`[Preload] Incomplete! Got ${progress}/${total} chunks.`);
         // Force try finalizing if we are very close (optional logic, but safe to just warn for now)
         return;
     }
 
-    if (!nextFileBlob) {
-        postWorkerCommand({
-            command: 'OPFS_END',
-            filename: fileName,
-            isPreload: true,
-            sessionId: validateSessionId(sessionId),
-            totalSize: fileSize
-        });
-    }
+    // OPFS_END is already sent by handlePreloadChunk or the block above (L5421-5433)
+    // No additional finalization needed here
 
-    // [FIX] Removed duplicate preload-ack - already sent in OPFS_FILE_READY handler (line 576)
+    // Removed duplicate preload-ack - already sent in OPFS_FILE_READY handler (line 576)
     // This prevents Host from receiving 2 acks per preload
 
-    // [New] Hide Loader when Preload Complete
+    // Hide Loader when Preload Complete
     // Only if main track transfer is NOT in progress
     if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
         showLoader(false);
     } else {
-        console.log("[Preload] Complete, but keeping loader for main track transfer...");
-    }
-
-    // RELAY LOGIC: Forward to downstream
-    if (downstreamDataPeers.length > 0) {
-        downstreamDataPeers.forEach(p => {
-            if (p.open) p.send(data);
-        });
+        log.debug("[Preload] Complete, but keeping loader for main track transfer...");
     }
 }
 
 async function handlePlayPreloaded(data) {
-    // [Fix] Increment token to invalidate any previous async operations
+    // Increment token to invalidate any previous async operations
     const myLoadToken = ++_currentLoadToken;
 
     // Host Command: "Switch to what you downloaded!"
-    console.log("Command: Play Preloaded Track, index:", data.index);
+    log.debug("Command: Play Preloaded Track, index:", data.index);
 
-    // [FIX] Deduplication: If already processing this exact track, ignore duplicate commands
+    // Deduplication: If already processing this exact track, ignore duplicate commands
     if (window._playPreloadedInProgress === data.index && !data.retryAttempt) {
-        console.log(`[PlayPreloaded] Already processing track ${data.index}, ignoring duplicate command`);
+        log.debug(`[PlayPreloaded] Already processing track ${data.index}, ignoring duplicate command`);
         return;
     }
 
-    // [FIX] Immediate stop for Guest during transition (only on first attempt)
+    // Immediate stop for Guest during transition (only on first attempt)
     if (!data.retryAttempt) {
         window._playPreloadedInProgress = data.index;
         stopAllMedia();
     }
 
     // Skip if we already loaded this track via file-prepare
-    if (window._preloadUsedForIndex === data.index) {
-        console.log("[Guest] Already loaded track via file-prepare, skipping play-preloaded");
-        window._preloadUsedForIndex = undefined; // Reset flag
+    if (_preloadUsedForIndex === data.index) {
+        log.debug("[Guest] Already loaded track via file-prepare, skipping play-preloaded");
+        _preloadUsedForIndex = undefined; // Reset flag
         window._playPreloadedInProgress = undefined;
         return;
     }
@@ -5507,27 +5745,27 @@ async function handlePlayPreloaded(data) {
     currentTrackIndex = data.index;
     updatePlaylistUI(); // Update active highlight
 
-    // [Fix] If Guest was in YouTube mode, stop it before loading file
+    // If Guest was in YouTube mode, stop it before loading file
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        console.log("[Guest] Switching from YouTube to Preloaded Local Track");
+        log.debug("[Guest] Switching from YouTube to Preloaded Local Track");
         stopYouTubeMode();
     }
 
-    // [FIX] Strict Index Verification: Ensure preloaded data belongs to the requested track
+    // Strict Index Verification: Ensure preloaded data belongs to the requested track
     const isPreloadTargetMatch = nextMeta && (nextMeta.index === data.index || nextMeta.name === data.name);
 
     if (nextFileBlob && isPreloadTargetMatch) {
-        // 프리로드된 파일이 있으면 사용
-        console.log("[Guest] Using preloaded file for track", data.index);
+        // Use preloaded file if available
+        log.debug("[Guest] Using preloaded file for track", data.index);
         await loadPreloadedTrack(data.index, myLoadToken);
 
         // CRITICAL: Hide loader (Playlist UI is already updated via handlePlayPreloaded's call to updatePlaylistUI)
         showLoader(false);
 
         // Mark that we already loaded this track (prevent duplicate load from following messages)
-        window._preloadUsedForIndex = data.index;
-        window._skipIncomingFile = true;
-        window._playPreloadedInProgress = undefined; // [FIX] Clear in-progress flag
+        _preloadUsedForIndex = data.index;
+        _skipIncomingFile = true;
+        window._playPreloadedInProgress = undefined; // Clear in-progress flag
 
         // RELAY LOGIC: Forward to downstream
         if (downstreamDataPeers.length > 0) {
@@ -5542,7 +5780,7 @@ async function handlePlayPreloaded(data) {
 
         // If we are > 80% done or just processing, give it a chance
         if (isDownloadingSameTrack && !data.retryAttempt) {
-            console.log(`[PlayPreloaded] Preload is active (${(progress * 100).toFixed(1)}%). Waiting for completion...`);
+            log.debug(`[PlayPreloaded] Preload is active (${(progress * 100).toFixed(1)}%). Waiting for completion...`);
             showToast("다운로드 마무리 중...");
 
             // Retry up to 4 times (2 seconds total)
@@ -5558,36 +5796,35 @@ async function handlePlayPreloaded(data) {
             return;
         }
 
-        // 프리로드 없음 혹은 인덱스 불일치 - Host에게 파일 요청
+        // No preload or index mismatch - request file from Host
         if (nextFileBlob && !isPreloadTargetMatch) {
-            console.warn(`[Guest] Stale preload detected (ID mismatched). Found index: ${nextMeta ? nextMeta.index : 'N/A'}, Expected: ${data.index}`);
+            log.warn(`[Guest] Stale preload detected (ID mismatched). Found index: ${nextMeta ? nextMeta.index : 'N/A'}, Expected: ${data.index}`);
         }
 
-        // [Fix #3] Persistence: Capture metadata BEFORE clearing state
+        // Persistence: Capture metadata BEFORE clearing state
         const trackName = data.name || playlist[data.index]?.name || (nextMeta ? nextMeta.name : '');
         window._pendingFileName = trackName;
-        window._pendingFileIndex = data.index;
+        _pendingFileIndex = data.index;
 
-        console.warn("[Guest] No preloaded file found for track", data.index, "- requesting from Host");
+        log.warn("[Guest] No preloaded file found for track", data.index, "- requesting from Host");
         showLoader(true, "파일 요청 중...");
 
         // Clear any stale state
         clearPreviousTrackState('play-preloaded fallback');
-        window._playPreloadedInProgress = undefined; // [FIX] Clear in-progress flag
-
+        window._playPreloadedInProgress = undefined; // Clear in-progress flag
 
         if (upstreamDataConn && upstreamDataConn.open) {
-            console.log("[Guest] Requesting file from Relay:", trackName);
+            log.debug("[Guest] Requesting file from Relay:", trackName);
             upstreamDataConn.send({
-                type: 'request-current-file',
+                type: MSG.REQUEST_CURRENT_FILE,
                 name: trackName,
                 index: data.index
             });
             showToast("릴레이에 파일 요청 중...");
         } else if (hostConn && hostConn.open) {
-            // [FIX] Consistent Jitter for fallback request
+            // Consistent Jitter for fallback request
             const jitter = Math.random() * 1000 + 200;
-            console.log(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
+            log.debug(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
 
             setTimeout(() => {
                 // Double check before sending request
@@ -5595,14 +5832,14 @@ async function handlePlayPreloaded(data) {
                     // Last check: did we get it during delay?
                     const hasItNow = (nextMeta && nextMeta.index === data.index && nextFileBlob);
                     if (hasItNow) {
-                        console.log("[Guest] Preload arrived during jitter wait! Playing...");
+                        log.debug("[Guest] Preload arrived during jitter wait! Playing...");
                         loadPreloadedTrack();
                         return;
                     }
 
-                    console.log("[Guest] Requesting file from Host:", trackName, "index:", data.index);
+                    log.debug("[Guest] Requesting file from Host:", trackName, "index:", data.index);
                     hostConn.send({
-                        type: 'request-data-recovery',
+                        type: MSG.REQUEST_DATA_RECOVERY,
                         nextChunk: 0,
                         fileName: trackName,
                         index: data.index
@@ -5620,18 +5857,18 @@ async function handlePlayPreloaded(data) {
 }
 
 async function handleStatusSync(data) {
-    // [FIX] Required Field Validation
+    // Required Field Validation
     if (!validateMessage(data, ['playlistMeta', 'currentTrackIndex'])) return;
 
     // [Synchronization Logic] Playlist-Centric Model
     const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
 
-    // [FIX] Empty Playlist Defense - Skip if already in empty state
+    // Empty Playlist Defense - Skip if already in empty state
     if (!playlistMeta || playlistMeta.length === 0) {
         if (playlist.length === 0 && currentState === APP_STATE.IDLE) {
             return; // Already in empty state, skip redundant processing
         }
-        console.log("[StatusSync] Received empty playlist, clearing local state");
+        log.debug("[StatusSync] Received empty playlist, clearing local state");
         playlist = [];
         currentTrackIndex = -1;
         updatePlaylistUI();
@@ -5648,16 +5885,16 @@ async function handleStatusSync(data) {
     }
 
     // 1. Sync Playlist Structure if different
-    const isPlaylistDifferent = JSON.stringify(playlist.map(it => it.name)) !== JSON.stringify(playlistMeta.map(it => it.name));
+    const isPlaylistDifferent = playlist.length !== playlistMeta.length || playlist.some((it, i) => it.name !== playlistMeta[i]?.name);
     if (isPlaylistDifferent) {
-        console.log("[Sync] Playlist out of sync, updating...");
+        log.debug("[Sync] Playlist out of sync, updating...");
         playlist = playlistMeta;
         updatePlaylistUI();
     }
 
     // 2. Sync Track Index and Trigger Auto-Recovery if needed
     if (hostTrackIndex !== -1 && hostTrackIndex !== currentTrackIndex) {
-        console.log(`[StrongSync] Index mismatch: Host(${hostTrackIndex}) vs Me(${currentTrackIndex}). Correcting...`);
+        log.debug(`Index mismatch: Host(${hostTrackIndex}) vs Me(${currentTrackIndex}). Correcting...`);
 
         // STOP EVERYTHING FIRST
         stopAllMedia();
@@ -5672,7 +5909,7 @@ async function handleStatusSync(data) {
 
             // If it's preloaded, use it immediately
             if (!hasBlob && isPreloaded) {
-                console.log("[Sync] Required track found in preload cache. Activating...");
+                log.debug("[Sync] Required track found in preload cache. Activating...");
                 _currentLoadToken++;
                 loadPreloadedTrack(hostTrackIndex, _currentLoadToken);
                 return;
@@ -5685,35 +5922,35 @@ async function handleStatusSync(data) {
             const isWrongBlob = hasBlob && meta && meta.name !== item.name;
             if (!hasBlob || isWrongBlob) {
                 if (isOurPreload) {
-                    console.log("[Sync] Track is being preloaded. Waiting for completion...");
+                    log.debug("[Sync] Track is being preloaded. Waiting for completion...");
                     showLoader(true, `파일 동기화 중: ${item.name}`);
-                    window._waitingForPreload = true;
-                    window._pendingFileIndex = hostTrackIndex;
+                    _waitingForPreload = true;
+                    _pendingFileIndex = hostTrackIndex;
                     return;
                 }
 
-                console.log("[Sync] Current track missing, requesting from host:", item.name);
+                log.debug("[Sync] Current track missing, requesting from host:", item.name);
                 showLoader(true, `파일 동기화 중: ${item.name}`);
                 clearPreviousTrackState('status-sync mismatch');
 
-                // [Fix] If in YouTube mode, stop it for the new local track
+                // If in YouTube mode, stop it for the new local track
                 if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
 
                 if (hostConn && hostConn.open) {
                     const jitter = Math.random() * 1000 + 200;
-                    console.log(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms`);
+                    log.debug(`[Sync] Delaying recovery request by ${Math.round(jitter)}ms`);
                     setTimeout(() => {
                         // Final check before sending recovery: did it arrive via sync/preload while we waited?
                         const alreadyGotIt = currentFileBlob || nextFileBlob;
                         if (currentTrackIndex === hostTrackIndex && !alreadyGotIt) {
                             hostConn.send({
-                                type: 'request-data-recovery',
+                                type: MSG.REQUEST_DATA_RECOVERY,
                                 nextChunk: 0,
                                 fileName: item.name,
                                 index: hostTrackIndex
                             });
                         } else if (alreadyGotIt) {
-                            console.log("[Sync] Aborting recovery request: file arrived during jitter delay");
+                            log.debug("[Sync] Aborting recovery request: file arrived during jitter delay");
                             showLoader(false);
                         }
                     }, jitter);
@@ -5721,8 +5958,8 @@ async function handleStatusSync(data) {
             }
         }
         else if (item && item.type === 'youtube') {
-            if (currentState !== APP_STATE.PLAYING_YOUTUBE || currentTrackIndex !== prevIndex) {
-                console.log("[Sync] Switching to YouTube mode for sync");
+            if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+                log.debug("[Sync] Switching to YouTube mode for sync");
                 // YouTube mode switch is usually handled by youtube-play message,
                 // but this provides a fallback for late joiners.
             }
@@ -5730,15 +5967,11 @@ async function handleStatusSync(data) {
     }
 }
 
-
-
-// --- Data Message Handlers ---
-
-async function handleHeartbeat(data) {
-    if (hostConn && hostConn.open) hostConn.send({ type: 'heartbeat-ack' });
+function handleHeartbeat(data) {
+    if (hostConn && hostConn.open) hostConn.send({ type: MSG.HEARTBEAT_ACK });
 }
 
-async function handlePongLatency(data) {
+function handlePongLatency(data) {
     const ms = Date.now() - data.timestamp;
     latencyHistory.push(ms);
     if (latencyHistory.length > 10) latencyHistory.shift();
@@ -5749,7 +5982,7 @@ async function handlePongLatency(data) {
     }
 }
 
-async function handleWelcome(data) {
+function handleWelcome(data) {
     document.getElementById('role-text').innerText = data.label;
 }
 
@@ -5758,9 +5991,9 @@ async function handlePlay(data) {
         clearManagedTimer('autoPlayTimer');
     }
 
-    // [StrongSync] Index Check
+    // Index Check
     if (data.index !== undefined && data.index !== currentTrackIndex) {
-        console.warn(`[StrongSync] Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
+        log.warn(`Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
 
         // 1. Stop whatever I'm doing
         stopAllMedia();
@@ -5776,25 +6009,25 @@ async function handlePlay(data) {
             const isPreloaded = nextFileBlob && (nextMeta && (nextMeta.index === currentTrackIndex || nextMeta.name === item.name));
 
             if (!hasFile && isPreloaded) {
-                console.log("[StrongSync] Required track found in preload cache. Activating...");
+                log.debug("Required track found in preload cache. Activating...");
                 loadPreloadedTrack();
             } else if (!hasFile || (meta && meta.name !== item.name)) {
                 // Check if currently preloading
                 const isPreloadingThis = isPreloading && preloadMeta && (preloadMeta.index === currentTrackIndex || preloadMeta.name === item.name);
                 if (isPreloadingThis) {
-                    console.log("[StrongSync] Track is being preloaded. Waiting...");
+                    log.debug("Track is being preloaded. Waiting...");
                     showLoader(true, `파일 동기화 중: ${item.name}`);
-                    window._waitingForPreload = true;
-                    window._pendingFileIndex = currentTrackIndex;
-                    window._pendingPlayTime = data.time;
+                    _waitingForPreload = true;
+                    _pendingFileIndex = currentTrackIndex;
+                    _pendingPlayTime = data.time;
                     return;
                 }
 
-                console.log("[StrongSync] Need file for new index, requesting...");
-                window._pendingPlayTime = data.time; // Resume after download
+                log.debug("Need file for new index, requesting...");
+                _pendingPlayTime = data.time; // Resume after download
                 if (hostConn && hostConn.open) {
                     hostConn.send({
-                        type: 'request-data-recovery',
+                        type: MSG.REQUEST_DATA_RECOVERY,
                         nextChunk: 0,
                         fileName: item.name,
                         index: currentTrackIndex
@@ -5807,19 +6040,19 @@ async function handlePlay(data) {
 
     const loaderEl = document.getElementById('loader');
     const loaderVisible = loaderEl && loaderEl.style.display !== 'none';
-    const isDownloading = loaderVisible || window._waitingForRelayData;
+    const isDownloading = loaderVisible || _waitingForRelayData;
     if (isDownloading) {
-        console.log("[Guest] Play command received but still downloading, queuing...");
+        log.debug("[Guest] Play command received but still downloading, queuing...");
         showToast("다운로드 완료 후 재생됩니다");
-        window._pendingPlayTime = data.time;
+        _pendingPlayTime = data.time;
         return;
     }
 
-    // [FIX] Prevent playing stale audio when no current file is loaded
+    // Prevent playing stale audio when no current file is loaded
     const hasValidAudio = currentAudioBuffer || (currentFileBlob && currentFileBlob.size > 0);
     if (!hasValidAudio && hostConn) {
-        console.log("[Guest] Play command received but no audio loaded, queuing...");
-        window._pendingPlayTime = data.time;
+        log.debug("[Guest] Play command received but no audio loaded, queuing...");
+        _pendingPlayTime = data.time;
         return;
     }
 
@@ -5845,7 +6078,7 @@ async function handleVolume(data) {
 async function handleReverb(data) { setReverbParam('mix', data.value); }
 async function handleReverbType(data) {
     if (reverb) {
-        // [New] Dynamic Reverb Type dispatcher
+        // Dynamic Reverb Type dispatcher
         // Currently Tone.Reverb doesn't have internal presets, but we can adjust parameters
         // to simulate different types (e.g. 'room', 'hall', 'space')
         if (data.value === 'room') {
@@ -5918,14 +6151,14 @@ async function handleYouTubePlaylistInfo(data) {
     youtubeSubItemsMap[playlistId] = { ids: ids, titles: titles || [] };
     updatePlaylistUI();
 
-    // [New] Guest can also fetch titles if missing
+    // Guest can also fetch titles if missing
     if (ids && ids.length > 0) {
         fetchPlaylistSubTitles(playlistId, ids);
     }
 }
 
 async function handleYouTubeStop(data) {
-    console.log("[Guest] Received youtube-stop, switching to local mode");
+    log.debug("[Guest] Received youtube-stop, switching to local mode");
     if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
     stopAllMedia();
 }
@@ -5940,7 +6173,7 @@ async function handleOperatorGrant(data) {
 async function handleOperatorRevoke(data) {
     isOperator = false;
     showToast("Operator 권한이 해제되었습니다.");
-    // document.getElementById('play-btn').disabled = true; // Host가 아니면 기본 비활성 (재생 동기화로 제어)
+    // Play button disabled state handled by sync logic
     document.getElementById('role-badge').innerHTML = `<span class="role-dot"></span> HOST SYNC (Guest)`;
 }
 
@@ -5962,7 +6195,7 @@ function updateAudioEffect(type, param, value, isInput = false) {
     const isLocalOnly = isInput; // Don't broadcast while dragging
 
     // 1. Reverb
-    if (type === 'reverb') {
+    if (type === MSG.REVERB) {
         switch (param) {
             case 'mix':
                 if (typeof setReverb === 'function') setReverb(val, isLocalOnly);
@@ -5991,7 +6224,7 @@ function updateAudioEffect(type, param, value, isInput = false) {
         }
     }
     // 3. Virtual Bass
-    else if (type === 'vbass') {
+    else if (type === MSG.VBASS) {
         if (typeof setVirtualBass === 'function') setVirtualBass(val);
 
         if (!isInput && typeof onVirtualBassChange === 'function') {
@@ -6003,7 +6236,7 @@ function updateAudioEffect(type, param, value, isInput = false) {
 async function handleDeviceListUpdate(data) {
     const amIStillConnected = data.list.find(p => p.id === myId);
     if (hostConn && !amIStillConnected) {
-        console.error("Removed from Host List. Reloading...");
+        log.error("Removed from Host List. Reloading...");
         location.reload();
         return;
     }
@@ -6011,8 +6244,6 @@ async function handleDeviceListUpdate(data) {
     if (me) myDeviceLabel = me.label;
     renderDeviceList(data.list);
 }
-
-
 
 async function handleChat(data) {
     const isMine = (data.sender === myDeviceLabel);
@@ -6025,10 +6256,10 @@ async function handleAssignDataSource(data) {
         showToast(`Connecting to Relay: ...${targetId.substr(-4)}`);
         connectToRelay(targetId);
     } else if (targetId === myId) {
-        console.warn("[Relay] Ignored self-assignment request from Host.");
+        log.warn("[Relay] Ignored self-assignment request from Host.");
     } else if (targetId === null) {
-        // [FIX] Fallback to Host Direct
-        console.log("[Relay] Fallback to Host requested by server.");
+        // Fallback to Host Direct
+        log.debug("[Relay] Fallback to Host requested by server.");
         if (upstreamDataConn) {
             upstreamDataConn.close();
             upstreamDataConn = null;
@@ -6048,7 +6279,7 @@ function validateMessage(data, requiredFields) {
     if (!data.type) return false;
     for (const field of requiredFields) {
         if (data[field] === undefined || data[field] === null) {
-            console.warn(`[Network] Missing required field '${field}' in message:`, data.type);
+            log.warn(`[Network] Missing required field '${field}' in message:`, data.type);
             return false;
         }
     }
@@ -6112,11 +6343,11 @@ async function handleGetSyncTime(data, conn) {
         const isPlaying = (currentState !== APP_STATE.IDLE && (videoElement && !videoElement.paused));
 
         conn.send({
-            type: 'sync-response',
+            type: MSG.SYNC_RESPONSE,
             time: t,
             isPlaying: isPlaying
         });
-        console.log(`[Host] Sent fresh sync time (${t.toFixed(2)}s) to peer ${conn.peer.substr(-4)}`);
+        log.debug(`[Host] Sent fresh sync time (${t.toFixed(2)}s) to peer ${conn.peer.substr(-4)}`);
     }
 }
 
@@ -6129,30 +6360,29 @@ async function handleData(data, conn) {
         try {
             await handler(data, conn);
         } catch (e) {
-            console.error(`Error handling ${data.type}:`, e);
+            log.error(`Error handling ${data.type}:`, e);
         }
     }
 }
 
-
 // --- Relay Functions ---
 
 function connectToRelay(targetId) {
-    // [FIX] Close existing relay connection if we are reassigning
+    // Close existing relay connection if we are reassigning
     if (upstreamDataConn) {
-        console.log(`[Relay] Closing existing relay connection (...${upstreamDataConn.peer.substr(-4)}) for new assignment`);
+        log.debug(`[Relay] Closing existing relay connection (...${upstreamDataConn.peer.substr(-4)}) for new assignment`);
         upstreamDataConn.close();
         upstreamDataConn = null;
     }
 
     const conn = peer.connect(targetId, {
-        metadata: { type: 'data-relay', label: myId }
+        metadata: { type: MSG.DATA_RELAY, label: myId }
     });
 
     const FAIL_TIMEOUT = 10000;
     const connTimer = setTimeout(() => {
         if (!conn.open) {
-            console.warn("Relay Connect Timeout");
+            log.warn("Relay Connect Timeout");
             conn.close();
             upstreamDataConn = null;
 
@@ -6160,11 +6390,11 @@ function connectToRelay(targetId) {
 
             if (hostConn && hostConn.open) {
                 const recoveryFileName = window._pendingFileName || (meta ? meta.name : '');
-                const recoveryIndex = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+                const recoveryIndex = _pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex;
 
-                console.log("[Recovery] Requesting from Host:", recoveryFileName, "index:", recoveryIndex, "received:", receivedCount);
+                log.debug("[Recovery] Requesting from Host:", recoveryFileName, "index:", recoveryIndex, "received:", receivedCount);
                 hostConn.send({
-                    type: 'request-data-recovery',
+                    type: MSG.REQUEST_DATA_RECOVERY,
                     nextChunk: receivedCount || 0,
                     fileName: recoveryFileName,
                     index: recoveryIndex
@@ -6179,8 +6409,8 @@ function connectToRelay(targetId) {
         showToast("Connected to Relay Node");
         conn.on('data', handleData);
 
-        console.log("Requesting file from relay...");
-        conn.send({ type: 'request-current-file' });
+        log.debug("Requesting file from relay...");
+        conn.send({ type: MSG.REQUEST_CURRENT_FILE });
     });
 
     conn.on('close', () => {
@@ -6190,13 +6420,12 @@ function connectToRelay(targetId) {
         if (receivedCount < (meta?.total || 0)) {
             if (hostConn && hostConn.open) {
                 showToast(`Recovering...`);
-                // [엄마-형-동생] If mom is still there, ask for recovery
+                // If upstream relay is still connected, ask for recovery
                 sendRecoveryRequest();
             }
         }
     });
 }
-
 
 // --- Manual Sync Logic (Tap Nudge) ---
 
@@ -6232,7 +6461,7 @@ function nudgeSync(ms) {
             youtubePlayer.seekTo(currentTime + (ms / 1000), true);
             showToast(`YouTube Sync: ${ms > 0 ? '+' : ''}${ms}ms`);
         } catch (e) {
-            console.error("[YouTube] Nudge sync error:", e);
+            log.error("[YouTube] Nudge sync error:", e);
         }
         if (navigator.vibrate) navigator.vibrate(5);
         return;
@@ -6247,9 +6476,9 @@ function nudgeSync(ms) {
             const target = getTrackPosition();
             const bias = IS_IOS ? IOS_STARTUP_BIAS : 0;
 
-            // [Unified Buffer Mode] Force hard sync on nudge to immediately affect audio
+            // Force hard sync on nudge to immediately affect audio
             if (currentAudioBuffer) {
-                console.log(`[Nudge] Applying hard sync for audio: ${target.toFixed(3)}s`);
+                log.debug(`[Nudge] Applying hard sync for audio: ${target.toFixed(3)}s`);
                 play(target);
             }
 
@@ -6287,11 +6516,10 @@ function updateSyncDisplay() {
     }
 }
 
-
 function handleRelayConnection(conn) {
     conn.on('open', () => {
-        console.log("Accepted Relay Connection from", conn.peer);
-        // [FIX] Deduplicate downstream peers
+        log.debug("Accepted Relay Connection from", conn.peer);
+        // Deduplicate downstream peers
         if (!downstreamDataPeers.find(p => p.peer === conn.peer)) {
             downstreamDataPeers.push(conn);
             showToast(`Relay: ${conn.peer.substr(-4)} 연결됨`);
@@ -6299,13 +6527,13 @@ function handleRelayConnection(conn) {
     });
 
     conn.on('data', async data => {
-        if (data.type === 'request-current-file') {
+        if (data.type === MSG.REQUEST_CURRENT_FILE) {
             const reqName = data.name;
             const reqIndex = data.index;
 
             const currentTrackName = playlist[currentTrackIndex]?.name;
 
-            // [FIX] More intelligent source selection based on name/index
+            // More intelligent source selection based on name/index
             const isMatchCurrent = currentFileBlob && (!reqName || meta.name === reqName);
             const isMatchPreload = nextFileBlob && (
                 (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
@@ -6314,29 +6542,29 @@ function handleRelayConnection(conn) {
             );
 
             if (isMatchCurrent) {
-                console.log(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta.name}`);
+                log.debug(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta.name}`);
                 unicastFile(conn, currentFileBlob);
             }
             else if (isMatchPreload) {
-                console.log(`[Relay] Serving preloaded file to ${conn.peer.substr(-4)}: ${nextMeta.name}`);
+                log.debug(`[Relay] Serving preloaded file to ${conn.peer.substr(-4)}: ${nextMeta.name}`);
                 unicastFile(conn, nextFileBlob);
             }
             else if (meta?.name && (meta.name === (reqName || currentTrackName) || currentTrackName)) {
-                // [엄마-형-동생] Mid-download bootstrapping
-                // If "Brother" (형) is still receiving chunks, start "Sibling" (동생) with what we have
+                // Mid-download relay bootstrapping
+                // If relay peer is still receiving chunks, start downstream with available data
                 const bootName = meta.name || reqName || currentTrackName;
-                console.log(`[Relay] Bootstrapping "동생" for ${bootName} (In-progress: ${receivedCount}/${meta.total || '?'})`);
+                log.debug(`[Relay] Bootstrapping "동생" for ${bootName} (In-progress: ${receivedCount}/${meta.total || '?'})`);
 
                 // 1. Send header first
-                // [FIX] Ensure type is file-start and sessionId is explicitly included
+                // Ensure type is file-start and sessionId is explicitly included
                 conn.send({
                     ...meta,
-                    type: 'file-start',
+                    type: MSG.FILE_START,
                     name: bootName,
                     sessionId: meta.sessionId || localTransferSessionId
                 });
 
-                // 2. Catch-up: Proactively trigger recovery for chunks "형" already has stored in worker
+                // 2. Catch-up: Proactively trigger recovery for chunks the relay peer has stored
                 // [Optimized] Removed artificial throttling at user request; processRelayQueue handles back-pressure.
                 if (receivedCount > 0) {
                     for (let i = 0; i < receivedCount; i++) {
@@ -6352,14 +6580,14 @@ function handleRelayConnection(conn) {
                 }
             }
             else {
-                console.log("[Relay] No matching data yet for", reqName || 'current');
-                conn.send({ type: 'file-wait', message: 'Relay source not ready yet' });
+                log.debug("[Relay] No matching data yet for", reqName || 'current');
+                conn.send({ type: MSG.FILE_WAIT, message: 'Relay source not ready yet' });
             }
         }
-        else if (data.type === 'request-data-recovery') {
+        else if (data.type === MSG.REQUEST_DATA_RECOVERY) {
             // [Relay Recovery] Handle missed chunk requests from downstream peers
             const { fileName, index: trackIdx, nextChunk, sessionId } = data;
-            console.log(`[Relay Recovery] PEER ${conn.peer.substr(-4)} requested chunk ${nextChunk} of ${fileName}`);
+            log.debug(`[Relay Recovery] PEER ${conn.peer.substr(-4)} requested chunk ${nextChunk} of ${fileName}`);
 
             // Request worker to read the chunk and send back to this peer
             postWorkerCommand({
@@ -6379,14 +6607,14 @@ function handleRelayConnection(conn) {
 }
 
 /**
- * [Optimization] Relays a preloaded file from local cache to downstream peers.
+ * Relays a preloaded file from local cache to downstream peers.
  */
 async function relayPreloadFromCache(blob, index, sessionId) {
     if (!blob) {
-        console.warn("[Relay] Cannot relay null blob for index:", index);
+        log.warn("[Relay] Cannot relay null blob for index:", index);
         return;
     }
-    const CHUNK = 16384;
+    const CHUNK = CHUNK_SIZE;
     const total = Math.ceil(blob.size / CHUNK);
 
     let fileName = "Preloaded Track";
@@ -6396,29 +6624,32 @@ async function relayPreloadFromCache(blob, index, sessionId) {
 
     if (downstreamDataPeers.length === 0) return;
 
-    console.log(`[Preload Relay] Relaying ${fileName} (${total} chunks) to ${downstreamDataPeers.length} peers`);
+    log.debug(`[Preload Relay] Relaying ${fileName} (${total} chunks) to ${downstreamDataPeers.length} peers`);
+
+    // Read entire blob once instead of per-chunk slice
+    const fullBuffer = await blob.arrayBuffer();
+    const fullView = new Uint8Array(fullBuffer);
 
     for (let i = 0; i < total; i++) {
         const activeDownstream = downstreamDataPeers.filter(p => p.open);
         if (activeDownstream.length === 0) break;
 
         const start = i * CHUNK;
-        const end = Math.min(start + CHUNK, blob.size);
-        const chunkBlob = blob.slice(start, end);
-        const chunkBuf = await chunkBlob.arrayBuffer();
-        const chunk = new Uint8Array(chunkBuf);
+        const end = Math.min(start + CHUNK, fullView.length);
+        // Create a copy for safe transfer (subarray shares memory)
+        const chunk = new Uint8Array(fullView.subarray(start, end));
 
-        const chunkMsg = { type: 'preload-chunk', chunk: chunk, index: i, sessionId: sessionId };
+        const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk: chunk, index: i, sessionId: sessionId };
         activeDownstream.forEach(p => p.send(chunkMsg));
 
         if (i % 10 === 0) await new Promise(r => setTimeout(r, 40));
     }
 
-    const endMsg = { type: 'preload-end', name: fileName, index: index, sessionId: sessionId };
+    const endMsg = { type: MSG.PRELOAD_END, name: fileName, index: index, sessionId: sessionId };
     downstreamDataPeers.forEach(p => {
         if (p.open) p.send(endMsg);
     });
-    console.log(`[Preload Relay] Finished relaying index ${index}`);
+    log.debug(`[Preload Relay] Finished relaying index ${index}`);
 }
 
 /**
@@ -6436,40 +6667,59 @@ function broadcast(msg, isDataOnly = false) {
     });
 }
 
+// Generates and broadcasts the device list to all peers.
+function broadcastDeviceList() {
+    const list = [
+        { id: myId, label: 'HOST', status: 'connected', isHost: true },
+        ...connectedPeers
+            .sort((a, b) => a.joinOrder - b.joinOrder) // Maintain stable visual order
+            .map(p => ({
+                id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
+            }))
+    ];
+
+    const msg = { type: MSG.DEVICE_LIST_UPDATE, list: list };
+    broadcast(msg);
+    renderDeviceList(list);
+}
+
 function renderDeviceList(list) {
     const container = document.getElementById('device-list');
-    container.innerHTML = '';
+    if (!container) return;
 
-    list.forEach((p, idx) => {
+    let html = '';
+    list.forEach((p) => {
+        const safeLabel = escapeHtml(p.label);
+        const shortId = escapeHtml(p.id.substr(-4));
+        const statusClass = p.status === 'connected' ? 'active' : 'inactive';
+        const statusText = p.status === 'connected' ? 'Connected' : 'Disconnected';
+        const opBadge = p.isOp ? '<span style="color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;">OP</span>' : '';
+
         if (hostConn) {
-            const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-            const statusText = p.status === 'connected' ? 'Connected' : 'Disconnected';
-            container.innerHTML += `
+            // Guest view: no operator toggle button
+            html += `
                 <div class="section-row">
                     <span class="d-name">
-                        ${p.label} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${p.id.substr(-4)})</span>
-                        ${p.isOp ? '<span style="color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;">OP</span>' : ''}
+                        ${safeLabel} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${shortId})</span>
+                        ${opBadge}
                     </span>
                     <span class="d-status ${statusClass}">${statusText}</span>
                 </div>`;
         } else {
-            const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-            const statusText = p.status === 'connected' ? 'Connected' : 'Disconnected';
+            // Host view: includes operator grant/revoke button
             let opBtn = '';
-
             if (!p.isHost && p.status === 'connected') {
                 opBtn = `<button class="btn-action ${p.isOp ? 'active' : ''}"
                      style="font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}"
-                     onclick="toggleOperator('${p.id}')">
-                     ${p.isOp ? 'REVOKE' : 'GRANT'}
-                 </button>`;
+                     onclick="toggleOperator('${escapeHtml(p.id)}')"
+                     >${p.isOp ? 'REVOKE' : 'GRANT'}</button>`;
             }
 
-            container.innerHTML += `
+            html += `
                 <div class="section-row">
                     <span class="d-name">
-                        ${p.label} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${p.id.substr(-4)})</span>
-                        ${p.isOp ? '<span style="color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;">OP</span>' : ''}
+                        ${safeLabel} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${shortId})</span>
+                        ${opBadge}
                     </span>
                     <div style="display:flex; gap:4px; align-items:center;">
                         ${opBtn}
@@ -6478,6 +6728,7 @@ function renderDeviceList(list) {
                 </div>`;
         }
     });
+    container.innerHTML = html;
 }
 
 window.toggleOperator = function (peerId) {
@@ -6497,129 +6748,120 @@ window.toggleOperator = function (peerId) {
 };
 
 function handleOperatorRequest(data) {
-    if (data.type === 'request-play') {
+    if (data.type === MSG.REQUEST_PLAY) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
             showToast("자동 재생 취소됨 (OP)");
         }
         play(data.time);
-        broadcast({ type: 'play', time: data.time });
-    } else if (data.type === 'request-pause') {
+        broadcast({ type: MSG.PLAY, time: data.time });
+    } else if (data.type === MSG.REQUEST_PAUSE) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
         }
         pause();
-        broadcast({ type: 'pause' });
-    } else if (data.type === 'request-youtube-play') {
-        console.log("[Host] OP requested YouTube play");
+        broadcast({ type: MSG.PAUSE });
+    } else if (data.type === MSG.REQUEST_YOUTUBE_PLAY) {
+        log.debug("[Host] OP requested YouTube play");
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.playVideo();
-                broadcast({ type: 'youtube-state', state: 1, time: youtubePlayer.getCurrentTime() });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: youtubePlayer.getCurrentTime() });
             } catch (e) {
-                console.error("[YouTube] OP play error:", e);
+                log.error("[YouTube] OP play error:", e);
             }
         }
-    } else if (data.type === 'request-youtube-pause') {
-        console.log("[Host] OP requested YouTube pause");
+    } else if (data.type === MSG.REQUEST_YOUTUBE_PAUSE) {
+        log.debug("[Host] OP requested YouTube pause");
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.pauseVideo();
-                broadcast({ type: 'youtube-state', state: 2, time: youtubePlayer.getCurrentTime() });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: youtubePlayer.getCurrentTime() });
             } catch (e) {
-                console.error("[YouTube] OP pause error:", e);
+                log.error("[YouTube] OP pause error:", e);
             }
         }
-    } else if (data.type === 'request-track-change') {
-        console.log("[Host] OP requested track change to:", data.index);
+    } else if (data.type === MSG.REQUEST_TRACK_CHANGE) {
+        log.debug("[Host] OP requested track change to:", data.index);
         playTrack(data.index);
-    } else if (data.type === 'request-next-track') {
-        console.log("[Host] OP requested next track");
+    } else if (data.type === MSG.REQUEST_NEXT_TRACK) {
+        log.debug("[Host] OP requested next track");
         playNextTrack();
-    } else if (data.type === 'request-prev-track') {
-        console.log("[Host] OP requested prev track");
+    } else if (data.type === MSG.REQUEST_PREV_TRACK) {
+        log.debug("[Host] OP requested prev track");
         playPrevTrack();
-    } else if (data.type === 'request-skip-time') {
-        console.log("[Host] OP requested skip time:", data.sec);
+    } else if (data.type === MSG.REQUEST_SKIP_TIME) {
+        log.debug("[Host] OP requested skip time:", data.sec);
         skipTime(data.sec);
-    } else if (data.type === 'request-seek') {
-        console.log("[Host] OP requested seek to:", data.time);
+    } else if (data.type === MSG.REQUEST_SEEK) {
+        log.debug("[Host] OP requested seek to:", data.time);
 
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
             try {
                 youtubePlayer.seekTo(data.time, true);
-                broadcast({ type: 'youtube-state', state: youtubePlayer.getPlayerState(), time: data.time });
+                broadcast({ type: MSG.YOUTUBE_STATE, state: youtubePlayer.getPlayerState(), time: data.time });
             } catch (e) {
-                console.error("[YouTube] request-seek error:", e);
+                log.error("[YouTube] request-seek error:", e);
             }
             return;
         }
 
         if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) play(data.time); else pausedAt = data.time;
-        broadcast({ type: 'play', time: data.time });
-    } else if (data.type === 'request-eq-reset') {
+        broadcast({ type: MSG.PLAY, time: data.time });
+    } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
-    } else if (data.type === 'request-setting') {
-        if (data.settingType === 'reverb') { setReverb(data.value); broadcast({ type: 'reverb', value: data.value }); }
-        else if (data.settingType === 'reverb-type') { setReverbType(data.value); broadcast({ type: 'reverb-type', value: data.value }); }
-        else if (data.settingType === 'reverb-decay') { setReverbDecay(data.value); broadcast({ type: 'reverb-decay', value: data.value }); }
-        else if (data.settingType === 'reverb-predelay') { setReverbPreDelay(data.value); broadcast({ type: 'reverb-predelay', value: data.value }); }
-        else if (data.settingType === 'reverb-lowcut') { setReverbLowCut(data.value); broadcast({ type: 'reverb-lowcut', value: data.value }); }
-        else if (data.settingType === 'reverb-highcut') { setReverbHighCut(data.value); broadcast({ type: 'reverb-highcut', value: data.value }); }
+    } else if (data.type === MSG.REQUEST_SETTING) {
+        if (data.settingType === MSG.REVERB) { setReverb(data.value); broadcast({ type: MSG.REVERB, value: data.value }); }
+        else if (data.settingType === MSG.REVERB_TYPE) { setReverbType(data.value); broadcast({ type: MSG.REVERB_TYPE, value: data.value }); }
+        else if (data.settingType === MSG.REVERB_DECAY) { setReverbDecay(data.value); broadcast({ type: MSG.REVERB_DECAY, value: data.value }); }
+        else if (data.settingType === MSG.REVERB_PREDELAY) { setReverbPreDelay(data.value); broadcast({ type: MSG.REVERB_PREDELAY, value: data.value }); }
+        else if (data.settingType === MSG.REVERB_LOWCUT) { setReverbLowCut(data.value); broadcast({ type: MSG.REVERB_LOWCUT, value: data.value }); }
+        else if (data.settingType === MSG.REVERB_HIGHCUT) { setReverbHighCut(data.value); broadcast({ type: MSG.REVERB_HIGHCUT, value: data.value }); }
         else if (data.settingType === 'eq') {
             const band = parseInt(data.band, 10);
             const val = parseFloat(data.value);
             setEQ(band, val, false, true);
-            broadcast({ type: 'eq-update', band: band, value: val });
+            broadcast({ type: MSG.EQ_UPDATE, band: band, value: val });
         }
-        else if (data.settingType === 'preamp') {
+        else if (data.settingType === MSG.PREAMP) {
             const val = parseFloat(data.value);
             setPreamp(val, false, true);
-            broadcast({ type: 'preamp', value: data.value });
+            broadcast({ type: MSG.PREAMP, value: data.value });
         }
-        else if (data.settingType === 'stereo') { setStereoWidth(data.value); broadcast({ type: 'stereo-width', value: data.value }); }
-        else if (data.settingType === 'vbass') { setVirtualBass(data.value); broadcast({ type: 'vbass', value: data.value }); }
-    } else if (data.type === 'request-youtube-sub-seek') {
-        console.log("[Host] OP requested YouTube sub-seek:", data.subIdx);
+        else if (data.settingType === 'stereo') { setStereoWidth(data.value); broadcast({ type: MSG.STEREO_WIDTH, value: data.value }); }
+        else if (data.settingType === MSG.VBASS) { setVirtualBass(data.value); broadcast({ type: MSG.VBASS, value: data.value }); }
+    } else if (data.type === MSG.REQUEST_YOUTUBE_SUB_SEEK) {
+        log.debug("[Host] OP requested YouTube sub-seek:", data.subIdx);
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.playVideoAt) {
             try {
                 youtubePlayer.playVideoAt(data.subIdx);
             } catch (e) {
-                console.error("[YouTube] OP sub-seek error:", e);
+                log.error("[YouTube] OP sub-seek error:", e);
             }
         }
     }
 }
 
-
 function sendRecoveryRequest(forceChunk = null) {
-    // [FIX] Prefer Relay Node for recovery if assigned
+    // Prefer Relay Node for recovery if assigned
     const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
 
     if (!targetConn || !targetConn.open) return;
 
     const fileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
-    const index = window._pendingFileIndex !== undefined ? window._pendingFileIndex : currentTrackIndex;
+    const index = _pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex;
     const currentSid = localTransferSessionId || currentTransferSessionId;
 
     let chunkToAsk = forceChunk;
     if (chunkToAsk === null) {
         chunkToAsk = receivedCount || 0;
-        if (typeof incomingChunks !== 'undefined' && incomingChunks.length > 0) {
-            for (let j = 0; j < incomingChunks.length; j++) {
-                if (!incomingChunks[j]) {
-                    chunkToAsk = j;
-                    break;
-                }
-            }
-        }
     }
 
     const sourceLabel = targetConn === upstreamDataConn ? "Relay" : "Host";
-    console.log(`[Recovery] Requesting from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk})`);
+    log.debug(`[Recovery] Requesting from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk})`);
 
     targetConn.send({
-        type: 'request-data-recovery',
+        type: MSG.REQUEST_DATA_RECOVERY,
         nextChunk: chunkToAsk,
         fileName: fileName,
         index: index,
@@ -6638,16 +6880,16 @@ async function broadcastFile(file, explicitSessionId = null) {
         sessionId = currentTransferSessionId;
     }
 
-    const CHUNK = 16384;
+    const CHUNK = CHUNK_SIZE;
     const total = Math.ceil(file.size / CHUNK);
-    const header = { type: 'file-start', name: file.name, mime: file.type, total: total, size: file.size, index: currentTrackIndex, sessionId: sessionId };
+    const header = { type: MSG.FILE_START, name: file.name, mime: file.type, total: total, size: file.size, index: currentTrackIndex, sessionId: sessionId };
 
     const getEligiblePeers = () => {
         return connectedPeers.filter(p => {
             const trackIdx = currentTrackIndex;
             const alreadyHasPreload = p.preloadedIndexes && p.preloadedIndexes.has(trackIdx);
 
-            // [Fix] For direct playback (broadcastFile), always send even if they had it preloaded.
+            // For direct playback (broadcastFile), always send even if they had it preloaded.
             // Guests will ignore it via _skipIncomingFile if they still have the data.
             // This prevents "Previous Track" from failing if Guest deleted the file.
             return (p.status === 'connected' && p.conn.open && p.isDataTarget !== false);
@@ -6657,23 +6899,23 @@ async function broadcastFile(file, explicitSessionId = null) {
     const eligiblePeers = getEligiblePeers();
 
     if (eligiblePeers.length === 0) {
-        console.log("[broadcastFile] All peers have preload or no peers, skipping file transfer");
+        log.debug("[broadcastFile] All peers have preload or no peers, skipping file transfer");
         return;
     }
 
-    // [FIX] Session Guard: Prevent double-broadcast of the same file/session
-    if (window._activeBroadcastSession === sessionId) return;
-    window._activeBroadcastSession = sessionId;
+    // Session Guard: Prevent double-broadcast of the same file/session
+    if (_activeBroadcastSession === sessionId) return;
+    _activeBroadcastSession = sessionId;
 
-    console.log(`[broadcastFile] Sending to ${eligiblePeers.length} peers (${connectedPeers.filter(p => p.status === 'connected').length - eligiblePeers.length} skipped due to preload)`);
+    log.debug(`[broadcastFile] Sending to ${eligiblePeers.length} peers (${connectedPeers.filter(p => p.status === 'connected').length - eligiblePeers.length} skipped due to preload)`);
 
     eligiblePeers.forEach(p => p.conn.send(header));
 
     const chunkPromises = [];
     for (let i = 0; i < total; i++) {
-        // [FIX] Session Guard: abort if track changed
-        if (window._activeBroadcastSession !== sessionId) {
-            console.log(`[broadcastFile] Session cancelled (ID: ${sessionId}), stopping transfer at chunk ${i}`);
+        // Session Guard: abort if track changed
+        if (_activeBroadcastSession !== sessionId) {
+            log.debug(`[broadcastFile] Session cancelled (ID: ${sessionId}), stopping transfer at chunk ${i}`);
             eligiblePeers.forEach(p => { if (p.chunkQueue) p.chunkQueue = []; });
             return;
         }
@@ -6683,9 +6925,9 @@ async function broadcastFile(file, explicitSessionId = null) {
         const chunkBlob = file.slice(start, end);
         const chunkBuf = await chunkBlob.arrayBuffer();
         const chunk = new Uint8Array(chunkBuf);
-        const chunkMsg = { type: 'file-chunk', chunk: chunk, index: i, sessionId: sessionId, total: total, name: file.name };
+        const chunkMsg = { type: MSG.FILE_CHUNK, chunk: chunk, index: i, sessionId: sessionId, total: total, name: file.name };
 
-        // [HoLB Fix] Send to each peer independently and wait for their own backpressure
+        // Send to each peer independently and wait for their own backpressure
         for (const p of eligiblePeers) {
             if (!p.openSender) {
                 p.openSender = (async () => {
@@ -6698,11 +6940,11 @@ async function broadcastFile(file, explicitSessionId = null) {
                             const msg = p.chunkQueue.shift();
                             // Per-peer backpressure check
                             while (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 512 * 1024) {
-                                await new Promise(r => setTimeout(r, 50));
+                                await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
                                 if (!p.conn.open) break;
                             }
                             if (p.conn.open) {
-                                try { p.conn.send(msg); } catch (e) { console.warn(`[Send] Failed for ${p.label}:`, e); }
+                                try { p.conn.send(msg); } catch (e) { log.warn(`[Send] Failed for ${p.label}:`, e); }
                             } else {
                                 p.chunkQueue = [];
                                 break;
@@ -6719,11 +6961,11 @@ async function broadcastFile(file, explicitSessionId = null) {
         }
 
         // Slight throttle to prevent main thread starvation during large file slicing
-        if (i % 50 === 0) await new Promise(r => setTimeout(r, 10));
+        if (i % 50 === 0) await new Promise(r => setTimeout(r, DELAY.TICK));
     }
 
     // Prepare end message and send to all
-    const endMsg = { type: 'file-end', name: file.name, mime: file.type, sessionId: sessionId };
+    const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId: sessionId };
     eligiblePeers.forEach(p => {
         if (p.conn.open) {
             p.chunkQueue.push(endMsg);
@@ -6732,22 +6974,21 @@ async function broadcastFile(file, explicitSessionId = null) {
     });
 }
 
-
 async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
     if (!conn || !conn.open) {
-        console.error("[Unicast] Connection is not open, cannot send file");
+        log.error("[Unicast] Connection is not open, cannot send file");
         showToast("연결 오류: 파일 전송 실패");
         return;
     }
 
     const effectiveSessionId = sessionId !== null ? sessionId : currentTransferSessionId;
 
-    const CHUNK = 16384;
+    const CHUNK = CHUNK_SIZE;
     const total = Math.ceil(file.size / CHUNK);
 
     const isResume = startChunkIndex > 0;
     const msgType = isResume ? 'file-resume' : 'file-start';
-    console.log(`[Unicast] Sending ${msgType}: ${file.name}, chunk ${startChunkIndex}/${total} (SID: ${effectiveSessionId})`);
+    log.debug(`[Unicast] Sending ${msgType}: ${file.name}, chunk ${startChunkIndex}/${total} (SID: ${effectiveSessionId})`);
 
     try {
         conn.send({
@@ -6760,7 +7001,7 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
             sessionId: effectiveSessionId
         });
     } catch (e) {
-        console.error(`[Unicast] Failed to send ${msgType}:`, e);
+        log.error(`[Unicast] Failed to send ${msgType}:`, e);
         return;
     }
 
@@ -6772,14 +7013,14 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
 
     try {
         for (let i = startChunkIndex; i < total; i++) {
-            // [FIX] Session Guard: abort if sequence changed
+            // Session Guard: abort if sequence changed
             if (currentTransferSessionId !== effectiveSessionId) {
-                console.log(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${currentTransferSessionId}), aborting transfer at chunk ${i}`);
+                log.debug(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${currentTransferSessionId}), aborting transfer at chunk ${i}`);
                 return;
             }
 
             if (!conn.open) {
-                console.warn(`[Unicast] Connection closed at chunk ${i}/${total}. Aborting.`);
+                log.warn(`[Unicast] Connection closed at chunk ${i}/${total}. Aborting.`);
                 return;
             }
 
@@ -6788,10 +7029,10 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
                 const startWait = Date.now();
                 while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
                     if (Date.now() - startWait > 30000) break;
-                    await new Promise(r => setTimeout(r, 50));
+                    await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
                 }
             } catch (bufferErr) {
-                console.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
+                log.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
             }
 
             const start = i * CHUNK;
@@ -6801,27 +7042,27 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
             const chunk = new Uint8Array(chunkBuf);
 
             try {
-                conn.send({ type: 'file-chunk', chunk: chunk, index: i, sessionId: effectiveSessionId, total: total, name: file.name });
+                conn.send({ type: MSG.FILE_CHUNK, chunk: chunk, index: i, sessionId: effectiveSessionId, total: total, name: file.name });
             } catch (sendErr) {
-                console.warn(`[Unicast] Send failed at chunk ${i}:`, sendErr);
+                log.warn(`[Unicast] Send failed at chunk ${i}:`, sendErr);
                 return;
             }
 
             if (i % 50 === 0) {
-                await new Promise(r => setTimeout(r, 10));
+                await new Promise(r => setTimeout(r, DELAY.TICK));
                 if (i % 100 === 0) {
-                    console.log(`[Unicast] Progress: ${i}/${total} chunks`);
+                    log.debug(`[Unicast] Progress: ${i}/${total} chunks`);
                 }
             }
         }
 
         if (conn.open) {
-            conn.send({ type: 'file-end', name: file.name, mime: file.type, sessionId: effectiveSessionId });
-            console.log("[Unicast] Transfer complete:", file.name);
+            conn.send({ type: MSG.FILE_END, name: file.name, mime: file.type, sessionId: effectiveSessionId });
+            log.debug("[Unicast] Transfer complete:", file.name);
         }
 
     } catch (e) {
-        console.error("[Unicast] Transfer error:", e);
+        log.error("[Unicast] Transfer error:", e);
     }
 }
 
@@ -6852,6 +7093,7 @@ function showLoader(show, txt) {
         }, 400);
     }
 }
+
 let toastTimer = null;
 function showToast(msg) {
     const t = document.getElementById('toast');
@@ -6878,7 +7120,7 @@ function copyLink() {
 function autoSync() {
     localOffset = 0;
     showToast("모든 기기 Auto Sync 요청...");
-    broadcast({ type: 'global-resync-request' });
+    broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
 }
 
 function loopUI() {
@@ -6886,7 +7128,7 @@ function loopUI() {
         currentState === APP_STATE.PLAYING_AUDIO;
 
     if (isPlaybackState) {
-        // [Fix] Always update slider while in playback state
+        // Always update slider while in playback state
         const duration = (currentAudioBuffer && currentAudioBuffer.duration)
             ? currentAudioBuffer.duration
             : (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
@@ -6908,8 +7150,8 @@ function loopUI() {
         }
 
         const now = Date.now();
-        if (!window._lastEndedCheck || now - window._lastEndedCheck > 500) {
-            window._lastEndedCheck = now;
+        if (!_lastEndedCheck || now - _lastEndedCheck > 500) {
+            _lastEndedCheck = now;
             handleEnded();
         }
 
@@ -6939,133 +7181,114 @@ function toggleFullscreen() {
 }
 
 async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefined) {
-    // [Fix] Capture expected index and local copies of data at start
+    // Capture expected index and local copies of data at start
     const targetIndex = expectedIndex ?? nextMeta?.index ?? currentTrackIndex;
     const myToken = loadToken ?? _currentLoadToken;
     const localBlob = nextFileBlob;
     const localMeta = nextMeta ? { ...nextMeta } : null;
 
     if (!localBlob) {
-        console.warn("[Preload] No preloaded blob found in cache!");
+        log.warn("[Preload] No preloaded blob found in cache!");
         return;
     }
 
-    return new Promise(async (resolve, reject) => {
-        try {
-            await initAudio();
+    try {
+        await initAudio();
 
-            // [Fix] Verify track index before proceeding
-            if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
-                console.warn(`[Preload] Index mismatch at start! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
-                return resolve();
-            }
-
-            // [Fix #2] Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
-            if (currentAudioBuffer) {
-                const oldBuf = currentAudioBuffer;
-                currentAudioBuffer = null;
-                await new Promise(resolve => {
-                    if (window.requestIdleCallback) {
-                        window.requestIdleCallback(() => {
-                            if (oldBuf._buffer) oldBuf._buffer = null;
-                            resolve();
-                        }, { timeout: 100 });
-                    } else {
-                        setTimeout(resolve, 100);
-                    }
-                });
-            }
-
-            // [Unified Buffer Mode] Force Buffer Mode for consistency
-            // If decoding fails (e.g. EncodingError), fallback to Streaming Mode
-            let useBufferMode = true;
-
-            try {
-                if (useBufferMode) {
-                    console.log("[Preload] Decoding audio for Buffer Mode...");
-                    showToast("오디오 디코딩 중...");
-
-                    const arrayBuffer = await localBlob.arrayBuffer();
-                    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-                    // [Fix] Re-verify after async decode: check both token and index
-                    if (loadToken !== undefined && _currentLoadToken !== myToken) {
-                        console.warn(`[Preload] Token mismatch after decode. Expected ${myToken}, current is ${_currentLoadToken}. Discarding.`);
-                        return resolve();
-                    }
-                    if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
-                        console.warn(`[Preload] Track changed during decode. Expected ${targetIndex}, now ${currentTrackIndex}. Discarding.`);
-                        return resolve();
-                    }
-
-                    // [PROMOTION] Only now update global state
-                    currentFileBlob = localBlob;
-                    meta = localMeta;
-                    currentAudioBuffer = audioBuffer;
-                    console.log(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
-
-                    // [FIX] Proper mode based on file type (video shows video UI, audio shows visualizer)
-                    const isVideo = isMediaVideo(localBlob, localMeta);
-                    setEngineMode(isVideo ? 'video' : 'buffer');
-
-                    // Visual Sync
-                    const url = BlobURLManager.create(localBlob);
-                    videoElement.src = url;
-                    videoElement.muted = true;
-
-                    // Set UI immediately based on buffer
-                    const dur = currentAudioBuffer.duration;
-                    if (isFinite(dur)) {
-                        document.getElementById('seek-slider').max = dur;
-                        document.getElementById('time-dur').innerText = fmtTime(dur);
-                    }
-                    BlobURLManager.confirm(localBlob);
-
-                    // Video load
-                    videoElement.load();
-
-                    // [Fix] Safe Clearing: Avoid the global clearPreloadState() hammer.
-                    // Only clear the satisfy-cache variables that we just moved to "current".
-                    nextFileBlob = null;
-                    nextMeta = null;
-                    nextTrackIndex = -1;
-
-                    console.log(`[Preload] Safe clear: nextFileBlob moved to current.`);
-
-                    // Signal ready
-                    resolve();
-
-                }
-            } catch (decodeErr) {
-                console.error("[Preload] Buffer Mode Decode Failed:", decodeErr);
-                showToast("디코딩 실패: 재생할 수 없습니다.");
-                reject(decodeErr);
-            }
-
-            // [FIX] Consume pending play time if Host already sent it (Crucial for first track)
-            if (hostConn && window._pendingPlayTime !== undefined) {
-                const target = window._pendingPlayTime + localOffset + autoSyncOffset;
-                console.log(`[Preload] Found pending play time after activation, starting at ${target.toFixed(2)}s`);
-                play(target);
-                window._pendingPlayTime = undefined;
-            }
-
-            // [Fix] restore the index we just cleared if needed for logic elsewhere
-            // but usually nextTrackIndex is only for the "next" track.
-
-        } catch (e) {
-            console.error("[Preload] Activation failed:", e);
-            showToast("프리로드 재생 실패 - 다시 로드합니다");
-            // Still clear cache so we can try recovery
-            nextFileBlob = null;
-            nextMeta = null;
-            nextTrackIndex = -1;
-            if (hostConn && hostConn.open) {
-                hostConn.send({ type: 'request-current-file' });
-            }
-            reject(e);
+        // Verify track index before proceeding
+        if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+            log.warn(`[Preload] Index mismatch at start! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
+            return;
         }
-    });
+
+        // Stronger AudioBuffer Disposal: GC Hint + requestIdleCallback
+        if (currentAudioBuffer) {
+            const oldBuf = currentAudioBuffer;
+            currentAudioBuffer = null;
+            await new Promise(resolve => {
+                if (window.requestIdleCallback) {
+                    window.requestIdleCallback(() => {
+                        if (oldBuf._buffer) oldBuf._buffer = null;
+                        resolve();
+                    }, { timeout: 100 });
+                } else {
+                    setTimeout(resolve, 100);
+                }
+            });
+        }
+
+        // Force Buffer Mode for consistency
+        // If decoding fails (e.g. EncodingError), fallback to Streaming Mode
+        log.debug("[Preload] Decoding audio for Buffer Mode...");
+        showToast("오디오 디코딩 중...");
+
+        const arrayBuffer = await localBlob.arrayBuffer();
+        const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+
+        // Re-verify after async decode: check both token and index
+        if (loadToken !== undefined && _currentLoadToken !== myToken) {
+            log.warn(`[Preload] Token mismatch after decode. Expected ${myToken}, current is ${_currentLoadToken}. Discarding.`);
+            return;
+        }
+        if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+            log.warn(`[Preload] Track changed during decode. Expected ${targetIndex}, now ${currentTrackIndex}. Discarding.`);
+            return;
+        }
+
+        // Only now update global state
+        currentFileBlob = localBlob;
+        meta = localMeta;
+        currentAudioBuffer = audioBuffer;
+        log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
+
+        // Proper mode based on file type (video shows video UI, audio shows visualizer)
+        const isVideo = isMediaVideo(localBlob, localMeta);
+        setEngineMode(isVideo ? 'video' : 'buffer');
+
+        // Visual Sync
+        const url = BlobURLManager.create(localBlob);
+        videoElement.src = url;
+        videoElement.muted = true;
+
+        // Set UI immediately based on buffer
+        const dur = currentAudioBuffer.duration;
+        if (isFinite(dur)) {
+            document.getElementById('seek-slider').max = dur;
+            document.getElementById('time-dur').innerText = fmtTime(dur);
+        }
+        BlobURLManager.confirm(localBlob);
+
+        // Video load
+        videoElement.load();
+
+        // Safe Clearing: Avoid the global clearPreloadState() hammer.
+        // Only clear the satisfy-cache variables that we just moved to "current".
+        nextFileBlob = null;
+        nextMeta = null;
+        nextTrackIndex = -1;
+
+        log.debug(`[Preload] Safe clear: nextFileBlob moved to current.`);
+
+        // Consume pending play time if Host already sent it (Crucial for first track)
+        if (hostConn && _pendingPlayTime !== undefined) {
+            const target = _pendingPlayTime + localOffset + autoSyncOffset;
+            log.debug(`[Preload] Found pending play time after activation, starting at ${target.toFixed(2)}s`);
+            play(target);
+            _pendingPlayTime = undefined;
+        }
+
+    } catch (e) {
+        log.error("[Preload] Activation failed:", e);
+        showToast("프리로드 재생 실패 - 다시 로드합니다");
+        // Still clear cache so we can try recovery
+        nextFileBlob = null;
+        nextMeta = null;
+        nextTrackIndex = -1;
+        if (hostConn && hostConn.open) {
+            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE });
+        }
+        throw e; // Re-throw so callers can handle
+    }
 }
 
 function updateUISlider(duration) {
@@ -7093,9 +7316,6 @@ function closeHelpModal(event) {
     }
 }
 
-window.openHelpModal = openHelpModal;
-window.closeHelpModal = closeHelpModal;
-
 let myChatLabel = 'HOST';
 
 function sendChatMessage() {
@@ -7109,7 +7329,7 @@ function sendChatMessage() {
 
     addChatMessage(sender, text, true);
 
-    const chatMsg = { type: 'chat', sender: sender, text: text };
+    const chatMsg = { type: MSG.CHAT, sender: sender, text: text };
 
     if (!hostConn) {
         broadcast(chatMsg);
@@ -7202,7 +7422,7 @@ function parseMessageContent(text) {
             const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
             result += `
-                <button class="chat-youtube-btn" onclick="loadYouTubeFromChat('${safeUrl}')">
+                <button class="chat-youtube-btn" data-youtube-url="${escapeHtml(cleanUrl)}">
                     <span class="chat-yt-play-row">▶ YouTube 재생하기</span>
                     <span id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</span>
                 </button>
@@ -7246,10 +7466,9 @@ async function updateYouTubeChatTitle(elementId, url) {
             }
         }
     } catch (e) {
-        console.warn("[YouTube] Failed to fetch oEmbed title:", e);
+        log.warn("[YouTube] Failed to fetch oEmbed title:", e);
     }
 }
-
 
 function parseTimestamp(str) {
     const parts = str.split(':').map(Number);
@@ -7312,7 +7531,7 @@ function loadYouTubeFromChat(url) {
         videoId: item.videoId || null,
         playlistId: item.playlistId || null
     }));
-    broadcast({ type: 'playlist-update', list: metaList });
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
     playTrack(playlist.length - 1);
     showToast("YouTube 재생 시작");
@@ -7326,11 +7545,6 @@ function insertEmoji(emoji) {
     }
 }
 
-window.parseMessageContent = parseMessageContent;
-window.seekToTime = seekToTime;
-window.loadYouTubeFromChat = loadYouTubeFromChat;
-window.insertEmoji = insertEmoji;
-
 document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
@@ -7341,6 +7555,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Event delegation for YouTube chat buttons (replaces inline onclick)
+    document.addEventListener('click', (e) => {
+        const ytBtn = e.target.closest('.chat-youtube-btn[data-youtube-url]');
+        if (ytBtn) {
+            const url = ytBtn.getAttribute('data-youtube-url');
+            if (url) loadYouTubeFromChat(url);
+        }
+    });
 });
 
 window.addEventListener('keydown', (e) => {
@@ -7375,7 +7598,6 @@ function clearUnread() {
     unreadChatCount = 0;
     updateChatBadge(0);
 }
-
 
 function toggleChatDrawer() {
     const drawer = document.getElementById('chat-drawer');
@@ -7438,11 +7660,8 @@ function updateChatYouTube(active) {
     }
 }
 
-
-
 let youtubePlayer = null;
 let youtubeSessionId = 0;
-
 
 function openMediaSourcePopup() {
     if (hostConn) {
@@ -7522,7 +7741,7 @@ function loadYouTubeFromInput() {
         videoId: item.videoId || null,
         playlistId: item.playlistId || null
     }));
-    broadcast({ type: 'playlist-update', list: metaList });
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
     closeYouTubePopup();
 
@@ -7543,15 +7762,12 @@ function loadYouTubeFromInput() {
 function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex = 0) {
     youtubeSessionId++;
     const currentSessionId = youtubeSessionId;
-    window._currentYouTubeSessionId = currentSessionId;
+    _currentYouTubeSessionId = currentSessionId;
 
     stopAllMedia();
     setEngineMode('youtube');
 
     showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
-
-    // [MOD] UI state is now centrally managed by setState -> updateUIForState
-    // document.body.classList.add('mode-video'); // REMOVED
 
     const wrapper = document.querySelector('.video-wrapper');
     let container = document.getElementById('youtube-player-container');
@@ -7567,16 +7783,16 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
     }
 
     if (!window.YT || !window.YT.Player) {
-        if (!window._ytScriptLoading) {
-            window._ytScriptLoading = true;
+        if (!_ytScriptLoading) {
+            _ytScriptLoading = true;
             const tag = document.createElement('script');
             tag.src = 'https://www.youtube.com/iframe_api';
 
-            // ✅ 추가: YouTube API 로딩 에러 핸들링
-            tag.onload = () => console.log('[YouTube] API script loaded');
+            // YouTube API loading error handling
+            tag.onload = () => log.debug('[YouTube] API script loaded');
             tag.onerror = () => {
-                console.error('[YouTube] Failed to load API script');
-                window._ytScriptLoading = false;
+                log.error('[YouTube] Failed to load API script');
+                _ytScriptLoading = false;
                 showToast('YouTube API 로드 실패. 인터넷 연결 확인!');
             };
 
@@ -7590,18 +7806,16 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
         initYouTubePlayer(videoId, playlistId, autoplay, subIndex);
     }
 
-    // updateTitleWithMarquee('YouTube Video'); // Removed - handled by updatePlaylistUI
 
-    // [Fix] Safety Timeout: prevents infinite loader if YouTube API fails silently
-    if (window._ytLoadTimeout) clearTimeout(window._ytLoadTimeout);
-    window._ytLoadTimeout = setTimeout(() => {
-        if (window._currentYouTubeSessionId === currentSessionId && (!youtubePlayer || !isYouTubeAPIReady)) {
-            console.warn('[YouTube] Load timeout triggered.');
+    // Safety Timeout: prevents infinite loader if YouTube API fails silently
+    if (_ytLoadTimeout) clearTimeout(_ytLoadTimeout);
+    _ytLoadTimeout = setTimeout(() => {
+        if (_currentYouTubeSessionId === currentSessionId && (!youtubePlayer || !isYouTubeAPIReady)) {
+            log.warn('[YouTube] Load timeout triggered.');
             showLoader(false);
             showToast('YouTube 로드 시간 초과. 다시 시도해주세요.');
         }
     }, 15000);
-    // document.getElementById('track-artist').innerText = playlistId ? '플레이리스트 재생 중' : '재생 중'; // Removed - handled by updatePlaylistUI
 
     document.getElementById('play-btn').disabled = false;
 
@@ -7610,17 +7824,17 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
 
     setTimeout(() => refreshYouTubeDisplay(), 500);
 
-    console.log("[YouTube] Loaded:", videoId || playlistId, "autoplay:", autoplay);
+    log.debug("[YouTube] Loaded:", videoId || playlistId, "autoplay:", autoplay);
 }
 
 function initYouTubePlayer(videoId, playlistId = null, autoplay = true, subIndex = 0) {
-    // [FIX] Safety Guard: Ensure we are still in YouTube mode when player initializes
+    // Safety Guard: Ensure we are still in YouTube mode when player initializes
     if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
-        console.warn("[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state");
+        log.warn("[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state");
         return;
     }
     if (youtubePlayer && youtubePlayer.loadVideoById) {
-        console.log("[YouTube] Re-using existing player instance");
+        log.debug("[YouTube] Re-using existing player instance");
         try {
             if (playlistId) {
                 youtubePlayer.loadPlaylist({
@@ -7635,7 +7849,7 @@ function initYouTubePlayer(videoId, playlistId = null, autoplay = true, subIndex
             if (!autoplay) youtubePlayer.pauseVideo();
             return;
         } catch (e) {
-            console.warn("[YouTube] Failed to reuse player, recreating...", e);
+            log.warn("[YouTube] Failed to reuse player, recreating...", e);
             const container = document.getElementById('youtube-player-container');
             if (container) container.innerHTML = '<div id="youtube-player"></div>';
         }
@@ -7646,7 +7860,8 @@ function initYouTubePlayer(videoId, playlistId = null, autoplay = true, subIndex
         controls: 1,
         rel: 0,
         modestbranding: 1,
-        playsinline: 1
+        playsinline: 1,
+        origin: window.location.origin
     };
 
     if (playlistId) {
@@ -7672,22 +7887,22 @@ function initYouTubePlayer(videoId, playlistId = null, autoplay = true, subIndex
 }
 
 function onYouTubePlayerReady(event) {
-    console.log("[YouTube] Player ready");
+    log.debug("[YouTube] Player ready");
 
     if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
-        console.log("[YouTube] onPlayerReady skipped - mode changed");
+        log.debug("[YouTube] onPlayerReady skipped - mode changed");
         return;
     }
 
     if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
     managedTimers.youtubeUILoop = setInterval(updateYouTubeUI, 500);
 
-    // [FIX] Ensure ONLY Host runs the sync loop
+    // Ensure ONLY Host runs the sync loop
     if (managedTimers.youtubeSyncLoop) clearInterval(managedTimers.youtubeSyncLoop);
     if (!hostConn) {
         managedTimers.youtubeSyncLoop = setInterval(broadcastYouTubeSync, 3000);
     } else {
-        console.log("[YouTube] Guest mode: sync loop disabled");
+        log.debug("[YouTube] Guest mode: sync loop disabled");
     }
 
     // [Sync] Apply current master volume to YouTube player immediately
@@ -7696,7 +7911,7 @@ function onYouTubePlayerReady(event) {
 
 function onYouTubePlayerStateChange(event) {
     if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
-        console.log("[YouTube] StateChange skipped - not in YouTube mode");
+        log.debug("[YouTube] StateChange skipped - not in YouTube mode");
         return;
     }
 
@@ -7710,17 +7925,17 @@ function onYouTubePlayerStateChange(event) {
         document.getElementById('icon-play').style.display = 'block';
         document.getElementById('icon-pause').style.display = 'none';
     } else if (state === YT.PlayerState.ENDED) {
-        currentState = APP_STATE.IDLE;
+        setState(APP_STATE.IDLE);
 
         if (!hostConn) {
-            console.log("[YouTube] Ended, playing next track...");
+            log.debug("[YouTube] Ended, playing next track...");
             playNextTrack();
         }
     }
 
     if (!hostConn && youtubePlayer && youtubePlayer.getCurrentTime) {
         broadcast({
-            type: 'youtube-state',
+            type: MSG.YOUTUBE_STATE,
             state: state,
             time: youtubePlayer.getCurrentTime(),
             subIndex: youtubePlayer.getPlaylistIndex ? youtubePlayer.getPlaylistIndex() : -1
@@ -7738,12 +7953,12 @@ function updateYouTubeUI() {
 
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         if (isIOS && (state === 5 || state === -1)) {
-            if (!window._ytIOSWatchdog) window._ytIOSWatchdog = Date.now();
-            if (Date.now() - window._ytIOSWatchdog > 3000) {
+            if (!_ytIOSWatchdog) _ytIOSWatchdog = Date.now();
+            if (Date.now() - _ytIOSWatchdog > 3000) {
                 showYouTubeSyncOverlay(true);
             }
         } else {
-            window._ytIOSWatchdog = null;
+            _ytIOSWatchdog = null;
         }
 
         if (duration > 0) {
@@ -7791,7 +8006,7 @@ function showYouTubeSyncOverlay(show) {
         overlay.style.display = 'flex';
     } else if (overlay) {
         overlay.style.display = 'none';
-        window._ytIOSWatchdog = null;
+        _ytIOSWatchdog = null;
     }
 }
 
@@ -7833,7 +8048,7 @@ function broadcastYouTubeSync() {
                                     youtubeSubItemsMap[pid].titles[sIdx] = vData.title;
 
                                     broadcast({
-                                        type: 'youtube-sub-title-update',
+                                        type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
                                         playlistId: pid,
                                         subIdx: sIdx,
                                         title: vData.title
@@ -7849,7 +8064,7 @@ function broadcastYouTubeSync() {
         }
 
         broadcast({
-            type: 'youtube-sync',
+            type: MSG.YOUTUBE_SYNC,
             time: currentTime,
             state: state,
             subIndex: currentYouTubeSubIndex
@@ -7868,7 +8083,7 @@ function handleYouTubeSync(data) {
         const hostSubIndex = data.subIndex;
 
         if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentYouTubeSubIndex) {
-            console.log(`[YouTube Sync] Sub-index change: ${currentYouTubeSubIndex} -> ${hostSubIndex}`);
+            log.debug(`[YouTube Sync] Sub-index change: ${currentYouTubeSubIndex} -> ${hostSubIndex}`);
             currentYouTubeSubIndex = hostSubIndex;
 
             if (youtubePlayer && youtubePlayer.playVideoAt && youtubePlayer.getPlaylistIndex) {
@@ -7900,20 +8115,20 @@ function handleYouTubeSync(data) {
         const drift = Math.abs(currentTime - compensatedTime);
 
         if (drift > 2 && youtubePlayer.seekTo) {
-            console.log(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
+            log.debug(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
             youtubePlayer.seekTo(compensatedTime, true);
         }
 
         if (youtubePlayer.getPlayerState && youtubePlayer.playVideo && youtubePlayer.pauseVideo) {
-            const currentState = youtubePlayer.getPlayerState();
-            if (hostState === 1 && currentState !== 1) {
+            const ytState = youtubePlayer.getPlayerState();
+            if (hostState === 1 && ytState !== 1) {
                 youtubePlayer.playVideo();
-            } else if (hostState === 2 && currentState !== 2) {
+            } else if (hostState === 2 && ytState !== 2) {
                 youtubePlayer.pauseVideo();
             }
         }
     } catch (e) {
-        console.error("[YouTube Sync] Error:", e);
+        log.error("[YouTube Sync] Error:", e);
     }
 }
 
@@ -7926,7 +8141,7 @@ function refreshYouTubeDisplay() {
     const container = document.getElementById('youtube-player-container');
     if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-    console.log("[YouTube] Refreshing display to prevent black screen...");
+    log.debug("[YouTube] Refreshing display to prevent black screen...");
     const iframe = container.querySelector('iframe');
 
     container.style.display = 'none';
@@ -7956,11 +8171,11 @@ function handleYouTubeSubTitleUpdate(data) {
 }
 
 function stopYouTubeMode() {
-    // [FIX] Avoid IDLE state if we are transitioning TO another state
+    // Avoid IDLE state if we are transitioning TO another state
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         setState(APP_STATE.IDLE, { skipCleanup: true });
     } else {
-        // [FIX] If already not in YouTube mode, skip redundant cleanup and logging
+        // If already not in YouTube mode, skip redundant cleanup and logging
         return;
     }
 
@@ -7969,10 +8184,10 @@ function stopYouTubeMode() {
 
     if (youtubePlayer) {
         try {
-            console.log("[YouTube] Destroying player instance...");
+            log.debug("[YouTube] Destroying player instance...");
             youtubePlayer.stopVideo();
             if (typeof youtubePlayer.destroy === 'function') youtubePlayer.destroy();
-        } catch (e) { }
+        } catch (e) { log.debug('[YouTube] Cleanup error (non-critical):', e.message); }
         youtubePlayer = null;
     }
 
@@ -7997,7 +8212,7 @@ function stopYouTubeMode() {
 
     updateChatYouTube(false);
 
-    console.log("[YouTube] Mode stopped, visualizer restored");
+    log.debug("[YouTube] Mode stopped, visualizer restored");
     updatePlaylistUI();
 
     if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
@@ -8009,8 +8224,6 @@ function stopYouTubeMode() {
         }
     }
 }
-
-
 
 async function loadDemoMedia() {
     if (hostConn) return showToast("Host만 실행할 수 있습니다.");
@@ -8070,7 +8283,7 @@ async function loadDemoMedia() {
             videoId: item.videoId || null,
             playlistId: item.playlistId || null
         }));
-        broadcast({ type: 'playlist-update', list: metaList });
+        broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
         showToast("데모 영상 다운로드 완료. 재생을 시작합니다.");
 
@@ -8079,7 +8292,7 @@ async function loadDemoMedia() {
         playTrack(playlist.length - 1);
 
     } catch (e) {
-        console.error("Demo load failed:", e);
+        log.error("Demo load failed:", e);
         showToast("데모 로드 실패: " + (e.name === 'AbortError' ? '시간 초과' : e.message));
         showLoader(false);
     }
@@ -8146,7 +8359,7 @@ function fetchYouTubePreview(url) {
             setPlayBtnEnabled(true);
 
         } catch (e) {
-            console.error('[YouTube Preview] Error:', e);
+            log.error('[YouTube Preview] Error:', e);
             previewContainer.style.display = 'none';
             statusText.style.display = 'block';
             statusText.innerText = '영상 정보를 불러올 수 없습니다';
@@ -8173,12 +8386,12 @@ async function processRelayQueue() {
             break;
         }
 
-        // [HoLB Fix] Dispatch to each peer's individual queue
+        // Dispatch to each peer's individual queue
         openPeers.forEach((p, pIdx) => {
-            // [New] Support targeting specific peers for catch-up data
+            // Support targeting specific peers for catch-up data
             if (msg.targetPeerId && msg.targetPeerId !== p.peer) return;
 
-            // [FIX] Multi-peer Detachment Protection
+            // Multi-peer Detachment Protection
             // Clone the message if there are multiple peers to ensure they each get a fresh buffer
             let peerMsg = msg;
             if (openPeers.length > 1 && msg.chunk instanceof Uint8Array) {
@@ -8199,11 +8412,11 @@ async function processRelayQueue() {
                         // Per-peer buffer check
                         // [Optimized] Lower threshold (128KB) for faster feedback
                         while (p.dataChannel && p.dataChannel.bufferedAmount > 128 * 1024) {
-                            await new Promise(r => setTimeout(r, 50));
+                            await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
                             if (!p.open) break;
                         }
                         if (p.open) {
-                            try { p.send(m); } catch (e) { console.warn(`[Relay] Send failed:`, e); }
+                            try { p.send(m); } catch (e) { log.warn(`[Relay] Send failed:`, e); }
                         } else {
                             p._relayQueue = [];
                             break;
@@ -8212,6 +8425,15 @@ async function processRelayQueue() {
                     p._relayBusy = false;
                 };
             }
+            // Memory safety: cap per-peer relay queue to prevent unbounded growth
+            const MAX_PEER_RELAY_QUEUE = 500;
+            if (p._relayQueue.length > MAX_PEER_RELAY_QUEUE) {
+                // Drop oldest chunks instead of disconnecting - keeps peer alive on slow connections
+                const dropped = p._relayQueue.length - Math.floor(MAX_PEER_RELAY_QUEUE * 0.8);
+                log.warn(`[Relay] Peer ...${p.peer.substr(-4)} queue overflow (${p._relayQueue.length}). Dropping ${dropped} oldest chunks.`);
+                p._relayQueue.splice(0, dropped);
+            }
+
             p._relayQueue.push(peerMsg);
             p._processRelay();
         });
@@ -8229,21 +8451,21 @@ async function processRelayQueue() {
 // [SECTION] RELAY DEBUG CONSOLE
 // ============================================================================
 window.relayDebug = function () {
-    console.log("=== RELAY DEBUG (엄마/형/동생) ===");
-    console.log("My Peer ID:", myId);
-    console.log("Is Host?", !hostConn);
-    console.log("Upstream (Received from):", upstreamDataConn ? upstreamDataConn.peer.substr(-4) : "HOST Direct");
-    console.log("Downstream (Relaying to):", downstreamDataPeers.length, "peers");
+    log.debug("=== RELAY DEBUG (엄마/형/동생) ===");
+    log.debug("My Peer ID:", myId);
+    log.debug("Is Host?", !hostConn);
+    log.debug("Upstream (Received from):", upstreamDataConn ? upstreamDataConn.peer.substr(-4) : "HOST Direct");
+    log.debug("Downstream (Relaying to):", downstreamDataPeers.length, "peers");
 
     downstreamDataPeers.forEach(p => {
         const buf = p.dataChannel ? p.dataChannel.bufferedAmount : 0;
         const qLen = p._relayQueue ? p._relayQueue.length : 0;
-        console.log(`- Peer ...${p.peer.substr(-4)}: [Queue: ${qLen}, Buffer: ${(buf / 1024).toFixed(1)}KB, Open: ${p.open}]`);
+        log.debug(`- Peer ...${p.peer.substr(-4)}: [Queue: ${qLen}, Buffer: ${(buf / 1024).toFixed(1)}KB, Open: ${p.open}]`);
     });
 
-    console.log("Global Relay Queue:", relayChunkQueue.length);
-    console.log("Transfer State:", transferState);
-    console.log("Received Count:", receivedCount, "/", (meta?.total || 0));
+    log.debug("Global Relay Queue:", relayChunkQueue.length);
+    log.debug("Transfer State:", transferState);
+    log.debug("Received Count:", receivedCount, "/", (meta?.total || 0));
 };
 
 window.toggleRelayOverlay = function () {
@@ -8307,7 +8529,6 @@ window.setChannel = setChannel;
 window.setSurroundChannel = setSurroundChannel;
 window.updateSettings = updateSettings;
 window.resetReverb = resetReverb;
-
 window.resetEQ = resetEQ;
 window.setPreamp = setPreamp;
 window.setEQ = setEQ;
@@ -8315,9 +8536,6 @@ window.resetStereo = resetStereo;
 window.sendChatMessage = sendChatMessage;
 window.switchTab = switchTab;
 window.loadDemoMedia = loadDemoMedia;
-window.prevSlide = prevSlide;
-window.nextSlide = nextSlide;
-window.goToSlide = goToSlide;
 window.nudgeSync = nudgeSync;
 window.handleAutoSync = handleAutoSync;
 window.closeManualSync = closeManualSync;
@@ -8330,5 +8548,9 @@ window.loadYouTubeFromInput = loadYouTubeFromInput;
 window.updateAudioEffect = updateAudioEffect;
 window.toggleRelayOverlay = toggleRelayOverlay;
 window.relayDebug = relayDebug;
+window.parseMessageContent = parseMessageContent;
+window.seekToTime = seekToTime;
+window.loadYouTubeFromChat = loadYouTubeFromChat;
+window.insertEmoji = insertEmoji;
 
 // End of Script

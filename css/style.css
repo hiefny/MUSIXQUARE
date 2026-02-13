@@ -29,7 +29,7 @@
     --surface-1: #ffffff;
     /* Card Background (White) */
     --surface-2: #e5e5ea;
-    /* Inputs (Gray) - 媛?쒖꽦 ?뺣낫 */
+    /* Inputs (Gray) */
     --surface-3: #d1d1d6;
     /* Darker Accents */
     --primary: #007aff;
@@ -757,7 +757,7 @@ input[type=range]:active::-webkit-slider-thumb {
     background: transparent;
     border: none;
     color: var(--text-main);
-    /* 媛?쒖꽦 媛쒖꽑 */
+    /* Visibility improvement */
     width: 44px;
     height: 44px;
     border-radius: var(--radius-s);
@@ -817,7 +817,7 @@ input[type=range]:active::-webkit-slider-thumb {
     width: 100%;
     margin-top: auto;
     background: var(--surface-2);
-    /* 媛?쒖꽦 媛쒖꽑 */
+    /* Visibility improvement */
     border: none;
     padding: 16px;
     border-radius: var(--radius-m);
@@ -986,7 +986,7 @@ input[type=range]:active::-webkit-slider-thumb {
 .sub-track-item.active {
     color: var(--primary);
     font-weight: 700;
-    background: rgba(59, 130, 246, 0.1);
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .sub-idx {
@@ -1046,7 +1046,6 @@ input[type=range]:active::-webkit-slider-thumb {
 .section-group {
     background: var(--surface-1);
     border-radius: var(--radius-m);
-    margin: 0 20px 24px;
     margin: 0 20px 24px;
     /* overflow: hidden; Removed to prevent clipping shadows/popups - Using child radius instead */
 }
@@ -1550,12 +1549,10 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 /* Global Loader (Fixed overlay) */
 .vinyl-loader {
     position: fixed;
-    /* [Fix] Fixed to viewport, escapes all stacking contexts */
     inset: 0;
     pointer-events: none;
     background: rgba(0, 0, 0, 0.75);
     z-index: 99999;
-    /* [Fix] Absolute Top */
     display: none;
     flex-direction: column;
     justify-content: center;
@@ -2409,7 +2406,7 @@ input:checked+.slider:before {
     width: 100%;
     padding: 12px 16px;
     background: var(--surface-1);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--surface-2);
 }
 
 .chat-youtube-player {
@@ -2687,7 +2684,7 @@ input:checked+.slider:before {
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--surface-2);
 }
 
 .chat-drawer-title {
@@ -2735,7 +2732,7 @@ input:checked+.slider:before {
     gap: 12px;
     padding: 12px 16px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--surface-2);
     background: var(--surface-1);
 }
 

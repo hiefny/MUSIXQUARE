@@ -231,7 +231,7 @@ async function handleMessage(data) {
         try {
             const root = await navigator.storage.getDirectory();
             await root.removeEntry(safeName);
-        } catch (e) { } finally {
+        } catch (e) { /* file may not exist */ } finally {
             self.postMessage({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
         }
     }

@@ -2403,7 +2403,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .sync-glass-panel.panel-compact {
-    padding: 24px 28px;
+    padding: 32px 28px 24px;
     gap: 16px;
 }
 

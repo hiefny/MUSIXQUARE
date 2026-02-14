@@ -1007,6 +1007,21 @@ let repeatMode = 0;
 let isShuffle = false;
 let isFirstTrackLoad = true;  // Track if this is the first file load
 
+/**
+ * Build a lightweight playlist payload safe to send over PeerJS.
+ * IMPORTANT: Never send File objects (they are not reliably serializable).
+ */
+function buildPlaylistMetaList(srcList = playlist) {
+    if (!Array.isArray(srcList)) return [];
+    return srcList.map(item => ({
+        type: item?.type,
+        name: item?.name || item?.title || (item?.file ? item.file.name : 'Unknown'),
+        videoId: item?.videoId || null,
+        playlistId: item?.playlistId || null
+    }));
+}
+
+
 // ============================================================================
 // [SECTION] VIDEO STATE
 // ============================================================================
@@ -2435,8 +2450,15 @@ function setShuffle(enabled) {
 }
 
 function updatePlaylistUI() {
-    if (!playlist) playlist = [];
     const ul = document.getElementById('playlist-ui');
+    if (!ul) return;
+
+    // Defensive: Playlist can temporarily be undefined during late-join resync or protocol mismatch.
+    if (!Array.isArray(playlist)) {
+        log.warn('[Playlist] playlist is not an array. Resetting.', playlist);
+        playlist = [];
+    }
+
     ul.innerHTML = '';
     if (playlist.length === 0) {
         ul.innerHTML = '<li style="color:var(--text-sub); font-size:13px; text-align:center; padding:20px;">파일이 없습니다.</li>';
@@ -4796,38 +4818,99 @@ function handleHostIncomingConnection(conn) {
             });
         } catch (e) { /* noop */ }
 
-        // Sync current settings/state
+        // Sync current settings/state (late-join bootstrap)
         try { conn.send({ type: MSG.VOLUME, value: masterVolume }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.REVERB, value: reverbMix }); } catch (e) { /* noop */ }
+        try { if (reverb) conn.send({ type: MSG.REVERB_DECAY, value: reverb.decay }); } catch (e) { /* noop */ }
+        try { if (reverb) conn.send({ type: MSG.REVERB_PREDELAY, value: reverb.preDelay }); } catch (e) { /* noop */ }
+        try { if (rvbLowCut) conn.send({ type: MSG.REVERB_LOWCUT, value: rvbLowCut.frequency.value }); } catch (e) { /* noop */ }
+        try { if (rvbHighCut) conn.send({ type: MSG.REVERB_HIGHCUT, value: rvbHighCut.frequency.value }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.REPEAT_MODE, value: repeatMode }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.PLAYLIST_UPDATE, list: playlist, currentTrackIndex }); } catch (e) { /* noop */ }
+
+        // Sync playlist (metadata only - do NOT send File objects)
+        try {
+            const metaList = buildPlaylistMetaList(playlist);
+            conn.send({ type: MSG.PLAYLIST_UPDATE, list: metaList, currentTrackIndex });
+        } catch (e) { /* noop */ }
 
         // If a local file is already loaded, push it directly (for late-join / reconnect).
-        if (currentFileBlob && currentTrackIndex >= 0 && playlist[currentTrackIndex] && playlist[currentTrackIndex].type === 'local') {
+        // Note: Use currentTransferSessionId (Host) — localTransferSessionId is Guest-side.
+        if (currentFileBlob && currentTrackIndex >= 0 && Array.isArray(playlist) && playlist[currentTrackIndex] && playlist[currentTrackIndex].type !== 'youtube') {
             try {
-                unicastFile(conn, currentFileBlob, 0, localTransferSessionId)
+                unicastFile(conn, currentFileBlob, 0, currentTransferSessionId)
                     .catch((e) => log.error('[Host] unicastFile failed', e));
             } catch (e) { /* noop */ }
         }
 
-        // Playback state
-        if (currentState === APP_STATE.PLAYING_FILE || currentState === APP_STATE.PLAYING_YOUTUBE) {
+        // Playback state (time-sync for late joiners)
+        const nowPos = getTrackPosition();
+
+        if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
             try {
                 conn.send({
                     type: MSG.PLAY,
-                    time: Tone.Transport.seconds,
-                    state: currentState,
-                    timestamp: Date.now(),
+                    time: nowPos,
                     index: currentTrackIndex,
-                    list: playlist
+                    state: currentState,
+                    timestamp: Date.now()
                 });
             } catch (e) { /* noop */ }
+        } else if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+            // Send YouTube bootstrap so late joiners can enter YouTube mode
+            const item = (Array.isArray(playlist) ? playlist[currentTrackIndex] : null);
+
+            if (item && item.type === 'youtube') {
+                let ytTime = 0;
+                let ytState = 2;
+
+                try {
+                    if (youtubePlayer && youtubePlayer.getCurrentTime) ytTime = youtubePlayer.getCurrentTime();
+                    if (youtubePlayer && youtubePlayer.getPlayerState) ytState = youtubePlayer.getPlayerState();
+                } catch (_) { /* best-effort */ }
+
+                const autoplay = (ytState === 1);
+                const subIdx = (typeof currentYouTubeSubIndex === 'number' && currentYouTubeSubIndex >= 0) ? currentYouTubeSubIndex : 0;
+
+                try {
+                    conn.send({
+                        type: MSG.YOUTUBE_PLAY,
+                        videoId: item.videoId,
+                        playlistId: item.playlistId,
+                        index: currentTrackIndex,
+                        autoplay: autoplay,
+                        subIndex: subIdx
+                    });
+                } catch (e) { /* noop */ }
+
+                // Also send an immediate sync frame (player might ignore until ready; Host will keep sending every 3s)
+                try {
+                    conn.send({
+                        type: MSG.YOUTUBE_SYNC,
+                        time: ytTime,
+                        state: ytState,
+                        subIndex: subIdx
+                    });
+                } catch (e) { /* noop */ }
+
+            } else {
+                // Fallback: if YouTube state is inconsistent, just send pause
+                try {
+                    conn.send({
+                        type: MSG.PAUSE,
+                        time: nowPos,
+                        index: currentTrackIndex,
+                        state: currentState,
+                        timestamp: Date.now()
+                    });
+                } catch (e) { /* noop */ }
+            }
         } else {
             try {
                 conn.send({
                     type: MSG.PAUSE,
-                    time: Tone.Transport.seconds,
+                    time: nowPos,
+                    index: currentTrackIndex,
                     state: currentState,
                     timestamp: Date.now()
                 });
@@ -6728,7 +6811,31 @@ async function handleRepeatMode(data) {
 }
 
 async function handlePlaylistUpdate(data) {
-    playlist = data.list || data.playlist || [];
+    // Backward/forward compatible payload handling:
+    // - Newer code sends { list: [...] }
+    // - Some legacy paths used { playlist: [...] }
+    const incoming = Array.isArray(data?.list) ? data.list : (Array.isArray(data?.playlist) ? data.playlist : null);
+
+    if (!incoming) {
+        log.warn('[PlaylistUpdate] Missing/invalid playlist payload. Resetting to empty.', data);
+        playlist = [];
+    } else {
+        playlist = incoming;
+    }
+
+    // Late-join bootstrap may include currentTrackIndex
+    if (typeof data?.currentTrackIndex === 'number') {
+        currentTrackIndex = data.currentTrackIndex;
+    } else if (typeof data?.index === 'number') {
+        // Some payloads might use 'index' for current track
+        currentTrackIndex = data.index;
+    }
+
+    // Clamp for safety
+    if (!Array.isArray(playlist)) playlist = [];
+    if (currentTrackIndex >= playlist.length) currentTrackIndex = playlist.length - 1;
+    if (currentTrackIndex < -1) currentTrackIndex = -1;
+
     updatePlaylistUI();
 }
 

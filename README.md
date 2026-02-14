@@ -1,159 +1,95 @@
 # MUSIXQUARE 🎵
 
-**Multi-Device Synchronized Surround Audio System**
+**Multi‑Device Synchronized Surround Audio (Toss In‑App Build)**
 
-MUSIXQUARE is a web-based party app that transforms multiple smartphones into a single, massive **synchronized surround sound** system.
-No installation required—just open your browser and start the party.
+MUSIXQUARE is a web-based party app that turns multiple devices on the **same local network (same Wi‑Fi / hotspot)** into a single synchronized audio system.
 
-**Live Demo**: https://musixquare.netlify.app
+> This repository version is refactored for **Toss In‑App** release constraints:
+> - **No external link/QR onboarding**
+> - **Local network only (no TURN / no relay)**
+> - **Short 6‑digit code** to connect
+> - **Direct host connections only (max 3 guest devices)**
 
 ---
 
 ## ✨ Key Features
 
-- **🚀 Instant Connection, No App Needed**: Works instantly on iOS, Android, and PC via any modern web browser.
-- **⏱️ Precision Synchronization**: Real-time playback tracking allows all guest devices to sync with the host (sub-second).
-- **🔊 Virtual Surround & 7.1 Support**: Configure devices as Left, Right, Center, Woofer, and more.
-- **🎥 YouTube Sync**: Watch YouTube videos together with synchronized audio across connected devices.
-- **🛠️ Pro Audio Engine**: EQ / Reverb / Virtual Bass / Stereo Width controls powered by Tone.js.
-- **💬 Smart Social Chat**: Share links and timestamps in real time. (YouTube titles are auto-fetched.)
-- **💾 OPFS Storage**: Uses Origin Private File System (OPFS) for efficient large media handling.
+- **🔢 Short Code Join (In‑App Safe)**: Guests type a **6‑digit code** shown on the host device.
+- **📡 Local Network Only**: Designed for **same Wi‑Fi / same hotspot**.
+- **🔌 Direct Host Connections (Stable)**: Host connects directly to up to **3 guest devices** (Left / Right / Sub).
+- **🔊 Role‑based Routing**: Host assigns devices sequentially:
+  1) Left Speaker → 2) Right Speaker → 3) Subwoofer (optional)
+- **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
+- **🛠️ Pro Audio Engine**: Mixing / FX powered by Tone.js.
 
 ---
 
 ## 🛠️ Technology Stack
 
 - **Tone.js**: Web Audio engine (FX / mixing)
-- **PeerJS**: WebRTC P2P networking for low-latency communication
-- **QRCode.js**: Easy session joining via QR codes
-- **OPFS (Origin Private File System)**: Efficient local storage for large media
+- **PeerJS**: WebRTC P2P networking for low‑latency messaging
+- **OPFS (Origin Private File System)**: Efficient local storage for large media (where supported)
 
 ---
 
 ## ✅ Requirements / Notes
 
-- **HTTPS is required** (or `localhost` during development).
-  - WebRTC / Clipboard / Service Worker / OPFS require a secure context.
-- OPFS is recommended.
-  - Older iOS Safari versions may have limitations.
+- **Secure context required** (HTTPS or `localhost`) for WebRTC / Service Worker / OPFS.
+- This build **does not use STUN/TURN** and is intended for **LAN usage**.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started (Local Dev)
 
-### Local Development
+> Opening via `file://` may break features (Service Worker / OPFS / WebRTC).
 
-> Opening via `file://` may break some features (especially Service Worker / OPFS).
-
-#### Option A) Python
+### Option A) Python
 
 ```bash
 python -m http.server 5173
 ```
 
-Then open:
+Open:
 
 - `http://localhost:5173/`
 
-#### Option B) VSCode Live Server
+### Option B) VSCode Live Server
 
-- Use VSCode extension **Live Server**
+Use the VSCode **Live Server** extension.
 
 ---
 
 ## 📖 How to Use
 
-1. **Host (The DJ)**
-   - Open the app and press **Connect** to get your link or QR code.
-   - Upload local files or paste a YouTube link.
-   - Control playback, volume, and FX for the room.
+### Host (방장)
 
-2. **Guest (The Speakers)**
-   - Scan the QR code or open the shared link.
-   - Choose your speaker channel (Left / Right / Center / Rear / Sub, etc.).
-   - Enjoy synchronized surround audio.
+1. Open the app and tap **“제가 방장할래요”**
+2. The app shows a **6‑digit code**
+3. Connect devices in order:
+   - **Left Speaker** device enters code
+   - **Right Speaker** device enters code
+   - **Subwoofer** device enters code *(optional)*
+4. Once ready, the host immediately sees 3 options:
+   - **로컬파일 불러오기**
+   - **유튜브 링크 추가하기**
+   - **앱 체험하기**
+
+### Guest (참가자)
+
+1. Open the app and tap **“모임에 참가할래요”**
+2. Enter the **6‑digit code** shown on the host
+3. Wait until the system starts (host finishes connecting devices)
 
 ---
 
 ## 🌐 Deployment
 
-This project is **static-hosting friendly** (HTML/CSS/JS).
-
-### Netlify (Recommended)
-
-- `netlify.toml` is included for routing & security headers.
-- A sample serverless function is included:
-  - `netlify/functions/get-turn-config.js`
-
-#### Environment Variables (TURN)
-
-Recommended:
-
-- `TURN_USERNAME`
-- `TURN_CREDENTIAL`
-
-Optional (recommended):
-
-- `ALLOWED_ORIGINS`
-  - CORS allowlist for `/.netlify/functions/get-turn-config` (comma-separated)
-  - If omitted, the function defaults to **same-origin (+ localhost dev)** only.
-
-> ⚠️ Security: avoid shipping long-lived TURN credentials to all clients.
-> For production, prefer **ephemeral / time-limited** TURN credentials issued server-side.
-
-### GitHub Pages / Vercel
-
-- Works as a static site.
-- If you want TURN support, you’ll need a serverless function / backend.
+This project is a static web app (HTML/CSS/JS).
+For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
 
 ---
 
-## 📲 PWA (Installable)
+## 📲 PWA
 
 - `manifest.webmanifest` and `service-worker.js` are included.
-- The app registers the Service Worker from `js/app.js` on secure contexts.
-- Update behavior:
-  - When a new version is available, the app shows an in-app dialog.
-  - On confirmation, it activates the new SW (`SKIP_WAITING`) and reloads.
-
----
-
-## 🔒 Security & Quality Improvements (included)
-
-- Removed `alert()` → replaced with **non-blocking in-app dialogs**
-- Hardened UI rendering against attribute-based injection
-  - Added `escapeAttr()`
-  - Device list rendering moved away from raw `innerHTML` toward safer DOM creation
-- Removed 3rd-party `noembed` dependency → unified to **YouTube oEmbed**
-- Added clipboard fallback for environments where `navigator.clipboard` fails
-- Added Netlify security headers (HSTS / COOP / CORP / CSP, etc.)
-- Service Worker & manifest are served with `no-cache` to avoid stale PWA updates
-
----
-
-## 🧱 Project Structure
-
-- `index.html` : main UI
-- `css/style.css` : styles
-- `js/app.js` : app logic
-- `js/sync.worker.js` : sync/compute worker
-- `js/transfer.worker.js` : file transfer worker
-- `manifest.webmanifest` : PWA manifest
-- `service-worker.js` : PWA service worker
-- `icons/` : app icons
-- `netlify/functions/get-turn-config.js` : TURN config function (sample)
-
----
-
-## 👨‍💻 Author
-
-Created with ❤️ by **HIEFNY**
-
-Buy me a coffee:
-- https://buymeacoffee.com/hiefny
-
----
-
-## 📝 License
-
-Distributed under the **MIT License**.
+- Service worker is registered from `js/app.js` on secure contexts.

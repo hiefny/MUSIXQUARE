@@ -56,11 +56,12 @@ self.addEventListener('activate', (event) => {
 
 function isCacheableRequest(request) {
   if (request.method !== 'GET') return false;
+  // Range 요청(Partial Content 206)은 Cache.put 지원이 제한적이라 캐싱하지 않음
+  // (iOS/인앱 웹뷰에서 특히 자주 발생)
+  if (request.headers && request.headers.has('range')) return false;
   const url = new URL(request.url);
 
-  // Never cache Netlify functions or other dynamic endpoints
-  if (url.pathname.startsWith('/.netlify/functions/')) return false;
-
+  // Never cache dynamic endpoints (app is fully self-contained)
   // Avoid caching large media downloads (demo video / user content)
   const ext = url.pathname.split('.').pop().toLowerCase();
   if (['mp4', 'webm', 'mkv'].includes(ext)) return false;
@@ -99,7 +100,8 @@ self.addEventListener('fetch', (event) => {
       try {
         const response = await fetch(request);
         // Cache opaque + basic responses
-        if (response && (response.ok || response.type === 'opaque')) {
+        // NOTE: status 206(Partial Content)은 Cache.put에서 예외가 날 수 있으므로 제외
+        if (response && response.status !== 206 && (response.ok || response.type === 'opaque')) {
           const cache = await caches.open(url.origin === self.location.origin ? STATIC_CACHE : RUNTIME_CACHE);
           cache.put(request, response.clone());
         }

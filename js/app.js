@@ -240,7 +240,7 @@ let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
 let playerNode = null;   // Transient BufferSource for precise start
 let currentAudioBuffer = null; // Decoded PCM data in RAM
-let vbFilter, vbCheby, vbPostFilter, vbCompressor, vbGain;
+let vbFilter, vbCheby, vbGain;
 let preamp, widener;
 let globalLowPass = null;
 let analyser;
@@ -467,6 +467,9 @@ function clearAllManagedTimers() {
 }
 
 let channelMode = 0; // 0=Stereo, -1=Left, 1=Right, 2=Sub
+// Toss in-app: 역할(채널 모드)은 Settings에서 변경 가능해야 하므로 기본 잠금은 사용하지 않습니다.
+let isChannelSelectionLocked = false;
+
 let isSurroundMode = false; // 7.1 Mode
 let surroundChannelIndex = -1; // 0..7
 let surroundSplitter = null; // Split Source into 8 channels
@@ -937,6 +940,8 @@ const MSG = {
     VBASS: 'vbass',
     VOLUME: 'volume',
     WELCOME: 'welcome',
+    SESSION_START: 'session-start',
+    SESSION_FULL: 'session-full',
     YOUTUBE_PLAY: 'youtube-play',
     YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
     YOUTUBE_STATE: 'youtube-state',
@@ -1379,7 +1384,7 @@ function switchTab(tabId) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.getElementById(`tab-${tabId}`).classList.add('active');
-    const tabs = ['play', 'playlist', 'connect', 'settings'];
+    const tabs = ['play', 'playlist', 'settings', 'guide'];
     const idx = tabs.indexOf(tabId);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
 
@@ -1388,8 +1393,13 @@ function switchTab(tabId) {
         showToast("YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다");
     }
 
+    // Settings 상단 초대코드(Host/Guest 공통) 즉시 반영
+    if (tabId === 'settings') {
+        updateInviteCodeUI();
+    }
+
     // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
-    if (tabId === MSG.PLAY && currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
         // Use timeout to ensure tab transition is complete
         setTimeout(() => refreshYouTubeDisplay(), 50);
     }
@@ -1451,12 +1461,10 @@ async function initAudio() {
     rvbHighCut = new Tone.Filter(20000, "lowpass", -12);
     rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
-    // 4. Virtual Bass Chain (Psychoacoustic Sub-Harmonics)
-    // Parallel Path: Source -> LPF -> Chebyshev -> BPF -> Compressor -> Gain -> Master
-    vbFilter = new Tone.Filter(80, "lowpass"); // Crossover: isolate sub-bass
-    vbCheby = new Tone.Chebyshev(3); // Clean 2nd/3rd harmonics only
-    vbPostFilter = new Tone.Filter({ type: "bandpass", frequency: 160, Q: 0.7 }); // Keep only useful harmonics (~60-500Hz)
-    vbCompressor = new Tone.Compressor({ threshold: -30, ratio: 6, attack: 0.01, release: 0.1 }); // Tame peaks, protect speakers
+    // 4. Virtual Bass Chain (The "Secret Sauce")
+    // Parallel Path: Source -> LPF -> Chebyshev -> Gain -> Master
+    vbFilter = new Tone.Filter(subFreq, "lowpass"); // Dynamic Crossover
+    vbCheby = new Tone.Chebyshev(50); // Harmonics Generator
     vbGain = new Tone.Gain(0); // Mix Level
 
     // Connections
@@ -1500,9 +1508,7 @@ async function initAudio() {
     // Tapping after Preamp means it gets the Widened & Boosted signal
     preamp.connect(vbFilter);
     vbFilter.connect(vbCheby);
-    vbCheby.connect(vbPostFilter);
-    vbPostFilter.connect(vbCompressor);
-    vbCompressor.connect(vbGain);
+    vbCheby.connect(vbGain);
     vbGain.connect(masterGain);
 
     // Visualizer
@@ -1515,66 +1521,547 @@ async function initAudio() {
     applySettings();
 }
 
-// --- Onboarding Logic ---
-let obCurrentSlide = 0;
 
-function initOnboarding() {
-    // 1. Determine Type
-    const params = new URLSearchParams(window.location.search);
-    const hostId = params.get('host');
+// --- Setup Overlay (Toss In-App Release) ---
+// Requirements:
+// 1) No Netlify / No TURN / Local network only
+// 2) Short code (6 digits) to connect
+// 3) Host direct-connect up to 3 devices (host 제외 3대)
+// 4) QR/외부링크 금지: 코드 입력으로만 연결
+// 5) 역할은 강제하지 않으며, 게스트는 참가 시 4개 역할 중 선택 (추후 Settings에서 변경 가능)
 
-    // [Critical Fix for LTE] Pre-fill ID immediately.
-    // waiting for peer.on('open') is too slow on mobile networks.
-    if (hostId) {
-        document.getElementById('join-id-input').value = hostId;
-    }
+const MAX_GUEST_SLOTS = 3;
 
-    const actionArea = document.getElementById('ob-actions');
+let appRole = 'idle'; // 'host' | 'guest' | 'idle'
+let sessionCode = '';
+let lastJoinCode = '';
 
-    if (hostId) {
-        // [Popup B] Guest Mode
-        actionArea.innerHTML = `
-            <button class="btn-ob-primary" id="btn-ob-enter">모임에 초대됐어요!</button>
-        `;
+// Host가 "시작할래요!"를 눌러 메인 화면으로 진입했는지 (호스트 UI용)
+let sessionStarted = false;
 
-        // Bind actions without inline handlers (CSP-friendly)
-        const btn = document.getElementById('btn-ob-enter');
-        if (btn) btn.addEventListener('click', () => actionEnterSession());
-    } else {
-        // [Popup A] New User
-        actionArea.innerHTML = `
-            <button class="btn-ob-primary" id="btn-ob-create">방 만들기</button>
-            <button class="btn-ob-secondary" id="btn-ob-join">참여하기</button>
-        `;
+// Guest가 참가 시 선택한 역할(채널 모드)
+let selectedJoinChannelMode = null;
+let pendingPlacementToastMode = null;
 
-        // Bind actions without inline handlers (CSP-friendly)
-        const btnCreate = document.getElementById('btn-ob-create');
-        const btnJoin = document.getElementById('btn-ob-join');
-        if (btnCreate) btnCreate.addEventListener('click', () => actionCreateRoom());
-        if (btnJoin) btnJoin.addEventListener('click', () => actionJoinRoom());
+// Settings UI: Invite code (Host/Guest 모두 동일하게 표시)
+function getInviteCode() {
+    // Prefer an active/known host code, then the last join code
+    if (sessionCode && /^\d{6}$/.test(sessionCode)) return sessionCode;
+    if (lastJoinCode && /^\d{6}$/.test(lastJoinCode)) return lastJoinCode;
+    return '------';
+}
+
+function updateInviteCodeUI() {
+    const code = getInviteCode();
+    const elements = document.querySelectorAll('.invite-code-value');
+    elements.forEach(el => {
+        el.textContent = code;
+        el.setAttribute('data-code', code);
+    });
+}
+
+async function copyInviteCode() {
+    const code = getInviteCode();
+    if (code === '------') return;
+
+    try {
+        await navigator.clipboard.writeText(code);
+        showToast("초대 코드가 복사되었습니다!");
+
+        // Visual feedback for all containers or the clicked one
+        const values = document.querySelectorAll('.invite-code-value');
+        values.forEach(el => {
+            el.classList.add('copied');
+            setTimeout(() => el.classList.remove('copied'), 1000);
+        });
+    } catch (err) {
+        log.error("Failed to copy code:", err);
+        showToast("복사 실패");
     }
 }
 
-window.goToSlide = function (idx) {
-    obCurrentSlide = idx;
-    const track = document.getElementById('ob-track');
-    const dots = document.querySelectorAll('.ob-dot');
+function setupEl(id) { return document.getElementById(id); }
 
-    track.style.transform = `translateX(-${idx * 100}%)`;
+function showSetupOverlay() {
+    const ov = setupEl('setup-overlay');
+    if (ov) ov.classList.add('active');
+}
 
-    dots.forEach((d, i) => {
-        d.classList.toggle('active', i === idx);
+function hideSetupOverlay() {
+    const overlay = setupEl('setup-overlay');
+    if (overlay) overlay.classList.remove('active');
+    stopObAutoSlide();
+}
+
+function setupShowCodeArea(show) {
+    const box = setupEl('setup-code-area');
+    if (box) box.style.display = show ? 'flex' : 'none';
+}
+
+function setupSetCode(code) {
+    const el = setupEl('setup-code');
+    if (el) el.textContent = code || '------';
+    setupShowCodeArea(!!code);
+}
+
+function setupShowInstruction(show, text = '') {
+    const el = setupEl('setup-instruction');
+    if (!el) return;
+    el.style.display = show ? 'block' : 'none';
+    el.textContent = text || '';
+}
+
+function setupShowJoinArea(show) {
+    const el = setupEl('setup-join-area');
+    if (el) el.style.display = show ? 'block' : 'none';
+}
+
+function setupShowRoleArea(show) {
+    const el = setupEl('setup-role-area');
+    if (el) el.style.display = show ? 'block' : 'none';
+}
+
+function setupSetGuestJoinBusy(busy) {
+    const input = setupEl('setup-join-code');
+    if (input) input.disabled = !!busy;
+
+    const grid = setupEl('setup-role-grid');
+    if (grid) {
+        grid.style.pointerEvents = busy ? 'none' : 'auto';
+        grid.style.opacity = busy ? '0.6' : '1';
+    }
+}
+
+function setupHighlightJoinRole(mode) {
+    const opts = document.querySelectorAll('#setup-role-grid .ch-opt[data-join-ch]');
+    opts.forEach(o => o.classList.remove('active'));
+    const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
+    if (el) el.classList.add('active');
+}
+
+function selectStandardChannelButton(mode) {
+    const all = document.querySelectorAll('#grid-standard .ch-opt[data-ch]');
+    all.forEach(e => e.classList.remove('active'));
+    const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
+    if (el) el.classList.add('active');
+}
+
+// --------------------------------------------------------------------------
+// Toss In-App Release: Role(채널) 단순화
+// - 원본/왼쪽/오른쪽/저음 4개만 UI로 노출
+// - Setup/Settings 모두 동일한 정의를 사용(중복 제거)
+// --------------------------------------------------------------------------
+
+const STANDARD_ROLE_MAP = {
+    '0': { mode: 0, label: 'Original', placementToast: '기기를 중앙에 놓아주세요' },
+    '-1': { mode: -1, label: 'Left', placementToast: '기기를 왼쪽에 놓아주세요' },
+    '1': { mode: 1, label: 'Right', placementToast: '기기를 오른쪽에 놓아주세요' },
+    '2': { mode: 2, label: 'Woofer', placementToast: '기기를 중앙에 놓아주세요' },
+};
+
+function getStandardRolePreset(mode) {
+    const key = String(mode);
+    return STANDARD_ROLE_MAP[key] || STANDARD_ROLE_MAP['0'];
+}
+
+function getRoleLabelByChannelMode(mode) {
+    return getStandardRolePreset(mode).label;
+}
+
+function showPlacementToastForChannel(mode) {
+    showToast(getStandardRolePreset(mode).placementToast);
+}
+
+function setupRenderActions(buttons) {
+    const area = setupEl('setup-actions');
+    if (!area) return;
+    area.innerHTML = '';
+
+    buttons.forEach(btn => {
+        const b = document.createElement('button');
+        b.id = btn.id;
+        b.type = 'button';
+        b.className = btn.kind === 'secondary' ? 'btn-ob-secondary' : 'btn-ob-primary';
+        b.textContent = btn.text;
+        if (btn.disabled) b.disabled = true;
+        if (btn.onClick) b.addEventListener('click', btn.onClick);
+        area.appendChild(b);
     });
-};
+}
 
-window.nextSlide = function () {
-    if (obCurrentSlide < 2) goToSlide(obCurrentSlide + 1);
-    else goToSlide(0); // Optional loop
-};
+// Onboarding Slider State
+let currentObSlide = 0;
+const totalObSlides = 3;
+let obAutoSlideTimer = null;
 
-window.prevSlide = function () {
-    if (obCurrentSlide > 0) goToSlide(obCurrentSlide - 1);
-};
+/**
+ * --- Onboarding Slider Helpers ---
+ */
+function startObAutoSlide() {
+    stopObAutoSlide();
+    obAutoSlideTimer = setInterval(() => {
+        nextObSlide(true); // true means auto
+    }, 5000);
+}
+
+function stopObAutoSlide() {
+    if (obAutoSlideTimer) {
+        clearInterval(obAutoSlideTimer);
+        obAutoSlideTimer = null;
+    }
+}
+function updateObSlider() {
+    const track = setupEl('ob-slider-track');
+    const dots = document.querySelectorAll('.ob-dot');
+    if (!track) return;
+
+    track.style.transform = `translateX(-${currentObSlide * 100}%)`;
+
+    dots.forEach((dot, idx) => {
+        dot.classList.toggle('active', idx === currentObSlide);
+    });
+}
+
+function nextObSlide(isAuto = false) {
+    if (currentObSlide < totalObSlides - 1) {
+        currentObSlide++;
+    } else {
+        currentObSlide = 0;
+    }
+    updateObSlider();
+    // CRITICAL: if intent is manual (!isAuto), we MUST reset the timer.
+    // However, event objects are truthy, so we must be careful.
+    if (isAuto === true) {
+        // Just auto slide, do nothing
+    } else {
+        startObAutoSlide(); // Reset for manual
+    }
+}
+
+function prevObSlide() {
+    if (currentObSlide > 0) {
+        currentObSlide--;
+    } else {
+        currentObSlide = totalObSlides - 1;
+    }
+    updateObSlider();
+    startObAutoSlide(); // Reset timer for manual
+}
+
+function showRoleSelectionButtons() {
+    setupRenderActions([
+        { id: 'btn-setup-host', text: '제가 방장할래요', kind: 'primary', onClick: startHostFlow },
+        { id: 'btn-setup-guest', text: '모임에 참여할래요', kind: 'secondary', onClick: startGuestFlow },
+    ]);
+}
+
+/**
+ * --- Setup Overlay Initialization ---
+ */
+function initSetupOverlay() {
+    // Always start with Setup overlay visible
+    showSetupOverlay();
+
+    // Reset UI blocks
+    const sliderArea = setupEl('ob-slider-area');
+    if (sliderArea) sliderArea.style.display = 'block';
+
+    const noteArea = setupEl('setup-note');
+    if (noteArea) noteArea.style.display = 'block';
+
+    setupShowCodeArea(false);
+    setupShowJoinArea(false);
+    setupShowRoleArea(false);
+    setupShowInstruction(false, '');
+    setupSetGuestJoinBusy(false);
+
+    // Reset state
+    appRole = 'idle';
+    sessionCode = '';
+    currentObSlide = 0; // Start at first slide
+    sessionStarted = false;
+    selectedJoinChannelMode = null;
+    pendingPlacementToastMode = null;
+
+    // Header pill: 초기 상태 표시
+    updateRoleBadge();
+
+    updateObSlider();
+    showRoleSelectionButtons();
+    startObAutoSlide();
+
+    // Bind slider events
+    const btnNext = setupEl('ob-next');
+    if (btnNext) btnNext.onclick = () => nextObSlide(false);
+    const btnPrev = setupEl('ob-prev');
+    if (btnPrev) btnPrev.onclick = () => prevObSlide();
+
+    document.querySelectorAll('.ob-dot').forEach(dot => {
+        dot.onclick = (e) => {
+            currentObSlide = parseInt(e.target.dataset.idx);
+            updateObSlider();
+            startObAutoSlide(); // Reset timer on manual click
+        };
+    });
+
+    // Handle Swipe
+    const viewport = setupEl('ob-slider-viewport');
+    if (viewport) {
+        let startX = 0;
+        viewport.ontouchstart = (e) => { startX = e.touches[0].clientX; };
+        viewport.ontouchend = (e) => {
+            const endX = e.changedTouches[0].clientX;
+            const diff = startX - endX;
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) nextObSlide(false);
+                else prevObSlide();
+            }
+        };
+    }
+}
+
+function startSessionFromHost() {
+    if (appRole !== 'host') return;
+
+    sessionStarted = true;
+    hideSetupOverlay();
+
+    // Host UX
+    showToast('초대 코드는 설정에서 확인하실 수 있어요');
+    updateRoleBadge();
+
+    // Init: Visually select "Original" (0) for Host
+    // Host defaults to channel 0, but UI might be empty. Force update.
+    try {
+        const defaultCh = document.querySelector('#grid-standard .ch-opt[data-ch="0"]');
+        if (defaultCh) {
+            // Remove active from all first
+            document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
+            defaultCh.classList.add('active');
+        }
+    } catch (e) { /* ignore */ }
+
+    // 기존 UX 유지: 시작 직후 바로 미디어 선택창 노출
+    setTimeout(() => {
+        try { openMediaSourcePopup(); } catch (e) { /* noop */ }
+    }, 180);
+}
+
+async function startHostFlow() {
+    await activateAudio();
+
+    appRole = 'host';
+    sessionStarted = false;
+    selectedJoinChannelMode = null;
+    pendingPlacementToastMode = null;
+
+    // Prepare UI
+    setupShowJoinArea(false);
+    setupShowRoleArea(false);
+    setupShowInstruction(true, '연결 코드 생성 중…');
+    setupShowCodeArea(true);
+    const codeEl = setupEl('setup-code');
+    if (codeEl) codeEl.textContent = '------';
+    setupRenderActions([]); // lock while generating
+
+    // Hide slider area but keep note
+    const sliderArea = setupEl('ob-slider-area');
+    if (sliderArea) {
+        sliderArea.style.display = 'none';
+        stopObAutoSlide();
+    }
+
+    try {
+        const code = await createHostSessionWithShortCode();
+        sessionCode = code;
+        setupSetCode(code);
+
+        // Settings tab header: show invite code
+        updateInviteCodeUI();
+
+        // Visual Update
+        myDeviceLabel = 'HOST';
+        updateRoleBadge();
+
+        setupShowInstruction(true, '다른 기기에서 이 코드를 입력하면 자동으로 연결돼요.\n코드는 설정과 도움말 탭에서 확인할 수 있어요.');
+        setupRenderActions([
+            { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
+            { id: 'btn-setup-start', text: '시작할래요!', kind: 'primary', onClick: startSessionFromHost },
+        ]);
+    } catch (e) {
+        log.error('[Setup] Host session init failed', e);
+        showToast('호스트 세션 생성 실패');
+        initSetupOverlay();
+    }
+}
+
+async function startGuestFlow() {
+    await activateAudio();
+
+    appRole = 'guest';
+    sessionStarted = false;
+    selectedJoinChannelMode = null;
+    pendingPlacementToastMode = null;
+
+    // Settings tab header: clear invite code until user enters
+    updateInviteCodeUI();
+
+    // UI
+    setupShowCodeArea(false);
+    setupShowJoinArea(true);
+    setupShowRoleArea(false); // Step 1: Hide role selection
+    setupShowInstruction(false);
+    setupSetGuestJoinBusy(false);
+
+    // Hide slider area but keep note
+    const sliderArea = setupEl('ob-slider-area');
+    if (sliderArea) {
+        sliderArea.style.display = 'none';
+        stopObAutoSlide();
+    }
+
+    setupRenderActions([
+        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
+        { id: 'btn-setup-next', text: '다음', kind: 'primary', onClick: proceedToGuestRoleSelection },
+    ]);
+
+    // Visual Update
+    myDeviceLabel = '참가자';
+    updateRoleBadge();
+
+    const input = setupEl('setup-join-code');
+    if (input) {
+        input.value = ''; // Clear previous
+        input.focus();
+    }
+}
+
+function proceedToGuestRoleSelection() {
+    const input = setupEl('setup-join-code');
+    const codeRaw = (input ? input.value : '').trim();
+    const code = codeRaw.replace(/\s+/g, '');
+
+    if (!/^\d{6}$/.test(code)) {
+        showToast('6자리 코드를 입력해주세요.');
+        if (input) input.focus();
+        return;
+    }
+
+    // Step 2: Show role selection
+    setupShowJoinArea(false);
+    setupShowRoleArea(true);
+    setupHighlightJoinRole(null); // Reset highlight
+
+    setupRenderActions([
+        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
+        { id: 'btn-setup-confirm', text: '시작할래요!', kind: 'secondary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+    ]);
+}
+
+// Guest: Selected role mode (pending confirm)
+let pendingGuestRoleMode = null;
+
+function showGuestConnecting() {
+    // We no longer show standalone instruction text
+    // setupShowInstruction(true, '참가하는 중…');
+    setupSetGuestJoinBusy(true);
+}
+
+function handleSetupRolePreview(mode) {
+    if (appRole !== 'guest') return;
+    pendingGuestRoleMode = mode;
+    setupHighlightJoinRole(mode);
+
+    // Apply channel routing locally so user can hear the difference
+    try {
+        selectStandardChannelButton(mode);
+        setChannelMode(mode);
+    } catch (e) {
+        log.warn('[Setup] Preview setChannelMode failed', e);
+    }
+
+    // Update guest actions to show "Join" button in primary (blue) style
+    setupRenderActions([
+        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
+        { id: 'btn-setup-confirm', text: '시작할래요!', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+    ]);
+}
+
+async function handleSetupJoinWithRole(mode) {
+    if (mode === null || mode === undefined) {
+        showToast('역할을 선택해주세요');
+        return;
+    }
+    if (appRole !== 'guest') {
+        await startGuestFlow();
+    }
+
+    const input = setupEl('setup-join-code');
+    const codeRaw = (input ? input.value : '').trim();
+    const code = codeRaw.replace(/\s+/g, '');
+
+    if (!/^\d{6}$/.test(code)) {
+        showToast('6자리 코드를 입력해주세요.');
+        if (input) input.focus();
+        return;
+    }
+
+    lastJoinCode = code;
+    updateInviteCodeUI();
+
+    selectedJoinChannelMode = mode;
+    pendingPlacementToastMode = mode;
+
+    // Ensure we're in Standard mode
+    try {
+        const chk = document.getElementById('chk-surround');
+        if (chk) chk.checked = false;
+        if (typeof isSurroundMode !== 'undefined' && isSurroundMode) toggleSurroundMode(false);
+    } catch (e) { /* noop */ }
+
+    // Apply channel routing locally (no toast here)
+    try {
+        selectStandardChannelButton(mode);
+        setChannelMode(mode);
+    } catch (e) {
+        log.warn('[Setup] setChannelMode failed', e);
+    }
+
+    // Device label to reflect role (Host device list/chat metadata)
+    myDeviceLabel = getRoleLabelByChannelMode(mode);
+    updateRoleBadge();
+
+    // Start network + join
+    showGuestConnecting();
+    isConnecting = true;
+    updateRoleBadge();
+
+    // Update button to "참가하는 중..." and disable
+    setupRenderActions([
+        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow, disabled: true },
+        { id: 'btn-setup-confirm', text: '참가하는 중...', kind: 'primary', onClick: null, disabled: true },
+    ]);
+
+    initNetwork(null)
+        .then(() => joinSession(0, code))
+        .catch((e) => {
+            log.error('[Setup] Guest init/join failed', e);
+            isConnecting = false;
+            updateRoleBadge();
+            showToast('참가에 실패했어요. 같은 Wi‑Fi인지 확인해주세요.');
+
+            // Re-render role selection but with enabled buttons if failing (instead of startGuestFlow entirely if we want to stay here)
+            // But current code goes back to startGuestFlow. Let's stick to that but ensure UI resets.
+            startGuestFlow();
+            const i = setupEl('setup-join-code');
+            if (i) {
+                i.value = code;
+                i.disabled = false;
+            }
+            setupSetGuestJoinBusy(false);
+        });
+}
+
 
 /* Actions */
 let wakeLock = null;
@@ -1630,83 +2117,68 @@ async function activateAudio() {
 }
 
 window.actionCreateRoom = async function () {
-    await activateAudio();
-
-    await showDialog({
-        title: '호스트 모드',
-        message: `이제 당신이 호스트입니다.
-
-다른 사람을 초대하거나 다른 기기를 추가하려면
-'Connect' 탭의 QR코드 또는 링크를 공유하세요.`
-    });
-
-    document.getElementById('onboarding-overlay').style.display = 'none';
-    switchTab('connect');
-
-    // Visual Update
-    myDeviceLabel = 'HOST';
-    updateRoleBadge();
+    // Legacy entry point (kept for compatibility)
+    await startHostFlow();
 };
 
 window.actionJoinRoom = async function () {
-    await activateAudio();
-
-    await showDialog({
-        title: '참여하기',
-        message: `호스트가 제공한 QR코드나 링크를 통해 접속하세요.
-
-'Connect' 탭에서 링크(ID)를 수동으로 입력해서
-접속할 수도 있습니다.`
-    });
-
-    document.getElementById('onboarding-overlay').style.display = 'none';
-    switchTab('connect');
-
-    // Visual Update (초기 진입 시 로컬 장치는 아직 HostConn이 없으므로 상태 표시용)
-    myDeviceLabel = 'HOST';
-    updateRoleBadge();
+    // Legacy entry point (kept for compatibility)
+    await startGuestFlow();
 };
 
 window.actionEnterSession = async function () {
-    await activateAudio();
-    document.getElementById('onboarding-overlay').style.display = 'none';
-
-    // [RESTORED] Visual Update
-    myDeviceLabel = 'GUEST';
-    updateRoleBadge();
-
-    joinSession(); // This handles the connection and logic
-    switchTab('play'); // Guest goes to visualizer
+    // Legacy entry point (kept for compatibility)
+    await startGuestFlow();
 };
 
 /**
- * [RESTORED] UI Update Logic for Status Pill
+ * UI Update Logic for Status Pill
  */
+function getAudioRoleLabelForBadge() {
+    // Toss 인앱 출시용 UI에서는 4개 역할(원본/왼쪽/오른쪽/저음)만 표시합니다.
+    // (Surround 기능은 내부 코드에 남아 있어도 UI에서는 숨김)
+    return getRoleLabelByChannelMode(channelMode);
+}
+
 function updateRoleBadge() {
     const badge = document.getElementById('role-badge');
     const text = document.getElementById('role-text');
 
     if (!badge || !text) return;
 
-    // 1. Reset
+    // Reset
     badge.classList.remove('connected');
 
-    // 2. Update based on state
+    const audioRole = getAudioRoleLabelForBadge();
+
+    // Update based on state
     if (isConnecting) {
         text.innerText = '연결 중...';
-        // Keep the idle look or use a neutral color
-    } else if (hostConn) {
-        // Guest Mode
-        text.innerText = 'GUEST';
-        badge.classList.add('connected');
-    } else if (connectedPeers.length > 0 || myDeviceLabel === 'HOST') {
-        // Host Mode (connected or just started)
-        text.innerText = 'HOST';
-        badge.classList.add('connected');
-    } else {
-        // Offline / Setup
-        text.innerText = 'OFFLINE';
+        return;
     }
+
+    // Guest: connected to host
+    if (hostConn) {
+        const latencyTxt = (lastLatencyMs && Number.isFinite(lastLatencyMs)) ? ` (${Math.round(lastLatencyMs)}ms)` : '';
+        text.innerText = `${audioRole}${latencyTxt}`;
+        badge.classList.add('connected');
+        return;
+    }
+
+    // Host: show role + keep connected highlight once signaling is ready
+    if (appRole === 'host' || connectedPeers.length > 0) {
+        text.innerText = `HOST · ${audioRole}`;
+        badge.classList.add('connected');
+        return;
+    }
+
+    // Guest flow but not connected yet
+    if (appRole === 'guest') {
+        text.innerText = `GUEST · ${audioRole}`;
+        return;
+    }
+
+    text.innerText = 'SETUP';
 }
 
 // Wrapper function to check guest before triggering file input
@@ -1742,11 +2214,6 @@ function initEventListeners() {
     $on('btn-repeat', 'click', toggleRepeat);
     $on('btn-shuffle', 'click', toggleShuffle);
     $on('btn-add-media', 'click', openMediaSourcePopup);
-
-    // --- Connect Tab ---
-    $on('btn-copy-link', 'click', copyLink);
-    $on('btn-leave-session', 'click', leaveSession);
-    $on('btn-join', 'click', joinSession);
 
     // --- Settings: Theme ---
     $on('theme-light', 'click', () => setTheme('light'));
@@ -1815,16 +2282,26 @@ function initEventListeners() {
         el.addEventListener('click', () => switchTab(el.dataset.tab));
     });
 
-    // --- Help Modal ---
-    $on('help-modal', 'click', (e) => closeHelpModal(e));
-    $on('btn-help-close', 'click', closeHelpModal);
-    $on('btn-demo', 'click', () => { loadDemoMedia(); if (!window.hostConn) closeHelpModal(); });
+    // --- Guide Tab ---
+    $on('btn-demo-guide', 'click', () => { switchTab('play'); loadDemoMedia(); });
 
-    // --- Onboarding ---
-    $on('ob-arrow-left', 'click', prevSlide);
-    $on('ob-arrow-right', 'click', nextSlide);
-    document.querySelectorAll('#ob-dots .ob-dot[data-slide]').forEach(el => {
-        el.addEventListener('click', () => goToSlide(parseInt(el.dataset.slide)));
+    // --- Setup Overlay (Short Code Join) ---
+    $on('btn-setup-join', 'click', handleSetupJoin);
+    const __setupJoinInput = document.getElementById('setup-join-code');
+    if (__setupJoinInput) {
+        __setupJoinInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleSetupJoin();
+        });
+    }
+
+    // Guest: role preview in Setup overlay
+    document.querySelectorAll('#setup-role-grid .ch-opt[data-join-ch]').forEach(el => {
+        el.addEventListener('click', () => {
+            const v = el?.dataset?.joinCh;
+            const mode = parseInt(v, 10);
+            if (Number.isNaN(mode)) return;
+            handleSetupRolePreview(mode);
+        });
     });
 
     // --- Manual Sync Popup ---
@@ -1838,6 +2315,7 @@ function initEventListeners() {
     // --- Media Source Popup ---
     $on('btn-local-file', 'click', () => { closeMediaSourcePopup(); openFileSelector(); });
     $on('btn-youtube-source', 'click', () => { closeMediaSourcePopup(); openYouTubePopup(); });
+    $on('btn-demo-media', 'click', () => { closeMediaSourcePopup(); loadDemoMedia(); });
     $on('btn-close-media-popup', 'click', closeMediaSourcePopup);
 
     // --- YouTube URL Popup ---
@@ -1847,9 +2325,9 @@ function initEventListeners() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    initOnboarding();
+    initSetupOverlay();
     initEventListeners();
-    initNetwork(); // Deferred from top-level to ensure DOM and UI functions are ready
+    // Network is initialized only after the user chooses Host/Guest.
 });
 
 // --- Playlist & Player Logic ---
@@ -3350,24 +3828,18 @@ function setChannelMode(mode) {
 
         gainL.gain.rampTo(1, ramp);
         gainR.gain.rampTo(1, ramp);
-        showToast("Mode: Stereo");
-
     } else if (mode === -1) { // Left (Dual Mono)
         // L -> Merge 0 AND 1
         gainL.connect(toneMerge, 0, 0);
         gainL.connect(toneMerge, 0, 1);
 
         gainL.gain.rampTo(1, ramp);
-        showToast("Mode: Left Channel");
-
     } else if (mode === 1) { // Right (Dual Mono)
         // R -> Merge 0 AND 1
         gainR.connect(toneMerge, 0, 0);
         gainR.connect(toneMerge, 0, 1);
 
         gainR.gain.rampTo(1, ramp);
-        showToast("Mode: Right Channel");
-
     } else if (mode === 2) { // Sub
         // Apply Subwoofer Frequency Immediately
         if (globalLowPass) {
@@ -3384,13 +3856,15 @@ function setChannelMode(mode) {
         gainL.gain.value = 0.5;
         gainR.gain.value = 0.5;
 
-        showToast(`Mode: Subwoofer(${subFreq}Hz)`);
     } else {
         // Fallback
         gainL.gain.rampTo(1, ramp);
         gainR.gain.rampTo(1, ramp);
     }
     applySettings();
+
+    // Header pill: 역할(채널 모드) 실시간 반영
+    try { updateRoleBadge(); } catch (e) { /* noop */ }
 }
 
 // --- 7.1 Surround Logic ---
@@ -3398,8 +3872,11 @@ function toggleSurroundMode(enabled) {
     isSurroundMode = enabled;
 
     // UI Toggle
-    document.getElementById('grid-standard').style.display = enabled ? 'none' : 'grid';
-    document.getElementById('grid-surround').style.display = enabled ? 'grid' : 'none';
+    // (Toss In-App Release) UI에서 7.1 영역이 제거될 수 있으므로 null-safe 처리
+    const stdGrid = document.getElementById('grid-standard');
+    if (stdGrid) stdGrid.style.display = enabled ? 'none' : 'grid';
+    const surGrid = document.getElementById('grid-surround');
+    if (surGrid) surGrid.style.display = enabled ? 'grid' : 'none';
 
     // Logic Switch
     if (enabled) {
@@ -3427,6 +3904,11 @@ function toggleSurroundMode(enabled) {
 }
 
 function setSurroundChannel(idx, el, skipSetup = false) {
+    if (hostConn && isChannelSelectionLocked) {
+        showToast('역할이 자동 설정되어 변경할 수 없어요.');
+        return;
+    }
+
     surroundChannelIndex = idx;
 
     // UI Highlight Logic
@@ -3508,13 +3990,34 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     } catch (e) {
         log.warn(e);
     }
+
+    // Header pill: 역할(7.1 채널) 실시간 반영
+    try { updateRoleBadge(); } catch (e) { /* noop */ }
 }
 
-function setChannel(mode, el) {
+function setChannel(mode, el, force = false, notify = true) {
+    if (hostConn && isChannelSelectionLocked && !force) {
+        showToast('역할이 자동 설정되어 변경할 수 없어요.');
+        return;
+    }
+
     if (!masterGain) initAudio();
     document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
-    el.classList.add('active');
+    if (el) el.classList.add('active');
     setChannelMode(mode);
+
+    // Toss 인앱 UX: 역할 변경 시 "배치" 안내 토스트
+    if (notify) {
+        try {
+            // 게스트는 역할 선택 = 디바이스 레이블로도 반영
+            if (appRole === 'guest' || hostConn) {
+                myDeviceLabel = getRoleLabelByChannelMode(mode);
+                updateRoleBadge();
+            }
+        } catch (e) { /* noop */ }
+
+        try { showPlacementToastForChannel(mode); } catch (e) { /* noop */ }
+    }
 }
 
 function updateSettings(type, val) {
@@ -4111,591 +4614,265 @@ function updateSyncBtnState(isGuest) {
 // --- Networking (Updated from network.html) ---
 
 // Network initialization
-async function initNetwork() {
-    try {
-        let turnConfig = { username: "", credential: "" };
-
-        // 1. Detect local/private network
-        const hostname = window.location.hostname;
-        const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hostname) ||
-            hostname.startsWith('192.168.') ||
-            hostname.startsWith('10.') ||
-            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
-
-        if (!isLocal) {
-            try {
-                // Request config from relay (Netlify Function call)
-                const response = await fetch('/.netlify/functions/get-turn-config');
-
-                if (response.ok && response.headers.get('content-type')?.includes('application/json')) {
-                    turnConfig = await response.json();
-                    log.debug("TURN 설정 로드 완료 (Netlify)");
-                } else {
-                    log.warn("Netlify Function 사용 불가 - STUN 전용으로 초기화합니다.");
-                }
-            } catch (fetchErr) {
-                log.warn("네트워크 설정 요청 중 오류:", fetchErr.message);
-            }
-        } else {
-            log.debug("[Network] Local/Private environment detected - skipping TURN configuration.");
-        }
-
-        // 2. Build options from fetched config
-        const iceServers = [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun.relay.metered.ca:80" }
-        ];
-
-        // Add TURN server only when not local and TURN config exists
-        if (!isLocal && turnConfig.username && turnConfig.credential) {
-            iceServers.push(
-                {
-                    urls: "turn:standard.relay.metered.ca:443",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
-                },
-                {
-                    urls: "turn:standard.relay.metered.ca:443?transport=tcp",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
-                },
-                {
-                    urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-                    username: turnConfig.username,
-                    credential: turnConfig.credential
-                }
-            );
-        }
-
-        const peerOpts = {
-            debug: 2,
-            config: {
-                iceServers: iceServers,
-                bundlePolicy: 'max-bundle',
-                sdpSemantics: 'unified-plan',
-                iceTransportPolicy: 'all',
-                iceCandidatePoolSize: 0 // Reduced from 10 to 0 for better iOS compatibility
-            }
-        };
-
-        // 3. Start PeerJS
-        peer = new Peer(null, peerOpts);
-
-        // --- Event listeners ---
-        setupPeerEvents();
-
-    } catch (e) {
-        log.error("네트워크 초기화 중 치명적 오류:", e);
-        showToast("네트워크 초기화 실패 (새로고침 하세요)");
+async function initNetwork(requestedId = null) {
+    // PeerJS must already be loaded (via CDN script)
+    if (!window.Peer) {
+        log.error('[Network] PeerJS not found on window.');
+        showToast('네트워크 초기화 실패');
+        throw new Error('PEERJS_NOT_LOADED');
     }
+
+    // Clean up existing peer instance
+    if (peer) {
+        try { peer.destroy(); } catch (e) { /* noop */ }
+        peer = null;
+    }
+
+    // Local-only ICE: no STUN/TURN (forces same LAN / same Wi‑Fi)
+    const peerOpts = {
+        debug: 2,
+        config: {
+            iceServers: [],
+            sdpSemantics: 'unified-plan',
+            bundlePolicy: 'max-bundle',
+            iceCandidatePoolSize: 0,
+        }
+    };
+
+    // Optional: allow Toss (or any) infrastructure to provide a custom PeerJS signaling server
+    // Example injection (global):
+    // window.__MUSIXQUARE_PEER_SERVER__ = { host: 'peer.yourdomain.com', port: 443, path: '/peerjs', secure: true };
+    const customPeerServer = window.__MUSIXQUARE_PEER_SERVER__;
+    if (customPeerServer && typeof customPeerServer === 'object') {
+        if (customPeerServer.host) peerOpts.host = customPeerServer.host;
+        if (customPeerServer.port) peerOpts.port = customPeerServer.port;
+        if (customPeerServer.path) peerOpts.path = customPeerServer.path;
+        if (typeof customPeerServer.secure === 'boolean') peerOpts.secure = customPeerServer.secure;
+        if (customPeerServer.key) peerOpts.key = customPeerServer.key;
+    }
+
+    // If requestedId is provided, claim it as our PeerJS ID (used as 6-digit session code for Host)
+    peer = new Peer(requestedId || undefined, peerOpts);
+
+    setupPeerEvents();
+
+    // Wait for open (or fail fast on error)
+    const id = await new Promise((resolve, reject) => {
+        peer.once('open', resolve);
+        peer.once('error', reject);
+    });
+
+    myId = id;
+    log.info('[Network] Peer opened:', myId);
+    return myId;
 }
 
-/**
- * QR 코드 업데이트 함수
- * @param {string} id - 세션 ID
- */
-function updateQrCode(id) {
-    const qrContainer = document.getElementById("qrcode");
-    if (!qrContainer) {
-        log.warn("[QR] qrcode 요소를 찾을 수 없습니다.");
-        return;
-    }
+function generateSessionCode() {
+    // 6-digit numeric (no leading zeros)
+    return String(Math.floor(100000 + Math.random() * 900000));
+}
 
-    qrContainer.innerHTML = "";
-
-    // Verify QRCode.js library
-    if (typeof QRCode === 'undefined') {
-        log.warn("[QR] QRCode 라이브러리가 로드되지 않았습니다.");
-        return;
+async function createHostSessionWithShortCode(maxAttempts = 12) {
+    // Try to claim a short, human-enterable code as our PeerJS ID.
+    for (let i = 0; i < maxAttempts; i++) {
+        const code = generateSessionCode();
+        try {
+            await initNetwork(code);
+            return code;
+        } catch (err) {
+            // PeerJS: { type: 'id-taken', ... }
+            if (err && err.type === 'id-taken') {
+                continue;
+            }
+            throw err;
+        }
     }
+    throw new Error('SESSION_CODE_UNAVAILABLE');
+}
 
-    try {
-        new QRCode(qrContainer, {
-            text: `${window.location.origin}${window.location.pathname}?host=${id}`,
-            width: 160,
-            height: 160,
-            colorDark: "#000000",
-            colorLight: "#ffffff"
-        });
-    } catch (e) {
-        log.error("[QR] QR 코드 생성 실패:", e);
-    }
-
-    // Update ID display
-    const myIdEl = document.getElementById('my-id');
-    if (myIdEl) {
-        myIdEl.innerText = hostConn ? "Host ID: " + id : id;
-    }
+function handleSetupJoin() {
+    // Toss 인앱 UX: 게스트는 "역할" 버튼을 눌러야 참가가 진행됩니다.
+    showToast('역할을 선택해 참가해 주세요.');
 }
 
 function setupPeerEvents() {
 
     peer.on('error', (err) => {
-        log.error("PeerJS Global Error:", err);
-        log.error("Error Type:", err.type);
+        log.error('[PeerJS] Error:', err);
 
-        let message = "네트워크 오류가 발생했습니다.";
-        if (err.type === 'browser-incompatible') {
-            message = "브라우저가 오디오 동기화(WebRTC)를 지원하지 않습니다.";
-        } else if (err.type === 'server-error') {
-            message = "PeerJS 서버와 연결할 수 없습니다. (현재 밴되었거나 서버 점검 중일 수 있습니다)";
-        } else if (err.type === 'network') {
-            message = "네트워크 환경이 불안정하거나 방화벽에서 차단되었습니다.";
-        } else if (err.type === 'id-taken') {
-            message = "이미 사용 중인 ID입니다. 다시 시도해주세요.";
-        } else if (err.type === 'peer-unavailable') {
-            // This is often handled in joinSession, but as a global error it's good to log
-            message = "연결하려는 대상(Host)을 찾을 수 없습니다.";
-        }
-
-        showToast(message);
-
-        // If it's a critical initialization/network error, show the overlay with tips
-        // Don't show overlay if we already have an active P2P session (signalling loss is transient)
-        const isSessionActive = (hostConn && hostConn.open) || (connectedPeers && connectedPeers.some(p => p.status === 'connected'));
-
-        if (['server-error', 'network', 'browser-incompatible'].includes(err.type)) {
-            if (isSessionActive && err.type !== 'browser-incompatible') {
-                log.warn("[Network] Signalling server connection lost, but P2P session is active. Skipping overlay.");
-                showToast("중계 서버와 연결이 끊겼습니다. (재연결 시도 중...)");
+        // Host: most errors should be surfaced
+        if (appRole === 'host' && !hostConn) {
+            if (err && err.type === 'id-taken') {
+                // handled by createHostSessionWithShortCode retry loop
                 return;
             }
-            showConnectionFailedOverlay(
-                message + "\n\n" +
-                "1. VPN을 사용 중이라면 끄고 시도해보세요.\n" +
-                "2. 브라우저 캐시를 지우거나 다른 브라우저(Chrome/Safari 권장)를 사용해보세요.\n" +
-                "3. 공용 Wi-Fi나 회사/학교 망은 차단될 수 있습니다."
-            );
+            showToast('네트워크 오류가 발생했어요. 같은 Wi‑Fi인지 확인해주세요.');
         }
+
+        // Guest: joinSession handles common errors
     });
 
-    peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
-
-    peer.on('open', id => {
-        myId = id;
-        const myIdEl = document.getElementById('my-id');
-        if (myIdEl) myIdEl.innerText = id;
-
-        updateQrCode(myId);
-
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('host')) {
-            const hostId = params.get('host');
-            document.getElementById('join-id-input').value = hostId;
-            log.debug("[QR] Auto-joining host:", hostId);
-
-            // Auto-trigger join session for QR users
-            // Removed auto-trigger. Users must click "I'm invited!" button
-            // to ensure audio context is unlocked and prevent double-connection race.
-            // setTimeout(() => joinSession(), 100);
-        } else {
-            const hostPanel = document.getElementById('host-panel');
-            if (hostPanel) hostPanel.classList.add('visible');
-
-            // Centralized Update
-            myDeviceLabel = 'HOST';
-            updateRoleBadge();
-
-            updateSyncBtnState(false);
-
-            renderDeviceList([
-                { id: myId, label: 'HOST', status: 'connected', isHost: true }
-            ]);
-
-            // Heartbeat Monitor (Host checks for voluntary signals)
-            clearManagedTimer('heartbeatMonitor');
-            managedTimers.heartbeatMonitor = setInterval(() => {
-                const now = Date.now();
-                let changed = false;
-
-                // 1. Check for Timeouts
-                connectedPeers.forEach(p => {
-                    if (p.status === 'connected') {
-                        // Host does NOT ping. Waits for Guest.
-
-                        // Timeout: 15 seconds (allows 2 lost signals from 5s interval)
-                        if (now - p.lastHeartbeat > 15000) {
-                            log.warn(`Peer ${p.label} timed out.`);
-                            p.status = 'disconnected';
-                            changed = true;
-                            showToast(`${p.label} 제거됨(무응답)`);
-                        }
-                    }
-                });
-
-                // 2. Boldly Remove Disconnected Peers
-                if (changed) {
-                    // FORCE UPDATE: Reassign global array and CLEAN UP orphans
-                    const toRemove = connectedPeers.filter(p => p.status === 'disconnected');
-                    toRemove.forEach(p => {
-                        if (p._relayMonitor) clearInterval(p._relayMonitor);
-                        if (p._heartbeatTimer) clearInterval(p._heartbeatTimer);
-                    });
-
-                    connectedPeers = connectedPeers.filter(p => p.status !== 'disconnected');
-                    broadcastDeviceList();
-                }
-            }, 1000);
-        }
+    peer.on('disconnected', () => {
+        log.warn('[PeerJS] Disconnected from signaling server');
     });
 
-    // Host Logic
-    peer.on('connection', conn => {
-        // Check for Data Relay Connection
-        if (conn.metadata && conn.metadata.type === MSG.DATA_RELAY) {
-            handleRelayConnection(conn);
+    peer.on('connection', (conn) => {
+        // Incoming connections are HOST-only.
+        if (appRole !== 'host') {
+            try { conn.close(); } catch (e) { /* noop */ }
             return;
         }
-
-        // Duplicate check: If this peer ID is already connected, close the old one
-        const existingIdx = connectedPeers.findIndex(p => p.id === conn.peer);
-        if (existingIdx !== -1) {
-            log.warn(`[Network] Duplicate connection from ${conn.peer}. Replacing old one.`);
-            const oldPeer = connectedPeers[existingIdx];
-            if (oldPeer.conn && oldPeer.conn.open) {
-                try {
-                    oldPeer.conn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
-                    oldPeer.conn.close();
-                } catch (e) { /* best-effort close on duplicate peer */ }
-            }
-            connectedPeers.splice(existingIdx, 1);
-        }
-
-        // [STABILIZATION] 1. Label/Counter memory check
-        if (!peerLabels[conn.peer]) {
-            deviceCounter++;
-            peerLabels[conn.peer] = `DEVICE ${deviceCounter}`;
-        }
-        const deviceName = peerLabels[conn.peer];
-        const numericOrder = parseInt((deviceName.match(/\d+/) || [0])[0]);
-
-        // [STABILIZATION] 2. Immediate Peer Registration (Prevent duplicate race)
-        const peerObj = {
-            id: conn.peer,
-            label: deviceName,
-            joinOrder: numericOrder, // Stable monotonic ID for loop prevention
-            status: 'connecting',
-            conn: conn,
-            isOp: false,
-            isDataTarget: true,
-            lastHeartbeat: Date.now()
-        };
-        connectedPeers.push(peerObj);
-
-        conn.on('open', () => {
-            peerObj.status = 'connected';
-            peerObj.lastHeartbeat = Date.now();
-            log.debug(`[Network] Connection opened for ${deviceName} (${conn.peer})`);
-
-            const curItem = (currentTrackIndex >= 0) ? playlist[currentTrackIndex] : null;
-
-            broadcastDeviceList();
-            showToast(`${deviceName} 연결됨`);
-
-            // --- Relay Assignment Logic (STABLE ACYCLIC STRATEGY) ---
-            // Direct peers: 1, 2. Relays: 3, 4, 5...
-            // Strategy: Peer N picks Peer (N-2) or (N-4) as parent.
-            // Since (N-x) < N, a cycle is mathematically impossible.
-            if (connectedPeers.length > MAX_DIRECT_DATA_PEERS) {
-                let assigned = false;
-
-                // Sort by joinOrder to be absolutely sure about seniority
-                const seniors = connectedPeers
-                    .filter(p => p.status === 'connected' && p.joinOrder < peerObj.joinOrder && p.id !== conn.peer)
-                    .sort((a, b) => b.joinOrder - a.joinOrder); // Newest senior first
-
-                log.debug(`[Relay] Evaluating ${deviceName} (joinOrder: ${peerObj.joinOrder}) for relay. Seniors found: ${seniors.length}`);
-
-                for (const candidate of seniors) {
-                    if (candidate.conn && candidate.conn.open) {
-                        // Lane Logic: Prefer same parity (Odd/Even joinOrder)
-                        const candidateParity = candidate.joinOrder % 2;
-                        const myParity = peerObj.joinOrder % 2;
-                        log.debug(`[Relay] Checking candidate ${candidate.label} (Parity: ${candidateParity}, MyParity: ${myParity})`);
-
-                        if (candidateParity === myParity) {
-                            log.debug(`[Relay] Assigned ${deviceName} -> ${candidate.label}`);
-                            conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: candidate.id });
-                            showToast(`Data Relay: ${deviceName} -> ${candidate.label}`);
-                            peerObj.isDataTarget = false;
-                            peerObj.assignedRelay = candidate.id;
-                            assigned = true;
-                            break;
-                        }
-                    }
-                }
-
-                // Fallback to any senior if lane match fails
-                if (!assigned && seniors.length > 0) {
-                    const candidate = seniors[0];
-                    if (candidate.conn && candidate.conn.open) {
-                        log.debug(`[Relay] Fallback Assignment: ${deviceName} -> ${candidate.label}`);
-                        conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: candidate.id });
-                        showToast(`Data Relay (Lane Fallback): ${deviceName} -> ${candidate.label}`);
-                        peerObj.isDataTarget = false;
-                        peerObj.assignedRelay = candidate.id;
-                        assigned = true;
-                    }
-                }
-
-                if (!assigned) {
-                    log.warn(`[Relay] Could not assign relay for ${deviceName} even though seniors existed.`);
-                }
-            }
-            // -----------------------------
-
-            // Set up relay lane reassignment on parent disconnect
-            if (!peerObj.isDataTarget && peerObj.assignedRelay) {
-                // Monitor the assigned relay peer
-                const monitorRelay = () => {
-                    const relay = connectedPeers.find(p => p.id === peerObj.assignedRelay);
-                    if (!relay || relay.status !== 'connected') {
-                        log.debug(`[Relay] Parent ${peerObj.assignedRelay} lost, attempting recovery for ${deviceName}`);
-
-                        // Find a new parent: nearest senior in the same lane
-                        const juniors = connectedPeers
-                            .filter(p => p.status === 'connected' && p.joinOrder < peerObj.joinOrder && p.id !== conn.peer)
-                            .sort((a, b) => b.joinOrder - a.joinOrder);
-
-                        let newParent = null;
-                        for (const candidate of juniors) {
-                            if (candidate.conn && candidate.conn.open && (candidate.joinOrder % 2) === (peerObj.joinOrder % 2)) {
-                                newParent = candidate;
-                                break;
-                            }
-                        }
-
-                        if (newParent) {
-                            log.debug(`[Relay] Reassigning ${deviceName} to senior ${newParent.label}`);
-                            peerObj.assignedRelay = newParent.id;
-                            peerObj.isDataTarget = false;
-                            if (conn.open) {
-                                conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: newParent.id, reason: 'parent-lost' });
-                            }
-                            showToast(`${deviceName} -> ${newParent.label} (릴레이 재배정)`);
-                        } else {
-                            log.debug(`[Relay] No seniors in lane, reassigning ${deviceName} to Host Direct`);
-                            peerObj.isDataTarget = true;
-                            peerObj.assignedRelay = null;
-
-                            if (conn.open) {
-                                conn.send({ type: MSG.ASSIGN_DATA_SOURCE, targetId: null, reason: 'parent-lost' });
-                            }
-                            showToast(`${deviceName} -> Host Direct (릴레이 끊김)`);
-
-                            // Stop monitoring once reassigned to Host (no more seniors will ever exist for this joinOrder)
-                            if (peerObj._relayMonitor) {
-                                clearInterval(peerObj._relayMonitor);
-                                peerObj._relayMonitor = null;
-                            }
-                        }
-                    }
-                };
-                // Check every RELAY_MONITOR_INTERVAL ms
-                peerObj._relayMonitor = setInterval(monitorRelay, RELAY_MONITOR_INTERVAL);
-            }
-            // -----------------------------
-
-            conn.send({ type: MSG.WELCOME, label: deviceName });
-            conn.send({ type: MSG.VOLUME, value: masterVolume });
-            conn.send({ type: MSG.REVERB, value: reverbMix * 100 });
-            conn.send({ type: MSG.REPEAT_MODE, value: repeatMode });
-            conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle });
-            conn.send({
-                type: MSG.PLAYLIST_UPDATE,
-                list: playlist.map(item => ({
-                    type: item.type,
-                    name: item.name || item.title,
-                    videoId: item.videoId || null,
-                    playlistId: item.playlistId || null
-                }))
-            });
-
-            // Send current YouTube state if active
-            if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
-                try {
-                    const videoData = youtubePlayer.getVideoData();
-                    conn.send({
-                        type: MSG.YOUTUBE_PLAY,
-                        videoId: (videoData && videoData.video_id) ? videoData.video_id : (curItem ? curItem.videoId : null),
-                        playlistId: curItem ? curItem.playlistId : null,
-                        index: currentTrackIndex,
-                        subIndex: currentYouTubeSubIndex
-                    });
-                    // Send current time sync after short delay (let guest load player first)
-                    setTimeout(() => {
-                        if (youtubePlayer && conn.open) {
-                            conn.send({
-                                type: MSG.YOUTUBE_SYNC,
-                                time: youtubePlayer.getCurrentTime(),
-                                state: youtubePlayer.getPlayerState(),
-                                subIndex: currentYouTubeSubIndex
-                            });
-                        }
-                    }, 3000);
-                } catch (e) {
-                    log.error("[YouTube] Failed to send state to new guest:", e);
-                }
-            }
-
-            broadcastDeviceList();
-
-            if (curItem && curItem.type !== 'youtube') {
-                conn.send({
-                    type: MSG.FILE_PREPARE,
-                    name: curItem.name,
-                    index: currentTrackIndex,
-                    sessionId: currentTransferSessionId // Include session ID for late joiners
-                });
-            }
-
-            // Late Joiner Media Guard:
-            // If Host is still extracting audio from a video, do NOT send the MP4 file yet.
-            // The guest will receive the WAV file automatically when broadcastFile(wavFile) is called later.
-            if (peerObj.isDataTarget && playlist[currentTrackIndex]?.file && !playlist[currentTrackIndex]?._isExtracting) {
-                unicastFile(conn, playlist[currentTrackIndex].file);
-            } else if (playlist[currentTrackIndex]?._isExtracting) {
-                log.debug(`[Host] Guest joined during extraction. Skipping unicast, waiting for broadcast.`);
-                conn.send({ type: MSG.FILE_WAIT, message: '오디오 추출 중... 잠시만 기다려주세요.' });
-            }
-
-            // Move all conditional listeners INSIDE open callback so peerObj is in scope
-            conn.on('data', data => {
-                // Zombie Revival: If this peer was dropped (e.g. timeout) but is still talking, re-add it!
-                if (conn.open && !connectedPeers.find(p => p.id === peerObj.id)) {
-                    log.debug(`[Network] Reviving zombie connection: ${peerObj.label}`);
-                    peerObj.status = 'connected';
-                    peerObj.lastHeartbeat = Date.now();
-                    connectedPeers.push(peerObj);
-                    broadcastDeviceList();
-                }
-
-                if (data.type === MSG.HEARTBEAT || data.type === MSG.HEARTBEAT_ACK) {
-                    peerObj.lastHeartbeat = Date.now();
-
-                    if (!hostConn) { // Only genuine Host responds
-                        const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-                        conn.send({
-                            type: MSG.STATUS_SYNC,
-                            currentTrackIndex: currentTrackIndex,
-                            isPlaying: isActuallyPlaying,
-                            repeatMode: repeatMode,
-                            isShuffle: isShuffle,
-                            playlistMeta: playlist.map(item => ({
-                                type: item.type,
-                                name: item.name || item.title,
-                                videoId: item.videoId || null,
-                                playlistId: item.playlistId || null
-                            }))
-                        });
-                    }
-                    return;
-                }
-
-                if (data.type === MSG.PING_LATENCY) {
-                    conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp });
-                    return;
-                }
-
-                if (data.type === MSG.GET_SYNC_TIME) {
-                    const currentTime = getTrackPosition();
-                    const isActuallyPlaying = (videoElement && !videoElement.paused);
-                    conn.send({ type: MSG.SYNC_RESPONSE, time: currentTime, isPlaying: isActuallyPlaying });
-                }
-                else if (peerObj.isOp) {
-                    handleOperatorRequest(data);
-                }
-                else if (data.type === MSG.PRELOAD_ACK) {
-                    if (!peerObj.preloadedIndexes) peerObj.preloadedIndexes = new Set();
-                    peerObj.preloadedIndexes.add(data.index);
-                    log.debug(`[Host] Guest ${peerObj.id} confirmed preload for index ${data.index}`);
-                }
-                else if (data.type === MSG.REQUEST_YOUTUBE_PLAYLIST_INFO) {
-                    const pid = data.playlistId;
-                    if (youtubeSubItemsMap[pid]) {
-                        conn.send({
-                            type: MSG.YOUTUBE_PLAYLIST_INFO,
-                            playlistId: pid,
-                            ids: youtubeSubItemsMap[pid].ids,
-                            titles: youtubeSubItemsMap[pid].titles
-                        });
-                    }
-                }
-                else if (data.type === MSG.REQUEST_DATA_RECOVERY) {
-                    const fileName = data.fileName;
-                    const recoveryIndex = data.index;
-                    const nextChunk = data.nextChunk || 0;
-                    const peerId = conn.peer;
-
-                    // Rate-limit recovery requests per peer (min 5s between requests)
-                    const RECOVERY_COOLDOWN_MS = 5000;
-                    if (!_recoveryInProgress) _recoveryInProgress = {};
-                    if (!_recoveryLastRequest) _recoveryLastRequest = {};
-                    if (_recoveryInProgress[peerId]) return;
-                    const lastReq = _recoveryLastRequest[peerId] || 0;
-                    if (Date.now() - lastReq < RECOVERY_COOLDOWN_MS) {
-                        log.warn(`[Recovery] Rate-limited request from ${peerId.substr(-4)}`);
-                        return;
-                    }
-                    _recoveryLastRequest[peerId] = Date.now();
-
-                    let item = playlist.find(f => f.name === fileName);
-                    if (!item && recoveryIndex !== undefined && playlist[recoveryIndex]) {
-                        item = playlist[recoveryIndex];
-                    }
-
-                    if (item && item.file) {
-                        _recoveryInProgress[peerId] = true;
-                        const queueDelay = Object.keys(_recoveryInProgress).length * 200;
-                        setTimeout(async () => {
-                            try {
-                                if (conn.open) {
-                                    showToast(`Recovering ${peerObj.label}: chunk ${nextChunk}`);
-                                    await unicastFile(conn, item.file, nextChunk);
-                                }
-                            } finally {
-                                delete _recoveryInProgress[peerId];
-                            }
-                        }, queueDelay);
-                    }
-                }
-                else if (data.type === MSG.CHAT) {
-                    addChatMessage(data.sender, data.text, false);
-                    connectedPeers.forEach(p => {
-                        if (p.status === 'connected' && p.conn.open && p.id !== conn.peer) {
-                            p.conn.send({ type: MSG.CHAT, sender: data.sender, text: data.text });
-                        }
-                    });
-                }
-            });
-
-            conn.on('close', () => {
-                if (peerObj._relayMonitor) {
-                    clearInterval(peerObj._relayMonitor);
-                    peerObj._relayMonitor = null;
-                }
-                peerObj.status = 'disconnected';
-                peerObj.lastSeen = Date.now();
-                broadcastDeviceList();
-                showToast(`${deviceName} 연결 끊김`);
-
-                setTimeout(() => {
-                    if (peerObj.status === 'disconnected') {
-                        connectedPeers = connectedPeers.filter(p => p.id !== peerObj.id);
-                        broadcastDeviceList();
-                    }
-                }, 30000);
-            });
-
-            conn.on('error', () => {
-                peerObj.status = 'disconnected';
-                broadcastDeviceList();
-            });
-        });
+        handleHostIncomingConnection(conn);
     });
 }
 
+// (v3 이전) 슬롯 기반(L/R/Sub) 자동 세팅 로직은 Toss 인앱 요구사항에 맞춰 제거되었습니다.
+
+function handleHostIncomingConnection(conn) {
+    // Enforce max 3 direct devices (host 제외)
+    if (connectedPeers.length >= MAX_GUEST_SLOTS) {
+        try {
+            conn.send({
+                type: MSG.SESSION_FULL,
+                message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
+            });
+        } catch (e) { /* noop */ }
+
+        try { conn.close(); } catch (e) { /* noop */ }
+        return;
+    }
+
+    // Duplicate connection handling
+    const existing = connectedPeers.find(p => p.id === conn.peer);
+    if (existing) {
+        try {
+            existing.status = 'disconnected';
+            if (existing.conn && existing.conn.open) {
+                existing.conn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
+                existing.conn.close();
+            }
+        } catch (e) { /* noop */ }
+
+        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+    }
+
+    // Label: prefer guest-provided metadata (role name), fallback to numbered guest
+    const metaLabel = (conn && conn.metadata && typeof conn.metadata.label === 'string') ? conn.metadata.label.trim() : '';
+    const deviceName = metaLabel || `참가자 ${connectedPeers.length + 1}`;
+
+    // Track label for UI
+    peerLabels[conn.peer] = deviceName;
+
+    const peerObj = {
+        id: conn.peer,
+        label: deviceName,
+        role: 'guest',
+        status: 'connecting',
+        conn,
+        isOp: false,
+        isDataTarget: true,
+        joinOrder: connectedPeers.length + 1,
+        lastHeartbeat: Date.now(),
+        preloadedIndexes: new Set(),
+        currentFileId: null,
+    };
+
+    connectedPeers.push(peerObj);
+
+    updateRoleBadge();
+
+    conn.on('open', () => {
+        peerObj.status = 'connected';
+        peerObj.lastHeartbeat = Date.now();
+
+        showToast(`${deviceName} 연결됨`);
+
+        // Welcome (역할은 게스트가 선택하므로 채널 강제/할당 없음)
+        try {
+            conn.send({
+                type: MSG.WELCOME,
+                lockChannel: false,
+            });
+        } catch (e) { /* noop */ }
+
+        // Sync current settings/state
+        try { conn.send({ type: MSG.SET_VOLUME, volume: masterVolume }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.SET_REVERB, enabled: reverbEnabled, wetLevel: reverbWetLevel }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.SET_REPEAT_MODE, mode: repeatMode }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.SHUFFLE_STATE, enabled: isShuffleEnabled }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.PLAYLIST_UPDATE, playlist, currentTrackIndex }); } catch (e) { /* noop */ }
+
+        // If a local file is already loaded, push it directly (for late-join / reconnect).
+        if (currentFileBlob && currentTrackIndex >= 0 && playlist[currentTrackIndex] && playlist[currentTrackIndex].type === 'local') {
+            try {
+                unicastFile(conn, currentFileBlob, 0, localTransferSessionId)
+                    .catch((e) => log.error('[Host] unicastFile failed', e));
+            } catch (e) { /* noop */ }
+        }
+
+        // Playback state
+        if (currentState === APP_STATE.PLAYING_FILE || currentState === APP_STATE.PLAYING_YOUTUBE) {
+            try {
+                conn.send({
+                    type: MSG.PLAY,
+                    time: Tone.Transport.seconds,
+                    state: currentState,
+                    timestamp: Date.now(),
+                    trackIndex: currentTrackIndex,
+                    playlist
+                });
+            } catch (e) { /* noop */ }
+        } else {
+            try {
+                conn.send({
+                    type: MSG.PAUSE,
+                    time: Tone.Transport.seconds,
+                    state: currentState,
+                    timestamp: Date.now()
+                });
+            } catch (e) { /* noop */ }
+        }
+
+        updateRoleBadge();
+    });
+
+    conn.on('data', (data) => {
+        try {
+            handleData(data, conn);
+            handleOperatorRequest(data, conn);
+            handleOperatorAction(data, conn);
+            handleOperatorStatusUpdate(data, conn);
+        } catch (e) {
+            log.error('[Host] Error handling incoming data', e);
+        }
+    });
+
+    conn.on('close', () => {
+        log.info(`[Host] Connection closed: ${conn.peer}`);
+
+        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+
+        updateRoleBadge();
+
+        if (sessionStarted) {
+            showToast(`${deviceName} 연결이 끊겼어요`);
+        }
+    });
+
+    conn.on('error', (err) => {
+        log.error('[Host] Connection error:', err);
+
+        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+
+        updateRoleBadge();
+
+        if (sessionStarted) {
+            showToast(`${deviceName} 연결 오류`);
+        }
+
+        try { conn.close(); } catch (e) { /* noop */ }
+    });
+}
 
 // Guest Logic
 let connectionRetryCount = 0;
@@ -4703,238 +4880,144 @@ const MAX_CONNECTION_RETRIES = 3;
 const CONNECTION_TIMEOUT_MS = 7000; // Reduced from 10s to 7s for faster retry if it hangs
 let connectionTimeoutId = null;
 
-function joinSession(retryAttempt = 0) {
-    // 1. When Peer object is not ready (initializing)
-    if (!peer || !peer.open) {
-        // Log retry count
-        log.warn(`[Network] Peer not ready yet. Waiting... (${retryAttempt}/20)`);
+function joinSession(retryAttempt = 0, hostIdOverride = null) {
+    // Already connected?
+    if (hostConn && hostConn.open) {
+        log.warn('[Join] Already connected to host.');
+        return;
+    }
 
-        // Wait up to 20 retries (~10s), then give up
-        if (retryAttempt > 20) {
-            showConnectionFailedOverlay(
-                "네트워크 초기화에 실패했습니다.\n\n" +
-                "1. 잠시 후 '새로고침' 해보세요. (서버 부팅 중일 수 있음)\n" +
-                "2. VPN이나 사내 보안망을 끄고 시도해보세요."
-            );
+    const raw = (hostIdOverride || lastJoinCode || (setupEl('setup-join-code') ? setupEl('setup-join-code').value : '') || '').trim();
+    const hostId = raw.replace(/\s+/g, '');
+
+    if (!hostId) {
+        showToast('연결 코드를 입력해주세요.');
+        startGuestFlow();
+        return;
+    }
+
+    lastJoinCode = hostId;
+
+    // Settings tab header: keep showing the current invite code
+    updateInviteCodeUI();
+
+    // Ensure peer exists and is open
+    if (!peer) {
+        if (retryAttempt > 3) {
+            showConnectionFailedOverlay('네트워크 초기화 실패', '같은 Wi‑Fi인지 확인하고 다시 시도해주세요.', hostId);
             return;
         }
 
-        // Retry after 0.5s with incremented count
-        setTimeout(() => joinSession(retryAttempt + 1), 500);
+        initNetwork(null)
+            .then(() => joinSession(retryAttempt + 1, hostId))
+            .catch((e) => {
+                log.error('[Join] Failed to init peer', e);
+                showConnectionFailedOverlay('네트워크 초기화 실패', '같은 Wi‑Fi인지 확인하고 다시 시도해주세요.', hostId);
+            });
         return;
     }
 
-    if (isConnecting && retryAttempt === 0) {
-        log.warn("[Network] joinSession already in progress. Ignoring duplicate call.");
+    if (!peer.open) {
+        if (retryAttempt < 10) {
+            setTimeout(() => joinSession(retryAttempt + 1, hostId), 300);
+        } else {
+            showConnectionFailedOverlay('연결 준비 실패', '잠시 후 다시 시도해주세요.', hostId);
+        }
         return;
     }
+
     isConnecting = true;
+    updateRoleBadge();
 
-    const hostId = document.getElementById('join-id-input').value.trim();
-    if (!hostId) return showToast("ID 입력 필요");
-
-    // New attempt: Reset intentional flag
-    isIntentionalDisconnect = false;
-
-    // UI Reset: Rebranding to "Connecting" state (Gray)
-    // Using updateRoleBadge will handle generic "OFFLINE" or "GUEST" but we want "Connecting..."
-    // For connecting state, we might manually override text after calling update (or update function to support it)
-    // For now, let's keep specific connection UI logic local but clean up the badge reset
-    const roleBadge = document.getElementById('role-badge');
-    if (roleBadge) {
-        roleBadge.classList.remove('connected');
-        roleBadge.style.background = '';
-        roleBadge.style.boxShadow = '';
-    }
-
-    // Show connection status
-    if (retryAttempt === 0) {
-        showToast("Host에 연결 중...");
-        updateRoleBadge();
-    } else {
-        // Connection timeout toast already shown, just update UI
-        document.getElementById('role-text').innerText = `재연결 ${retryAttempt}/${MAX_CONNECTION_RETRIES}`;
-    }
-
-    initAudio();
-    if (hostConn) hostConn.close();
-
-    // Clear any existing timeout
-    if (connectionTimeoutId) {
-        clearTimeout(connectionTimeoutId);
-        connectionTimeoutId = null;
-    }
-
-    hostConn = peer.connect(hostId, { reliable: true });
-    window.hostConn = hostConn; // Sync for demo.js access
-
-    // Connection Timeout Handler
-    connectionTimeoutId = setTimeout(() => {
-        if (hostConn && !hostConn.open) {
-            log.warn(`Connection timeout after ${CONNECTION_TIMEOUT_MS}ms`);
-            hostConn.close();
-
-            if (retryAttempt < MAX_CONNECTION_RETRIES) {
-                isConnecting = false;
-                showToast(`연결 시간 초과. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-                // Exponential Backoff
-                const backoffDelay = 1000 * Math.pow(1.5, retryAttempt);
-                setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
-            } else {
-                isConnecting = false;
-                showConnectionFailedOverlay("연결 시간이 초과되었습니다. Host가 온라인인지 확인하세요.");
+    let conn;
+    try {
+        conn = peer.connect(hostId, {
+            reliable: true,
+            metadata: {
+                label: myDeviceLabel || '참가자'
             }
-        }
-    }, CONNECTION_TIMEOUT_MS);
-
-    hostConn.on('open', () => {
-        // Clear timeout on successful connection
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
+        });
+    } catch (e) {
+        log.error('[Join] peer.connect failed', e);
         isConnecting = false;
-        connectionRetryCount = 0; // Reset retry counter
+        updateRoleBadge();
+        showConnectionFailedOverlay('연결 실패', '같은 Wi‑Fi인지 확인하고 다시 시도해주세요.', hostId);
+        return;
+    }
 
-        // Remove connection failed overlay if present (from retry)
-        const failedOverlay = document.getElementById('connection-failed-overlay');
-        if (failedOverlay) failedOverlay.remove();
+    // Timeout if host is unreachable
+    const timeoutId = setTimeout(() => {
+        if (!conn || conn.open || hostConn) return;
 
-        showToast("Host 연결됨!");
+        try { conn.close(); } catch (e) { /* noop */ }
+        isConnecting = false;
+        updateRoleBadge();
+        showConnectionFailedOverlay('호스트에 연결할 수 없어요', '코드가 맞는지, 같은 Wi‑Fi인지 확인해주세요.', hostId);
+    }, 10000);
 
-        // Centralized Update
-        myDeviceLabel = 'GUEST';
+    conn.on('open', () => {
+        clearTimeout(timeoutId);
+
+        log.info('[Join] Connected to host:', hostId);
+
+        hostConn = conn;
+        isConnecting = false;
         updateRoleBadge();
 
-        updateSyncBtnState(true);
+        // Toss 인앱 UX: 역할 선택 후 바로 메인으로 진입
+        hideSetupOverlay();
+        try {
+            const m = (pendingPlacementToastMode !== null && pendingPlacementToastMode !== undefined)
+                ? pendingPlacementToastMode
+                : channelMode;
+            showPlacementToastForChannel(m);
+        } catch (e) { /* noop */ }
+        pendingPlacementToastMode = null;
 
-        updateQrCode(hostId);
-        const hostPanel = document.getElementById('host-panel');
-        if (hostPanel) hostPanel.classList.add('visible');
+        // Message handler
+        conn.on('data', handleData);
 
-        // Volunteer Heartbeat: Send to Host every 5s (Worker)
-        postWorkerCommand({ command: 'START_TIMER', id: 'heartbeat', interval: 5000 });
+        conn.on('close', () => {
+            log.warn('[Join] Host connection closed');
 
-        // Latency Ping (2s) (Worker)
-        postWorkerCommand({ command: 'START_TIMER', id: 'ping', interval: 2000 });
-
-        // Detect ICE connection type after connection stabilizes
-        setTimeout(() => detectConnectionType(), 2000);
-
-        const leaveBtn = document.getElementById('btn-leave-session');
-        if (leaveBtn) leaveBtn.style.display = 'flex';
-        switchTab('play');
-    });
-
-    hostConn.on('error', (err) => {
-        log.error("PeerJS Connection Error:", err);
-
-        // Clear timeout
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-
-        // Retry logic with backoff
-        if (retryAttempt < MAX_CONNECTION_RETRIES) {
-            showToast(`연결 오류. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
-            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
-        } else {
-            showConnectionFailedOverlay("연결 오류 발생: " + err.type);
-        }
-    });
-
-    hostConn.on('data', handleData);
-    hostConn.on('close', () => {
-        // Clear timeout if still pending
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-
-        // Stop Worker Timers
-        postWorkerCommand({ command: 'STOP_TIMER', id: 'heartbeat' });
-        postWorkerCommand({ command: 'STOP_TIMER', id: 'ping' });
-
-        if (!isIntentionalDisconnect && retryAttempt < MAX_CONNECTION_RETRIES) {
-            // If we are already in joinSession (isConnecting=true), don't trigger another one
-            if (isConnecting) {
-                log.debug("[Network] Connection closed but another attempt is already in progress. Skipping retry.");
-                return;
-            }
-
+            hostConn = null;
             isConnecting = false;
-            log.warn(`Unexpected connection close. Retrying (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-            showToast(`연결 끊김. 재시도 중... (${retryAttempt + 1}/${MAX_CONNECTION_RETRIES})`);
-
-            const backoffDelay = 1500 * Math.pow(1.5, retryAttempt);
-            setTimeout(() => joinSession(retryAttempt + 1), backoffDelay);
-        } else {
-            isConnecting = false;
-            if (!isIntentionalDisconnect) {
-                showConnectionFailedOverlay("Host와 연결이 끊어졌습니다");
-            }
-            showToast("Host 끊김");
-            // Centralized Update
             updateRoleBadge();
 
-            // Clear any inline styles left by detectConnectionType
-            const roleBadge = document.getElementById('role-badge');
-            if (roleBadge) {
-                roleBadge.style.background = '';
-                roleBadge.style.boxShadow = '';
+            if (!isIntentionalDisconnect) {
+                showConnectionFailedOverlay('연결이 끊겼어요', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
             }
-            updateSyncBtnState(false);
-        }
+            isIntentionalDisconnect = false;
+        });
+
+        conn.on('error', (err) => {
+            log.error('[Join] Host connection error', err);
+
+            hostConn = null;
+            isConnecting = false;
+            updateRoleBadge();
+
+            showConnectionFailedOverlay('연결 오류', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
+        });
+
+        // Start heartbeat/ping
+        postWorkerCommand({ type: 'startHeartbeat', interval: 1000 });
+        postWorkerCommand({ type: 'startPing', interval: 2000 });
+        setTimeout(() => detectConnectionType(), 2000);
+
+        switchTab('play');
     });
 }
 
-// Helper: Show connection failed overlay with retry option
-function showConnectionFailedOverlay(message) {
-    // Remove existing overlay if any
-    const existing = document.getElementById('connection-failed-overlay');
-    if (existing) existing.remove();
+function showConnectionFailedOverlay(title, message, hostId = '') {
+    // Simplified: Use the in-app dialog (no external links / no separate overlay)
+    const extra = '<br><br><small style="color: var(--text-sub);">* 로컬(같은 Wi‑Fi/핫스팟)에서만 연결됩니다.</small>';
+    showDialog(title, `${message}${extra}`);
 
-    const overlay = document.createElement('div');
-    overlay.id = 'connection-failed-overlay';
-    overlay.style.cssText = `
-        position: fixed; inset: 0; background: rgba(0,0,0,0.85);
-        z-index: 9999; display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 20px;
-    `;
-    overlay.innerHTML = `
-        <h2 style="color:white; font-size: 24px; text-align: center; padding: 0 20px;">${escapeHtml(message)}</h2>
-        <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
-            <button id="btn-conn-retry" style="
-                padding: 12px 30px; background: var(--primary, #3b82f6); color: white;
-                border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
-            ">다시 시도</button>
-            <button id="btn-conn-exit" style="
-                padding: 12px 30px; background: #ef4444; color: white;
-                border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
-            ">나가기</button>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-
-    // Bind actions without inline handlers
-    const retryBtn = document.getElementById('btn-conn-retry');
-    const exitBtn = document.getElementById('btn-conn-exit');
-    if (retryBtn) {
-        retryBtn.addEventListener('click', () => {
-            const ov = document.getElementById('connection-failed-overlay');
-            if (ov) ov.remove();
-            joinSession(0);
-        });
-    }
-    if (exitBtn) {
-        exitBtn.addEventListener('click', () => {
-            window.location.href = window.location.pathname;
-        });
-    }
-
-    document.getElementById('role-text').innerText = "연결 실패";
+    // Return to guest join screen with the last code preserved
+    startGuestFlow();
+    const input = setupEl('setup-join-code');
+    if (input && hostId) input.value = hostId;
 }
 
 async function leaveSession() {
@@ -5045,15 +5128,9 @@ async function leaveSession() {
 
     setState(APP_STATE.IDLE);
 
-    // Re-run network init to get a fresh ID for next time
-    // We wait for previous destruction and clear state before starting new one
-    await initNetwork();
-
-    showToast("세션에서 나갔습니다.");
-
-    // Update visibility of the leave button itself
-    const leaveBtn = document.getElementById('btn-leave-session');
-    if (leaveBtn) leaveBtn.style.display = 'none';
+    // Back to Setup overlay (network will be initialized on demand)
+    showToast("세션이 초기화되었습니다.");
+    initSetupOverlay();
 
     log.debug("[Musixquare] Session left and state reset.");
 }
@@ -5061,59 +5138,11 @@ async function leaveSession() {
 // --- Data Handling ---
 // Note: currentFileOpfs, preloadFileOpfs handles are used for storage
 
-// Detect ICE connection type and set compensation mode
+// Local-only build: no STUN/TURN, no relay mode
 async function detectConnectionType() {
-    if (!hostConn || !hostConn.peerConnection) {
-        log.debug("[ICE] No peer connection available");
-        return;
-    }
-
-    try {
-        const stats = await hostConn.peerConnection.getStats();
-        let connectionType = 'unknown';
-
-        stats.forEach(report => {
-            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                // Check local and remote candidate types
-                const localId = report.localCandidateId;
-                const remoteId = report.remoteCandidateId;
-
-                stats.forEach(candidate => {
-                    if (candidate.id === localId || candidate.id === remoteId) {
-                        if (candidate.candidateType === 'relay') {
-                            connectionType = 'relay';
-                        } else if (connectionType !== 'relay') {
-                            connectionType = candidate.candidateType; // 'host' or 'srflx'
-                        }
-                    }
-                });
-            }
-        });
-
-        if (connectionType === 'relay') {
-            usePingCompensation = true;
-            log.debug("[ICE] TURN Relay detected - Using RTT/2 compensation");
-            showToast("원격 네트워크 감지 - 자동 보정 활성화");
-
-            // Change badge to orange (relay)
-            const roleBadge = document.getElementById('role-badge');
-            if (roleBadge) {
-                roleBadge.style.background = '#fb923c';
-                roleBadge.title = '원격 네트워크 (릴레이)';
-            }
-        } else if (connectionType === 'host' || connectionType === 'srflx') {
-            usePingCompensation = false;
-            log.debug(`[ICE] Direct connection (${connectionType}) - No ping compensation`);
-            showToast("로컬 네트워크 감지 - 직접 동기화");
-            // Keep default blue (set by CSS)
-        } else {
-            usePingCompensation = true; // Fallback: apply compensation
-            log.debug("[ICE] Unknown connection type - Using RTT/2 compensation as fallback");
-        }
-    } catch (e) {
-        log.error("[ICE] Detection failed:", e);
-        usePingCompensation = true; // Fallback
-    }
+    // In this Toss in-app build we force local network connectivity (same Wi‑Fi).
+    // Ping compensation / relay handling is intentionally disabled for simplicity.
+    usePingCompensation = false;
 }
 
 // Helper: Clear all previous track state to prevent data mixing
@@ -6482,15 +6511,65 @@ function handlePongLatency(data) {
     latencyHistory.push(ms);
     if (latencyHistory.length > 10) latencyHistory.shift();
     lastLatencyMs = Math.min(...latencyHistory);
-    const roleText = document.getElementById('role-text');
-    if (roleText && myDeviceLabel !== 'GUEST' && myDeviceLabel !== 'HOST') {
-        roleText.innerText = `${myDeviceLabel} (${Math.round(lastLatencyMs)}ms)`;
-    }
+    // Header pill: latency + 역할 표시를 실시간으로 업데이트
+    updateRoleBadge();
 }
 
 function handleWelcome(data) {
-    document.getElementById('role-text').innerText = data.label;
+    if (!data) return;
+
+    if (data.label) {
+        myDeviceLabel = data.label;
+        updateRoleBadge();
+    }
+
+    // Role-based channel routing (legacy). Toss 인앱에서는 사용자가 직접 선택하므로,
+    // 이미 역할을 선택했다면 host의 channelMode는 무시합니다.
+    if (typeof data.channelMode === 'number' && selectedJoinChannelMode === null) {
+        const ch = data.channelMode;
+        const el = document.querySelector(`.ch-opt[data-ch="${ch}"]`);
+
+        // Force apply even if channel is locked
+        if (el) {
+            setChannel(ch, el, true, false);
+        } else {
+            setChannelMode(ch);
+        }
+    }
+
+    // Toss in-app build: 역할(채널 모드)은 사용자가 Settings에서 변경할 수 있어야 합니다.
+    // 과거 빌드 호환을 위해 lockChannel 필드는 수신하더라도 강제로 잠그지 않습니다.
+    if (data.lockChannel) {
+        isChannelSelectionLocked = false;
+    }
 }
+
+function handleSessionStart() {
+    // (레거시 호환) 일부 빌드가 session-start를 보내더라도,
+    // Toss 인앱 UX에서는 게스트가 즉시 진입하므로 조용히 처리합니다.
+    sessionStarted = true;
+    hideSetupOverlay();
+    updateRoleBadge();
+}
+
+function handleSessionFull(data) {
+    const msg = (data && data.message) ? data.message : '세션이 가득 찼습니다.';
+    showDialog('참가할 수 없어요', msg);
+
+    // Avoid triggering extra "connection failed" UI
+    isIntentionalDisconnect = true;
+
+    try {
+        if (hostConn && hostConn.open) hostConn.close();
+    } catch (e) { /* noop */ }
+
+    hostConn = null;
+    isConnecting = false;
+    updateRoleBadge();
+
+    startGuestFlow();
+}
+
 
 async function handlePlay(data) {
     if (managedTimers.autoPlayTimer) {
@@ -6686,14 +6765,14 @@ async function handleOperatorGrant(data) {
     isOperator = true;
     showToast("Operator 권한이 부여되었습니다.");
     document.getElementById('play-btn').disabled = false;
-    document.getElementById('role-badge').innerHTML = `<span class="role-dot"></span> HOST SYNC (OP)`;
+    updateRoleBadge();
 }
 
 async function handleOperatorRevoke(data) {
     isOperator = false;
     showToast("Operator 권한이 해제되었습니다.");
     // Play button disabled state handled by sync logic
-    document.getElementById('role-badge').innerHTML = `<span class="role-dot"></span> HOST SYNC (Guest)`;
+    updateRoleBadge();
 }
 
 // ============================================================================
@@ -6809,6 +6888,8 @@ const handlers = {
     'heartbeat': handleHeartbeat,
     'pong-latency': handlePongLatency,
     'welcome': handleWelcome,
+    'session-start': handleSessionStart,
+    'session-full': handleSessionFull,
     'file-prepare': handleFilePrepare,
     'file-start': handleFileStart,
     'file-resume': handleFileResume,
@@ -7840,21 +7921,7 @@ async function copyTextToClipboard(text) {
     }
 }
 
-async function copyLink() {
-    const linkTextEl = document.getElementById('my-id');
-    const linkText = linkTextEl ? linkTextEl.innerText : '';
-    if (linkText.includes('...')) return;
-
-    let idToCopy = myId;
-    if (hostConn) {
-        const hostInput = document.getElementById('join-id-input')?.value;
-        if (hostInput) idToCopy = hostInput;
-    }
-
-    const url = `${window.location.origin}${window.location.pathname}?host=${idToCopy}`;
-    const ok = await copyTextToClipboard(url);
-    showToast(ok ? "링크 복사 완료" : "복사 실패: 길게 눌러 복사하세요");
-}
+// copyLink removed (Toss in-app: external links are not allowed)
 
 function autoSync() {
     localOffset = 0;
@@ -8046,13 +8113,12 @@ function updateUISlider(duration) {
 }
 
 function openHelpModal() {
-    document.getElementById('help-modal').classList.add('show');
+    // Help modal has been replaced by the bottom "? guide" tab.
+    switchTab('guide');
 }
 
-function closeHelpModal(event) {
-    if (!event || event.target === event.currentTarget) {
-        document.getElementById('help-modal').classList.remove('show');
-    }
+function closeHelpModal() {
+    // No-op (legacy).
 }
 
 let myChatLabel = 'HOST';
@@ -8339,6 +8405,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Invite code copy (multiple containers)
+    document.addEventListener('click', (e) => {
+        const container = e.target.closest('.invite-code-container');
+        if (container) {
+            copyInviteCode();
+        }
+    });
+
     // Event delegation for YouTube chat buttons (replaces inline onclick)
     document.addEventListener('click', (e) => {
         const target = (e.target && e.target.closest) ? e.target : (e.target && e.target.parentElement);
@@ -8448,24 +8522,40 @@ let youtubePlayer = null;
 let youtubeSessionId = 0;
 
 function openMediaSourcePopup() {
+    // Host-only (guests are not allowed to add media)
     if (hostConn) {
-        return showToast("Host만 실행할 수 있습니다.");
+        showToast('방장만 미디어를 추가할 수 있어요.');
+        return;
     }
-    document.getElementById('media-source-overlay').classList.add('show');
+
+    const ov = document.getElementById('media-source-overlay');
+    if (ov) ov.classList.add('show');
 }
 
 function closeMediaSourcePopup() {
-    document.getElementById('media-source-overlay').classList.remove('show');
+    const ov = document.getElementById('media-source-overlay');
+    if (ov) ov.classList.remove('show');
 }
 
 function openYouTubePopup() {
-    document.getElementById('youtube-url-overlay').classList.add('show');
-    document.getElementById('youtube-url-input').value = '';
-    document.getElementById('youtube-url-input').focus();
+    // Host-only
+    if (hostConn) {
+        showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+        return;
+    }
+
+    const ov = document.getElementById('youtube-url-overlay');
+    if (ov) ov.classList.add('show');
+
+    // auto-focus
+    const urlInput = document.getElementById('youtube-url-input');
+    if (urlInput) urlInput.focus();
 }
 
+
 function closeYouTubePopup() {
-    document.getElementById('youtube-url-overlay').classList.remove('show');
+    const ov = document.getElementById('youtube-url-overlay');
+    if (ov) ov.classList.remove('show');
 }
 
 function extractYouTubeVideoId(url) {
@@ -8487,6 +8577,12 @@ function extractYouTubePlaylistId(url) {
 }
 
 function loadYouTubeFromInput() {
+    // Host-only
+    if (hostConn) {
+        showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+        return;
+    }
+
     const url = document.getElementById('youtube-url-input').value.trim();
     if (!url) {
         showToast("URL을 입력해 주세요");
@@ -9319,7 +9415,6 @@ window.handleManualSync = handleManualSync;
 window.openMediaSourcePopup = openMediaSourcePopup;
 window.toggleRepeat = toggleRepeat;
 window.toggleShuffle = toggleShuffle;
-window.copyLink = copyLink;
 window.leaveSession = leaveSession;
 window.joinSession = joinSession;
 window.setTheme = setTheme;
@@ -9350,6 +9445,7 @@ window.relayDebug = relayDebug;
 window.parseMessageContent = parseMessageContent;
 window.seekToTime = seekToTime;
 window.loadYouTubeFromChat = loadYouTubeFromChat;
+window.copyInviteCode = copyInviteCode;
 window.insertEmoji = insertEmoji;
 
 // Utilities

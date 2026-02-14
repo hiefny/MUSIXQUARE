@@ -13,13 +13,17 @@
     --text-sub: #a1a1aa;
     --text-muted: #52525b;
 
-    --radius-l: 28px;
-    --radius-m: 16px;
-    --radius-s: 12px;
+    --radius-l: 32px;
+    --radius-m: 20px;
+    --radius-s: 14px;
+
+    --glass-bg: rgba(18, 18, 18, 0.75);
+    --glass-border: transparent;
+    --glass-blur: 16px;
 
     --safe-bottom: env(safe-area-inset-bottom, 20px);
     --header-height: 60px;
-    --nav-height: 70px;
+    --nav-height: 74px;
 }
 
 [data-theme="light"] {
@@ -33,9 +37,12 @@
     --surface-3: #d1d1d6;
     /* Darker Accents */
     --primary: #007aff;
-    --text-main: #000000;
-    --text-sub: #8e8e93;
+    --text-main: #444444;
+    --text-sub: #666666;
     --text-muted: #c7c7cc;
+
+    --glass-bg: rgba(255, 255, 255, 0.75);
+    --glass-border: transparent;
 }
 
 * {
@@ -109,9 +116,9 @@ header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: var(--surface-1);
-    /* Solid Fill */
-    border-bottom: 1px solid var(--surface-2);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     position: sticky;
     top: 0;
     z-index: 40000;
@@ -179,6 +186,20 @@ header.loading .header-progress-bg {
     -webkit-text-fill-color: transparent;
 }
 
+/* Light Mode Logo Overrides */
+[data-theme="light"] .app-logo {
+    color: #222222;
+    /* Darker than #444444 text */
+}
+
+[data-theme="light"] .logo-fade {
+    /* Update gradient start color to #222222 */
+    background: linear-gradient(to right, #222222 20%, var(--surface-3) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
 /* Loading Text (Hidden by default, moves up from below) */
 .header-loading-text {
     position: absolute;
@@ -233,7 +254,9 @@ header.loading .header-loading-text {
 .role-badge {
     font-size: 11px;
     font-weight: 700;
-    background: var(--surface-2);
+    background: rgba(128, 128, 128, 0.15);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     color: var(--text-sub);
     padding: 6px 14px;
     border-radius: 100px;
@@ -305,7 +328,7 @@ body.mode-video #tab-play:not(.active) {
     padding: 30px 24px 10px;
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     margin-bottom: 10px;
 }
 
@@ -314,6 +337,25 @@ body.mode-video #tab-play:not(.active) {
     font-weight: 800;
     color: var(--text-main);
     letter-spacing: -0.03em;
+}
+
+/* Settings 상단: 초대코드만 표시하므로 중앙 정렬 + 숫자 가독성 강화 */
+#tab-settings .tab-header {
+    justify-content: center;
+}
+
+.invite-code-value {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.10em;
+    padding: 2px 0;
+    border-radius: var(--radius-s);
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.invite-code-value.copied {
+    background: var(--primary);
+    color: white;
+    transform: scale(1.05);
 }
 
 .tab-action-btn {
@@ -415,7 +457,6 @@ body.mode-video #tab-play:not(.active) {
 
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     position: relative;
-    border: 1px solid var(--surface-2);
     transition: opacity 0.3s;
 }
 
@@ -828,8 +869,8 @@ input[type=range]:active::-webkit-slider-thumb {
     cursor: pointer;
     color: var(--text-sub);
     font-family: inherit;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 700;
 }
 
 .file-select-btn:active {
@@ -1129,7 +1170,7 @@ input[type=range]:active::-webkit-slider-thumb {
 .theme-selector {
     display: flex;
     background: var(--surface-2);
-    border-radius: var(--radius-m);
+    border-radius: 9999px !important;
     padding: 4px;
     margin: 10px 20px 20px;
     gap: 4px;
@@ -1138,12 +1179,14 @@ input[type=range]:active::-webkit-slider-thumb {
 
 .theme-opt {
     flex: 1;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 10px 0;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-sub);
-    border-radius: var(--radius-s);
+    border-radius: 100px;
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -1151,7 +1194,7 @@ input[type=range]:active::-webkit-slider-thumb {
 .theme-opt.active {
     background: var(--surface-1);
     color: var(--text-main);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* Reverb Type Chips */
@@ -1464,15 +1507,16 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     bottom: 0;
     left: 0;
     right: 0;
-    background: var(--surface-1);
-    /* Solid Fill */
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     height: calc(var(--nav-height) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
     display: flex;
     justify-content: space-around;
     align-items: center;
     z-index: 100;
-    border-top: 1px solid var(--surface-2);
+    border-top: none;
 }
 
 .nav-item {
@@ -1630,11 +1674,12 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: none;
     align-items: center;
     justify-content: center;
-    padding: 20px;
-    background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    z-index: 40000; /* Above onboarding (9999) & help modal (30000) */
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    z-index: 40000;
+    animation: fadeIn 0.3s ease-out;
 }
 
 .dialog-overlay.show {
@@ -1643,77 +1688,88 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 .dialog {
     width: 100%;
-    max-width: 520px;
+    max-width: 400px;
     border-radius: var(--radius-l);
-    background: var(--surface-1);
-    border: 1px solid var(--surface-2);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-    animation: modalSlideUp 0.25s ease-out;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
 }
 
 .dialog-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 20px;
-    border-bottom: 1px solid var(--surface-2);
+    padding: 24px 28px 12px;
 }
 
 .dialog-title {
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 800;
-    letter-spacing: 0.2px;
-    color: var(--text);
+    letter-spacing: -0.02em;
+    color: var(--text-main);
 }
 
 .dialog-close {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    border: 1px solid var(--surface-2);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
     background: var(--surface-2);
-    color: var(--text);
+    color: var(--text-sub);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dialog-close:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
 }
 
 .dialog-close svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     fill: currentColor;
 }
 
 .dialog-message {
-    padding: 18px 20px 0;
-    font-size: 13px;
+    padding: 12px 28px 24px;
+    font-size: 15px;
     color: var(--text-sub);
-    line-height: 1.5;
-    white-space: pre-wrap; /* allow \n */
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: keep-all;
 }
 
 .dialog-actions {
-    padding: 18px 20px 20px;
+    padding: 0 28px 32px;
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
 }
 
 .dialog-primary {
     border: none;
     background: var(--primary);
     color: #fff;
-    border-radius: 12px;
-    padding: 12px 16px;
-    font-weight: 800;
+    border-radius: 18px;
+    padding: 16px 32px;
+    font-size: 16px;
+    font-weight: 700;
     cursor: pointer;
-    min-width: 96px;
+    min-width: 100px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .dialog-primary:active {
-    transform: translateY(1px);
+    transform: scale(0.96);
+    box-shadow: none;
 }
 
 
@@ -1727,36 +1783,47 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .onboarding-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(12px);
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: 9999;
-    display: flex;
+    display: none;
     justify-content: center;
     align-items: center;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.onboarding-overlay.active {
+    display: flex;
 }
 
 .onboarding-card {
-    background: var(--surface-1);
-    border: 1px solid var(--surface-2);
-    border-radius: 28px;
-    width: 88%;
+    background: var(--glass-bg);
+    border-radius: var(--radius-l);
+    width: 90%;
     max-width: 380px;
-    padding: 32px 24px;
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+    padding: 36px 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 28px;
     position: relative;
     overflow: hidden;
 }
 
 [data-theme="light"] .onboarding-card {
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--glass-bg);
+}
+
+.setup-card {
+    gap: 16px !important;
+    padding: 36px 28px !important;
 }
 
 .ob-slider-viewport {
     overflow: hidden;
     width: 100%;
+    margin: 10px 0;
 }
 
 .ob-slider-track {
@@ -1772,49 +1839,49 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 16px;
+    gap: 20px;
     padding: 10px 4px;
 }
 
 .ob-icon-circle {
-    width: 72px;
-    height: 72px;
+    width: 84px;
+    height: 84px;
     background: var(--surface-2);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--primary);
-    margin-bottom: 8px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    margin-bottom: 4px;
 }
 
 .ob-icon-circle svg {
-    width: 32px;
-    height: 32px;
+    width: 38px;
+    height: 38px;
     fill: currentColor;
 }
 
 .ob-title {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 800;
     color: var(--text-main);
-    letter-spacing: -0.5px;
+    letter-spacing: -0.8px;
 }
 
 .ob-desc {
-    font-size: 15px;
+    font-size: 15.5px;
     color: var(--text-sub);
-    line-height: 1.5;
+    line-height: 1.6;
     word-break: keep-all;
-    padding: 0 10px;
+    padding: 0 16px;
 }
 
 .ob-dots {
     display: flex;
     justify-content: center;
     gap: 8px;
-    margin-top: 4px;
+    margin-top: 12px;
+    margin-bottom: 8px;
 }
 
 .ob-dot {
@@ -1823,13 +1890,84 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     border-radius: 50%;
     background: var(--surface-3);
     cursor: pointer;
-    transition: all 0.3s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ob-dot.active {
     background: var(--primary);
     width: 24px;
     border-radius: 12px;
+}
+
+.ob-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) !important;
+    width: 44px;
+    height: 44px;
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    z-index: 10;
+
+    /* Aggressive Reset */
+    appearance: none;
+    -webkit-appearance: none;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    background-clip: padding-box;
+}
+
+.ob-arrow svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+    pointer-events: none;
+    /* Prevent click interference */
+}
+
+/* Optical Centering Fix */
+.ob-arrow-left svg {
+    margin-right: 2px;
+    /* Push icon slightly left -> visual center */
+}
+
+.ob-arrow-right svg {
+    margin-left: 2px;
+    /* Push icon slightly right -> visual center */
+}
+
+.ob-arrow:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-50%) !important;
+}
+
+.ob-arrow-left {
+    left: -12px;
+}
+
+.ob-arrow-right {
+    right: -12px;
+}
+
+.ob-arrow svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
 }
 
 .ob-actions {
@@ -1861,6 +1999,185 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .btn-ob-secondary {
     background: var(--surface-2);
     color: var(--text-main);
+}
+
+/* --- Setup Overlay (Toss In-App) --- */
+.setup-subtitle {
+    margin-top: -6px;
+    font-size: 13px;
+    color: var(--text-sub);
+}
+
+.setup-note {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.setup-role-note {
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sub);
+    line-height: 1.5;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+    text-align: left;
+}
+
+.setup-role-note span {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.setup-code-area {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+}
+
+.setup-code-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sub);
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+}
+
+.setup-code {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    color: var(--text-main);
+    margin-right: -0.12em;
+    align-self: center;
+    /* Keep the code itself centered */
+    font-variant-numeric: tabular-nums;
+}
+
+.setup-join-input {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+    background: none;
+    border: none;
+    border-bottom: 2px solid var(--surface-3);
+    border-radius: 0;
+    padding: 8px 0;
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    color: var(--text-main);
+    caret-color: var(--text-main);
+    align-self: center;
+    /* Keep centered */
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    transition: border-bottom-color 0.3s ease;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.setup-join-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.3;
+}
+
+.setup-join-input:focus {
+    border-bottom-color: var(--primary);
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.setup-code-box {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+}
+
+.setup-instruction {
+    margin-top: 12px;
+    padding: 0;
+    color: var(--text-sub);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+    line-height: 1.5;
+    text-align: left;
+    white-space: pre-line;
+}
+
+.setup-join-area {
+    margin-top: 12px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+
+
+.setup-slot-list {
+    margin-top: 12px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.setup-slot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+}
+
+.slot-label {
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.slot-status {
+    font-size: 13px;
+    font-weight: 800;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text-sub);
+}
+
+.slot-status.connected {
+    background: rgba(16, 185, 129, 0.16);
+    color: rgb(16, 185, 129);
+}
+
+.slot-status.pending {
+    background: rgba(59, 130, 246, 0.14);
+    color: rgb(59, 130, 246);
+}
+
+.slot-status.skipped {
+    background: rgba(148, 163, 184, 0.20);
+    color: rgb(148, 163, 184);
 }
 
 .btn-ob-primary:active,
@@ -2070,18 +2387,19 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .sync-glass-panel {
-    width: 340px;
-    background: var(--surface-1);
-    border: 1px solid var(--surface-2);
-    /* Clean Shadow, No Glow */
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    border-radius: 24px;
-    padding: 24px;
+    width: 350px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-l);
+    padding: 32px 28px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
+    gap: 24px;
     position: relative;
+    animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Light / Dark Mode Handling is automatic via var(--surface-1) */
@@ -2096,10 +2414,10 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .sync-label {
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 800;
     color: var(--text-sub);
-    letter-spacing: 0.5px;
+    letter-spacing: 1.2px;
 }
 
 .sync-value-wrapper {
@@ -2165,7 +2483,17 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .btn-nudge span {
     font-size: 11px;
     font-weight: 700;
-    opacity: 0.8;
+    opacity: 0.6;
+}
+
+.btn-nudge svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
 }
 
 .btn-nudge.large {
@@ -2187,8 +2515,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .btn-nudge.small svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     opacity: 0.6;
 }
 
@@ -2212,7 +2540,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     /* Enforce same height */
     border-radius: 20px;
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: 1px;
     cursor: pointer;
     transition: transform 0.1s, background 0.2s;
@@ -2232,7 +2560,28 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .sync-done-btn {
     background: var(--text-main);
     color: var(--bg);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Media Source Button Enhancements */
+#media-source-overlay .file-select-btn-large {
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#media-source-overlay .file-select-btn-large:active {
+    transform: scale(0.97);
+    background: var(--surface-3);
+}
+
+#btn-youtube-source {
+    background: var(--surface-2) !important;
+    color: #ff4d4d !important;
+}
+
+#btn-youtube-source:active {
+    background: var(--surface-3) !important;
 }
 
 .sync-popup-reset-btn:active,
@@ -2734,6 +3083,7 @@ input:checked+.slider:before {
 
 .chat-preview-text {
     font-size: 14px;
+    font-weight: 600;
     color: var(--text-sub);
     white-space: nowrap;
     overflow: hidden;
@@ -2765,7 +3115,9 @@ input:checked+.slider:before {
     bottom: 0;
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
-    background: var(--surface-1);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
@@ -2936,4 +3288,23 @@ input:checked+.slider:before {
 :focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+}
+
+/* Light Mode Play Tab Buttons (White Background) */
+[data-theme="light"] .chat-preview-btn,
+[data-theme="light"] .file-select-btn {
+    background: #ffffff;
+    box-shadow: none;
+    border: none;
+}
+
+[data-theme="light"] .chat-preview-btn .chat-preview-text,
+[data-theme="light"] .file-select-btn,
+[data-theme="light"] .file-select-btn span {
+    color: #444444;
+}
+
+[data-theme="light"] .chat-preview-btn .chat-preview-icon,
+[data-theme="light"] .file-select-btn svg {
+    fill: #444444;
 }

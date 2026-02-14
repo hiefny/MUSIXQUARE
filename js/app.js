@@ -2435,6 +2435,7 @@ function setShuffle(enabled) {
 }
 
 function updatePlaylistUI() {
+    if (!playlist) playlist = [];
     const ul = document.getElementById('playlist-ui');
     ul.innerHTML = '';
     if (playlist.length === 0) {
@@ -4796,11 +4797,11 @@ function handleHostIncomingConnection(conn) {
         } catch (e) { /* noop */ }
 
         // Sync current settings/state
-        try { conn.send({ type: MSG.SET_VOLUME, volume: masterVolume }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.SET_REVERB, enabled: reverbEnabled, wetLevel: reverbWetLevel }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.SET_REPEAT_MODE, mode: repeatMode }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.SHUFFLE_STATE, enabled: isShuffleEnabled }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.PLAYLIST_UPDATE, playlist, currentTrackIndex }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.VOLUME, value: masterVolume }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB, value: reverbMix }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REPEAT_MODE, value: repeatMode }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.PLAYLIST_UPDATE, list: playlist, currentTrackIndex }); } catch (e) { /* noop */ }
 
         // If a local file is already loaded, push it directly (for late-join / reconnect).
         if (currentFileBlob && currentTrackIndex >= 0 && playlist[currentTrackIndex] && playlist[currentTrackIndex].type === 'local') {
@@ -4818,8 +4819,8 @@ function handleHostIncomingConnection(conn) {
                     time: Tone.Transport.seconds,
                     state: currentState,
                     timestamp: Date.now(),
-                    trackIndex: currentTrackIndex,
-                    playlist
+                    index: currentTrackIndex,
+                    list: playlist
                 });
             } catch (e) { /* noop */ }
         } else {
@@ -6727,7 +6728,7 @@ async function handleRepeatMode(data) {
 }
 
 async function handlePlaylistUpdate(data) {
-    playlist = data.list;
+    playlist = data.list || data.playlist || [];
     updatePlaylistUI();
 }
 

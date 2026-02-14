@@ -1,8 +1,7 @@
-/* service-worker.js
- * MUSIXQUARE PWA Service Worker (App Shell Cache)
- * - Caches core static assets for faster loads + basic offline support
- * - Avoids caching large media downloads and dynamic endpoints
- */
+// service-worker.js
+// MUSIXQUARE PWA Service Worker (App Shell Cache)
+// - Caches core static assets for faster loads + basic offline support
+// - Avoids caching large media downloads and dynamic endpoints
 
 'use strict';
 

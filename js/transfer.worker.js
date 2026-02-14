@@ -590,17 +590,6 @@ async function handleMessage(data) {
   // Unknown commands are ignored for forward compatibility.
 }
 
-// Defensive error reporting (won't break app.js if unhandled)
-self.addEventListener('unhandledrejection', (event) => {
-  safePost({
-    type: 'WORKER_ERROR',
-    scope: 'transfer',
-    error: event && event.reason && event.reason.message ? event.reason.message : String(event.reason),
-    command: 'unhandledrejection'
-  });
-});
-
-
 // Global safety: surface unexpected worker errors without crashing.
 self.addEventListener('error', (e) => {
   safePost({

@@ -8,7 +8,9 @@
 
 // IMPORTANT: bump this when deploying changes to app shell assets
 // so existing clients don't stay pinned to stale cached JS/CSS.
-const CACHE_VERSION = 'v2';
+// NOTE: Bump this when app shell assets change.
+// v6: app.js fixes (worker timers, dialog API usage, broadcast queue perf)
+const CACHE_VERSION = "v6";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -82,7 +84,8 @@ self.addEventListener('fetch', (event) => {
       try {
         const fresh = await fetch(request);
         const cache = await caches.open(RUNTIME_CACHE);
-        cache.put(request, fresh.clone());
+        // Cache in background (don't block response, avoid unhandled rejections)
+        cache.put(request, fresh.clone()).catch(() => { /* ignore */ });
         return fresh;
       } catch (_) {
         // Fallback to cached index or cached navigation
@@ -103,7 +106,8 @@ self.addEventListener('fetch', (event) => {
         // NOTE: status 206(Partial Content)은 Cache.put에서 예외가 날 수 있으므로 제외
         if (response && response.status !== 206 && (response.ok || response.type === 'opaque')) {
           const cache = await caches.open(url.origin === self.location.origin ? STATIC_CACHE : RUNTIME_CACHE);
-          cache.put(request, response.clone());
+          // Cache in background (avoid unhandled rejections)
+          cache.put(request, response.clone()).catch(() => { /* ignore */ });
         }
         return response;
       } catch (_) {

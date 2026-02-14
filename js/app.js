@@ -71,6 +71,9 @@ function validateSessionId(id, strict = false) {
     if (!ok) {
         // Avoid log spam (same bad value repeated)
         const key = String(id);
+        // Prevent unbounded growth if an attacker/bug keeps sending random values
+        // (edge-case: malformed peers / reconnect loops)
+        if (_warnedBadSessionIds.size > 200) _warnedBadSessionIds.clear();
         if (!_warnedBadSessionIds.has(key)) {
             _warnedBadSessionIds.add(key);
             log.warn(`[Session] Invalid sessionId (${typeof id}):`, id);
@@ -245,6 +248,9 @@ let preamp, widener;
 let globalLowPass = null;
 let analyser;
 
+// Audio init race guard (prevents double graph creation on rapid user actions)
+let _initAudioPromise = null;
+
 // ============================================================================
 // [SECTION] APP STATE MACHINE (State Pattern)
 // ============================================================================
@@ -361,12 +367,16 @@ function getTrackPosition() {
 
     let pos = 0;
 
-    // [Simplified] Calculate from Tone.now() and add offsets dynamically
-    // startedAt !== 0 handles negative values for long tracks
-    if (startedAt !== 0) {
+    // [Simplified] Calculate from Tone.now() and add offsets dynamically.
+    // IMPORTANT:
+    // - startedAt can be 0 legitimately (e.g., right after AudioContext starts).
+    // - Using (startedAt !== 0) incorrectly treats that valid state as "unset".
+    // - We instead treat any finite number as valid.
+    const startedAtValid = (typeof startedAt === 'number' && Number.isFinite(startedAt));
+    if (startedAtValid && typeof Tone !== 'undefined' && Tone && typeof Tone.now === 'function') {
         pos = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
     }
-    // Fallback to video element time only if startedAt is not set
+    // Fallback to video element time only if startedAt is not valid
     else if (videoElement && videoElement.src && videoElement.readyState >= 1) {
         pos = videoElement.currentTime;
     }
@@ -1121,6 +1131,25 @@ function clearPreloadState() {
     // that were about to be played.
 
     // However, we SHOULD reset the worker lock so it can accept the NEXT preload
+
+    // Memory safety: prune old preload session state/buffers (keep a small tail)
+    try {
+        let maxSid = 0;
+        for (const sid of preloadSessionState.keys()) {
+            const n = Number(sid);
+            if (Number.isFinite(n) && n > maxSid) maxSid = n;
+        }
+        const keepFrom = Math.max(0, maxSid - 3);
+        for (const sid of Array.from(preloadSessionState.keys())) {
+            const n = Number(sid);
+            if (Number.isFinite(n) && n < keepFrom) preloadSessionState.delete(sid);
+        }
+        for (const sid of Array.from(preloadReorderBuffer.keys())) {
+            const n = Number(sid);
+            if (Number.isFinite(n) && n < keepFrom) preloadReorderBuffer.delete(sid);
+        }
+    } catch (_) { /* ignore */ }
+
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 }
 
@@ -1151,12 +1180,31 @@ const handleWorkerError = (e) => {
     showToast("워커 작업 중 오류 발생!");
 };
 
+// Dedupe worker error toasts (avoid spam on repeated failures)
+let _lastWorkerErrorToastAt = 0;
+let _lastWorkerErrorKey = '';
+
 syncWorker.onerror = handleWorkerError;
 transferWorker.onerror = handleWorkerError;
 
 const handleWorkerMessage = async (e) => {
     try {
         const data = e.data;
+        if (data && data.type === 'WORKER_ERROR') {
+            const scope = data.scope || 'worker';
+            const cmd = data.command || '';
+            const errMsg = data.error || 'Unknown error';
+            log.error(`[${scope}] ${cmd}: ${errMsg}`, data);
+
+            const key = `${scope}|${cmd}|${errMsg}`;
+            const now = Date.now();
+            if (key !== _lastWorkerErrorKey || (now - _lastWorkerErrorToastAt) > 2000) {
+                _lastWorkerErrorKey = key;
+                _lastWorkerErrorToastAt = now;
+                showToast('백그라운드 작업 오류가 발생했어요');
+            }
+            return;
+        }
         if (data.type === 'TICK') {
             const id = data.id;
             if (id === MSG.HEARTBEAT) {
@@ -1427,8 +1475,26 @@ function switchTab(tabId) {
 
 // --- Audio System (Tone.js) ---
 async function initAudio() {
-    if (Tone.context.state !== 'running') await Tone.start();
-    if (masterGain) return; // Already Initialized
+    // Fast-path: already initialized.
+    if (masterGain) {
+        if (typeof Tone !== 'undefined' && Tone?.context?.state !== 'running') {
+            try { await Tone.start(); } catch (_) { /* best-effort */ }
+        }
+        return;
+    }
+
+    // Prevent concurrent initializations (e.g., play() + slider actions firing together)
+    if (_initAudioPromise) return _initAudioPromise;
+
+    _initAudioPromise = (async () => {
+        if (typeof Tone === 'undefined' || !Tone?.context) {
+            throw new Error('Tone.js not loaded');
+        }
+
+        if (Tone.context.state !== 'running') {
+            await Tone.start();
+        }
+        if (masterGain) return; // Another call may have finished while awaiting
 
     // 2. Channel & Stereo Processing
     toneSplit = new Tone.Split();
@@ -1533,7 +1599,16 @@ async function initAudio() {
     masterGain.toDestination();
 
     // Initial Defaults
-    applySettings();
+    // - Apply current channelMode routing (user may have selected a role before audio init)
+    // - applySettings() is called inside setChannelMode()
+        setChannelMode(channelMode);
+    })();
+
+    try {
+        await _initAudioPromise;
+    } finally {
+        _initAudioPromise = null;
+    }
 }
 
 
@@ -1863,7 +1938,15 @@ function startSessionFromHost() {
 }
 
 async function startHostFlow() {
-    await activateAudio();
+    // Audio activation is best-effort.
+    // Edge case: some in-app/webview contexts can reject Tone.start() if this is
+    // re-entered without a fresh user gesture (e.g., auto-redirect after failure).
+    try {
+        await activateAudio();
+    } catch (e) {
+        log.warn('[Audio] activateAudio failed (host flow):', e);
+        showToast('오디오 초기화에 실패했어요. 화면을 한 번 터치한 뒤 다시 시도해 주세요.');
+    }
 
     appRole = 'host';
     sessionStarted = false;
@@ -1911,7 +1994,14 @@ async function startHostFlow() {
 }
 
 async function startGuestFlow() {
-    await activateAudio();
+    // Audio activation is best-effort.
+    // This function can be called from non-gesture paths (e.g., reconnect UI).
+    try {
+        await activateAudio();
+    } catch (e) {
+        log.warn('[Audio] activateAudio failed (guest flow):', e);
+        showToast('오디오 초기화에 실패했어요. 화면을 한 번 터치한 뒤 다시 시도해 주세요.');
+    }
 
     appRole = 'guest';
     sessionStarted = false;
@@ -3025,7 +3115,7 @@ async function backgroundTransfer(file, index, sessionId) {
         const chunkBuf = await chunkBlob.arrayBuffer();
         const chunk = new Uint8Array(chunkBuf);
 
-        const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk: chunk, index: i };
+        const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk: chunk, index: i, sessionId: sessionId };
         sendToTargets(chunkMsg, true); // true = send only to those who need chunks
     }
 
@@ -3143,7 +3233,10 @@ function playPrevTrack() {
     }
 
     // Local mode
-    if (Tone.context && Tone.now() - startedAt > 3) {
+    // Use centralized track position (works correctly even when paused/IDLE).
+    // (Tone.now() - startedAt) keeps increasing while paused and can mis-detect the "3s rule".
+    const pos = getTrackPosition();
+    if (pos > 3) {
         play(0); // Restart current
         broadcast({ type: MSG.PLAY, time: 0 });
         return;
@@ -3190,10 +3283,17 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         // 1. Decode Audio
         const arrayBuffer = await file.arrayBuffer();
         const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-        // Re-verify after async decode
+        // Re-verify after async decode (protect against stale async loads)
         if (loadToken !== undefined && _currentLoadToken !== myToken) {
-            log.warn(`[Load] Token mismatch after decode (${myToken} vs ${_currentLoadToken}). Aborting.`);
+            const msg = `[Load] Token mismatch after decode (${myToken} vs ${_currentLoadToken}). Aborting stale load.`;
+
+            // Only the latest load session may touch loader/UI.
+            if (myLoadId === activeLoadSessionId) {
+                log.warn(msg);
+                showLoader(false);
+            } else {
+                log.debug(msg);
+            }
             return;
         }
 
@@ -3336,7 +3436,27 @@ async function _internalPlay(offset) {
         return;
     }
 
-    initAudio();
+    // Ensure the audio graph exists before wiring nodes.
+    // (initAudio() is guarded against concurrent calls.)
+    try {
+        await initAudio();
+    } catch (e) {
+        log.error('[Audio] initAudio failed:', e);
+        showToast('오디오 엔진 초기화 실패');
+        return;
+    }
+
+    // Sanitize offset (guard against NaN/Infinity/negative/out-of-range)
+    let safeOffset = Number(offset);
+    if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
+    const duration = (currentAudioBuffer && Number.isFinite(currentAudioBuffer.duration))
+        ? currentAudioBuffer.duration
+        : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
+    if (duration > 0) {
+        if (safeOffset > duration) safeOffset = duration;
+        // Avoid starting exactly at EOF which can behave inconsistently across engines.
+        if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.001);
+    }
 
     // --- BUFFER MODE (iOS / High Precision) ---
     if (currentAudioBuffer) {
@@ -3391,14 +3511,11 @@ async function _internalPlay(offset) {
             }
         };
 
-        playerNode.start(Tone.now(), offset);
-        // Unified Formula: startedAt represents the RAW start time point
-        startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
-        log.debug(`[BufferMode] Started transient node at ${offset}s (startedAt: ${startedAt})`);
+        playerNode.start(Tone.now(), safeOffset);
 
         // Sync Visuals (Muted Video)
         if (videoElement.src) {
-            videoElement.currentTime = offset;
+            videoElement.currentTime = safeOffset;
             videoElement.muted = true; // [Double Audio Fix] Ensure muted
             videoElement.volume = 0;   // [Double Audio Fix] Volume also 0
             videoElement.play().catch(() => { });
@@ -3412,8 +3529,9 @@ async function _internalPlay(offset) {
 
     // Formula Refactor: startedAt represents the RAW start time point.
     // getTrackPosition will dynamically add (localOffset + autoSyncOffset).
-    startedAt = Tone.now() - (offset - (localOffset + autoSyncOffset));
-    pausedAt = offset;
+    startedAt = Tone.now() - (safeOffset - (localOffset + autoSyncOffset));
+    pausedAt = safeOffset;
+    log.debug(`[BufferMode] Started transient node at ${safeOffset}s (startedAt: ${startedAt})`);
 
     updatePlayState(true);
 
@@ -5085,8 +5203,10 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         });
 
         // Start heartbeat/ping
-        postWorkerCommand({ type: 'startHeartbeat', interval: 1000 });
-        postWorkerCommand({ type: 'startPing', interval: 2000 });
+        // NOTE: sync.worker.js understands START_TIMER/STOP_TIMER.
+        // Previous builds used {type:'startHeartbeat'} which was silently ignored by postWorkerCommand.
+        postWorkerCommand({ command: 'START_TIMER', id: MSG.HEARTBEAT, interval: 1000 });
+        postWorkerCommand({ command: 'START_TIMER', id: 'ping', interval: 2000 });
         setTimeout(() => detectConnectionType(), 2000);
 
         switchTab('play');
@@ -5095,11 +5215,17 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
 
 function showConnectionFailedOverlay(title, message, hostId = '') {
     // Simplified: Use the in-app dialog (no external links / no separate overlay)
-    const extra = '<br><br><small style="color: var(--text-sub);">* 로컬(같은 Wi‑Fi/핫스팟)에서만 연결됩니다.</small>';
-    showDialog(title, `${message}${extra}`);
+    const extra = '* 로컬(같은 Wi‑Fi/핫스팟)에서만 연결됩니다.';
+    // NOTE: showDialog() only accepts a single argument; use the object form.
+    // Also, dialog text is rendered via textContent (no HTML) for safety.
+    showDialog({
+        title: String(title || '연결 실패'),
+        message: `${String(message || '')}\n\n${extra}`
+    });
 
     // Return to guest join screen with the last code preserved
-    startGuestFlow();
+    // startGuestFlow is async; never let it become an unhandled rejection.
+    Promise.resolve(startGuestFlow()).catch((e) => log.warn('[UI] startGuestFlow failed:', e));
     const input = setupEl('setup-join-code');
     if (input && hostId) input.value = hostId;
 }
@@ -5418,7 +5544,8 @@ async function handleFilePrepare(data) {
                     log.warn("[Guest] Preload wait timed out. Force recovering...");
                     _waitingForPreload = false;
                     showLoader(false);
-                    if (hostConn && hostConn.open) hostConn.send({ type: MSG.REQUEST_CURRENT_FILE });
+                    _skipIncomingFile = false; // Allow fallback download after preload timeout
+                    if (hostConn && hostConn.open) hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: data.name, index: data.index });
                 }
             }, 10000);
 
@@ -6083,6 +6210,7 @@ async function handlePreloadStart(data) {
 
         // Save per-session state
         preloadSessionState.set(sessionId, { skipped: true });
+        try { preloadReorderBuffer.delete(sessionId); } catch (_) { /* ignore */ } // Memory safety
         latestPreloadSessionId = sessionId; // Track active session
 
         preloadChunks = [];
@@ -6148,6 +6276,11 @@ async function handlePreloadStart(data) {
     preloadMeta = data;
     _skipIncomingPreload = false;
 
+    // If any chunks arrived before PRELOAD_START was processed (unordered/unreliable channel),
+    // drain them now that session state & OPFS_START are ready.
+    try { drainPreloadReorderBuffer(sessionId); } catch (_) { /* best-effort */ }
+
+
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
@@ -6155,9 +6288,84 @@ async function handlePreloadStart(data) {
 
 // Network Data Integrity: Preload Reordering Buffer
 const preloadReorderBuffer = new Map(); // sessionId -> Map(index -> chunk)
-// [Refactor] Removed global nextExpectedPreloadChunk to prevent pollution
-// let nextExpectedPreloadChunk = 0;
+// [Legacy] Global preload pointer kept to avoid implicit globals; preload logic uses sessionState.nextExpectedChunk.
+let nextExpectedPreloadChunk = 0; // Deprecated; used only for legacy resets/debug
 let latestPreloadSessionId = 0; // Fallback for chunks missing explicit SessionID
+
+
+function drainPreloadReorderBuffer(sessionId) {
+    const sessionState = preloadSessionState.get(sessionId);
+    if (!sessionState || sessionState.skipped) return;
+
+    const sessionBuffer = preloadReorderBuffer.get(sessionId);
+    if (!sessionBuffer) return;
+
+    let nextChunkPtr = sessionState.nextExpectedChunk || 0;
+
+    while (sessionBuffer.has(nextChunkPtr)) {
+        const chunk = sessionBuffer.get(nextChunkPtr);
+
+        // Clone chunk to prevent detachment issues (one for relay, one for worker)
+        const chunkClone = new Uint8Array(chunk);
+        const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : '');
+
+        // If we still don't know the filename, we can't safely write to OPFS.
+        // Keep buffering until we have the header.
+        if (!fileName) break;
+
+        // RELAY LOGIC: Forward to downstream
+        if (downstreamDataPeers.length > 0) {
+            const relayCopy = new Uint8Array(chunk);
+            relayChunkQueue.push({
+                type: MSG.PRELOAD_CHUNK,
+                chunk: relayCopy,
+                index: nextChunkPtr,
+                sessionId: sessionId
+            });
+            processRelayQueue();
+        }
+
+        postWorkerCommand({
+            command: 'OPFS_WRITE',
+            chunk: chunkClone,
+            index: nextChunkPtr,
+            isPreload: true,
+            filename: fileName,
+            sessionId: validateSessionId(sessionId)
+        }, [chunkClone.buffer]);
+
+        sessionBuffer.delete(nextChunkPtr);
+        nextChunkPtr++;
+    }
+
+    sessionState.nextExpectedChunk = nextChunkPtr;
+    sessionState.progress = nextChunkPtr;
+    preloadCount = sessionState.progress;
+
+    // Update preload UI if main transfer is not using the loader
+    if (preloadMeta && preloadMeta.total > 0) {
+        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+            const pct = Math.min(100, Math.floor((sessionState.progress / preloadMeta.total) * 100));
+            updateLoader(pct);
+        }
+    }
+
+    // Finalize if complete
+    const totalExpected = sessionState.total || 0;
+    const fileSize = sessionState.size || 0;
+    if (totalExpected > 0 && sessionState.progress >= totalExpected) {
+        if (!sessionState.finalized) {
+            sessionState.finalized = true;
+            postWorkerCommand({
+                command: 'OPFS_END',
+                filename: sessionState.name,
+                isPreload: true,
+                sessionId: sessionId,
+                totalSize: fileSize
+            });
+        }
+    }
+}
 
 async function handlePreloadChunk(data) {
     // NO FALLBACK to 0. Must have valid SID.
@@ -6189,6 +6397,20 @@ async function handlePreloadChunk(data) {
 
     const sessionBuffer = preloadReorderBuffer.get(sessionId);
     sessionBuffer.set(data.index, data.chunk);
+
+    // If PRELOAD_START hasn't been processed yet (unordered delivery), don't consume/delete chunks.
+    // Keep buffering until sessionState exists so we have a reliable filename/total.
+    if (!sessionState) {
+        // Safety cap: avoid unbounded memory growth if header is missing.
+        const MAX_EARLY_PRELOAD_CHUNKS = 128;
+        if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
+            log.warn(`[Preload] Too many early chunks without session state (SID: ${sessionId}). Dropping buffered chunks.`);
+            preloadReorderBuffer.delete(sessionId);
+        }
+        return;
+    }
+
+
 
     // Use Session-Scoped Pointer
     let nextChunkPtr = sessionState ? sessionState.nextExpectedChunk : 0;
@@ -6638,7 +6860,7 @@ function handleSessionStart() {
 
 function handleSessionFull(data) {
     const msg = (data && data.message) ? data.message : '세션이 가득 찼습니다.';
-    showDialog('참가할 수 없어요', msg);
+    showDialog({ title: '참가할 수 없어요', message: String(msg || '') });
 
     // Avoid triggering extra "connection failed" UI
     isIntentionalDisconnect = true;
@@ -7042,6 +7264,8 @@ const handlers = {
     'play-preloaded': handlePlayPreloaded,
     'status-sync': handleStatusSync,
     'get-sync-time': handleGetSyncTime,
+    'request-current-file': handleRequestCurrentFile,
+    'request-data-recovery': handleRequestDataRecovery,
 };
 
 async function handleGetSyncTime(data, conn) {
@@ -7057,6 +7281,126 @@ async function handleGetSyncTime(data, conn) {
         });
         log.debug(`[Host] Sent fresh sync time (${t.toFixed(2)}s) to peer ${conn.peer.substr(-4)}`);
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// [HOST] On-demand file serving (Recovery / Late-join support)
+// - Guests may request the current file or a resume point when they miss chunks.
+// - These handlers are intentionally NO-OP on Guests/Relays (hostConn exists).
+// ---------------------------------------------------------------------------
+function _ensureNamedFile(blob, fallbackName) {
+    if (!blob) return null;
+    try {
+        if (blob && typeof blob.name === 'string' && blob.name) return blob;
+        const name = (fallbackName && String(fallbackName).trim()) ? String(fallbackName).trim() : 'Track';
+        return new File([blob], name, { type: blob.type || '' });
+    } catch (e) {
+        return blob;
+    }
+}
+
+async function handleRequestCurrentFile(data, conn) {
+    // Only Host serves files directly
+    if (hostConn) return;
+    if (!conn || !conn.open) return;
+
+    // If Host is in YouTube mode there is no local file to serve
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+        try { conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube (no local file to transfer)' }); } catch (_) { }
+        return;
+    }
+
+    const reqName = data && data.name ? String(data.name) : '';
+    const reqIndex = (data && data.index !== undefined) ? Number(data.index) : undefined;
+
+    // Prefer current track if it matches request; otherwise fall back to whatever we have.
+    let blob = null;
+    if (currentFileBlob) {
+        const matchByIndex = (reqIndex !== undefined && meta && Number(meta.index) === reqIndex);
+        const matchByName = (reqName && meta && meta.name === reqName);
+        const noHint = (!reqName && reqIndex === undefined);
+        if (matchByIndex || matchByName || noHint) blob = currentFileBlob;
+    }
+    if (!blob && nextFileBlob && nextMeta) {
+        const matchNextByIndex = (reqIndex !== undefined && Number(nextMeta.index) === reqIndex);
+        const matchNextByName = (reqName && nextMeta.name === reqName);
+        if (matchNextByIndex || matchNextByName) blob = nextFileBlob;
+    }
+    if (!blob) blob = currentFileBlob || nextFileBlob;
+
+    if (!blob) {
+        try { conn.send({ type: MSG.FILE_WAIT, message: 'Host file is not ready yet' }); } catch (_) { }
+        return;
+    }
+
+    // Use current broadcast session id to keep Guest-side session guards happy.
+    // IMPORTANT: Guest ignores SID=0, so ensure a valid (>=1) session id exists.
+    let sid = (meta && meta.sessionId) ? meta.sessionId : currentTransferSessionId;
+    if (!sid || sid < 1) {
+        sid = nextSessionId();
+        currentTransferSessionId = sid;
+    }
+    const _fallbackName = (blob === currentFileBlob && meta && meta.name) ? meta.name :
+        (blob === nextFileBlob && nextMeta && nextMeta.name) ? nextMeta.name :
+        (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
+    const fileToSend = _ensureNamedFile(blob, _fallbackName);
+    await unicastFile(conn, fileToSend, 0, sid);
+}
+
+async function handleRequestDataRecovery(data, conn) {
+    // Only Host serves recovery directly
+    if (hostConn) return;
+    if (!conn || !conn.open) return;
+
+    // Normalize requested start chunk
+    let startChunk = 0;
+    if (data && data.nextChunk !== undefined) {
+        const n = Number(data.nextChunk);
+        if (Number.isFinite(n) && n > 0) startChunk = Math.floor(n);
+    }
+
+    const reqName = data && (data.fileName || data.name) ? String(data.fileName || data.name) : '';
+    const reqIndex = (data && data.index !== undefined) ? Number(data.index) : undefined;
+
+    // Prefer current track for recovery
+    let blob = null;
+    if (currentFileBlob) {
+        const matchByIndex = (reqIndex !== undefined && meta && Number(meta.index) === reqIndex);
+        const matchByName = (reqName && meta && meta.name === reqName);
+        if (matchByIndex || matchByName || (!reqName && reqIndex === undefined)) blob = currentFileBlob;
+    }
+    if (!blob && nextFileBlob && nextMeta) {
+        const matchNextByIndex = (reqIndex !== undefined && Number(nextMeta.index) === reqIndex);
+        const matchNextByName = (reqName && nextMeta.name === reqName);
+        if (matchNextByIndex || matchNextByName) blob = nextFileBlob;
+    }
+    if (!blob) blob = currentFileBlob || nextFileBlob;
+
+    if (!blob) {
+        try { conn.send({ type: MSG.FILE_WAIT, message: 'Host has no cached file for recovery yet' }); } catch (_) { }
+        return;
+    }
+
+    // Clamp chunk index to avoid weird requests (keeps unicast logic sane)
+    const total = Math.ceil(blob.size / CHUNK_SIZE);
+    if (!Number.isFinite(total) || total <= 0) {
+        try { conn.send({ type: MSG.FILE_WAIT, message: 'Invalid file size' }); } catch (_) { }
+        return;
+    }
+    if (startChunk >= total) startChunk = Math.max(0, total - 1);
+
+    // Use current broadcast session id (and ensure it's valid).
+    let sid = (meta && meta.sessionId) ? meta.sessionId : currentTransferSessionId;
+    if (!sid || sid < 1) {
+        sid = nextSessionId();
+        currentTransferSessionId = sid;
+    }
+    const _fallbackName = (blob === currentFileBlob && meta && meta.name) ? meta.name :
+        (blob === nextFileBlob && nextMeta && nextMeta.name) ? nextMeta.name :
+        (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
+    const fileToSend = _ensureNamedFile(blob, _fallbackName);
+    await unicastFile(conn, fileToSend, startChunk, sid);
 }
 
 async function handleData(data, conn) {
@@ -7577,6 +7921,21 @@ function handleOperatorRequest(data) {
     }
 }
 
+
+/**
+ * Operator plumbing (legacy no-ops)
+ *
+ * Some builds referenced these hooks but never implemented them.
+ * Keep them as safe no-ops to avoid breaking Host data handlers.
+ */
+function handleOperatorAction(_data, _conn) {
+    // Reserved for future granular operator actions.
+}
+
+function handleOperatorStatusUpdate(_data, _conn) {
+    // Reserved for future operator UI/status updates.
+}
+
 function sendRecoveryRequest(forceChunk = null) {
     // Prefer Relay Node for recovery if assigned
     const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
@@ -7644,14 +8003,72 @@ async function broadcastFile(file, explicitSessionId = null) {
 
     log.debug(`[broadcastFile] Sending to ${eligiblePeers.length} peers (${connectedPeers.filter(p => p.status === 'connected').length - eligiblePeers.length} skipped due to preload)`);
 
-    eligiblePeers.forEach(p => p.conn.send(header));
+    // Per-peer send queue init (edge-cases):
+    // - Avoid Array.shift() O(n) behavior on large queues
+    // - Ensure queue exists even if total===0 (empty file)
+    const ensurePeerSendQueue = (p) => {
+        if (!p || p.openSender) return;
+        p.openSender = true;
+        p.chunkQueue = [];
+        p._chunkQueueHead = 0;
+        p.isSending = false;
 
-    const chunkPromises = [];
+        p.processQueue = async () => {
+            // Fast exit
+            if (p.isSending) return;
+            if (!p.chunkQueue || p._chunkQueueHead >= p.chunkQueue.length) return;
+            p.isSending = true;
+            try {
+                while (p.chunkQueue && p._chunkQueueHead < p.chunkQueue.length) {
+                    const msg = p.chunkQueue[p._chunkQueueHead++];
+
+                    // Per-peer backpressure check
+                    while (p.conn?.dataChannel && p.conn.dataChannel.bufferedAmount > 512 * 1024) {
+                        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+                        if (!p.conn?.open) break;
+                    }
+
+                    if (p.conn?.open) {
+                        try { p.conn.send(msg); } catch (e) { log.warn(`[Send] Failed for ${p.label}:`, e); }
+                    } else {
+                        // Connection closed: drop queue
+                        p.chunkQueue = [];
+                        p._chunkQueueHead = 0;
+                        break;
+                    }
+
+                    // Periodic compaction to prevent unbounded memory growth
+                    if (p._chunkQueueHead > 1024) {
+                        p.chunkQueue = p.chunkQueue.slice(p._chunkQueueHead);
+                        p._chunkQueueHead = 0;
+                    }
+                }
+            } finally {
+                p.isSending = false;
+                // If new items arrived while sending, kick once more.
+                if (p.chunkQueue && p._chunkQueueHead < p.chunkQueue.length) {
+                    try { p.processQueue(); } catch (_) { /* noop */ }
+                }
+            }
+        };
+    };
+
+    eligiblePeers.forEach(ensurePeerSendQueue);
+
+    // Send header (best-effort)
+    eligiblePeers.forEach(p => {
+        try { if (p?.conn?.open) p.conn.send(header); } catch (e) { log.warn('[broadcastFile] header send failed:', e); }
+    });
+
     for (let i = 0; i < total; i++) {
         // Session Guard: abort if track changed
         if (_activeBroadcastSession !== sessionId) {
             log.debug(`[broadcastFile] Session cancelled (ID: ${sessionId}), stopping transfer at chunk ${i}`);
-            eligiblePeers.forEach(p => { if (p.chunkQueue) p.chunkQueue = []; });
+            eligiblePeers.forEach(p => {
+                if (p.chunkQueue) p.chunkQueue = [];
+                p._chunkQueueHead = 0;
+                p.isSending = false;
+            });
             return;
         }
 
@@ -7664,31 +8081,7 @@ async function broadcastFile(file, explicitSessionId = null) {
 
         // Send to each peer independently and wait for their own backpressure
         for (const p of eligiblePeers) {
-            if (!p.openSender) {
-                p.openSender = (async () => {
-                    p.chunkQueue = [];
-                    p.isSending = false;
-                    p.processQueue = async () => {
-                        if (p.isSending || p.chunkQueue.length === 0) return;
-                        p.isSending = true;
-                        while (p.chunkQueue.length > 0) {
-                            const msg = p.chunkQueue.shift();
-                            // Per-peer backpressure check
-                            while (p.conn.dataChannel && p.conn.dataChannel.bufferedAmount > 512 * 1024) {
-                                await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
-                                if (!p.conn.open) break;
-                            }
-                            if (p.conn.open) {
-                                try { p.conn.send(msg); } catch (e) { log.warn(`[Send] Failed for ${p.label}:`, e); }
-                            } else {
-                                p.chunkQueue = [];
-                                break;
-                            }
-                        }
-                        p.isSending = false;
-                    };
-                })();
-            }
+            ensurePeerSendQueue(p);
             if (p.conn.open) {
                 p.chunkQueue.push(chunkMsg);
                 p.processQueue();
@@ -7702,6 +8095,7 @@ async function broadcastFile(file, explicitSessionId = null) {
     // Prepare end message and send to all
     const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId: sessionId };
     eligiblePeers.forEach(p => {
+        ensurePeerSendQueue(p);
         if (p.conn.open) {
             p.chunkQueue.push(endMsg);
             p.processQueue();
@@ -7831,14 +8225,29 @@ function showLoader(show, txt) {
 
 let toastTimer = null;
 function showToast(msg) {
-    const t = document.getElementById('toast');
-    document.getElementById('toast-msg').innerText = msg;
-    t.classList.add('show');
+    // Harden: toast can be called very early (or in embedded contexts where the DOM differs).
+    // Never throw from UI notifications.
+    try {
+        const t = document.getElementById('toast');
+        const msgEl = document.getElementById('toast-msg');
+        const text = (msg === undefined || msg === null) ? '' : String(msg);
 
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-        t.classList.remove('show');
-    }, 2000);
+        if (!t || !msgEl) {
+            console.info('[Toast]', text);
+            return;
+        }
+
+        msgEl.innerText = text;
+        t.classList.add('show');
+
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+            try { t.classList.remove('show'); } catch (_) { /* noop */ }
+        }, 2000);
+    } catch (e) {
+        // Last resort fallback
+        console.info('[Toast fallback]', msg);
+    }
 }
 
 // Non-blocking dialog (replaces alert())
@@ -8198,8 +8607,13 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         nextFileBlob = null;
         nextMeta = null;
         nextTrackIndex = -1;
+        // Allow fallback download if preload activation failed (avoid getting stuck skipping incoming transfer)
+        _skipIncomingFile = false;
+        _waitingForPreload = false;
+        if (_preloadWatchdog) { try { clearTimeout(_preloadWatchdog); } catch (_) { } _preloadWatchdog = null; }
+        const _recoveryName = (playlist && playlist[currentTrackIndex] && playlist[currentTrackIndex].name) ? playlist[currentTrackIndex].name : (meta ? meta.name : '');
         if (hostConn && hostConn.open) {
-            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE });
+            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex });
         }
         throw e; // Re-throw so callers can handle
     }
@@ -8406,6 +8820,49 @@ document.addEventListener('keydown', (e) => {
     if (Number.isFinite(sec)) seekToTime(sec);
 });
 
+// YouTube oEmbed title cache to avoid repeated network calls (chat can contain duplicate URLs)
+const _ytOEmbedTitleCache = new Map(); // url -> title
+const _ytOEmbedInFlight = new Map();  // url -> Promise<title|null>
+const _YT_OEMBED_CACHE_MAX = 200;
+
+async function _fetchYouTubeOEmbedTitle(url) {
+    const key = String(url || '');
+    if (!key) return null;
+
+    if (_ytOEmbedTitleCache.has(key)) return _ytOEmbedTitleCache.get(key);
+    if (_ytOEmbedInFlight.has(key)) return await _ytOEmbedInFlight.get(key);
+
+    const p = (async () => {
+        try {
+            const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
+            const response = await fetch(oEmbedUrl);
+            if (!response.ok) return null;
+            const data = await response.json();
+            const title = (data && typeof data.title === 'string') ? data.title.trim() : '';
+            return title || null;
+        } catch (e) {
+            return null;
+        }
+    })();
+
+    _ytOEmbedInFlight.set(key, p);
+
+    try {
+        const title = await p;
+        if (title) {
+            _ytOEmbedTitleCache.set(key, title);
+            // LRU-ish cap (Map preserves insertion order)
+            while (_ytOEmbedTitleCache.size > _YT_OEMBED_CACHE_MAX) {
+                const firstKey = _ytOEmbedTitleCache.keys().next().value;
+                _ytOEmbedTitleCache.delete(firstKey);
+            }
+        }
+        return title;
+    } finally {
+        _ytOEmbedInFlight.delete(key);
+    }
+}
+
 /**
  * YouTube oEmbed API를 사용하여 영상 제목을 가져와 업데이트합니다.
  */
@@ -8414,15 +8871,10 @@ async function updateYouTubeChatTitle(elementId, url) {
     if (!el) return;
 
     try {
-        const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-        const response = await fetch(oEmbedUrl);
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.title) {
-                el.innerText = data.title;
-            }
-        }
+        const title = await _fetchYouTubeOEmbedTitle(url);
+        if (title) el.innerText = title;
     } catch (e) {
+        // Should be rare: helper already swallows most errors
         log.warn("[YouTube] Failed to fetch oEmbed title:", e);
     }
 }
@@ -8438,23 +8890,70 @@ function parseTimestamp(str) {
 }
 
 function seekToTime(seconds) {
-    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.seekTo) {
-        youtubePlayer.seekTo(seconds, true);
-        showToast(`${fmtTime(seconds)}로 이동`);
-    } else if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {
-        const video = document.getElementById('main-video');
-        if (video) {
-            video.currentTime = seconds;
-            showToast(`${fmtTime(seconds)}로 이동`);
-        }
-    } else if (videoElement && videoElement.src) {
-        stopAllMedia();
-        play(seconds);
-        showToast(`${fmtTime(seconds)}로 이동`);
-    } else {
-        showToast("재생 중인 미디어가 없습니다");
+    const t = Number(seconds);
+    if (!Number.isFinite(t) || t < 0) {
+        showToast("유효하지 않은 시간입니다");
+        return;
     }
+
+    // Guest (non-OP): blocked
+    if (hostConn && !isOperator) {
+        showToast("Host만 실행할 수 있습니다.");
+        return;
+    }
+
+    // OP: request Host to seek
+    if (hostConn && isOperator) {
+        try {
+            hostConn.send({ type: MSG.REQUEST_SEEK, time: t });
+        } catch (e) {
+            log.warn('[Chat Seek] OP seek request failed:', e);
+        }
+        return;
+    }
+
+    // Host: execute directly
+    // YouTube mode: use YouTube API (and broadcast to guests)
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.seekTo) {
+        try {
+            youtubePlayer.seekTo(t, true);
+            broadcast({
+                type: MSG.YOUTUBE_STATE,
+                state: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 1,
+                time: t,
+                subIndex: youtubePlayer.getPlaylistIndex ? youtubePlayer.getPlaylistIndex() : -1
+            });
+            showToast(`${fmtTime(t)}로 이동`);
+        } catch (e) {
+            log.error("[YouTube] Chat timestamp seek error:", e);
+            showToast("YouTube 이동 실패");
+        }
+        return;
+    }
+
+    const isActuallyPlaying = (videoElement && !videoElement.paused);
+
+    if (isActuallyPlaying) {
+        play(t);
+        broadcast({ type: MSG.PLAY, time: t });
+    } else {
+        pausedAt = t;
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {
+            if (videoElement) videoElement.currentTime = t;
+        }
+        // Broadcast pause with updated time to sync guests without starting playback
+        broadcast({ type: MSG.PAUSE, time: t });
+    }
+
+    // Schedule global resync after seek (Host only)
+    setTimeout(() => {
+        broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+        log.debug("[Host] Global resync requested after seek (chat timestamp)");
+    }, 1000);
+
+    showToast(`${fmtTime(t)}로 이동`);
 }
+
 
 function loadYouTubeFromChat(url) {
     const videoId = extractYouTubeVideoId(url);

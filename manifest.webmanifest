@@ -1,0 +1,40 @@
+{
+  "name": "MUSIXQUARE",
+  "short_name": "MUSIXQUARE",
+  "description": "여러 기기를 연결하여 동기화된 서라운드 사운드를 만들어보세요. P2P 기반 실시간 오디오 동기화 웹앱.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0b10",
+  "theme_color": "#0b0b10",
+  "orientation": "portrait",
+  "categories": [
+    "music",
+    "entertainment",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1620,6 +1620,103 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     transform: translateX(-50%) translateY(0);
 }
 
+
+/* ========================================
+   App Dialog (replaces alert())
+   ======================================== */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 40000; /* Above onboarding (9999) & help modal (30000) */
+}
+
+.dialog-overlay.show {
+    display: flex;
+}
+
+.dialog {
+    width: 100%;
+    max-width: 520px;
+    border-radius: var(--radius-l);
+    background: var(--surface-1);
+    border: 1px solid var(--surface-2);
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    animation: modalSlideUp 0.25s ease-out;
+}
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.dialog-title {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    color: var(--text);
+}
+
+.dialog-close {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid var(--surface-2);
+    background: var(--surface-2);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.dialog-close svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.dialog-message {
+    padding: 18px 20px 0;
+    font-size: 13px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    white-space: pre-wrap; /* allow \n */
+}
+
+.dialog-actions {
+    padding: 18px 20px 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.dialog-primary {
+    border: none;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-weight: 800;
+    cursor: pointer;
+    min-width: 96px;
+}
+
+.dialog-primary:active {
+    transform: translateY(1px);
+}
+
+
 /* Dark theme toast - dark semi-transparent background */
 [data-theme="dark"] .toast {
     background: rgba(30, 30, 30, 0.85);
@@ -2600,6 +2697,11 @@ input:checked+.slider:before {
    Chat Preview Button (Play Tab)
    ======================================== */
 .chat-preview-btn {
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+
     width: 100%;
     display: flex;
     justify-content: space-between;
@@ -2828,4 +2930,10 @@ input:checked+.slider:before {
     100% {
         transform: rotate(360deg);
     }
+}
+
+/* Accessibility: visible focus ring */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }

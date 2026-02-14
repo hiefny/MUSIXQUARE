@@ -1,2 +1,48 @@
 [build]
-  functions = "functions"
+  publish = "."
+  functions = "netlify/functions"
+
+# -----------------------------------------------------------------------------
+# Security headers
+# NOTE:
+# - CSP는 앱이 사용하는 외부 CDN(cdnjs/unpkg), YouTube iframe API 등을 허용합니다.
+# - 필요 시 도메인/경로에 맞춰 더 타이트하게 조정하세요.
+# -----------------------------------------------------------------------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Basic hardening (consider tightening CSP when self-hosting libraries)
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+    # HTTPS only (enable preload only when you're sure your domain supports HTTPS permanently)
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+
+    # Cross-origin isolation-lite (safe for most apps; avoid COEP unless you need it)
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    X-Permitted-Cross-Domain-Policies = "none"
+
+    # Content Security Policy
+    # - Allows CDN scripts (Tone.js/PeerJS/QRCode) and YouTube iframe API.
+    # - Allows inline styles due to existing inline style attributes in HTML.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://unpkg.com https://www.youtube.com https://www.gstatic.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: stun: turn: turns:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+
+# Service Worker는 업데이트를 위해 캐시를 강하게 걸지 않는 것이 안전합니다.
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Netlify Functions는 기본적으로 no-store 권장(자격증명/세션 데이터 등)
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Cache-Control = "no-store"

@@ -57,14 +57,27 @@ const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
 /**
- * [Robustness] Session ID Validation
- * Updated: Fallback to 0 with warning instead of crashing for non-critical ops
+ * [Robustness] Session ID Normalization
+ * - transfer.worker.js의 OPFS lock은 sessionId가 'number & integer' 여야 합니다.
+ * - PeerJS/DOM 등에서 string으로 들어오는 경우가 있어 항상 정수로 강제합니다.
+ * - 유효하지 않으면 0을 반환합니다(0은 'no-session' sentinel).
  */
-function validateSessionId(id) {
-    const sid = Number(id);
-    if (!sid || sid === 0 || isNaN(sid)) {
-        // [Relaxed] Log warning and return 0 instead of throwing to prevent flow interruption
-        log.warn(`[Session] Warning: Invalid Session ID: ${id}. Fallback to 0.`);
+const _warnedBadSessionIds = new Set();
+function validateSessionId(id, strict = false) {
+    const n = (typeof id === 'bigint') ? Number(id) : Number(id);
+    const sid = Number.isFinite(n) ? Math.trunc(n) : 0;
+
+    const ok = Number.isSafeInteger(sid) && sid > 0;
+    if (!ok) {
+        // Avoid log spam (same bad value repeated)
+        const key = String(id);
+        if (!_warnedBadSessionIds.has(key)) {
+            _warnedBadSessionIds.add(key);
+            log.warn(`[Session] Invalid sessionId (${typeof id}):`, id);
+        }
+        if (strict) {
+            throw new Error(`Invalid sessionId: ${id}`);
+        }
         return 0;
     }
     return sid;
@@ -73,29 +86,44 @@ function validateSessionId(id) {
 /**
  * [Worker] Centralized Protocol Wrapper
  * Routes commands to either SyncWorker (timers) or TransferWorker (OPFS)
+ *
+ * NOTE:
+ * - OPFS_* 명령은 transfer.worker.js 내부에서 sessionId 타입(number/integer)을 강하게 요구합니다.
+ * - 아직 Worker가 초기화되기 전에도 호출될 수 있으므로 window.syncWorker / window.transferWorker를 사용합니다.
  */
 function postWorkerCommand(payload, transfers) {
-    if (!payload.command) return;
+    if (!payload || !payload.command) return;
 
-    // OPFS commands require filename and sessionId
-    // Exclude RESET and CLEANUP from strict ID enforcement
-    if (payload.command.startsWith('OPFS_') &&
-        payload.command !== 'OPFS_RESET' &&
-        payload.command !== 'OPFS_CLEANUP') {
+    const cmd = payload.command;
 
-        if (!payload.filename) log.warn(`[Worker] Missing filename in ${payload.command}`);
-        if (payload.sessionId === undefined) payload.sessionId = 0;
-        validateSessionId(payload.sessionId);
+    // OPFS commands require filename + valid numeric sessionId.
+    // Exclude RESET/CLEANUP from strict session enforcement.
+    if (cmd.startsWith('OPFS_') && cmd !== 'OPFS_RESET' && cmd !== 'OPFS_CLEANUP') {
+        if (!payload.filename) log.warn(`[Worker] Missing filename in ${cmd}`);
+
+        payload.sessionId = validateSessionId(payload.sessionId);
+
+        // For critical write-path operations, never send with sid=0 (prevents cross-session corruption).
+        const isCriticalOp = (cmd === 'OPFS_START' || cmd === 'OPFS_WRITE' || cmd === 'OPFS_END');
+        if (isCriticalOp && !payload.sessionId) {
+            log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
+            return;
+        }
     }
 
-    // [ROUTING]
-    if (payload.command.startsWith('OPFS_')) {
-        if (typeof transferWorker !== 'undefined') {
-            transferWorker.postMessage(payload, transfers);
+    if (cmd.startsWith('OPFS_')) {
+        const tw = window.transferWorker;
+        if (tw && typeof tw.postMessage === 'function') {
+            tw.postMessage(payload, transfers);
+        } else {
+            log.warn(`[Worker] TransferWorker not ready. Dropping command: ${cmd}`);
         }
     } else {
-        if (typeof syncWorker !== 'undefined') {
-            syncWorker.postMessage(payload, transfers);
+        const sw = window.syncWorker;
+        if (sw && typeof sw.postMessage === 'function') {
+            sw.postMessage(payload, transfers);
+        } else {
+            log.warn(`[Worker] SyncWorker not ready. Dropping command: ${cmd}`);
         }
     }
 }
@@ -125,6 +153,84 @@ function checkSystemCompatibility() {
 // Run checks on startup
 checkSystemCompatibility();
 
+/**
+ * [PWA] Service Worker Registration (App Shell Cache)
+ * - HTTPS(또는 localhost)에서만 동작
+ * - 업데이트 감지 시 사용자에게 "새로고침" 안내 후 적용
+ */
+let _swReloading = false;
+let _swWantsReload = false;
+
+async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    if (!window.isSecureContext) return;
+
+    // Use an absolute URL derived from the current location to avoid path confusion
+    const swUrl = new URL('service-worker.js', window.location.href);
+
+    try {
+        const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
+        log.debug('[PWA] Service worker registered:', reg.scope);
+
+        // Listen for controller changes only when we explicitly want to reload.
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!_swWantsReload || _swReloading) return;
+            _swReloading = true;
+            window.location.reload();
+        });
+
+        // Update flow
+        reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+
+            newWorker.addEventListener('statechange', async () => {
+                // "installed" with an existing controller means: update is ready
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    try {
+                        const r = await showDialog({
+                            title: '업데이트',
+                            message: '새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.',
+                            buttonText: '새로고침',
+                            // 사용자가 실수로 배경 클릭/ESC로 닫으면 업데이트가 강제 적용되는 문제 방지
+                            dismissible: true
+                        });
+
+                        // '확인/새로고침' 버튼을 눌렀을 때만 진행
+                        if (r && r.action !== 'ok') return;
+
+                        _swWantsReload = true;
+                        // Ask the waiting SW to activate immediately
+                        if (reg.waiting) {
+                            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        } else {
+                            // Fallback: reload directly (some browsers may not expose waiting)
+                            if (!_swReloading) {
+                                _swReloading = true;
+                                window.location.reload();
+                            }
+                        }
+                    } catch (_) {
+                        // If dialog fails, do nothing (best effort)
+                    }
+                }
+            });
+        });
+
+        // Proactively check for updates (best effort)
+        try { await reg.update(); } catch (_) { }
+
+    } catch (err) {
+        log.warn('[PWA] Service worker registration failed:', err?.message || err);
+    }
+}
+
+window.addEventListener('load', () => {
+    // Delay registration slightly so it doesn't compete with critical startup work
+    setTimeout(() => { registerServiceWorker(); }, 500);
+});
+
+
 // ============================================================================
 // [SECTION] AUDIO ENGINE - Tone.js Nodes
 // Dependencies: Tone.js CDN
@@ -134,7 +240,7 @@ let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
 let playerNode = null;   // Transient BufferSource for precise start
 let currentAudioBuffer = null; // Decoded PCM data in RAM
-let vbFilter, vbCheby, vbGain;
+let vbFilter, vbCheby, vbPostFilter, vbCompressor, vbGain;
 let preamp, widener;
 let globalLowPass = null;
 let analyser;
@@ -382,21 +488,66 @@ let preMuteVolume = 1.0; // Store volume before muting
 const BlobURLManager = {
     _activeURL: null,
     _preparingURL: null,
+
+    // url -> timeoutId (scheduled revocation)
     _pendingRevocations: new Map(),
+
+    // If we attempted to revoke while the URL was still attached to <video>,
+    // we defer until the source is detached (e.g., stopAllMedia / clearPreviousTrackState).
+    _deferredUntilDetached: new Set(),
 
     // BlobURL Queue: Avoid memory pressure during fast switching (Strict 5)
     MAX_PENDING: 5,
+
+    _normalizeOptions(options) {
+        if (!options || typeof options !== 'object') return {};
+        return options;
+    },
+
+    _isUrlAttached(url) {
+        try {
+            return !!(url && typeof url === 'string' && typeof videoElement !== 'undefined' && videoElement && videoElement.src === url);
+        } catch (_) {
+            return false;
+        }
+    },
+
+    _clearScheduled(url) {
+        const t = this._pendingRevocations.get(url);
+        if (t) {
+            try { clearTimeout(t); } catch (_) { }
+        }
+        this._pendingRevocations.delete(url);
+    },
+
+    _revokeNow(url, reason = '') {
+        if (!url) return;
+
+        // Cancel any scheduled revocation first
+        this._clearScheduled(url);
+        this._deferredUntilDetached.delete(url);
+
+        try {
+            URL.revokeObjectURL(url);
+            log.debug(`[BlobURL] Revoked: ${url}${reason ? ` (${reason})` : ''}`);
+        } catch (e) {
+            log.debug('[BlobURL] Revoke failed (non-critical):', e?.message || e);
+        }
+
+        if (this._activeURL === url) this._activeURL = null;
+        if (this._preparingURL === url) this._preparingURL = null;
+    },
 
     /**
      * Create a new Blob URL in 'Preparing' state.
      * Use confirm() to move it to 'Active' state and schedule previous URL for revocation.
      */
-    create: function (blob) {
+    create(blob) {
         if (!blob) return null;
 
-        // If we were preparing something else that never got confirmed, safeRevoke it
+        // If we were preparing something else that never got confirmed, revoke it immediately
         if (this._preparingURL) {
-            this.safeRevoke(this._preparingURL, null); // No blob to keep here maybe
+            this._revokeNow(this._preparingURL, 'abandoned-preparing');
         }
 
         this._preparingURL = URL.createObjectURL(blob);
@@ -406,70 +557,132 @@ const BlobURLManager = {
 
     /**
      * Confirm the prepared URL as the active one.
-     * This triggers the 10s delayed revocation for the OLD active URL.
+     * This schedules the previous active URL for delayed revocation.
      */
-    confirm: function (blob) {
+    confirm(_blobUnused) {
         if (!this._preparingURL) return;
 
+        const nextUrl = this._preparingURL;
+        const prevUrl = this._activeURL;
+
+        this._activeURL = nextUrl;
+        this._preparingURL = null;
+
         // Schedule previous ACTIVE URL for delayed revocation
-        if (this._activeURL && this._activeURL !== this._preparingURL) {
-            this.safeRevoke(this._activeURL); // No blob needed
+        if (prevUrl && prevUrl !== nextUrl) {
+            this.safeRevoke(prevUrl);
         }
 
-        this._activeURL = this._preparingURL;
-        this._preparingURL = null;
         log.debug(`[BlobURL] Confirmed Active: ${this._activeURL}`);
     },
 
     /**
      * Schedule a specific URL for revocation after a safety delay.
-     * Holds a reference to the blob to prevent GC during the delay.
+     * If the URL is still attached to <video>, we defer until detached.
+     *
+     * @param {string} url
+     * @param {object} options  { delayMs?: number, force?: boolean }
      */
-    safeRevoke: function (url) {
-        if (!url || this._pendingRevocations.has(url)) return;
+    safeRevoke(url, options) {
+        if (!url) return;
 
-        // Never revoke the current active URL while playing
-        if (url === this._activeURL && currentState !== APP_STATE.IDLE) {
-            log.debug(`[BlobURL] Protected active URL during playback: ${url}`);
+        const opt = this._normalizeOptions(options);
+        const force = opt.force === true;
+        const delayMs = (typeof opt.delayMs === 'number' && opt.delayMs >= 0) ? opt.delayMs : DELAY.BLOB_REVOCATION;
+
+        // Already scheduled
+        if (this._pendingRevocations.has(url)) return;
+
+        // If it's still attached, don't risk breaking playback/paused state. Defer until detached.
+        if (!force && this._isUrlAttached(url)) {
+            this._deferredUntilDetached.add(url);
+            log.debug(`[BlobURL] Deferred revocation (still attached): ${url}`);
             return;
         }
 
-        // Strict Queue management (Max 5)
+        // Strict Queue management (Max 5 scheduled revocations)
         if (this._pendingRevocations.size >= this.MAX_PENDING) {
             const oldest = this._pendingRevocations.keys().next().value;
-            log.debug(`[BlobURL] Queue Full. Explicitly revoking oldest: ${oldest}`);
-            try {
-                URL.revokeObjectURL(oldest);
-            } catch (e) { log.debug('[BlobURL] Revoke failed (non-critical):', e.message); }
-            this._pendingRevocations.delete(oldest);
+            log.debug(`[BlobURL] Queue full. Revoking oldest immediately: ${oldest}`);
+            this._revokeNow(oldest, 'queue-overflow');
         }
 
-        // Store true instead of blob to allow GC to reclaim memory
-        this._pendingRevocations.set(url, true);
-        log.debug(`[BlobURL] Scheduled for revocation (10s): ${url}`);
+        if (delayMs === 0) {
+            this._revokeNow(url, 'delay=0');
+            return;
+        }
 
-        setTimeout(() => {
-            try {
-                URL.revokeObjectURL(url);
-                this._pendingRevocations.delete(url);
-                if (this._activeURL === url) this._activeURL = null;
-                log.debug(`[BlobURL] Successfully revoked: ${url}`);
-            } catch (e) {
-                log.warn(`[BlobURL] Revocation failed:`, e);
-            }
-        }, DELAY.BLOB_REVOCATION);
+        const t = setTimeout(() => {
+            this._revokeNow(url, 'scheduled');
+        }, delayMs);
+
+        this._pendingRevocations.set(url, t);
+        log.debug(`[BlobURL] Scheduled for revocation (${delayMs}ms): ${url}`);
     },
 
     /**
-     * Revoke the current active URL.
-     * Called by cleanupState() when stopping/resetting.
+     * Flush deferred URLs that were blocked because they were still attached to <video>.
+     * Call this right after videoElement.src is detached/reset.
      */
-    revoke: function () {
-        if (this._activeURL) {
-            this.safeRevoke(this._activeURL);
+    flushDeferred(reason = '') {
+        if (!this._deferredUntilDetached.size) return;
+
+        const urls = Array.from(this._deferredUntilDetached);
+        let flushed = 0;
+
+        for (const url of urls) {
+            if (!this._isUrlAttached(url)) {
+                // Force scheduling now that it is detached
+                this._deferredUntilDetached.delete(url);
+                this.safeRevoke(url, { force: true });
+                flushed++;
+            }
         }
+
+        if (flushed) log.debug(`[BlobURL] Flushed deferred: ${flushed}${reason ? ` (${reason})` : ''}`);
+    },
+
+    /**
+     * Attempt to revoke the currently active URL (and any preparing URL).
+     * If still attached, it will be deferred until detached.
+     */
+    revoke(options) {
+        // Preparing URL: safe to revoke quickly (it should not be attached yet)
+        if (this._preparingURL) {
+            this.safeRevoke(this._preparingURL, { force: true, delayMs: 0 });
+        }
+        if (this._activeURL) {
+            this.safeRevoke(this._activeURL, options);
+        }
+    },
+
+    /**
+     * Force revoke everything (use ONLY after detaching media sources).
+     */
+    revokeAllNow(reason = 'force') {
+        // Cancel scheduled revocations (and revoke)
+        const scheduled = Array.from(this._pendingRevocations.keys());
+        for (const url of scheduled) {
+            this._revokeNow(url, reason);
+        }
+
+        // Deferred revocations
+        const deferred = Array.from(this._deferredUntilDetached);
+        for (const url of deferred) {
+            this._revokeNow(url, reason);
+        }
+
+        // Active/preparing
+        if (this._activeURL) this._revokeNow(this._activeURL, reason);
+        if (this._preparingURL) this._revokeNow(this._preparingURL, reason);
+
+        this._pendingRevocations.clear();
+        this._deferredUntilDetached.clear();
+        this._activeURL = null;
+        this._preparingURL = null;
     }
 };
+
 
 // ============================================================================
 // [SECTION] NETWORK STATE - PeerJS
@@ -501,6 +714,146 @@ const MAX_DIRECT_DATA_PEERS = 2; // Host sends data to max 2 people directly
 let relayChunkQueue = [];
 let isRelaying = false;
 const MAX_BUFFER_THRESHOLD = 65536; // 64KB
+
+// ============================================================================
+// [SECTION] OPFS CATCH-UP (Relay Bootstrap) - Controlled OPFS_READ Pump
+// ============================================================================
+// Downstream peer가 중간에 들어오면 OPFS에 이미 저장된 chunk를 읽어서 catch-up 해야 합니다.
+// 기존처럼 for-loop로 OPFS_READ를 수천 번 한꺼번에 보내면 Worker queue가 폭발하여
+// iOS/저사양 기기에서 프리징/메모리 급증/락 충돌이 발생할 수 있습니다.
+// 아래 Pump는 "1개 요청 → 1개 응답" 방식으로 천천히 읽어오며, RTC back-pressure를 반영합니다.
+
+const opfsCatchupPumps = new Map(); // peerId -> pump
+
+function stopOpfsCatchupStream(peerId, reason = '') {
+    const pump = opfsCatchupPumps.get(peerId);
+    if (!pump) return;
+    pump.active = false;
+    if (pump._timer) {
+        clearTimeout(pump._timer);
+        pump._timer = null;
+    }
+    opfsCatchupPumps.delete(peerId);
+    if (reason) log.debug(`[OPFS Catchup] Stop ...${String(peerId).slice(-4)}: ${reason}`);
+}
+
+function startOpfsCatchupStream(conn, { filename, sessionId, startIndex = 0, endIndexExclusive = 0, isPreload = false } = {}) {
+    if (!conn || !conn.peer) return;
+    const peerId = conn.peer;
+
+    stopOpfsCatchupStream(peerId, 'restart');
+
+    const sid = validateSessionId(sessionId);
+    if (!sid) {
+        log.warn(`[OPFS Catchup] Invalid sessionId, abort for peer ...${peerId.slice(-4)}`);
+        return;
+    }
+
+    const pump = {
+        peerId,
+        conn,
+        filename,
+        sessionId: sid,
+        isPreload: !!isPreload,
+        nextIndex: Math.max(0, startIndex | 0),
+        endIndex: Math.max(0, endIndexExclusive | 0),
+        awaiting: false,
+        awaitingIndex: null,
+        lastActivity: Date.now(),
+        active: true,
+        _timer: null
+    };
+
+    opfsCatchupPumps.set(peerId, pump);
+    scheduleOpfsCatchupPump(pump, 0);
+}
+
+function scheduleOpfsCatchupPump(pump, delayMs) {
+    if (!pump || !pump.active) return;
+    if (pump._timer) clearTimeout(pump._timer);
+    pump._timer = setTimeout(() => runOpfsCatchupPump(pump), Math.max(0, delayMs | 0));
+}
+
+function runOpfsCatchupPump(pump) {
+    if (!pump || !pump.active) return;
+
+    const conn = pump.conn;
+    if (!conn || !conn.open) {
+        stopOpfsCatchupStream(pump.peerId, 'peer closed');
+        return;
+    }
+
+    // Session guard: app이 더 새로운 session으로 넘어가면 중단
+    if (pump.sessionId && pump.sessionId < localTransferSessionId) {
+        stopOpfsCatchupStream(pump.peerId, 'session advanced');
+        return;
+    }
+
+    if (!pump.filename || pump.nextIndex >= pump.endIndex) {
+        stopOpfsCatchupStream(pump.peerId, 'complete');
+        return;
+    }
+
+    // Wait for previous OPFS_READ response (sequential pump)
+    if (pump.awaiting) {
+        // If it's stuck for too long, retry the same chunk once.
+        const stuckMs = Date.now() - pump.lastActivity;
+        if (stuckMs > 6000 && pump.awaitingIndex !== null) {
+            log.warn(`[OPFS Catchup] Stuck ${stuckMs}ms, retry idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`);
+            pump.awaiting = false;
+            pump.nextIndex = pump.awaitingIndex; // rewind to retry
+            pump.awaitingIndex = null;
+        }
+        scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+        return;
+    }
+
+    // Back-pressure: don't read faster than RTC can send.
+    const peerQueueLen = conn._relayQueue ? conn._relayQueue.length : 0;
+    const bufAmt = conn.dataChannel ? conn.dataChannel.bufferedAmount : 0;
+
+    // Conservative thresholds: keep catch-up smooth and prevent queue drops.
+    if (peerQueueLen > 120 || bufAmt > 256 * 1024 || relayChunkQueue.length > 250) {
+        scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+        return;
+    }
+
+    const idx = pump.nextIndex;
+    pump.nextIndex++;
+    pump.awaiting = true;
+    pump.awaitingIndex = idx;
+    pump.lastActivity = Date.now();
+
+    // requestId에 peerId + tag를 넣어, OPFS_READ_COMPLETE에서 peerId를 안정적으로 복원합니다.
+    postWorkerCommand({
+        command: 'OPFS_READ',
+        filename: pump.filename,
+        index: idx,
+        isPreload: pump.isPreload,
+        sessionId: pump.sessionId,
+        requestId: `${pump.peerId}|catchup`
+    });
+}
+
+function onOpfsCatchupReadComplete(peerId, sessionId, requestTag) {
+    const pump = opfsCatchupPumps.get(peerId);
+    if (!pump || !pump.active) return;
+
+    // Only advance pump when this response is from catchup-tag.
+    if (requestTag !== 'catchup') return;
+
+    // Session guard
+    if (sessionId && pump.sessionId && sessionId !== pump.sessionId) {
+        stopOpfsCatchupStream(peerId, 'session mismatch');
+        return;
+    }
+
+    pump.awaiting = false;
+    pump.awaitingIndex = null;
+    pump.lastActivity = Date.now();
+    scheduleOpfsCatchupPump(pump, 0);
+}
+
 
 // ============================================================================
 // [SECTION] CONSTANTS
@@ -683,25 +1036,31 @@ function nextSessionId() {
 
 // OPFS Helper coordination (now handled by worker)
 // Async Cleanup with Worker Acknowledgment
+// Async Cleanup with Worker Acknowledgment
 async function cleanupOPFSInWorker(filename, isPreload) {
     if (!filename) return;
 
+    const tw = window.transferWorker;
+    if (!tw) return;
+
     return new Promise((resolve) => {
-        const cleanupId = Date.now() + Math.random();
+        const timeoutMs = 2500; // Slightly higher to avoid false timeouts on slower devices
         const handler = (e) => {
-            if (e.data.type === 'OPFS_CLEANUP_COMPLETE' && e.data.filename === filename) {
-                transferWorker.removeEventListener('message', handler);
+            const d = e.data;
+            if (d && d.type === 'OPFS_CLEANUP_COMPLETE' && d.filename === filename && !!d.isPreload === !!isPreload) {
+                tw.removeEventListener('message', handler);
                 resolve();
             }
         };
-        transferWorker.addEventListener('message', handler);
+
+        tw.addEventListener('message', handler);
         postWorkerCommand({ command: 'OPFS_CLEANUP', filename, isPreload });
 
-        // Safety fallback: Continue if worker takes too long
+        // Safety fallback: Continue even if worker takes too long (best-effort cleanup)
         setTimeout(() => {
-            transferWorker.removeEventListener('message', handler);
+            try { tw.removeEventListener('message', handler); } catch (_) { }
             resolve();
-        }, 1500);
+        }, timeoutMs);
     });
 }
 
@@ -760,8 +1119,8 @@ function forceCleanupOPFS(isPreload) {
     }
 }
 
-const syncWorker = new Worker('js/sync.worker.js');
-const transferWorker = new Worker('js/transfer.worker.js');
+const syncWorker = window.syncWorker = new Worker('js/sync.worker.js');
+const transferWorker = window.transferWorker = new Worker('js/transfer.worker.js');
 
 // Initialize both workers directly (routing only sends to one)
 syncWorker.postMessage({ command: 'INIT_INSTANCE', instanceId: OPFS_INSTANCE_ID });
@@ -837,11 +1196,17 @@ const handleWorkerMessage = async (e) => {
         }
         else if (data.type === 'OPFS_READ_COMPLETE') {
             const { chunk, index, filename, requestId, sessionId } = data;
-            const peerId = requestId; // We used peerId as requestId
+
+            // requestId format: "<peerId>|<tag>"  (tag is optional)
+            const reqStr = (requestId === undefined || requestId === null) ? '' : String(requestId);
+            const [peerIdRaw, requestTagRaw] = reqStr.split('|');
+            const peerId = peerIdRaw || reqStr;
+            const requestTag = requestTagRaw || '';
 
             // Session guard: discard stale catch-up chunks from old track
             if (sessionId && sessionId < localTransferSessionId) {
                 log.warn(`[OPFS_READ] Stale session chunk discarded (got ${sessionId}, current ${localTransferSessionId})`);
+                onOpfsCatchupReadComplete(peerId, sessionId, requestTag);
                 return;
             }
 
@@ -860,12 +1225,26 @@ const handleWorkerMessage = async (e) => {
                 });
                 processRelayQueue();
             }
+
+            // Drive catch-up pump (if active)
+            onOpfsCatchupReadComplete(peerId, sessionId, requestTag);
         }
         else if (data.type === 'OPFS_ERROR' || data.type === 'OPFS_READ_ERROR') {
             log.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
+
+            // If this was a catch-up pump request, stop the pump to avoid infinite retries.
+            if (data.type === 'OPFS_READ_ERROR') {
+                const reqStr = (data.requestId === undefined || data.requestId === null) ? '' : String(data.requestId);
+                const [peerIdRaw, tagRaw] = reqStr.split('|');
+                const peerId = peerIdRaw || reqStr;
+                const tag = tagRaw || '';
+                if (tag === 'catchup') {
+                    stopOpfsCatchupStream(peerId, 'OPFS_READ_ERROR');
+                }
+            }
+
             if (data.type === 'OPFS_ERROR') showToast(`파일 저장 오류: ${data.filename}`);
         }
-        // Handle Session ID mismatch notifications from Worker
         else if (data.type === 'SESSION_MISMATCH') {
             log.warn(`[Main] Session Mismatch in ${data.command}: expected=${data.expected}, got=${data.received}, file=${data.filename}`);
 
@@ -891,6 +1270,16 @@ const handleWorkerMessage = async (e) => {
 
 syncWorker.onmessage = handleWorkerMessage;
 transferWorker.onmessage = handleWorkerMessage;
+
+// Worker Timer Helpers (sync.worker.js)
+// - 세션 종료/재연결 시에도 worker timer가 남아있으면 불필요한 CPU 사용이 발생합니다.
+const WORKER_TIMER_IDS = ['heartbeat', 'ping', 'video-sync'];
+function stopBackgroundWorkerTimers() {
+    WORKER_TIMER_IDS.forEach((id) => {
+        try { postWorkerCommand({ command: 'STOP_TIMER', id }); } catch (_) { }
+    });
+}
+
 
 async function finalizeFileProcessing(file) {
     // Always use Buffer Mode for audio processing
@@ -1062,10 +1451,12 @@ async function initAudio() {
     rvbHighCut = new Tone.Filter(20000, "lowpass", -12);
     rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
-    // 4. Virtual Bass Chain (The "Secret Sauce")
-    // Parallel Path: Source -> LPF -> Chebyshev -> Gain -> Master
-    vbFilter = new Tone.Filter(subFreq, "lowpass"); // Dynamic Crossover
-    vbCheby = new Tone.Chebyshev(50); // Harmonics Generator
+    // 4. Virtual Bass Chain (Psychoacoustic Sub-Harmonics)
+    // Parallel Path: Source -> LPF -> Chebyshev -> BPF -> Compressor -> Gain -> Master
+    vbFilter = new Tone.Filter(80, "lowpass"); // Crossover: isolate sub-bass
+    vbCheby = new Tone.Chebyshev(3); // Clean 2nd/3rd harmonics only
+    vbPostFilter = new Tone.Filter({ type: "bandpass", frequency: 160, Q: 0.7 }); // Keep only useful harmonics (~60-500Hz)
+    vbCompressor = new Tone.Compressor({ threshold: -30, ratio: 6, attack: 0.01, release: 0.1 }); // Tame peaks, protect speakers
     vbGain = new Tone.Gain(0); // Mix Level
 
     // Connections
@@ -1109,7 +1500,9 @@ async function initAudio() {
     // Tapping after Preamp means it gets the Widened & Boosted signal
     preamp.connect(vbFilter);
     vbFilter.connect(vbCheby);
-    vbCheby.connect(vbGain);
+    vbCheby.connect(vbPostFilter);
+    vbPostFilter.connect(vbCompressor);
+    vbCompressor.connect(vbGain);
     vbGain.connect(masterGain);
 
     // Visualizer
@@ -1141,14 +1534,24 @@ function initOnboarding() {
     if (hostId) {
         // [Popup B] Guest Mode
         actionArea.innerHTML = `
-            <button class="btn-ob-primary" onclick="actionEnterSession()">모임에 초대됐어요!</button>
+            <button class="btn-ob-primary" id="btn-ob-enter">모임에 초대됐어요!</button>
         `;
+
+        // Bind actions without inline handlers (CSP-friendly)
+        const btn = document.getElementById('btn-ob-enter');
+        if (btn) btn.addEventListener('click', () => actionEnterSession());
     } else {
         // [Popup A] New User
         actionArea.innerHTML = `
-            <button class="btn-ob-primary" onclick="actionCreateRoom()">방 만들기</button>
-            <button class="btn-ob-secondary" onclick="actionJoinRoom()">참여하기</button>
+            <button class="btn-ob-primary" id="btn-ob-create">방 만들기</button>
+            <button class="btn-ob-secondary" id="btn-ob-join">참여하기</button>
         `;
+
+        // Bind actions without inline handlers (CSP-friendly)
+        const btnCreate = document.getElementById('btn-ob-create');
+        const btnJoin = document.getElementById('btn-ob-join');
+        if (btnCreate) btnCreate.addEventListener('click', () => actionCreateRoom());
+        if (btnJoin) btnJoin.addEventListener('click', () => actionJoinRoom());
     }
 }
 
@@ -1228,29 +1631,40 @@ async function activateAudio() {
 
 window.actionCreateRoom = async function () {
     await activateAudio();
-    // Using setTimeout to allow UI update if needed, but alert blocks anyway.
-    setTimeout(() => {
-        alert("이제 당신이 호스트입니다.\n다른 사람을 초대하거나 다른 기기를 추가하려면\n'Connect' 탭의 QR코드 또는 링크를 공유하세요.");
-        document.getElementById('onboarding-overlay').style.display = 'none';
-        switchTab('connect');
 
-        // [RESTORED] Visual Update
-        myDeviceLabel = 'HOST';
-        updateRoleBadge();
-    }, 50);
+    await showDialog({
+        title: '호스트 모드',
+        message: `이제 당신이 호스트입니다.
+
+다른 사람을 초대하거나 다른 기기를 추가하려면
+'Connect' 탭의 QR코드 또는 링크를 공유하세요.`
+    });
+
+    document.getElementById('onboarding-overlay').style.display = 'none';
+    switchTab('connect');
+
+    // Visual Update
+    myDeviceLabel = 'HOST';
+    updateRoleBadge();
 };
 
 window.actionJoinRoom = async function () {
     await activateAudio();
-    setTimeout(() => {
-        alert("호스트가 제공한 QR코드나 링크를 통해 접속하세요.\n'Connect' 탭에서 링크(ID)를 수동으로 입력하여 접속하실 수도 있습니다.");
-        document.getElementById('onboarding-overlay').style.display = 'none';
-        switchTab('connect');
 
-        // [RESTORED] Visual Update
-        myDeviceLabel = 'HOST';
-        updateRoleBadge();
-    }, 50);
+    await showDialog({
+        title: '참여하기',
+        message: `호스트가 제공한 QR코드나 링크를 통해 접속하세요.
+
+'Connect' 탭에서 링크(ID)를 수동으로 입력해서
+접속할 수도 있습니다.`
+    });
+
+    document.getElementById('onboarding-overlay').style.display = 'none';
+    switchTab('connect');
+
+    // Visual Update (초기 진입 시 로컬 장치는 아직 HostConn이 없으므로 상태 표시용)
+    myDeviceLabel = 'HOST';
+    updateRoleBadge();
 };
 
 window.actionEnterSession = async function () {
@@ -1559,9 +1973,9 @@ function updatePlaylistUI() {
         let expandBtn = '';
         if (item.playlistId) {
             expandBtn = `
-                <div class="expand-toggle ${item.isExpanded ? 'active' : ''}" onclick="event.stopPropagation(); toggleExpansion(${idx});">
-                    <svg viewBox="0 0 24 24"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
-                </div>
+                <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="플레이리스트 펼치기/접기">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
+                </button>
             `;
         }
 
@@ -1586,6 +2000,16 @@ function updatePlaylistUI() {
             </div>
         `;
         ul.appendChild(li);
+
+        // Bind expand toggle without inline handlers
+        const exp = li.querySelector('.expand-toggle[data-expand-idx]');
+        if (exp) {
+            exp.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleExpansion(idx);
+            });
+        }
 
         // Render Sub-items if expanded
         if (item.playlistId && item.isExpanded) {
@@ -1683,7 +2107,7 @@ function initMediaSession() {
 
     try {
         navigator.mediaSession.setActionHandler('stop', () => {
-            stop();
+            stopPlayback();
         });
     } catch (e) { log.debug('[MediaSession] Handler setup skipped:', e.message); }
 }
@@ -1780,7 +2204,7 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
         try {
             const videoId = ids[i];
             // Sequential fetching with a small delay to avoid rate limiting
-            const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+            const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`);
             const json = await response.json();
 
             if (json && json.title) {
@@ -1862,7 +2286,7 @@ async function playTrack(index) {
         // YouTube playback (Host only)
         if (!hostConn) {
             // Stop local playback first (prevent overlap)
-            stop();
+            stopAllMedia();
 
             // Cancel any running preload immediately
             preloadSessionId++;
@@ -2461,7 +2885,7 @@ async function _internalPlay(offset) {
         }
 
         playerNode.onended = () => {
-            if (currentState === APP_STATE.PLAYING_AUDIO) {
+            if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
                 handleEnded();
             }
         };
@@ -2643,6 +3067,11 @@ function stopAllMedia() {
         videoElement.load(); // Reset loading state
     }
 
+
+    // Detaching the source is the safe point to flush deferred BlobURL revocations
+    try { BlobURLManager.revoke(); } catch (_) { }
+    try { BlobURLManager.flushDeferred('stopAllMedia'); } catch (_) { }
+
     // 2. Stop YouTube (Full Teardown)
     // Use the comprehensive stopYouTubeMode if it exists, otherwise manual teardown
     if (typeof stopYouTubeMode === 'function') {
@@ -2762,7 +3191,7 @@ function togglePlay() {
     }
 
     if (isActuallyPlaying) {
-        if (!hostConn) { pause(); broadcast({ type: MSG.PAUSE }); }
+        if (!hostConn) { pause(); broadcast({ type: MSG.PAUSE, time: pausedAt }); }
         else if (isOperator) hostConn.send({ type: MSG.REQUEST_PAUSE });
     } else {
         if (!hostConn) { play(pausedAt); broadcast({ type: MSG.PLAY, time: pausedAt }); }
@@ -2770,14 +3199,66 @@ function togglePlay() {
     }
 }
 
-function pause() {
+function stopPlayback() {
+    // Guest (non-OP): blocked
+    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+
+    // OP: request Host to stop (seek to 0 then pause)
+    if (hostConn && isOperator) {
+        try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch (_) { }
+        try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch (_) { }
+        showToast("정지 요청 전송됨");
+        return;
+    }
+
+    // Host: YouTube mode uses YT API (keep the player loaded, just stop at 0)
+    if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
+        try {
+            youtubePlayer.stopVideo();
+            try { youtubePlayer.seekTo(0, true); } catch (_) { /* optional */ }
+            broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: 0 });
+        } catch (e) {
+            log.error("[YouTube] Stop error:", e);
+        }
+        pausedAt = 0;
+        updatePlayState(false);
+        postWorkerCommand({ command: 'STOP_TIMER', id: 'youtube-sync' });
+        return;
+    }
+
+    // Host: Local file mode
+    stopAllMedia();
+    pausedAt = 0;
+
+    // Reset UI immediately
+    const slider = document.getElementById('seek-slider');
+    if (slider) slider.value = 0;
+    const timeCurr = document.getElementById('time-curr');
+    if (timeCurr) timeCurr.innerText = fmtTime(0);
+
+    // Broadcast as "pause at 0" (backward-compatible stop)
+    if (!hostConn) {
+        broadcast({ type: MSG.PAUSE, time: 0 });
+    }
+
+    showToast("정지");
+}
+function pause(forcedTime) {
     if (currentState !== APP_STATE.IDLE) {
-        if (videoElement) videoElement.pause();
+        // Capture current position BEFORE stopping the engine (prevents drift)
+        if (typeof forcedTime === 'number' && isFinite(forcedTime) && forcedTime >= 0) {
+            pausedAt = forcedTime;
+        } else {
+            pausedAt = getTrackPosition();
+        }
 
-        // stopPlayerNode();
+        // True pause for Buffer Mode (prevents overlap when resuming)
+        stopPlayerNode();
 
-        pausedAt = getTrackPosition();
-        if (videoElement) videoElement.currentTime = pausedAt;
+        if (videoElement) {
+            try { videoElement.pause(); } catch (_) { }
+            try { videoElement.currentTime = pausedAt; } catch (_) { }
+        }
 
         // Set state to IDLE so loopUI stops
         setState(APP_STATE.IDLE, { skipCleanup: true });
@@ -2955,11 +3436,11 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     if (el) {
         el.classList.add('active');
     } else {
-        // Programmatic Update: Find button by onclick content
-        // This ensures the UI reflects default selection (e.g. FL)
+        // Programmatic Update: Find button by data attribute.
+        // (We no longer rely on inline onclick handlers.)
         for (let btn of allOpts) {
-            const onclickVal = btn.getAttribute('onclick');
-            if (onclickVal && onclickVal.includes(`(${idx}, `)) {
+            const v = btn?.dataset?.sch;
+            if (v !== undefined && v !== null && String(v) !== '' && parseInt(v, 10) === idx) {
                 btn.classList.add('active');
                 break;
             }
@@ -4423,19 +4904,35 @@ function showConnectionFailedOverlay(message) {
         align-items: center; justify-content: center; gap: 20px;
     `;
     overlay.innerHTML = `
-        <h2 style="color:white; font-size: 24px; text-align: center; padding: 0 20px;">${message}</h2>
+        <h2 style="color:white; font-size: 24px; text-align: center; padding: 0 20px;">${escapeHtml(message)}</h2>
         <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
-            <button onclick="document.getElementById('connection-failed-overlay').remove(); joinSession(0);" style="
+            <button id="btn-conn-retry" style="
                 padding: 12px 30px; background: var(--primary, #3b82f6); color: white;
                 border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
             ">다시 시도</button>
-            <button onclick="window.location.href = window.location.pathname" style="
+            <button id="btn-conn-exit" style="
                 padding: 12px 30px; background: #ef4444; color: white;
                 border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer;
             ">나가기</button>
         </div>
     `;
     document.body.appendChild(overlay);
+
+    // Bind actions without inline handlers
+    const retryBtn = document.getElementById('btn-conn-retry');
+    const exitBtn = document.getElementById('btn-conn-exit');
+    if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+            const ov = document.getElementById('connection-failed-overlay');
+            if (ov) ov.remove();
+            joinSession(0);
+        });
+    }
+    if (exitBtn) {
+        exitBtn.addEventListener('click', () => {
+            window.location.href = window.location.pathname;
+        });
+    }
 
     document.getElementById('role-text').innerText = "연결 실패";
 }
@@ -4445,6 +4942,12 @@ async function leaveSession() {
 
     // Set intentional disconnect flag first to prevent retry logic
     isIntentionalDisconnect = true;
+
+    // Stop background worker timers & any in-flight OPFS catch-up pumps
+    stopBackgroundWorkerTimers();
+    try {
+        opfsCatchupPumps.forEach((_, pid) => stopOpfsCatchupStream(pid, 'leave-session'));
+    } catch (_) { }
 
     clearAllManagedTimers();
 
@@ -4672,6 +5175,9 @@ function clearPreviousTrackState(reason = '') {
         videoElement.src = '';
         videoElement.load();
     }
+    // Now that the source is detached, flush any deferred BlobURL revocations
+    try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch (_) { }
+
     // Physically delete the OLD current file from OPFS when switching tracks
     if (currentFileOpfs.name) {
         // RESET worker slot first to clear lock
@@ -6061,13 +6567,26 @@ async function handlePlay(data) {
 }
 
 async function handlePause(data) {
-    if (data.time !== undefined) {
-        pausedAt = data.time;
+    const t = (data && data.time !== undefined) ? Number(data.time) : undefined;
+
+    if (t !== undefined && Number.isFinite(t)) {
+        pausedAt = t;
+
         const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
-        if (usesVideo && videoElement) videoElement.currentTime = data.time;
-        document.getElementById('seek-slider').value = data.time;
-        document.getElementById('time-curr').innerText = fmtTime(data.time);
+        if (usesVideo && videoElement) {
+            try { videoElement.currentTime = t; } catch (_) { }
+        }
+
+        const slider = document.getElementById('seek-slider');
+        if (slider) slider.value = t;
+
+        const timeCurr = document.getElementById('time-curr');
+        if (timeCurr) timeCurr.innerText = fmtTime(t);
+
+        pause(t);
+        return;
     }
+
     pause();
 }
 async function handleVolume(data) {
@@ -6567,16 +7086,16 @@ function handleRelayConnection(conn) {
                 // 2. Catch-up: Proactively trigger recovery for chunks the relay peer has stored
                 // [Optimized] Removed artificial throttling at user request; processRelayQueue handles back-pressure.
                 if (receivedCount > 0) {
-                    for (let i = 0; i < receivedCount; i++) {
-                        postWorkerCommand({
-                            command: 'OPFS_READ',
-                            filename: meta.name,
-                            index: i,
-                            isPreload: false,
-                            sessionId: localTransferSessionId,
-                            requestId: conn.peer
-                        });
-                    }
+                    // [Stability] Worker queue 폭주 방지:
+                    // 기존처럼 OPFS_READ를 receivedCount 만큼 한꺼번에 보내면 (특히 대용량 파일/저사양 iOS에서)
+                    // 프리징/메모리 급증/락 충돌이 발생할 수 있습니다.
+                    startOpfsCatchupStream(conn, {
+                        filename: meta.name,
+                        sessionId: meta.sessionId || localTransferSessionId,
+                        startIndex: 0,
+                        endIndexExclusive: receivedCount,
+                        isPreload: false
+                    });
                 }
             }
             else {
@@ -6596,13 +7115,14 @@ function handleRelayConnection(conn) {
                 index: nextChunk,
                 isPreload: false, // Recovery is usually for current track
                 sessionId: sessionId,
-                requestId: conn.peer // Tag it so we know where to send the response
+                requestId: `${conn.peer}|recovery` // Tag it so we know where to send the response
             });
         }
     });
 
     conn.on('close', () => {
         downstreamDataPeers = downstreamDataPeers.filter(p => p.peer !== conn.peer);
+        stopOpfsCatchupStream(conn.peer, 'peer close');
     });
 }
 
@@ -6687,48 +7207,74 @@ function renderDeviceList(list) {
     const container = document.getElementById('device-list');
     if (!container) return;
 
-    let html = '';
+    // [Security] Avoid string-based innerHTML templating for remote/peer-provided fields.
+    // Build DOM nodes with textContent to prevent XSS by construction.
+    container.innerHTML = '';
+
     list.forEach((p) => {
-        const safeLabel = escapeHtml(p.label);
-        const shortId = escapeHtml(p.id.substr(-4));
+        const row = document.createElement('div');
+        row.className = 'section-row';
+
+        // Name area
+        const name = document.createElement('span');
+        name.className = 'd-name';
+        name.textContent = (p.label || 'Device').toString();
+
+        const shortId = document.createElement('span');
+        shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
+        shortId.textContent = `(${(p.id || '').toString().substr(-4)})`;
+        name.appendChild(document.createTextNode(' '));
+        name.appendChild(shortId);
+
+        if (p.isOp) {
+            const op = document.createElement('span');
+            op.style.cssText = 'color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;';
+            op.textContent = 'OP';
+            name.appendChild(document.createTextNode(' '));
+            name.appendChild(op);
+        }
+
         const statusClass = p.status === 'connected' ? 'active' : 'inactive';
         const statusText = p.status === 'connected' ? 'Connected' : 'Disconnected';
-        const opBadge = p.isOp ? '<span style="color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;">OP</span>' : '';
+
+        // Status element
+        const status = document.createElement('span');
+        status.className = `d-status ${statusClass}`;
+        status.textContent = statusText;
+
+        row.appendChild(name);
 
         if (hostConn) {
-            // Guest view: no operator toggle button
-            html += `
-                <div class="section-row">
-                    <span class="d-name">
-                        ${safeLabel} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${shortId})</span>
-                        ${opBadge}
-                    </span>
-                    <span class="d-status ${statusClass}">${statusText}</span>
-                </div>`;
+            // Guest view: status only
+            row.appendChild(status);
         } else {
-            // Host view: includes operator grant/revoke button
-            let opBtn = '';
+            // Host view: operator toggle + status
+            const right = document.createElement('div');
+            right.style.cssText = 'display:flex; gap:4px; align-items:center;';
+
             if (!p.isHost && p.status === 'connected') {
-                opBtn = `<button class="btn-action ${p.isOp ? 'active' : ''}"
-                     style="font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}"
-                     onclick="toggleOperator('${escapeHtml(p.id)}')"
-                     >${p.isOp ? 'REVOKE' : 'GRANT'}</button>`;
+                const opBtn = document.createElement('button');
+                opBtn.className = `btn-action ${p.isOp ? 'active' : ''}`;
+                opBtn.dataset.opPeer = (p.id || '').toString();
+                opBtn.style.cssText = `font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}`;
+                opBtn.textContent = p.isOp ? 'REVOKE' : 'GRANT';
+                opBtn.setAttribute('aria-label', p.isOp ? 'OP 권한 회수' : 'OP 권한 부여');
+
+                opBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const peerId = opBtn.dataset.opPeer;
+                    if (peerId) window.toggleOperator(peerId);
+                });
+
+                right.appendChild(opBtn);
             }
 
-            html += `
-                <div class="section-row">
-                    <span class="d-name">
-                        ${safeLabel} <span style="font-size:11px; opacity:0.5; margin-left:4px;">(${shortId})</span>
-                        ${opBadge}
-                    </span>
-                    <div style="display:flex; gap:4px; align-items:center;">
-                        ${opBtn}
-                        <span class="d-status ${statusClass}">${statusText}</span>
-                    </div>
-                </div>`;
+            right.appendChild(status);
+            row.appendChild(right);
         }
+
+        container.appendChild(row);
     });
-    container.innerHTML = html;
 }
 
 window.toggleOperator = function (peerId) {
@@ -6760,7 +7306,7 @@ function handleOperatorRequest(data) {
             clearManagedTimer('autoPlayTimer');
         }
         pause();
-        broadcast({ type: MSG.PAUSE });
+        broadcast({ type: MSG.PAUSE, time: pausedAt });
     } else if (data.type === MSG.REQUEST_YOUTUBE_PLAY) {
         log.debug("[Host] OP requested YouTube play");
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
@@ -7105,16 +7651,209 @@ function showToast(msg) {
         t.classList.remove('show');
     }, 2000);
 }
-function copyLink() {
-    const link = document.getElementById('my-id').innerText;
-    if (link.includes('...')) return;
+
+// Non-blocking dialog (replaces alert())
+// - Promise-based
+// - Queued (prevents lost resolves when called multiple times)
+// - Cleans up listeners on close (iOS Safari 호환: AbortSignal 옵션 미사용)
+// - Restores focus for accessibility
+let _dialogActive = null;
+const _dialogQueue = [];
+
+function closeDialog(action = 'close') {
+    const overlay = document.getElementById('dialog-overlay');
+    if (overlay) {
+        overlay.classList.remove('show');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+
+    const active = _dialogActive;
+    _dialogActive = null;
+
+    // Cleanup listeners (best-effort)
+    try {
+        if (active && Array.isArray(active.cleanup)) {
+            active.cleanup.forEach(fn => {
+                try { fn(); } catch (_) { /* ignore */ }
+            });
+        }
+    } catch (_) { /* ignore */ }
+
+    // Restore focus
+    if (active?.prevFocus && typeof active.prevFocus.focus === 'function') {
+        try { active.prevFocus.focus(); } catch (_) { /* ignore */ }
+    }
+
+    // Resolve
+    if (typeof active?.resolve === 'function') {
+        try { active.resolve({ action }); } catch (_) { /* ignore */ }
+    }
+
+    // Drain queue
+    if (_dialogQueue.length > 0) {
+        const next = _dialogQueue.shift();
+        // Defer so the DOM has time to reflect the close state
+        setTimeout(() => _openDialog(next.opts, next.resolve), 0);
+    }
+}
+
+function _openDialog(opts, resolve) {
+    const overlay = document.getElementById('dialog-overlay');
+    const titleEl = document.getElementById('dialog-title');
+    const msgEl = document.getElementById('dialog-message');
+    const okBtn = document.getElementById('btn-dialog-ok');
+    const closeBtn = document.getElementById('btn-dialog-close');
+
+    if (!overlay || !titleEl || !msgEl || !okBtn || !closeBtn) {
+        // Fallback: toast (never block)
+        showToast(typeof opts === 'string' ? opts : (opts?.message || '안내'));
+        resolve({ action: 'fallback' });
+        // Continue queue immediately
+        if (_dialogQueue.length > 0) {
+            const next = _dialogQueue.shift();
+            setTimeout(() => _openDialog(next.opts, next.resolve), 0);
+        }
+        return;
+    }
+
+    const o = (typeof opts === 'object' && opts) ? opts : { message: String(opts ?? '') };
+    const title = (typeof opts === 'string') ? '안내' : (o.title || '안내');
+    const message = (typeof opts === 'string') ? String(opts ?? '') : String(o.message || '');
+    const buttonText = o.buttonText ? String(o.buttonText) : '확인';
+    const dismissible = (o.dismissible !== undefined) ? !!o.dismissible : true;
+
+    // Set content safely (no HTML injection)
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+    okBtn.textContent = buttonText;
+
+    // Track previous focus (a11y)
+    const prevFocus = document.activeElement;
+
+    // Show
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+
+    const cleanup = [];
+    const on = (target, type, handler, options) => {
+        if (!target) return;
+        target.addEventListener(type, handler, options);
+        cleanup.push(() => {
+            try { target.removeEventListener(type, handler, options); } catch (_) { /* ignore */ }
+        });
+    };
+
+    _dialogActive = { resolve, prevFocus, cleanup };
+
+    const done = (action) => closeDialog(action);
+
+    // Click outside
+    on(overlay, 'click', (e) => {
+        if (!dismissible) return;
+        if (e.target === overlay) done('overlay');
+    });
+
+    // Buttons
+    on(okBtn, 'click', () => done('ok'));
+    on(closeBtn, 'click', () => {
+        if (!dismissible) return done('ok');
+        done('close');
+    });
+
+    // Keyboard
+    on(window, 'keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (!dismissible) return;
+            e.preventDefault();
+            done('escape');
+            return;
+        }
+
+        // Focus trap: loop between close and ok
+        if (e.key === 'Tab') {
+            const focusables = [closeBtn, okBtn].filter(Boolean);
+            if (focusables.length === 0) return;
+
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            const activeEl = document.activeElement;
+
+            if (e.shiftKey) {
+                if (activeEl === first || !overlay.contains(activeEl)) {
+                    e.preventDefault();
+                    last.focus();
+                }
+            } else {
+                if (activeEl === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
+        }
+    });
+
+    // Focus primary action
+    setTimeout(() => {
+        try { okBtn.focus(); } catch (_) { /* ignore */ }
+    }, 0);
+}
+
+function showDialog(opts = {}) {
+    return new Promise((resolve) => {
+        // Queue calls so we never lose a resolver
+        _dialogQueue.push({ opts, resolve });
+        if (_dialogActive) return;
+        const next = _dialogQueue.shift();
+        _openDialog(next.opts, next.resolve);
+    });
+}
+
+async function copyTextToClipboard(text) {
+    // Modern async clipboard API (HTTPS required)
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (e) {
+        // fall through to legacy fallback
+        log.debug('[Clipboard] navigator.clipboard failed, trying fallback:', e?.message || e);
+    }
+
+    // Legacy fallback (some iOS/Safari contexts)
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return !!ok;
+    } catch (e) {
+        log.warn('[Clipboard] Fallback copy failed:', e?.message || e);
+        return false;
+    }
+}
+
+async function copyLink() {
+    const linkTextEl = document.getElementById('my-id');
+    const linkText = linkTextEl ? linkTextEl.innerText : '';
+    if (linkText.includes('...')) return;
+
     let idToCopy = myId;
     if (hostConn) {
-        const hostInput = document.getElementById('join-id-input').value;
+        const hostInput = document.getElementById('join-id-input')?.value;
         if (hostInput) idToCopy = hostInput;
     }
-    navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?host=${idToCopy}`);
-    showToast("링크 복사 완료");
+
+    const url = `${window.location.origin}${window.location.pathname}?host=${idToCopy}`;
+    const ok = await copyTextToClipboard(url);
+    showToast(ok ? "링크 복사 완료" : "복사 실패: 길게 눌러 복사하세요");
 }
 
 function autoSync() {
@@ -7389,10 +8128,34 @@ function addChatMessage(sender, text, isMine) {
     }
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// HTML 특수문자 이스케이핑 (innerHTML 사용 시 XSS/마크업 깨짐 방지)
+// - & < > " ' 를 이스케이프
+// - null/undefined는 빈 문자열 처리
+const _ESCAPE_HTML_RE = /[&<>"']/;
+const _ESCAPE_HTML_RE_G = /[&<>"']/g;
+const _ESCAPE_HTML_MAP = Object.freeze({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+});
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    if (!_ESCAPE_HTML_RE.test(str)) return str;
+    return str.replace(_ESCAPE_HTML_RE_G, (ch) => _ESCAPE_HTML_MAP[ch] || ch);
+}
+
+// Escapes a string for safe use inside HTML attributes (prevents quote-breaking XSS)
+function escapeAttr(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 function parseMessageContent(text) {
@@ -7415,14 +8178,14 @@ function parseMessageContent(text) {
 
         const matchedText = match[0];
 
+        // NOTE: ytRegex has the global flag; always reset lastIndex before test()
+        ytRegex.lastIndex = 0;
         if (ytRegex.test(matchedText)) {
-            ytRegex.lastIndex = 0;
             const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
-            const safeUrl = cleanUrl.replace(/'/g, "\\'");
             const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
             result += `
-                <button class="chat-youtube-btn" data-youtube-url="${escapeHtml(cleanUrl)}">
+                <button class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}">
                     <span class="chat-yt-play-row">▶ YouTube 재생하기</span>
                     <span id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</span>
                 </button>
@@ -7433,7 +8196,7 @@ function parseMessageContent(text) {
         }
         else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
             const seconds = parseTimestamp(matchedText);
-            result += `<span class="chat-timestamp" onclick="seekToTime(${seconds})">${matchedText}</span>`;
+            result += `<span class="chat-timestamp" role="button" tabindex="0" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
         }
         else {
             result += escapeHtml(matchedText);
@@ -7448,6 +8211,26 @@ function parseMessageContent(text) {
 
     return result;
 }
+
+// Event delegation for timestamp seeking (replaces inline onclick)
+document.addEventListener('click', (e) => {
+    const target = (e.target && e.target.closest) ? e.target : (e.target && e.target.parentElement);
+    const ts = target ? target.closest('.chat-timestamp[data-seek]') : null;
+    if (!ts) return;
+    const sec = Number(ts.getAttribute('data-seek'));
+    if (Number.isFinite(sec)) seekToTime(sec);
+});
+
+document.addEventListener('keydown', (e) => {
+    // Allow keyboard activation (Enter/Space) for timestamp spans
+    const ts = e.target && e.target.closest ? e.target.closest('.chat-timestamp[data-seek]') : null;
+    if (!ts) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const sec = Number(ts.getAttribute('data-seek'));
+    if (Number.isFinite(sec)) seekToTime(sec);
+});
 
 /**
  * YouTube oEmbed API를 사용하여 영상 제목을 가져와 업데이트합니다.
@@ -7558,7 +8341,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event delegation for YouTube chat buttons (replaces inline onclick)
     document.addEventListener('click', (e) => {
-        const ytBtn = e.target.closest('.chat-youtube-btn[data-youtube-url]');
+        const target = (e.target && e.target.closest) ? e.target : (e.target && e.target.parentElement);
+        const ytBtn = target ? target.closest('.chat-youtube-btn[data-youtube-url]') : null;
         if (ytBtn) {
             const url = ytBtn.getAttribute('data-youtube-url');
             if (url) loadYouTubeFromChat(url);
@@ -8477,7 +9261,7 @@ window.toggleRelayOverlay = function () {
 
     overlay = document.createElement('div');
     overlay.id = 'relay-debug-overlay';
-    overlay.style = `
+    overlay.style.cssText = `
         position: fixed; top: 10px; left: 10px; z-index: 9999;
         background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
         padding: 10px; border-radius: 8px; font-size: 11px; pointer-events: none;
@@ -8492,10 +9276,25 @@ window.toggleRelayOverlay = function () {
         html += `<div>Progress: ${receivedCount} / ${meta?.total || 0}</div>`;
         html += `<div>Queued: ${relayChunkQueue.length}</div>`;
         html += `<hr style="border:0; border-top:1px solid #444; margin:5px 0">`;
+
+        // Defensive: relay overlay is optional debug UI.
+        // If escapeHtml() is unavailable for any reason (stale SW cache, partial load, etc.),
+        // fall back to a tiny inline escaper to avoid ReferenceError.
+        const esc = (typeof window.escapeHtml === 'function')
+            ? window.escapeHtml
+            : (v) => String(v).replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+            }[ch] || ch));
+
         downstreamDataPeers.forEach(p => {
             const buf = p.dataChannel ? p.dataChannel.bufferedAmount : 0;
             const qLen = p._relayQueue ? p._relayQueue.length : 0;
-            html += `<div>...${p.peer.substr(-4)}: Q:${qLen} B:${(buf / 1024).toFixed(0)}K</div>`;
+            const shortPeer = esc((p.peer || '').toString().slice(-4));
+            html += `<div>...${shortPeer}: Q:${qLen} B:${(buf / 1024).toFixed(0)}K</div>`;
         });
         overlay.innerHTML = html;
         requestAnimationFrame(update);
@@ -8552,5 +9351,8 @@ window.parseMessageContent = parseMessageContent;
 window.seekToTime = seekToTime;
 window.loadYouTubeFromChat = loadYouTubeFromChat;
 window.insertEmoji = insertEmoji;
+
+// Utilities
+window.showDialog = showDialog;
 
 // End of Script

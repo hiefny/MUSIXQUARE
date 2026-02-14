@@ -1657,6 +1657,55 @@ async function initAudio() {
 
 const MAX_GUEST_SLOTS = 3;
 
+// ============================================================================
+// [SECTION] GUEST SLOT NAMING (Host-assigned)
+// - Guests are always named "Peer 1..N" by the Host.
+// - If a Peer leaves, its slot becomes available and the next joiner reuses it.
+// ============================================================================
+
+const PEER_NAME_PREFIX = 'Peer';
+
+// Slot index: 1..MAX_GUEST_SLOTS (0 is unused)
+const peerSlots = new Array(MAX_GUEST_SLOTS + 1).fill(null); // slot -> peerId
+const peerSlotByPeerId = new Map(); // peerId -> slot
+
+// Track currently-active Host-side PeerJS connections to avoid stale close events
+// freeing the slot when a duplicate connection is replaced.
+const activeHostConnByPeerId = new Map(); // peerId -> PeerJS DataConnection
+
+function getPeerLabelBySlot(slot) {
+    return `${PEER_NAME_PREFIX} ${slot}`;
+}
+
+function getAvailablePeerSlot(preferredSlot = null, peerId = null) {
+    const pref = Number(preferredSlot);
+    if (Number.isInteger(pref) && pref >= 1 && pref <= MAX_GUEST_SLOTS) {
+        const occupant = peerSlots[pref];
+        if (!occupant || occupant === peerId) return pref;
+    }
+    for (let i = 1; i <= MAX_GUEST_SLOTS; i++) {
+        if (!peerSlots[i]) return i;
+    }
+    return null;
+}
+
+function assignPeerSlot(peerId, slot) {
+    if (!peerId) return;
+    const s = Number(slot);
+    if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
+    peerSlots[s] = peerId;
+    peerSlotByPeerId.set(peerId, s);
+}
+
+function releasePeerSlot(peerId) {
+    if (!peerId) return;
+    const slot = peerSlotByPeerId.get(peerId);
+    if (slot) {
+        if (peerSlots[slot] === peerId) peerSlots[slot] = null;
+    }
+    peerSlotByPeerId.delete(peerId);
+}
+
 let appRole = 'idle'; // 'host' | 'guest' | 'idle'
 let sessionCode = '';
 let lastJoinCode = '';
@@ -2173,8 +2222,9 @@ async function handleSetupJoinWithRole(mode) {
         log.warn('[Setup] setChannelMode failed', e);
     }
 
-    // Device label to reflect role (Host device list/chat metadata)
-    myDeviceLabel = getRoleLabelByChannelMode(mode);
+    // IMPORTANT: Device label is Host-assigned ("Peer N") after join.
+    // Keep a neutral placeholder while connecting (do NOT overwrite with role label).
+    myDeviceLabel = PEER_NAME_PREFIX;
     updateRoleBadge();
 
     // Start network + join
@@ -2312,21 +2362,23 @@ function updateRoleBadge() {
     // Guest: connected to host
     if (hostConn) {
         const latencyTxt = (lastLatencyMs && Number.isFinite(lastLatencyMs)) ? ` (${Math.round(lastLatencyMs)}ms)` : '';
-        text.innerText = `${audioRole}${latencyTxt}`;
+        const label = (myDeviceLabel && String(myDeviceLabel).trim()) ? String(myDeviceLabel).trim() : 'Peer';
+        // Desired format: "Peer 1 Woofer" (no middle-dot requirement)
+        text.innerText = `${label} ${audioRole}${latencyTxt}`;
         badge.classList.add('connected');
         return;
     }
 
-    // Host: show role + keep connected highlight once signaling is ready
+    // Host: show device label + role
     if (appRole === 'host' || connectedPeers.length > 0) {
-        text.innerText = `HOST · ${audioRole}`;
+        text.innerText = `Host ${audioRole}`;
         badge.classList.add('connected');
         return;
     }
 
     // Guest flow but not connected yet
     if (appRole === 'guest') {
-        text.innerText = `GUEST · ${audioRole}`;
+        text.innerText = `Guest ${audioRole}`;
         return;
     }
 
@@ -2897,6 +2949,18 @@ async function playTrack(index) {
         log.debug("[Host] Using Preloaded Track:", index);
         currentTrackIndex = index;
         updatePlaylistUI();
+
+        // CRITICAL:
+        // When switching to a preloaded track, we MUST advance the Host-side transfer session id.
+        // Otherwise, any Guest that missed the preload and requests recovery will trigger unicastFile,
+        // but unicastFile will immediately abort due to its session-guard
+        // (currentTransferSessionId !== effectiveSessionId).
+        // Use the preload sessionId (if present) so Guests/Relays can correlate caches.
+        if (nextMeta && nextMeta.sessionId && Number.isFinite(Number(nextMeta.sessionId))) {
+            currentTransferSessionId = Number(nextMeta.sessionId);
+        } else {
+            currentTransferSessionId = nextSessionId();
+        }
 
         // 1. Unified Stop for clean state
         stopAllMedia();
@@ -3635,16 +3699,24 @@ function handleEnded() {
         return;
     }
 
-    // Safety: Verify video readyState before trusting duration (VIDEO mode)
+    // Duration source priority:
+    // - In MUSIXQUARE BufferMode we always decode into currentAudioBuffer.
+    // - Some browsers (especially iOS/Safari) can report videoElement.duration as 0/NaN/Infinity
+    //   even while the decoded buffer plays correctly.
+    const hasBufferDuration = !!(currentAudioBuffer && Number.isFinite(currentAudioBuffer.duration) && currentAudioBuffer.duration > 0.5);
+
+    // Safety: Verify video readyState only when we DON'T have a reliable AudioBuffer duration
     const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
-    if (usesVideoElement && videoElement && videoElement.readyState < 1) {
+    if (!hasBufferDuration && usesVideoElement && videoElement && videoElement.readyState < 1) {
         return; // Metadata not yet reliable
     }
 
-    const duration = videoElement ? videoElement.duration : 0;
+    const duration = hasBufferDuration
+        ? currentAudioBuffer.duration
+        : (videoElement ? videoElement.duration : 0);
 
     // Safety: Skip if duration is invalid or suspiciously short during load
-    if (!duration || !isFinite(duration) || duration <= 0.5) {
+    if (!duration || !Number.isFinite(duration) || duration <= 0.5) {
         return;
     }
 
@@ -4212,9 +4284,8 @@ function setChannel(mode, el, force = false, notify = true) {
     // Toss 인앱 UX: 역할 변경 시 "배치" 안내 토스트
     if (notify) {
         try {
-            // 게스트는 역할 선택 = 디바이스 레이블로도 반영
+            // IMPORTANT: Device label is Host-assigned ("Peer N"). Do NOT overwrite it with role label.
             if (appRole === 'guest' || hostConn) {
-                myDeviceLabel = getRoleLabelByChannelMode(mode);
                 updateRoleBadge();
             }
         } catch (e) { /* noop */ }
@@ -4932,7 +5003,32 @@ function setupPeerEvents() {
 // (v3 이전) 슬롯 기반(L/R/Sub) 자동 세팅 로직은 Toss 인앱 요구사항에 맞춰 제거되었습니다.
 
 function handleHostIncomingConnection(conn) {
-    // Enforce max 3 direct devices (host 제외)
+    const peerId = conn.peer;
+
+    // --------------------------------------------------------------------
+    // Duplicate connection handling (must run BEFORE "session full" check)
+    // --------------------------------------------------------------------
+    // If the same peer reconnects, treat the newest connection as authoritative.
+    // This prevents "session full" false negatives and avoids stale close events
+    // freeing the new connection's slot.
+    const existingActiveConn = activeHostConnByPeerId.get(peerId);
+    if (existingActiveConn && existingActiveConn !== conn) {
+        // Mark new connection as active first so the old close handler becomes a no-op.
+        activeHostConnByPeerId.set(peerId, conn);
+        try {
+            if (existingActiveConn.open) {
+                existingActiveConn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
+            }
+        } catch (e) { /* noop */ }
+        try { existingActiveConn.close(); } catch (e) { /* noop */ }
+    }
+
+    // Remove any lingering peer object with the same id
+    connectedPeers = connectedPeers.filter(p => p.id !== peerId);
+
+    // --------------------------------------------------------------------
+    // Enforce max guests (host 제외)
+    // --------------------------------------------------------------------
     if (connectedPeers.length >= MAX_GUEST_SLOTS) {
         try {
             conn.send({
@@ -4940,41 +5036,49 @@ function handleHostIncomingConnection(conn) {
                 message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
             });
         } catch (e) { /* noop */ }
-
         try { conn.close(); } catch (e) { /* noop */ }
         return;
     }
 
-    // Duplicate connection handling
-    const existing = connectedPeers.find(p => p.id === conn.peer);
-    if (existing) {
+    // --------------------------------------------------------------------
+    // Host-assigned slot naming: Peer 1..N (reuse freed slots)
+    // --------------------------------------------------------------------
+    const preferredSlot = peerSlotByPeerId.get(peerId) || null;
+    const slot = getAvailablePeerSlot(preferredSlot, peerId);
+    if (!slot) {
+        // Defensive: should not happen if length check passed, but keep safe.
         try {
-            existing.status = 'disconnected';
-            if (existing.conn && existing.conn.open) {
-                existing.conn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
-                existing.conn.close();
-            }
+            conn.send({
+                type: MSG.SESSION_FULL,
+                message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
+            });
         } catch (e) { /* noop */ }
-
-        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+        try { conn.close(); } catch (e) { /* noop */ }
+        return;
     }
+    assignPeerSlot(peerId, slot);
+    const deviceName = getPeerLabelBySlot(slot);
 
-    // Label: prefer guest-provided metadata (role name), fallback to numbered guest
+    // Keep guest-provided metadata only as informational (do NOT use it as the device name)
     const metaLabel = (conn && conn.metadata && typeof conn.metadata.label === 'string') ? conn.metadata.label.trim() : '';
-    const deviceName = metaLabel || `참가자 ${connectedPeers.length + 1}`;
 
-    // Track label for UI
-    peerLabels[conn.peer] = deviceName;
+    // Track label for UI/debug
+    peerLabels[peerId] = deviceName;
+
+    // New connection becomes the active one
+    activeHostConnByPeerId.set(peerId, conn);
 
     const peerObj = {
-        id: conn.peer,
+        id: peerId,
+        slot: slot,
         label: deviceName,
+        metaLabel: metaLabel,
         role: 'guest',
         status: 'connecting',
         conn,
         isOp: false,
         isDataTarget: true,
-        joinOrder: connectedPeers.length + 1,
+        joinOrder: slot, // Stable visual order: Peer 1, Peer 2, Peer 3
         lastHeartbeat: Date.now(),
         preloadedIndexes: new Set(),
         currentFileId: null,
@@ -4990,11 +5094,14 @@ function handleHostIncomingConnection(conn) {
 
         showToast(`${deviceName} 연결됨`);
 
-        // Welcome (역할은 게스트가 선택하므로 채널 강제/할당 없음)
+        // Welcome
+        // - Assign stable host-defined device label (Peer N)
+        // - 역할은 게스트가 선택하므로 채널 강제/할당 없음
         try {
             conn.send({
                 type: MSG.WELCOME,
                 lockChannel: false,
+                label: deviceName,
             });
         } catch (e) { /* noop */ }
 
@@ -5112,9 +5219,17 @@ function handleHostIncomingConnection(conn) {
     });
 
     conn.on('close', () => {
-        log.info(`[Host] Connection closed: ${conn.peer}`);
+        log.info(`[Host] Connection closed: ${peerId}`);
 
-        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+        // Ignore stale close events from replaced duplicate connections
+        if (activeHostConnByPeerId.get(peerId) !== conn) {
+            return;
+        }
+
+        activeHostConnByPeerId.delete(peerId);
+        releasePeerSlot(peerId);
+
+        connectedPeers = connectedPeers.filter(p => p.id !== peerId);
 
         updateRoleBadge();
 
@@ -5126,7 +5241,16 @@ function handleHostIncomingConnection(conn) {
     conn.on('error', (err) => {
         log.error('[Host] Connection error:', err);
 
-        connectedPeers = connectedPeers.filter(p => p.id !== conn.peer);
+        // Ignore stale errors from replaced duplicate connections
+        if (activeHostConnByPeerId.get(peerId) !== conn) {
+            try { conn.close(); } catch (e) { /* noop */ }
+            return;
+        }
+
+        activeHostConnByPeerId.delete(peerId);
+        releasePeerSlot(peerId);
+
+        connectedPeers = connectedPeers.filter(p => p.id !== peerId);
 
         updateRoleBadge();
 
@@ -5195,10 +5319,13 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
 
     let conn;
     try {
+        // IMPORTANT: myDeviceLabel is Host-assigned ("Peer N") after join.
+        // For join metadata, send the current local role label instead (informational only).
+        const joinRoleLabel = getRoleLabelByChannelMode(channelMode);
         conn = peer.connect(hostId, {
             reliable: true,
             metadata: {
-                label: myDeviceLabel || '참가자'
+                label: joinRoleLabel
             }
         });
     } catch (e) {
@@ -5330,6 +5457,13 @@ async function leaveSession() {
     });
     connectedPeers = [];
     downstreamDataPeers = [];
+
+    // Reset host-assigned peer slots
+    try {
+        activeHostConnByPeerId.clear();
+        peerSlotByPeerId.clear();
+        for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
+    } catch (_) { /* best-effort */ }
 
     // [Cleanup Media & State]
     stopAllMedia();
@@ -7235,9 +7369,62 @@ async function handleDeviceListUpdate(data) {
     renderDeviceList(data.list);
 }
 
-async function handleChat(data) {
-    const isMine = (data.sender === myDeviceLabel);
-    addChatMessage(data.sender, data.text, isMine);
+async function handleChat(data, conn) {
+    if (!data) return;
+
+    const text = (data.text !== undefined && data.text !== null) ? String(data.text) : '';
+    if (!text) return;
+
+    // ------------------------------------------------------------------
+    // Host behavior: a guest sends CHAT to Host; Host rebroadcasts to others
+    // with the canonical Host-assigned label (Peer N) to keep names stable.
+    // ------------------------------------------------------------------
+    if (!hostConn && conn && conn.peer && conn.peer !== myId) {
+        const pid = conn.peer;
+
+        // Canonical Host-assigned label
+        let senderLabel = '';
+        try {
+            const p = connectedPeers.find(x => x.id === pid);
+            if (p && p.label) senderLabel = String(p.label);
+        } catch (e) { /* noop */ }
+        if (!senderLabel && peerLabels && peerLabels[pid]) senderLabel = String(peerLabels[pid]);
+        if (!senderLabel) senderLabel = PEER_NAME_PREFIX;
+
+        const senderRole = (data.senderRole || data.role || '').toString();
+        const displayName = _formatChatDisplayName(senderLabel, senderRole);
+
+        // Show on Host UI
+        addChatMessage(displayName, text, false);
+
+        // Broadcast to all OTHER guests (exclude original sender to avoid duplicate bubbles)
+        try {
+            broadcastExcept(pid, {
+                type: MSG.CHAT,
+                senderId: pid,
+                sender: senderLabel,
+                senderLabel: senderLabel,
+                senderRole: senderRole,
+                text: text,
+                ts: data.ts || Date.now(),
+            });
+        } catch (e) { /* noop */ }
+
+        return;
+    }
+
+    // ---------------------------------------------------------------
+    // Guest/Receiver behavior: display message using label + role.
+    // ---------------------------------------------------------------
+    const senderId = data.senderId || null;
+    let senderLabel = (data.senderLabel || data.sender || '').toString();
+    if (senderLabel === 'HOST') senderLabel = 'Host';
+
+    const senderRole = (data.senderRole || data.role || '').toString();
+    const displayName = _formatChatDisplayName(senderLabel, senderRole);
+
+    const isMine = senderId ? (String(senderId) === String(myId)) : (String(data.sender || '') === String(myDeviceLabel));
+    addChatMessage(displayName, text, isMine);
 }
 
 async function handleAssignDataSource(data) {
@@ -7781,6 +7968,19 @@ function broadcast(msg, isDataOnly = false) {
         }
     });
 }
+
+// Broadcast to all peers except one (useful for chat relays to avoid duplicates)
+function broadcastExcept(excludePeerId, msg, isDataOnly = false) {
+    connectedPeers.forEach(p => {
+        if (p.status === 'connected' && p.conn.open) {
+            if (excludePeerId && p.id === excludePeerId) return;
+            if (!isDataOnly || p.isDataTarget !== false) {
+                p.conn.send(msg);
+            }
+        }
+    });
+}
+
 
 // Generates and broadcasts the device list to all peers.
 function broadcastDeviceList() {
@@ -8705,7 +8905,35 @@ function closeHelpModal() {
     // No-op (legacy).
 }
 
-let myChatLabel = 'HOST';
+let myChatLabel = 'Host';
+
+// Chat sender label rules:
+// - Host shows as "Host"
+// - Guests show as Host-assigned "Peer N" (myDeviceLabel)
+// - Never use role labels (Original/Left/Right/Woofer) as the device name.
+function _getChatLabelBase() {
+    if (!hostConn) return 'Host';
+
+    const label = (myDeviceLabel && String(myDeviceLabel).trim()) ? String(myDeviceLabel).trim() : '';
+
+    // Guard against placeholders / legacy values
+    if (!label || label === 'HOST' || label === 'Guest' || label === '참가자') return PEER_NAME_PREFIX;
+
+    // Guard against accidentally using role labels as the device name
+    const role0 = getRoleLabelByChannelMode(0);
+    const roleL = getRoleLabelByChannelMode(-1);
+    const roleR = getRoleLabelByChannelMode(1);
+    const roleS = getRoleLabelByChannelMode(2);
+    if (label === role0 || label === roleL || label === roleR || label === roleS) return PEER_NAME_PREFIX;
+
+    return label;
+}
+
+function _formatChatDisplayName(label, roleLabel) {
+    const l = (label && String(label).trim()) ? String(label).trim() : PEER_NAME_PREFIX;
+    const r = (roleLabel && String(roleLabel).trim()) ? String(roleLabel).trim() : '';
+    return r ? `${l} ${r}` : l;
+}
 
 function sendChatMessage() {
     const input = document.getElementById('chat-input');
@@ -8713,12 +8941,24 @@ function sendChatMessage() {
 
     if (!text) return;
 
-    const sender = hostConn ? myDeviceLabel : 'HOST';
-    myChatLabel = sender;
+    const senderLabel = _getChatLabelBase();
+    const senderRole = getRoleLabelByChannelMode(channelMode);
+    const displayName = _formatChatDisplayName(senderLabel, senderRole);
 
-    addChatMessage(sender, text, true);
+    myChatLabel = senderLabel;
 
-    const chatMsg = { type: MSG.CHAT, sender: sender, text: text };
+    addChatMessage(displayName, text, true);
+
+    // sender: backward-compatible field (older clients only understand sender+text)
+    const chatMsg = {
+        type: MSG.CHAT,
+        senderId: myId,
+        sender: senderLabel,
+        senderLabel: senderLabel,
+        senderRole: senderRole,
+        text: text,
+        ts: Date.now(),
+    };
 
     if (!hostConn) {
         broadcast(chatMsg);

@@ -2402,6 +2402,19 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.sync-glass-panel.panel-compact {
+    padding: 24px 28px;
+    gap: 16px;
+}
+
+.panel-compact .sync-header {
+    margin-bottom: 0;
+}
+
+.panel-compact .sync-actions-row {
+    margin-top: 12px;
+}
+
 /* Light / Dark Mode Handling is automatic via var(--surface-1) */
 
 .sync-header {

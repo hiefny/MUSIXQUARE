@@ -9,8 +9,8 @@
 // IMPORTANT: bump this when deploying changes to app shell assets
 // so existing clients don't stay pinned to stale cached JS/CSS.
 // NOTE: Bump this when app shell assets change.
-// v6: app.js fixes (worker timers, dialog API usage, broadcast queue perf)
-const CACHE_VERSION = "v6";
+// v7: minor robustness fixes (Tone.js load guards, theme storage guard, YouTube pause capture)
+const CACHE_VERSION = "v7";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

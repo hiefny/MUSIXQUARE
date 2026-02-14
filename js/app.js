@@ -309,7 +309,21 @@ function setState(newState, options = {}) {
 function cleanupState(oldState) {
     // Capture current time before stopping the current engine to prevent drift
     if (oldState !== APP_STATE.IDLE) {
-        pausedAt = getTrackPosition();
+        // YouTube uses a different clock; avoid accidentally capturing stale Tone.now()-based time.
+        if (oldState === APP_STATE.PLAYING_YOUTUBE) {
+            try {
+                if (youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
+                    const t = Number(youtubePlayer.getCurrentTime());
+                    pausedAt = (Number.isFinite(t) && t >= 0) ? t : 0;
+                } else {
+                    pausedAt = 0;
+                }
+            } catch (_) {
+                pausedAt = 0;
+            }
+        } else {
+            pausedAt = getTrackPosition();
+        }
     }
     switch (oldState) {
         case APP_STATE.PLAYING_VIDEO:
@@ -1426,21 +1440,42 @@ async function finalizeFileProcessing(file) {
 
 // --- Theme Logic ---
 function setTheme(mode) {
-    let theme = mode;
-    if (mode === 'system') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        theme = prefersDark ? 'dark' : 'light';
+    // Normalize input (defensive)
+    const allowed = new Set(['dark', 'light', 'system']);
+    const m = allowed.has(mode) ? mode : 'system';
+
+    let theme = m;
+    if (m === 'system') {
+        try {
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            theme = prefersDark ? 'dark' : 'light';
+        } catch (_) {
+            theme = 'dark';
+        }
     }
-    document.documentElement.setAttribute('data-theme', theme);
-    document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
-    document.getElementById(`theme-${mode}`).classList.add('active');
-    localStorage.setItem('musixquare-theme', mode);
+
+    try { document.documentElement.setAttribute('data-theme', theme); } catch (_) { /* ignore */ }
+
+    // Update UI (optional; some release builds may remove theme controls)
+    try {
+        document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
+        const btn = document.getElementById(`theme-${m}`);
+        if (btn) btn.classList.add('active');
+    } catch (_) { /* ignore */ }
+
+    // Persist (may throw in some in-app/private contexts)
+    try {
+        localStorage.setItem('musixquare-theme', m);
+    } catch (e) {
+        log.debug('[Theme] localStorage unavailable:', e?.message || e);
+    }
 }
 
 (function initTheme() {
-    const saved = localStorage.getItem('musixquare-theme') || 'system';
+    let saved = 'system';
+    try { saved = localStorage.getItem('musixquare-theme') || 'system'; } catch (_) { /* ignore */ }
     setTheme(saved);
-})();
+})();;
 
 // --- Tab Switching ---
 function switchTab(tabId) {
@@ -1496,111 +1531,111 @@ async function initAudio() {
         }
         if (masterGain) return; // Another call may have finished while awaiting
 
-    // 2. Channel & Stereo Processing
-    toneSplit = new Tone.Split();
-    toneMerge = new Tone.Merge();
-    gainL = new Tone.Gain(1);
-    gainR = new Tone.Gain(1);
+        // 2. Channel & Stereo Processing
+        toneSplit = new Tone.Split();
+        toneMerge = new Tone.Merge();
+        gainL = new Tone.Gain(1);
+        gainR = new Tone.Gain(1);
 
-    toneSplit.connect(gainL, 0); // L -> gainL
-    toneSplit.connect(gainR, 1); // R -> gainR
+        toneSplit.connect(gainL, 0); // L -> gainL
+        toneSplit.connect(gainR, 1); // R -> gainR
 
-    // Default Routing: Stereo (L->0, R->1 of merge)
-    gainL.connect(toneMerge, 0, 0);
-    gainR.connect(toneMerge, 0, 1);
+        // Default Routing: Stereo (L->0, R->1 of merge)
+        gainL.connect(toneMerge, 0, 0);
+        gainR.connect(toneMerge, 0, 1);
 
-    // 3. Effects Chain
-    masterGain = new Tone.Gain(1);
+        // 3. Effects Chain
+        masterGain = new Tone.Gain(1);
 
-    // EQ (5-Band) - Using 5 Peaking Filters
-    const freqs = [60, 230, 910, 3600, 14000];
-    eqNodes = freqs.map(f => {
-        const filt = new Tone.Filter({
-            type: "peaking",
-            frequency: f,
-            Q: 1.0,
-            gain: 0
+        // EQ (5-Band) - Using 5 Peaking Filters
+        const freqs = [60, 230, 910, 3600, 14000];
+        eqNodes = freqs.map(f => {
+            const filt = new Tone.Filter({
+                type: "peaking",
+                frequency: f,
+                Q: 1.0,
+                gain: 0
+            });
+            return filt;
         });
-        return filt;
-    });
 
-    // Preamplifier
-    preamp = new Tone.Gain(1);
-    widener = new Tone.StereoWidener(1);
+        // Preamplifier
+        preamp = new Tone.Gain(1);
+        widener = new Tone.StereoWidener(1);
 
-    // Reverb
-    reverb = new Tone.Reverb({
-        decay: 5.0,
-        preDelay: 0.1
-    });
-    reverb.wet.value = 1; // 100% Wet for parallel routing
-    await reverb.generate();
+        // Reverb
+        reverb = new Tone.Reverb({
+            decay: 5.0,
+            preDelay: 0.1
+        });
+        reverb.wet.value = 1; // 100% Wet for parallel routing
+        await reverb.generate();
 
-    // Damping & Mixing (New)
-    // Smooth filters (-12dB/oct) for natural sound
-    rvbLowCut = new Tone.Filter(20, "highpass", -12);
-    rvbHighCut = new Tone.Filter(20000, "lowpass", -12);
-    rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
+        // Damping & Mixing (New)
+        // Smooth filters (-12dB/oct) for natural sound
+        rvbLowCut = new Tone.Filter(20, "highpass", -12);
+        rvbHighCut = new Tone.Filter(20000, "lowpass", -12);
+        rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
-    // 4. Virtual Bass Chain (The "Secret Sauce")
-    // Parallel Path: Source -> LPF -> Chebyshev -> Gain -> Master
-    vbFilter = new Tone.Filter(subFreq, "lowpass"); // Dynamic Crossover
-    vbCheby = new Tone.Chebyshev(50); // Harmonics Generator
-    vbGain = new Tone.Gain(0); // Mix Level
+        // 4. Virtual Bass Chain (The "Secret Sauce")
+        // Parallel Path: Source -> LPF -> Chebyshev -> Gain -> Master
+        vbFilter = new Tone.Filter(subFreq, "lowpass"); // Dynamic Crossover
+        vbCheby = new Tone.Chebyshev(50); // Harmonics Generator
+        vbGain = new Tone.Gain(0); // Mix Level
 
-    // Connections
-    // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
+        // Connections
+        // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
 
-    // 1. Pre-Processing (Stereo Width & Preamp)
-    // Audio is handled via Tone.js (Buffer Mode)
-    widener.connect(preamp);
+        // 1. Pre-Processing (Stereo Width & Preamp)
+        // Audio is handled via Tone.js (Buffer Mode)
+        widener.connect(preamp);
 
-    // 2. Channel Splitting
-    preamp.connect(toneSplit);
+        // 2. Channel Splitting
+        preamp.connect(toneSplit);
 
-    // toneSplit connects to gainL/gainR (already set above: toneSplit.connect(gainL, 0)...)
-    // gainL/gainR connect to toneMerge (managed by setChannelMode)
+        // toneSplit connects to gainL/gainR (already set above: toneSplit.connect(gainL, 0)...)
+        // gainL/gainR connect to toneMerge (managed by setChannelMode)
 
-    // 3. Post-Processing (EQ & Reverb after Merge)
-    // Chain: Merge -> GlobalLowPass -> EQ -> Reverb -> Master
-    globalLowPass = new Tone.Filter(20000, "lowpass"); // Default Open
+        // 3. Post-Processing (EQ & Reverb after Merge)
+        // Chain: Merge -> GlobalLowPass -> EQ -> Reverb -> Master
+        globalLowPass = new Tone.Filter(20000, "lowpass"); // Default Open
 
-    toneMerge.connect(globalLowPass);
-    let eqIn = globalLowPass;
-    eqNodes.forEach(fx => {
-        eqIn.connect(fx);
-        eqIn = fx;
-    });
+        toneMerge.connect(globalLowPass);
+        let eqIn = globalLowPass;
+        eqNodes.forEach(fx => {
+            eqIn.connect(fx);
+            eqIn = fx;
+        });
 
-    // [Wet/Dry Routing with Damping]
-    // 1. Dry Path
-    eqIn.connect(rvbCrossFade.a);
+        // [Wet/Dry Routing with Damping]
+        // 1. Dry Path
+        eqIn.connect(rvbCrossFade.a);
 
-    // 2. Wet Path (Reverb -> LowCut -> HighCut -> CrossFade)
-    eqIn.connect(reverb);
-    reverb.connect(rvbLowCut);
-    rvbLowCut.connect(rvbHighCut);
-    rvbHighCut.connect(rvbCrossFade.b);
+        // 2. Wet Path (Reverb -> LowCut -> HighCut -> CrossFade)
+        eqIn.connect(reverb);
+        reverb.connect(rvbLowCut);
+        rvbLowCut.connect(rvbHighCut);
+        rvbHighCut.connect(rvbCrossFade.b);
 
-    // 3. Output
-    rvbCrossFade.connect(masterGain);
+        // 3. Output
+        rvbCrossFade.connect(masterGain);
 
-    // 4. Virtual Bass Chain (Parallel from Preamp)
-    // Tapping after Preamp means it gets the Widened & Boosted signal
-    preamp.connect(vbFilter);
-    vbFilter.connect(vbCheby);
-    vbCheby.connect(vbGain);
-    vbGain.connect(masterGain);
+        // 4. Virtual Bass Chain (Parallel from Preamp)
+        // Tapping after Preamp means it gets the Widened & Boosted signal
+        preamp.connect(vbFilter);
+        vbFilter.connect(vbCheby);
+        vbCheby.connect(vbGain);
+        vbGain.connect(masterGain);
 
-    // Visualizer
-    analyser = new Tone.Analyser("fft", 2048);
-    analyser.smoothing = 0.3; // Lower = more immediate/punchy response
-    masterGain.connect(analyser);
-    masterGain.toDestination();
+        // Visualizer
+        analyser = new Tone.Analyser("fft", 2048);
+        analyser.smoothing = 0.3; // Lower = more immediate/punchy response
+        masterGain.connect(analyser);
+        masterGain.toDestination();
 
-    // Initial Defaults
-    // - Apply current channelMode routing (user may have selected a role before audio init)
-    // - applySettings() is called inside setChannelMode()
+        // Initial Defaults
+        // - Apply current channelMode routing (user may have selected a role before audio init)
+        // - applySettings() is called inside setChannelMode()
         setChannelMode(channelMode);
     })();
 
@@ -1857,7 +1892,7 @@ function initSetupOverlay() {
     if (sliderArea) sliderArea.style.display = 'block';
 
     const noteArea = setupEl('setup-note');
-    if (noteArea) noteArea.style.display = 'block';
+    if (noteArea) noteArea.style.display = 'none'; // Initially hidden to save space
 
     setupShowCodeArea(false);
     setupShowJoinArea(false);
@@ -1963,6 +1998,9 @@ async function startHostFlow() {
     setupRenderActions([]); // lock while generating
 
     // Hide slider area but keep note
+    const noteArea = setupEl('setup-note');
+    if (noteArea) noteArea.style.display = 'block';
+
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) {
         sliderArea.style.display = 'none';
@@ -2019,6 +2057,9 @@ async function startGuestFlow() {
     setupSetGuestJoinBusy(false);
 
     // Hide slider area but keep note
+    const noteArea = setupEl('setup-note');
+    if (noteArea) noteArea.style.display = 'block';
+
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) {
         sliderArea.style.display = 'none';
@@ -2194,6 +2235,12 @@ document.addEventListener('visibilitychange', async () => {
 });
 
 async function activateAudio() {
+    // Tone.js must be available (CDN failure / blocked network guard)
+    if (typeof Tone === 'undefined' || !Tone || !Tone.context) {
+        showToast('오디오 엔진을 불러오지 못했어요. 네트워크 상태를 확인해주세요.');
+        return;
+    }
+
     // 1. Start Tone.js Context (User Gesture)
     if (Tone.context.state !== 'running') {
         await Tone.start();
@@ -2436,15 +2483,22 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- Playlist & Player Logic ---
-document.getElementById('file-input').addEventListener('change', async (e) => {
+const _fileInputEl = document.getElementById('file-input');
+if (_fileInputEl) _fileInputEl.addEventListener('change', async (e) => {
     // File upload is Host-only (OP cannot relay file data to other guests)
     if (hostConn) return showToast("Host만 파일을 추가할 수 있습니다.");
 
     // Initialize AudioContext immediately on user gesture
     try {
+        if (typeof Tone === 'undefined' || !Tone || !Tone.context) {
+            throw new Error('Tone.js not loaded');
+        }
         if (Tone.context.state !== 'running') await Tone.start();
         await initAudio();
-    } catch (err) { log.error(err); }
+    } catch (err) {
+        log.error(err);
+        showToast('오디오 엔진 초기화 실패');
+    }
 
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -2488,6 +2542,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     // Reset inputs
     e.target.value = '';
 });
+else log.warn("[UI] #file-input not found; 로컬 파일 추가 기능이 비활성화됩니다.");
 
 function toggleRepeat() {
     const nextMode = (repeatMode + 1) % 3;
@@ -3421,6 +3476,13 @@ async function _internalPlay(offset) {
 
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         log.warn("[Audio] Blocked play() call while in YouTube mode");
+        return;
+    }
+
+    // Defensive: Tone.js load failure guard (CDN blocked/offline)
+    if (typeof Tone === 'undefined' || !Tone || !Tone.context) {
+        log.error('[Audio] Tone.js not loaded');
+        showToast('오디오 엔진이 준비되지 않았어요. 네트워크 상태를 확인해주세요.');
         return;
     }
 
@@ -7343,7 +7405,7 @@ async function handleRequestCurrentFile(data, conn) {
     }
     const _fallbackName = (blob === currentFileBlob && meta && meta.name) ? meta.name :
         (blob === nextFileBlob && nextMeta && nextMeta.name) ? nextMeta.name :
-        (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
+            (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
     const fileToSend = _ensureNamedFile(blob, _fallbackName);
     await unicastFile(conn, fileToSend, 0, sid);
 }
@@ -7398,7 +7460,7 @@ async function handleRequestDataRecovery(data, conn) {
     }
     const _fallbackName = (blob === currentFileBlob && meta && meta.name) ? meta.name :
         (blob === nextFileBlob && nextMeta && nextMeta.name) ? nextMeta.name :
-        (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
+            (reqName || (meta && meta.name) || (nextMeta && nextMeta.name) || 'Track');
     const fileToSend = _ensureNamedFile(blob, _fallbackName);
     await unicastFile(conn, fileToSend, startChunk, sid);
 }

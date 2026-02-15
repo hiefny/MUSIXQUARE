@@ -100,6 +100,9 @@ body {
     /* Fallback */
     height: 100dvh;
     /* Mobile Fix */
+    height: var(--app-height, 100dvh);
+    /* iOS PWA first-paint 안정화(JS 주입) */
+    min-height: var(--app-height, 100dvh);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -136,6 +139,10 @@ header {
     position: sticky;
     top: 0;
     z-index: 40000;
+    /* iOS PWA: backdrop-filter/sticky first-paint 글리치 방지용(리페인트 유도) */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    will-change: transform;
     overflow: hidden;
     /* Important for masking animations */
     transition: background-color 0.3s ease;
@@ -1535,6 +1542,10 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     align-items: center;
     z-index: 100;
     border-top: none;
+    /* iOS PWA: fixed + backdrop-filter 첫 렌더 아티팩트(그림자/여백) 완화 */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 .nav-item {
@@ -2926,14 +2937,14 @@ input:checked+.slider:before {
 .chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
+    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
     /* 80px = tab-header, 72px = input-area */
 }
 
 /* Chat 컨테이너 높이 조정 (YouTube 표시 시) */
 .chat-container.with-youtube {
     /* min(56.25vw, 270px) = 480px의 16:9 비율 높이 (최대 270px) */
-    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
+    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
 }
 
 .chat-messages {

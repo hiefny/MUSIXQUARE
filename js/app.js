@@ -70,6 +70,93 @@ preventIOSPinchZoom();
 
 
 /**
+ * [iOS PWA] Viewport Height Fix
+ *
+ * iOS에서 "홈 화면에 추가"(standalone)로 최초 실행 시,
+ * 100vh/100dvh 계산이 한 번 틀어지면서 하단 탭바가 떠 보이거나
+ * 여백/그림자 같은 렌더 아티팩트가 생기는 경우가 있습니다.
+ *
+ * 해결:
+ * - 실제 viewport 높이를 px로 계산해 CSS 변수(--app-height)에 주입
+ * - pageshow/load/resize/visualViewport 이벤트에서 재적용
+ * - 첫 페인트 직후(raf/timeout) 2~3회 재시도하여 안정화
+ */
+(function initViewportHeightFix() {
+    const root = document.documentElement;
+
+    const isStandalone = () => {
+        // iOS Safari: navigator.standalone
+        // Others: display-mode media query
+        try {
+            if (window.navigator && window.navigator.standalone) return true;
+            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+        } catch (_) { /* ignore */ }
+        return false;
+    };
+
+    let _timer = null;
+
+    const apply = () => {
+        try {
+            const vv = window.visualViewport;
+            const h = (vv && Number.isFinite(vv.height) && vv.height > 0) ? vv.height : window.innerHeight;
+            if (!Number.isFinite(h) || h <= 0) return;
+            root.style.setProperty('--app-height', `${Math.round(h)}px`);
+        } catch (_) { /* ignore */ }
+    };
+
+    const schedule = () => {
+        apply();
+
+        // iOS PWA는 첫 페인트 직후 값이 변하는 케이스가 있어 2~3회 재적용
+        try {
+            requestAnimationFrame(() => {
+                apply();
+                requestAnimationFrame(apply);
+            });
+        } catch (_) { /* ignore */ }
+
+        if (_timer) {
+            try { clearTimeout(_timer); } catch (_) { /* ignore */ }
+        }
+        _timer = setTimeout(apply, 250);
+    };
+
+    // Run ASAP
+    schedule();
+
+    // Events
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    window.addEventListener('pageshow', schedule);
+    window.addEventListener('load', schedule);
+
+    if (window.visualViewport) {
+        try {
+            window.visualViewport.addEventListener('resize', schedule);
+            window.visualViewport.addEventListener('scroll', schedule);
+        } catch (_) { /* ignore */ }
+    }
+
+    // Extra: standalone에서 fixed/backdrop-filter 첫 렌더 글리치 완화용 리페인트 유도
+    if (isStandalone()) {
+        window.addEventListener('load', () => {
+            schedule();
+            try {
+                const nav = document.querySelector('.bottom-nav');
+                if (nav) {
+                    // tiny style poke to force compositor update
+                    nav.style.webkitTransform = 'translateZ(0)';
+                    nav.style.transform = 'translateZ(0)';
+                    void nav.offsetHeight;
+                }
+            } catch (_) { /* ignore */ }
+        });
+    }
+})();
+
+
+/**
  * [Robustness] Session ID Normalization
  * - transfer.worker.js의 OPFS lock은 sessionId가 'number & integer' 여야 합니다.
  * - PeerJS/DOM 등에서 string으로 들어오는 경우가 있어 항상 정수로 강제합니다.

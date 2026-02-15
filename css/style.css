@@ -29,11 +29,37 @@ html {
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
-    --safe-bottom: env(safe-area-inset-bottom, 20px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-    /* Layout constants */
     --header-height: calc(60px + var(--safe-top));
     --nav-height: 74px;
+}
+
+/* iOS PWA first-launch stabilization:
+   - prevent "shaking" caused by multiple viewport/inset recalculations
+   - avoid backdrop-filter first-paint artifacts by disabling filters briefly
+*/
+html.is-booting *,
+html.is-booting *::before,
+html.is-booting *::after {
+    transition: none !important;
+}
+
+html.is-booting header,
+html.is-booting .bottom-nav {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+html.is-booting .tab-content {
+    animation: none !important;
+}
+
+/* Setup overlay deferred mount: block interactions briefly until the setup overlay is shown */
+html.setup-boot-block header,
+html.setup-boot-block .tab-content,
+html.setup-boot-block .bottom-nav {
+    pointer-events: none !important;
 }
 
 [data-theme="light"] {
@@ -109,6 +135,71 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* Boot Splash: thin splash shown briefly before the Setup overlay mounts */
+.boot-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 50000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 220ms ease, visibility 0s linear 220ms;
+}
+
+.boot-splash.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 220ms ease;
+}
+
+.boot-splash-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.boot-splash-logo {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.5px;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+}
+
+.boot-splash-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-sub);
+}
+
+.boot-splash-spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(128, 128, 128, 0.25);
+    border-top-color: var(--primary);
+    animation: bootSpin 1s linear infinite;
+}
+
+@keyframes bootSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .boot-splash-spinner {
+        animation: none;
+    }
+}
+
 
 @keyframes fadeIn {
     from {
@@ -125,27 +216,21 @@ body {
 /* --- Header --- */
 header {
     height: var(--header-height);
-    /*
-      iOS "홈 화면에 추가"(standalone)에서는 상태바가 웹 컨텐츠 위로 겹칠 수 있습니다.
-      safe-area inset을 padding으로 반영해 상단/노치 영역과 겹치지 않도록 합니다.
-    */
     padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
     display: flex;
     justify-content: space-between;
     align-items: center;
     background: var(--glass-bg);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     position: sticky;
     top: 0;
     z-index: 40000;
-    /* iOS PWA: backdrop-filter/sticky first-paint 글리치 방지용(리페인트 유도) */
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
-    will-change: transform;
     overflow: hidden;
     /* Important for masking animations */
     transition: background-color 0.3s ease;
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 /* Header Loading State - Progress Background */
@@ -1531,8 +1616,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     left: 0;
     right: 0;
     background: var(--glass-bg);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     height: calc(var(--nav-height) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
     padding-left: var(--safe-left);
@@ -1542,8 +1627,6 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     align-items: center;
     z-index: 100;
     border-top: none;
-    /* iOS PWA: fixed + backdrop-filter 첫 렌더 아티팩트(그림자/여백) 완화 */
-    -webkit-transform: translateZ(0);
     transform: translateZ(0);
     will-change: transform;
 }
@@ -1704,6 +1787,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     align-items: center;
     justify-content: center;
     padding: 24px;
+    /* Match other overlays (sync/media/setup) for consistency */
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -2437,8 +2521,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .sync-glass-panel {
     width: 350px;
     background: var(--glass-bg);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
     border-radius: var(--radius-l);
     padding: 32px 28px;
@@ -2937,14 +3021,14 @@ input:checked+.slider:before {
 .chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
+    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
     /* 80px = tab-header, 72px = input-area */
 }
 
 /* Chat 컨테이너 높이 조정 (YouTube 표시 시) */
 .chat-container.with-youtube {
     /* min(56.25vw, 270px) = 480px의 16:9 비율 높이 (최대 270px) */
-    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
+    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
 }
 
 .chat-messages {
@@ -3042,9 +3126,7 @@ input:checked+.slider:before {
 .chat-input-area {
     display: flex;
     gap: 8px;
-    padding: 12px 20px;
-    padding-left: calc(20px + var(--safe-left));
-    padding-right: calc(20px + var(--safe-right));
+    padding: 12px calc(20px + var(--safe-right)) 12px calc(20px + var(--safe-left));
     background: var(--surface-1);
     border-top: 1px solid var(--surface-2);
     position: fixed;
@@ -3068,8 +3150,6 @@ input:checked+.slider:before {
     /* Force visibility */
 }
 
-
-/* iOS: Prevent Safari auto-zoom on focus (requires >=16px font-size) */
 .chat-input::placeholder {
     color: var(--text-sub);
     /* Higher contrast than muted */
@@ -3181,8 +3261,8 @@ input:checked+.slider:before {
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     background: var(--glass-bg);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);

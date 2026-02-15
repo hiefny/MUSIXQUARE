@@ -81,79 +81,270 @@ preventIOSPinchZoom();
  * - pageshow/load/resize/visualViewport 이벤트에서 재적용
  * - 첫 페인트 직후(raf/timeout) 2~3회 재시도하여 안정화
  */
-(function initViewportHeightFix() {
+/**
+ * [iOS PWA] First-launch layout stabilizer
+ *
+ * 증상(특히 "홈 화면에 추가"로 실행 시):
+ * - 최초 실행에서 하단 탭바가 과하게 떠 보이거나(이상한 여백/그림자)
+ * - 가끔 화면이 "부드드드" 떨리듯 레이아웃이 여러 번 바뀌는 현상
+ *
+ * 원인:
+ * - iOS standalone(WebApp)에서 초기 1~2초 동안 viewport / safe-area inset 값이
+ *   여러 번 바뀌거나(또는 잘못 계산됐다가) 사용자 상호작용(탭 전환 등) 후 정상화되는 케이스가 있습니다.
+ *
+ * 해결:
+ * - 초기에 여러 프레임 샘플링 → 중앙값(median)으로 안정화된 값만 1회 적용
+ * - backdrop-filter(blur) 레이어는 첫 페인트 글리치가 있어, 안정화 후 한 번 리프레시(nudge)
+ * - booting 동안은 transition/blur를 잠시 꺼서 "떨림" 체감을 줄임
+ */
+(function initIosPwaLayoutStabilizer() {
     const root = document.documentElement;
 
-    const isStandalone = () => {
-        // iOS Safari: navigator.standalone
-        // Others: display-mode media query
+    const isIOS = () => {
         try {
+            const ua = navigator.userAgent || '';
+            const platform = navigator.platform || '';
+            const maxTouch = navigator.maxTouchPoints || 0;
+
+            if (/iPhone|iPad|iPod/i.test(ua)) return true;
+            // iPadOS 13+는 "Mac"으로 보이기도 함
+            if (/Mac/i.test(platform) && maxTouch > 1) return true;
+        } catch (_) { /* ignore */ }
+        return false;
+    };
+
+    const isStandalone = () => {
+        try {
+            // iOS Safari: navigator.standalone
             if (window.navigator && window.navigator.standalone) return true;
+            // Others: display-mode media query
             if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
         } catch (_) { /* ignore */ }
         return false;
     };
 
-    let _timer = null;
+    // Only apply to iOS standalone. (이 이슈가 가장 크게 발생하는 케이스)
+    if (!(isIOS() && isStandalone())) return;
 
-    const apply = () => {
-        try {
-            const vv = window.visualViewport;
-            const h = (vv && Number.isFinite(vv.height) && vv.height > 0) ? vv.height : window.innerHeight;
-            if (!Number.isFinite(h) || h <= 0) return;
-            root.style.setProperty('--app-height', `${Math.round(h)}px`);
-        } catch (_) { /* ignore */ }
+    // CSS hook for iOS PWA specific mitigations
+    try { root.classList.add('ios-standalone'); } catch (_) { /* ignore */ }
+
+    let _raf = 0;
+    let _running = false;
+    let _lastRunAt = 0;
+    let _applied = { h: 0, t: 0, r: 0, b: 0, l: 0 };
+
+
+    const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+
+    const median = (arr) => {
+        if (!arr || arr.length === 0) return 0;
+        const s = [...arr].sort((a, b) => a - b);
+        return s[Math.floor(s.length / 2)];
     };
 
-    const schedule = () => {
-        apply();
+    const readViewportHeight = () => {
+        const de = document.documentElement;
+        const vv = window.visualViewport;
 
-        // iOS PWA는 첫 페인트 직후 값이 변하는 케이스가 있어 2~3회 재적용
-        try {
-            requestAnimationFrame(() => {
-                apply();
-                requestAnimationFrame(apply);
-            });
-        } catch (_) { /* ignore */ }
-
-        if (_timer) {
-            try { clearTimeout(_timer); } catch (_) { /* ignore */ }
+        let h = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
+        if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) h = Math.max(h, de.clientHeight);
+        if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+            // vv.height가 초기엔 작게 튀는 경우가 있어 "더 큰 값"을 우선합니다.
+            h = Math.max(h, vv.height);
         }
-        _timer = setTimeout(apply, 250);
+        return Math.round(h);
     };
 
-    // Run ASAP
-    schedule();
+    const readSafeInsets = () => {
+        const probe = document.createElement('div');
+        probe.style.cssText = [
+            'position:fixed',
+            'top:0',
+            'left:0',
+            'right:0',
+            'bottom:0',
+            'padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
+            'pointer-events:none',
+            'visibility:hidden',
+            'z-index:-1'
+        ].join(';');
 
-    // Events
-    window.addEventListener('resize', schedule);
-    window.addEventListener('orientationchange', schedule);
-    window.addEventListener('pageshow', schedule);
-    window.addEventListener('load', schedule);
+        const parent = document.body || document.documentElement;
+        parent.appendChild(probe);
 
-    if (window.visualViewport) {
+        const cs = getComputedStyle(probe);
+        const top = Math.round(parseFloat(cs.paddingTop) || 0);
+        const right = Math.round(parseFloat(cs.paddingRight) || 0);
+        const bottom = Math.round(parseFloat(cs.paddingBottom) || 0);
+        const left = Math.round(parseFloat(cs.paddingLeft) || 0);
+
+        probe.remove();
+        return { top, right, bottom, left };
+    };
+
+    const nudgeBackdrop = (el) => {
+        if (!el) return;
         try {
-            window.visualViewport.addEventListener('resize', schedule);
-            window.visualViewport.addEventListener('scroll', schedule);
+            // iOS에서 blur 레이어가 첫 페인트에 "그림자/여백"처럼 보이는 글리치가 있어,
+            // 잠깐 껐다가 켜는 방식으로 리페인트를 유도합니다.
+            el.style.webkitBackdropFilter = 'none';
+            el.style.backdropFilter = 'none';
+            void el.offsetHeight;
+            el.style.webkitBackdropFilter = '';
+            el.style.backdropFilter = '';
+            void el.offsetHeight;
         } catch (_) { /* ignore */ }
+    };
+
+    const applyStable = (samples) => {
+        const hs = [];
+        const tops = [];
+        const rights = [];
+        const bottoms = [];
+        const lefts = [];
+
+        for (const s of (samples || [])) {
+            if (s && Number.isFinite(s.h)) hs.push(s.h);
+            if (s && s.insets) {
+                tops.push(s.insets.top || 0);
+                rights.push(s.insets.right || 0);
+                bottoms.push(s.insets.bottom || 0);
+                lefts.push(s.insets.left || 0);
+            }
+        }
+
+        const h = clamp(median(hs), 0, 10000);
+        const t = clamp(median(tops), 0, 120);
+        const r = clamp(median(rights), 0, 120);
+        const b = clamp(median(bottoms), 0, 120);
+        const l = clamp(median(lefts), 0, 120);
+
+        const H_THRESHOLD = 2;
+        const INSET_THRESHOLD = 2;
+
+        if (h > 0 && Math.abs(h - (_applied.h || 0)) > H_THRESHOLD) {
+            root.style.setProperty('--app-height', `${h}px`);
+            _applied.h = h;
+        }
+
+        // safe-area insets도 JS로 "고정"해두면 최초 실행에서 튀는 값에 덜 민감합니다.
+        if (Math.abs(t - (_applied.t || 0)) > INSET_THRESHOLD) {
+            root.style.setProperty('--safe-top', `${t}px`);
+            _applied.t = t;
+        }
+        if (Math.abs(r - (_applied.r || 0)) > INSET_THRESHOLD) {
+            root.style.setProperty('--safe-right', `${r}px`);
+            _applied.r = r;
+        }
+        if (Math.abs(b - (_applied.b || 0)) > INSET_THRESHOLD) {
+            root.style.setProperty('--safe-bottom', `${b}px`);
+            _applied.b = b;
+        }
+        if (Math.abs(l - (_applied.l || 0)) > INSET_THRESHOLD) {
+            root.style.setProperty('--safe-left', `${l}px`);
+            _applied.l = l;
+        }
+
+        // force reflow
+        try { void (document.body || document.documentElement).offsetHeight; } catch (_) { /* ignore */ }
+    };
+
+    const run = () => {
+        if (_running) return;
+        _running = true;
+
+        root.classList.add('is-booting');
+
+        const samples = [];
+        const max = 8;
+        let count = 0;
+
+        const step = () => {
+            try {
+                samples.push({ h: readViewportHeight(), insets: readSafeInsets() });
+            } catch (_) { /* ignore */ }
+
+            count += 1;
+
+            if (count < max) {
+                _raf = requestAnimationFrame(step);
+                return;
+            }
+
+            applyStable(samples);
+            _running = false;
+
+            // Late settle pass (주소창/컴포지터 안정화)
+            setTimeout(() => {
+                try {
+                    applyStable([{ h: readViewportHeight(), insets: readSafeInsets() }]);
+                } catch (_) { /* ignore */ }
+
+                try {
+                    nudgeBackdrop(document.querySelector('header'));
+                    nudgeBackdrop(document.querySelector('.bottom-nav'));
+                } catch (_) { /* ignore */ }
+
+                setTimeout(() => root.classList.remove('is-booting'), 120);
+            }, 140);
+
+            // Extra settle pass: iOS PWA는 아주 가끔 0.5~1초 뒤에 inset/viewport가 다시 바뀝니다.
+            // (사용자가 탭을 한 번 누르면 "정상화"되는 케이스와 동일한 효과를 자동으로 냅니다)
+            setTimeout(() => {
+                try {
+                    applyStable([{ h: readViewportHeight(), insets: readSafeInsets() }]);
+                } catch (_) { /* ignore */ }
+
+                try {
+                    nudgeBackdrop(document.querySelector('header'));
+                    nudgeBackdrop(document.querySelector('.bottom-nav'));
+                } catch (_) { /* ignore */ }
+
+                // Notify "layout stable" for iOS PWA so other UI (like onboarding overlay)
+                // can be mounted AFTER the viewport/safe-area values settle.
+                try {
+                    root.classList.add('pwa-stable');
+                    window.dispatchEvent(new Event('musixquare:pwaStable'));
+                } catch (_) { /* ignore */ }
+            }, 900);
+
+        };
+
+        _raf = requestAnimationFrame(step);
+    };
+
+    const requestRun = (force = false) => {
+        const now = Date.now();
+        // 너무 자주 돌면 오히려 떨림이 생길 수 있어 throttle
+        if (!force && now - _lastRunAt < 900) return;
+
+        _lastRunAt = now;
+
+        try { cancelAnimationFrame(_raf); } catch (_) { /* ignore */ }
+        _running = false;
+
+        run();
+    };
+
+    const start = () => requestRun(true);
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+        start();
     }
 
-    // Extra: standalone에서 fixed/backdrop-filter 첫 렌더 글리치 완화용 리페인트 유도
-    if (isStandalone()) {
-        window.addEventListener('load', () => {
-            schedule();
-            try {
-                const nav = document.querySelector('.bottom-nav');
-                if (nav) {
-                    // tiny style poke to force compositor update
-                    nav.style.webkitTransform = 'translateZ(0)';
-                    nav.style.transform = 'translateZ(0)';
-                    void nav.offsetHeight;
-                }
-            } catch (_) { /* ignore */ }
-        });
-    }
+    // iOS PWA는 재진입/복귀(pageshow)에서 값이 또 튈 수 있어 재적용
+    window.addEventListener('pageshow', () => requestRun(true));
+    window.addEventListener('orientationchange', () => requestRun(true));
+    window.addEventListener('resize', () => requestRun(false));
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) requestRun(true);
+    });
 })();
+;
 
 
 /**
@@ -1941,12 +2132,27 @@ function setupEl(id) { return document.getElementById(id); }
 function showSetupOverlay() {
     const ov = setupEl('setup-overlay');
     if (ov) ov.classList.add('active');
+    // Re-enable interactions once the overlay is mounted
+    try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
+    _setupOverlayEverShown = true;
 }
 
 function hideSetupOverlay() {
+    // Safety: ensure splash isn't left visible (e.g., in edge-case navigation/cancel flows)
+    try { hideBootSplash(); } catch (_) { /* ignore */ }
     const overlay = setupEl('setup-overlay');
     if (overlay) overlay.classList.remove('active');
     stopObAutoSlide();
+    try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
+
+    // iOS PWA: closing the setup overlay can leave the bottom bar in a "pre-layout" state
+    // until a reflow happens (e.g., a tab switch). Nudge layout once here.
+    try {
+        requestAnimationFrame(() => {
+            try { window.dispatchEvent(new Event('resize')); } catch (_) { /* ignore */ }
+            try { void document.documentElement.offsetHeight; } catch (_) { /* ignore */ }
+        });
+    } catch (_) { /* ignore */ }
 }
 
 function setupShowCodeArea(show) {
@@ -2114,9 +2320,113 @@ function showRoleSelectionButtons() {
 /**
  * --- Setup Overlay Initialization ---
  */
+
+// Setup overlay mount timing
+let _setupOverlayEverShown = false;
+let _setupOverlayInitToken = 0;
+
+// Boot Splash (thin splash shown briefly before Setup overlay mounts)
+let _bootSplashFailsafeTimer = 0;
+
+function showBootSplash() {
+    const el = document.getElementById('boot-splash');
+    if (!el) return;
+    try {
+        if (_bootSplashFailsafeTimer) {
+            clearTimeout(_bootSplashFailsafeTimer);
+            _bootSplashFailsafeTimer = 0;
+        }
+        el.classList.add('active');
+        el.setAttribute('aria-hidden', 'false');
+
+        // Failsafe: never block the app forever if something goes wrong.
+        // (Max setup defer is ~2.6s, so 5s is a safe ceiling)
+        _bootSplashFailsafeTimer = setTimeout(() => {
+            try { hideBootSplash(); } catch (_) { /* ignore */ }
+        }, 5000);
+    } catch (_) { /* ignore */ }
+}
+
+function hideBootSplash() {
+    const el = document.getElementById('boot-splash');
+    if (!el) return;
+    try {
+        if (_bootSplashFailsafeTimer) {
+            clearTimeout(_bootSplashFailsafeTimer);
+            _bootSplashFailsafeTimer = 0;
+        }
+        el.classList.remove('active');
+        el.setAttribute('aria-hidden', 'true');
+    } catch (_) { /* ignore */ }
+}
+
+/**
+ * Wait before showing the Setup overlay so the underlying layout can settle first.
+ * - We delay on ALL OS for consistency.
+ * - On iOS "홈 화면에 추가"(standalone), also prefer the internal pwaStable signal.
+ */
+function _waitForSetupOverlayMount({ minDelayMs = 900, maxDelayMs = 2600 } = {}) {
+    return new Promise((resolve) => {
+        const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        let done = false;
+
+        const finish = () => {
+            if (done) return;
+            done = true;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const elapsed = now - start;
+            const remain = Math.max(0, minDelayMs - elapsed);
+            setTimeout(resolve, remain);
+        };
+
+        const hard = setTimeout(finish, maxDelayMs);
+
+        const root = document.documentElement;
+        const needsPwaStable = root.classList.contains('ios-standalone');
+
+        // Helper: resolve once pwaStable fires (or timeout)
+        const waitPwa = () => {
+            if (root.classList.contains('pwa-stable')) {
+                clearTimeout(hard);
+                finish();
+                return;
+            }
+            const onStable = () => {
+                clearTimeout(hard);
+                finish();
+            };
+            window.addEventListener('musixquare:pwaStable', onStable, { once: true });
+
+            // Fallback: even if the event never fires, don't block forever
+            setTimeout(() => {
+                try { clearTimeout(hard); } catch (_) { /* ignore */ }
+                finish();
+            }, Math.min(maxDelayMs, 2000));
+        };
+
+        if (needsPwaStable) {
+            waitPwa();
+            return;
+        }
+
+        // Non-iOS-standalone: wait for 2 paints, then minDelay gate
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                clearTimeout(hard);
+                finish();
+            }));
+        } catch (_) {
+            clearTimeout(hard);
+            finish();
+        }
+    });
+}
+
+/**
+ * --- Setup Overlay Initialization ---
+ */
 function initSetupOverlay() {
-    // Always start with Setup overlay visible
-    showSetupOverlay();
+    const token = ++_setupOverlayInitToken;
 
     // Reset UI blocks
     const sliderArea = setupEl('ob-slider-area');
@@ -2144,7 +2454,34 @@ function initSetupOverlay() {
 
     updateObSlider();
     showRoleSelectionButtons();
-    startObAutoSlide();
+
+    const showAndStart = () => {
+        if (token !== _setupOverlayInitToken) {
+            // Avoid leaving splash stuck if init is superseded.
+            hideBootSplash();
+            return;
+        }
+        // Fade out the boot splash right before mounting the setup overlay.
+        hideBootSplash();
+        showSetupOverlay();
+        startObAutoSlide();
+    };
+
+    // On the very first app launch, defer mounting the overlay so the layout can settle.
+    // If the user returns here later (e.g. "이전으로"), show immediately for better UX.
+    if (!_setupOverlayEverShown) {
+        // Ensure hidden until mount, and block interactions briefly for a consistent first-load UX.
+        try { hideSetupOverlay(); } catch (_) { /* ignore */ }
+        try { document.documentElement.classList.add('setup-boot-block'); } catch (_) { /* ignore */ }
+
+        // Show a thin splash while we intentionally delay the setup overlay mount.
+        // This makes the 0.9s wait feel natural (all OS).
+        try { showBootSplash(); } catch (_) { /* ignore */ }
+
+        _waitForSetupOverlayMount({ minDelayMs: 900, maxDelayMs: 2600 }).then(showAndStart);
+    } else {
+        showAndStart();
+    }
 
     // Bind slider events
     const btnNext = setupEl('ob-next');
@@ -2175,6 +2512,7 @@ function initSetupOverlay() {
         };
     }
 }
+
 
 function startSessionFromHost() {
     if (appRole !== 'host') return;
@@ -2533,8 +2871,6 @@ function updateRoleBadge() {
     // Reset
     badge.classList.remove('connected');
 
-    const audioRole = getAudioRoleLabelForBadge();
-
     // Update based on state
     if (isConnecting) {
         text.innerText = '연결 중...';
@@ -2545,22 +2881,22 @@ function updateRoleBadge() {
     if (hostConn) {
         const latencyTxt = (lastLatencyMs && Number.isFinite(lastLatencyMs)) ? ` (${Math.round(lastLatencyMs)}ms)` : '';
         const label = (myDeviceLabel && String(myDeviceLabel).trim()) ? String(myDeviceLabel).trim() : 'Peer';
-        // Desired format: "Peer 1 | Woofer"
-        text.innerText = `${label} | ${audioRole}${latencyTxt}`;
+        // 표시 규칙: 역할(Original/Left/Right/Woofer 등)은 숨기고 이름만 노출
+        text.innerText = `${label}${latencyTxt}`;
         badge.classList.add('connected');
         return;
     }
 
     // Host: show device label + role
     if (appRole === 'host' || connectedPeers.length > 0) {
-        text.innerText = `Host | ${audioRole}`;
+        text.innerText = 'Host';
         badge.classList.add('connected');
         return;
     }
 
     // Guest flow but not connected yet
     if (appRole === 'guest') {
-        text.innerText = `Guest | ${audioRole}`;
+        text.innerText = 'Guest';
         return;
     }
 

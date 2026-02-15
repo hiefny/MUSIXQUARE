@@ -10,7 +10,8 @@
 // so existing clients don't stay pinned to stale cached JS/CSS.
 // NOTE: Bump this when app shell assets change.
 // v7: minor robustness fixes (Tone.js load guards, theme storage guard, YouTube pause capture)
-const CACHE_VERSION = "v7";
+// v9: exclude large media (mp3/wav/..) from runtime caching + demo filename hardening
+const CACHE_VERSION = "v9";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -64,9 +65,17 @@ function isCacheableRequest(request) {
   const url = new URL(request.url);
 
   // Never cache dynamic endpoints (app is fully self-contained)
-  // Avoid caching large media downloads (demo video / user content)
-  const ext = url.pathname.split('.').pop().toLowerCase();
-  if (['mp4', 'webm', 'mkv'].includes(ext)) return false;
+  // Avoid caching large media downloads (demo media / user content)
+  const path = url.pathname || '';
+
+  // Always allow the tiny built-in dummy audio used for iOS/AudioContext keep-alive.
+  // (If we block all .mp3, offline mode would fail even though it's in APP_SHELL.)
+  if (path.endsWith('/dummy_audio.mp3') || path.endsWith('dummy_audio.mp3')) return true;
+
+  const ext = path.split('.').pop().toLowerCase();
+  // NOTE: Range requests are already excluded above.
+  // Exclude common audio/video containers to prevent storage bloat.
+  if (['mp4', 'webm', 'mkv', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'].includes(ext)) return false;
 
   return true;
 }

@@ -232,7 +232,7 @@ function normalizeChunk(chunk) {
 // Dedupe session mismatch spam
 let _lastMismatchKey = null;
 function postSessionMismatch(payload) {
-  const key = `${payload.command}|${payload.expected}|${payload.received}|${payload.filename}`;
+  const key = `${payload.command}|${payload.expected}|${payload.received}|${payload.filename}|${payload.isPreload ? 'P' : 'C'}`;
   if (key === _lastMismatchKey) return;
   _lastMismatchKey = key;
   safePost(payload);
@@ -329,7 +329,8 @@ async function handleMessage(data) {
         command: 'OPFS_WRITE',
         expected: opfsObj.sessionId,
         received: sessionId,
-        filename
+        filename,
+        isPreload
       });
       return;
     }
@@ -390,7 +391,8 @@ async function handleMessage(data) {
           command: 'OPFS_END',
           expected: opfsObj.sessionId,
           received: sessionId,
-          filename
+          filename,
+          isPreload
         });
       }
       return;

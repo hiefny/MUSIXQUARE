@@ -1,3 +1,7 @@
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
 :root {
     /* Palette - Deep & Clean & Flat */
     --bg: #000000;
@@ -177,6 +181,8 @@ header.loading .header-progress-bg {
     color: var(--text-main);
     display: flex;
     align-items: center;
+    cursor: pointer;
+    user-select: none;
 }
 
 .logo-fade {
@@ -1751,6 +1757,25 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     padding: 0 28px 32px;
     display: flex;
     justify-content: flex-end;
+    gap: 10px;
+}
+
+.dialog-secondary {
+    border: 1px solid var(--glass-border);
+    background: var(--surface-2);
+    color: var(--text-main);
+    border-radius: 18px;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 100px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dialog-secondary:active {
+    transform: scale(0.97);
+    box-shadow: none;
 }
 
 .dialog-primary {
@@ -3008,9 +3033,16 @@ input:checked+.slider:before {
     flex: 1;
     background: var(--surface-2);
     border: none;
-    padding: 14px 18px;
+    /*
+        Keep the input's CSS font-size at 16px on ALL OSes.
+        This prevents iOS Safari/WebView from auto-zooming on focus,
+        while keeping a balanced visual by slightly tightening padding.
+    */
+    padding: 12px 18px;
     border-radius: 24px;
-    font-size: 14px;
+    font-size: 16px;
+    line-height: 1.2;
+    letter-spacing: -0.2px;
     color: var(--text-main);
     font-family: inherit;
     outline: none;
@@ -3018,6 +3050,17 @@ input:checked+.slider:before {
     /* Force visibility */
 }
 
+/* Optional: If you REALLY want it to *look* like 14px while staying 16px for iOS,
+   you can enable the "optical" scale by uncommenting below.
+   Note: This can slightly affect caret/selection behavior on some browsers.
+*/
+/*
+.chat-input {
+    transform: scale(0.875);
+    transform-origin: left center;
+    width: calc(100% / 0.875);
+}
+*/
 .chat-input::placeholder {
     color: var(--text-sub);
     /* Higher contrast than muted */

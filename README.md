@@ -61,6 +61,8 @@ Use the VSCode **Live Server** extension.
 
 ## 📖 How to Use
 
+> NOTE: 데모 음원 파일명은 URL/서버 호환성을 위해 `demo_track.mp3` 로 포함되어 있습니다.
+
 ### Host (방장)
 
 1. Open the app and tap **“제가 방장할래요”**

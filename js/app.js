@@ -133,17 +133,27 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
         if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
     } catch (_) { /* ignore */ }
 
-    // Viewport height: choose a conservative value to avoid overshooting -> bottom gap.
+    // Viewport height: freeze a stable height once.
+    // - Prefer VisualViewport.height when available (most accurate visible area).
+    // - In iOS standalone(PWA), include screen.height to avoid a "dead/black" area under fixed bars.
     const de = document.documentElement;
     const vv = window.visualViewport;
-
-    const candidates = [];
-    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) candidates.push(window.innerHeight);
-    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) candidates.push(de.clientHeight);
-    if (vv && Number.isFinite(vv.height) && vv.height > 0) candidates.push(vv.height);
+    const isStandalone = isStandaloneDisplayMode();
 
     let h = 0;
-    if (candidates.length) h = Math.round(Math.min(...candidates));
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+        h = Math.round(vv.height);
+    } else if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
+        h = Math.round(window.innerHeight);
+    } else if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) {
+        h = Math.round(de.clientHeight);
+    }
+
+    // iOS 홈화면 앱(standalone)에서는 innerHeight/clientHeight가 safe-area를 제외하는 경우가 있어
+    // screen.height(=기기 화면 높이, CSS px)를 기준으로 더 큰 값을 사용합니다.
+    if (IS_IOS && isStandalone && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
+        h = Math.max(h, Math.round(window.screen.height));
+    }
 
     if (h > 0) {
         try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }

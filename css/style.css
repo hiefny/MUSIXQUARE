@@ -25,8 +25,14 @@ html {
     --glass-border: transparent;
     --glass-blur: 16px;
 
+    /* Safe areas (iOS PWA / notch devices) */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 20px);
-    --header-height: 60px;
+
+    /* Layout constants */
+    --header-height: calc(60px + var(--safe-top));
     --nav-height: 74px;
 }
 
@@ -116,7 +122,11 @@ body {
 /* --- Header --- */
 header {
     height: var(--header-height);
-    padding: 0 24px;
+    /*
+      iOS "홈 화면에 추가"(standalone)에서는 상태바가 웹 컨텐츠 위로 겹칠 수 있습니다.
+      safe-area inset을 padding으로 반영해 상단/노치 영역과 겹치지 않도록 합니다.
+    */
+    padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1518,6 +1528,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     -webkit-backdrop-filter: blur(8px);
     height: calc(var(--nav-height) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
     display: flex;
     justify-content: space-around;
     align-items: center;
@@ -3020,6 +3032,8 @@ input:checked+.slider:before {
     display: flex;
     gap: 8px;
     padding: 12px 20px;
+    padding-left: calc(20px + var(--safe-left));
+    padding-right: calc(20px + var(--safe-right));
     background: var(--surface-1);
     border-top: 1px solid var(--surface-2);
     position: fixed;

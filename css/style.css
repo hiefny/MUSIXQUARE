@@ -121,8 +121,8 @@ header {
     justify-content: space-between;
     align-items: center;
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     position: sticky;
     top: 0;
     z-index: 40000;
@@ -1514,8 +1514,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     left: 0;
     right: 0;
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     height: calc(var(--nav-height) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
     display: flex;
@@ -1681,9 +1681,9 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: 40000;
     animation: fadeIn 0.3s ease-out;
 }
@@ -2414,8 +2414,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .sync-glass-panel {
     width: 350px;
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
     border-radius: var(--radius-l);
     padding: 32px 28px;
@@ -3033,16 +3033,9 @@ input:checked+.slider:before {
     flex: 1;
     background: var(--surface-2);
     border: none;
-    /*
-        Keep the input's CSS font-size at 16px on ALL OSes.
-        This prevents iOS Safari/WebView from auto-zooming on focus,
-        while keeping a balanced visual by slightly tightening padding.
-    */
-    padding: 12px 18px;
+    padding: 14px 18px;
     border-radius: 24px;
-    font-size: 16px;
-    line-height: 1.2;
-    letter-spacing: -0.2px;
+    font-size: 14px;
     color: var(--text-main);
     font-family: inherit;
     outline: none;
@@ -3050,17 +3043,8 @@ input:checked+.slider:before {
     /* Force visibility */
 }
 
-/* Optional: If you REALLY want it to *look* like 14px while staying 16px for iOS,
-   you can enable the "optical" scale by uncommenting below.
-   Note: This can slightly affect caret/selection behavior on some browsers.
-*/
-/*
-.chat-input {
-    transform: scale(0.875);
-    transform-origin: left center;
-    width: calc(100% / 0.875);
-}
-*/
+
+/* iOS: Prevent Safari auto-zoom on focus (requires >=16px font-size) */
 .chat-input::placeholder {
     color: var(--text-sub);
     /* Higher contrast than muted */
@@ -3172,8 +3156,8 @@ input:checked+.slider:before {
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);

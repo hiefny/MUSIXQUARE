@@ -56,11 +56,6 @@ const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
-// Add a lightweight platform class for CSS tweaks (e.g., input font-size to prevent iOS auto-zoom)
-if (IS_IOS) {
-    document.documentElement.classList.add("ios");
-}
-
 /**
  * [UX] Disable iOS pinch-zoom gesture (app-like behavior)
  * NOTE: Disabling zoom can reduce accessibility. Remove if you want to allow zoom.
@@ -166,14 +161,10 @@ function checkSystemCompatibility() {
             log.error("[Compatibility] OPFS not supported.");
             showToast("브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.");
         } else if (IS_IOS) {
-            if (IOS_STARTUP_BIAS !== 0) {
-                showToast(`iOS 감지: 시작 지연 ${Math.round(IOS_STARTUP_BIAS * 1000)}ms 보정 적용`);
-            } else {
-                // iOS 감지는 사용자에게 굳이 토스트로 알릴 필요가 없어 로그만 남깁니다.
-                log.info("[Compatibility] iOS detected (no additional bias applied).");
-            }
+            // iOS 감지: 별도 토스트는 표시하지 않습니다.
+            log.info(`[Compatibility] iOS detected. IOS_STARTUP_BIAS=${IOS_STARTUP_BIAS}`);
         }
-    }, 1500);
+}, 1500);
 }
 
 // Run checks on startup
@@ -9239,11 +9230,11 @@ function _getChatLabelBase() {
 }
 
 function _formatChatDisplayName(label, roleLabel) {
+    // Chat sender 표시: 역할(Original/Left/Right/Surround 등)은 숨기고 이름(Host/Peer N)만 보여줍니다.
     const l = (label && String(label).trim()) ? String(label).trim() : PEER_NAME_PREFIX;
-    const r = (roleLabel && String(roleLabel).trim()) ? String(roleLabel).trim() : '';
-    // Keep a clear visual delimiter between device name and role
-    return r ? `${l} | ${r}` : l;
+    return l;
 }
+
 
 function sendChatMessage() {
     const input = document.getElementById('chat-input');

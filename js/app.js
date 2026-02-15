@@ -70,281 +70,126 @@ preventIOSPinchZoom();
 
 
 /**
- * [iOS PWA] Viewport Height Fix
+ * [Layout] Fixed viewport & safe-area metrics (single-shot)
  *
- * iOS에서 "홈 화면에 추가"(standalone)로 최초 실행 시,
- * 100vh/100dvh 계산이 한 번 틀어지면서 하단 탭바가 떠 보이거나
- * 여백/그림자 같은 렌더 아티팩트가 생기는 경우가 있습니다.
+ * Goals:
+ * - iOS "홈 화면에 추가"(standalone)에서 탭 이동/상호작용 때마다 viewport/safe-area 값이
+ *   미세하게 흔들리며(특히 blur + fixed/sticky 조합) 레이아웃이 "탄성"처럼 움직이거나
+ *   하단에 여유 공간이 생기는 현상을 방지합니다.
  *
- * 해결:
- * - 실제 viewport 높이를 px로 계산해 CSS 변수(--app-height)에 주입
- * - pageshow/load/resize/visualViewport 이벤트에서 재적용
- * - 첫 페인트 직후(raf/timeout) 2~3회 재시도하여 안정화
+ * Strategy:
+ * - 실시간 보정/median 샘플링 없이, 초기(또는 회전) 시점에 한 번만 값을 측정해 고정합니다.
+ * - resize/visualViewport 이벤트에는 반응하지 않습니다(탭 전환/키보드에서 흔들림 방지).
  */
-/**
- * [iOS PWA] First-launch layout stabilizer
- *
- * 증상(특히 "홈 화면에 추가"로 실행 시):
- * - 최초 실행에서 하단 탭바가 과하게 떠 보이거나(이상한 여백/그림자)
- * - 가끔 화면이 "부드드드" 떨리듯 레이아웃이 여러 번 바뀌는 현상
- *
- * 원인:
- * - iOS standalone(WebApp)에서 초기 1~2초 동안 viewport / safe-area inset 값이
- *   여러 번 바뀌거나(또는 잘못 계산됐다가) 사용자 상호작용(탭 전환 등) 후 정상화되는 케이스가 있습니다.
- *
- * 해결:
- * - 초기에 여러 프레임 샘플링 → 중앙값(median)으로 안정화된 값만 1회 적용
- * - backdrop-filter(blur) 레이어는 첫 페인트 글리치가 있어, 안정화 후 한 번 리프레시(nudge)
- * - booting 동안은 transition/blur를 잠시 꺼서 "떨림" 체감을 줄임
- */
-(function initIosPwaLayoutStabilizer() {
+let _layoutMetricsFrozen = false;
+
+function isStandaloneDisplayMode() {
+    try {
+        // iOS Safari: navigator.standalone
+        if (window.navigator && window.navigator.standalone) return true;
+        // Others: display-mode media query
+        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+    } catch (_) { /* ignore */ }
+    return false;
+}
+
+function readSafeAreaInsetsPx() {
+    const probe = document.createElement('div');
+    probe.style.cssText = [
+        'position:fixed',
+        'top:0',
+        'left:0',
+        'right:0',
+        'bottom:0',
+        'padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
+        'pointer-events:none',
+        'visibility:hidden',
+        'z-index:-1'
+    ].join(';');
+
+    const parent = document.body || document.documentElement;
+    parent.appendChild(probe);
+
+    const cs = getComputedStyle(probe);
+    const top = Math.round(parseFloat(cs.paddingTop) || 0);
+    const right = Math.round(parseFloat(cs.paddingRight) || 0);
+    const bottom = Math.round(parseFloat(cs.paddingBottom) || 0);
+    const left = Math.round(parseFloat(cs.paddingLeft) || 0);
+
+    probe.remove();
+
+    const clamp = (n) => Math.min(120, Math.max(0, n));
+    return { top: clamp(top), right: clamp(right), bottom: clamp(bottom), left: clamp(left) };
+}
+
+function freezeLayoutMetricsOnce({ force = false } = {}) {
+    if (_layoutMetricsFrozen && !force) return;
+
     const root = document.documentElement;
 
-    const isIOS = () => {
-        try {
-            const ua = navigator.userAgent || '';
-            const platform = navigator.platform || '';
-            const maxTouch = navigator.maxTouchPoints || 0;
+    // Optional hooks (CSS targeting)
+    try {
+        if (IS_IOS) root.classList.add('ios');
+        if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
+    } catch (_) { /* ignore */ }
 
-            if (/iPhone|iPad|iPod/i.test(ua)) return true;
-            // iPadOS 13+는 "Mac"으로 보이기도 함
-            if (/Mac/i.test(platform) && maxTouch > 1) return true;
-        } catch (_) { /* ignore */ }
-        return false;
-    };
+    // Viewport height: choose a conservative value to avoid overshooting -> bottom gap.
+    const de = document.documentElement;
+    const vv = window.visualViewport;
 
-    const isStandalone = () => {
-        try {
-            // iOS Safari: navigator.standalone
-            if (window.navigator && window.navigator.standalone) return true;
-            // Others: display-mode media query
-            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
-        } catch (_) { /* ignore */ }
-        return false;
-    };
+    const candidates = [];
+    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) candidates.push(window.innerHeight);
+    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) candidates.push(de.clientHeight);
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) candidates.push(vv.height);
 
-    // Only apply to iOS standalone. (이 이슈가 가장 크게 발생하는 케이스)
-    if (!(isIOS() && isStandalone())) return;
+    let h = 0;
+    if (candidates.length) h = Math.round(Math.min(...candidates));
 
-    // CSS hook for iOS PWA specific mitigations
-    try { root.classList.add('ios-standalone'); } catch (_) { /* ignore */ }
-
-    let _raf = 0;
-    let _running = false;
-    let _lastRunAt = 0;
-    let _applied = { h: 0, t: 0, r: 0, b: 0, l: 0 };
-
-
-    const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
-
-    const median = (arr) => {
-        if (!arr || arr.length === 0) return 0;
-        const s = [...arr].sort((a, b) => a - b);
-        return s[Math.floor(s.length / 2)];
-    };
-
-    const readViewportHeight = () => {
-        const de = document.documentElement;
-        const vv = window.visualViewport;
-
-        let h = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
-        if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) h = Math.max(h, de.clientHeight);
-        if (vv && Number.isFinite(vv.height) && vv.height > 0) {
-            // vv.height가 초기엔 작게 튀는 경우가 있어 "더 큰 값"을 우선합니다.
-            h = Math.max(h, vv.height);
-        }
-        return Math.round(h);
-    };
-
-    const readSafeInsets = () => {
-        const probe = document.createElement('div');
-        probe.style.cssText = [
-            'position:fixed',
-            'top:0',
-            'left:0',
-            'right:0',
-            'bottom:0',
-            'padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
-            'pointer-events:none',
-            'visibility:hidden',
-            'z-index:-1'
-        ].join(';');
-
-        const parent = document.body || document.documentElement;
-        parent.appendChild(probe);
-
-        const cs = getComputedStyle(probe);
-        const top = Math.round(parseFloat(cs.paddingTop) || 0);
-        const right = Math.round(parseFloat(cs.paddingRight) || 0);
-        const bottom = Math.round(parseFloat(cs.paddingBottom) || 0);
-        const left = Math.round(parseFloat(cs.paddingLeft) || 0);
-
-        probe.remove();
-        return { top, right, bottom, left };
-    };
-
-    const nudgeBackdrop = (el) => {
-        if (!el) return;
-        try {
-            // iOS에서 blur 레이어가 첫 페인트에 "그림자/여백"처럼 보이는 글리치가 있어,
-            // 잠깐 껐다가 켜는 방식으로 리페인트를 유도합니다.
-            el.style.webkitBackdropFilter = 'none';
-            el.style.backdropFilter = 'none';
-            void el.offsetHeight;
-            el.style.webkitBackdropFilter = '';
-            el.style.backdropFilter = '';
-            void el.offsetHeight;
-        } catch (_) { /* ignore */ }
-    };
-
-    const applyStable = (samples) => {
-        const hs = [];
-        const tops = [];
-        const rights = [];
-        const bottoms = [];
-        const lefts = [];
-
-        for (const s of (samples || [])) {
-            if (s && Number.isFinite(s.h)) hs.push(s.h);
-            if (s && s.insets) {
-                tops.push(s.insets.top || 0);
-                rights.push(s.insets.right || 0);
-                bottoms.push(s.insets.bottom || 0);
-                lefts.push(s.insets.left || 0);
-            }
-        }
-
-        const h = clamp(median(hs), 0, 10000);
-        const t = clamp(median(tops), 0, 120);
-        const r = clamp(median(rights), 0, 120);
-        const b = clamp(median(bottoms), 0, 120);
-        const l = clamp(median(lefts), 0, 120);
-
-        const H_THRESHOLD = 2;
-        const INSET_THRESHOLD = 2;
-
-        if (h > 0 && Math.abs(h - (_applied.h || 0)) > H_THRESHOLD) {
-            root.style.setProperty('--app-height', `${h}px`);
-            _applied.h = h;
-        }
-
-        // safe-area insets도 JS로 "고정"해두면 최초 실행에서 튀는 값에 덜 민감합니다.
-        if (Math.abs(t - (_applied.t || 0)) > INSET_THRESHOLD) {
-            root.style.setProperty('--safe-top', `${t}px`);
-            _applied.t = t;
-        }
-        if (Math.abs(r - (_applied.r || 0)) > INSET_THRESHOLD) {
-            root.style.setProperty('--safe-right', `${r}px`);
-            _applied.r = r;
-        }
-        if (Math.abs(b - (_applied.b || 0)) > INSET_THRESHOLD) {
-            root.style.setProperty('--safe-bottom', `${b}px`);
-            _applied.b = b;
-        }
-        if (Math.abs(l - (_applied.l || 0)) > INSET_THRESHOLD) {
-            root.style.setProperty('--safe-left', `${l}px`);
-            _applied.l = l;
-        }
-
-        // force reflow
-        try { void (document.body || document.documentElement).offsetHeight; } catch (_) { /* ignore */ }
-    };
-
-    const run = () => {
-        if (_running) return;
-        _running = true;
-
-        root.classList.add('is-booting');
-
-        const samples = [];
-        const max = 8;
-        let count = 0;
-
-        const step = () => {
-            try {
-                samples.push({ h: readViewportHeight(), insets: readSafeInsets() });
-            } catch (_) { /* ignore */ }
-
-            count += 1;
-
-            if (count < max) {
-                _raf = requestAnimationFrame(step);
-                return;
-            }
-
-            applyStable(samples);
-            _running = false;
-
-            // Late settle pass (주소창/컴포지터 안정화)
-            setTimeout(() => {
-                try {
-                    applyStable([{ h: readViewportHeight(), insets: readSafeInsets() }]);
-                } catch (_) { /* ignore */ }
-
-                try {
-                    nudgeBackdrop(document.querySelector('header'));
-                    nudgeBackdrop(document.querySelector('.bottom-nav'));
-                } catch (_) { /* ignore */ }
-
-                setTimeout(() => root.classList.remove('is-booting'), 120);
-            }, 140);
-
-            // Extra settle pass: iOS PWA는 아주 가끔 0.5~1초 뒤에 inset/viewport가 다시 바뀝니다.
-            // (사용자가 탭을 한 번 누르면 "정상화"되는 케이스와 동일한 효과를 자동으로 냅니다)
-            setTimeout(() => {
-                try {
-                    applyStable([{ h: readViewportHeight(), insets: readSafeInsets() }]);
-                } catch (_) { /* ignore */ }
-
-                try {
-                    nudgeBackdrop(document.querySelector('header'));
-                    nudgeBackdrop(document.querySelector('.bottom-nav'));
-                } catch (_) { /* ignore */ }
-
-                // Notify "layout stable" for iOS PWA so other UI (like onboarding overlay)
-                // can be mounted AFTER the viewport/safe-area values settle.
-                try {
-                    root.classList.add('pwa-stable');
-                    window.dispatchEvent(new Event('musixquare:pwaStable'));
-                } catch (_) { /* ignore */ }
-            }, 900);
-
-        };
-
-        _raf = requestAnimationFrame(step);
-    };
-
-    const requestRun = (force = false) => {
-        const now = Date.now();
-        // 너무 자주 돌면 오히려 떨림이 생길 수 있어 throttle
-        if (!force && now - _lastRunAt < 900) return;
-
-        _lastRunAt = now;
-
-        try { cancelAnimationFrame(_raf); } catch (_) { /* ignore */ }
-        _running = false;
-
-        run();
-    };
-
-    const start = () => requestRun(true);
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', start, { once: true });
-    } else {
-        start();
+    if (h > 0) {
+        try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
     }
 
-    // iOS PWA는 재진입/복귀(pageshow)에서 값이 또 튈 수 있어 재적용
-    window.addEventListener('pageshow', () => requestRun(true));
-    window.addEventListener('orientationchange', () => requestRun(true));
-    window.addEventListener('resize', () => requestRun(false));
+    // Safe area insets: read once and pin to CSS variables.
+    try {
+        const insets = readSafeAreaInsetsPx();
+        root.style.setProperty('--safe-top', `${insets.top}px`);
+        root.style.setProperty('--safe-right', `${insets.right}px`);
+        root.style.setProperty('--safe-bottom', `${insets.bottom}px`);
+        root.style.setProperty('--safe-left', `${insets.left}px`);
+    } catch (_) { /* ignore */ }
 
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) requestRun(true);
+    _layoutMetricsFrozen = true;
+}
+
+// Freeze once after the first paint.
+// (We do NOT listen to resize; only orientation change is treated as a real geometry change.)
+(function initFixedLayoutMetrics() {
+    const run = () => {
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                freezeLayoutMetricsOnce();
+            }));
+        } catch (_) {
+            freezeLayoutMetricsOnce();
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+        run();
+    }
+
+    window.addEventListener('orientationchange', () => {
+        _layoutMetricsFrozen = false;
+        setTimeout(() => freezeLayoutMetricsOnce({ force: true }), 350);
     });
 })();
-;
+
+
+
+
+
 
 
 /**
@@ -2149,7 +1994,7 @@ function hideSetupOverlay() {
     // until a reflow happens (e.g., a tab switch). Nudge layout once here.
     try {
         requestAnimationFrame(() => {
-            try { window.dispatchEvent(new Event('resize')); } catch (_) { /* ignore */ }
+            // Reflow nudge only (no resize dispatch; avoids triggering layout jitter on some iOS PWAs)
             try { void document.documentElement.offsetHeight; } catch (_) { /* ignore */ }
         });
     } catch (_) { /* ignore */ }
@@ -2381,42 +2226,15 @@ function _waitForSetupOverlayMount({ minDelayMs = 900, maxDelayMs = 2600 } = {})
 
         const hard = setTimeout(finish, maxDelayMs);
 
-        const root = document.documentElement;
-        const needsPwaStable = root.classList.contains('ios-standalone');
-
-        // Helper: resolve once pwaStable fires (or timeout)
-        const waitPwa = () => {
-            if (root.classList.contains('pwa-stable')) {
-                clearTimeout(hard);
-                finish();
-                return;
-            }
-            const onStable = () => {
-                clearTimeout(hard);
-                finish();
-            };
-            window.addEventListener('musixquare:pwaStable', onStable, { once: true });
-
-            // Fallback: even if the event never fires, don't block forever
-            setTimeout(() => {
-                try { clearTimeout(hard); } catch (_) { /* ignore */ }
-                finish();
-            }, Math.min(maxDelayMs, 2000));
-        };
-
-        if (needsPwaStable) {
-            waitPwa();
-            return;
-        }
-
-        // Non-iOS-standalone: wait for 2 paints, then minDelay gate
+        // Non-janky: wait for 2 paints, then apply the minimum delay.
+        // (No real-time viewport/safe-area corrections here.)
         try {
             requestAnimationFrame(() => requestAnimationFrame(() => {
-                clearTimeout(hard);
+                try { clearTimeout(hard); } catch (_) { /* ignore */ }
                 finish();
             }));
         } catch (_) {
-            clearTimeout(hard);
+            try { clearTimeout(hard); } catch (_) { /* ignore */ }
             finish();
         }
     });
@@ -2461,6 +2279,9 @@ function initSetupOverlay() {
             hideBootSplash();
             return;
         }
+        // Freeze viewport/safe-area metrics once (no real-time corrections) before revealing UI.
+        try { freezeLayoutMetricsOnce({ force: true }); } catch (_) { /* ignore */ }
+
         // Fade out the boot splash right before mounting the setup overlay.
         hideBootSplash();
         showSetupOverlay();
@@ -3025,7 +2846,11 @@ function initEventListeners() {
 
     // --- Bottom Navigation ---
     document.querySelectorAll('.bottom-nav .nav-item[data-tab]').forEach(el => {
-        el.addEventListener('click', () => switchTab(el.dataset.tab));
+        el.addEventListener('click', () => {
+            // iOS PWA: avoid keeping focus on the bottom nav button (can cause subtle scroll/jank)
+            try { el.blur(); } catch (_) { /* ignore */ }
+            switchTab(el.dataset.tab);
+        });
     });
 
     // --- Guide Tab ---

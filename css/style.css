@@ -122,17 +122,26 @@ body {
     background-color: var(--bg);
     color: var(--text-main);
     font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif;
+
+    /* Viewport sizing:
+       - Prefer modern viewport units (dvh/svh) when available.
+       - We also allow a single-shot JS override via --app-height (fixed after boot). */
     height: 100vh;
-    /* Fallback */
     height: 100dvh;
-    /* Mobile Fix */
     height: var(--app-height, 100dvh);
-    /* iOS PWA first-paint 안정화(JS 주입) */
     min-height: var(--app-height, 100dvh);
+
     display: flex;
     flex-direction: column;
     overflow: hidden;
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@supports (height: 100svh) {
+    body {
+        height: var(--app-height, 100svh);
+        min-height: var(--app-height, 100svh);
+    }
 }
 
 /* Boot Splash: thin splash shown briefly before the Setup overlay mounts */
@@ -392,7 +401,8 @@ header.loading .header-loading-text {
 }
 
 .tab-content {
-    animation: fadeIn 0.3s ease-out;
+    /* Avoid animating entire tab panels (especially under backdrop-filter) to prevent iOS PWA jank */
+    animation: none;
     flex: 1;
     display: none;
     flex-direction: column;

@@ -39,111 +39,6 @@ let preloadFileOpfs = createOpfsSlot();
 let instanceId = 'default';
 
 // -----------------------------
-// OPFS Housekeeping
-// -----------------------------
-function isManagedOpfsEntryName(name) {
-  return (typeof name === 'string') && (name.startsWith('current_') || name.startsWith('preload_'));
-}
-
-function parseInstanceIdFromEntryName(name) {
-  if (typeof name !== 'string') return null;
-  const idx = name.lastIndexOf('_');
-  if (idx < 0 || idx >= name.length - 1) return null;
-  return name.slice(idx + 1);
-}
-
-async function sweepStaleOpfsEntries({ activeInstanceIds = [], maxDeletions = 2000, reason = '' } = {}) {
-  // Best-effort cleanup of stale OPFS files created by previous runs.
-  // We only delete entries matching our naming convention:
-  //   current_<sanitizedFilename>_<instanceId>
-  //   preload_<sanitizedFilename>_<instanceId>
-  // and only when <instanceId> is NOT in the provided active list.
-
-  const active = new Set();
-  try {
-    (activeInstanceIds || []).forEach((id) => {
-      if (id !== undefined && id !== null) active.add(String(id));
-    });
-  } catch (_) {
-    // ignore
-  }
-
-  // Always treat our own instance as active.
-  try { active.add(String(instanceId)); } catch (_) { /* ignore */ }
-
-  const protectedNames = new Set();
-  try {
-    if (currentFileOpfs && currentFileOpfs.isLocked && currentFileOpfs.name) {
-      protectedNames.add(buildSafeName(currentFileOpfs.name, false));
-    }
-    if (preloadFileOpfs && preloadFileOpfs.isLocked && preloadFileOpfs.name) {
-      protectedNames.add(buildSafeName(preloadFileOpfs.name, true));
-    }
-  } catch (_) { /* ignore */ }
-
-  let deleted = 0;
-  let kept = 0;
-  let errors = 0;
-
-  try {
-    if (!(navigator && navigator.storage && typeof navigator.storage.getDirectory === 'function')) {
-      safePost({ type: 'OPFS_SWEEP_COMPLETE', deleted, kept, errors, reason, skipped: true, error: 'OPFS_NOT_SUPPORTED' });
-      return;
-    }
-
-    const root = await navigator.storage.getDirectory();
-
-    for await (const [name, handle] of root.entries()) {
-      if (!isManagedOpfsEntryName(name)) continue;
-      if (protectedNames.has(name)) {
-        kept++;
-        continue;
-      }
-
-      const id = parseInstanceIdFromEntryName(name);
-      if (!id) {
-        kept++;
-        continue;
-      }
-
-      if (active.has(id)) {
-        kept++;
-        continue;
-      }
-
-      // Only delete files (not directories)
-      try {
-        if (handle && handle.kind && handle.kind !== 'file') {
-          kept++;
-          continue;
-        }
-      } catch (_) { /* ignore */ }
-
-      try {
-        await root.removeEntry(name);
-        deleted++;
-        if (deleted >= maxDeletions) break;
-      } catch (e) {
-        errors++;
-        // Continue sweeping even if one entry fails (e.g., locked by another context).
-        console.warn('[TransferWorker] OPFS sweep removeEntry failed:', name, e && e.message ? e.message : e);
-      }
-    }
-
-    safePost({ type: 'OPFS_SWEEP_COMPLETE', deleted, kept, errors, reason });
-  } catch (e) {
-    safePost({
-      type: 'OPFS_SWEEP_COMPLETE',
-      deleted,
-      kept,
-      errors: errors + 1,
-      reason,
-      error: e && e.message ? e.message : String(e)
-    });
-  }
-}
-
-// -----------------------------
 // Queue (fast)
 // -----------------------------
 let isProcessing = false;
@@ -349,16 +244,6 @@ async function handleMessage(data) {
   if (command === 'INIT_INSTANCE') {
     instanceId = data.instanceId || 'default';
     console.log(`[TransferWorker] Instance Initialized: ${instanceId}`);
-    return;
-  }
-
-  if (command === 'OPFS_SWEEP') {
-    // Best-effort cleanup of stale OPFS files.
-    await sweepStaleOpfsEntries({
-      activeInstanceIds: data && data.activeInstanceIds,
-      maxDeletions: data && data.maxDeletions,
-      reason: data && data.reason
-    });
     return;
   }
 

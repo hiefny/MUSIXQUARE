@@ -11,6 +11,7 @@ html.standalone {
     overflow: hidden;
     height: 100%;
 }
+
 html.standalone body {
     overflow: hidden;
 }
@@ -114,7 +115,9 @@ html.setup-boot-block .bottom-nav {
 }
 
 /* Allow text selection & caret control in editable fields */
-input, textarea, [contenteditable="true"] {
+input,
+textarea,
+[contenteditable="true"] {
     user-select: text;
     -webkit-user-select: text;
 }
@@ -229,8 +232,13 @@ body {
 }
 
 @keyframes bootSpin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -262,8 +270,10 @@ header {
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 40000;
     overflow: hidden;
     /* Important for masking animations */
@@ -439,6 +449,7 @@ header.loading .header-loading-text {
     display: none;
     flex-direction: column;
     overflow-y: auto;
+    padding-top: var(--header-height);
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
     scrollbar-width: none;
     -ms-overflow-style: none;

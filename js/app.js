@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * MUSIXQUARE - Multi-Device Synchronized Audio Player
  * ============================================================================
@@ -374,7 +374,7 @@ function checkSystemCompatibility() {
             // iOS 감지: 별도 토스트는 표시하지 않습니다.
             log.info(`[Compatibility] iOS detected. IOS_STARTUP_BIAS=${IOS_STARTUP_BIAS}`);
         }
-}, 1500);
+    }, 1500);
 }
 
 // Run checks on startup
@@ -2047,7 +2047,7 @@ async function copyInviteCode() {
     const ok = await copyTextToClipboard(code);
 
     if (ok) {
-        showToast("초대 코드가 복사되었습니다!");
+        showToast("초대 코드를 복사했어요!");
 
         // Visual feedback for all containers
         const values = document.querySelectorAll('.invite-code-value');
@@ -2056,7 +2056,7 @@ async function copyInviteCode() {
             setTimeout(() => el.classList.remove('copied'), 1000);
         });
     } else {
-        showToast("복사 실패");
+        showToast("복사하지 못했어요");
     }
 }
 
@@ -2430,7 +2430,7 @@ function startSessionFromHost() {
     hideSetupOverlay();
 
     // Host UX
-    showToast('초대 코드는 설정에서 확인하실 수 있어요');
+    showToast('초대 코드는 설정에서 확인할 수 있어요');
     updateRoleBadge();
 
     // Init: Visually select "Original" (0) for Host
@@ -2458,7 +2458,7 @@ async function startHostFlow() {
         await activateAudio();
     } catch (e) {
         log.warn('[Audio] activateAudio failed (host flow):', e);
-        showToast('오디오 초기화에 실패했어요. 화면을 한 번 터치한 뒤 다시 시도해 주세요.');
+        showToast('오디오를 준비하지 못했어요. 화면을 한 번 터치한 뒤 다시 시도해 보세요.');
     }
 
     appRole = 'host';
@@ -2469,7 +2469,7 @@ async function startHostFlow() {
     // Prepare UI
     setupShowJoinArea(false);
     setupShowRoleArea(false);
-    setupShowInstruction(true, '연결 코드 생성 중…');
+    setupShowInstruction(true, '연결 코드를 만들고 있어요…');
     setupShowCodeArea(true);
     const codeEl = setupEl('setup-code');
     if (codeEl) codeEl.textContent = '------';
@@ -2504,7 +2504,7 @@ async function startHostFlow() {
         ]);
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
-        showToast('호스트 세션 생성 실패');
+        showToast('세션을 만들지 못했어요');
         initSetupOverlay();
     }
 }
@@ -2516,7 +2516,7 @@ async function startGuestFlow() {
         await activateAudio();
     } catch (e) {
         log.warn('[Audio] activateAudio failed (guest flow):', e);
-        showToast('오디오 초기화에 실패했어요. 화면을 한 번 터치한 뒤 다시 시도해 주세요.');
+        showToast('오디오를 준비하지 못했어요. 화면을 한 번 터치한 뒤 다시 시도해 보세요.');
     }
 
     appRole = 'guest';
@@ -2566,7 +2566,7 @@ function proceedToGuestRoleSelection() {
     const code = codeRaw.replace(/\s+/g, '');
 
     if (!/^\d{6}$/.test(code)) {
-        showToast('6자리 코드를 입력해주세요.');
+        showToast('6자리 코드를 입력해 주세요');
         if (input) input.focus();
         return;
     }
@@ -2613,7 +2613,7 @@ function handleSetupRolePreview(mode) {
 
 async function handleSetupJoinWithRole(mode) {
     if (mode === null || mode === undefined) {
-        showToast('역할을 선택해주세요');
+        showToast('역할을 선택해 주세요');
         return;
     }
     if (appRole !== 'guest') {
@@ -2625,7 +2625,7 @@ async function handleSetupJoinWithRole(mode) {
     const code = codeRaw.replace(/\s+/g, '');
 
     if (!/^\d{6}$/.test(code)) {
-        showToast('6자리 코드를 입력해주세요.');
+        showToast('6자리 코드를 입력해 주세요');
         if (input) input.focus();
         return;
     }
@@ -2673,7 +2673,7 @@ async function handleSetupJoinWithRole(mode) {
             log.error('[Setup] Guest init/join failed', e);
             isConnecting = false;
             updateRoleBadge();
-            showToast('참가에 실패했어요. 같은 Wi‑Fi인지 확인해주세요.');
+            showToast('참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.');
 
             // Re-render role selection but with enabled buttons if failing (instead of startGuestFlow entirely if we want to stay here)
             // But current code goes back to startGuestFlow. Let's stick to that but ensure UI resets.
@@ -2716,7 +2716,7 @@ document.addEventListener('visibilitychange', async () => {
 async function activateAudio() {
     // Tone.js must be available (CDN failure / blocked network guard)
     if (typeof Tone === 'undefined' || !Tone || !Tone.context) {
-        showToast('오디오 엔진을 불러오지 못했어요. 네트워크 상태를 확인해주세요.');
+        showToast('오디오 엔진을 불러오지 못했어요. 네트워크를 확인해 보세요.');
         return;
     }
 
@@ -2823,7 +2823,7 @@ function openFileSelector() {
     const input = document.getElementById('file-input');
     if (!input) {
         log.warn('[UI] #file-input not found; cannot open file selector');
-        showToast('파일 선택을 사용할 수 없어요.');
+        showToast('파일을 선택할 수 없어요');
         return;
     }
 
@@ -3021,7 +3021,7 @@ document.addEventListener('DOMContentLoaded', () => {
 const _fileInputEl = document.getElementById('file-input');
 if (_fileInputEl) _fileInputEl.addEventListener('change', async (e) => {
     // File upload is Host-only (OP cannot relay file data to other guests)
-    if (hostConn) return showToast("Host만 파일을 추가할 수 있습니다.");
+    if (hostConn) return showToast("호스트만 파일을 추가할 수 있어요");
 
     // Initialize AudioContext immediately on user gesture
     try {
@@ -3032,7 +3032,7 @@ if (_fileInputEl) _fileInputEl.addEventListener('change', async (e) => {
         await initAudio();
     } catch (err) {
         log.error(err);
-        showToast('오디오 엔진 초기화 실패');
+        showToast('오디오 엔진을 준비하지 못했어요');
     }
 
     const files = Array.from(e.target.files);
@@ -3056,7 +3056,7 @@ if (_fileInputEl) _fileInputEl.addEventListener('change', async (e) => {
     if (currentTrackIndex === -1) {
         playTrack(0);
     } else {
-        showToast(`${files.length}곡 추가됨`);
+        showToast(`${files.length}곡을 추가했어요`);
 
         // Re-evaluate preload when new songs are added
         // Case 1: No preload queued yet -> trigger
@@ -3552,7 +3552,7 @@ async function playTrack(index) {
                 isFirstTrackLoad = false;
                 // Load YouTube but DON'T auto-play (playerVars.autoplay will be 0)
                 loadYouTubeVideo(item.videoId, item.playlistId, false);
-                showToast("YouTube 준비 완료! 재생 버튼을 눌러주세요.");
+                showToast("YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.");
             } else {
                 // Load first (paused), then auto-play after 3s
                 loadYouTubeVideo(item.videoId, item.playlistId, false);
@@ -3591,7 +3591,7 @@ async function playTrack(index) {
         // AUTO PLAY with 3s Delay - Only on track advancement, not first load
         if (isFirstTrackLoad) {
             isFirstTrackLoad = false;  // Mark first load as done
-            showToast("파일 준비 완료! 재생 버튼을 눌러주세요.");
+            showToast("파일이 준비됐어요! 재생 버튼을 눌러 보세요.");
         } else {
             showToast("3초 후 재생 시작...");
             managedTimers.autoPlayTimer = setTimeout(() => {
@@ -3784,7 +3784,7 @@ async function backgroundTransfer(file, index, sessionId) {
 
 function playNextTrack() {
     // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+    if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
 
     // OP: request Host to change track
     if (hostConn && isOperator) {
@@ -3849,7 +3849,7 @@ function playNextTrack() {
 
 function playPrevTrack() {
     // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+    if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
 
     // OP: request Host to change track
     if (hostConn && isOperator) {
@@ -3933,7 +3933,7 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         // // Force Buffer Mode for ALL devices (Host & Guest) and ALL OSs.
         // This eliminates sync drift by serving audio from RAM via WebAudio Clock.
         log.debug("[BufferMode] Decoding audio for high-precision sync...");
-        showToast("고정밀 동기화 모드: 오디오 디코딩 중...");
+        showToast("고정밀 동기화: 오디오를 준비하고 있어요…");
 
         // 1. Decode Audio
         const arrayBuffer = await file.arrayBuffer();
@@ -4016,7 +4016,7 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
             // Do NOT await broadcastFile.
             // This allows the Host to start playing and updates the UI immediately
             // while chunks are sent in the background.
-            showToast("파일 전송 중...");
+            showToast("파일을 보내고 있어요…");
             broadcastFile(file, sessionId);
         }
 
@@ -4082,7 +4082,7 @@ async function _internalPlay(offset) {
     // Defensive: Tone.js load failure guard (CDN blocked/offline)
     if (typeof Tone === 'undefined' || !Tone || !Tone.context) {
         log.error('[Audio] Tone.js not loaded');
-        showToast('오디오 엔진이 준비되지 않았어요. 네트워크 상태를 확인해주세요.');
+        showToast('오디오 엔진이 아직 준비되지 않았어요. 네트워크를 확인해 보세요.');
         return;
     }
 
@@ -4104,7 +4104,7 @@ async function _internalPlay(offset) {
         await initAudio();
     } catch (e) {
         log.error('[Audio] initAudio failed:', e);
-        showToast('오디오 엔진 초기화 실패');
+        showToast('오디오 엔진을 준비하지 못했어요');
         return;
     }
 
@@ -4436,7 +4436,7 @@ function setEngineMode(mode) {
 
 
 function togglePlay() {
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+    if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
 
     // YouTube Mode: Control via YT API
     if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer) {
@@ -4476,7 +4476,7 @@ function togglePlay() {
     // Cancel pending auto-play timer if host manually controls playback
     if (!hostConn && managedTimers.autoPlayTimer) {
         clearManagedTimer('autoPlayTimer');
-        showToast("자동 재생 취소됨");
+        showToast("자동 재생을 취소했어요");
     }
 
     if (isActuallyPlaying) {
@@ -4490,13 +4490,13 @@ function togglePlay() {
 
 function stopPlayback() {
     // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+    if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
 
     // OP: request Host to stop (seek to 0 then pause)
     if (hostConn && isOperator) {
         try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch (_) { }
         try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch (_) { }
-        showToast("정지 요청 전송됨");
+        showToast("정지 요청을 보냈어요");
         return;
     }
 
@@ -4559,7 +4559,7 @@ function pause(forcedTime) {
 
 function skipTime(sec) {
     // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return showToast("Host만 실행할 수 있습니다.");
+    if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
 
     // OP: request Host to skip time
     if (hostConn && isOperator) {
@@ -5947,11 +5947,11 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
 
 function showConnectionFailedOverlay(title, message, hostId = '') {
     // Simplified: Use the in-app dialog (no external links / no separate overlay)
-    const extra = '* 로컬(같은 Wi‑Fi/핫스팟)에서만 연결됩니다.';
+    const extra = '* 같은 Wi‑Fi나 핫스팟에서만 연결할 수 있어요.';
     // NOTE: showDialog() only accepts a single argument; use the object form.
     // Also, dialog text is rendered via textContent (no HTML) for safety.
     showDialog({
-        title: String(title || '연결 실패'),
+        title: String(title || '연결하지 못했어요'),
         message: `${String(message || '')}\n\n${extra}`
     });
 
@@ -7640,7 +7640,7 @@ function handleSessionStart() {
 }
 
 function handleSessionFull(data) {
-    const msg = (data && data.message) ? data.message : '세션이 가득 찼습니다.';
+    const msg = (data && data.message) ? data.message : '세션이 가득 찼어요';
     showDialog({ title: '참가할 수 없어요', message: String(msg || '') });
 
     // Avoid triggering extra "connection failed" UI

@@ -25,22 +25,16 @@
     <meta name="twitter:title" content="MUSIXQUARE">
     <meta name="twitter:description" content="여러 기기를 연결하여 동기화된 서라운드 사운드를 만들어보세요. P2P 기반 실시간 오디오 동기화 웹앱.">
     <meta name="twitter:image" content="icons/icon-512.png">
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <title>MUSIXQUARE</title>
     <meta name="description" content="MUSIXQUARE - 여러 기기를 연결하여 동기화된 서라운드 사운드를 만들어보세요. P2P 기반 실시간 오디오 동기화 웹앱.">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/pwa-icon-180.png">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"
-        integrity="sha384-c6Uo4N9c3SOEigMVzP6IshUG1wQ5uMp3xeoQFiHWAQ86joWdgyajkvopySyKy/Z6" crossorigin="anonymous"
-        defer></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"
-        integrity="sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa" crossorigin="anonymous"
-        defer></script>
+    <script src="vendor/Tone.js" defer></script>
+    <script src="vendor/peerjs.min.js" defer></script>
 </head>
 
 <body>
@@ -48,27 +42,17 @@
     <noscript>
         <div
             style="padding:16px; background:#111; color:#fff; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;">
-            MUSIXQUARE는 JavaScript가 필요합니다. 브라우저 설정에서 JavaScript를 활성화한 후 다시 시도하세요.
+            MUSIXQUARE를 사용하려면 JavaScript가 필요해요. 브라우저 설정에서 JavaScript를 켠 뒤 다시 시도해요.
         </div>
     </noscript>
 
-    <!-- Boot Splash: shown briefly on first launch before Setup overlay mounts -->
-    <div id="boot-splash" class="boot-splash active" aria-hidden="false">
-        <div class="boot-splash-inner" role="status" aria-live="polite">
-            <div class="boot-splash-logo">MUSI<span class="logo-fade">XQUARE</span></div>
-            <div class="boot-splash-spinner" aria-hidden="true"></div>
-            <div class="boot-splash-text">준비 중…</div>
-        </div>
-    </div>
-
-
-    <header id="main-header">
+<header id="main-header">
         <div class="header-progress-bg" id="header-progress-bg"></div>
 
         <div class="header-content-wrapper">
             <div class="app-logo header-default-content" id="app-logo" role="button" tabindex="0"
                 aria-label="메인 화면으로 이동">MUSI<span class="logo-fade">XQUARE</span></div>
-            <div class="header-loading-text" id="header-loading-text">Loading...</div>
+            <div class="header-loading-text" id="header-loading-text">불러오는 중…</div>
         </div>
 
         <div class="header-right header-default-content">
@@ -96,9 +80,9 @@
 
         <div class="track-box">
             <div class="track-title-wrapper">
-                <div class="track-title" id="track-title">No Music</div>
+                <div class="track-title" id="track-title">미디어를 선택해 주세요</div>
             </div>
-            <div class="track-artist" id="track-artist">Select a file or check Playlist</div>
+            <div class="track-artist" id="track-artist">파일을 고르거나 Playlist에서 선택해요</div>
         </div>
 
         <div class="controls-area">
@@ -146,7 +130,7 @@
                         <path
                             d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
                     </svg>
-                    <span class="chat-preview-text" id="chat-preview-text">채팅을 시작하세요</span>
+                    <span class="chat-preview-text" id="chat-preview-text">채팅을 시작해요</span>
                 </div>
                 <span class="chat-preview-badge" id="chat-preview-badge"></span>
             </button>
@@ -165,7 +149,7 @@
                         <path
                             d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8l7 4-7 4V8z" />
                     </svg>
-                    <span>미디어 재생</span>
+                    <span>미디어 고르기</span>
                 </button>
             </div>
 
@@ -197,8 +181,7 @@
             </div>
         </div>
         <ul class="playlist-ul" id="playlist-ui">
-            <li style="color:var(--text-sub); font-size:14px; text-align:center; padding:40px 0;">Add music files to
-                start.</li>
+            <li id="playlist-empty" style="color:var(--text-sub); font-size:14px; text-align:center; padding:40px 0;">파일을 추가하면 여기에서 볼 수 있어요.</li>
         </ul>
     </div>
 
@@ -207,7 +190,7 @@
             <span class="tab-title">Help</span>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
-                title="클릭하여 초대코드 복사">
+                title="누르면 초대 코드를 복사해요">
                 <div
                     style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
                     INVITATION CODE</div>
@@ -228,8 +211,8 @@
                 이 버전은 <strong>로컬(같은 Wi‑Fi/핫스팟)</strong>에서만 연결됩니다.<br>
                 <ul class="help-list">
                     <li>모든 기기가 <strong>동일한 네트워크</strong>에 연결되어야 해요.</li>
-                    <li>VPN/사내 보안망이 켜져 있으면 연결이 실패할 수 있어요.</li>
-                    <li>연결이 안 되면: Wi‑Fi 재연결 → 앱 새로고침 순서로 확인해 주세요.</li>
+                    <li>VPN/사내 보안망이 켜져 있으면 연결이 안 될 수 있어요.</li>
+                    <li>연결이 안 되면 Wi‑Fi를 다시 연결한 뒤 앱을 새로고침해요.</li>
                 </ul>
             </div>
         </div>
@@ -243,10 +226,10 @@
                 연결 방식
             </div>
             <div class="help-desc">
-                <strong>QR / 링크 공유 없이</strong>, 방장이 보여주는 <strong>6자리 코드</strong>를 입력해 연결합니다.
+                <strong>QR / 링크 공유 없이</strong>, 방장이 보여주는 <strong>6자리 코드</strong>를 입력해서 연결해요.
                 <ul class="help-list">
-                    <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
-                    <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
+                    <li><strong>방장:</strong> “방장으로 시작해요” → 코드 확인 → “시작해요”</li>
+                    <li><strong>참가자:</strong> “참가해요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
                     <li>연결 가능한 기기는 <strong>방장 제외 최대 3대</strong>입니다.</li>
                 </ul>
             </div>
@@ -261,7 +244,7 @@
                 스피커 역할
             </div>
             <div class="help-desc">
-                참가자가 <strong>역할(출력 채널)</strong>을 선택합니다.
+                참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
                 <ul class="help-list">
                     <li><strong>원본 음원:</strong> 스테레오(기본) 출력</li>
                     <li><strong>왼쪽 소리:</strong> L 채널 출력</li>
@@ -282,8 +265,8 @@
             <div class="help-desc">
                 방장에게는 3가지 선택지가 표시됩니다.
                 <ul class="help-list">
-                    <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
-                    <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
+                    <li><strong>로컬 파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
+                    <li><strong>유튜브(채널 분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
                     <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
                 </ul>
                 <button class="demo-btn" id="btn-demo-guide"
@@ -309,8 +292,8 @@
                 <ul class="help-list">
                     <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 두 기기가 같은 네트워크인지 확인해보세요.</li>
                     <li><strong>연결이 끊겨요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 근처로 이동해보세요.</li>
-                    <li><strong>소리가 안나와요:</strong> 시스템 무음 모드가 설정되어있을 수 있어요.</li>
-                    <li><strong>기타 문의사항:</strong> musixentre@gmail.com</li>
+                    <li><strong>소리가 안나와요:</strong> 시스템 무음 모드가 켜져 있을 수 있어요.</li>
+                    <li><strong>문의:</strong> musixentre@gmail.com</li>
                 </ul>
             </div>
         </div>
@@ -321,12 +304,23 @@
             <span class="tab-title">Settings</span>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
-                title="클릭하여 초대코드 복사">
+                title="누르면 초대 코드를 복사해요">
                 <div
                     style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
                     INVITATION CODE</div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
+            </div>
+        </div>
+
+        <div class="section-group">
+            <div class="section-header-row">
+                <span class="section-title" id="settings-lang-title">언어</span>
+            </div>
+            <div class="lang-selector" role="radiogroup" aria-label="언어 선택">
+                <div class="lang-opt" id="lang-ko" data-lang="ko" role="radio" aria-checked="false">한국어</div>
+                <div class="lang-opt" id="lang-en" data-lang="en" role="radio" aria-checked="false">English</div>
+                <div class="lang-opt active" id="lang-system" data-lang="system" role="radio" aria-checked="true">System</div>
             </div>
         </div>
 
@@ -340,6 +334,14 @@
                 <div class="theme-opt" id="theme-system">System</div>
             </div>
         </div>
+
+        <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
+        <div class="youtube-settings-note" id="youtube-settings-note" role="note">
+            YouTube 함께 보기 모드에서는 기본 재생만 지원해요. 역할 설정과 고급 음향 효과는 꺼져요.
+        </div>
+
+        <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
+        <div id="youtube-settings-disabled-wrap">
 
         <div class="section-group">
             <div class="section-header-row">
@@ -391,8 +393,7 @@
             <div class="slider-wrap">
                 <div class="slider-header">
                     <span>Mix <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            0%, 올리면 공간감 증가</span></span>
+                            class="ui-hint" id="hint-reverb-mix" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 0%예요. 올리면 공간감이 커져요.</span></span>
                     <span class="val-disp" id="val-reverb">0%</span>
                 </div>
                 <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="리버브 믹스">
@@ -402,8 +403,7 @@
             <div class="slider-wrap" style="padding-top:0;">
                 <div class="slider-header">
                     <span>Decay Time <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            5.0s, 공간의 크기</span></span>
+                            class="ui-hint" id="hint-reverb-decay" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 5.0초예요. 올리면 공간이 더 크게 느껴져요.</span></span>
                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                 </div>
                 <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
@@ -414,8 +414,7 @@
             <div class="slider-wrap" style="padding-top:0;">
                 <div class="slider-header">
                     <span>Bounce (Pre-Delay) <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            0.1s, 벽면 반사 지연</span></span>
+                            class="ui-hint" id="hint-reverb-predelay" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 0.1초예요. 올리면 반사 지연이 늘어요.</span></span>
                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                 </div>
                 <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
@@ -426,8 +425,7 @@
             <div class="slider-wrap" style="padding-top:0;">
                 <div class="slider-header">
                     <span>Low Cut <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            20Hz, 올리면 저음 컷(깔끔함)</span></span>
+                            class="ui-hint" id="hint-reverb-lowcut" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 20Hz예요. 올리면 저음이 정리돼요.</span></span>
                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                 </div>
                 <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0" aria-label="리버브 로우컷">
@@ -437,8 +435,7 @@
             <div class="slider-wrap" style="padding-top:0; padding-bottom:20px;">
                 <div class="slider-header">
                     <span>High Cut <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            20.0k, 올리면 고음 컷(부드러움)</span></span>
+                            class="ui-hint" id="hint-reverb-highcut" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 20kHz예요. 올리면 고음이 부드러워져요.</span></span>
                     <span class="val-disp" id="val-rvb-highcut">20.0k</span>
                 </div>
                 <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
@@ -504,8 +501,7 @@
             <div class="slider-wrap">
                 <div class="slider-header">
                     <span>Width <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값
-                            100, 줄이면 모노, 늘리면 서라운드</span></span>
+                            class="ui-hint" id="hint-width" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 100이에요. 줄이면 모노, 늘리면 더 넓게 들려요.</span></span>
                     <span class="val-disp" id="val-width">100%</span>
                 </div>
                 <input type="range" id="width-slider" min="0" max="200" value="100" aria-label="스테레오 폭(서라운드) 조절">
@@ -519,12 +515,13 @@
             <div class="slider-wrap">
                 <div class="slider-header">
                     <span>Level <span
-                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">* 기본값 0,
-                            늘리면 가상 베이스(왜곡 증가)</span></span>
+                            class="ui-hint" id="hint-vbass" style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값은 0이에요. 올리면 베이스가 더 들리지만 왜곡이 생길 수 있어요.</span></span>
                     <span class="val-disp" id="val-vbass">0%</span>
                 </div>
                 <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="가상 베이스 레벨">
             </div>
+        </div>
+
         </div>
     </div>
 
@@ -541,10 +538,10 @@
             </button>
         </div>
         <div class="chat-drawer-messages" id="chat-messages">
-            <div class="chat-empty">메시지가 없습니다.<br>첫 메시지를 보내보세요!</div>
+            <div class="chat-empty" id="chat-empty">첫 메시지를 보내면<br>여기에서 볼 수 있어요.</div>
         </div>
         <div class="chat-drawer-input">
-            <input type="text" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="200"
+            <input type="text" class="chat-input" id="chat-input" placeholder="메시지를 입력해요" maxlength="200"
                 aria-label="채팅 메시지 입력">
             <button class="chat-send-btn" id="btn-chat-send" aria-label="메시지 보내기">
                 <svg viewBox="0 0 24 24">
@@ -607,7 +604,7 @@
                                 </svg>
                             </div>
                             <div class="ob-title">초대와 공유</div>
-                            <div class="ob-desc">여러 기기를 무선으로 연결하여<br>거대한 오디오 시스템을 만드세요.<br>6자리 숫자 코드로 연결할 수 있어요.</div>
+                            <div class="ob-desc">여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들 수 있어요.<br>6자리 숫자 코드로 연결해요.</div>
                         </div>
                         <!-- Slide 2: Sync -->
                         <div class="ob-slide">
@@ -618,7 +615,7 @@
                                 </svg>
                             </div>
                             <div class="ob-title">동시에 재생</div>
-                            <div class="ob-desc">호스트가 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>0.01초 단위의 싱크 조절이 가능해요.</div>
+                            <div class="ob-desc">방장이 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>0.01초 단위로 싱크를 조절할 수 있어요.</div>
                         </div>
                         <!-- Slide 3: Surround -->
                         <div class="ob-slide">
@@ -630,7 +627,7 @@
                                 </svg>
                             </div>
                             <div class="ob-title">입체 음향</div>
-                            <div class="ob-desc">각 기기의 역할을 설정해보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 경험하세요.</div>
+                            <div class="ob-desc">각 기기의 역할을 정해요.<br>왼쪽·오른쪽 소리를 따로 재생하고<br>우퍼 모드로 저음을 더할 수 있어요.</div>
                         </div>
                     </div>
                 </div>
@@ -661,22 +658,24 @@
 
             <div id="setup-join-area" style="display:none; width:100%;">
                 <div class="setup-code-area">
-                    <div class="setup-code-label">방장이 보여주는 6자리 코드를 입력해주세요</div>
+                    <div class="setup-code-label">방장이 보여주는 6자리 코드를 입력해 주세요</div>
                     <input type="text" class="setup-join-input" id="setup-join-code" placeholder="000000"
-                        inputmode="numeric" maxlength="6" aria-label="연결 코드 입력">
+                        inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"
+                        enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false"
+                        aria-label="연결 코드 6자리 입력">
                 </div>
             </div>
 
             <!-- Guest: Role selection (4 options) -->
             <div id="setup-role-area" style="display:none; width:100%;">
                 <div class="setup-role-note">
-                    이 기기로 어떤 소리를 낼까요?<br><span>나중에 설정에서 변경하실 수 있어요.</span>
+                    이 기기로 어떤 소리를 낼까요?<br><span>나중에 설정에서 바꿀 수 있어요.</span>
                 </div>
                 <div class="channel-grid" id="setup-role-grid" style="padding: 12px 0 0;">
-                    <div class="ch-opt" data-join-ch="-1">왼쪽 소리</div>
-                    <div class="ch-opt" data-join-ch="1">오른쪽 소리</div>
-                    <div class="ch-opt" data-join-ch="0">원본 음원</div>
-                    <div class="ch-opt" data-join-ch="2">저음 영역</div>
+                    <div class="ch-opt" data-join-ch="-1">왼쪽</div>
+                    <div class="ch-opt" data-join-ch="1">오른쪽</div>
+                    <div class="ch-opt" data-join-ch="0">원본</div>
+                    <div class="ch-opt" data-join-ch="2">저음</div>
                 </div>
             </div>
 
@@ -786,14 +785,14 @@
                     <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px;">
                         <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                     </svg>
-                    <span>로컬파일 불러오기</span>
+                    <span>로컬 파일 불러오기</span>
                 </button>
                 <button class="file-select-btn file-select-btn-large" id="btn-youtube-source">
                     <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px;">
                         <path
                             d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
                     </svg>
-                    <span>유튜브(채널분리 미지원)</span>
+                    <span>유튜브(채널 분리 미지원)</span>
                 </button>
 
                 <button class="file-select-btn file-select-btn-large" id="btn-demo-media">
@@ -842,7 +841,7 @@
                     <!-- Loading/Error State -->
                     <p id="youtube-preview-status"
                         style="font-size:11px; color:var(--text-sub); text-align:center; margin:0;">
-                        동영상 또는 플레이리스트 링크를 입력하세요
+                        동영상이나 플레이리스트 링크를 입력해 주세요.
                     </p>
                 </div>
             </div>

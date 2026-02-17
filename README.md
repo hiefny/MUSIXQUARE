@@ -17,8 +17,8 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 - **🔢 Short Code Join (In‑App Safe)**: Guests type a **6‑digit code** shown on the host device.
 - **📡 Local Network Only**: Designed for **same Wi‑Fi / same hotspot**.
 - **🔌 Direct Host Connections (Stable)**: Host connects directly to up to **3 guest devices** (Left / Right / Sub).
-- **🔊 Role‑based Routing**: Host assigns devices sequentially:
-  1) Left Speaker → 2) Right Speaker → 3) Subwoofer (optional)
+- **🔊 Role‑based Routing**: Each guest device chooses a role:
+  - Left Speaker / Right Speaker / Subwoofer (optional)
 - **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
 - **🛠️ Pro Audio Engine**: Mixing / FX powered by Tone.js.
 
@@ -27,8 +27,25 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 ## 🛠️ Technology Stack
 
 - **Tone.js**: Web Audio engine (FX / mixing)
+  - Self-hosted (vendored) at `vendor/Tone.js`
 - **PeerJS**: WebRTC P2P networking for low‑latency messaging
+  - Self-hosted (vendored) at `vendor/peerjs.min.js`
 - **OPFS (Origin Private File System)**: Efficient local storage for large media (where supported)
+
+---
+
+## 🧠 Playback Design (OPFS / Streaming-first)
+
+This build is optimized to **avoid loading full media into RAM**.
+
+- **Host**: plays the selected file directly via a `<video>` element (no `decodeAudioData`, no full PCM buffer).
+- **Guests**: receive file chunks and store them in **OPFS**, then **play directly from OPFS** via a `<video>` element.
+- **FX / Channel separation**: audio is routed from the media element into **Tone.js** using `MediaElementSource` → FX graph → role routing.
+
+Why?
+
+- Decoding a long track into an `AudioBuffer` can easily blow up memory (PCM is huge).
+- Media element decoding is streaming and stable, while still allowing WebAudio/Tone.js processing.
 
 ---
 
@@ -36,6 +53,9 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 
 - **Secure context required** (HTTPS or `localhost`) for WebRTC / Service Worker / OPFS.
 - This build **does not use STUN/TURN** and is intended for **LAN usage**.
+- **Signaling server note (PeerJS):** even with LAN-only ICE, WebRTC still needs a signaling server to exchange offers/answers.
+  - In production/in-app deployments you should provide a PeerJS server via `window.__MUSIXQUARE_PEER_SERVER__` (see `js/app.js`).
+  - If your app must work with internet fully disconnected, you will need an on-LAN signaling solution.
 
 ---
 
@@ -67,10 +87,10 @@ Use the VSCode **Live Server** extension.
 
 1. Open the app and tap **“제가 방장할래요”**
 2. The app shows a **6‑digit code**
-3. Connect devices in order:
-   - **Left Speaker** device enters code
-   - **Right Speaker** device enters code
-   - **Subwoofer** device enters code *(optional)*
+3. Guests join and select their roles:
+   - **Left Speaker**
+   - **Right Speaker**
+   - **Subwoofer** *(optional)*
 4. Once ready, the host immediately sees 3 options:
    - **로컬파일 불러오기**
    - **유튜브 링크 추가하기**
@@ -87,6 +107,8 @@ Use the VSCode **Live Server** extension.
 ## 🌐 Deployment
 
 This project is a static web app (HTML/CSS/JS).
+
+- **No external CDN dependencies**: Tone.js and PeerJS are included in the repo under `vendor/` for self-hosting / offline-first deployments.
 For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
 
 ---

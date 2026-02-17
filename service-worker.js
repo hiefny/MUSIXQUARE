@@ -11,24 +11,31 @@
 // NOTE: Bump this when app shell assets change.
 // v7: minor robustness fixes (Tone.js load guards, theme storage guard, YouTube pause capture)
 // v9: exclude large media (mp3/wav/..) from runtime caching + demo filename hardening
-const CACHE_VERSION = "v17";
+// v33: same-origin runtime caching guard (avoid caching cross-origin requests)
+const CACHE_VERSION = "v35";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
 const APP_SHELL = [
-  './',
+    './',
   './index.html',
   './css/style.css',
   './js/app.js',
   './js/sync.worker.js',
   './js/transfer.worker.js',
+  './vendor/Tone.js',
+  './vendor/peerjs.min.js',
   './favicon.svg',
   './manifest.webmanifest',
   './dummy_audio.mp3',
   './icons/icon-32.png',
-  './icons/icon-180.png',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/pwa-icon-180.png',
+  './icons/pwa-icon-192.png',
+  './icons/pwa-icon-512.png',
+  './icons/pwa-maskable-192.png',
+  './icons/pwa-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -63,6 +70,11 @@ function isCacheableRequest(request) {
   // (iOS/인앱 웹뷰에서 특히 자주 발생)
   if (request.headers && request.headers.has('range')) return false;
   const url = new URL(request.url);
+
+  // IMPORTANT: Only cache same-origin assets.
+  // Caching cross-origin responses (YouTube, embeds, opaque resources) can cause
+  // unexpected storage bloat and subtle fetch/cache edge cases.
+  if (url.origin !== self.location.origin) return false;
 
   // Never cache dynamic endpoints (app is fully self-contained)
   // Avoid caching large media downloads (demo media / user content)

@@ -2253,35 +2253,7 @@ function hideBootSplash() { /* Removed */ }
  * - We delay on ALL OS for consistency.
  * - On iOS "홈 화면에 추가"(standalone), also prefer the internal pwaStable signal.
  */
-function _waitForSetupOverlayMount({ minDelayMs = 900, maxDelayMs = 2600 } = {}) {
-    return new Promise((resolve) => {
-        const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        let done = false;
 
-        const finish = () => {
-            if (done) return;
-            done = true;
-            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            const elapsed = now - start;
-            const remain = Math.max(0, minDelayMs - elapsed);
-            setTimeout(resolve, remain);
-        };
-
-        const hard = setTimeout(finish, maxDelayMs);
-
-        // Non-janky: wait for 2 paints, then apply the minimum delay.
-        // (No real-time viewport/safe-area corrections here.)
-        try {
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                try { clearTimeout(hard); } catch (_) { /* ignore */ }
-                finish();
-            }));
-        } catch (_) {
-            try { clearTimeout(hard); } catch (_) { /* ignore */ }
-            finish();
-        }
-    });
-}
 
 /**
  * --- Setup Overlay Initialization ---

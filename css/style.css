@@ -1805,7 +1805,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 .nav-item span {
     display: block;
-    font-size: 13px;
+    font-size: 10px;
     /* Toss: typography st13 */
     font-weight: 500;
     /* Toss: fontWeight medium */

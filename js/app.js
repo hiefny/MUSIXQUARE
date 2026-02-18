@@ -2354,10 +2354,16 @@ function startSessionFromHost() {
 
 
 
-    // 기존 UX 유지: 시작 직후 바로 미디어 선택창 노출
+    // 깜빡임 효과 (미디어 재생 버튼 안내)
     setTimeout(() => {
-        try { openMediaSourcePopup(); } catch (e) { /* noop */ }
-    }, 180);
+        const btn = document.getElementById('btn-media-source');
+        if (btn) {
+            btn.classList.add('blink-hint');
+            btn.addEventListener('animationend', () => {
+                btn.classList.remove('blink-hint');
+            }, { once: true });
+        }
+    }, 400);
 }
 
 async function startHostFlow() {

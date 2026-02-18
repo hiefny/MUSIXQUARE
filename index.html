@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ko" data-theme="light">
 
@@ -598,82 +599,172 @@
         webkit-playsinline loop></audio>
 
     <div id="setup-overlay" class="onboarding-overlay">
-        <div class="onboarding-card setup-card">
-            <div class="setup-note" id="setup-note" style="display:block; margin-bottom: 8px;">
-                모든 기기가 같은 Wi-Fi에 연결되어 있거나,<br>
-                방장의 핫스팟에 연결되어야 해요.
-            </div>
+        <div class="onboarding-card setup-card full-screen">
+            <div class="setup-header-pill" style="display:none;"></div> <!-- Reserved for any extra header info -->
 
-            <div id="ob-slider-area" style="display:block; width:100%; position: relative;">
-                <div class="ob-slider-viewport" id="ob-slider-viewport">
-                    <div class="ob-slider-track" id="ob-slider-track">
-                        <!-- Slide 1: Welcome -->
-                        <div class="ob-slide">
-                            <div class="ob-icon-circle">
-                                <svg viewBox="0 0 24 24">
-                                    <path
-                                        d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-                                </svg>
+            <!-- Welcome Slides (Shown first) -->
+            <!-- Welcome Area (Header + Slider) -->
+            <div id="setup-welcome-area" style="width: 100%; display: flex; flex-direction: column; flex: 1;">
+                <div id="setup-welcome-header" class="setup-header-text">
+                    <h2>MUSIXQUARE에 오신 것을 환영해요</h2>
+                    <p>두 대 이상의 기기를 준비해주세요.</p>
+                </div>
+
+                <div id="ob-slider-area" style="display:block; width:100%; position: relative; flex: 1;">
+                    <div class="ob-slider-viewport" id="ob-slider-viewport">
+                        <div class="ob-slider-track" id="ob-slider-track">
+                            <!-- Slide 1: Invite -->
+                            <div class="ob-slide">
+                                <div class="ob-icon-circle">
+                                    <svg viewBox="0 0 24 24">
+                                        <path
+                                            d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+                                    </svg>
+                                </div>
+                                <div class="ob-title">초대와 공유</div>
+                                <div class="ob-desc">여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 숫자 코드로 연결할 수 있어요.
+                                </div>
                             </div>
-                            <div class="ob-title">초대와 공유</div>
-                            <div class="ob-desc">여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 숫자 코드로 연결할 수 있어요.</div>
-                        </div>
-                        <!-- Slide 2: Sync -->
-                        <div class="ob-slide">
-                            <div class="ob-icon-circle">
-                                <svg viewBox="0 0 24 24">
-                                    <path
-                                        d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                                </svg>
+                            <!-- Slide 2: Sync -->
+                            <div class="ob-slide">
+                                <div class="ob-icon-circle">
+                                    <svg viewBox="0 0 24 24">
+                                        <path
+                                            d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
+                                    </svg>
+                                </div>
+                                <div class="ob-title">동시에 재생</div>
+                                <div class="ob-desc">호스트가 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>0.01초 단위로 싱크를 조절할 수 있어요.
+                                </div>
                             </div>
-                            <div class="ob-title">동시에 재생</div>
-                            <div class="ob-desc">호스트가 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>0.01초 단위로 싱크를 조절할 수 있어요.
-                            </div>
-                        </div>
-                        <!-- Slide 3: Surround -->
-                        <div class="ob-slide">
-                            <div class="ob-icon-circle">
-                                <svg viewBox="0 0 24 24">
-                                    <path
-                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
-                                    <circle cx="12" cy="12" r="3" />
-                                </svg>
-                            </div>
-                            <div class="ob-title">입체 음향</div>
-                            <div class="ob-desc">각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.
+                            <!-- Slide 3: Surround -->
+                            <div class="ob-slide">
+                                <div class="ob-icon-circle">
+                                    <svg viewBox="0 0 24 24">
+                                        <path
+                                            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </div>
+                                <div class="ob-title">입체 음향</div>
+                                <div class="ob-desc">각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="ob-dots" id="ob-dots">
-                    <div class="ob-dot active" data-idx="0"></div>
-                    <div class="ob-dot" data-idx="1"></div>
-                    <div class="ob-dot" data-idx="2"></div>
-                </div>
+                    <div class="ob-dots" id="ob-dots">
+                        <div class="ob-dot active" data-idx="0"></div>
+                        <div class="ob-dot" data-idx="1"></div>
+                        <div class="ob-dot" data-idx="2"></div>
+                    </div>
 
-                <button class="ob-arrow ob-arrow-left" id="ob-prev" aria-label="이전 슬라이드">
-                    <svg viewBox="0 0 24 24">
-                        <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor"></polyline>
-                    </svg>
-                </button>
-                <button class="ob-arrow ob-arrow-right" id="ob-next" aria-label="다음 슬라이드">
-                    <svg viewBox="0 0 24 24">
-                        <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor"></polyline>
-                    </svg>
-                </button>
+                    <button class="ob-arrow ob-arrow-left" id="ob-prev" aria-label="이전 슬라이드">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor"></polyline>
+                        </svg>
+                    </button>
+                    <button class="ob-arrow ob-arrow-right" id="ob-next" aria-label="다음 슬라이드">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor"></polyline>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
+            <!-- Host: Connection Guide + Short Code -->
+            <div id="setup-code-area" class="setup-code-area" style="display:none;">
+                <div class="setup-header-text">
+                    <h2>연결을 시작해볼까요?</h2>
+                    <p>거의 다 됐어요. 이제 다른 기기들과 연결해주세요.</p>
+                </div>
+                <div class="setup-guide-unified">
+                    <!-- Method 1: WiFi -->
+                    <div class="setup-unified-item">
+                        <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <!-- Material WiFi Icon Centered -->
+                            <path transform="translate(88, 10) scale(1)" fill="var(--primary)"
+                                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+                            <!-- Connecting Lines -->
+                            <line x1="100" y1="36" x2="40" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <line x1="100" y1="36" x2="80" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <line x1="100" y1="36" x2="120" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <line x1="100" y1="36" x2="160" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <!-- Devices -->
+                            <rect x="32" y="50" width="16" height="20" rx="3" class="graphic-device"
+                                style="stroke:var(--primary); stroke-width:2;" />
+                            <rect x="72" y="50" width="16" height="20" rx="3" class="graphic-device" />
+                            <rect x="112" y="50" width="16" height="20" rx="3" class="graphic-device" />
+                            <rect x="152" y="50" width="16" height="20" rx="3" class="graphic-device" />
+                        </svg>
+                        <div class="setup-inner-desc">모든 기기를 동일한 Wi-Fi에 연결해주세요</div>
+                    </div>
 
+                    <!-- Method 2: Hotspot -->
+                    <div class="setup-unified-item">
+                        <svg class="setup-graphic-svg" viewBox="0 0 200 90" style="height: 70px;">
+                            <g transform="translate(0, 5)">
+                                <rect x="30" y="25" width="22" height="38" rx="4" class="graphic-device"
+                                    style="stroke:var(--primary); stroke-width:2;" />
+                                <circle cx="41" cy="44" r="5" fill="var(--primary)" opacity="0.2" />
+                                <line x1="55" y1="44" x2="115" y2="15" class="graphic-line-active" />
+                                <line x1="55" y1="44" x2="135" y2="44" class="graphic-line-active" />
+                                <line x1="55" y1="44" x2="115" y2="73" class="graphic-line-active" />
+                                <rect x="120" y="5" width="16" height="26" rx="3" class="graphic-device" />
+                                <rect x="140" y="31" width="16" height="26" rx="3" class="graphic-device" />
+                                <rect x="120" y="57" width="16" height="26" rx="3" class="graphic-device" />
+                            </g>
+                        </svg>
+                        <div class="setup-inner-desc">Wi-Fi가 없다면 호스트의 핫스팟에 연결해주세요</div>
+                    </div>
+                </div>
 
-            <div class="setup-code-area" id="setup-code-area" style="display:none;">
-                <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
-                <input type="text" class="setup-join-input" id="setup-code" value="------" readonly disabled
-                    style="border-bottom: none; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
+                <div class="setup-code-area-bottom">
+                    <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
+                    <input type="text" class="setup-join-input" id="setup-code" value="------" readonly disabled
+                        style="border-bottom: none; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
+                </div>
             </div>
 
+            <!-- Guest: Connection Guide + Input -->
             <div id="setup-join-area" style="display:none; width:100%;">
-                <div class="setup-code-area">
+                <div class="setup-header-text">
+                    <h2>연결을 시작해볼까요?</h2>
+                    <p>거의 다 됐어요. 호스트의 코드를 입력해주세요.</p>
+                </div>
+                <div class="setup-guide-unified">
+                    <!-- Method 1: WiFi -->
+                    <div class="setup-unified-item">
+                        <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <path transform="translate(88, 10) scale(1)" fill="var(--primary)"
+                                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+                            <line x1="100" y1="36" x2="65" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <line x1="100" y1="36" x2="135" y2="55" class="graphic-line-active" stroke-opacity="0.5" />
+                            <rect x="57" y="50" width="16" height="20" rx="3" class="graphic-device" />
+                            <rect x="127" y="50" width="16" height="20" rx="3" class="graphic-device"
+                                style="stroke:var(--primary); stroke-width:2;" />
+                        </svg>
+                        <div class="setup-inner-desc">모든 기기를 동일한 Wi-Fi에 연결해주세요</div>
+                    </div>
+
+                    <!-- Method 2: Hotspot -->
+                    <div class="setup-unified-item">
+                        <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <g transform="translate(0, 5)">
+                                <rect x="50" y="25" width="18" height="30" rx="3" class="graphic-device" />
+                                <path d="M75 40 h50" class="graphic-line-active" />
+                                <rect x="132" y="25" width="18" height="30" rx="3" class="graphic-device"
+                                    style="stroke:var(--primary); stroke-width:2;" />
+                                <text x="45" y="70" class="graphic-text" style="font-size: 10px;">HOST</text>
+                                <text x="125" y="70" class="graphic-text" fill="var(--primary)"
+                                    style="font-size: 10px;">GUEST</text>
+                            </g>
+                        </svg>
+                        <div class="setup-inner-desc">Wi-Fi가 없다면 호스트의 핫스팟에 연결해주세요</div>
+                    </div>
+                </div>
+
+                <div class="setup-code-area-bottom">
                     <div class="setup-code-label">방장이 보여주는 6자리 코드를 입력해주세요</div>
                     <input type="text" class="setup-join-input" id="setup-join-code" placeholder="000000"
                         inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"
@@ -682,12 +773,86 @@
                 </div>
             </div>
 
-            <!-- Guest: Role selection (4 options) -->
-            <div id="setup-role-area" style="display:none; width:100%;">
-                <div class="setup-role-note">
-                    이 기기로 어떤 소리를 낼까요?<br><span>나중에 설정에서 바꿀 수 있어요.</span>
+            <!-- Host/Guest: Role selection -->
+            <div id="setup-role-area" style="display:none; width:100%; position: relative;">
+
+                <div class="setup-header-text">
+                    <h2>이 기기로 어떤 소리를 낼까요?</h2>
+                    <p>나중에 설정에서 바꿀 수 있어요.</p>
                 </div>
-                <div class="channel-grid" id="setup-role-grid" style="padding: 12px 0 0;">
+
+                <div class="setup-graphic-container"
+                    style="height: auto; aspect-ratio: 2.2; margin-bottom: 24px; background: transparent; max-height: 180px; margin-left: -28px; margin-right: -28px; width: calc(100% + 56px);">
+                    <svg class="setup-graphic-svg" viewBox="0 0 340 170" style="overflow:visible;">
+                        <!-- Room Perspective -->
+                        <g class="graphic-room">
+                            <!-- Converging Lines + Back Wall (Wide Angle) -->
+                            <path
+                                d="M0 0 L40 30 M340 0 L300 30 M340 170 L300 120 M0 170 L40 120 M40 30 L300 30 L300 120 L40 120 Z" />
+                        </g>
+
+                        <!-- TV (Decor) -->
+                        <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
+
+                        <!-- Listener Removed -->
+
+                        <!-- Speakers (Larger Size) -->
+                        <!-- FL (Front Left) -->
+                        <g id="svg-spk-l" class="graphic-speaker">
+                            <!-- Cabinet -->
+                            <rect x="50" y="60" width="20" height="68" rx="2" />
+                            <!-- Drivers -->
+                            <circle cx="60" cy="75" r="3.5" class="spk-driver" />
+                            <circle cx="60" cy="92" r="4.5" class="spk-driver" />
+                            <circle cx="60" cy="112" r="4.5" class="spk-driver" />
+                            <!-- Base -->
+                            <rect x="49" y="128" width="22" height="3" rx="1"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.5;" />
+                        </g>
+
+                        <!-- FR (Front Right) -->
+                        <g id="svg-spk-r" class="graphic-speaker">
+                            <!-- Cabinet -->
+                            <rect x="272" y="60" width="20" height="68" rx="2" />
+                            <!-- Drivers -->
+                            <circle cx="282" cy="75" r="3.5" class="spk-driver" />
+                            <circle cx="282" cy="92" r="4.5" class="spk-driver" />
+                            <circle cx="282" cy="112" r="4.5" class="spk-driver" />
+                            <!-- Base -->
+                            <rect x="271" y="128" width="22" height="3" rx="1"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.5;" />
+                        </g>
+
+                        <!-- Center (C) -->
+                        <g id="svg-spk-center" class="graphic-speaker">
+                            <!-- Feet -->
+                            <rect x="155" y="140" width="4" height="3"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                            <rect x="181" y="140" width="4" height="3"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                            <!-- Cabinet -->
+                            <rect x="145" y="125" width="50" height="15" rx="2" />
+                            <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
+                            <circle cx="155" cy="132.5" r="4" class="spk-driver" />
+                            <circle cx="185" cy="132.5" r="4" class="spk-driver" />
+                        </g>
+
+                        <!-- Woofer (SW) -->
+                        <g id="svg-spk-woofer" class="graphic-speaker">
+                            <!-- Feet -->
+                            <rect x="111" y="140" width="4" height="3"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                            <rect x="133" y="140" width="4" height="3"
+                                style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                            <!-- Cabinet -->
+                            <rect x="108" y="108" width="32" height="32" rx="3" />
+                            <!-- Driver -->
+                            <circle cx="124" cy="124" r="9" class="spk-driver"
+                                style="stroke:var(--surface-3); stroke-width:1;" />
+                        </g>
+                    </svg>
+                </div>
+                <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
                     <div class="ch-opt" data-join-ch="-1">왼쪽 소리</div>
                     <div class="ch-opt" data-join-ch="1">오른쪽 소리</div>
                     <div class="ch-opt" data-join-ch="0">원본 음원</div>
@@ -730,35 +895,43 @@
     <div id="media-source-overlay" class="onboarding-overlay">
         <div class="onboarding-card setup-card">
 
+            <div class="setup-header-text">
+                <h2>재생할 미디어를 선택해주세요</h2>
+                <p>연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.</p>
+            </div>
 
-            <div class="setup-slot-list" style="margin-top: 0;">
-                <button class="file-select-btn file-select-btn-large" id="btn-local-file"
-                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
-                        <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
-                    </svg>
-                    <span style="font-weight: 700;">로컬파일 불러오기</span>
+            <div class="setup-slot-list">
+                <button class="file-select-btn" id="btn-local-file">
+                    <div class="btn-icon-bg">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+                        </svg>
+                    </div>
+                    <span>로컬파일 불러오기</span>
                 </button>
-                <button class="file-select-btn file-select-btn-large" id="btn-youtube-source"
-                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
-                        <path
-                            d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
-                    </svg>
-                    <span style="font-weight: 700;">유튜브 (호환 모드)</span>
+                <button class="file-select-btn" id="btn-youtube-source">
+                    <div class="btn-icon-bg youtube">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
+                        </svg>
+                    </div>
+                    <span>유튜브 (호환 모드)</span>
                 </button>
-                <button class="file-select-btn file-select-btn-large" id="btn-demo-media"
-                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
-                        <path
-                            d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
-                    </svg>
-                    <span style="font-weight: 700;">앱 체험하기 (데모)</span>
+                <button class="file-select-btn" id="btn-demo-media">
+                    <div class="btn-icon-bg">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
+                        </svg>
+                    </div>
+                    <span>앱 체험하기 (데모)</span>
                 </button>
             </div>
 
-            <div class="ob-actions" style="margin-top: 8px;">
-                <button class="btn-ob-secondary" id="btn-close-media-popup" style="width: 100%;">닫기</button>
+            <div class="ob-actions" style="margin-top: 16px;">
+                <button class="btn-ob-secondary" id="btn-close-media-popup"
+                    style="width: 100%; background: var(--surface-1); border: 1px solid var(--surface-3);">닫기</button>
             </div>
         </div>
     </div>
@@ -767,9 +940,10 @@
         <div class="onboarding-card setup-card">
 
 
-            <div class="setup-role-note" style="margin-bottom: 24px;">
-                YouTube를 같이 볼 수 있어요<br><span>채널 분리와 고급 음향 효과는 지원하지 않아요</span>
+            <div class="setup-note">
+                YouTube 비디오 또는 플레이리스트<br><span>공개된 링크만 함께 들을 수 있어요.</span>
             </div>
+
             <div class="setup-join-area" style="margin-top: 0;">
                 <input type="text" id="youtube-url-input" class="setup-join-input" placeholder="https://youtube.com/..."
                     aria-label="YouTube 링크 입력"

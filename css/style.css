@@ -181,7 +181,7 @@ body {
 .boot-splash {
     position: fixed;
     inset: 0;
-    z-index: 50000;
+    z-index: 2500;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -274,7 +274,7 @@ header {
     top: 0;
     left: 0;
     right: 0;
-    z-index: 40000;
+    z-index: 2500;
     overflow: hidden;
     /* Important for masking animations */
     transition: background-color 0.3s ease;
@@ -1095,6 +1095,51 @@ input[type=range]:active::-webkit-slider-thumb {
     gap: 8px;
 }
 
+/* Speaker Active State */
+.graphic-speaker {
+    transition: fill 0.3s, stroke 0.3s;
+}
+
+.graphic-speaker.active {
+    fill: rgba(var(--primary-rgb), 0.2) !important;
+    stroke: var(--primary) !important;
+    stroke-width: 2.5px !important;
+}
+
+/* Top Left Back Button */
+.btn-back-left {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    border: none;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.2s;
+}
+
+.btn-back-left:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.btn-back-left svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .playlist-ul {
     list-style: none;
     padding: 0 20px;
@@ -1607,6 +1652,13 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     animation: fadeIn 0.4s ease;
 }
 
+.input.ob-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: auto;
+}
+
 .input-group {
     display: flex;
     gap: 10px;
@@ -1716,7 +1768,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     transform: translateX(-50%);
     width: calc(100% - 32px);
     max-width: 390px;
-    z-index: 40000;
+    z-index: 100;
     display: flex;
     justify-content: space-around;
     align-items: center;
@@ -1747,7 +1799,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     left: 0;
     width: 100%;
     height: 160px;
-    z-index: 39999;
+    z-index: 99;
     backdrop-filter: blur(30px);
     -webkit-backdrop-filter: blur(30px);
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
@@ -1947,8 +1999,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     opacity: 0;
     pointer-events: none;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 100000;
-    /* Highest priority - above all modals including help modal (30000) */
+    z-index: 5000;
+    /* Highest priority - above all modals including help modal */
     white-space: nowrap;
 }
 
@@ -1972,7 +2024,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 40000;
+    z-index: 4000;
+    /* Higher than onboarding-overlay (2000) */
     animation: fadeIn 0.3s ease-out;
 }
 
@@ -2096,18 +2149,32 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .onboarding-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    z-index: 60000;
-    /* Ensure it covers Header (40000), Nav (40000), and Boot Splash (50000) if needed */
+    height: 100vh;
+    height: 100dvh;
+    background: var(--bg);
+    z-index: 2000;
+    /* Now below Header (2500) */
     display: none;
-    justify-content: center;
-    align-items: center;
-    animation: fadeIn 0.4s ease-out;
+    flex-direction: column;
+    animation: fadeInFadeOnly 0.3s ease-out;
+    padding-top: var(--header-height);
+    background: var(--bg);
+}
+
+/* Ensure global header is visible on top of onboarding */
+body:has(#setup-overlay.active) header {
+    z-index: 2501;
+    /* Higher than onboarding overlay */
+}
+
+@keyframes fadeInFadeOnly {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 .onboarding-overlay.active {
@@ -2115,32 +2182,93 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .onboarding-card {
-    background: var(--glass-bg);
-    border-radius: var(--radius-l);
-    width: 90%;
-    max-width: 380px;
-    padding: 36px 28px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    flex: 1;
+    width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 28px;
-    position: relative;
+    background: transparent;
     overflow: hidden;
+    /* Parent does not scroll */
+    position: relative;
+    padding: 0;
+    margin: 0;
 }
 
-[data-theme="light"] .onboarding-card {
-    background: var(--glass-bg);
+/* Content Area - This should scroll only if content overflows */
+/* Content Area - Natural flow by default */
+.onboarding-card>div:not(.ob-actions) {
+    flex: none;
+    padding: 0 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
 }
+
+/* Redundant scrollbar prevention on parent */
+.onboarding-card {
+    overflow: hidden;
+    /* Scrolling happens in children */
+}
+
+/* Unified Setup Flow Areas */
+#setup-welcome-area,
+#setup-code-area,
+#setup-join-area,
+#setup-role-area {
+    display: none;
+    /* Controlled by JS. Welcome starts visible via JS init */
+    flex: 1;
+    overflow-y: auto;
+    padding-top: calc(var(--header-height) + 12px) !important;
+    width: 100%;
+}
+
+/* Welcome Header inside the wrapper doesn't need special positioning now */
+#setup-welcome-header {
+    margin-bottom: 56px !important;
+}
+
+/* Standard Header Text */
+.setup-header-text {
+    width: 100%;
+    margin-bottom: 16px;
+    text-align: left;
+    flex: none;
+    padding-top: 0 !important;
+}
+
+/* Footer Area - This is pinned at the bottom */
+.ob-actions {
+    flex: none;
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    padding: 16px 28px calc(24px + var(--safe-bottom));
+    background: var(--bg);
+    width: 100%;
+    z-index: 100;
+    border-top: none;
+    /* Removed subtle line */
+}
+
+.onboarding-card.full-screen {
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100%;
+}
+
+
 
 .setup-card {
-    gap: 16px !important;
-    padding: 36px 28px !important;
+    padding: 32px 28px 24px !important;
+    /* Slightly more balanced padding for fixed height */
 }
 
 .ob-slider-viewport {
     overflow: hidden;
     width: 100%;
-    margin: 10px 0;
+    margin: 4px 0;
 }
 
 .ob-slider-track {
@@ -2155,9 +2283,36 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-start;
+    /* Align to top instead of center to reduce gap */
     text-align: center;
-    gap: 20px;
-    padding: 10px 4px;
+    gap: 16px;
+    padding: 0;
+    height: auto;
+}
+
+.ob-slide .setup-header-text {
+    width: 100%;
+    text-align: center;
+    /* Center titles */
+}
+
+.ob-slide .ob-title {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: var(--text-main);
+}
+
+.ob-slide .ob-desc {
+    font-size: 14px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    word-break: keep-all;
+}
+
+.ob-slide .ob-icon-circle {
+    margin: 0 auto;
 }
 
 .ob-icon-circle {
@@ -2287,12 +2442,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     fill: none;
 }
 
-.ob-actions {
-    display: flex;
-    flex-direction: row;
-    gap: 12px;
-    margin-top: 12px;
-}
+/* ob-actions handled in onboarding-card footer rule */
 
 .ob-actions.vertical {
     flex-direction: column;
@@ -2334,6 +2484,30 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     color: var(--text-main);
 }
 
+.setup-header-text {
+    width: 100%;
+    margin-bottom: 20px;
+    /* Reduced from 32px to move content up */
+    text-align: left;
+}
+
+.setup-header-text h2 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    /* Reduced from 12px */
+    letter-spacing: -0.03em;
+    color: var(--text-main);
+    line-height: 1.2;
+}
+
+.setup-header-text p {
+    font-size: 16px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
 /* --- Setup Overlay (Toss In-App) --- */
 .setup-subtitle {
     margin-top: -6px;
@@ -2341,40 +2515,411 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     color: var(--text-sub);
 }
 
-.setup-note {
-    margin-top: 10px;
-    padding: 12px 14px;
-    border-radius: 16px;
-    background: var(--surface-2);
+.setup-code-label {
+    text-align: center;
+    width: 100%;
+    margin-bottom: 8px;
+    font-size: 14px;
     color: var(--text-sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* Setup Illustrations */
+.setup-graphic-container {
+    width: 100%;
+    height: auto;
+    min-height: 120px;
+    /* Reduced from 180px */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 16px;
+    /* Reduced from 24px */
+    position: relative;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    overflow: hidden;
+    border: none;
+}
+
+/* Unified Guide Layout (Combined WiFi + Hotspot) */
+.setup-guide-unified {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    /* Reduced from 48px to prevent scrollbar */
+    margin-bottom: 24px;
+    width: 100%;
+}
+
+.setup-unified-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    text-align: center;
+    box-shadow: none;
+}
+
+.setup-unified-item .setup-inner-desc {
+    margin-top: 6px;
+    font-size: 12px;
+    /* Smaller font */
+    color: var(--text-sub);
+    font-weight: 600;
+    line-height: 1.4;
+    word-break: keep-all;
+}
+
+.setup-code-area-bottom {
+    margin-top: 32px;
+    /* Position below content instead of sticking to bottom */
+    padding: 16px 0 32px;
+    /* Extra breathing room at the bottom */
+    border-top: none;
+    text-align: center;
+    width: 100%;
+    flex: none;
+}
+
+.setup-code-area-bottom .setup-code-label {
     font-size: 13px;
-    line-height: 1.5;
+    margin-bottom: 8px;
+    color: var(--text-sub);
+}
+
+/* Guest Specific Adjustment: Push code input slightly lower */
+#setup-join-area .setup-code-area-bottom {
+    margin-top: 48px;
+}
+
+/* Inner Mini Slider for Connection Guide */
+.setup-inner-slider {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Added to strictly contain slides */
+}
+
+.setup-inner-track {
+    display: flex;
+    width: 200%;
+    /* Important: Must match slide count * 100% */
+    height: calc(100% - 40px);
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.setup-inner-slide {
+    flex: 0 0 50%;
+    /* 100% / Slide count */
+    width: 50%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 0 40px;
+    /* Space for internal arrows */
+}
+
+.setup-inner-desc {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-sub);
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.4;
+    word-break: keep-all;
+    padding: 0 10px;
+}
+
+.setup-inner-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.setup-inner-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    transition: all 0.3s;
+}
+
+.setup-inner-dot.active {
+    background: var(--primary);
+    width: 16px;
+    border-radius: 8px;
+}
+
+/* Mini Slider Arrows */
+.setup-code-label {
+    text-align: center;
+    width: 100%;
+}
+
+.setup-inner-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) !important;
+    width: 44px;
+    height: 44px;
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    cursor: pointer;
+    z-index: 50;
+
+    /* Aggressive Reset matching ob-arrow */
+    appearance: none;
+    -webkit-appearance: none;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    background-clip: padding-box;
+    transition: background 0.2s, color 0.2s;
+}
+
+.setup-inner-arrow:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-50%) !important;
+}
+
+.setup-inner-arrow:active {
+    transform: translateY(-50%) scale(0.95) !important;
+}
+
+.setup-inner-arrow svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    pointer-events: none;
+}
+
+.setup-inner-arrow.left {
+    left: 8px;
+    /* Move inside to prevent clipping */
+}
+
+.setup-inner-arrow.right {
+    right: 8px;
+    /* Move inside to prevent clipping */
+}
+
+/* Optical Centering Fix */
+.setup-inner-arrow.left svg {
+    margin-right: 2px;
+}
+
+.setup-inner-arrow.right svg {
+    margin-left: 2px;
+}
+
+/* Role Selection Grid */
+.channel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 0 8px;
+    /* Slightly reduced */
+    margin-top: 12px;
+    /* Reduced from 24px */
+    width: 100%;
+}
+
+.ch-opt {
+    background: var(--surface-2);
+    border-radius: 16px;
+    padding: 14px 10px;
+    /* Reduced from 20px */
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid transparent;
+    /* Match selected state width to prevent shift */
+}
+
+.ch-opt:active {
+    transform: scale(0.96);
+    background: var(--surface-3);
+}
+
+.ch-opt.selected {
+    background: rgba(var(--primary-rgb), 0.08);
+    /* Lighter tint */
+    color: var(--primary);
+    border-color: var(--primary);
+    border-width: 2px;
+    font-weight: 800;
+    /* Extra bold */
+    box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
+    /* Subtle glow */
+}
+
+/* Speaker Active State */
+.graphic-speaker {
+    transition: fill 0.3s, stroke 0.3s;
+}
+
+.graphic-speaker.active {
+    fill: rgba(var(--primary-rgb), 0.2) !important;
+    stroke: var(--primary) !important;
+    stroke-width: 2.5px !important;
+}
+
+/* Top Left Back Button */
+.btn-back-left {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    border: none;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.2s;
+}
+
+.btn-back-left:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.btn-back-left svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+
+
+.setup-graphic-svg {
+    width: 100%;
+    height: 100%;
+    max-width: 280px;
+}
+
+.graphic-host {
+    fill: var(--primary);
+}
+
+.graphic-guest {
+    fill: #8B95A1;
+}
+
+.graphic-accent {
+    fill: var(--primary);
+    opacity: 0.1;
+}
+
+.graphic-device {
+    fill: var(--surface-4);
+    stroke: var(--surface-3);
+    stroke-width: 1;
+}
+
+.graphic-speaker {
+    fill: var(--surface-4);
+    stroke: var(--text-sub);
+    stroke-width: 1.5;
+}
+
+.graphic-line {
+    stroke: var(--surface-3);
+    stroke-width: 1.2;
+    stroke-dasharray: 4 4;
+    fill: none;
+}
+
+.graphic-line-active {
+    stroke: var(--primary);
+    stroke-width: 2;
+    opacity: 0.4;
+    fill: none;
+    animation: graphic-pulse 2s infinite;
+}
+
+@keyframes graphic-pulse {
+    0% {
+        stroke-dashoffset: 0;
+    }
+
+    100% {
+        stroke-dashoffset: -20;
+    }
+}
+
+.graphic-line-active {
+    stroke-dasharray: 5 5;
+}
+
+.graphic-text {
+    font-size: 10px;
+    font-weight: 700;
+    fill: var(--text-sub);
 }
 
 .setup-role-note {
-    margin-top: 10px;
-    font-size: 13px;
+    text-align: center;
+    margin-bottom: 12px;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--text-sub);
-    line-height: 1.5;
-    letter-spacing: 0.05em;
-    opacity: 0.8;
-    text-align: left;
+    color: var(--text-main);
 }
 
 .setup-role-note span {
-    font-size: 13px;
-    font-weight: 700;
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-sub);
+    margin-top: 4px;
 }
 
-.setup-code-area {
-    margin-top: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    width: 100%;
-}
+
+
+
 
 .setup-code-label {
     font-size: 13px;
@@ -2382,6 +2927,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     color: var(--text-sub);
     letter-spacing: 0.05em;
     opacity: 0.8;
+    text-align: center;
 }
 
 .setup-code {
@@ -2696,7 +3242,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 10000;
+    z-index: 3000;
     display: none;
     align-items: center;
     justify-content: center;
@@ -2924,14 +3470,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: var(--surface-3);
 }
 
-#btn-youtube-source {
-    background: var(--surface-2) !important;
-    color: #ff4d4d !important;
-}
 
-#btn-youtube-source:active {
-    background: var(--surface-3) !important;
-}
 
 .sync-popup-reset-btn:active,
 .sync-done-btn:active {
@@ -3027,7 +3566,7 @@ input:checked+.slider:before {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
-    z-index: 30000;
+    z-index: 3100;
     display: none;
     align-items: center;
     justify-content: center;
@@ -3690,4 +4229,159 @@ input:checked+.slider:before {
 
 .blink-hint {
     animation: blink-primary-light 0.8s step-end 3;
+}
+
+/* Media Source Overlay Styles */
+/* Consolidated with global .setup-header-text above */
+
+.setup-slot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.file-select-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 72px;
+    background: var(--surface-2);
+    border-radius: 20px;
+    padding: 0 20px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    color: var(--text-main);
+    text-align: left;
+}
+
+.file-select-btn:hover {
+    background: var(--surface-3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.file-select-btn:active {
+    transform: scale(0.98);
+}
+
+.file-select-btn span {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    flex: 1;
+}
+
+.btn-icon-bg {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--surface-1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+    color: var(--text-main);
+    transition: color 0.2s;
+}
+
+.btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.file-select-btn:hover .btn-icon-bg {
+    background: var(--surface-1);
+    color: var(--primary);
+}
+
+.file-select-btn:hover .btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.btn-icon-bg svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Smaller Sync/Media Buttons for Main Screen (Match Chat Button) */
+#btn-sync,
+#btn-media-source {
+    height: 56px !important;
+    padding: 0 20px !important;
+    font-size: 14px !important;
+    gap: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+#btn-sync svg,
+#btn-media-source svg {
+    width: 20px;
+    height: 20px;
+    fill: var(--text-sub) !important;
+    margin: 0 !important;
+    /* Remove any default margins */
+}
+
+#btn-sync span,
+#btn-media-source span {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: var(--text-sub) !important;
+}
+
+/* Minimalist Room Diagram */
+.graphic-room {
+    stroke: var(--text-muted);
+    opacity: 0.9;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.graphic-tv {
+    fill: var(--surface-2);
+    stroke: none;
+    opacity: 0.8;
+}
+
+.graphic-listener {
+    fill: var(--surface-3);
+    stroke: none;
+}
+
+.graphic-speaker {
+    fill: var(--surface-1);
+    stroke: var(--text-sub);
+    stroke-width: 2;
+    transition: fill 0.3s, stroke 0.3s, stroke-width 0.3s;
+    cursor: pointer;
+}
+
+.graphic-speaker:hover {
+    stroke: var(--text-main);
+}
+
+.graphic-speaker.active {
+    stroke: var(--primary);
+    fill: var(--surface-3);
+    /* filter: drop-shadow(0 4px 12px rgba(var(--primary-rgb), 0.2)); */
+}
+
+.spk-driver {
+    fill: var(--surface-3);
+    stroke: none;
+    transition: all 0.3s;
+}
+
+.graphic-speaker.active .spk-driver {
+    fill: var(--primary);
+    stroke: none !important;
 }

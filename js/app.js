@@ -2093,6 +2093,11 @@ function setupShowRoleArea(show) {
     if (el) el.style.display = show ? 'block' : 'none';
 }
 
+function setupShowWelcome(show) {
+    const el = setupEl('setup-welcome-area');
+    if (el) el.style.display = show ? 'flex' : 'none';
+}
+
 function setupSetGuestJoinBusy(busy) {
     const input = setupEl('setup-join-code');
     if (input) input.disabled = !!busy;
@@ -2105,10 +2110,28 @@ function setupSetGuestJoinBusy(busy) {
 }
 
 function setupHighlightJoinRole(mode) {
+    // Buttons
     const opts = document.querySelectorAll('#setup-role-grid .ch-opt[data-join-ch]');
-    opts.forEach(o => o.classList.remove('active'));
-    const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
-    if (el) el.classList.add('active');
+    opts.forEach(o => o.classList.remove('selected')); // Use 'selected' as per CSS
+    if (mode !== null && mode !== undefined) {
+        const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
+        if (el) el.classList.add('selected');
+    }
+
+    // Speakers (SVG) - Also highlight here to ensure consistency if called from outside click handler
+    const speakers = document.querySelectorAll('.setup-graphic-svg .graphic-speaker');
+    speakers.forEach(el => el.classList.remove('active'));
+
+    let targetId = null;
+    if (mode === -1) targetId = 'svg-spk-l';
+    else if (mode === 1) targetId = 'svg-spk-r';
+    else if (mode === 0) targetId = 'svg-spk-center';
+    else if (mode === 2) targetId = 'svg-spk-woofer';
+
+    if (targetId) {
+        const spk = document.getElementById(targetId);
+        if (spk) spk.classList.add('active');
+    }
 }
 
 function selectStandardChannelButton(mode) {
@@ -2265,12 +2288,13 @@ function initSetupOverlay() {
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) sliderArea.style.display = 'block';
 
-    const noteArea = setupEl('setup-note');
-    if (noteArea) noteArea.style.display = 'none'; // Initially hidden to save space
+    // Graphic containers are now static in HTML
+
 
     setupShowCodeArea(false);
     setupShowJoinArea(false);
     setupShowRoleArea(false);
+    setupShowWelcome(true);
     setupShowInstruction(false, '');
     setupSetGuestJoinBusy(false);
 
@@ -2341,6 +2365,56 @@ function initSetupOverlay() {
     }
 }
 
+/** 
+/**
+ * Mini Slider for Setup Connection Guides
+ */
+function initSetupInnerSlider(sliderId) {
+    const slider = document.getElementById(sliderId);
+    if (!slider) return;
+
+    const track = slider.querySelector('.setup-inner-track');
+    const dots = slider.querySelectorAll('.setup-inner-dot');
+    let currentIdx = 0;
+    const totalSlides = slider.querySelectorAll('.setup-inner-slide').length;
+
+    const update = () => {
+        if (track) track.style.transform = `translateX(-${(currentIdx * 100) / totalSlides}%)`;
+        dots.forEach((dot, i) => dot.classList.toggle('active', i === currentIdx));
+    };
+
+    // Correct track width for multi-slide
+    if (track) track.style.width = `${totalSlides * 100}%`;
+
+    let timer = setInterval(() => {
+        currentIdx = (currentIdx + 1) % totalSlides;
+        update();
+    }, 4500);
+
+    const btnNext = slider.querySelector('.setup-inner-arrow.right');
+    const btnPrev = slider.querySelector('.setup-inner-arrow.left');
+
+    const stopAuto = () => { if (timer) { clearInterval(timer); timer = null; } };
+
+    if (btnNext) btnNext.onclick = (e) => { e.stopPropagation(); stopAuto(); currentIdx = (currentIdx + 1) % totalSlides; update(); };
+    if (btnPrev) btnPrev.onclick = (e) => { e.stopPropagation(); stopAuto(); currentIdx = (currentIdx + totalSlides - 1) % totalSlides; update(); };
+
+    // Swipe support
+    let startX = 0;
+    slider.ontouchstart = (e) => { stopAuto(); startX = e.touches[0].clientX; };
+    slider.ontouchend = (e) => {
+        const diff = startX - e.changedTouches[0].clientX;
+        if (Math.abs(diff) > 30) {
+            if (diff > 0) currentIdx = (currentIdx + 1) % totalSlides;
+            else currentIdx = (currentIdx + totalSlides - 1) % totalSlides;
+            update();
+        }
+    };
+
+    update(); // Initial call
+}
+
+
 
 function startSessionFromHost() {
     if (appRole !== 'host') return;
@@ -2366,6 +2440,9 @@ function startSessionFromHost() {
     }, 400);
 }
 
+// Setup State
+let pendingSetupRole = null;
+
 async function startHostFlow() {
     try {
         await activateAudio();
@@ -2378,17 +2455,20 @@ async function startHostFlow() {
     sessionStarted = false;
     selectedJoinChannelMode = null;
     pendingPlacementToastMode = null;
+    pendingSetupRole = null; // Reset
 
     // Step 1: Role Selection
     setupShowJoinArea(false);
     setupShowCodeArea(false);
+    setupShowWelcome(false);
     setupShowRoleArea(true);
     setupShowInstruction(false); // Use internal note in setup-role-area instead
     setupHighlightJoinRole(null); // Reset visual selection
 
     // Hide slider area but keep note
-    const noteArea = setupEl('setup-note');
-    if (noteArea) noteArea.style.display = 'block';
+    // Graphic container is now embedded in setup-role-area
+    // Unified guide layout used instead of slider
+
 
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) {
@@ -2396,9 +2476,21 @@ async function startHostFlow() {
         stopObAutoSlide();
     }
 
-    // No "Next" button, just Back. Clicking a role proceeds.
+    // Manual "Next" button
     setupRenderActions([
-        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
+        {
+            id: 'btn-setup-next',
+            text: '다음으로',
+            kind: 'secondary', // Start as secondary (inactive visually)
+            disabled: false, // Clickable to show toast
+            onClick: () => {
+                if (pendingSetupRole !== null) {
+                    proceedToHostCode(pendingSetupRole);
+                } else {
+                    showToast('역할을 선택해주세요');
+                }
+            }
+        },
     ]);
 }
 
@@ -2415,16 +2507,16 @@ async function proceedToHostCode(mode) {
     // Step 2: Show Code
     setupShowRoleArea(false);
     setupShowCodeArea(true);
-    setupShowRoleArea(false);
-    setupShowCodeArea(true);
-    // setupShowInstruction(true, '연결 코드를 만들고 있어요…');
 
     const codeEl = setupEl('setup-code');
     if (codeEl) {
         if (codeEl.tagName === 'INPUT') codeEl.value = '------';
         else codeEl.textContent = '------';
     }
-    setupRenderActions([]);
+    // Temporary actions (Back only) while loading
+    setupRenderActions([
+        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true }
+    ]);
 
     try {
         const code = await createHostSessionWithShortCode();
@@ -2435,16 +2527,11 @@ async function proceedToHostCode(mode) {
         myDeviceLabel = 'HOST';
         updateRoleBadge();
 
-        updateInviteCodeUI();
-        myDeviceLabel = 'HOST';
-        updateRoleBadge();
-
         // Instruction is now embedded in HTML (label above input)
         setupShowInstruction(false);
 
         // Show "Start" to enter main app
         setupRenderActions([
-            { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startHostFlow },
             { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost }
         ]);
     } catch (e) {
@@ -2466,20 +2553,24 @@ async function startGuestFlow() {
     sessionStarted = false;
     selectedJoinChannelMode = null;
     pendingPlacementToastMode = null;
+    pendingSetupRole = null; // Reset
 
     updateInviteCodeUI();
 
     // Step 1: Role Selection
     setupShowCodeArea(false);
     setupShowJoinArea(false);
+    setupShowWelcome(false);
     setupShowRoleArea(true);
     setupShowInstruction(false); // Use internal note in setup-role-area
     setupHighlightJoinRole(null);
     setupSetGuestJoinBusy(false);
 
     // Hide slider area but keep note
-    const noteArea = setupEl('setup-note');
-    if (noteArea) noteArea.style.display = 'block';
+    // Note: setup-note might be hidden/shown depending on logic.
+    // In new design, setup-note is inside role area. We should hide the global one if exists.
+    const globalNote = document.querySelector('.onboarding-card > .setup-note');
+    if (globalNote) globalNote.style.display = 'none';
 
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) {
@@ -2487,9 +2578,21 @@ async function startGuestFlow() {
         stopObAutoSlide();
     }
 
-    // No "Next" button, clicking role proceeds
+    // Manual "Next" button
     setupRenderActions([
-        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
+        {
+            id: 'btn-setup-next',
+            text: '다음으로',
+            kind: 'secondary',
+            disabled: false,
+            onClick: () => {
+                if (pendingSetupRole !== null) {
+                    proceedToGuestCode(pendingSetupRole);
+                } else {
+                    showToast('역할을 선택해주세요');
+                }
+            }
+        },
     ]);
 
     // Visual Update
@@ -2505,6 +2608,10 @@ function proceedToGuestCode(mode) {
     setupShowJoinArea(true);
     setupShowInstruction(false); // Use internal label in setup-join-area
 
+    // Initialize the slider for Guest guide
+    // Unified guide layout used instead of slider
+
+
     // Apply role locally for preview? (Optional, but user said "Guest sets role then inputs number")
     // We already stored it in pendingGuestRoleMode.
     try {
@@ -2512,7 +2619,6 @@ function proceedToGuestCode(mode) {
     } catch (e) { }
 
     setupRenderActions([
-        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
         { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
     ]);
 
@@ -2533,7 +2639,7 @@ function showGuestConnecting() {
 }
 
 // --- Setup Role Grid Click Handler ---
-// This handles the "auto-advance" logic for both Host/Guest
+// This handles the "manual selection" logic for both Host/Guest
 const _setupRoleGrid = document.getElementById('setup-role-grid');
 if (_setupRoleGrid) {
     _setupRoleGrid.addEventListener('click', (e) => {
@@ -2542,21 +2648,50 @@ if (_setupRoleGrid) {
         const mode = parseInt(item.dataset.joinCh);
         if (isNaN(mode)) return;
 
-        // Visual feedback (optional, as we switch screens immediately)
-        setupHighlightJoinRole(mode);
+        handleSetupRolePreview(mode);
+    });
+}
 
-        if (appRole === 'host') {
-            proceedToHostCode(mode);
-        } else if (appRole === 'guest') {
-            proceedToGuestCode(mode);
+// --- Setup SVG Speaker Click Handler ---
+const _roleArea = document.getElementById('setup-role-area');
+if (_roleArea) {
+    _roleArea.addEventListener('click', (e) => {
+        const item = e.target.closest('.graphic-speaker');
+        if (!item) return;
+
+        // Find role from ID
+        let mode = null;
+        if (item.id === 'svg-spk-l') mode = -1;
+        else if (item.id === 'svg-spk-r') mode = 1;
+        else if (item.id === 'svg-spk-center') mode = 0;
+        else if (item.id === 'svg-spk-woofer') mode = 2;
+
+        if (mode !== null) {
+            handleSetupRolePreview(mode);
         }
     });
 }
 
+// Back button handler for Role Area
+const _btnRoleBack = document.getElementById('btn-role-back');
+if (_btnRoleBack) {
+    _btnRoleBack.onclick = (e) => {
+        e.stopPropagation();
+        initSetupOverlay(); // Go back to very start
+    };
+}
+
 function handleSetupRolePreview(mode) {
     if (appRole !== 'guest' && appRole !== 'host') return;
-    pendingGuestRoleMode = mode;
+    pendingSetupRole = mode;
     setupHighlightJoinRole(mode);
+
+    // Visual feedback: Activate Next button
+    const nextBtn = document.getElementById('btn-setup-next');
+    if (nextBtn) {
+        nextBtn.classList.remove('btn-ob-secondary');
+        nextBtn.classList.add('btn-ob-primary');
+    }
 }
 
 
@@ -2613,7 +2748,6 @@ async function handleSetupJoinWithRole(mode) {
 
     // Update button to "참가하는 중..." and disable
     setupRenderActions([
-        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow, disabled: true },
         { id: 'btn-setup-confirm', text: '참가하는 중...', kind: 'primary', onClick: null, disabled: true },
     ]);
 
@@ -2625,13 +2759,16 @@ async function handleSetupJoinWithRole(mode) {
             updateRoleBadge();
             showToast('참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.');
 
-            // Re-render role selection but with enabled buttons if failing (instead of startGuestFlow entirely if we want to stay here)
-            // But current code goes back to startGuestFlow. Let's stick to that but ensure UI resets.
-            startGuestFlow();
+            // Stay on Join screen, re-enable button
+            setupRenderActions([
+                { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+            ]);
+
             const i = setupEl('setup-join-code');
             if (i) {
-                i.value = code;
+                i.value = code; // Keep the typed code
                 i.disabled = false;
+                i.focus();
             }
             setupSetGuestJoinBusy(false);
         });
@@ -2940,6 +3077,9 @@ function initEventListeners() {
             handleSetupRolePreview(mode);
         });
     });
+
+    // Guest: Click on SVG speakers in Setup overlay to select role (Deprecated, moved to setup-role-area delegation above)
+
 
     // --- Manual Sync Popup ---
     $on('btn-nudge-minus10', 'click', () => nudgeSync(-10));
@@ -5835,7 +5975,7 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         try { conn.close(); } catch (e) { /* noop */ }
         isConnecting = false;
         updateRoleBadge();
-        showConnectionFailedOverlay('호스트에 연결할 수 없어요', '코드가 맞는지, 같은 Wi‑Fi인지 확인해주세요.', hostId);
+        showConnectionFailedOverlay('호스트에 연결할 수 없어요', '네트워크 연결 상태와 코드를 확인해주세요.', hostId);
     }, 10000);
 
     conn.on('open', () => {
@@ -5896,19 +6036,25 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
 
 function showConnectionFailedOverlay(title, message, hostId = '') {
     // Simplified: Use the in-app dialog (no external links / no separate overlay)
-    const extra = '* 같은 Wi‑Fi나 핫스팟에서만 연결할 수 있어요.';
-    // NOTE: showDialog() only accepts a single argument; use the object form.
-    // Also, dialog text is rendered via textContent (no HTML) for safety.
+    // Removed extra text as requested
     showDialog({
         title: String(title || '연결하지 못했어요'),
-        message: `${String(message || '')}\n\n${extra}`
+        message: String(message || '')
     });
 
-    // Return to guest join screen with the last code preserved
-    // startGuestFlow is async; never let it become an unhandled rejection.
-    Promise.resolve(startGuestFlow()).catch((e) => log.warn('[UI] startGuestFlow failed:', e));
+    // Stay on guest join screen with the last code preserved
+    // Re-enable button
+    setupRenderActions([
+        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+    ]);
+
     const input = setupEl('setup-join-code');
-    if (input && hostId) input.value = hostId;
+    if (input) {
+        if (hostId) input.value = hostId;
+        input.disabled = false;
+        input.focus();
+    }
+    setupSetGuestJoinBusy(false);
 }
 
 async function leaveSession(opts = {}) {
@@ -9264,9 +9410,9 @@ async function handleLogoReturnToMain() {
         }
 
         const r = await showDialog({
-            title: '메인 화면으로 돌아갈까요?',
+            title: '초기 화면으로 돌아갈까요?',
             message: '현재 세션과 연결이 끊어져요.',
-            buttonText: '메인 화면',
+            buttonText: '초기 화면',
             secondaryText: '남아있기',
             defaultFocus: 'secondary',
             dismissible: true,

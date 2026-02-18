@@ -3676,11 +3676,18 @@ input:checked+.slider:before {
 [data-theme="light"] .file-select-btn svg {
     fill: #444444;
 }
+
 /* Animation for media play button hint */
 @keyframes blink-primary-light {
-    0%, 100% { }
-    50% { background-color: rgba(59, 130, 246, 0.25); }
+
+    0%,
+    100% {}
+
+    50% {
+        background-color: rgba(59, 130, 246, 0.25);
+    }
 }
+
 .blink-hint {
-    animation: blink-primary-light 0.8s ease-in-out 2;
+    animation: blink-primary-light 0.8s ease-in-out 3;
 }

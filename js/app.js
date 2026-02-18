@@ -6008,7 +6008,7 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
             updateRoleBadge();
 
             if (!isIntentionalDisconnect) {
-                showConnectionFailedOverlay('연결이 끊어졌어요', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
+                showConnectionFailedOverlay('연결이 끊어졌어요', '네트워크 상태를 확인한 후 다시 참가해 주세요.', hostId);
             }
             isIntentionalDisconnect = false;
         });
@@ -6020,7 +6020,7 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
             isConnecting = false;
             updateRoleBadge();
 
-            showConnectionFailedOverlay('연결 오류', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
+            showConnectionFailedOverlay('연결에 문제가 생겼어요', '네트워크 상태를 확인한 후 다시 참가해 주세요.', hostId);
         });
 
         // Start heartbeat/ping

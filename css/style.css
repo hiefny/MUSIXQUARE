@@ -3679,15 +3679,15 @@ input:checked+.slider:before {
 
 /* Animation for media play button hint */
 @keyframes blink-primary-light {
-
-    0%,
-    100% {}
+    0% {
+        box-shadow: inset 0 0 0 100px rgba(59, 130, 246, 0.4);
+    }
 
     50% {
-        background-color: rgba(59, 130, 246, 0.25);
+        box-shadow: none;
     }
 }
 
 .blink-hint {
-    animation: blink-primary-light 0.8s ease-in-out 3;
+    animation: blink-primary-light 0.8s step-end 3;
 }

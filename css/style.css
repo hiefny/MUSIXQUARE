@@ -130,9 +130,6 @@ input,
 select,
 textarea {
     font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    color: inherit;
 }
 
 /* Custom Scrollbar - All browsers */
@@ -167,8 +164,7 @@ textarea {
 body {
     background-color: var(--bg);
     color: var(--text-main);
-    /* Font stack tuned for consistent metrics across iOS / Android / Desktop */
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    font-family: "Pretendard", sans-serif;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
@@ -4145,7 +4141,7 @@ input:checked+.slider:before {
     font-weight: 700;
     /* Standard Bold is more consistent */
     color: #ff0000;
-    font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-family: 'Pretendard', sans-serif;
 }
 
 .chat-yt-title {

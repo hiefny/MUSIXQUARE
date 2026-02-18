@@ -54,6 +54,7 @@ const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
 
 // [iOS Latency Engineering]
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
 const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
 /**
@@ -130,6 +131,7 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
     // Optional hooks (CSS targeting)
     try {
         if (IS_IOS) root.classList.add('ios');
+        if (IS_ANDROID) root.classList.add('android');
         if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
         if (isStandaloneDisplayMode()) root.classList.add('standalone');
     } catch (_) { /* ignore */ }
@@ -662,8 +664,21 @@ function updateUIForState(newState) {
     // 1. Reset CSS classes (Centralized)
     document.body.classList.remove('mode-video', 'mode-youtube');
 
-    // Toggle mode-video based on state
-    const isVideoMode = (newState === APP_STATE.PLAYING_VIDEO || newState === APP_STATE.PLAYING_YOUTUBE);
+    // Toggle mode-video based on state.
+    // UX: When a local *video* is paused we still want to keep the paused frame visible
+    // (instead of collapsing back to the visualizer). We treat "IDLE + loaded video" as
+    // a video UI mode as well.
+    const keepVideoVisibleOnIdle = (
+        newState === APP_STATE.IDLE &&
+        videoElement &&
+        !!videoElement.src &&
+        isMediaVideo(currentFileBlob, meta)
+    );
+    const isVideoMode = (
+        newState === APP_STATE.PLAYING_VIDEO ||
+        newState === APP_STATE.PLAYING_YOUTUBE ||
+        keepVideoVisibleOnIdle
+    );
     document.body.classList.toggle('mode-video', isVideoMode);
 
     // Toggle mode-youtube for state-specific UI (e.g., Settings lock)
@@ -685,7 +700,8 @@ function updateUIForState(newState) {
 
     // 4. Hide main video element (Internal)
     if (videoElement) {
-        videoElement.style.display = (newState === APP_STATE.PLAYING_VIDEO) ? 'block' : 'none';
+        const showMainVideo = (newState === APP_STATE.PLAYING_VIDEO) || keepVideoVisibleOnIdle;
+        videoElement.style.display = showMainVideo ? 'block' : 'none';
     }
 
     switch (newState) {
@@ -2021,7 +2037,7 @@ async function copyInviteCode() {
     const ok = await copyTextToClipboard(code);
 
     if (ok) {
-        showToast("초대 코드를 복사했어요!");
+        showToast(`초대 코드 ${code}을 복사했어요!`);
 
         // Visual feedback for all containers
         const values = document.querySelectorAll('.invite-code-value');
@@ -2925,6 +2941,44 @@ function openFileSelector() {
     input.click();
 }
 
+/**
+ * [Android UX] Prevent vertical scrolling while dragging sliders.
+ *
+ * On some Android Chrome/WebView builds, horizontal drags on <input type="range">
+ * can also scroll the surrounding .tab-content container, which feels broken
+ * (especially for seek/volume/EQ sliders).
+ *
+ * We keep the CSS fix (touch-action: pan-x) and add a small JS fallback that
+ * temporarily locks the scroll container while the user is touching a slider.
+ */
+function installAndroidRangeScrollFix() {
+    if (!IS_ANDROID) return;
+    try {
+        const ranges = Array.from(document.querySelectorAll('input[type="range"]'));
+        ranges.forEach((range) => {
+            const scrollParent = range.closest('.tab-content');
+            if (!scrollParent) return;
+
+            let prevOverflowY = null;
+            const lock = () => {
+                // Cache previous inline value only once per interaction
+                if (prevOverflowY === null) prevOverflowY = scrollParent.style.overflowY;
+                scrollParent.style.overflowY = 'hidden';
+            };
+            const unlock = () => {
+                scrollParent.style.overflowY = (prevOverflowY !== null) ? prevOverflowY : '';
+                prevOverflowY = null;
+            };
+
+            range.addEventListener('touchstart', lock, { passive: true });
+            range.addEventListener('touchend', unlock, { passive: true });
+            range.addEventListener('touchcancel', unlock, { passive: true });
+        });
+    } catch (e) {
+        log.debug('[Android] Range scroll fix init failed:', e?.message || e);
+    }
+}
+
 // Auto-run init
 function initEventListeners() {
     // Helper: safely bind events by ID (null-safe)
@@ -2933,6 +2987,39 @@ function initEventListeners() {
     // --- Header ---
     $on('btn-help', 'click', openHelpModal);
     $on('btn-fullscreen', 'click', toggleFullscreen);
+
+    // Role badge (top-right): show/copy pairing code quickly
+    const roleBadge = document.getElementById('role-badge');
+    if (roleBadge) {
+        try {
+            roleBadge.setAttribute('role', 'button');
+            roleBadge.setAttribute('tabindex', '0');
+            roleBadge.setAttribute('aria-label', '초대 코드 표시 및 복사');
+        } catch (_) { /* ignore */ }
+
+        const onShowCode = async (e) => {
+            try {
+                e?.preventDefault?.();
+                e?.stopPropagation?.();
+            } catch (_) { /* ignore */ }
+
+            const code = getInviteCode();
+            if (!code || code === '------') {
+                showToast('초대 코드가 아직 없어요');
+                return;
+            }
+
+            const ok = await copyTextToClipboard(code);
+            if (ok) showToast(`초대 코드 ${code}을 복사했어요!`);
+            else showToast(`초대 코드: ${code}`);
+        };
+
+        roleBadge.addEventListener('click', onShowCode);
+        roleBadge.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            onShowCode(e);
+        });
+    }
 
     // Logo: return to main screen (with confirmation if a session is active)
     const logo = document.getElementById('app-logo') || document.querySelector('.app-logo');
@@ -3112,6 +3199,7 @@ function initEventListeners() {
 document.addEventListener('DOMContentLoaded', () => {
     initSetupOverlay();
     initEventListeners();
+    installAndroidRangeScrollFix();
     // Network is initialized only after the user chooses Host/Guest.
 });
 
@@ -5492,6 +5580,17 @@ if (slider) {
 
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
+    // YouTube Together mode: timing is controlled by YouTube API sync.
+    // Prevent confusing "resync" behaviors and show an explicit toast for BOTH roles.
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+        if (!hostConn) {
+            showToast("YouTube 모드에서는 호스트가 동기화 버튼을 누르면 안 돼요");
+        } else {
+            showToast("YouTube 모드에서는 Auto Sync가 작동하지 않습니다");
+        }
+        return;
+    }
+
     if (!hostConn) {
         // Host: Broadcast resync request to all guests
         showToast("모든 기기 재동기화 요청...");

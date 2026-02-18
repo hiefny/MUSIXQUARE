@@ -1,5 +1,6 @@
 html {
     -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 
@@ -122,6 +123,18 @@ textarea,
     -webkit-user-select: text;
 }
 
+/* Normalize form controls across platforms (Android WebView/Chrome can otherwise use
+   different default fonts/sizes, breaking the layout). */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+
 /* Custom Scrollbar - All browsers */
 * {
     scrollbar-width: thin;
@@ -154,7 +167,10 @@ textarea,
 body {
     background-color: var(--bg);
     color: var(--text-main);
-    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif;
+    /* Font stack tuned for consistent metrics across iOS / Android / Desktop */
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 
     /* Viewport sizing:
        - Prefer modern viewport units (dvh/svh) when available.
@@ -421,6 +437,8 @@ header.loading .header-loading-text {
     align-items: center;
     gap: 6px;
     transition: all 0.3s;
+    cursor: pointer;
+    touch-action: manipulation;
 }
 
 .role-dot {
@@ -807,6 +825,8 @@ input[type=range] {
     cursor: pointer;
     height: 24px;
     margin: 0;
+    /* Prevent the scroll container from moving while dragging sliders (Android) */
+    touch-action: pan-x;
 }
 
 input[type=range]::-webkit-slider-runnable-track {
@@ -2156,9 +2176,17 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 /* Hide header behind fullscreen overlays */
 body:has(#setup-overlay.active) header,
-body:has(#media-source-overlay.active) header {
+body:has(#media-source-overlay.active) header,
+body:has(#youtube-url-overlay.active) header {
     z-index: 1;
     /* Below onboarding overlay so header is hidden */
+}
+
+/* YouTube Overlay Specific Spacing */
+#youtube-url-overlay .setup-header-text,
+#media-source-overlay .setup-header-text {
+    margin-top: 40px;
+    margin-bottom: 20px;
 }
 
 @keyframes fadeInFadeOnly {

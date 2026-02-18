@@ -11,7 +11,9 @@
 // NOTE: Bump this when app shell assets change.
 // v7: minor robustness fixes (Tone.js load guards, theme storage guard, YouTube pause capture)
 // v9: exclude large media (mp3/wav/..) from runtime caching + demo filename hardening
-const CACHE_VERSION = "v23";
+// v24: Android UI consistency fixes (doctype/typography/slider), paused-video UI fix, Host code toast
+// v25: Invite code copy toast wording + fix stylesheet cache mismatch (remove ?v= param)
+const CACHE_VERSION = "v25";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

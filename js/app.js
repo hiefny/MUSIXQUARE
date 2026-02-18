@@ -2534,6 +2534,17 @@ async function proceedToHostCode(mode) {
         setupRenderActions([
             { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost }
         ]);
+        // Add "go back to initial screen" link below actions
+        const actionsArea = setupEl('setup-actions');
+        if (actionsArea) {
+            const backLink = document.createElement('button');
+            backLink.type = 'button';
+            backLink.id = 'btn-setup-back-home';
+            backLink.textContent = '초기 화면으로 돌아가기';
+            backLink.style.cssText = 'background:none;border:none;color:var(--text-main);font-size:13px;font-weight:500;text-decoration:underline;cursor:pointer;margin-top:8px;padding:8px 0;font-family:inherit;';
+            backLink.addEventListener('click', () => initSetupOverlay());
+            actionsArea.appendChild(backLink);
+        }
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
         showToast('세션을 만들지 못했어요');

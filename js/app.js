@@ -2476,13 +2476,13 @@ async function startHostFlow() {
         stopObAutoSlide();
     }
 
-    // Manual "Next" button
+    // Manual "Next" button + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
         {
             id: 'btn-setup-next',
             text: '다음으로',
-            kind: 'secondary', // Start as secondary (inactive visually)
-            disabled: false, // Clickable to show toast
+            kind: 'primary',
+            disabled: false,
             onClick: () => {
                 if (pendingSetupRole !== null) {
                     proceedToHostCode(pendingSetupRole);
@@ -2491,7 +2491,8 @@ async function startHostFlow() {
                 }
             }
         },
-    ]);
+        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+    ], 'vertical');
 }
 
 async function proceedToHostCode(mode) {
@@ -2530,21 +2531,11 @@ async function proceedToHostCode(mode) {
         // Instruction is now embedded in HTML (label above input)
         setupShowInstruction(false);
 
-        // Show "Start" to enter main app
+        // Show "Start" + Back button (vertical layout to match initial buttons position)
         setupRenderActions([
-            { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost }
-        ]);
-        // Add "go back to initial screen" link below actions
-        const actionsArea = setupEl('setup-actions');
-        if (actionsArea) {
-            const backLink = document.createElement('button');
-            backLink.type = 'button';
-            backLink.id = 'btn-setup-back-home';
-            backLink.textContent = '초기 화면으로 돌아가기';
-            backLink.style.cssText = 'background:none;border:none;color:var(--text-main);font-size:13px;font-weight:500;text-decoration:underline;cursor:pointer;margin-top:8px;padding:8px 0;font-family:inherit;';
-            backLink.addEventListener('click', () => initSetupOverlay());
-            actionsArea.appendChild(backLink);
-        }
+            { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
+            { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+        ], 'vertical');
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
         showToast('세션을 만들지 못했어요');
@@ -2589,12 +2580,12 @@ async function startGuestFlow() {
         stopObAutoSlide();
     }
 
-    // Manual "Next" button
+    // Manual "Next" button + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
         {
             id: 'btn-setup-next',
             text: '다음으로',
-            kind: 'secondary',
+            kind: 'primary',
             disabled: false,
             onClick: () => {
                 if (pendingSetupRole !== null) {
@@ -2604,7 +2595,8 @@ async function startGuestFlow() {
                 }
             }
         },
-    ]);
+        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+    ], 'vertical');
 
     // Visual Update
     myDeviceLabel = '참가자';
@@ -2629,9 +2621,11 @@ function proceedToGuestCode(mode) {
         showPlacementToastForChannel(mode);
     } catch (e) { }
 
+    // Show "Start" + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
         { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-    ]);
+        { id: 'btn-setup-back-home-guest', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+    ], 'vertical');
 
     const input = setupEl('setup-join-code');
     if (input) {

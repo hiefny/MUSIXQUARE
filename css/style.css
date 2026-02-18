@@ -1711,7 +1711,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
    ============================================= */
 .bottom-nav {
     position: fixed;
-    bottom: calc(12px + var(--safe-bottom));
+    bottom: calc(12px + (var(--safe-bottom) * 0.4));
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - 32px);

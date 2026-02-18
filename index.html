@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="dark">
+<html lang="ko" data-theme="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="color-scheme" content="dark light">
-    <meta name="theme-color" content="#0b0b10">
+    <meta name="theme-color" content="#f2f2f7">
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,7 +33,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=2">
     <script src="vendor/Tone.js"></script>
     <script src="vendor/peerjs.min.js"></script>
 </head>
@@ -91,9 +91,9 @@
 
         <div class="track-box">
             <div class="track-title-wrapper">
-                <div class="track-title" id="track-title">No Music</div>
+                <div class="track-title" id="track-title">미디어 없음</div>
             </div>
-            <div class="track-artist" id="track-artist">Select a file or check Playlist</div>
+            <div class="track-artist" id="track-artist">파일을 선택하거나 플레이리스트를 확인하세요</div>
         </div>
 
         <div class="controls-area">
@@ -153,7 +153,7 @@
                         <path
                             d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
                     </svg>
-                    <span>SYNC</span>
+                    <span>동기화</span>
                 </button>
                 <button class="file-select-btn file-select-btn-large" id="btn-media-source" style="flex:1;">
                     <svg viewBox="0 0 24 24">
@@ -171,7 +171,7 @@
 
     <div id="tab-playlist" class="tab-content">
         <div class="tab-header">
-            <span class="tab-title">Playlist</span>
+            <span class="tab-title">재생목록</span>
             <div class="playlist-title-area">
                 <button class="tab-action-btn" id="btn-repeat" aria-label="반복 모드 변경">
                     <svg viewBox="0 0 24 24">
@@ -199,7 +199,7 @@
 
     <div id="tab-guide" class="tab-content">
         <div class="tab-header" style="justify-content: space-between; align-items: flex-start;">
-            <span class="tab-title">Help</span>
+            <span class="tab-title">도움말</span>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
                 title="클릭하여 초대코드 복사">
@@ -303,7 +303,7 @@
             <div class="help-desc">
                 <ul class="help-list">
                     <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 두 기기가 같은 네트워크인지 확인해 보세요.</li>
-                    <li><strong>연결이 끊겨요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
+                    <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
                     <li><strong>소리가 안 나와요:</strong> 무음 모드가 켜져 있을 수 있어요.</li>
                     <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
                 </ul>
@@ -313,7 +313,7 @@
 
     <div id="tab-settings" class="tab-content">
         <div class="tab-header" style="justify-content: space-between; align-items: flex-start;">
-            <span class="tab-title">Settings</span>
+            <span class="tab-title">설정</span>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
                 title="클릭하여 초대코드 복사">
@@ -325,9 +325,9 @@
             </div>
         </div>
 
-        <div class="section-group">
+        <div class="section-group" style="display:none;">
             <div class="section-header-row">
-                <span class="section-title">Theme</span>
+                <span class="section-title">테마</span>
             </div>
             <div class="theme-selector">
                 <div class="theme-opt" id="theme-light">Light</div>
@@ -346,7 +346,7 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">Channel Mode & Subwoofer (Local)</span>
+                    <span class="section-title">이 기기 역할 설정하기</span>
                 </div>
 
                 <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
@@ -354,31 +354,31 @@
                     <div class="ch-opt" data-ch="-1">
                         <svg viewBox="0 0 24 24">
                             <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-                        </svg>Left
+                        </svg>왼쪽 소리
                     </div>
                     <div class="ch-opt" data-ch="1">
                         <svg viewBox="0 0 24 24">
                             <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                        </svg>Right
+                        </svg>오른쪽 소리
                     </div>
                     <div class="ch-opt" data-ch="0">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                        </svg>Original
+                        </svg>원본 음원
                     </div>
                     <div class="ch-opt" data-ch="2">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                             <circle cx="12" cy="12" r="3" />
-                        </svg>Woofer
+                        </svg>저음 영역
                     </div>
                 </div>
 
                 <div class="slider-wrap" id="woofer-cutoff-control">
                     <div class="slider-header">
-                        <span>Subwoofer Cutoff (Local)</span>
+                        <span>저음 영역 조절하기</span>
                         <span class="val-disp" id="val-cutoff">120 Hz</span>
                     </div>
                     <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="서브우퍼 컷오프 주파수">
@@ -387,7 +387,7 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">Reverb (Host Synced)</span>
+                    <span class="section-title">리버브(방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-reverb">Reset</button>
                 </div>
@@ -458,7 +458,7 @@
             <!-- Graphic EQ Zone -->
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">Graphic EQ (Host Synced)</span>
+                    <span class="section-title">이퀄라이저 (방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-eq">Reset</button>
                 </div>
@@ -508,7 +508,7 @@
             <!-- Virtual Ste.. Surround Zone -->
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">Virtual Surround (Host Synced)</span>
+                    <span class="section-title">가상 서라운드(방장 제어)</span>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
@@ -524,7 +524,7 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">Virtual Bass (Host Synced)</span>
+                    <span class="section-title">가상 베이스 강화(방장 제어)</span>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
@@ -545,7 +545,7 @@
     <!-- Slide-up Chat Drawer -->
     <div class="chat-drawer" id="chat-drawer">
         <div class="chat-drawer-header">
-            <span class="chat-drawer-title">Chat</span>
+            <span class="chat-drawer-title">채팅</span>
             <button class="chat-drawer-close" id="btn-chat-close" aria-label="채팅 닫기">
                 <svg viewBox="0 0 24 24">
                     <path
@@ -567,34 +567,37 @@
         </div>
     </div>
 
+    <!-- Blur halo: blurs content around tab bar (mask-image, iOS-optimized) -->
+    <div class="nav-blur-halo" aria-hidden="true"></div>
+
     <nav class="bottom-nav">
         <button class="nav-item active" data-tab="play">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
             </svg>
-            <span>Play</span>
+            <span>메인</span>
         </button>
         <button class="nav-item" data-tab="playlist">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
             </svg>
-            <span>Playlist</span>
+            <span>재생목록</span>
         </button>
         <button class="nav-item" data-tab="settings">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
             </svg>
-            <span>Settings</span>
+            <span>설정</span>
         </button>
         <button class="nav-item" data-tab="guide">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
             </svg>
-            <span>Help</span>
+            <span>도움말</span>
         </button>
     </nav>
 
@@ -604,8 +607,8 @@
     <div id="setup-overlay" class="onboarding-overlay">
         <div class="onboarding-card setup-card">
             <div class="setup-note" id="setup-note" style="display:block; margin-bottom: 8px;">
-                <strong>로컬 네트워크 전용</strong><br>
-                모든 기기가 <strong>같은 Wi‑Fi/핫스팟</strong>에 연결되어야 해요.
+                모든 기기가 같은 Wi-Fi에 연결되어 있거나,<br>
+                방장의 핫스팟에 연결되어야 해요.
             </div>
 
             <div id="ob-slider-area" style="display:block; width:100%; position: relative;">
@@ -668,11 +671,13 @@
                 </button>
             </div>
 
-            <div class="setup-code-area" id="setup-code-area" style="display:none;">
-                <div class="setup-code big-code-text" id="setup-code">------</div>
-            </div>
 
-            <div class="setup-instruction" id="setup-instruction" style="display:none;"></div>
+
+            <div class="setup-code-area" id="setup-code-area" style="display:none;">
+                <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
+                <input type="text" class="setup-join-input" id="setup-code" value="------" readonly disabled
+                    style="border-bottom: none; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
+            </div>
 
             <div id="setup-join-area" style="display:none; width:100%;">
                 <div class="setup-code-area">
@@ -704,69 +709,6 @@
     </div>
 
 
-    <div id="manual-sync-overlay" class="manual-sync-overlay">
-        <div class="sync-glass-panel">
-            <div class="sync-header">
-                <span class="sync-label">TOTAL OFFSET</span>
-                <div class="sync-value-wrapper">
-                    <span id="manual-sync-value" class="sync-main-val">0</span>
-                    <span class="sync-unit">ms</span>
-                </div>
-                <div id="sync-details" class="sync-details-text"
-                    style="font-size:12px; color:var(--text-sub); margin-top:-4px; margin-bottom:12px;">
-                    <span style="opacity:0.7">Auto: 0ms</span> <span style="opacity:0.4">|</span> <span
-                        style="opacity:0.7">Manual: 0ms</span>
-                </div>
-            </div>
-
-            <!-- Main Control Row -->
-            <div class="sync-control-row">
-                <!-- Delay Group -->
-                <div class="sync-group-side">
-                    <button class="btn-nudge large" id="btn-nudge-minus10">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                        <span>-10</span>
-                    </button>
-                    <button class="btn-nudge small" id="btn-nudge-minus1">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                        <span>-1</span>
-                    </button>
-                </div>
-
-                <div class="sync-divider"></div>
-
-                <!-- Rush Group -->
-                <div class="sync-group-side">
-                    <button class="btn-nudge small" id="btn-nudge-plus1">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                        <span>+1</span>
-                    </button>
-                    <button class="btn-nudge large" id="btn-nudge-plus10">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                        <span>+10</span>
-                    </button>
-                </div>
-            </div>
-
-            <div class="sync-actions-row">
-                <button class="sync-popup-reset-btn" id="btn-auto-sync">
-                    AUTO
-                </button>
-                <button class="sync-done-btn" id="btn-sync-done">
-                    DONE
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- App Dialog (Non-blocking, replaces alert()) -->
     <div class="dialog-overlay" id="dialog-overlay" aria-hidden="true">
         <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"
@@ -792,82 +734,77 @@
     <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg">메시지</span>
     </div>
 
-    <!-- Media Source Popup -->
-    <div id="media-source-overlay" class="manual-sync-overlay">
-        <div class="sync-glass-panel panel-compact">
-            <div class="sync-header">
-                <span class="sync-label">MEDIA SOURCE</span>
-            </div>
+    <div id="media-source-overlay" class="onboarding-overlay">
+        <div class="onboarding-card setup-card">
 
-            <div class="sync-control-row" style="flex-direction: column; height: auto; gap: 12px; padding: 12px;">
-                <button class="file-select-btn file-select-btn-large" id="btn-local-file">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px;">
+
+            <div class="setup-slot-list" style="margin-top: 0;">
+                <button class="file-select-btn file-select-btn-large" id="btn-local-file"
+                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
+                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
                         <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                     </svg>
-                    <span>로컬파일 불러오기</span>
+                    <span style="font-weight: 700;">로컬파일 불러오기</span>
                 </button>
-                <button class="file-select-btn file-select-btn-large" id="btn-youtube-source">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px;">
+                <button class="file-select-btn file-select-btn-large" id="btn-youtube-source"
+                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
+                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
                         <path
                             d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
                     </svg>
-                    <span>유튜브(채널분리 미지원)</span>
+                    <span style="font-weight: 700;">유튜브 (호환 모드)</span>
                 </button>
-
-                <button class="file-select-btn file-select-btn-large" id="btn-demo-media">
-                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px;">
+                <button class="file-select-btn file-select-btn-large" id="btn-demo-media"
+                    style="width: 100%; height: 56px; border-radius: 18px; justify-content: flex-start; padding: 0 20px;">
+                    <svg viewBox="0 0 24 24" style="fill:currentColor; width:22px; height:22px; margin-right: 12px;">
                         <path
                             d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
                     </svg>
-                    <span>앱 체험하기</span>
+                    <span style="font-weight: 700;">앱 체험하기 (데모)</span>
                 </button>
             </div>
 
-            <div class="sync-actions-row">
-                <button class="sync-done-btn" id="btn-close-media-popup">닫기</button>
+            <div class="ob-actions" style="margin-top: 8px;">
+                <button class="btn-ob-secondary" id="btn-close-media-popup" style="width: 100%;">닫기</button>
             </div>
         </div>
     </div>
 
-    <!-- YouTube URL Popup -->
-    <div id="youtube-url-overlay" class="manual-sync-overlay">
-        <div class="sync-glass-panel panel-compact">
-            <div class="sync-header">
-                <span class="sync-label">YOUTUBE URL</span>
+    <div id="youtube-url-overlay" class="onboarding-overlay">
+        <div class="onboarding-card setup-card">
+
+
+            <div class="setup-role-note" style="margin-bottom: 24px;">
+                YouTube를 같이 볼 수 있어요<br><span>채널 분리와 고급 음향 효과는 지원하지 않아요</span>
             </div>
+            <div class="setup-join-area" style="margin-top: 0;">
+                <input type="text" id="youtube-url-input" class="setup-join-input" placeholder="https://youtube.com/..."
+                    aria-label="YouTube 링크 입력"
+                    style="font-size: 15px; font-weight: 500; letter-spacing: normal; padding: 12px 0;">
 
-            <div class="sync-control-row" style="height: auto; padding: 16px;">
-                <div style="width: 100%; display: flex; flex-direction: column; gap: 12px;">
-                    <input type="text" id="youtube-url-input" placeholder="https://youtube.com/watch?v=..."
-                        aria-label="YouTube 링크 입력"
-                        style="width:100%; padding:12px 16px; border-radius:12px; border:1px solid var(--surface-2); 
-                        background:var(--surface-1); color:var(--text); font-size:14px; box-sizing:border-box; outline:none;">
-
-                    <!-- Video Preview Container -->
-                    <div id="youtube-preview"
-                        style="display:none; background:var(--surface-1); border-radius:12px; padding:12px; gap:12px;">
-                        <img id="youtube-preview-thumb" src="" alt="YouTube 미리보기 썸네일"
-                            style="width:100%; border-radius:8px; aspect-ratio:16/9; object-fit:cover; background:#000;">
-                        <div style="margin-top:8px;">
-                            <p id="youtube-preview-title"
-                                style="font-size:13px; font-weight:600; color:var(--text); margin:0; line-height:1.3;">
-                            </p>
-                            <p id="youtube-preview-channel"
-                                style="font-size:11px; color:var(--text-sub); margin:4px 0 0 0;"></p>
-                        </div>
+                <div id="youtube-preview"
+                    style="display:none; background:var(--surface-2); border-radius:16px; padding:12px; gap:12px; border: 1px solid var(--surface-3);">
+                    <img id="youtube-preview-thumb" src="" alt="YouTube 미리보기 썸네일"
+                        style="width:100%; border-radius:10px; aspect-ratio:16/9; object-fit:cover; background:#000;">
+                    <div style="margin-top:8px;">
+                        <p id="youtube-preview-title"
+                            style="font-size:13px; font-weight:700; color:var(--text-main); margin:0; line-height:1.4;">
+                        </p>
+                        <p id="youtube-preview-channel"
+                            style="font-size:11px; color:var(--text-sub); margin:4px 0 0 0;"></p>
                     </div>
-
-                    <!-- Loading/Error State -->
-                    <p id="youtube-preview-status"
-                        style="font-size:11px; color:var(--text-sub); text-align:center; margin:0;">
-                        동영상이나 플레이리스트 링크를 넣어 주세요
-                    </p>
                 </div>
+
+                <p id="youtube-preview-status"
+                    style="font-size:11px; color:var(--text-sub); text-align:center; margin:4px 0 0 0; font-weight: 600;">
+                    동영상 또는 플레이리스트 링크를 입력하세요
+                </p>
             </div>
 
-            <div class="sync-actions-row">
-                <button class="sync-popup-reset-btn" id="btn-yt-cancel">취소</button>
-                <button id="youtube-play-btn" class="sync-done-btn" disabled style="opacity:0.5;">재생</button>
+            <div class="ob-actions" style="margin-top: 8px; display: flex; gap: 10px;">
+                <button class="btn-ob-secondary" id="btn-yt-cancel" style="flex: 1;">취소</button>
+                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;">재생
+                    시작</button>
             </div>
         </div>
     </div>

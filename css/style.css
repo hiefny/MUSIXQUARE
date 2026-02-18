@@ -1705,68 +1705,153 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-bottom: 4px;
 }
 
-/* Nav & Overlays */
+
+/* =============================================
+   Bottom Nav — Toss Quick_Tabbar (Figma-exact)
+   ============================================= */
 .bottom-nav {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    height: calc(var(--nav-height) + var(--safe-bottom));
-    padding-bottom: var(--safe-bottom);
-    padding-left: var(--safe-left);
-    padding-right: var(--safe-right);
+    bottom: calc(12px + var(--safe-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 32px);
+    max-width: 390px;
+    z-index: 40000;
     display: flex;
     justify-content: space-around;
     align-items: center;
-    z-index: 100;
-    border-top: none;
-    transform: translateZ(0);
-    will-change: transform;
+
+    /* Figma: Columns 37 — rounded card */
+    border-radius: 30px;
+    padding: 9px;
+
+    /* Figma Quick_Tabbar outermost: backdropFilter blur(10px) */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+
+    /* Nearly opaque — matches real Toss app (blur subtly peeks through) */
+    background: rgba(255, 255, 255, 0.95);
+
+    /* Figma: #191F2911 / #191F293f */
+    box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
+        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
+    border: none;
+
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* Blur halo — iOS-optimized, mask-image gradient blur */
+.nav-blur-halo {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 160px;
+    z-index: 39999;
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
+    pointer-events: none;
+}
+
+/* Light Mode */
+[data-theme="light"] .bottom-nav {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
+        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
+    border: none;
+}
+
+/* Dark Mode */
+[data-theme="dark"] .bottom-nav {
+    background: rgba(28, 28, 30, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0px 20px 40px -10px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* --- Nav Items (Toss adaptive grey) --- */
 .nav-item {
-    flex: 1;
-    height: 100%;
     background: none;
     border: none;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    color: var(--text-sub);
+    gap: 2px;
+    width: auto;
+    min-width: 0;
+    position: relative;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+    height: 42px;
+    /* Figma: Active/Inactive item height */
     cursor: pointer;
-    transition: all 0.2s;
-    font-family: inherit;
+    transition: color 0.2s;
+    /* Inactive icon: adaptive.grey400 */
+    color: #B0B8C1;
 }
 
 .nav-item svg {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    /* Asset.frameShape.CleanW24 */
+    height: 24px;
     fill: currentColor;
     transition: transform 0.2s;
 }
 
 .nav-item span {
-    font-size: 10px;
-    font-weight: 600;
-    opacity: 0.8;
+    display: block;
+    font-size: 13px;
+    /* Toss: typography st13 */
+    font-weight: 500;
+    /* Toss: fontWeight medium */
+    text-align: center;
+    line-height: 1.2;
+    /* Inactive text: adaptive.grey600 */
+    color: #6B7684;
 }
 
+/* Active State — theme blue */
 .nav-item.active {
     color: var(--primary);
 }
 
+.nav-item.active span {
+    color: var(--primary);
+}
+
 .nav-item.active svg {
-    transform: translateY(-2px);
     fill: var(--primary);
+    transform: none;
 }
 
 .nav-item:active svg {
     transform: scale(0.9);
+}
+
+/* Dark mode adaptive colors */
+[data-theme="dark"] .nav-item {
+    color: #6B7684;
+}
+
+[data-theme="dark"] .nav-item span {
+    color: #8B95A1;
+}
+
+[data-theme="dark"] .nav-item.active {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active span {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active svg {
+    fill: var(--primary);
 }
 
 /* Nav Icon Wrapper for Badge */
@@ -2014,7 +2099,11 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 9999;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 60000;
+    /* Ensure it covers Header (40000), Nav (40000), and Boot Splash (50000) if needed */
     display: none;
     justify-content: center;
     align-items: center;
@@ -2090,10 +2179,10 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .ob-title {
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 800;
     color: var(--text-main);
-    letter-spacing: -0.8px;
+    letter-spacing: -0.5px;
 }
 
 .ob-desc {
@@ -2205,17 +2294,33 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     margin-top: 12px;
 }
 
+.ob-actions.vertical {
+    flex-direction: column;
+    gap: 16px;
+}
+
 .btn-ob-primary,
 .btn-ob-secondary {
     flex: 1;
-    padding: 14px 8px;
-    border-radius: 16px;
+    height: 56px;
+    border-radius: 20px;
     font-size: 15px;
     font-weight: 700;
     cursor: pointer;
     border: none;
     font-family: inherit;
     transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ob-actions.vertical .btn-ob-primary,
+.ob-actions.vertical .btn-ob-secondary {
+    flex: none;
+    height: 56px;
+    width: 100%;
+    font-size: 16px;
 }
 
 .btn-ob-primary {
@@ -2299,9 +2404,12 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     border-bottom: 2px solid var(--surface-3);
     border-radius: 0;
     padding: 8px 0;
+    padding: 8px 0;
     font-size: 32px;
+    /* Increased font size for code visibility */
     font-weight: 900;
     letter-spacing: 0.12em;
+    /* Adjusted letter spacing */
     color: var(--text-main);
     caret-color: var(--text-main);
     align-self: center;
@@ -3219,10 +3327,12 @@ input:checked+.slider:before {
     white-space: nowrap;
 }
 
+/* Chat Input styling update - Underline Style */
 .chat-input-area {
     display: flex;
     gap: 8px;
-    padding: 12px calc(20px + var(--safe-right)) 12px calc(20px + var(--safe-left));
+    padding: 12px 24px 20px;
+    /* Adjusted padding */
     background: var(--surface-1);
     border-top: 1px solid var(--surface-2);
     position: fixed;
@@ -3230,50 +3340,67 @@ input:checked+.slider:before {
     left: 0;
     right: 0;
     z-index: 100;
+    align-items: center;
+    /* Added for vertical alignment */
 }
 
 .chat-input {
     flex: 1;
-    background: var(--surface-2);
-    border: none;
-    padding: 14px 18px;
-    border-radius: 24px;
-    font-size: 14px;
+    background: none !important;
+    /* Force transparent background */
+    border: none !important;
+    /* Remove all borders */
+    border-bottom: 2px solid var(--surface-3) !important;
+    /* Add bottom border */
+    border-radius: 0 !important;
+    /* Remove border-radius */
+    padding: 8px 0;
+    /* Adjusted padding */
+    font-size: 15px;
+    /* Slightly larger font */
+    font-weight: 500;
     color: var(--text-main);
-    font-family: inherit;
-    outline: none;
-    opacity: 1;
-    /* Force visibility */
+    box-shadow: none !important;
+    /* Remove box-shadow */
+    outline: none !important;
+    /* Remove outline */
+    transition: border-bottom-color 0.2s;
 }
 
 .chat-input::placeholder {
-    color: var(--text-sub);
-    /* Higher contrast than muted */
-    opacity: 1;
-    /* Force opacity for placeholder */
+    color: var(--text-muted);
+    opacity: 0.5;
+    /* Slightly less opaque placeholder */
 }
 
 .chat-input:focus {
-    background: var(--surface-3);
+    border-bottom-color: var(--primary) !important;
+    /* Highlight bottom border on focus */
 }
 
 .chat-send-btn {
-    background: var(--primary);
+    width: 40px;
+    /* Smaller button */
+    height: 40px;
+    /* Smaller button */
     border: none;
-    width: 48px;
-    height: 48px;
     border-radius: 50%;
+    background: var(--primary);
+    /* Primary color */
+    color: #fff;
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     cursor: pointer;
-    color: white;
-    transition: all 0.2s;
     flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    /* Softer shadow */
+    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .chat-send-btn:active {
-    transform: scale(0.9);
+    transform: scale(0.92);
+    box-shadow: none;
 }
 
 .chat-send-btn svg {

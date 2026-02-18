@@ -1748,41 +1748,15 @@ async function finalizeFileProcessing(file) {
 
 // --- Theme Logic ---
 function setTheme(mode) {
-    // Normalize input (defensive)
-    const allowed = new Set(['dark', 'light', 'system']);
-    const m = allowed.has(mode) ? mode : 'system';
-
-    let theme = m;
-    if (m === 'system') {
-        try {
-            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-            theme = prefersDark ? 'dark' : 'light';
-        } catch (_) {
-            theme = 'dark';
-        }
-    }
-
-    try { document.documentElement.setAttribute('data-theme', theme); } catch (_) { /* ignore */ }
-
-    // Update UI (optional; some release builds may remove theme controls)
+    const theme = 'light';
     try {
-        document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
-        const btn = document.getElementById(`theme-${m}`);
-        if (btn) btn.classList.add('active');
+        document.documentElement.setAttribute('data-theme', 'light');
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f2f2f7');
     } catch (_) { /* ignore */ }
-
-    // Persist (may throw in some in-app/private contexts)
-    try {
-        localStorage.setItem('musixquare-theme', m);
-    } catch (e) {
-        log.debug('[Theme] localStorage unavailable:', e?.message || e);
-    }
 }
 
 (function initTheme() {
-    let saved = 'system';
-    try { saved = localStorage.getItem('musixquare-theme') || 'system'; } catch (_) { /* ignore */ }
-    setTheme(saved);
+    setTheme('light');
 })();;
 
 // --- Tab Switching ---
@@ -2095,7 +2069,10 @@ function setupShowCodeArea(show) {
 
 function setupSetCode(code) {
     const el = setupEl('setup-code');
-    if (el) el.textContent = code || '------';
+    if (el) {
+        if (el.tagName === 'INPUT') el.value = code || '------';
+        else el.textContent = code || '------';
+    }
     setupShowCodeArea(!!code);
 }
 
@@ -2167,10 +2144,16 @@ function showPlacementToastForChannel(mode) {
     showToast(getStandardRolePreset(mode).placementToast);
 }
 
-function setupRenderActions(buttons) {
+function setupRenderActions(buttons, layout = 'row') {
     const area = setupEl('setup-actions');
     if (!area) return;
     area.innerHTML = '';
+
+    if (layout === 'vertical') {
+        area.classList.add('vertical');
+    } else {
+        area.classList.remove('vertical');
+    }
 
     buttons.forEach(btn => {
         const b = document.createElement('button');
@@ -2247,7 +2230,7 @@ function showRoleSelectionButtons() {
     setupRenderActions([
         { id: 'btn-setup-host', text: '제가 방장할래요', kind: 'primary', onClick: startHostFlow },
         { id: 'btn-setup-guest', text: '모임에 참여할래요', kind: 'secondary', onClick: startGuestFlow },
-    ]);
+    ], 'vertical');
 }
 
 /**
@@ -2433,16 +2416,7 @@ function startSessionFromHost() {
     showToast('초대 코드는 설정과 도움말에서 확인할 수 있어요');
     updateRoleBadge();
 
-    // Init: Visually select "Original" (0) for Host
-    // Host defaults to channel 0, but UI might be empty. Force update.
-    try {
-        const defaultCh = document.querySelector('#grid-standard .ch-opt[data-ch="0"]');
-        if (defaultCh) {
-            // Remove active from all first
-            document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
-            defaultCh.classList.add('active');
-        }
-    } catch (e) { /* ignore */ }
+
 
     // 기존 UX 유지: 시작 직후 바로 미디어 선택창 노출
     setTimeout(() => {
@@ -2451,9 +2425,6 @@ function startSessionFromHost() {
 }
 
 async function startHostFlow() {
-    // Audio activation is best-effort.
-    // Edge case: some in-app/webview contexts can reject Tone.start() if this is
-    // re-entered without a fresh user gesture (e.g., auto-redirect after failure).
     try {
         await activateAudio();
     } catch (e) {
@@ -2466,14 +2437,12 @@ async function startHostFlow() {
     selectedJoinChannelMode = null;
     pendingPlacementToastMode = null;
 
-    // Prepare UI
+    // Step 1: Role Selection
     setupShowJoinArea(false);
-    setupShowRoleArea(false);
-    setupShowInstruction(true, '연결 코드를 만들고 있어요…');
-    setupShowCodeArea(true);
-    const codeEl = setupEl('setup-code');
-    if (codeEl) codeEl.textContent = '------';
-    setupRenderActions([]); // lock while generating
+    setupShowCodeArea(false);
+    setupShowRoleArea(true);
+    setupShowInstruction(false); // Use internal note in setup-role-area instead
+    setupHighlightJoinRole(null); // Reset visual selection
 
     // Hide slider area but keep note
     const noteArea = setupEl('setup-note');
@@ -2485,33 +2454,65 @@ async function startHostFlow() {
         stopObAutoSlide();
     }
 
+    // No "Next" button, just Back. Clicking a role proceeds.
+    setupRenderActions([
+        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
+    ]);
+}
+
+async function proceedToHostCode(mode) {
+    if (appRole !== 'host') return;
+
+    // Apply role immediately
+    try {
+        selectStandardChannelButton(mode);
+        setChannelMode(mode);
+        showPlacementToastForChannel(mode); // Show toast
+    } catch (e) { log.warn(e); }
+
+    // Step 2: Show Code
+    setupShowRoleArea(false);
+    setupShowCodeArea(true);
+    setupShowRoleArea(false);
+    setupShowCodeArea(true);
+    // setupShowInstruction(true, '연결 코드를 만들고 있어요…');
+
+    const codeEl = setupEl('setup-code');
+    if (codeEl) {
+        if (codeEl.tagName === 'INPUT') codeEl.value = '------';
+        else codeEl.textContent = '------';
+    }
+    setupRenderActions([]);
+
     try {
         const code = await createHostSessionWithShortCode();
         sessionCode = code;
         setupSetCode(code);
 
-        // Settings tab header: show invite code
         updateInviteCodeUI();
-
-        // Visual Update
         myDeviceLabel = 'HOST';
         updateRoleBadge();
 
-        setupShowInstruction(true, '다른 기기에서 이 코드를 입력하면 자동으로 연결돼요.\n코드는 설정과 도움말에서 확인할 수 있어요.');
+        updateInviteCodeUI();
+        myDeviceLabel = 'HOST';
+        updateRoleBadge();
+
+        // Instruction is now embedded in HTML (label above input)
+        setupShowInstruction(false);
+
+        // Show "Start" to enter main app
         setupRenderActions([
-            { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
-            { id: 'btn-setup-start', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
+            { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startHostFlow },
+            { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost }
         ]);
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
         showToast('세션을 만들지 못했어요');
-        initSetupOverlay();
+        startHostFlow();
     }
 }
 
 async function startGuestFlow() {
-    // Audio activation is best-effort.
-    // This function can be called from non-gesture paths (e.g., reconnect UI).
     try {
         await activateAudio();
     } catch (e) {
@@ -2524,14 +2525,14 @@ async function startGuestFlow() {
     selectedJoinChannelMode = null;
     pendingPlacementToastMode = null;
 
-    // Settings tab header: clear invite code until user enters
     updateInviteCodeUI();
 
-    // UI
+    // Step 1: Role Selection
     setupShowCodeArea(false);
-    setupShowJoinArea(true);
-    setupShowRoleArea(false); // Step 1: Hide role selection
-    setupShowInstruction(false);
+    setupShowJoinArea(false);
+    setupShowRoleArea(true);
+    setupShowInstruction(false); // Use internal note in setup-role-area
+    setupHighlightJoinRole(null);
     setupSetGuestJoinBusy(false);
 
     // Hide slider area but keep note
@@ -2544,42 +2545,40 @@ async function startGuestFlow() {
         stopObAutoSlide();
     }
 
+    // No "Next" button, clicking role proceeds
     setupRenderActions([
         { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
-        { id: 'btn-setup-next', text: '다음', kind: 'primary', onClick: proceedToGuestRoleSelection },
     ]);
 
     // Visual Update
     myDeviceLabel = '참가자';
     updateRoleBadge();
-
-    const input = setupEl('setup-join-code');
-    if (input) {
-        input.value = ''; // Clear previous
-        input.focus();
-    }
 }
 
-function proceedToGuestRoleSelection() {
-    const input = setupEl('setup-join-code');
-    const codeRaw = (input ? input.value : '').trim();
-    const code = codeRaw.replace(/\s+/g, '');
+function proceedToGuestCode(mode) {
+    pendingGuestRoleMode = mode;
 
-    if (!/^\d{6}$/.test(code)) {
-        showToast('6자리 코드를 입력해 주세요');
-        if (input) input.focus();
-        return;
-    }
+    // Step 2: Show Input
+    setupShowRoleArea(false);
+    setupShowJoinArea(true);
+    setupShowInstruction(false); // Use internal label in setup-join-area
 
-    // Step 2: Show role selection
-    setupShowJoinArea(false);
-    setupShowRoleArea(true);
-    setupHighlightJoinRole(null); // Reset highlight
+    // Apply role locally for preview? (Optional, but user said "Guest sets role then inputs number")
+    // We already stored it in pendingGuestRoleMode.
+    try {
+        showPlacementToastForChannel(mode);
+    } catch (e) { }
 
     setupRenderActions([
         { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
-        { id: 'btn-setup-confirm', text: '시작하기', kind: 'secondary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
     ]);
+
+    const input = setupEl('setup-join-code');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
 }
 
 // Guest: Selected role mode (pending confirm)
@@ -2591,25 +2590,34 @@ function showGuestConnecting() {
     setupSetGuestJoinBusy(true);
 }
 
+// --- Setup Role Grid Click Handler ---
+// This handles the "auto-advance" logic for both Host/Guest
+const _setupRoleGrid = document.getElementById('setup-role-grid');
+if (_setupRoleGrid) {
+    _setupRoleGrid.addEventListener('click', (e) => {
+        const item = e.target.closest('.ch-opt');
+        if (!item) return;
+        const mode = parseInt(item.dataset.joinCh);
+        if (isNaN(mode)) return;
+
+        // Visual feedback (optional, as we switch screens immediately)
+        setupHighlightJoinRole(mode);
+
+        if (appRole === 'host') {
+            proceedToHostCode(mode);
+        } else if (appRole === 'guest') {
+            proceedToGuestCode(mode);
+        }
+    });
+}
+
 function handleSetupRolePreview(mode) {
-    if (appRole !== 'guest') return;
+    if (appRole !== 'guest' && appRole !== 'host') return;
     pendingGuestRoleMode = mode;
     setupHighlightJoinRole(mode);
-
-    // Apply channel routing locally so user can hear the difference
-    try {
-        selectStandardChannelButton(mode);
-        setChannelMode(mode);
-    } catch (e) {
-        log.warn('[Setup] Preview setChannelMode failed', e);
-    }
-
-    // Update guest actions to show "Join" button in primary (blue) style
-    setupRenderActions([
-        { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
-        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-    ]);
 }
+
+
 
 async function handleSetupJoinWithRole(mode) {
     if (mode === null || mode === undefined) {
@@ -2862,7 +2870,7 @@ function initEventListeners() {
     $on('volume-slider', 'input', function () { onVolInput(this.value); });
     $on('volume-slider', 'change', function () { onVolChange(this.value); });
     $on('chat-preview-btn', 'click', toggleChatDrawer);
-    $on('btn-sync', 'click', handleManualSync);
+    $on('btn-sync', 'click', handleMainSyncBtn);
     $on('btn-media-source', 'click', openMediaSourcePopup);
 
     // --- Playlist Tab ---
@@ -3000,7 +3008,7 @@ function initEventListeners() {
     $on('btn-sync-done', 'click', closeManualSync);
 
     // --- Media Source Popup ---
-    $on('btn-local-file', 'click', () => { closeMediaSourcePopup(); openFileSelector(); });
+    $on('btn-local-file', 'click', () => { openFileSelector(); });
     $on('btn-youtube-source', 'click', () => { closeMediaSourcePopup(); openYouTubePopup(); });
     $on('btn-demo-media', 'click', () => { closeMediaSourcePopup(); loadDemoMedia(); });
     $on('btn-close-media-popup', 'click', closeMediaSourcePopup);
@@ -3020,6 +3028,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Playlist & Player Logic ---
 const _fileInputEl = document.getElementById('file-input');
 if (_fileInputEl) _fileInputEl.addEventListener('change', async (e) => {
+    closeMediaSourcePopup();
     // File upload is Host-only (OP cannot relay file data to other guests)
     if (hostConn) return showToast("호스트만 파일을 추가할 수 있어요");
 
@@ -5393,17 +5402,15 @@ if (slider) {
 
 // --- Sync Button Logic ---
 function handleMainSyncBtn() {
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
-
-    log.debug("Sync Btn Clicked. HostConn:", !!hostConn, "Playing:", isActuallyPlaying);
     if (!hostConn) {
-        // Host: Reset local offset and trigger Guest-side Sync
-        localOffset = 0;
-        updateSyncDisplay();
+        // Host: Broadcast resync request to all guests
         showToast("모든 기기 재동기화 요청...");
         broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
     } else {
-        // Guest: Manual local sync
+        // Guest: Perform auto-sync (reset local offset and request sync time)
+        localOffset = 0;
+        autoSyncOffset = 0;
+        updateSyncDisplay();
         syncReset();
     }
 }
@@ -5425,7 +5432,7 @@ function updateSyncBtnState(isGuest) {
     if (!btn) return; // Safety check
 
     // Unify Icon (Refresh) and Text (AUTO SYNC) for both roles
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> AUTO SYNC`;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> 초기화`;
 }
 
 // --- Networking (Updated from network.html) ---
@@ -5777,7 +5784,7 @@ function handleHostIncomingConnection(conn) {
         updateRoleBadge();
 
         if (sessionStarted) {
-            showToast(`${deviceName} 연결이 끊겼어요`);
+            showToast(`${deviceName} 연결이 끊어졌어요`);
         }
     });
 
@@ -5919,7 +5926,7 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
             updateRoleBadge();
 
             if (!isIntentionalDisconnect) {
-                showConnectionFailedOverlay('연결이 끊겼어요', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
+                showConnectionFailedOverlay('연결이 끊어졌어요', '같은 Wi‑Fi인지 확인하고 다시 참가해 주세요.', hostId);
             }
             isIntentionalDisconnect = false;
         });
@@ -8402,10 +8409,10 @@ function updateSyncDisplay() {
     const el = document.getElementById('manual-sync-value');
     if (el) el.innerText = (totalMs > 0 ? '+' : '') + totalMs;
 
-    const detailEl = document.getElementById('sync-details');
-    if (detailEl) {
-        detailEl.innerHTML = `<span style="opacity:0.7">Auto: ${autoMs}ms</span> <span style="opacity:0.4">|</span> <span style="opacity:0.7">Manual: ${manualMs}ms</span>`;
-    }
+    // const detailEl = document.getElementById('sync-details');
+    // if (detailEl) {
+    //     detailEl.innerHTML = `<span style="opacity:0.7">Auto: ${autoMs}ms</span> <span style="opacity:0.4">|</span> <span style="opacity:0.7">Manual: ${manualMs}ms</span>`;
+    // }
 }
 
 function handleRelayConnection(conn) {
@@ -9316,7 +9323,7 @@ async function handleLogoReturnToMain() {
 
         const r = await showDialog({
             title: '메인 화면으로 돌아갈까요?',
-            message: '현재 세션과 연결이 끊겨요.',
+            message: '현재 세션과 연결이 끊어져요.',
             buttonText: '메인 화면',
             secondaryText: '남아있기',
             defaultFocus: 'secondary',
@@ -10104,12 +10111,12 @@ function openMediaSourcePopup() {
     }
 
     const ov = document.getElementById('media-source-overlay');
-    if (ov) ov.classList.add('show');
+    if (ov) ov.classList.add('active');
 }
 
 function closeMediaSourcePopup() {
     const ov = document.getElementById('media-source-overlay');
-    if (ov) ov.classList.remove('show');
+    if (ov) ov.classList.remove('active');
 }
 
 function openYouTubePopup() {
@@ -10120,7 +10127,7 @@ function openYouTubePopup() {
     }
 
     const ov = document.getElementById('youtube-url-overlay');
-    if (ov) ov.classList.add('show');
+    if (ov) ov.classList.add('active');
 
     // auto-focus
     const urlInput = document.getElementById('youtube-url-input');
@@ -10130,7 +10137,7 @@ function openYouTubePopup() {
 
 function closeYouTubePopup() {
     const ov = document.getElementById('youtube-url-overlay');
-    if (ov) ov.classList.remove('show');
+    if (ov) ov.classList.remove('active');
 }
 
 function extractYouTubeVideoId(url) {

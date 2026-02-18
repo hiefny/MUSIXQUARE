@@ -266,8 +266,7 @@ header {
     padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
-    padding-bottom: 10px;
+    align-items: center;
     box-sizing: border-box;
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));

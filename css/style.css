@@ -620,7 +620,7 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 
 #tab-play {
     justify-content: space-evenly;
-    padding-top: 10px;
+    padding-top: calc(var(--header-height) + 10px);
 }
 
 .vinyl-wrapper {
@@ -2200,17 +2200,17 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 .ob-actions {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     gap: 12px;
     margin-top: 12px;
 }
 
 .btn-ob-primary,
 .btn-ob-secondary {
-    width: 100%;
-    padding: 18px;
-    border-radius: 18px;
-    font-size: 16px;
+    flex: 1;
+    padding: 14px 8px;
+    border-radius: 16px;
+    font-size: 15px;
     font-weight: 700;
     cursor: pointer;
     border: none;

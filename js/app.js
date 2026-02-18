@@ -2016,7 +2016,7 @@ let appRole = 'idle'; // 'host' | 'guest' | 'idle'
 let sessionCode = '';
 let lastJoinCode = '';
 
-// Host가 "시작할래요!"를 눌러 메인 화면으로 진입했는지 (호스트 UI용)
+// Host가 "시작하기"를 눌러 메인 화면으로 진입했는지 (호스트 UI용)
 let sessionStarted = false;
 
 // Guest가 참가 시 선택한 역할(채널 모드)
@@ -2430,7 +2430,7 @@ function startSessionFromHost() {
     hideSetupOverlay();
 
     // Host UX
-    showToast('초대 코드는 설정에서 확인할 수 있어요');
+    showToast('초대 코드는 설정과 도움말에서 확인할 수 있어요');
     updateRoleBadge();
 
     // Init: Visually select "Original" (0) for Host
@@ -2497,10 +2497,10 @@ async function startHostFlow() {
         myDeviceLabel = 'HOST';
         updateRoleBadge();
 
-        setupShowInstruction(true, '다른 기기에서 이 코드를 입력하면 자동으로 연결돼요.\n코드는 설정과 도움말 탭에서 확인할 수 있어요.');
+        setupShowInstruction(true, '다른 기기에서 이 코드를 입력하면 자동으로 연결돼요.\n코드는 설정과 도움말에서 확인할 수 있어요.');
         setupRenderActions([
             { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: initSetupOverlay },
-            { id: 'btn-setup-start', text: '시작할래요!', kind: 'primary', onClick: startSessionFromHost },
+            { id: 'btn-setup-start', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
         ]);
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
@@ -2578,7 +2578,7 @@ function proceedToGuestRoleSelection() {
 
     setupRenderActions([
         { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
-        { id: 'btn-setup-confirm', text: '시작할래요!', kind: 'secondary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+        { id: 'btn-setup-confirm', text: '시작하기', kind: 'secondary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
     ]);
 }
 
@@ -2607,7 +2607,7 @@ function handleSetupRolePreview(mode) {
     // Update guest actions to show "Join" button in primary (blue) style
     setupRenderActions([
         { id: 'btn-setup-back', text: '이전으로', kind: 'secondary', onClick: startGuestFlow },
-        { id: 'btn-setup-confirm', text: '시작할래요!', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
+        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
     ]);
 }
 

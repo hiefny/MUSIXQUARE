@@ -252,10 +252,10 @@
             <div class="help-desc">
                 참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
                 <ul class="help-list">
-                    <li><strong>원본 음원:</strong> 스테레오(기본) 출력</li>
-                    <li><strong>왼쪽 소리:</strong> L 채널 출력</li>
-                    <li><strong>오른쪽 소리:</strong> R 채널 출력</li>
-                    <li><strong>저음 영역:</strong> 저역 믹스 출력</li>
+                    <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
+                    <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
+                    <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
+                    <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
                 </ul>
                 필요하면 <strong>Settings</strong>에서 역할을 언제든 바꿀 수 있어요.
             </div>
@@ -348,31 +348,31 @@
                     <div class="ch-opt" data-ch="-1">
                         <svg viewBox="0 0 24 24">
                             <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-                        </svg>왼쪽 소리
+                        </svg>왼쪽 스피커
                     </div>
                     <div class="ch-opt" data-ch="1">
                         <svg viewBox="0 0 24 24">
                             <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                        </svg>오른쪽 소리
+                        </svg>오른쪽 스피커
                     </div>
                     <div class="ch-opt" data-ch="0">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                        </svg>원본 음원
+                        </svg>중앙 스피커
                     </div>
                     <div class="ch-opt" data-ch="2">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                             <circle cx="12" cy="12" r="3" />
-                        </svg>저음 영역
+                        </svg>서브우퍼
                     </div>
                 </div>
 
                 <div class="slider-wrap" id="woofer-cutoff-control">
                     <div class="slider-header">
-                        <span>저음 영역 조절하기</span>
+                        <span>서브우퍼 조절하기</span>
                         <span class="val-disp" id="val-cutoff">120 Hz</span>
                     </div>
                     <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="서브우퍼 컷오프 주파수">
@@ -853,10 +853,10 @@
                     </svg>
                 </div>
                 <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
-                    <div class="ch-opt" data-join-ch="-1">왼쪽 소리</div>
-                    <div class="ch-opt" data-join-ch="1">오른쪽 소리</div>
-                    <div class="ch-opt" data-join-ch="0">원본 음원</div>
-                    <div class="ch-opt" data-join-ch="2">저음 영역</div>
+                    <div class="ch-opt" data-join-ch="-1">왼쪽 스피커</div>
+                    <div class="ch-opt" data-join-ch="1">오른쪽 스피커</div>
+                    <div class="ch-opt" data-join-ch="0">중앙 스피커</div>
+                    <div class="ch-opt" data-join-ch="2">서브우퍼</div>
                 </div>
             </div>
 
@@ -929,9 +929,8 @@
                 </button>
             </div>
 
-            <div class="ob-actions" style="margin-top: 16px;">
-                <button class="btn-ob-secondary" id="btn-close-media-popup"
-                    style="width: 100%; background: var(--surface-1); border: 1px solid var(--surface-3);">닫기</button>
+            <div class="ob-actions">
+                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;">닫기</button>
             </div>
         </div>
     </div>

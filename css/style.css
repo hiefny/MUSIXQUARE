@@ -2160,8 +2160,9 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     /* Use safe-area only, no header height */
 }
 
-/* Hide header behind the onboarding overlay */
-body:has(#setup-overlay.active) header {
+/* Hide header behind fullscreen overlays */
+body:has(#setup-overlay.active) header,
+body:has(#media-source-overlay.active) header {
     z-index: 1;
     /* Below onboarding overlay so header is hidden */
 }
@@ -2757,7 +2758,7 @@ body:has(#setup-overlay.active) header {
     border-radius: 16px;
     padding: 14px 10px;
     /* Reduced from 20px */
-    font-size: 15px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-main);
     text-align: center;

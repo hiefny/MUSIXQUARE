@@ -2244,37 +2244,9 @@ let _setupOverlayInitToken = 0;
 // Boot Splash (thin splash shown briefly before Setup overlay mounts)
 let _bootSplashFailsafeTimer = 0;
 
-function showBootSplash() {
-    const el = document.getElementById('boot-splash');
-    if (!el) return;
-    try {
-        if (_bootSplashFailsafeTimer) {
-            clearTimeout(_bootSplashFailsafeTimer);
-            _bootSplashFailsafeTimer = 0;
-        }
-        el.classList.add('active');
-        el.setAttribute('aria-hidden', 'false');
+function showBootSplash() { /* Removed */ }
 
-        // Failsafe: never block the app forever if something goes wrong.
-        // (Max setup defer is ~2.6s, so 5s is a safe ceiling)
-        _bootSplashFailsafeTimer = setTimeout(() => {
-            try { hideBootSplash(); } catch (_) { /* ignore */ }
-        }, 5000);
-    } catch (_) { /* ignore */ }
-}
-
-function hideBootSplash() {
-    const el = document.getElementById('boot-splash');
-    if (!el) return;
-    try {
-        if (_bootSplashFailsafeTimer) {
-            clearTimeout(_bootSplashFailsafeTimer);
-            _bootSplashFailsafeTimer = 0;
-        }
-        el.classList.remove('active');
-        el.setAttribute('aria-hidden', 'true');
-    } catch (_) { /* ignore */ }
-}
+function hideBootSplash() { /* Removed */ }
 
 /**
  * Wait before showing the Setup overlay so the underlying layout can settle first.
@@ -2359,18 +2331,10 @@ function initSetupOverlay() {
         startObAutoSlide();
     };
 
-    // On the very first app launch, defer mounting the overlay so the layout can settle.
-    // If the user returns here later (e.g. "이전으로"), show immediately for better UX.
+    // On the very first app launch, show Setup immediately.
     if (!_setupOverlayEverShown) {
-        // Ensure hidden until mount, and block interactions briefly for a consistent first-load UX.
-        try { hideSetupOverlay(); } catch (_) { /* ignore */ }
         try { document.documentElement.classList.add('setup-boot-block'); } catch (_) { /* ignore */ }
-
-        // Show a thin splash while we intentionally delay the setup overlay mount.
-        // This makes the 0.9s wait feel natural (all OS).
-        try { showBootSplash(); } catch (_) { /* ignore */ }
-
-        _waitForSetupOverlayMount({ minDelayMs: 900, maxDelayMs: 2600 }).then(showAndStart);
+        showAndStart();
     } else {
         showAndStart();
     }

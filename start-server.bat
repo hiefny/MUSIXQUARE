@@ -5,9 +5,9 @@ echo ========================================
 echo   MUSIXQUARE Local Server
 echo ========================================
 echo.
-echo Server running at: http://localhost:5173
+echo Server running at: http://localhost:8080
 echo Press Ctrl+C to stop.
 echo.
 
-py -3 -m http.server 5173
+py -3 -m http.server 8080
 pause

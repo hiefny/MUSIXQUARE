@@ -556,12 +556,6 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.invite-code-value.copied {
-    background: var(--primary);
-    color: white;
-    transform: scale(1.05);
-}
-
 .tab-action-btn {
     background: var(--surface-2);
     color: var(--text-sub);

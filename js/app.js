@@ -2686,6 +2686,9 @@ function handleSetupRolePreview(mode) {
     pendingSetupRole = mode;
     setupHighlightJoinRole(mode);
 
+    // Show placement toast immediately on selection
+    showPlacementToastForChannel(mode);
+
     // Visual feedback: Activate Next button
     const nextBtn = document.getElementById('btn-setup-next');
     if (nextBtn) {

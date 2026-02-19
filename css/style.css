@@ -111,6 +111,9 @@ html.setup-boot-block .bottom-nav {
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
     margin: 0;
     padding: 0;
 }
@@ -121,6 +124,7 @@ textarea,
 [contenteditable="true"] {
     user-select: text;
     -webkit-user-select: text;
+    -webkit-touch-callout: default;
 }
 
 /* Normalize form controls across platforms (Android WebView/Chrome can otherwise use
@@ -187,6 +191,52 @@ body {
         height: var(--app-height, 100svh);
         min-height: var(--app-height, 100svh);
     }
+}
+
+/* --------------------------------------------------------------------------
+   Portrait Lock (Mobile)
+   - Some browsers/PWA containers may still allow rotation even with manifest
+     orientation. We show a lightweight blocker overlay only on mobile when
+     rotated to landscape.
+   -------------------------------------------------------------------------- */
+.rotate-lock-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+    background: var(--bg);
+    text-align: center;
+}
+
+.rotate-lock-card {
+    width: min(420px, 92vw);
+    background: var(--surface-1);
+    border-radius: 24px;
+    padding: 22px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.rotate-lock-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+}
+
+.rotate-lock-desc {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-sub);
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
+html.force-portrait .rotate-lock-overlay {
+    display: flex;
 }
 
 /* Boot Splash: thin splash shown briefly before the Setup overlay mounts */
@@ -463,6 +513,8 @@ header.loading .header-loading-text {
     display: none;
     flex-direction: column;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
     padding-top: var(--header-height);
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
     scrollbar-width: none;
@@ -2161,6 +2213,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     inset: 0;
     height: 100vh;
     height: 100dvh;
+    height: var(--app-height, 100dvh);
+    min-height: var(--app-height, 100dvh);
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -4298,7 +4352,7 @@ input:checked+.slider:before {
     width: 44px;
     height: 44px;
     border-radius: 14px;
-    background: var(--surface-1);
+    background: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4312,7 +4366,7 @@ input:checked+.slider:before {
 }
 
 .file-select-btn:hover .btn-icon-bg {
-    background: var(--surface-1);
+    background: transparent;
     color: var(--primary);
 }
 

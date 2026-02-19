@@ -69,6 +69,140 @@ function preventIOSPinchZoom() {
 }
 preventIOSPinchZoom();
 
+/**
+ * [UX] Portrait lock (best-effort)
+ * - In installed PWA/Android, manifest "orientation" usually locks rotation.
+ * - Some containers still rotate (or allow rotation before lock applies).
+ * - We:
+ *   1) Best-effort request Screen Orientation API lock on first user gesture.
+ *   2) Show a lightweight overlay in landscape on mobile as a fallback.
+ */
+function _isLandscapeNow() {
+    try {
+        if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return true;
+    } catch (_) { /* ignore */ }
+    return (window.innerWidth > window.innerHeight);
+}
+
+function updateForcePortraitOverlay() {
+    // Only for mobile (avoid blocking desktop wide layouts)
+    const isMobile = IS_IOS || IS_ANDROID;
+    if (!isMobile) {
+        try { document.documentElement.classList.remove('force-portrait'); } catch (_) { }
+        return;
+    }
+
+    const landscape = _isLandscapeNow();
+    try { document.documentElement.classList.toggle('force-portrait', landscape); } catch (_) { /* ignore */ }
+}
+
+function tryLockPortraitOrientation() {
+    const isMobile = IS_IOS || IS_ANDROID;
+    if (!isMobile) return;
+
+    try {
+        const o = screen && screen.orientation;
+        if (o && typeof o.lock === 'function') {
+            // portrait-primary is widely supported; fallback to portrait if needed
+            o.lock('portrait-primary').catch(() => {
+                try { o.lock('portrait').catch(() => { }); } catch (_) { }
+            });
+        }
+    } catch (_) { /* ignore */ }
+}
+
+(function initPortraitLockUX() {
+    const run = () => {
+        updateForcePortraitOverlay();
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+        run();
+    }
+
+    // Keep overlay state updated on geometry changes (rotation/resizing)
+    try { window.addEventListener('orientationchange', run, { passive: true }); } catch (_) { }
+    try { window.addEventListener('resize', run, { passive: true }); } catch (_) { }
+
+    // Best-effort lock after first user gesture (required by many browsers)
+    const lockOnce = () => { tryLockPortraitOrientation(); };
+    try { document.addEventListener('touchstart', lockOnce, { once: true, passive: true }); } catch (_) { }
+    try { document.addEventListener('click', lockOnce, { once: true, passive: true }); } catch (_) { }
+})();
+
+/**
+ * [iOS] Prevent "rubber-band" overscroll getting stuck at the edge
+ * - Some iOS WebKit builds can briefly ignore opposite-direction scroll
+ *   while the elastic bounce animation settles, especially with nested
+ *   overflow containers.
+ * - We prevent the edge-overscroll gesture only when the user is already
+ *   at the top/bottom and continues pulling past the limit.
+ *
+ * This keeps normal scrolling intact and avoids affecting horizontal
+ * gestures (sliders).
+ */
+function initIOSScrollEdgeGuard() {
+    if (!IS_IOS) return;
+
+    const guards = new Set();
+    const pick = (sel) => {
+        try { document.querySelectorAll(sel).forEach(el => guards.add(el)); } catch (_) { /* ignore */ }
+    };
+
+    // Main app scrollers
+    pick('.tab-content');
+    // Setup overlay scrollers
+    pick('#setup-welcome-area');
+    pick('#setup-code-area');
+    pick('#setup-join-area');
+    pick('#setup-role-area');
+    // Chat drawer
+    pick('#chat-messages');
+
+    const attach = (el) => {
+        if (!el || el.__edgeGuardAttached) return;
+        el.__edgeGuardAttached = true;
+
+        let startY = 0;
+        let startX = 0;
+
+        el.addEventListener('touchstart', (e) => {
+            if (!e || !e.touches || e.touches.length !== 1) return;
+            startY = e.touches[0].clientY;
+            startX = e.touches[0].clientX;
+        }, { passive: true });
+
+        el.addEventListener('touchmove', (e) => {
+            if (!e || !e.touches || e.touches.length !== 1) return;
+            const y = e.touches[0].clientY;
+            const x = e.touches[0].clientX;
+            const dy = y - startY;
+            const dx = x - startX;
+
+            // Don't interfere with primarily-horizontal gestures
+            if (Math.abs(dx) > Math.abs(dy)) return;
+
+            const top = el.scrollTop <= 0;
+            const bottom = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 1);
+
+            // Block only "past-the-edge" pulls
+            if ((top && dy > 0) || (bottom && dy < 0)) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    };
+
+    guards.forEach(attach);
+}
+
+// Attach after DOM is ready (elements exist)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initIOSScrollEdgeGuard, { once: true });
+} else {
+    initIOSScrollEdgeGuard();
+}
+
 
 /**
  * [Layout] Fixed viewport & safe-area metrics (single-shot)
@@ -154,7 +288,16 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
 
     // iOS 홈화면 앱(standalone)에서는 innerHeight/clientHeight가 safe-area를 제외하는 경우가 있어
     // screen.height(=기기 화면 높이, CSS px)를 기준으로 더 큰 값을 사용합니다.
-    if (IS_IOS && isStandalone && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
+    // 단, 가로모드에서는 screen.height가 회전에 따라 갱신되지 않는 케이스가 있어(특히 PWA)
+    // 오히려 app-height가 과대 평가되어 스크롤이 일부만 되는 문제가 생길 수 있습니다.
+    // -> 세로모드에서만 screen.height 보정을 적용합니다.
+    let _isLandscape = false;
+    try {
+        _isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
+    } catch (_) {
+        _isLandscape = (window.innerWidth > window.innerHeight);
+    }
+    if (IS_IOS && isStandalone && !_isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
         h = Math.max(h, Math.round(window.screen.height));
     }
 
@@ -1916,9 +2059,10 @@ async function initAudio() {
         // 3. Output
         rvbCrossFade.connect(masterGain);
 
-        // 4. Virtual Bass Chain (Parallel from Preamp)
-        // Tapping after Preamp means it gets the Widened & Boosted signal
-        preamp.connect(vbFilter);
+        // 4. Virtual Bass Chain (Parallel)
+        // Tap AFTER channel routing (+EQ) so it respects the selected role (L/R/Center/Sub)
+        // and doesn't leak the opposite channel in L/R modes.
+        eqIn.connect(vbFilter);
         vbFilter.connect(vbCheby);
         vbCheby.connect(vbGain);
         vbGain.connect(masterGain);
@@ -3101,11 +3245,13 @@ function initEventListeners() {
     }
 
     // --- Settings: Stereo Width ---
+    $on('btn-reset-stereo', 'click', resetStereo);
     $on('width-slider', 'input', function () { updateAudioEffect('stereo', 'mix', this.value, true); });
     $on('width-slider', 'change', function () { updateAudioEffect('stereo', 'mix', this.value); });
     $on('width-slider', 'dblclick', resetStereo);
 
     // --- Settings: Virtual Bass ---
+    $on('btn-reset-vbass', 'click', resetVBass);
     $on('vbass-slider', 'input', function () { updateAudioEffect('vbass', 'mix', this.value, true); });
     $on('vbass-slider', 'change', function () { updateAudioEffect('vbass', 'mix', this.value); });
     $on('vbass-slider', 'dblclick', () => updateAudioEffect('vbass', 'mix', 0));
@@ -5061,7 +5207,7 @@ function onReverbPreDelayChange(val) {
 function onReverbLowCutInput(val) {
     const v = Number(val);
     const freq = 20 * Math.pow(50, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
+    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'kHz' : Math.round(freq) + 'Hz';
     document.getElementById('val-rvb-lowcut').innerText = txt;
 }
 function onReverbLowCutChange(val) {
@@ -5073,7 +5219,7 @@ function onReverbLowCutChange(val) {
 function onReverbHighCutInput(val) {
     const v = Number(val);
     const freq = 20000 * Math.pow(0.025, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'k' : Math.round(freq) + 'Hz';
+    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'kHz' : Math.round(freq) + 'Hz';
     document.getElementById('val-rvb-highcut').innerText = txt;
 }
 function onReverbHighCutChange(val) {
@@ -5108,13 +5254,13 @@ function setReverbParam(param, val) {
         case 'lowcut':
             const lFreq = 20 * Math.pow(50, v / 100);
             if (rvbLowCut) rvbLowCut.frequency.rampTo(lFreq, 0.1);
-            document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'k' : Math.round(lFreq) + 'Hz');
+            document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz');
             document.getElementById('reverb-lowcut-slider').value = v;
             break;
         case 'highcut':
             const hFreq = 20000 * Math.pow(0.025, v / 100);
             if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
-            document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'k' : Math.round(hFreq) + 'Hz');
+            document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
             document.getElementById('reverb-highcut-slider').value = v;
             break;
     }
@@ -5223,6 +5369,12 @@ function onStereoWidthChange(val) {
 
 function resetStereo() { setStereoWidth(100); onStereoWidthChange(100); }
 
+function resetVBass() {
+    // Default: 0% (off)
+    try { setVirtualBass(0); } catch (_) { /* ignore */ }
+    try { onVirtualBassChange(0); } catch (_) { /* ignore */ }
+}
+
 // Virtual Bass Control
 function setVirtualBass(val) {
     virtualBass = val / 100;
@@ -5262,7 +5414,15 @@ function applySettings() {
 
     // Virtual Bass
     // Boost factor: 0 to 1
-    if (vbGain) vbGain.gain.rampTo(virtualBass, 0.1);
+    // NOTE:
+    // - Virtual bass generates harmonics (intentional distortion). If this device
+    //   is configured as a Subwoofer/LFE, those harmonics can leak into the woofer
+    //   output and break the "bass-only" role.
+    // - So we disable the virtual bass mix on Subwoofer/LFE devices.
+    let vbLevel = virtualBass;
+    const isSubRole = (channelMode === 2) || (isSurroundMode && surroundChannelIndex === 3);
+    if (isSubRole) vbLevel = 0;
+    if (vbGain) vbGain.gain.rampTo(vbLevel, 0.1);
 }
 
 function onVolInput(val) { setVolume(val / 100); }

@@ -45,6 +45,14 @@
 
 <body>
 
+    <!-- Rotation lock overlay (fallback for browsers/PWA that don't honor manifest orientation) -->
+    <div class="rotate-lock-overlay" aria-hidden="true">
+        <div class="rotate-lock-card">
+            <div class="rotate-lock-title">세로 화면만 지원해요</div>
+            <div class="rotate-lock-desc">기기를 세로(Portrait)로 돌려서 사용해 주세요.</div>
+        </div>
+    </div>
+
     <noscript>
         <div
             style="padding:16px; background:#111; color:#fff; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;">
@@ -260,7 +268,7 @@
                     <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
                     <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
                 </ul>
-                필요하면 <strong>Settings</strong>에서 역할을 언제든 바꿀 수 있어요.
+                필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
             </div>
         </div>
 
@@ -358,18 +366,18 @@
                             <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                         </svg>오른쪽 스피커
                     </div>
-                    <div class="ch-opt" data-ch="0">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                        </svg>중앙 스피커
-                    </div>
                     <div class="ch-opt" data-ch="2">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                             <circle cx="12" cy="12" r="3" />
                         </svg>서브우퍼
+                    </div>
+                    <div class="ch-opt" data-ch="0">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
+                        </svg>중앙 스피커
                     </div>
                 </div>
 
@@ -390,10 +398,8 @@
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
-                        <span>Mix <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
-                                기본값
-                                0%, 올리면 공간감 증가</span></span>
+                        <span>믹스 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 0%</span></span>
                         <span class="val-disp" id="val-reverb">0%</span>
                     </div>
                     <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="리버브 믹스">
@@ -402,10 +408,8 @@
                 <!-- Decay Slider -->
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
-                        <span>Decay Time <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
-                                기본값
-                                5.0s, 공간의 크기</span></span>
+                        <span>디케이 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 5s</span></span>
                         <span class="val-disp" id="val-rvb-decay">5.0s</span>
                     </div>
                     <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
@@ -415,10 +419,8 @@
                 <!-- Pre-Delay Slider -->
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
-                        <span>Bounce (Pre-Delay) <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
-                                기본값
-                                0.1s, 벽면 반사 지연</span></span>
+                        <span>반사 지연 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 0.1s</span></span>
                         <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                     </div>
                     <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
@@ -428,10 +430,8 @@
                 <!-- Low Cut Slider (New) -->
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
-                        <span>Low Cut <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
-                                기본값
-                                20Hz, 올리면 저음 컷(깔끔함)</span></span>
+                        <span>하이패스 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 20Hz</span></span>
                         <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                     </div>
                     <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
@@ -441,11 +441,9 @@
                 <!-- High Cut Slider (New) -->
                 <div class="slider-wrap" style="padding-top:0; padding-bottom:20px;">
                     <div class="slider-header">
-                        <span>High Cut <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
-                                기본값
-                                20.0k, 올리면 고음 컷(부드러움)</span></span>
-                        <span class="val-disp" id="val-rvb-highcut">20.0k</span>
+                        <span>로우패스 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 20.0kHz</span></span>
+                        <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                     </div>
                     <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
                         aria-label="리버브 하이컷">
@@ -506,6 +504,8 @@
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">가상 서라운드(방장 제어)</span>
+                    <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
+                        id="btn-reset-stereo">Reset</button>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
@@ -522,6 +522,8 @@
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">가상 베이스 강화(방장 제어)</span>
+                    <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
+                        id="btn-reset-vbass">Reset</button>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
@@ -858,8 +860,8 @@
                 <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
                     <div class="ch-opt" data-join-ch="-1">왼쪽 스피커</div>
                     <div class="ch-opt" data-join-ch="1">오른쪽 스피커</div>
-                    <div class="ch-opt" data-join-ch="0">중앙 스피커</div>
                     <div class="ch-opt" data-join-ch="2">서브우퍼</div>
+                    <div class="ch-opt" data-join-ch="0">중앙 스피커</div>
                 </div>
             </div>
 

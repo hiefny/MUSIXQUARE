@@ -14,7 +14,8 @@
 // v24: Android UI consistency fixes (doctype/typography/slider), paused-video UI fix, Host code toast
 // v25: Invite code copy toast wording + fix stylesheet cache mismatch (remove ?v= param)
 // v28: Portrait lock UX + mobile overscroll fix + media select icon bg + vBass routing fix
-const CACHE_VERSION = "v28";
+// v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
+const CACHE_VERSION = "v29";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -27,6 +28,17 @@ const APP_SHELL = [
   './js/transfer.worker.js',
   './vendor/Tone.js',
   './vendor/peerjs.min.js',
+  // Pretendard webfont (cached for offline use)
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Thin.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-ExtraLight.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Light.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Regular.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Medium.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-SemiBold.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Bold.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-ExtraBold.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Black.woff2',
   './favicon.svg',
   './manifest.webmanifest',
   './dummy_audio.mp3',

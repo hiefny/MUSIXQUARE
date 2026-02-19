@@ -70,68 +70,6 @@ function preventIOSPinchZoom() {
 preventIOSPinchZoom();
 
 /**
- * [UX] Portrait lock (best-effort)
- * - In installed PWA/Android, manifest "orientation" usually locks rotation.
- * - Some containers still rotate (or allow rotation before lock applies).
- * - We:
- *   1) Best-effort request Screen Orientation API lock on first user gesture.
- *   2) Show a lightweight overlay in landscape on mobile as a fallback.
- */
-function _isLandscapeNow() {
-    try {
-        if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return true;
-    } catch (_) { /* ignore */ }
-    return (window.innerWidth > window.innerHeight);
-}
-
-function updateForcePortraitOverlay() {
-    // Only for mobile (avoid blocking desktop wide layouts)
-    const isMobile = IS_IOS || IS_ANDROID;
-    if (!isMobile) {
-        try { document.documentElement.classList.remove('force-portrait'); } catch (_) { }
-        return;
-    }
-
-    const landscape = _isLandscapeNow();
-    try { document.documentElement.classList.toggle('force-portrait', landscape); } catch (_) { /* ignore */ }
-}
-
-function tryLockPortraitOrientation() {
-    const isMobile = IS_IOS || IS_ANDROID;
-    if (!isMobile) return;
-
-    try {
-        const o = screen && screen.orientation;
-        if (o && typeof o.lock === 'function') {
-            // portrait-primary is widely supported; fallback to portrait if needed
-            o.lock('portrait-primary').catch(() => {
-                try { o.lock('portrait').catch(() => { }); } catch (_) { }
-            });
-        }
-    } catch (_) { /* ignore */ }
-}
-
-(function initPortraitLockUX() {
-    const run = () => {
-        updateForcePortraitOverlay();
-    };
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', run, { once: true });
-    } else {
-        run();
-    }
-
-    // Keep overlay state updated on geometry changes (rotation/resizing)
-    try { window.addEventListener('orientationchange', run, { passive: true }); } catch (_) { }
-    try { window.addEventListener('resize', run, { passive: true }); } catch (_) { }
-
-    // Best-effort lock after first user gesture (required by many browsers)
-    const lockOnce = () => { tryLockPortraitOrientation(); };
-    try { document.addEventListener('touchstart', lockOnce, { once: true, passive: true }); } catch (_) { }
-    try { document.addEventListener('click', lockOnce, { once: true, passive: true }); } catch (_) { }
-})();
-
-/**
  * [iOS] Prevent "rubber-band" overscroll getting stuck at the edge
  * - Some iOS WebKit builds can briefly ignore opposite-direction scroll
  *   while the elastic bounce animation settles, especially with nested
@@ -640,7 +578,7 @@ let gainL, gainR, masterGain;
 let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
 let playerNode = null;   // Transient BufferSource for precise start
 let currentAudioBuffer = null; // Decoded PCM data in RAM
-let vbFilter, vbCheby, vbGain;
+let vbFilter, vbCheby, vbPostFilter, vbGain;
 let preamp, widener;
 let globalLowPass = null;
 let analyser;
@@ -1140,6 +1078,9 @@ let latencyHistory = []; // Buffer to filter noise
 let syncRequestTime = 0; // Capture exact time of sync request
 
 let connectedPeers = [];
+// Latest device roster snapshot (host broadcasts). Used for UI/toasts such as
+// "연결된 기기 N대 | 초대 코드 000000".
+let lastKnownDeviceList = null;
 let isOperator = false;
 let deviceCounter = 0; // Host-side counter for unique device names
 const peerLabels = {}; // Key: PeerID, Value: "DEVICE X"
@@ -2017,10 +1958,13 @@ async function initAudio() {
         rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
         // 4. Virtual Bass Chain (The "Secret Sauce")
-        // Parallel Path: Source -> LPF -> Chebyshev -> Gain -> Master
-        vbFilter = new Tone.Filter(subFreq, "lowpass"); // Dynamic Crossover
-        vbCheby = new Tone.Chebyshev(50); // Harmonics Generator
-        vbGain = new Tone.Gain(0); // Mix Level
+        // Parallel Path: Source -> LPF -> Chebyshev -> (optional LPF) -> Gain -> Master
+        // - For L/R/Center: Chebyshev harmonics are kept (psychoacoustic bass on small speakers)
+        // - For Sub/LFE: We keep only low frequencies (filter-based), instead of hard-muting.
+        vbFilter = new Tone.Filter(subFreq, "lowpass", -12); // Dynamic crossover/extraction
+        vbCheby = new Tone.Chebyshev(50); // Harmonics generator
+        vbPostFilter = new Tone.Filter(20000, "lowpass", -12); // Sub/LFE harmonics suppression (configured in applySettings)
+        vbGain = new Tone.Gain(0); // Mix level
 
         // Connections
         // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
@@ -2064,7 +2008,8 @@ async function initAudio() {
         // and doesn't leak the opposite channel in L/R modes.
         eqIn.connect(vbFilter);
         vbFilter.connect(vbCheby);
-        vbCheby.connect(vbGain);
+        vbCheby.connect(vbPostFilter);
+        vbPostFilter.connect(vbGain);
         vbGain.connect(masterGain);
 
         // Visualizer
@@ -2174,6 +2119,24 @@ function updateInviteCodeUI() {
     });
 }
 
+function getConnectedDeviceCount() {
+    // Prefer host-provided roster (guests)
+    if (Array.isArray(lastKnownDeviceList) && lastKnownDeviceList.length) {
+        return lastKnownDeviceList.filter(d => d && d.status === 'connected').length;
+    }
+
+    // Host: self + connected peers
+    const peerConnected = connectedPeers.filter(p => p && p.status === 'connected').length;
+    if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0)) {
+        return 1 + peerConnected;
+    }
+
+    // Guest (connected to host but roster not yet received)
+    if (hostConn && hostConn.open) return 2;
+
+    return 1;
+}
+
 async function copyInviteCode() {
     const code = getInviteCode();
     if (code === '------') return;
@@ -2181,7 +2144,8 @@ async function copyInviteCode() {
     const ok = await copyTextToClipboard(code);
 
     if (ok) {
-        showToast(`초대 코드 ${code}을 복사했어요!`);
+        const cnt = getConnectedDeviceCount();
+        showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
 
         // Visual feedback for all containers
         const values = document.querySelectorAll('.invite-code-value');
@@ -3154,8 +3118,12 @@ function initEventListeners() {
             }
 
             const ok = await copyTextToClipboard(code);
-            if (ok) showToast(`초대 코드 ${code}을 복사했어요!`);
-            else showToast(`초대 코드: ${code}`);
+            if (ok) {
+                const cnt = getConnectedDeviceCount();
+                showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
+            } else {
+                showToast(`초대 코드: ${code}`);
+            }
         };
 
         roleBadge.addEventListener('click', onShowCode);
@@ -4148,13 +4116,22 @@ function playNextTrack() {
 
     if (repeatMode === 2) {
         nextIndex = currentTrackIndex;
-    } else if (isShuffle && playlist.length > 1) {
-        // Prevent infinite loop and immediate repeats in Shuffle
-        do {
-            nextIndex = Math.floor(Math.random() * playlist.length);
-        } while (nextIndex === currentTrackIndex);
-    } else if (isShuffle && playlist.length === 1) {
-        nextIndex = 0;
+    } else if (isShuffle) {
+        if (playlist.length === 1) {
+            nextIndex = 0;
+        } else if (
+            nextTrackIndex !== -1 &&
+            nextTrackIndex !== currentTrackIndex &&
+            nextTrackIndex < playlist.length
+        ) {
+            // Use the already-decided next index (so preload is actually used)
+            nextIndex = nextTrackIndex;
+        } else {
+            // Fallback: choose random (avoid immediate repeat)
+            do {
+                nextIndex = Math.floor(Math.random() * playlist.length);
+            } while (nextIndex === currentTrackIndex);
+        }
     } else {
         nextIndex = currentTrackIndex + 1;
         if (nextIndex >= playlist.length) {
@@ -5174,6 +5151,13 @@ function updateSettings(type, val) {
         const isSubMode = (channelMode === 2 && !isSurroundMode);
         const isLFE = (isSurroundMode && surroundChannelIndex === 3);
 
+        // Subwoofer/LFE: keep Virtual Bass harmonics from leaking by filtering
+        // the generated bass signal to the same cutoff.
+        if (vbPostFilter) {
+            const isWooferOutput = (isSubMode || isLFE);
+            vbPostFilter.frequency.rampTo(isWooferOutput ? subFreq : 20000, 0.1);
+        }
+
         if (globalLowPass && (isSubMode || isLFE)) {
             globalLowPass.frequency.rampTo(subFreq, 0.1);
         }
@@ -5415,14 +5399,15 @@ function applySettings() {
     // Virtual Bass
     // Boost factor: 0 to 1
     // NOTE:
-    // - Virtual bass generates harmonics (intentional distortion). If this device
-    //   is configured as a Subwoofer/LFE, those harmonics can leak into the woofer
-    //   output and break the "bass-only" role.
-    // - So we disable the virtual bass mix on Subwoofer/LFE devices.
-    let vbLevel = virtualBass;
-    const isSubRole = (channelMode === 2) || (isSurroundMode && surroundChannelIndex === 3);
-    if (isSubRole) vbLevel = 0;
-    if (vbGain) vbGain.gain.rampTo(vbLevel, 0.1);
+    // - Virtual bass intentionally creates harmonics.
+    // - On Subwoofer/LFE roles, we keep the virtual bass ON but
+    //   filter it back down so only the low band remains (no UI change).
+    const isWooferRole = (channelMode === 2) || (isSurroundMode && surroundChannelIndex === 3);
+    if (vbPostFilter) {
+        const cutoff = isWooferRole ? subFreq : 20000;
+        vbPostFilter.frequency.rampTo(cutoff, 0.1);
+    }
+    if (vbGain) vbGain.gain.rampTo(virtualBass, 0.1);
 }
 
 function onVolInput(val) { setVolume(val / 100); }
@@ -5743,11 +5728,7 @@ function handleMainSyncBtn() {
     // YouTube Together mode: timing is controlled by YouTube API sync.
     // Prevent confusing "resync" behaviors and show an explicit toast for BOTH roles.
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        if (!hostConn) {
-            showToast("YouTube 모드에서는 호스트가 동기화 버튼을 누르면 안 돼요");
-        } else {
-            showToast("YouTube 모드에서는 Auto Sync가 작동하지 않습니다");
-        }
+        showToast("YouTube 모드에서는 정밀 동기화를 지원하지 않아요");
         return;
     }
 
@@ -5991,7 +5972,7 @@ function handleHostIncomingConnection(conn) {
         peerObj.status = 'connected';
         peerObj.lastHeartbeat = Date.now();
 
-        showToast(`${deviceName} 연결됨`);
+        showToast(`${deviceName}가 연결됐어요`);
 
         // Welcome
         // - Assign stable host-defined device label (Peer N)
@@ -6133,7 +6114,7 @@ function handleHostIncomingConnection(conn) {
         updateRoleBadge();
 
         if (sessionStarted) {
-            showToast(`${deviceName} 연결이 끊어졌어요`);
+        showToast(`${deviceName} 연결이 끊겼어요`);
         }
     });
 
@@ -6397,7 +6378,7 @@ async function leaveSession(opts = {}) {
     updatePlaylistUI();
     renderDeviceList([]);
     updateRoleBadge();
-    updateTitleWithMarquee("MUSIXQUARE");
+    updateTitleWithMarquee("미디어 없음");
 
     const trackArtistEl = document.getElementById('track-artist');
     if (trackArtistEl) trackArtistEl.innerText = "Select a file or check Playlist";
@@ -7250,7 +7231,7 @@ async function handleFileWait(data) {
 async function handleSyncResponse(data) {
     // YouTube mode: Skip local audio sync (YouTube has its own sync)
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        showToast("YouTube 모드에서는 Auto Sync가 작동하지 않습니다");
+        showToast("YouTube 모드에서는 정밀 동기화를 지원하지 않아요");
         return;
     }
 
@@ -8306,6 +8287,8 @@ function updateAudioEffect(type, param, value, isInput = false) {
 
 async function handleDeviceListUpdate(data) {
     const list = (data && Array.isArray(data.list)) ? data.list : [];
+    // Keep a local snapshot for UI/toasts (e.g., connected device count).
+    lastKnownDeviceList = list;
     const amIStillConnected = list.find(p => p && p.id === myId);
 
     // If the host drops us from the roster, gracefully reset without a hard reload.

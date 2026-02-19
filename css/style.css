@@ -566,10 +566,7 @@ body.mode-video #tab-play:not(.active) {
     letter-spacing: -0.03em;
 }
 
-/* Settings 상단: 초대코드만 표시하므로 중앙 정렬 + 숫자 가독성 강화 */
-#tab-settings .tab-header {
-    justify-content: center;
-}
+/* Settings tab header follows the common tab header layout */
 
 /* YouTube Together mode: lock/blur advanced Settings (keep Theme available) */
 .youtube-settings-note {
@@ -1839,12 +1836,10 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     border-radius: 30px;
     padding: 9px;
 
-    /* Figma Quick_Tabbar outermost: backdropFilter blur(10px) */
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-
-    /* Nearly opaque — matches real Toss app (blur subtly peeks through) */
-    background: rgba(255, 255, 255, 0.95);
+    /* Match header translucency */
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    background: var(--glass-bg);
 
     /* Figma: #191F2911 / #191F293f */
     box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
@@ -1871,7 +1866,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 /* Light Mode */
 [data-theme="light"] .bottom-nav {
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--glass-bg);
     box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
         0px 40px 200px 0px rgba(25, 31, 41, 0.247);
     border: none;
@@ -1879,9 +1874,9 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 /* Dark Mode */
 [data-theme="dark"] .bottom-nav {
-    background: rgba(28, 28, 30, 0.95);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     box-shadow: 0px 20px 40px -10px rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -4390,13 +4385,20 @@ input:checked+.slider:before {
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    /* Use currentColor so icon/text stay perfectly consistent across themes */
+    color: var(--text-sub);
+}
+
+[data-theme="light"] #btn-sync,
+[data-theme="light"] #btn-media-source {
+    color: #444444;
 }
 
 #btn-sync svg,
 #btn-media-source svg {
     width: 20px;
     height: 20px;
-    fill: var(--text-sub) !important;
+    fill: currentColor;
     margin: 0 !important;
     /* Remove any default margins */
 }
@@ -4405,7 +4407,20 @@ input:checked+.slider:before {
 #btn-media-source span {
     font-size: 14px !important;
     font-weight: 600 !important;
-    color: var(--text-sub) !important;
+    color: currentColor;
+}
+
+/* Remove hover/press lift effect on the two main buttons */
+#btn-sync:hover,
+#btn-media-source:hover {
+    background: var(--surface-2);
+    transform: none;
+    box-shadow: none;
+}
+
+#btn-sync:active,
+#btn-media-source:active {
+    transform: none;
 }
 
 /* Minimalist Room Diagram */

@@ -35,8 +35,8 @@
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 
     <!-- Web font: Pretendard (consistent across Windows / Android / iOS / macOS) -->
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css" />
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="stylesheet" crossorigin href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css" />
 
     <link rel="stylesheet" href="css/style.css">
     <script src="vendor/Tone.js"></script>
@@ -45,13 +45,7 @@
 
 <body>
 
-    <!-- Rotation lock overlay (fallback for browsers/PWA that don't honor manifest orientation) -->
-    <div class="rotate-lock-overlay" aria-hidden="true">
-        <div class="rotate-lock-card">
-            <div class="rotate-lock-title">세로 화면만 지원해요</div>
-            <div class="rotate-lock-desc">기기를 세로(Portrait)로 돌려서 사용해 주세요.</div>
-        </div>
-    </div>
+    <!-- (Removed) Mobile portrait-only overlay: we support landscape/tablet usage. -->
 
     <noscript>
         <div
@@ -203,14 +197,14 @@
     </div>
 
     <div id="tab-guide" class="tab-content">
-        <div class="tab-header" style="justify-content: space-between; align-items: flex-start;">
+        <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <span class="tab-title">도움말</span>
             <div class="settings-invite-wrapper invite-code-container"
-                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
+                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="클릭하여 초대코드 복사">
                 <div
                     style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
-                    INVITATION CODE</div>
+                    초대 코드</div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
             </div>
@@ -317,14 +311,14 @@
     </div>
 
     <div id="tab-settings" class="tab-content">
-        <div class="tab-header" style="justify-content: space-between; align-items: flex-start;">
+        <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <span class="tab-title">설정</span>
             <div class="settings-invite-wrapper invite-code-container"
-                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end; padding-top: 6px;"
+                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="클릭하여 초대코드 복사">
                 <div
                     style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
-                    INVITATION CODE</div>
+                    초대 코드</div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
             </div>
@@ -343,7 +337,7 @@
 
         <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
         <div class="youtube-settings-note" id="youtube-settings-note" role="note">
-            YouTube 함께보기 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.
+            YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.
         </div>
 
         <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
@@ -366,18 +360,18 @@
                             <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                         </svg>오른쪽 스피커
                     </div>
+                    <div class="ch-opt" data-ch="0">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
+                        </svg>중앙 스피커
+                    </div>
                     <div class="ch-opt" data-ch="2">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                             <circle cx="12" cy="12" r="3" />
                         </svg>서브우퍼
-                    </div>
-                    <div class="ch-opt" data-ch="0">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                        </svg>중앙 스피커
                     </div>
                 </div>
 
@@ -408,12 +402,12 @@
                 <!-- Decay Slider -->
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
-                        <span>디케이 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 5s</span></span>
+                        <span>반사 시간 <span
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 5.0s</span></span>
                         <span class="val-disp" id="val-rvb-decay">5.0s</span>
                     </div>
                     <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
-                        aria-label="리버브 디케이 시간">
+                        aria-label="리버브 반사 시간">
                 </div>
 
                 <!-- Pre-Delay Slider -->
@@ -509,13 +503,13 @@
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
-                        <span>Width <span
+                        <span>너비 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
                                 기본값
                                 100, 줄이면 모노, 늘리면 서라운드</span></span>
                         <span class="val-disp" id="val-width">100%</span>
                     </div>
-                    <input type="range" id="width-slider" min="0" max="200" value="100" aria-label="스테레오 폭(서라운드) 조절">
+                    <input type="range" id="width-slider" min="0" max="200" value="100" aria-label="가상 서라운드 너비 조절">
                 </div>
             </div>
 
@@ -527,13 +521,13 @@
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
-                        <span>Level <span
+                        <span>강도 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
                                 기본값 0,
                                 늘리면 가상 베이스(왜곡 증가)</span></span>
                         <span class="val-disp" id="val-vbass">0%</span>
                     </div>
-                    <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="가상 베이스 레벨">
+                    <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="가상 베이스 강도">
                 </div>
             </div>
 
@@ -664,16 +658,7 @@
                         <div class="ob-dot" data-idx="2"></div>
                     </div>
 
-                    <button class="ob-arrow ob-arrow-left" id="ob-prev" aria-label="이전 슬라이드">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                    </button>
-                    <button class="ob-arrow ob-arrow-right" id="ob-next" aria-label="다음 슬라이드">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor"></polyline>
-                        </svg>
-                    </button>
+                    <!-- (Removed) Onboarding left/right arrow buttons -->
                 </div>
             </div>
 
@@ -860,8 +845,8 @@
                 <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
                     <div class="ch-opt" data-join-ch="-1">왼쪽 스피커</div>
                     <div class="ch-opt" data-join-ch="1">오른쪽 스피커</div>
-                    <div class="ch-opt" data-join-ch="2">서브우퍼</div>
                     <div class="ch-opt" data-join-ch="0">중앙 스피커</div>
+                    <div class="ch-opt" data-join-ch="2">서브우퍼</div>
                 </div>
             </div>
 

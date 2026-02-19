@@ -143,18 +143,16 @@ if (document.readyState === 'loading') {
 
 
 /**
- * [Layout] Fixed viewport & safe-area metrics (single-shot)
+/**
+ * [Layout] Viewport height CSS var (--app-height)
  *
- * Goals:
- * - iOS "홈 화면에 추가"(standalone)에서 탭 이동/상호작용 때마다 viewport/safe-area 값이
- *   미세하게 흔들리며(특히 blur + fixed/sticky 조합) 레이아웃이 "탄성"처럼 움직이거나
- *   하단에 여유 공간이 생기는 현상을 방지합니다.
+ * Safe-area insets (notch/home-indicator) are handled purely in CSS via:
+ *   env(safe-area-inset-top/right/bottom/left)
  *
- * Strategy:
- * - 실시간 보정/median 샘플링 없이, 초기(또는 회전) 시점에 한 번만 값을 측정해 고정합니다.
- * - resize/visualViewport 이벤트에는 반응하지 않습니다(탭 전환/키보드에서 흔들림 방지).
+ * We only manage --app-height in JS to avoid legacy 100vh quirks in some
+ * installed PWA / WebView contexts.
  */
-let _layoutMetricsFrozen = false;
+let _appHeightRaf = 0;
 
 function isStandaloneDisplayMode() {
     try {
@@ -166,136 +164,13 @@ function isStandaloneDisplayMode() {
     return false;
 }
 
-function readSafeAreaInsetsPx() {
-    const probe = document.createElement('div');
-    probe.style.cssText = [
-        'position:fixed',
-        'top:0',
-        'left:0',
-        'right:0',
-        'bottom:0',
-        'padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
-        'pointer-events:none',
-        'visibility:hidden',
-        'z-index:-1'
-    ].join(';');
-
-    const parent = document.body || document.documentElement;
-    parent.appendChild(probe);
-
-    const cs = getComputedStyle(probe);
-    const top = Math.round(parseFloat(cs.paddingTop) || 0);
-    const right = Math.round(parseFloat(cs.paddingRight) || 0);
-    const bottom = Math.round(parseFloat(cs.paddingBottom) || 0);
-    const left = Math.round(parseFloat(cs.paddingLeft) || 0);
-
-    probe.remove();
-
-    const clamp = (n) => Math.min(120, Math.max(0, n));
-    return { top: clamp(top), right: clamp(right), bottom: clamp(bottom), left: clamp(left) };
-}
-
-// Safe-area inset freeze helper (stabilized sampling)
-let _safeAreaFreezeToken = 0;
-let _safeAreaRetryTimer = 0;
-
-function freezeSafeAreaInsetsStable({ force = false } = {}) {
-    const root = document.documentElement;
-    const token = ++_safeAreaFreezeToken;
-
-    // Clear any pending retry
-    if (_safeAreaRetryTimer) {
-        clearTimeout(_safeAreaRetryTimer);
-        _safeAreaRetryTimer = 0;
-    }
-
-    const isStandalone = isStandaloneDisplayMode();
-    const isIOSStandalone = IS_IOS && isStandalone;
-
-    const maxInsets = { top: 0, right: 0, bottom: 0, left: 0 };
-    let last = null;
-    let stableCount = 0;
-
-    const nowMs = () => (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now();
-    const deadline = nowMs() + (isIOSStandalone ? 420 : 120);
-
-    const apply = (insets, reason) => {
-        if (token !== _safeAreaFreezeToken) return;
-
-        const any = (insets.top || insets.right || insets.bottom || insets.left);
-
-        // If everything is 0, do NOT pin; fall back to CSS env(safe-area-*) so it can update later.
-        if (!any) {
-            try {
-                root.style.removeProperty('--safe-top');
-                root.style.removeProperty('--safe-right');
-                root.style.removeProperty('--safe-bottom');
-                root.style.removeProperty('--safe-left');
-            } catch (_) { /* ignore */ }
-
-            // iOS standalone sometimes starts with 0 and updates shortly after.
-            // One controlled retry helps make it deterministic without "real-time" corrections.
-            if (isIOSStandalone) {
-                _safeAreaRetryTimer = setTimeout(() => {
-                    try { freezeSafeAreaInsetsStable({ force }); } catch (_) { /* ignore */ }
-                }, 700);
-            }
-            return;
-        }
-
-        try {
-            root.style.setProperty('--safe-top', `${insets.top}px`);
-            root.style.setProperty('--safe-right', `${insets.right}px`);
-            root.style.setProperty('--safe-bottom', `${insets.bottom}px`);
-            root.style.setProperty('--safe-left', `${insets.left}px`);
-        } catch (_) { /* ignore */ }
-    };
-
-    const step = () => {
-        if (token !== _safeAreaFreezeToken) return;
-
-        let insets = { top: 0, right: 0, bottom: 0, left: 0 };
-        try { insets = readSafeAreaInsetsPx(); } catch (_) { /* ignore */ }
-
-        // Track maxima (protect against early 0px reports)
-        maxInsets.top = Math.max(maxInsets.top, insets.top);
-        maxInsets.right = Math.max(maxInsets.right, insets.right);
-        maxInsets.bottom = Math.max(maxInsets.bottom, insets.bottom);
-        maxInsets.left = Math.max(maxInsets.left, insets.left);
-
-        // Stability detection
-        if (last &&
-            insets.top === last.top &&
-            insets.right === last.right &&
-            insets.bottom === last.bottom &&
-            insets.left === last.left
-        ) {
-            stableCount++;
-        } else {
-            stableCount = 0;
-            last = insets;
-        }
-
-        const anyMax = (maxInsets.top || maxInsets.right || maxInsets.bottom || maxInsets.left);
-        const timeUp = nowMs() >= deadline;
-
-        // Stop early if we already saw non-zero and it's stable for a couple frames.
-        if ((anyMax && stableCount >= 2) || timeUp) {
-            apply(maxInsets, timeUp ? 'deadline' : 'stable');
-            return;
-        }
-
-        requestAnimationFrame(step);
-    };
-
-    // Run sampling on the next frame(s) so env(safe-area-*) has a chance to resolve.
-    try { requestAnimationFrame(step); } catch (_) { step(); }
-}
-
-
 function freezeLayoutMetricsOnce({ force = false } = {}) {
-    if (_layoutMetricsFrozen && !force) return;
+    // Kept for backward compatibility: callers expect this to exist.
+    // We do NOT pin safe-area insets here (CSS env handles it).
+    scheduleAppHeightUpdate();
+}
 
+function updateAppHeightNow() {
     const root = document.documentElement;
 
     // Optional hooks (CSS targeting)
@@ -306,9 +181,6 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
         if (isStandaloneDisplayMode()) root.classList.add('standalone');
     } catch (_) { /* ignore */ }
 
-    // Viewport height: freeze a stable height once.
-    // - Prefer VisualViewport.height when available (most accurate visible area).
-    // - In iOS standalone(PWA), include screen.height to avoid a "dead/black" area under fixed bars.
     const de = document.documentElement;
     const vv = window.visualViewport;
     const isStandalone = isStandaloneDisplayMode();
@@ -327,41 +199,36 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
     // 단, 가로모드에서는 screen.height가 회전에 따라 갱신되지 않는 케이스가 있어(특히 PWA)
     // 오히려 app-height가 과대 평가되어 스크롤이 일부만 되는 문제가 생길 수 있습니다.
     // -> 세로모드에서만 screen.height 보정을 적용합니다.
-    let _isLandscape = false;
+    let isLandscape = false;
     try {
-        _isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
+        isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
     } catch (_) {
-        _isLandscape = (window.innerWidth > window.innerHeight);
+        isLandscape = (window.innerWidth > window.innerHeight);
     }
-    if (IS_IOS && isStandalone && !_isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
+    if (IS_IOS && isStandalone && !isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
         h = Math.max(h, Math.round(window.screen.height));
     }
 
     if (h > 0) {
         try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
     }
-
-    // Safe area insets: stabilize then pin to CSS variables (one-shot).
-    // NOTE: iOS installed PWA(standalone) can report 0px insets on first paint depending on
-    // cold/warm start timing. If we pin 0px, the header's top padding can randomly appear/disappear.
-    // We sample for a short window and pin the MAX observed values.
-    try { freezeSafeAreaInsetsStable({ force }); } catch (_) { /* ignore */ }
-
-    _layoutMetricsFrozen = true;
 }
 
-// Freeze once after the first paint.
-// (We do NOT listen to resize; only orientation change is treated as a real geometry change.)
-(function initFixedLayoutMetrics() {
-    const run = () => {
-        try {
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                freezeLayoutMetricsOnce();
-            }));
-        } catch (_) {
-            freezeLayoutMetricsOnce();
-        }
-    };
+function scheduleAppHeightUpdate() {
+    if (_appHeightRaf) return;
+    try {
+        _appHeightRaf = requestAnimationFrame(() => {
+            _appHeightRaf = 0;
+            try { updateAppHeightNow(); } catch (_) { /* ignore */ }
+        });
+    } catch (_) {
+        _appHeightRaf = 0;
+        try { updateAppHeightNow(); } catch (_) { /* ignore */ }
+    }
+}
+
+(function initAppHeightVar() {
+    const run = () => scheduleAppHeightUpdate();
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', run, { once: true });
@@ -369,113 +236,22 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
         run();
     }
 
-    // PWA resume / "sometimes padded, sometimes not" fix:
-    // In iOS/Android installed PWAs, the first reported safe-area/viewport metrics can differ
-    // between cold start vs resume (suspended app) vs bfcache restore.
-    // We re-freeze ONCE when the app becomes visible to make the top inset deterministic.
-    let _lastShowFreezeAt = 0;
-    const rerunOnShow = () => {
-        if (!isStandaloneDisplayMode()) return;
-        const now = Date.now();
-        if (now - _lastShowFreezeAt < 900) return; // throttle
-        _lastShowFreezeAt = now;
-        _layoutMetricsFrozen = false;
-        run();
-    };
-    try { window.addEventListener('pageshow', rerunOnShow, { passive: true }); } catch (_) { /* ignore */ }
+    // Keep it simple: update on real geometry changes / PWA resume
+    try { window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
+    try { window.addEventListener('orientationchange', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
+    try { window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
     try {
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') rerunOnShow();
+            if (document.visibilityState === 'visible') scheduleAppHeightUpdate();
         });
     } catch (_) { /* ignore */ }
 
-    // Orientation change handling:
-    // - Users reported a noticeable "recalculation" delay (Safari ~0.5s, PWA ~1s) where
-    //   header/nav sizes jump after rotation.
-    // - Our previous fixed-delay(350ms) re-freeze was the main contributor.
-    //
-    // New approach (still *no real-time corrections*):
-    // 1) Temporarily drop the fixed CSS variables so the browser can immediately lay out
-    //    using modern viewport units (dvh/svh) + env(safe-area-*) during the rotation.
-    // 2) Re-freeze *once* after the geometry has settled (debounced resize).
-    let _rotateActive = false;
-    let _rotateDebounceTimer = 0;
-    let _rotateFallbackTimer = 0;
-
-    const clearRotateTimers = () => {
-        if (_rotateDebounceTimer) {
-            clearTimeout(_rotateDebounceTimer);
-            _rotateDebounceTimer = 0;
+    try {
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
         }
-        if (_rotateFallbackTimer) {
-            clearTimeout(_rotateFallbackTimer);
-            _rotateFallbackTimer = 0;
-        }
-    };
-
-    const removeRotateListeners = () => {
-        try { window.removeEventListener('resize', onRotateResize); } catch (_) { /* ignore */ }
-        try { window.visualViewport && window.visualViewport.removeEventListener('resize', onRotateResize); } catch (_) { /* ignore */ }
-    };
-
-    const finalizeRotateFreeze = () => {
-        if (!_rotateActive) return;
-        _rotateActive = false;
-        clearRotateTimers();
-        removeRotateListeners();
-
-        const root = document.documentElement;
-        try {
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                freezeLayoutMetricsOnce({ force: true });
-                try { root.classList.remove('is-rotating'); } catch (_) { /* ignore */ }
-            }));
-        } catch (_) {
-            freezeLayoutMetricsOnce({ force: true });
-            try { root.classList.remove('is-rotating'); } catch (_) { /* ignore */ }
-        }
-    };
-
-    function onRotateResize() {
-        if (!_rotateActive) return;
-        // Debounce: freeze after the *last* resize during the rotation.
-        if (_rotateDebounceTimer) clearTimeout(_rotateDebounceTimer);
-        _rotateDebounceTimer = setTimeout(finalizeRotateFreeze, 90);
-    }
-
-    window.addEventListener('orientationchange', () => {
-        const root = document.documentElement;
-        _layoutMetricsFrozen = false;
-
-        // Temporarily allow CSS to respond immediately (no fixed px overrides)
-        // during the rotation animation.
-        try {
-            root.classList.add('is-rotating');
-            root.style.removeProperty('--app-height');
-            root.style.removeProperty('--safe-top');
-            root.style.removeProperty('--safe-right');
-            root.style.removeProperty('--safe-bottom');
-            root.style.removeProperty('--safe-left');
-        } catch (_) { /* ignore */ }
-
-        // Attach temporary listeners just for the rotation.
-        _rotateActive = true;
-        clearRotateTimers();
-        removeRotateListeners();
-
-        try { window.addEventListener('resize', onRotateResize, { passive: true }); } catch (_) { /* ignore */ }
-        try { window.visualViewport && window.visualViewport.addEventListener('resize', onRotateResize, { passive: true }); } catch (_) { /* ignore */ }
-
-        // Fallback: if resize doesn't fire for some reason, freeze within a ceiling.
-        _rotateFallbackTimer = setTimeout(finalizeRotateFreeze, 700);
-    });
+    } catch (_) { /* ignore */ }
 })();
-
-
-
-
-
-
 
 /**
  * [Robustness] Session ID Normalization
@@ -2557,7 +2333,7 @@ function initSetupOverlay() {
             hideBootSplash();
             return;
         }
-        // Freeze viewport/safe-area metrics once (no real-time corrections) before revealing UI.
+        // Update viewport height CSS var once (safe-area uses CSS env) before revealing UI.
         try { freezeLayoutMetricsOnce({ force: true }); } catch (_) { /* ignore */ }
 
         // Fade out the boot splash right before mounting the setup overlay.

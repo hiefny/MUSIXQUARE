@@ -1,12 +1,15 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="light">
+<html lang="ko">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="color-scheme" content="dark light">
-    <meta name="theme-color" content="#f2f2f7">
+    <meta name="theme-color" content="#000000">
+    <script>
+        (function(){try{var s=localStorage.getItem('musixquare-theme')||'system';var d=s==='light'?'light':s==='dark'?'dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',d);document.querySelector('meta[name="theme-color"]').setAttribute('content',d==='dark'?'#000000':'#f2f2f7');document.querySelector('meta[name="color-scheme"]').setAttribute('content',d==='dark'?'dark light':'light dark');}catch(e){}})();
+    </script>
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -324,7 +327,7 @@
             </div>
         </div>
 
-        <div class="section-group" style="display:none;">
+        <div class="section-group">
             <div class="section-header-row">
                 <span class="section-title">테마</span>
             </div>

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================================
  * MUSIXQUARE - Multi-Device Synchronized Audio Player
  * ============================================================================
@@ -142,7 +142,6 @@ if (document.readyState === 'loading') {
 }
 
 
-/**
 /**
  * [Layout] Viewport height CSS var (--app-height)
  *
@@ -1738,17 +1737,66 @@ async function finalizeFileProcessing(file) {
 }
 
 // --- Theme Logic ---
-function setTheme(mode) {
-    const theme = 'light';
+let _activeThemeMode = 'system';
+let _systemDarkMQ = null;
+
+function _resolveTheme(mode) {
+    if (mode === 'dark') return 'dark';
+    if (mode === 'light') return 'light';
     try {
-        document.documentElement.setAttribute('data-theme', 'light');
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f2f2f7');
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    } catch (_) { /* ignore */ }
+    return 'light';
+}
+
+function _applyResolvedTheme(resolved) {
+    try {
+        document.documentElement.setAttribute('data-theme', resolved);
+        const metaColor = resolved === 'dark' ? '#000000' : '#f2f2f7';
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', metaColor);
+        document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', resolved === 'dark' ? 'dark light' : 'light dark');
     } catch (_) { /* ignore */ }
 }
 
+function _updateThemeSelector(mode) {
+    try {
+        document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
+        const id = mode === 'dark' ? 'theme-dark' : mode === 'light' ? 'theme-light' : 'theme-system';
+        document.getElementById(id)?.classList.add('active');
+    } catch (_) { /* ignore */ }
+}
+
+function setTheme(mode) {
+    if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system';
+    _activeThemeMode = mode;
+
+    try { localStorage.setItem('musixquare-theme', mode); } catch (_) { /* ignore */ }
+
+    const resolved = _resolveTheme(mode);
+    _applyResolvedTheme(resolved);
+    _updateThemeSelector(mode);
+
+    if (_systemDarkMQ) {
+        try { _systemDarkMQ.removeEventListener('change', _onSystemThemeChange); } catch (_) { /* ignore */ }
+    }
+    if (mode === 'system') {
+        try {
+            _systemDarkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+            _systemDarkMQ.addEventListener('change', _onSystemThemeChange);
+        } catch (_) { /* ignore */ }
+    }
+}
+
+function _onSystemThemeChange() {
+    if (_activeThemeMode !== 'system') return;
+    _applyResolvedTheme(_resolveTheme('system'));
+}
+
 (function initTheme() {
-    setTheme('light');
-})();;
+    let saved = null;
+    try { saved = localStorage.getItem('musixquare-theme'); } catch (_) { /* ignore */ }
+    setTheme(saved || 'system');
+})();
 
 // --- Tab Switching ---
 function switchTab(tabId) {
@@ -2380,7 +2428,6 @@ function initSetupOverlay() {
     }
 }
 
-/** 
 /**
  * Mini Slider for Setup Connection Guides
  */
@@ -3155,7 +3202,7 @@ function initEventListeners() {
             const roleVisible = !!(roleArea && roleArea.style.display !== 'none');
 
             if (appRole === 'guest' && joinVisible) {
-                proceedToGuestRoleSelection();
+                handleSetupJoinWithRole(pendingGuestRoleMode);
                 return;
             }
             if (appRole === 'guest' && roleVisible && pendingGuestRoleMode !== null && pendingGuestRoleMode !== undefined) {
@@ -5007,13 +5054,13 @@ function setSurroundChannel(idx, el, skipSetup = false) {
     try { updateRoleBadge(); } catch (e) { /* noop */ }
 }
 
-function setChannel(mode, el, force = false, notify = true) {
+async function setChannel(mode, el, force = false, notify = true) {
     if (hostConn && isChannelSelectionLocked && !force) {
         showToast('역할이 자동 설정되어 변경할 수 없어요.');
         return;
     }
 
-    if (!masterGain) initAudio();
+    if (!masterGain) await initAudio();
     document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
     if (el) el.classList.add('active');
     setChannelMode(mode);
@@ -5471,7 +5518,7 @@ function startVisualizer() {
             const bassLightness = 20 + (bassPunch * 60);
 
             if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
-            else ctx.fillStyle = `hsla(217, 91 %, ${bassLightness + 40}%, 0.4)`;
+            else ctx.fillStyle = `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
 
             ctx.beginPath();
             ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);

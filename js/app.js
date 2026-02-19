@@ -195,6 +195,104 @@ function readSafeAreaInsetsPx() {
     return { top: clamp(top), right: clamp(right), bottom: clamp(bottom), left: clamp(left) };
 }
 
+// Safe-area inset freeze helper (stabilized sampling)
+let _safeAreaFreezeToken = 0;
+let _safeAreaRetryTimer = 0;
+
+function freezeSafeAreaInsetsStable({ force = false } = {}) {
+    const root = document.documentElement;
+    const token = ++_safeAreaFreezeToken;
+
+    // Clear any pending retry
+    if (_safeAreaRetryTimer) {
+        clearTimeout(_safeAreaRetryTimer);
+        _safeAreaRetryTimer = 0;
+    }
+
+    const isStandalone = isStandaloneDisplayMode();
+    const isIOSStandalone = IS_IOS && isStandalone;
+
+    const maxInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+    let last = null;
+    let stableCount = 0;
+
+    const nowMs = () => (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now();
+    const deadline = nowMs() + (isIOSStandalone ? 420 : 120);
+
+    const apply = (insets, reason) => {
+        if (token !== _safeAreaFreezeToken) return;
+
+        const any = (insets.top || insets.right || insets.bottom || insets.left);
+
+        // If everything is 0, do NOT pin; fall back to CSS env(safe-area-*) so it can update later.
+        if (!any) {
+            try {
+                root.style.removeProperty('--safe-top');
+                root.style.removeProperty('--safe-right');
+                root.style.removeProperty('--safe-bottom');
+                root.style.removeProperty('--safe-left');
+            } catch (_) { /* ignore */ }
+
+            // iOS standalone sometimes starts with 0 and updates shortly after.
+            // One controlled retry helps make it deterministic without "real-time" corrections.
+            if (isIOSStandalone) {
+                _safeAreaRetryTimer = setTimeout(() => {
+                    try { freezeSafeAreaInsetsStable({ force }); } catch (_) { /* ignore */ }
+                }, 700);
+            }
+            return;
+        }
+
+        try {
+            root.style.setProperty('--safe-top', `${insets.top}px`);
+            root.style.setProperty('--safe-right', `${insets.right}px`);
+            root.style.setProperty('--safe-bottom', `${insets.bottom}px`);
+            root.style.setProperty('--safe-left', `${insets.left}px`);
+        } catch (_) { /* ignore */ }
+    };
+
+    const step = () => {
+        if (token !== _safeAreaFreezeToken) return;
+
+        let insets = { top: 0, right: 0, bottom: 0, left: 0 };
+        try { insets = readSafeAreaInsetsPx(); } catch (_) { /* ignore */ }
+
+        // Track maxima (protect against early 0px reports)
+        maxInsets.top = Math.max(maxInsets.top, insets.top);
+        maxInsets.right = Math.max(maxInsets.right, insets.right);
+        maxInsets.bottom = Math.max(maxInsets.bottom, insets.bottom);
+        maxInsets.left = Math.max(maxInsets.left, insets.left);
+
+        // Stability detection
+        if (last &&
+            insets.top === last.top &&
+            insets.right === last.right &&
+            insets.bottom === last.bottom &&
+            insets.left === last.left
+        ) {
+            stableCount++;
+        } else {
+            stableCount = 0;
+            last = insets;
+        }
+
+        const anyMax = (maxInsets.top || maxInsets.right || maxInsets.bottom || maxInsets.left);
+        const timeUp = nowMs() >= deadline;
+
+        // Stop early if we already saw non-zero and it's stable for a couple frames.
+        if ((anyMax && stableCount >= 2) || timeUp) {
+            apply(maxInsets, timeUp ? 'deadline' : 'stable');
+            return;
+        }
+
+        requestAnimationFrame(step);
+    };
+
+    // Run sampling on the next frame(s) so env(safe-area-*) has a chance to resolve.
+    try { requestAnimationFrame(step); } catch (_) { step(); }
+}
+
+
 function freezeLayoutMetricsOnce({ force = false } = {}) {
     if (_layoutMetricsFrozen && !force) return;
 
@@ -243,14 +341,11 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
         try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
     }
 
-    // Safe area insets: read once and pin to CSS variables.
-    try {
-        const insets = readSafeAreaInsetsPx();
-        root.style.setProperty('--safe-top', `${insets.top}px`);
-        root.style.setProperty('--safe-right', `${insets.right}px`);
-        root.style.setProperty('--safe-bottom', `${insets.bottom}px`);
-        root.style.setProperty('--safe-left', `${insets.left}px`);
-    } catch (_) { /* ignore */ }
+    // Safe area insets: stabilize then pin to CSS variables (one-shot).
+    // NOTE: iOS installed PWA(standalone) can report 0px insets on first paint depending on
+    // cold/warm start timing. If we pin 0px, the header's top padding can randomly appear/disappear.
+    // We sample for a short window and pin the MAX observed values.
+    try { freezeSafeAreaInsetsStable({ force }); } catch (_) { /* ignore */ }
 
     _layoutMetricsFrozen = true;
 }
@@ -273,6 +368,26 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
     } else {
         run();
     }
+
+    // PWA resume / "sometimes padded, sometimes not" fix:
+    // In iOS/Android installed PWAs, the first reported safe-area/viewport metrics can differ
+    // between cold start vs resume (suspended app) vs bfcache restore.
+    // We re-freeze ONCE when the app becomes visible to make the top inset deterministic.
+    let _lastShowFreezeAt = 0;
+    const rerunOnShow = () => {
+        if (!isStandaloneDisplayMode()) return;
+        const now = Date.now();
+        if (now - _lastShowFreezeAt < 900) return; // throttle
+        _lastShowFreezeAt = now;
+        _layoutMetricsFrozen = false;
+        run();
+    };
+    try { window.addEventListener('pageshow', rerunOnShow, { passive: true }); } catch (_) { /* ignore */ }
+    try {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') rerunOnShow();
+        });
+    } catch (_) { /* ignore */ }
 
     // Orientation change handling:
     // - Users reported a noticeable "recalculation" delay (Safari ~0.5s, PWA ~1s) where

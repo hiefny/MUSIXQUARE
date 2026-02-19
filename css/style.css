@@ -2291,6 +2291,7 @@ body:has(#youtube-url-overlay.active) header {
     /* Controlled by JS. Welcome starts visible via JS init */
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     padding-top: 0 !important;
     width: 100%;
 }
@@ -4152,6 +4153,7 @@ input:checked+.slider:before {
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     padding: 16px 20px;
     display: flex;
     flex-direction: column;

@@ -69,77 +69,9 @@ function preventIOSPinchZoom() {
 }
 preventIOSPinchZoom();
 
-/**
- * [iOS] Prevent "rubber-band" overscroll getting stuck at the edge
- * - Some iOS WebKit builds can briefly ignore opposite-direction scroll
- *   while the elastic bounce animation settles, especially with nested
- *   overflow containers.
- * - We prevent the edge-overscroll gesture only when the user is already
- *   at the top/bottom and continues pulling past the limit.
- *
- * This keeps normal scrolling intact and avoids affecting horizontal
- * gestures (sliders).
- */
-function initIOSScrollEdgeGuard() {
-    if (!IS_IOS) return;
-
-    const guards = new Set();
-    const pick = (sel) => {
-        try { document.querySelectorAll(sel).forEach(el => guards.add(el)); } catch (_) { /* ignore */ }
-    };
-
-    // Main app scrollers
-    pick('.tab-content');
-    // Setup overlay scrollers
-    pick('#setup-welcome-area');
-    pick('#setup-code-area');
-    pick('#setup-join-area');
-    pick('#setup-role-area');
-    // Chat drawer
-    pick('#chat-messages');
-
-    const attach = (el) => {
-        if (!el || el.__edgeGuardAttached) return;
-        el.__edgeGuardAttached = true;
-
-        let startY = 0;
-        let startX = 0;
-
-        el.addEventListener('touchstart', (e) => {
-            if (!e || !e.touches || e.touches.length !== 1) return;
-            startY = e.touches[0].clientY;
-            startX = e.touches[0].clientX;
-        }, { passive: true });
-
-        el.addEventListener('touchmove', (e) => {
-            if (!e || !e.touches || e.touches.length !== 1) return;
-            const y = e.touches[0].clientY;
-            const x = e.touches[0].clientX;
-            const dy = y - startY;
-            const dx = x - startX;
-
-            // Don't interfere with primarily-horizontal gestures
-            if (Math.abs(dx) > Math.abs(dy)) return;
-
-            const top = el.scrollTop <= 0;
-            const bottom = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 1);
-
-            // Block only "past-the-edge" pulls
-            if ((top && dy > 0) || (bottom && dy < 0)) {
-                e.preventDefault();
-            }
-        }, { passive: false });
-    };
-
-    guards.forEach(attach);
-}
-
-// Attach after DOM is ready (elements exist)
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initIOSScrollEdgeGuard, { once: true });
-} else {
-    initIOSScrollEdgeGuard();
-}
+// [iOS] Overscroll edge guard removed.
+// CSS `overscroll-behavior-y: contain` on .tab-content handles this natively
+// without the side-effect of blocking touch gestures at scroll edges.
 
 
 /**

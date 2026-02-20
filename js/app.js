@@ -1673,12 +1673,16 @@ let _activeThemeMode = 'system';
 let _systemDarkMQ = null;
 
 function _resolveTheme(mode) {
+    // [TEMPORARY OVERRIDE] Locked to dark theme for development focus
+    return 'dark';
+    /*
     if (mode === 'dark') return 'dark';
     if (mode === 'light') return 'light';
     try {
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
-    } catch (_) { /* ignore */ }
+    } catch (_) { }
     return 'light';
+    */
 }
 
 function _applyResolvedTheme(resolved) {

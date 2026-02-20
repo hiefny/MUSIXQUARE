@@ -880,8 +880,8 @@ input[type=range] {
     cursor: pointer;
     height: 24px;
     margin: 0;
-    /* Prevent the scroll container from moving while dragging sliders (Android) */
-    touch-action: pan-x;
+    /* Prevent the scroll container from moving horizontally while dragging sliders, handing control to the input */
+    touch-action: pan-y;
 }
 
 input[type=range]::-webkit-slider-runnable-track {

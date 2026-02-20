@@ -115,24 +115,26 @@
             </div>
 
             <div class="play-controls-left">
-                <button class="ctrl-btn" id="btn-prev" aria-label="이전 트랙">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-                    </svg>
-                </button>
-                <button class="play-fab" id="play-btn" aria-label="재생/일시정지" disabled>
-                    <svg id="icon-play" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                    </svg>
-                    <svg id="icon-pause" viewBox="0 0 24 24" style="display:none">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                    </svg>
-                </button>
-                <button class="ctrl-btn" id="btn-next" aria-label="다음 트랙">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                    </svg>
-                </button>
+                <div class="play-btn-group">
+                    <button class="ctrl-btn" id="btn-prev" aria-label="이전 트랙">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                        </svg>
+                    </button>
+                    <button class="play-fab" id="play-btn" aria-label="재생/일시정지" disabled>
+                        <svg id="icon-play" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                        <svg id="icon-pause" viewBox="0 0 24 24" style="display:none">
+                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                        </svg>
+                    </button>
+                    <button class="ctrl-btn" id="btn-next" aria-label="다음 트랙">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                        </svg>
+                    </button>
+                </div>
 
                 <div class="vol-group-playback">
                     <svg id="vol-icon-btn" viewBox="0 0 24 24" style="cursor: pointer">

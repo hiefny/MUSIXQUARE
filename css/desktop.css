@@ -188,7 +188,9 @@
     }
 
     .video-wrapper {
-        max-width: 90%;
+        width: 100%;
+        /* Prevent infinite scaling on wide monitors, also respect vertical space for controls */
+        max-width: min(90%, 1080px, calc((100dvh - 360px) * 16 / 9));
         margin: 0 auto 30px auto;
         border-radius: 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
@@ -468,5 +470,38 @@
 
     .chat-drawer-input {
         background: transparent !important;
+    }
+
+    /* Keep the action buttons consistently sized on all desktop viewports rather than full-width */
+    .play-action-buttons {
+        justify-content: center;
+    }
+
+    .play-action-buttons .file-select-btn {
+        height: 60px;
+        width: 160px !important;
+        min-width: 160px !important;
+        padding: 0 16px;
+        border-radius: 20px;
+        flex: none !important;
+        /* Defeat inline style flex:1 from html */
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* Bring back the text and align it nicely next to the icon */
+    .play-action-buttons span {
+        display: block !important;
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    /* Size the SVG icon correctly */
+    .play-action-buttons .file-select-btn svg {
+        width: 22px;
+        height: 22px;
+        margin: 0;
+        margin-right: 8px;
+        fill: var(--text-main);
     }
 }

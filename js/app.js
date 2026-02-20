@@ -9921,18 +9921,22 @@ function addChatMessage(sender, text, isMine) {
         const now = new Date();
         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
+        const group = document.createElement('div');
+        group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
+
+        if (!isMine) {
+            const senderNode = document.createElement('div');
+            senderNode.className = 'chat-sender';
+            senderNode.innerText = sender;
+            group.appendChild(senderNode);
+        }
+
         const row = document.createElement('div');
-        row.className = `chat-row ${isMine ? 'mine' : 'others'}`;
+        row.className = 'chat-row';
 
         const bubble = document.createElement('div');
         bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-
-        let bubbleContent = '';
-        if (!isMine) {
-            bubbleContent += `<div class="chat-sender">${escapeHtml(sender)}</div>`;
-        }
-        bubbleContent += `<div class="chat-text">${parseMessageContent(text)}</div>`;
-        bubble.innerHTML = bubbleContent;
+        bubble.innerHTML = `<div class="chat-text">${parseMessageContent(text)}</div>`;
 
         const timeNode = document.createElement('div');
         timeNode.className = 'chat-time';
@@ -9946,7 +9950,8 @@ function addChatMessage(sender, text, isMine) {
             row.appendChild(timeNode);
         }
 
-        container.appendChild(row);
+        group.appendChild(row);
+        container.appendChild(group);
         container.scrollTop = container.scrollHeight;
     }
 
@@ -10017,10 +10022,13 @@ function parseMessageContent(text) {
             const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
             result += `
-                <button class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}">
-                    <span class="chat-yt-play-row">▶ YouTube 재생하기</span>
-                    <span id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</span>
-                </button>
+                <div class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" role="button" tabindex="0">
+                    <div class="chat-yt-play-row">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
+                        YouTube
+                    </div>
+                    <div id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</div>
+                </div>
             `;
 
             // Async title fetch
@@ -10200,6 +10208,11 @@ function seekToTime(seconds) {
 
 
 function loadYouTubeFromChat(url) {
+    if (hostConn) {
+        showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+        return;
+    }
+
     const videoId = extractYouTubeVideoId(url);
     const playlistId = extractYouTubePlaylistId(url);
 
@@ -10212,29 +10225,44 @@ function loadYouTubeFromChat(url) {
         toggleChatDrawer();
     }
 
-    const title = 'YouTube Video';
-    const wasEmpty = (playlist.length === 0);
-
-    playlist.push({
+    const newItem = {
         type: 'youtube',
         videoId: videoId,
         playlistId: playlistId,
-        title: title,
-        name: title
-    });
+        title: 'YouTube Video',
+        name: 'YouTube Video'
+    };
+    playlist.push(newItem);
 
     updatePlaylistUI();
 
-    const metaList = playlist.map(item => ({
+    const metaList = () => playlist.map(item => ({
         type: item.type,
         name: item.name || item.title,
         videoId: item.videoId || null,
         playlistId: item.playlistId || null
     }));
-    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList() });
 
     playTrack(playlist.length - 1);
     showToast("YouTube 재생 시작");
+
+    // Fetch real title in background and update immediately upon arrive
+    _fetchYouTubeOEmbedTitle(url).then(fetchedTitle => {
+        if (fetchedTitle) {
+            newItem.title = fetchedTitle;
+            newItem.name = fetchedTitle;
+            updatePlaylistUI();
+
+            // If it's currently playing this track, update the UI header
+            if (currentTrackIndex === playlist.indexOf(newItem)) {
+                updateTrackInfoDisplay();
+            }
+            // Broadcast the updated title to guests
+            broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList() });
+        }
+    }).catch(e => log.warn('Chat YT title fetch err:', e));
 }
 
 function insertEmoji(emoji) {

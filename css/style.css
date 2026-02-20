@@ -880,8 +880,8 @@ input[type=range] {
     cursor: pointer;
     height: 24px;
     margin: 0;
-    /* Prevent the scroll container from moving horizontally while dragging sliders, handing control to the input */
-    touch-action: pan-y;
+    /* Prevent ANY browser gestures (swipe to go back, scroll) while dragging sliders, forcing 100% control to the slider thumb */
+    touch-action: none !important;
 }
 
 input[type=range]::-webkit-slider-runnable-track {
@@ -925,6 +925,12 @@ input[type=range]:active::-webkit-slider-thumb {
     gap: 16px;
     margin: 6px 0;
     width: 100%;
+}
+
+.play-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
 
 .vol-group-playback {
@@ -1441,8 +1447,8 @@ input[type=range]:active::-webkit-slider-thumb {
 }
 
 .section-header-row {
-    padding: 44px 0 32px !important;
-    /* 44px Top gap | 32+12=44px Gap to first content */
+    padding: 44px 0 16px !important;
+    /* 44px Top gap | 16+12=28px Gap to first content */
     border-bottom: none;
     display: flex;
     justify-content: space-between;
@@ -1692,8 +1698,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 #tab-settings .channel-grid {
-    padding: 12px 24px 12px !important;
-    /* Retain the specific 44px symmetry side-padding */
+    padding: 12px 0 !important;
+    /* Removed horizontal padding to perfectly align with the section title */
     max-width: 500px;
 }
 
@@ -3907,20 +3913,27 @@ input:checked+.slider:before {
     padding: 60px 20px;
 }
 
-.chat-row {
+.chat-group {
     display: flex;
-    align-items: flex-end;
-    gap: 6px;
+    flex-direction: column;
     max-width: 90%;
     animation: bubbleIn 0.2s ease-out;
 }
 
-.chat-row.mine {
+.chat-group.mine {
     align-self: flex-end;
+    align-items: flex-end;
 }
 
-.chat-row.others {
+.chat-group.others {
     align-self: flex-start;
+    align-items: flex-start;
+}
+
+.chat-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
 }
 
 .chat-bubble {
@@ -3956,11 +3969,18 @@ input:checked+.slider:before {
     border-bottom-left-radius: 4px;
 }
 
+/* Redesign: When bubble contains YouTube, strip its own background/padding */
+.chat-bubble:has(.chat-youtube-btn) {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
 .chat-sender {
     font-size: 11px;
     font-weight: 700;
     color: var(--text-sub);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
+    margin-left: 2px;
     text-transform: none;
 }
 
@@ -4210,38 +4230,53 @@ input:checked+.slider:before {
 }
 
 
-/* Chat YouTube Play Button */
+/* Chat YouTube Play Button (Acts as the bubble itself) */
 .chat-youtube-btn {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
-    background: var(--surface-1);
-    border: 1px solid var(--surface-3);
-    color: var(--text-main);
-    padding: 10px;
-    border-radius: 12px;
+    background: #FF0000;
+    /* Clean YouTube Red */
+    border: none;
+    color: #ffffff;
+    /* Solid white text */
+    padding: 14px 16px;
+    /* Proper bubble padding */
+    border-radius: 14px;
     font-size: 13px;
     cursor: pointer;
-    margin: 8px 0;
-    transition: all 0.2s;
+    margin: 0;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
     width: 100%;
+    max-width: 260px;
+    box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
+}
+
+/* Match the tail of the bubble depending on who sent it */
+.chat-group.mine .chat-youtube-btn {
+    border-bottom-right-radius: 4px;
+}
+
+.chat-group.others .chat-youtube-btn {
+    border-bottom-left-radius: 4px;
 }
 
 .chat-yt-play-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-weight: 700;
-    /* Standard Bold is more consistent */
-    color: #ff0000;
+    font-weight: 800;
+    color: #ffffff;
+    font-size: 14px;
     font-family: 'Pretendard', sans-serif;
+    letter-spacing: -0.3px;
 }
 
 .chat-yt-title {
-    font-size: 12px;
-    color: var(--text-sub);
-    line-height: 1.4;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.45;
     text-align: left;
     word-break: break-all;
     display: -webkit-box;
@@ -4252,8 +4287,9 @@ input:checked+.slider:before {
 }
 
 .chat-youtube-btn:active {
-    transform: scale(0.98);
-    background: var(--surface-2);
+    transform: scale(0.97);
+    background: #d90000;
+    /* Slightly darker red on active */
 }
 
 /* Chat Timestamp Link */

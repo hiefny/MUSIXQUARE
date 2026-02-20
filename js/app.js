@@ -5384,7 +5384,7 @@ function startVisualizer() {
     let smoothedBass = 0;
 
     // Canvas Scale Logic (High DPI)
-    const logicalSize = 320;
+    const logicalSize = 240;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;
@@ -5483,7 +5483,7 @@ function drawIdleVisualizer() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    const logicalSize = 320;
+    const logicalSize = 240;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;

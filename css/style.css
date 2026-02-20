@@ -687,8 +687,8 @@ html[data-theme="DISABLED-light"] body.mode-youtube #youtube-settings-disabled-w
 }
 
 .vinyl-wrapper {
-    width: 320px;
-    height: 320px;
+    width: 240px;
+    height: 240px;
     margin: 0 auto;
     position: relative;
     display: flex;
@@ -1406,12 +1406,18 @@ input[type=range]:active::-webkit-slider-thumb {
 .section-group {
     background: transparent;
     border-radius: 0;
-    margin: 0 32px;
-    padding-bottom: 32px;
+    margin: 0 44px;
+    padding: 0 !important;
     border-bottom: 1px solid var(--surface-2);
 }
 
-.section-group:last-of-type {
+.section-padding-bottom {
+    display: none !important;
+    /* Fully obsolete now */
+}
+
+.section-group:last-of-type,
+#last-setting-section {
     border-bottom: none;
 }
 
@@ -1435,12 +1441,17 @@ input[type=range]:active::-webkit-slider-thumb {
 }
 
 .section-header-row {
-    padding: 32px 0 12px;
-    /* Align with title */
+    padding: 44px 0 32px !important;
+    /* 44px Top gap | 32+12=44px Gap to first content */
     border-bottom: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+#youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
+    padding-top: 24px !important;
+    /* Reduce top padding for the first section to make the title closer (Total gap 44px) */
 }
 
 .section-title {
@@ -1453,20 +1464,30 @@ input[type=range]:active::-webkit-slider-thumb {
 }
 
 .section-row {
-    padding: 12px 0;
+    padding: 10px 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: none;
-    /* Remove per-row borders */
     background: transparent;
     color: var(--text-main);
     font-size: 16px;
     font-weight: 500;
 }
 
+/* Uniformly enforce 44px bottom gap for the visible end of every section */
+.section-group>*:last-child {
+    padding-bottom: 44px !important;
+}
+
 .section-row:last-child {
     border-bottom: none;
+}
+
+/* Reset any default input margins that might shift the visual balance */
+input[type="range"] {
+    margin: 0;
+    display: block;
+    width: 100%;
 }
 
 .section-row.clickable {
@@ -1499,9 +1520,8 @@ input[type=range]:active::-webkit-slider-thumb {
     background: var(--surface-2);
     border-radius: 9999px !important;
     padding: 4px;
-    margin: 10px 20px 20px;
+    margin: 12px 20px 0;
     gap: 4px;
-    /* Added gap */
 }
 
 .theme-opt {
@@ -1560,7 +1580,8 @@ input[type=range]:active::-webkit-slider-thumb {
 .eq-container {
     display: flex;
     justify-content: space-between;
-    padding: 20px 20px 30px;
+    padding: 20px 0 30px;
+    /* Aligned with the 32px section margin */
     height: 200px;
 }
 
@@ -1650,20 +1671,36 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 
-/* Channel Grid */
+/* 
+   The Unified Symmetry System: 
+   All content units use 12px vertical padding.
+   Combined with header/last-child rules, this creates 44px gaps at all major boundaries.
+*/
+.slider-wrap,
+.eq-container,
+.channel-grid {
+    padding: 12px 0 !important;
+}
+
+/* Global Grid System: Used in both Settings and Setup/Onboarding */
 .channel-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    padding: 20px 0;
-    /* Align with the new layout grid */
+    padding: 12px 0;
+    /* Fallback padding */
+}
+
+#tab-settings .channel-grid {
+    padding: 12px 24px 12px !important;
+    /* Retain the specific 44px symmetry side-padding */
+    max-width: 500px;
 }
 
 .ch-opt {
     background: var(--surface-1);
-    /* Subtle surface background */
     color: var(--text-sub);
-    padding: 24px 12px;
+    padding: 18px 12px;
     border-radius: var(--radius-m);
     font-size: 14px;
     font-weight: 700;
@@ -1671,10 +1708,9 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid var(--surface-2);
-    /* Subtle border instead of thick one */
 }
 
 .ch-opt svg {
@@ -1682,7 +1718,6 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     height: 32px;
     fill: currentColor;
     opacity: 1;
-    /* Match the text color visually identically to sync btn */
     transition: opacity 0.2s;
 }
 
@@ -1695,11 +1730,6 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 .ch-opt.active svg {
     opacity: 1;
     fill: var(--primary);
-}
-
-/* Sliders in Settings */
-.slider-wrap {
-    padding: 12px 0;
 }
 
 .slider-header {
@@ -4096,9 +4126,7 @@ input:checked+.slider:before {
     display: inline-block;
 }
 
-/* ========================================
-   Slide-up Chat Drawer
-   ======================================== */
+/* Slide-up Chat Drawer */
 .chat-drawer {
     position: fixed;
     left: 0;

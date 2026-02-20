@@ -299,8 +299,8 @@
     #setup-code-area .setup-code-area-bottom,
     #setup-join-area .setup-code-area-bottom,
     #setup-role-area .channel-grid {
-        margin-top: 48px !important;
-        /* Beautiful fixed distance from graphic */
+        margin-top: 0 !important;
+        /* Flush with graphic */
         margin-bottom: auto !important;
         /* Pushes everything up nicely to center the whole block */
     }
@@ -372,23 +372,23 @@
         background: transparent !important;
         margin: 0 12px !important;
         box-shadow: none !important;
-        padding-bottom: 32px !important;
         border: none !important;
         border-radius: 0 !important;
-        /* Perfect straight line */
         border-bottom: 1px solid var(--surface-2) !important;
     }
 
-    .section-group:last-of-type {
-        border-bottom: none !important;
+    .channel-grid {
+        padding: 12px 20px 12px !important;
+        /* Standardized for desktop */
+        max-width: 500px;
+        margin-left: auto !important;
+        margin-right: auto !important;
     }
 
-    /* Hierarchy Fixes for Settings */
     .section-header-row {
         border-bottom: none !important;
-        /* Eliminated the weird line under titles */
-        padding: 32px 20px 8px !important;
-        /* Use whitespace to separate sections naturally - reduced bottom padding so it hugs content */
+        padding: 44px 20px 32px !important;
+        /* Symmetric 44px top start and 44px gap to content */
     }
 
     #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
@@ -404,10 +404,13 @@
         letter-spacing: normal !important;
     }
 
-    /* Tighten sliders together */
     .slider-wrap {
-        padding: 8px 20px !important;
-        /* Originally 20px all around, making gaps huge */
+        padding: 12px 20px !important;
+    }
+
+    /* Enforce 44px bottom gap on desktop too */
+    .section-group>*:last-child {
+        padding-bottom: 44px !important;
     }
 
     /* Soften the settings text so title stands out */

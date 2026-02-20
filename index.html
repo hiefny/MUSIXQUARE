@@ -85,7 +85,7 @@
             <span class="tab-title">메인</span>
         </div>
         <div class="vinyl-wrapper">
-            <canvas id="visualizerCanvas" width="320" height="320"></canvas>
+            <canvas id="visualizerCanvas" width="240" height="240"></canvas>
 
         </div>
 
@@ -341,8 +341,8 @@
             </div>
         </div>
 
-        <!-- [TEMPORARY OVERRIDE] Theme selector hidden as per Dark Mode fixed preference
-        <div class="section-group">
+        <!-- [TEMPORARY OVERRIDE] Theme selector hidden as per Dark Mode fixed preference -->
+        <div class="section-group" style="display:none;">
             <div class="section-header-row">
                 <span class="section-title">테마</span>
             </div>
@@ -352,7 +352,7 @@
                 <div class="theme-opt" id="theme-system">System</div>
             </div>
         </div>
-        -->
+        <!-- -->
 
         <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
         <div class="youtube-settings-note" id="youtube-settings-note" role="note">
@@ -362,13 +362,14 @@
         <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
         <div id="youtube-settings-disabled-wrap">
 
+            <!-- 1. Speaker Role -->
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">1. 이 기기 역할 설정하기</span>
                 </div>
 
                 <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
-                <div class="channel-grid" id="grid-standard" style="padding: 10px 20px 20px;">
+                <div class="channel-grid" id="grid-standard">
                     <div class="ch-opt" data-ch="-1">
                         <svg viewBox="0 0 24 24">
                             <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
@@ -393,7 +394,7 @@
                         </svg>중앙 스피커
                     </div>
                 </div>
-
+                <!-- Woofer Control -->
                 <div class="slider-wrap" id="woofer-cutoff-control">
                     <div class="slider-header">
                         <span>서브우퍼 조절하기</span>
@@ -403,6 +404,7 @@
                 </div>
             </div>
 
+            <!-- 2. Reverb -->
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">2. 리버브(방장 제어)</span>
@@ -420,7 +422,7 @@
                 </div>
 
                 <!-- Decay Slider -->
-                <div class="slider-wrap" style="padding-top:0;">
+                <div class="slider-wrap">
                     <div class="slider-header">
                         <span>반사 시간 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
@@ -432,7 +434,7 @@
                 </div>
 
                 <!-- Pre-Delay Slider -->
-                <div class="slider-wrap" style="padding-top:0;">
+                <div class="slider-wrap">
                     <div class="slider-header">
                         <span>반사 지연 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
@@ -444,7 +446,7 @@
                 </div>
 
                 <!-- Low Cut Slider (New) -->
-                <div class="slider-wrap" style="padding-top:0;">
+                <div class="slider-wrap">
                     <div class="slider-header">
                         <span>하이패스 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
@@ -456,7 +458,7 @@
                 </div>
 
                 <!-- High Cut Slider (New) -->
-                <div class="slider-wrap" style="padding-top:0; padding-bottom:20px;">
+                <div class="slider-wrap">
                     <div class="slider-header">
                         <span>로우패스 <span
                                 style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
@@ -468,7 +470,7 @@
                 </div>
             </div>
 
-            <!-- Graphic EQ Zone -->
+            <!-- 3. Equalizer -->
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">3. 이퀄라이저 (방장 제어)</span>
@@ -476,8 +478,8 @@
                         id="btn-reset-eq">Reset</button>
                 </div>
 
-                <!-- Preamp (Inlined) -->
-                <div class="slider-wrap" style="padding: 10px 20px 0; border-bottom: none;">
+                <!-- Preamp -->
+                <div class="slider-wrap" id="preamp-control">
                     <div class="slider-header">
                         <span style="font-size:11px; font-weight:700; color:var(--text-sub);">프리앰프</span>
                         <span class="val-disp" id="val-preamp" style="font-size:11px;">0dB</span>
@@ -518,7 +520,7 @@
                 </div>
             </div>
 
-            <!-- Virtual Ste.. Surround Zone -->
+            <!-- 4. Virtual Surround -->
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title">4. 가상 서라운드(방장 제어)</span>
@@ -537,7 +539,8 @@
                 </div>
             </div>
 
-            <div class="section-group">
+            <!-- 5. Virtual Bass -->
+            <div class="section-group" id="last-setting-section">
                 <div class="section-header-row">
                     <span class="section-title">5. 가상 베이스 강화(방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
@@ -555,79 +558,81 @@
                 </div>
             </div>
 
-            <div class="desktop-help-section">
+        </div> <!-- End of youtube-settings-disabled-wrap -->
 
-                <div class="help-block" style="margin-top: 16px;">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
-                        </svg>
-                        로컬 네트워크 전용
-                    </div>
-                    <div class="help-desc">
-                        이 버전은 <strong>로컬(같은 Wi‑Fi/핫스팟)</strong>에서만 연결됩니다.<br>
-                        <ul class="help-list">
-                            <li>모든 기기가 <strong>동일한 네트워크</strong>에 연결되어야 해요.</li>
-                            <li>VPN/사내 보안망이 켜져 있으면 연결이 실패할 수 있어요.</li>
-                            <li>연결이 안 되면: Wi‑Fi 재연결 → 앱 새로고침 순서로 확인해 주세요.</li>
-                        </ul>
-                    </div>
+        <div class="desktop-help-section">
+
+            <div class="help-block" style="margin-top: 16px;">
+                <div class="help-title">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+                    </svg>
+                    로컬 네트워크 전용
                 </div>
-
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
-                        </svg>
-                        이렇게 연결해요
-                    </div>
-                    <div class="help-desc">
-                        <strong>QR이나 링크 없이</strong>, 방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.
-                        <ul class="help-list">
-                            <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
-                            <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
-                            <li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li>
-                        </ul>
-                    </div>
+                <div class="help-desc">
+                    이 버전은 <strong>로컬(같은 Wi‑Fi/핫스팟)</strong>에서만 연결됩니다.<br>
+                    <ul class="help-list">
+                        <li>모든 기기가 <strong>동일한 네트워크</strong>에 연결되어야 해요.</li>
+                        <li>VPN/사내 보안망이 켜져 있으면 연결이 실패할 수 있어요.</li>
+                        <li>연결이 안 되면: Wi‑Fi 재연결 → 앱 새로고침 순서로 확인해 주세요.</li>
+                    </ul>
                 </div>
+            </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                        </svg>
-                        스피커로 재생하기
-                    </div>
-                    <div class="help-desc">
-                        참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
-                        <ul class="help-list">
-                            <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
-                            <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
-                            <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
-                            <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
-                        </ul>
-                        필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
-                    </div>
+            <div class="help-block">
+                <div class="help-title">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                    </svg>
+                    이렇게 연결해요
                 </div>
+                <div class="help-desc">
+                    <strong>QR이나 링크 없이</strong>, 방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.
+                    <ul class="help-list">
+                        <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
+                        <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
+                        <li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li>
+                    </ul>
+                </div>
+            </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
-                        </svg>
-                        미디어 재생하기
-                    </div>
-                    <div class="help-desc">
-                        방장에게는 3가지 선택지가 나와요.
-                        <ul class="help-list">
-                            <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
-                            <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
-                            <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
-                        </ul>
-                        <!-- 데모 버튼 임시 숨김 처리 (요청)
+            <div class="help-block">
+                <div class="help-title">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                    </svg>
+                    스피커로 재생하기
+                </div>
+                <div class="help-desc">
+                    참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
+                    <ul class="help-list">
+                        <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
+                        <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
+                        <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
+                        <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
+                    </ul>
+                    필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
+                </div>
+            </div>
+
+            <div class="help-block">
+                <div class="help-title">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+                    </svg>
+                    미디어 재생하기
+                </div>
+                <div class="help-desc">
+                    방장에게는 3가지 선택지가 나와요.
+                    <ul class="help-list">
+                        <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
+                        <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
+                        <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
+                    </ul>
+                    <!-- 데모 버튼 임시 숨김 처리 (요청)
                         <button class="demo-btn" id="btn-demo-guide"
                             style="width:100%; margin-top:12px; justify-content:center;">
                             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -637,31 +642,29 @@
                             앱 체험하기 (데모)
                         </button>
                         -->
-                    </div>
-                </div>
-
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
-                        </svg>
-                        도움이 필요할 때
-                    </div>
-                    <div class="help-desc">
-                        <ul class="help-list">
-                            <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 두 기기가 같은 네트워크인지 확인해 보세요.</li>
-                            <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
-                            <li><strong>소리가 안 나와요:</strong> 무음 모드가 켜져 있을 수 있어요.</li>
-                            <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
-                        </ul>
-                    </div>
                 </div>
             </div>
 
+            <div class="help-block">
+                <div class="help-title">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
+                    </svg>
+                    도움이 필요할 때
+                </div>
+                <div class="help-desc">
+                    <ul class="help-list">
+                        <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 두 기기가 같은 네트워크인지 확인해 보세요.</li>
+                        <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
+                        <li><strong>소리가 안 나와요:</strong> 무음 모드가 켜져 있을 수 있어요.</li>
+                        <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
+                    </ul>
+                </div>
+            </div>
         </div>
-    </div>
 
+    </div>
 
     <!-- Slide-up Chat Drawer -->
     <div class="chat-drawer" id="chat-drawer">
@@ -974,10 +977,33 @@
                     </svg>
                 </div>
                 <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
-                    <div class="ch-opt" data-join-ch="-1">왼쪽 스피커</div>
-                    <div class="ch-opt" data-join-ch="1">오른쪽 스피커</div>
-                    <div class="ch-opt" data-join-ch="2">서브우퍼</div>
-                    <div class="ch-opt" data-join-ch="0">중앙 스피커</div>
+                    <div class="ch-opt" data-join-ch="-1">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                        </svg>
+                        왼쪽 스피커
+                    </div>
+                    <div class="ch-opt" data-join-ch="1">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                        </svg>
+                        오른쪽 스피커
+                    </div>
+                    <div class="ch-opt" data-join-ch="2">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        서브우퍼
+                    </div>
+                    <div class="ch-opt" data-join-ch="0">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
+                        </svg>
+                        중앙 스피커
+                    </div>
                 </div>
             </div>
 

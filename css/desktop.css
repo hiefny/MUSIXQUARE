@@ -1,0 +1,469 @@
+/* ==========================================================================
+   Desktop / Tablet Responsive Dashboard Layout (Premium 4-Column Design)
+   Active on screens wider than 1024px.
+   Layout: [ Play (Main) ] | [ Chat ] | [ Playlist ] | [ Settings ]
+   ========================================================================== */
+
+@media (min-width: 1024px) {
+
+    /* ---------------------------------------------------
+       1. Application Base Grid
+       --------------------------------------------------- */
+    body {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        grid-template-rows: var(--header-height) 1fr 1fr;
+        grid-template-areas:
+            "header header header"
+            "tab-play tab-playlist tab-settings"
+            "tab-play tab-chat tab-settings";
+        gap: 0;
+        /* Gaps emulated through panel paddings so vertical dividers function cleanly */
+        padding-bottom: 0;
+        padding-right: 24px;
+        padding-left: 24px;
+        background: var(--bg);
+        /* Deepest background for the outer space */
+        overflow: hidden;
+        height: 100vh;
+    }
+
+    header {
+        grid-area: header;
+        position: relative;
+        width: 100vw;
+        margin-left: -24px;
+        /* Offset the body's padding-left */
+        padding-left: 24px !important;
+        padding-right: 24px !important;
+        box-sizing: border-box;
+        box-shadow: none;
+        background: var(--glass-bg);
+        border-bottom: none !important;
+        /* Seamless header */
+        margin-bottom: 0;
+        /* Stopped underlap */
+    }
+
+    /* ---------------------------------------------------
+       2. Hide Mobile Elements
+       --------------------------------------------------- */
+    .bottom-nav,
+    .nav-blur-halo,
+    .bottom-nav::before {
+        display: none !important;
+    }
+
+    #btn-chat-close,
+    #chat-preview-btn {
+        display: none !important;
+    }
+
+    .chat-drawer-backdrop {
+        display: none !important;
+    }
+
+    /* ---------------------------------------------------
+       3. Shared Panel Styles
+       --------------------------------------------------- */
+    #tab-play,
+    .chat-drawer,
+    #tab-playlist,
+    #tab-settings {
+        display: flex !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        position: relative !important;
+        transform: none !important;
+        height: 100% !important;
+
+        background: transparent !important;
+        /* Sleek floating card background removed */
+        border-radius: 0;
+        /* Elegant rounded corners removed */
+        border: none;
+        /* Extremely subtle edge removed */
+        box-shadow: none;
+        /* Deep soft ambient shadow removed */
+        overflow-x: hidden;
+        overflow-y: auto;
+        /* Inner content controls scroll */
+    }
+
+    /* Clean up the scrollbars inside the panels */
+    .tab-content,
+    .chat-drawer-messages {
+        overflow-y: auto;
+        padding-bottom: 40px !important;
+        /* Give every panel a nice empty space at the bottom */
+    }
+
+    /* Panel Headers (No Borders, Generous Padding) */
+    .tab-header,
+    .chat-drawer-header {
+        padding: 32px 32px 16px !important;
+        /* Generous breathing space inside panels */
+        position: sticky;
+        top: 0;
+        background: var(--bg) !important;
+        /* Match canvas exactly, masking scroll content underneath */
+        z-index: 10;
+        border-bottom: none !important;
+        /* Removed the ugly lines under text */
+        margin-bottom: 0;
+    }
+
+    /* Harmonize Header Typographies (Title, Menu, Chat, etc) */
+    .tab-title,
+    .chat-drawer-title,
+    .track-title {
+        font-size: 24px !important;
+        /* Beautifully unified and properly proportioned */
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+        color: var(--text-main) !important;
+    }
+
+    /* ---------------------------------------------------
+       4. Specific Panel: Play (Main)
+       --------------------------------------------------- */
+    /* Elegant vertical dividers via standard border */
+    #tab-play {
+        padding: 0 10px 0 0 !important;
+        border-right: 1px solid var(--surface-2) !important;
+    }
+
+    #tab-playlist {
+        padding: 0 10px !important;
+        border-right: 1px solid var(--surface-2) !important;
+        border-bottom: 1px solid var(--surface-2) !important;
+    }
+
+    .chat-drawer {
+        padding: 0 10px !important;
+        border-right: 1px solid var(--surface-2) !important;
+    }
+
+    #tab-settings {
+        padding: 0 0 0 10px !important;
+    }
+
+    .play-header-desktop {
+        display: none !important;
+        /* Hide "Main" header on PC as requested */
+    }
+
+    #tab-play {
+        grid-area: tab-play;
+        flex-direction: column;
+        justify-content: flex-start !important;
+        align-items: center;
+        padding-top: 70px !important;
+        /* Slightly more than header height (60px) for a tight look */
+        padding-bottom: 20px !important;
+        gap: 20px;
+        /* Tighter gap for better vertical fit */
+    }
+
+    .play-action-buttons {
+        position: absolute !important;
+        bottom: 40px;
+        left: 40px;
+        right: 40px;
+        width: auto !important;
+        gap: 12px !important;
+    }
+
+    .play-action-buttons .file-select-btn-large {
+        padding: 24px 20px !important;
+        font-size: 16px !important;
+    }
+
+    .vinyl-wrapper {
+        width: clamp(200px, 18vw, 320px);
+        height: clamp(200px, 18vw, 320px);
+        margin-bottom: 40px;
+        /* Breathes properly */
+    }
+
+    .video-wrapper {
+        max-width: 90%;
+        margin: 0 auto 30px auto;
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Play Controller adjustments */
+    .controls-area {
+        max-width: 100%;
+        padding: 0 32px;
+        margin-top: 24px;
+    }
+
+    /* ---------------------------------------------------
+       5. Specific Panel: Chat
+       --------------------------------------------------- */
+    .chat-drawer {
+        grid-area: tab-chat;
+    }
+
+    /* ---------------------------------------------------
+       6. Specific Panel: Playlist
+       --------------------------------------------------- */
+    #tab-playlist {
+        grid-area: tab-playlist;
+    }
+
+    /* ---------------------------------------------------
+       7. Specific Panel: Settings
+       --------------------------------------------------- */
+    #tab-settings {
+        grid-area: tab-settings;
+        /* Padding bottom is handled by .tab-content style above */
+    }
+
+    /* ---------------------------------------------------
+       8. Guide (도움말 화면)
+       --------------------------------------------------- */
+    #tab-guide {
+        display: none !important;
+    }
+
+    /* ---------------------------------------------------
+       9. Setup/Onboarding Overlay
+       --------------------------------------------------- */
+    #setup-overlay,
+    #media-source-overlay,
+    #youtube-url-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 5000;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+
+    .setup-card.full-screen {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 640px !important;
+        max-width: 90vw !important;
+        height: 80vh !important;
+        max-height: 850px !important;
+        min-height: 520px !important;
+        border-radius: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5);
+        background: var(--surface-1);
+        padding: 40px 0 !important;
+        /* Top and bottom generous padding, let inner items handle side paddings to avoid scrollbar clipping */
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Wrap contents nicely and prevent them from shrinking weirdly */
+    .setup-card.full-screen>* {
+        flex-shrink: 0;
+    }
+
+    /* PIN HEADERS TO THE VERY TOP CONTINUOUSLY */
+    #setup-welcome-area,
+    #setup-code-area,
+    #setup-join-area,
+    #setup-role-area {
+        justify-content: flex-start !important;
+        margin-top: 0;
+        margin-bottom: 0;
+        padding-top: 0 !important;
+        height: 100%;
+    }
+
+    /* Auto center ONLY the middle graphics so the header stays rigid at the top */
+    #ob-slider-area {
+        margin-top: auto;
+        margin-bottom: auto;
+    }
+
+    /* For connection code screens and role screen, group the graphic and the input/buttons together */
+    #setup-code-area .setup-guide-unified,
+    #setup-join-area .setup-guide-unified,
+    #setup-role-area .setup-graphic-container {
+        margin-top: auto;
+        margin-bottom: 0 !important;
+        /* Prevents huge gap down */
+    }
+
+    #setup-code-area .setup-code-area-bottom,
+    #setup-join-area .setup-code-area-bottom,
+    #setup-role-area .channel-grid {
+        margin-top: 48px !important;
+        /* Beautiful fixed distance from graphic */
+        margin-bottom: auto !important;
+        /* Pushes everything up nicely to center the whole block */
+    }
+
+    /* Padding for inner content so the container can be flush but content has space */
+    .setup-card.full-screen>div:not(.ob-actions) {
+        padding-left: 48px !important;
+        padding-right: 48px !important;
+    }
+
+    /* Override the mobile-specific black background of ob-actions */
+    .setup-card.full-screen .ob-actions {
+        background: transparent !important;
+        padding: 0 48px !important;
+        /* Match inner content side padding */
+        margin-top: auto !important;
+        /* Push buttons to the very bottom */
+    }
+
+    /* Improve Typography for Desktop Setup */
+    .setup-header-text h2 {
+        font-size: 26px !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+        margin-bottom: 6px !important;
+        /* Reduced title-subtitle gap */
+    }
+
+    .setup-header-text p {
+        font-size: 15px !important;
+        color: var(--text-sub) !important;
+    }
+
+    .ob-title {
+        font-size: 24px !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+        margin-top: 28px !important;
+        margin-bottom: 12px !important;
+        /* Tighter gap to description */
+    }
+
+    .ob-desc {
+        font-size: 15px !important;
+        line-height: 1.5 !important;
+        color: var(--text-sub) !important;
+    }
+
+    /* Tab text switching (Desktop) */
+    .nav-text-desktop {
+        display: inline !important;
+    }
+
+    .nav-text-mobile {
+        display: none !important;
+    }
+
+    .desktop-help-section {
+        display: block !important;
+        margin-top: 32px !important;
+    }
+
+    button[data-tab="guide"] {
+        display: none !important;
+    }
+
+    /* Completely Flatten Layout for Desktop (No boxes, no dividers) */
+    .section-group {
+        background: transparent !important;
+        margin: 0 12px !important;
+        box-shadow: none !important;
+        padding-bottom: 32px !important;
+        border: none !important;
+        border-radius: 0 !important;
+        /* Perfect straight line */
+        border-bottom: 1px solid var(--surface-2) !important;
+    }
+
+    .section-group:last-of-type {
+        border-bottom: none !important;
+    }
+
+    /* Hierarchy Fixes for Settings */
+    .section-header-row {
+        border-bottom: none !important;
+        /* Eliminated the weird line under titles */
+        padding: 32px 20px 8px !important;
+        /* Use whitespace to separate sections naturally - reduced bottom padding so it hugs content */
+    }
+
+    #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
+        padding-top: 0 !important;
+    }
+
+    .section-title {
+        font-size: 17px !important;
+        font-weight: 700 !important;
+        color: var(--text-main) !important;
+        text-transform: none !important;
+        /* Remove uppercase if it was applied */
+        letter-spacing: normal !important;
+    }
+
+    /* Tighten sliders together */
+    .slider-wrap {
+        padding: 8px 20px !important;
+        /* Originally 20px all around, making gaps huge */
+    }
+
+    /* Soften the settings text so title stands out */
+    .slider-header {
+        font-weight: 500 !important;
+        color: var(--text-sub) !important;
+        margin-bottom: 8px !important;
+        /* Bring text closer to its own slider line */
+    }
+
+    .slider-header>span {
+        color: var(--text-sub) !important;
+    }
+
+    .slider-header .val-disp {
+        font-weight: 700 !important;
+        color: var(--primary) !important;
+    }
+
+    .help-block {
+        background: transparent !important;
+        margin: 0 12px 16px !important;
+        /* Match section-group width */
+        padding: 16px 20px !important;
+        /* Aligns nicely with settings items */
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .playlist-ul {
+        margin: 0 16px !important;
+        /* Aligns inner 16px padding with 32px tab-header padding */
+    }
+
+    /* Restore scrollbars for desktop panels */
+    .tab-content {
+        scrollbar-width: thin !important;
+        -ms-overflow-style: auto !important;
+    }
+
+    .tab-content::-webkit-scrollbar {
+        display: block !important;
+        width: 6px;
+    }
+
+    .tab-content::-webkit-scrollbar-track {
+        margin-top: 86px;
+        /* Push scrollbar down below sticky header */
+        margin-bottom: 20px;
+    }
+
+    .track-item {
+        border-bottom: none !important;
+    }
+
+    .chat-drawer-input {
+        background: transparent !important;
+    }
+}

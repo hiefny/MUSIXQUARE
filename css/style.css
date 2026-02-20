@@ -1,4 +1,4 @@
-html {
+﻿html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 }
@@ -19,7 +19,7 @@ html.standalone body {
 
 :root {
     /* Palette - Deep & Clean & Flat */
-    --bg: #000000;
+    --bg: #121212;
     --bg-visualizer: #050505;
     --surface-1: #121212;
     /* Header, Nav, Cards */
@@ -37,7 +37,7 @@ html.standalone body {
     --radius-m: 20px;
     --radius-s: 14px;
 
-    --glass-bg: rgba(18, 18, 18, 0.75);
+    --glass-bg: rgba(38, 38, 38, 0.75);
     --glass-border: transparent;
     --glass-blur: 16px;
 
@@ -92,16 +92,18 @@ html.setup-boot-block .bottom-nav {
     pointer-events: none !important;
 }
 
-[data-theme="light"] {
-    --bg: #f2f2f7;
-    /* iOS Grouped Bg */
-    --bg-visualizer: #f2f2f7;
+/* 
+   [TEMPORARY OVERRIDE] 
+   다크테마(Dark Mode) 고정 요청에 의해 임시로 라이트모드 변수 선언부를 비활성화(주석 처리)합니다.
+   향후 라이트모드 UI 개발 재개 시 아래 주석을 해제하세요.
+*/
+/*
+[data-theme="DISABLED-light"] {
+    --bg: #ffffff;
+    --bg-visualizer: #ffffff;
     --surface-1: #ffffff;
-    /* Card Background (White) */
     --surface-2: #e5e5ea;
-    /* Inputs (Gray) */
     --surface-3: #d1d1d6;
-    /* Darker Accents */
     --primary: #007aff;
     --text-main: #444444;
     --text-sub: #666666;
@@ -110,6 +112,7 @@ html.setup-boot-block .bottom-nav {
     --glass-bg: rgba(255, 255, 255, 0.75);
     --glass-border: transparent;
 }
+*/
 
 * {
     box-sizing: border-box;
@@ -143,7 +146,7 @@ textarea {
 /* Custom Scrollbar - All browsers */
 * {
     scrollbar-width: thin;
-    scrollbar-color: var(--surface-3) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
 }
 
 /* Webkit (Chrome, Safari, Edge) */
@@ -157,16 +160,16 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(64, 64, 64, 0.5);
+    background: rgba(255, 255, 255, 0.05);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background: var(--surface-3);
+    background: rgba(255, 255, 255, 0.15);
 }
 
 body {
@@ -410,12 +413,12 @@ header.loading .header-progress-bg {
 }
 
 /* Light Mode Logo Overrides */
-[data-theme="light"] .app-logo {
+[data-theme="DISABLED-light"] .app-logo {
     color: #222222;
     /* Darker than #444444 text */
 }
 
-[data-theme="light"] .logo-fade {
+[data-theme="DISABLED-light"] .logo-fade {
     /* Update gradient start color to #222222 */
     background: linear-gradient(to right, #222222 20%, var(--surface-3) 100%);
     -webkit-background-clip: text;
@@ -517,8 +520,6 @@ header.loading .header-loading-text {
     display: none;
     flex-direction: column;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
-    overscroll-behavior-x: none;
     padding-top: var(--header-height);
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
     scrollbar-width: none;
@@ -556,11 +557,12 @@ body.mode-video #tab-play:not(.active) {
 }
 
 .tab-header {
-    padding: 30px 24px 10px;
+    padding: 32px 32px 12px;
+    /* Increased side padding for a more spacious, premium feel */
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .tab-title {
@@ -605,12 +607,12 @@ body.mode-youtube #youtube-settings-disabled-wrap {
     will-change: filter;
 }
 
-html[data-theme="light"] .youtube-settings-note {
+html[data-theme="DISABLED-light"] .youtube-settings-note {
     border: 1px solid rgba(0, 0, 0, 0.06);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
 }
 
-html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
+html[data-theme="DISABLED-light"] body.mode-youtube #youtube-settings-disabled-wrap {
     filter: blur(6px) saturate(0.95);
     opacity: 0.62;
 }
@@ -685,8 +687,8 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 }
 
 .vinyl-wrapper {
-    width: 240px;
-    height: 240px;
+    width: 320px;
+    height: 320px;
     margin: 0 auto;
     position: relative;
     display: flex;
@@ -711,12 +713,9 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     border-radius: var(--radius-m);
     overflow: hidden;
 
-    /* Structural Fix: Use visibility/opacity/height instead of display: none */
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
-    height: 0;
-    opacity: 0;
     visibility: hidden;
     pointer-events: none;
 
@@ -765,15 +764,18 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 
 /* Mode Toggle */
 body.mode-video .vinyl-wrapper {
+    display: none !important;
+    /* Completely remove from layout flow */
     height: 0;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     margin: 0;
-    /* Prevent spacing issues */
 }
 
 body.mode-video .video-wrapper {
+    display: flex;
+    /* Restore for video mode */
     height: auto;
     opacity: 1;
     visibility: visible;
@@ -793,6 +795,8 @@ body.mode-video .video-wrapper {
 .track-title-wrapper {
     position: relative;
     width: 100%;
+    height: 32px;
+    /* Fixed height to prevent control shift */
     margin: 0 auto 6px;
     overflow: hidden;
     /* Mask on the static wrapper */
@@ -805,6 +809,8 @@ body.mode-video .video-wrapper {
     font-weight: 700;
     color: var(--text-main);
     letter-spacing: -0.5px;
+    line-height: 32px;
+    /* Fixed vertical alignment */
 
     /* Layout for scrolling */
     display: inline-block;
@@ -880,7 +886,7 @@ input[type=range] {
 
 input[type=range]::-webkit-slider-runnable-track {
     width: 100%;
-    height: 6px;
+    height: 4px;
     background: var(--surface-2);
     border-radius: 100px;
     border: none;
@@ -889,11 +895,11 @@ input[type=range]::-webkit-slider-runnable-track {
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    height: 18px;
-    width: 18px;
+    height: 14px;
+    width: 14px;
     border-radius: 50%;
     background: var(--text-main);
-    margin-top: -6px;
+    margin-top: -5px;
     transform: scale(1);
     transition: transform 0.2s;
 }
@@ -1124,8 +1130,8 @@ input[type=range]:active::-webkit-slider-thumb {
 .file-select-btn {
     width: 100%;
     margin-top: auto;
-    background: var(--surface-2);
-    /* Visibility improvement */
+    background: #212121;
+    /* Darker solid background per request */
     border: none;
     padding: 16px;
     border-radius: var(--radius-m);
@@ -1134,10 +1140,11 @@ input[type=range]:active::-webkit-slider-thumb {
     justify-content: center;
     gap: 10px;
     cursor: pointer;
-    color: var(--text-sub);
     font-family: inherit;
     font-size: 16px;
     font-weight: 700;
+    color: var(--text-sub);
+    /* Darkened text as requested */
 }
 
 .file-select-btn:active {
@@ -1397,10 +1404,15 @@ input[type=range]:active::-webkit-slider-thumb {
 
 
 .section-group {
-    background: var(--surface-1);
-    border-radius: var(--radius-m);
-    margin: 0 20px 24px;
-    /* overflow: hidden; Removed to prevent clipping shadows/popups - Using child radius instead */
+    background: transparent;
+    border-radius: 0;
+    margin: 0 32px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.section-group:last-of-type {
+    border-bottom: none;
 }
 
 /* Ensure children respect the rounded corners */
@@ -1423,28 +1435,31 @@ input[type=range]:active::-webkit-slider-thumb {
 }
 
 .section-header-row {
-    padding: 18px 20px;
-    border-bottom: 1px solid var(--surface-2);
+    padding: 32px 0 12px;
+    /* Align with title */
+    border-bottom: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
 .section-title {
-    font-size: 13px;
+    font-size: 18px;
     font-weight: 700;
-    color: var(--text-sub);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: var(--text-main);
+    text-transform: none;
+    /* No uppercase for a more modern, minimal feel */
+    letter-spacing: -0.5px;
 }
 
 .section-row {
-    padding: 18px 20px;
+    padding: 12px 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--surface-2);
-    background: var(--surface-1);
+    border-bottom: none;
+    /* Remove per-row borders */
+    background: transparent;
     color: var(--text-main);
     font-size: 16px;
     font-weight: 500;
@@ -1586,11 +1601,11 @@ input[type=range].eq-slider::-webkit-slider-runnable-track {
 /* Thumb */
 input[type=range].eq-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    height: 16px;
-    width: 16px;
+    height: 14px;
+    width: 14px;
     border-radius: 50%;
     background: var(--text-main);
-    margin-top: -6px;
+    margin-top: -5px;
     /* center on track */
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
@@ -1640,30 +1655,34 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    padding: 20px;
+    padding: 20px 0;
+    /* Align with the new layout grid */
 }
 
 .ch-opt {
-    background: var(--surface-2);
+    background: var(--surface-1);
+    /* Subtle surface background */
     color: var(--text-sub);
-    padding: 20px;
+    padding: 24px 12px;
     border-radius: var(--radius-m);
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 2px solid transparent;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid var(--surface-2);
+    /* Subtle border instead of thick one */
 }
 
 .ch-opt svg {
     width: 32px;
     height: 32px;
     fill: currentColor;
-    opacity: 0.5;
+    opacity: 1;
+    /* Match the text color visually identically to sync btn */
     transition: opacity 0.2s;
 }
 
@@ -1680,16 +1699,17 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 
 /* Sliders in Settings */
 .slider-wrap {
-    padding: 20px;
+    padding: 12px 0;
 }
 
 .slider-header {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     font-size: 14px;
-    font-weight: 600;
-    color: var(--text-main);
+    font-weight: 500;
+    color: var(--text-sub);
+    /* Subdued label color to make the slider/value stand out */
 }
 
 .val-disp {
@@ -1826,19 +1846,17 @@ input[type=range].eq-slider::-webkit-slider-thumb {
    ============================================= */
 .bottom-nav {
     position: fixed;
-    bottom: calc(12px + (var(--safe-bottom) * 0.4));
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(100% - 32px);
-    max-width: 390px;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     z-index: 100;
     display: flex;
     justify-content: space-around;
     align-items: center;
 
-    /* Figma: Columns 37 — rounded card */
-    border-radius: 30px;
-    padding: 9px;
+    /* Solid edge-to-edge bottom bar */
+    border-radius: 0;
+    padding: 10px 16px calc(10px + var(--safe-bottom));
 
     /* Match header translucency */
     backdrop-filter: blur(var(--glass-blur));
@@ -1853,23 +1871,13 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Blur halo — iOS-optimized, mask-image gradient blur */
+/* Blur halo (Removed since nav is now a solid edge-to-edge block) */
 .nav-blur-halo {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 90px;
-    z-index: 99;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 60%);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
-    pointer-events: none;
+    display: none !important;
 }
 
 /* Light Mode */
-[data-theme="light"] .bottom-nav {
+[data-theme="DISABLED-light"] .bottom-nav {
     background: var(--glass-bg);
     box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
         0px 40px 200px 0px rgba(25, 31, 41, 0.247);
@@ -1881,8 +1889,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
-    box-shadow: 0px 20px 40px -10px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+    border: none;
 }
 
 /* --- Nav Items (Toss adaptive grey) --- */
@@ -2291,9 +2299,9 @@ body:has(#youtube-url-overlay.active) header {
     /* Controlled by JS. Welcome starts visible via JS init */
     flex: 1;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
     padding-top: 0 !important;
     width: 100%;
+    flex-direction: column;
 }
 
 /* Welcome Header inside the wrapper doesn't need special positioning now */
@@ -2652,10 +2660,9 @@ body:has(#youtube-url-overlay.active) header {
 }
 
 .setup-code-area-bottom {
-    margin-top: 32px;
-    /* Position below content instead of sticking to bottom */
+    margin-top: 40px;
+    /* Perfectly identical distance for both Host and Guest */
     padding: 16px 0 32px;
-    /* Extra breathing room at the bottom */
     border-top: none;
     text-align: center;
     width: 100%;
@@ -2666,11 +2673,6 @@ body:has(#youtube-url-overlay.active) header {
     font-size: 13px;
     margin-bottom: 8px;
     color: var(--text-sub);
-}
-
-/* Guest Specific Adjustment: Push code input slightly lower */
-#setup-join-area .setup-code-area-bottom {
-    margin-top: 48px;
 }
 
 /* Inner Mini Slider for Connection Guide */
@@ -2826,13 +2828,13 @@ body:has(#youtube-url-overlay.active) header {
 }
 
 .ch-opt {
-    background: var(--surface-2);
+    background: #212121;
     border-radius: 16px;
     padding: 14px 10px;
     /* Reduced from 20px */
     font-size: 12px;
     font-weight: 700;
-    color: var(--text-main);
+    color: var(--text-sub);
     text-align: center;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -3856,8 +3858,8 @@ input:checked+.slider:before {
     gap: 12px;
 }
 
-.chat-empty {
-    flex: 1;
+.chat-empty,
+.list-empty-state {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3865,6 +3867,14 @@ input:checked+.slider:before {
     font-size: 14px;
     text-align: center;
     line-height: 1.6;
+}
+
+.chat-empty {
+    flex: 1;
+}
+
+.list-empty-state {
+    padding: 60px 20px;
 }
 
 .chat-row {
@@ -3955,70 +3965,72 @@ input:checked+.slider:before {
     /* Added for vertical alignment */
 }
 
+.chat-input-wrapper {
+    display: flex;
+    align-items: center;
+    /* Vertically center the input text/placeholder and the arrow to each other */
+    width: 100%;
+    border-bottom: 2px solid var(--surface-3);
+    padding-bottom: 6px;
+    /* Lift everything slightly above the underline together */
+    transition: border-bottom-color 0.2s;
+}
+
+.chat-input-wrapper:focus-within {
+    border-bottom-color: var(--primary) !important;
+}
+
 .chat-input {
     flex: 1;
     background: none !important;
-    /* Force transparent background */
     border: none !important;
-    /* Remove all borders */
-    border-bottom: 2px solid var(--surface-3) !important;
-    /* Add bottom border */
     border-radius: 0 !important;
-    /* Remove border-radius */
-    padding: 8px 0;
-    /* Adjusted padding */
-    font-size: 15px;
-    /* Slightly larger font */
+    padding: 10px 4px;
+    /* Symmetrical padding for true center alignment */
+    font-size: 16px;
     font-weight: 500;
     color: var(--text-main);
     box-shadow: none !important;
-    /* Remove box-shadow */
     outline: none !important;
-    /* Remove outline */
-    transition: border-bottom-color 0.2s;
 }
 
 .chat-input::placeholder {
     color: var(--text-muted);
     opacity: 0.5;
-    /* Slightly less opaque placeholder */
-}
-
-.chat-input:focus {
-    border-bottom-color: var(--primary) !important;
-    /* Highlight bottom border on focus */
 }
 
 .chat-send-btn {
-    width: 40px;
-    /* Smaller button */
-    height: 40px;
-    /* Smaller button */
+    width: 36px;
+    height: 36px;
     border: none;
-    border-radius: 50%;
-    background: var(--primary);
-    /* Primary color */
-    color: #fff;
+    background: transparent;
+    color: var(--surface-3);
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
     flex-shrink: 0;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    /* Softer shadow */
-    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: none;
+    margin-bottom: 0;
+    /* Remove manual compensation, handle natively via flex-center */
+    transition: color 0.2s ease, transform 0.2s, opacity 0.2s;
+}
+
+/* Lights up in blue when input is not empty */
+.chat-input:not(:placeholder-shown)+.chat-send-btn {
+    color: var(--primary);
 }
 
 .chat-send-btn:active {
     transform: scale(0.92);
-    box-shadow: none;
+    opacity: 0.8;
 }
 
 .chat-send-btn svg {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    /* Sleeker, correctly proportioned icon */
+    height: 24px;
     fill: currentColor;
-    margin-left: 2px;
 }
 
 /* ========================================
@@ -4094,9 +4106,8 @@ input:checked+.slider:before {
     bottom: 0;
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    background: #212121;
+    /* Solid background per request */
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
@@ -4153,7 +4164,6 @@ input:checked+.slider:before {
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
     padding: 16px 20px;
     display: flex;
     flex-direction: column;
@@ -4162,12 +4172,13 @@ input:checked+.slider:before {
 
 .chat-drawer-input {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 12px;
-    padding: 12px 16px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
-    border-top: 1px solid var(--surface-2);
-    background: var(--surface-1);
+    padding: 10px 20px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+    /* Removed the top stroke per request */
+    background: #212121;
+    /* Match the drawer solid background */
 }
 
 
@@ -4271,22 +4282,27 @@ input:checked+.slider:before {
 }
 
 /* Light Mode Play Tab Buttons (White Background) */
-[data-theme="light"] .chat-preview-btn,
-[data-theme="light"] .file-select-btn {
+[data-theme="DISABLED-light"] .chat-preview-btn,
+[data-theme="DISABLED-light"] .file-select-btn {
     background: #ffffff;
     box-shadow: none;
     border: none;
 }
 
-[data-theme="light"] .chat-preview-btn .chat-preview-text,
-[data-theme="light"] .file-select-btn,
-[data-theme="light"] .file-select-btn span {
+[data-theme="DISABLED-light"] .chat-preview-btn .chat-preview-text,
+[data-theme="DISABLED-light"] .file-select-btn,
+[data-theme="DISABLED-light"] .file-select-btn span {
     color: #444444;
 }
 
-[data-theme="light"] .chat-preview-btn .chat-preview-icon,
-[data-theme="light"] .file-select-btn svg {
+[data-theme="DISABLED-light"] .chat-preview-btn .chat-preview-icon,
+[data-theme="DISABLED-light"] .file-select-btn svg {
     fill: #444444;
+}
+
+/* Explicitly keep the YouTube icon red in light mode */
+[data-theme="DISABLED-light"] .file-select-btn .btn-icon-bg.youtube svg {
+    fill: #FF0000;
 }
 
 /* Animation for media play button hint */
@@ -4328,7 +4344,7 @@ input:checked+.slider:before {
     appearance: none;
     -webkit-appearance: none;
     outline: none;
-    color: var(--text-main);
+    color: var(--text-sub);
     text-align: left;
 }
 
@@ -4395,8 +4411,8 @@ input:checked+.slider:before {
     color: var(--text-sub);
 }
 
-[data-theme="light"] #btn-sync,
-[data-theme="light"] #btn-media-source {
+[data-theme="DISABLED-light"] #btn-sync,
+[data-theme="DISABLED-light"] #btn-media-source {
     color: #444444;
 }
 
@@ -4477,4 +4493,21 @@ input:checked+.slider:before {
 .graphic-speaker.active .spk-driver {
     fill: var(--primary);
     stroke: none !important;
+}
+
+/* Tab text switching (Mobile) */
+.nav-text-desktop {
+    display: none !important;
+}
+
+.nav-text-mobile {
+    display: block !important;
+}
+
+.desktop-help-section {
+    display: none;
+}
+
+.play-header-desktop {
+    display: none;
 }

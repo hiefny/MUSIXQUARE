@@ -2080,12 +2080,12 @@ function setupShowInstruction(show, text = '') {
 
 function setupShowJoinArea(show) {
     const el = setupEl('setup-join-area');
-    if (el) el.style.display = show ? 'block' : 'none';
+    if (el) el.style.display = show ? 'flex' : 'none';
 }
 
 function setupShowRoleArea(show) {
     const el = setupEl('setup-role-area');
-    if (el) el.style.display = show ? 'block' : 'none';
+    if (el) el.style.display = show ? 'flex' : 'none';
 }
 
 function setupShowWelcome(show) {
@@ -2508,10 +2508,12 @@ async function proceedToHostCode(mode) {
         if (codeEl.tagName === 'INPUT') codeEl.value = '------';
         else codeEl.textContent = '------';
     }
-    // Temporary actions (Back only) while loading
+
+    // Temporary actions (loading state)
     setupRenderActions([
-        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true }
-    ]);
+        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true },
+        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() }
+    ], 'vertical');
 
     try {
         const code = await createHostSessionWithShortCode();
@@ -3312,7 +3314,7 @@ function updatePlaylistUI() {
 
     ul.innerHTML = '';
     if (playlist.length === 0) {
-        ul.innerHTML = '<li style="color:var(--text-sub); font-size:13px; text-align:center; padding:20px;">파일이 없습니다.</li>';
+        ul.innerHTML = '<li class="list-empty-state">미디어를 추가해주세요.</li>';
         return;
     }
 
@@ -5382,7 +5384,7 @@ function startVisualizer() {
     let smoothedBass = 0;
 
     // Canvas Scale Logic (High DPI)
-    const logicalSize = 240;
+    const logicalSize = 320;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;
@@ -5445,8 +5447,8 @@ function startVisualizer() {
             const centerX = logicalSize / 2;
             const centerY = logicalSize / 2;
 
-            // Circle 1: Bass (increased amplification: 80 -> 150)
-            const bassRadius = 40 + (bassPunch * 150);
+            // Circle 1: Bass (increased amplification)
+            const bassRadius = 55 + (bassPunch * 200);
             const bassLightness = 20 + (bassPunch * 60);
 
             if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
@@ -5456,8 +5458,8 @@ function startVisualizer() {
             ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
             ctx.fill();
 
-            // Circle 2: High (30~130 range)
-            const highRadius = 30 + (highPunch * 100);
+            // Circle 2: High
+            const highRadius = 40 + (highPunch * 130);
             const highLightness = 40 + (highPunch * 60);
 
             if (isLight) {
@@ -5475,6 +5477,61 @@ function startVisualizer() {
     // Correctly kickstart the loop once from outside
     draw();
 }
+
+function drawIdleVisualizer() {
+    const canvas = document.getElementById('visualizerCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const logicalSize = 320;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== logicalSize * dpr) {
+        canvas.width = logicalSize * dpr;
+        canvas.height = logicalSize * dpr;
+        canvas.style.width = `${logicalSize}px`;
+        canvas.style.height = `${logicalSize}px`;
+        ctx.scale(dpr, dpr);
+    }
+
+    // Theme
+    const theme = document.documentElement.getAttribute('data-theme');
+    const isLight = (theme === 'light');
+
+    // Clear canvas
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(18, 18, 18, 0.9)';
+    ctx.fillRect(0, 0, logicalSize, logicalSize);
+
+    if (isLight) ctx.globalCompositeOperation = 'source-over';
+    else ctx.globalCompositeOperation = 'lighter';
+
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 0;
+
+    const centerX = logicalSize / 2;
+    const centerY = logicalSize / 2;
+
+    // Base Bass Circle (0 punch)
+    const bassRadius = 55;
+    const bassLightness = 20;
+    if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
+    else ctx.fillStyle = `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Base High Circle (0 punch)
+    const highRadius = 40;
+    const highLightness = 40;
+    if (isLight) ctx.fillStyle = `rgba(96, 165, 250, 0.6)`;
+    else ctx.fillStyle = `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
+    ctx.fill();
+}
+window.addEventListener('DOMContentLoaded', drawIdleVisualizer);
 
 function fmtTime(s) {
     if (isNaN(s)) return "0:00";
@@ -5984,7 +6041,7 @@ function handleHostIncomingConnection(conn) {
         updateRoleBadge();
 
         if (sessionStarted) {
-        showToast(`${deviceName} 연결이 끊겼어요`);
+            showToast(`${deviceName} 연결이 끊겼어요`);
         }
     });
 
@@ -10851,6 +10908,11 @@ function stopYouTubeMode() {
 
     if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
     if (managedTimers.youtubeSyncLoop) clearInterval(managedTimers.youtubeSyncLoop);
+
+    if (_ytLoadTimeout) {
+        clearTimeout(_ytLoadTimeout);
+        _ytLoadTimeout = null;
+    }
 
     if (youtubePlayer) {
         try {

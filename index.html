@@ -5,10 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="color-scheme" content="dark light">
-    <meta name="theme-color" content="#000000">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#121212">
     <script>
-        (function(){try{var s=localStorage.getItem('musixquare-theme')||'system';var d=s==='light'?'light':s==='dark'?'dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',d);document.querySelector('meta[name="theme-color"]').setAttribute('content',d==='dark'?'#000000':'#f2f2f7');document.querySelector('meta[name="color-scheme"]').setAttribute('content',d==='dark'?'dark light':'light dark');}catch(e){}})();
+        // [TEMPORARY OVERRIDE] Locked to dark theme for development focus
+        (function () { try { document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) { } })();
     </script>
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
@@ -39,9 +40,11 @@
 
     <!-- Web font: Pretendard (consistent across Windows / Android / iOS / macOS) -->
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="stylesheet" crossorigin href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css" />
+    <link rel="stylesheet" crossorigin
+        href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css" />
 
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/desktop.css">
     <script src="vendor/Tone.js"></script>
     <script src="vendor/peerjs.min.js"></script>
 </head>
@@ -69,7 +72,7 @@
             <div class="header-loading-text" id="header-loading-text">Loading...</div>
         </div>
 
-        <div class="header-right header-default-content">
+        <div class="header-right header-default-content" style="display: flex; align-items: center;">
             <div class="role-badge" id="role-badge">
                 <div class="role-dot"></div>
                 <span id="role-text">OFFLINE</span>
@@ -78,8 +81,11 @@
     </header>
 
     <div id="tab-play" class="tab-content active">
+        <div class="tab-header play-header-desktop">
+            <span class="tab-title">메인</span>
+        </div>
         <div class="vinyl-wrapper">
-            <canvas id="visualizerCanvas" width="240" height="240"></canvas>
+            <canvas id="visualizerCanvas" width="320" height="320"></canvas>
 
         </div>
 
@@ -150,7 +156,7 @@
             </button>
 
             <!-- Buttons Row: SYNC (left) + Media (right) -->
-            <div style="display:flex; gap:8px;">
+            <div class="play-action-buttons" style="display:flex; gap:12px;">
                 <button class="file-select-btn file-select-btn-large" id="btn-sync" style="flex:1;">
                     <svg viewBox="0 0 24 24">
                         <path
@@ -195,13 +201,21 @@
             </div>
         </div>
         <ul class="playlist-ul" id="playlist-ui">
-            <li style="color:var(--text-sub); font-size:14px; text-align:center; padding:40px 0;">미디어를 추가해주세요.</li>
+            <li class="list-empty-state">미디어를 추가해주세요.</li>
         </ul>
     </div>
 
     <div id="tab-guide" class="tab-content">
         <div class="tab-header" style="justify-content: space-between; align-items: center;">
-            <span class="tab-title">도움말</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="tab-title">도움말</span>
+                <button id="btn-close-guide"
+                    style="display:none; background:transparent; border:none; color:var(--text-main); cursor:pointer;"><svg
+                        viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                        <path
+                            d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg></button>
+            </div>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="클릭하여 초대코드 복사">
@@ -327,6 +341,7 @@
             </div>
         </div>
 
+        <!-- [TEMPORARY OVERRIDE] Theme selector hidden as per Dark Mode fixed preference
         <div class="section-group">
             <div class="section-header-row">
                 <span class="section-title">테마</span>
@@ -337,6 +352,7 @@
                 <div class="theme-opt" id="theme-system">System</div>
             </div>
         </div>
+        -->
 
         <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
         <div class="youtube-settings-note" id="youtube-settings-note" role="note">
@@ -348,7 +364,7 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">이 기기 역할 설정하기</span>
+                    <span class="section-title">1. 이 기기 역할 설정하기</span>
                 </div>
 
                 <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
@@ -389,14 +405,15 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">리버브(방장 제어)</span>
+                    <span class="section-title">2. 리버브(방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-reverb">Reset</button>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
                         <span>믹스 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 0%</span></span>
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
+                                0%</span></span>
                         <span class="val-disp" id="val-reverb">0%</span>
                     </div>
                     <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="리버브 믹스">
@@ -406,7 +423,8 @@
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
                         <span>반사 시간 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 5.0s</span></span>
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
+                                5.0s</span></span>
                         <span class="val-disp" id="val-rvb-decay">5.0s</span>
                     </div>
                     <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
@@ -417,7 +435,8 @@
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
                         <span>반사 지연 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 0.1s</span></span>
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
+                                0.1s</span></span>
                         <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                     </div>
                     <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
@@ -428,7 +447,8 @@
                 <div class="slider-wrap" style="padding-top:0;">
                     <div class="slider-header">
                         <span>하이패스 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 20Hz</span></span>
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
+                                20Hz</span></span>
                         <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                     </div>
                     <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
@@ -439,7 +459,8 @@
                 <div class="slider-wrap" style="padding-top:0; padding-bottom:20px;">
                     <div class="slider-header">
                         <span>로우패스 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*기본값 20.0kHz</span></span>
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
+                                20.0kHz</span></span>
                         <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                     </div>
                     <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
@@ -450,7 +471,7 @@
             <!-- Graphic EQ Zone -->
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">이퀄라이저 (방장 제어)</span>
+                    <span class="section-title">3. 이퀄라이저 (방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-eq">Reset</button>
                 </div>
@@ -458,7 +479,7 @@
                 <!-- Preamp (Inlined) -->
                 <div class="slider-wrap" style="padding: 10px 20px 0; border-bottom: none;">
                     <div class="slider-header">
-                        <span style="font-size:11px; font-weight:700; color:var(--text-sub);">PREAMP</span>
+                        <span style="font-size:11px; font-weight:700; color:var(--text-sub);">프리앰프</span>
                         <span class="val-disp" id="val-preamp" style="font-size:11px;">0dB</span>
                     </div>
                     <input type="range" id="preamp-slider" min="-12" max="12" value="0" aria-label="프리앰프 게인">
@@ -500,14 +521,14 @@
             <!-- Virtual Ste.. Surround Zone -->
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">가상 서라운드(방장 제어)</span>
+                    <span class="section-title">4. 가상 서라운드(방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-stereo">Reset</button>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
                         <span>너비 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">
                                 기본값
                                 100, 줄이면 모노, 늘리면 서라운드</span></span>
                         <span class="val-disp" id="val-width">100%</span>
@@ -518,19 +539,123 @@
 
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">가상 베이스 강화(방장 제어)</span>
+                    <span class="section-title">5. 가상 베이스 강화(방장 제어)</span>
                     <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                         id="btn-reset-vbass">Reset</button>
                 </div>
                 <div class="slider-wrap">
                     <div class="slider-header">
                         <span>강도 <span
-                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">*
+                                style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">
                                 기본값 0,
                                 늘리면 가상 베이스(왜곡 증가)</span></span>
                         <span class="val-disp" id="val-vbass">0%</span>
                     </div>
                     <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="가상 베이스 강도">
+                </div>
+            </div>
+
+            <div class="desktop-help-section">
+
+                <div class="help-block" style="margin-top: 16px;">
+                    <div class="help-title">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+                        </svg>
+                        로컬 네트워크 전용
+                    </div>
+                    <div class="help-desc">
+                        이 버전은 <strong>로컬(같은 Wi‑Fi/핫스팟)</strong>에서만 연결됩니다.<br>
+                        <ul class="help-list">
+                            <li>모든 기기가 <strong>동일한 네트워크</strong>에 연결되어야 해요.</li>
+                            <li>VPN/사내 보안망이 켜져 있으면 연결이 실패할 수 있어요.</li>
+                            <li>연결이 안 되면: Wi‑Fi 재연결 → 앱 새로고침 순서로 확인해 주세요.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="help-block">
+                    <div class="help-title">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                        </svg>
+                        이렇게 연결해요
+                    </div>
+                    <div class="help-desc">
+                        <strong>QR이나 링크 없이</strong>, 방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.
+                        <ul class="help-list">
+                            <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
+                            <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
+                            <li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="help-block">
+                    <div class="help-title">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                        </svg>
+                        스피커로 재생하기
+                    </div>
+                    <div class="help-desc">
+                        참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
+                        <ul class="help-list">
+                            <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
+                            <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
+                            <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
+                            <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
+                        </ul>
+                        필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
+                    </div>
+                </div>
+
+                <div class="help-block">
+                    <div class="help-title">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+                        </svg>
+                        미디어 재생하기
+                    </div>
+                    <div class="help-desc">
+                        방장에게는 3가지 선택지가 나와요.
+                        <ul class="help-list">
+                            <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
+                            <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
+                            <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
+                        </ul>
+                        <!-- 데모 버튼 임시 숨김 처리 (요청)
+                        <button class="demo-btn" id="btn-demo-guide"
+                            style="width:100%; margin-top:12px; justify-content:center;">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                                <path
+                                    d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
+                            </svg>
+                            앱 체험하기 (데모)
+                        </button>
+                        -->
+                    </div>
+                </div>
+
+                <div class="help-block">
+                    <div class="help-title">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
+                        </svg>
+                        도움이 필요할 때
+                    </div>
+                    <div class="help-desc">
+                        <ul class="help-list">
+                            <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 두 기기가 같은 네트워크인지 확인해 보세요.</li>
+                            <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
+                            <li><strong>소리가 안 나와요:</strong> 무음 모드가 켜져 있을 수 있어요.</li>
+                            <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -553,13 +678,15 @@
             <div class="chat-empty">아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!</div>
         </div>
         <div class="chat-drawer-input">
-            <input type="text" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="200"
-                aria-label="채팅 메시지 입력">
-            <button class="chat-send-btn" id="btn-chat-send" aria-label="메시지 보내기">
-                <svg viewBox="0 0 24 24">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                </svg>
-            </button>
+            <div class="chat-input-wrapper">
+                <input type="text" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="200"
+                    aria-label="채팅 메시지 입력">
+                <button class="chat-send-btn" id="btn-chat-send" aria-label="메시지 보내기">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                    </svg>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -586,7 +713,8 @@
                 <path
                     d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
             </svg>
-            <span>설정</span>
+            <span class="nav-text-mobile">설정</span>
+            <span class="nav-text-desktop">설정 · 도움말</span>
         </button>
         <button class="nav-item" data-tab="guide">
             <svg viewBox="0 0 24 24">
@@ -715,7 +843,7 @@
                 <div class="setup-code-area-bottom">
                     <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
                     <input type="text" class="setup-join-input" id="setup-code" value="------" readonly disabled
-                        style="border-bottom: none; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
+                        style="border-bottom: 2px solid transparent; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
                 </div>
             </div>
 
@@ -886,7 +1014,7 @@
     </div>
 
     <div id="media-source-overlay" class="onboarding-overlay">
-        <div class="onboarding-card setup-card">
+        <div class="onboarding-card setup-card full-screen">
 
             <div class="setup-header-text">
                 <h2>재생할 미디어를 선택해주세요</h2>
@@ -929,7 +1057,7 @@
     </div>
 
     <div id="youtube-url-overlay" class="onboarding-overlay">
-        <div class="onboarding-card setup-card">
+        <div class="onboarding-card setup-card full-screen">
 
 
             <div class="setup-header-text">
@@ -971,7 +1099,6 @@
 
 
     <script src="js/app.js" defer></script>
-
 </body>
 
 </html>

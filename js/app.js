@@ -2191,7 +2191,7 @@ function setupRenderActions(buttons, layout = 'row') {
 
 // Onboarding Slider State
 let currentObSlide = 0;
-const totalObSlides = 3;
+const totalObSlides = 4;
 let obAutoSlideTimer = null;
 
 /**

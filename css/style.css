@@ -1700,7 +1700,6 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 #tab-settings .channel-grid {
     padding: 12px 0 !important;
     /* Removed horizontal padding to perfectly align with the section title */
-    max-width: 500px;
 }
 
 .ch-opt {
@@ -2468,7 +2467,7 @@ body:has(#youtube-url-overlay.active) header {
     display: flex;
     justify-content: center;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 28px;
     margin-bottom: 8px;
 }
 

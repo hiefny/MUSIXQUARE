@@ -1,17 +1,17 @@
 /* ==========================================================================
    Desktop / Tablet Responsive Dashboard Layout (Premium 4-Column Design)
-   Active on screens wider than 1024px.
+   Active on screens wider than 1280px.
    Layout: [ Play (Main) ] | [ Chat ] | [ Playlist ] | [ Settings ]
    ========================================================================== */
 
-@media (min-width: 1024px) {
+@media (min-width: 1280px) {
 
     /* ---------------------------------------------------
        1. Application Base Grid
        --------------------------------------------------- */
     body {
         display: grid;
-        grid-template-columns: 2fr 1fr 1fr;
+        grid-template-columns: 1fr 420px 420px;
         grid-template-rows: var(--header-height) 1fr 1fr;
         grid-template-areas:
             "header header header"
@@ -379,12 +379,9 @@
         border-bottom: 1px solid var(--surface-2) !important;
     }
 
-    .channel-grid {
+    #tab-settings .channel-grid {
         padding: 12px 20px 12px !important;
         /* Standardized for desktop */
-        max-width: 500px;
-        margin-left: auto !important;
-        margin-right: auto !important;
     }
 
     .section-header-row {

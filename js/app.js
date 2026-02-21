@@ -2488,18 +2488,34 @@ function setupRenderActions(buttons, layout = 'row') {
     if (!area) return;
     area.innerHTML = '';
 
+    area.classList.remove('vertical', 'horizontal-with-back');
     if (layout === 'vertical') {
         area.classList.add('vertical');
-    } else {
-        area.classList.remove('vertical');
+    } else if (layout === 'horizontal-with-back') {
+        area.classList.add('horizontal-with-back');
     }
 
     buttons.forEach(btn => {
         const b = document.createElement('button');
         b.id = btn.id;
         b.type = 'button';
-        b.className = btn.kind === 'secondary' ? 'btn-ob-secondary' : (btn.kind === 'text-link' ? 'btn-ob-text-link' : 'btn-ob-primary');
-        b.textContent = btn.text;
+
+        if (btn.kind === 'secondary') {
+            b.className = 'btn-ob-secondary';
+        } else if (btn.kind === 'text-link') {
+            b.className = 'btn-ob-text-link';
+        } else if (btn.kind === 'icon-only') {
+            b.className = 'btn-ob-icon';
+        } else {
+            b.className = 'btn-ob-primary';
+        }
+
+        if (btn.html) {
+            b.innerHTML = btn.html;
+        } else {
+            b.textContent = btn.text;
+        }
+
         if (btn.disabled) b.disabled = true;
         if (btn.onClick) b.addEventListener('click', btn.onClick);
         area.appendChild(b);
@@ -2791,8 +2807,9 @@ async function startHostFlow() {
         stopObAutoSlide();
     }
 
-    // Manual "Next" button + Back button (vertical layout to match initial buttons position)
+    // Back icon + '다음으로'
     setupRenderActions([
+        { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => initSetupOverlay() },
         {
             id: 'btn-setup-next',
             text: '다음으로',
@@ -2805,9 +2822,8 @@ async function startHostFlow() {
                     showToast('역할을 선택해주세요');
                 }
             }
-        },
-        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
-    ], 'vertical');
+        }
+    ], 'horizontal-with-back');
 }
 
 async function proceedToHostCode(mode) {
@@ -2831,9 +2847,9 @@ async function proceedToHostCode(mode) {
 
     // Temporary actions (loading state)
     setupRenderActions([
-        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true },
-        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() }
-    ], 'vertical');
+        { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startHostFlow() },
+        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true }
+    ], 'horizontal-with-back');
 
     try {
         const code = await createHostSessionWithShortCode();
@@ -2847,11 +2863,11 @@ async function proceedToHostCode(mode) {
         // Instruction is now embedded in HTML (label above input)
         setupShowInstruction(false);
 
-        // Show "Start" + Back button (vertical layout to match initial buttons position)
+        // Show "Start" + Back button 
         setupRenderActions([
-            { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
-            { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
-        ], 'vertical');
+            { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startHostFlow() },
+            { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost }
+        ], 'horizontal-with-back');
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
         showToast('세션을 만들지 못했어요');
@@ -2896,8 +2912,8 @@ async function startGuestFlow() {
         stopObAutoSlide();
     }
 
-    // Manual "Next" button + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
+        { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => initSetupOverlay() },
         {
             id: 'btn-setup-next',
             text: '다음으로',
@@ -2910,9 +2926,8 @@ async function startGuestFlow() {
                     showToast('역할을 선택해주세요');
                 }
             }
-        },
-        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
-    ], 'vertical');
+        }
+    ], 'horizontal-with-back');
 
     // Visual Update
     myDeviceLabel = '참가자';
@@ -2934,11 +2949,11 @@ function proceedToGuestCode(mode) {
     // Apply role locally for preview? (Optional, but user said "Guest sets role then inputs number")
     // We already stored it in pendingGuestRoleMode.
 
-    // Show "Start" + Back button (vertical layout to match initial buttons position)
+    // Show "Start" + Back button
     setupRenderActions([
-        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-        { id: 'btn-setup-back-home-guest', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
-    ], 'vertical');
+        { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startGuestFlow() },
+        { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) }
+    ], 'horizontal-with-back');
 
     const input = setupEl('setup-join-code');
     if (input) {
@@ -3088,8 +3103,9 @@ async function handleSetupJoinWithRole(mode) {
 
     // Update button to "참가하는 중..." and disable
     setupRenderActions([
-        { id: 'btn-setup-confirm', text: '참가하는 중...', kind: 'primary', onClick: null, disabled: true },
-    ]);
+        { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startGuestFlow() },
+        { id: 'btn-setup-confirm', text: '참가하는 중...', kind: 'primary', onClick: null, disabled: true }
+    ], 'horizontal-with-back');
 
     initNetwork(null)
         .then(() => joinSession(0, code))
@@ -3101,8 +3117,9 @@ async function handleSetupJoinWithRole(mode) {
 
             // Stay on Join screen, re-enable button
             setupRenderActions([
-                { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-            ]);
+                { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startGuestFlow() },
+                { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) }
+            ], 'horizontal-with-back');
 
             const i = setupEl('setup-join-code');
             if (i) {

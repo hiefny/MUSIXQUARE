@@ -2627,6 +2627,12 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     gap: 16px;
 }
 
+.ob-actions.horizontal-with-back {
+    flex-direction: row;
+    gap: 12px;
+    align-items: center;
+}
+
 .btn-ob-primary,
 .btn-ob-secondary {
     flex: 1;
@@ -2641,6 +2647,34 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.btn-ob-icon {
+    width: 60px;
+    min-width: 60px;
+    height: 56px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.btn-ob-icon:active {
+    background: var(--surface-3);
+    transform: scale(0.96);
+}
+
+.btn-ob-icon svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    margin-right: 2px;
+    /* Slight visual centering tweak for back arrow */
 }
 
 .ob-actions.vertical .btn-ob-primary,

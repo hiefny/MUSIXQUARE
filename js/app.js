@@ -116,16 +116,16 @@ function updateAppHeightNow() {
     const vv = window.visualViewport;
     const isStandalone = isStandaloneDisplayMode();
 
-    let h = 0;
-    // 태블릿이나 키오스크 환경(특히 안드로이드/가로모드)에서 visualViewport 높이가 브라우저 주소창이나 시스템 바를
-    // 제대로 제외하지 못하는 버그를 피하기 위해 window.innerHeight를 최우선으로 신뢰합니다.
-    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
-        h = Math.round(window.innerHeight);
-    } else if (vv && Number.isFinite(vv.height) && vv.height > 0) {
-        h = Math.round(vv.height);
-    } else if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) {
-        h = Math.round(de.clientHeight);
-    }
+    // 안드로이드 태블릿/키오스크 가로모드에서 브라우저가 화면 아랫부분의 소프트키나 
+    // 네비게이션 바를 무시하고 전체 픽셀 사이즈를 반환하는 버그가 있습니다.
+    // vv.height, innerHeight, clientHeight 중 존재하는 가장 '작은(안전한)' 값을 선택하여
+    // 화면이 짤리는 현상을 방지합니다.
+    let validHeights = [];
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
+    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
+    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) validHeights.push(Math.round(de.clientHeight));
+
+    let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
 
     // iOS 홈화면 앱(standalone)에서는 innerHeight/clientHeight가 safe-area를 제외하는 경우가 있어
     // screen.height(=기기 화면 높이, CSS px)를 기준으로 더 큰 값을 사용합니다.
@@ -137,15 +137,6 @@ function updateAppHeightNow() {
     }
     if (IS_IOS && isStandalone && !isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
         h = Math.max(h, Math.round(window.screen.height));
-    }
-
-    // 안드로이드 모던 웹 브라우저(태블릿, 키오스크 가로모드 포함)에서는 JS 측정값보다 
-    // 네이티브 CSS(100svh, 100dvh)가 훨씬 더 정확하게 하단 소프트키/바를 계산합니다.
-    // dvh/svh를 지원하는 안드로이드 환경이라면, 부정확한 JS 앱 높이 강제 덮어쓰기를 취소하고 CSS에 온전히 맡깁니다.
-    const supportsVpUnits = window.CSS && window.CSS.supports && (window.CSS.supports('height: 100dvh') || window.CSS.supports('height: 100svh'));
-    if (IS_ANDROID && supportsVpUnits) {
-        try { root.style.removeProperty('--app-height'); } catch (_) { /* ignore */ }
-        return;
     }
 
     if (h > 0) {

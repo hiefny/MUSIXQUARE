@@ -11348,11 +11348,31 @@ async function loadDemoMedia() {
 
     try {
         showLoader(true, "데모 음원 로딩 중...");
+        updateLoader(0);
 
-        const response = await fetch(DEMO_FILE_NAME);
-        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+        const blob = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', DEMO_FILE_NAME, true);
+            xhr.responseType = 'blob';
 
-        const blob = await response.blob();
+            xhr.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percent = Math.round((event.loaded / event.total) * 100);
+                    updateLoader(percent);
+                }
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.response);
+                } else {
+                    reject(new Error(`HTTP Error ${xhr.status}`));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error("Network Error"));
+            xhr.send();
+        });
         const file = new File([blob], DEMO_FILE_NAME, { type: 'audio/mpeg' });
 
         // Append to playlist

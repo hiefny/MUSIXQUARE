@@ -911,12 +911,12 @@ input[type=range]::-webkit-slider-thumb {
     height: 16px;
     width: 16px;
     border-radius: 50%;
-    background-color: var(--text-main);
+    background-color: var(--text-sub);
     margin-top: -5px;
     /* (Track 6px - Thumb 16px) / 2 = -5px */
     transform: scale(1);
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
-    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
 }
 
 input[type=range]:active::-webkit-slider-thumb {
@@ -1653,11 +1653,11 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     height: 16px;
     width: 16px;
     border-radius: 50%;
-    background-color: var(--text-main);
+    background-color: var(--text-sub);
     margin-top: -5px;
     transform: scale(1);
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
-    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
 }
 
 input[type=range].eq-slider:active::-webkit-slider-thumb {
@@ -1707,10 +1707,13 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 
 /* 
    The Unified Symmetry System: 
-   All content units use 12px vertical padding.
-   Combined with header/last-child rules, this creates 44px gaps at all major boundaries.
+   Content units use consistent padding. 
+   Sliders use tighter 6px padding (12px total gap) for a professional layout.
 */
-.slider-wrap,
+.slider-wrap {
+    padding: 6px 0 !important;
+}
+
 .eq-container,
 .channel-grid {
     padding: 12px 0 !important;

@@ -2307,6 +2307,15 @@ body:has(#youtube-url-overlay.active) header {
     /* Below onboarding overlay so header is hidden */
 }
 
+/* Hide mobile bottom navigation to prevent peeking in PWA mode */
+body:has(#setup-overlay.active) .bottom-nav,
+body:has(#media-source-overlay.active) .bottom-nav,
+body:has(#youtube-url-overlay.active) .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
 /* Base styles for the new split layout of setup overlay */
 #setup-desktop-brand {
     display: none;

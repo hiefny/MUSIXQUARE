@@ -171,19 +171,28 @@
         justify-content: flex-start !important;
         align-items: center;
         padding-top: 70px !important;
-        /* Slightly more than header height (60px) for a tight look */
         padding-bottom: 20px !important;
-        gap: 20px;
-        /* Tighter gap for better vertical fit */
+        gap: 16px;
+        /* Tighter gap for compact vertical fit */
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .play-action-buttons {
-        position: absolute !important;
-        bottom: 40px;
-        left: 40px;
-        right: 40px;
-        width: auto !important;
+        position: relative !important;
+        bottom: auto;
+        left: auto;
+        right: auto;
+        width: 100% !important;
+        max-width: calc(100% - 80px);
+        margin-left: auto;
+        margin-right: auto;
         gap: 12px !important;
+        margin-top: auto;
+        /* Pushes to bottom of flex column naturally */
+        padding-bottom: 0px;
+        flex-shrink: 0;
+        justify-content: center;
     }
 
     .play-action-buttons .file-select-btn-large {
@@ -211,7 +220,10 @@
     .controls-area {
         max-width: 100%;
         padding: 0 32px;
-        margin-top: 24px;
+        margin-top: 8px;
+        flex-grow: 1;
+        /* Pushes action buttons to the bottom */
+        /* Tighter spacing between title and controls */
     }
 
     /* ---------------------------------------------------

@@ -15,8 +15,8 @@
 // v25: Invite code copy toast wording + fix stylesheet cache mismatch (remove ?v= param)
 // v28: Portrait lock UX + mobile overscroll fix + media select icon bg + vBass routing fix
 // v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
-// v35: Setup screen scrollable in landscape + debug overlay heights
-const CACHE_VERSION = "v35";
+// v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
+const CACHE_VERSION = "v40";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

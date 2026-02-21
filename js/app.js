@@ -82,57 +82,7 @@ if (IS_IOS) {
     } catch (_) { /* ignore */ }
 }
 
-/**
- * [Visual Debug Overlay] — Viewport Metrics
- * Shows critical viewport metrics on-screen for remote debugging.
- * Tap the overlay to dismiss it.
- * Will auto-remove after 120 seconds.
- * Shows on ALL devices (temporarily) to diagnose the Android cut-off bug.
- */
-{
-    const _createDebugOverlay = () => {
-        const el = document.createElement('div');
-        el.id = '_vp-debug';
-        el.style.cssText = `
-            position:fixed; top:4px; left:4px; z-index:99999;
-            background:rgba(255,0,0,0.9); color:#fff; font:bold 12px/1.5 monospace;
-            padding:8px 12px; border-radius:10px; pointer-events:auto;
-            max-width:92vw; word-break:break-all; white-space:pre-wrap;
-            border:3px solid #ff0; box-shadow:0 4px 20px rgba(0,0,0,0.8);
-        `;
-        el.addEventListener('click', () => el.remove());
-        document.body.appendChild(el);
-
-        const update = () => {
-            if (!document.getElementById('_vp-debug')) return;
-            const vv = window.visualViewport;
-            const s = window.screen || {};
-            const lines = [
-                `[VIEWPORT DEBUG v39]`,
-                `UA: ${navigator.userAgent.slice(0, 80)}`,
-                `IS_ANDROID:${IS_ANDROID} IS_IOS:${IS_IOS}`,
-                `innerH:${window.innerHeight} innerW:${window.innerWidth}`,
-                `clientH:${document.documentElement.clientHeight}`,
-                `bodyH:${document.body.offsetHeight}`,
-                `--app-height:${getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim()}`,
-                `overlayH:${document.querySelector('#setup-overlay')?.offsetHeight || '?'}/${document.querySelector('#setup-overlay')?.clientHeight || '?'}`,
-                `cardH:${document.querySelector('.onboarding-card')?.offsetHeight || '?'}/${document.querySelector('.onboarding-card')?.clientHeight || '?'}`,
-                `mvH:${document.querySelector('.setup-mobile-view')?.offsetHeight || '?'}/${document.querySelector('.setup-mobile-view')?.scrollHeight || '?'}`,
-                `orient:${window.innerWidth > window.innerHeight ? 'LAND' : 'PORT'}`
-            ];
-            el.textContent = lines.join('\n');
-        };
-        update();
-        const tid = setInterval(update, 1000);
-        setTimeout(() => { clearInterval(tid); el.remove(); }, 120000);
-    };
-
-    if (document.body) {
-        _createDebugOverlay();
-    } else {
-        document.addEventListener('DOMContentLoaded', _createDebugOverlay, { once: true });
-    }
-}
+/* [Debug overlay removed — viewport fix confirmed working (v40)] */
 
 /**
  * [UX] Disable iOS pinch-zoom gesture (app-like behavior)

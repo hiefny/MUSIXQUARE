@@ -50,20 +50,14 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === VIEWPORT FIX (v39) — minimal, no layout changes === */
+        /* === VIEWPORT FIX (v40) — minimal, desktop-safe === */
         body {
             max-height: var(--app-height, 100dvh) !important;
         }
 
-        .bottom-nav {
-            position: fixed !important;
-            bottom: var(--safe-nav-bottom, 0px) !important;
-        }
-
-        .chat-drawer {
-            position: fixed !important;
-            bottom: var(--safe-nav-bottom, 0px) !important;
-        }
+        /* bottom-nav and chat-drawer positioning is handled by
+           desktop.css (relative) and style.css (fixed/absolute).
+           Do NOT override them here — it breaks the desktop grid layout. */
     </style>
 
     <!-- JS-based setup screen fix: MINIMAL — only height + overflow -->

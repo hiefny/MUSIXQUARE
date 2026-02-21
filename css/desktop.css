@@ -69,7 +69,8 @@
     #tab-play,
     .chat-drawer,
     #tab-playlist,
-    #tab-settings {
+    #tab-settings,
+    #tab-guide {
         padding-top: 0 !important;
         /* Panels have internal headers now */
         display: flex !important;
@@ -684,6 +685,12 @@
         padding-bottom: 44px !important;
     }
 
+    /* Align theme pill with section title on desktop */
+    .theme-selector {
+        margin-left: 20px !important;
+        margin-right: 20px !important;
+    }
+
     /* Soften the settings text so title stands out */
     .slider-header {
         font-weight: 500 !important;
@@ -781,6 +788,31 @@
 
     .chat-drawer-messages::-webkit-scrollbar-thumb:active {
         background-color: rgba(255, 255, 255, 0.55);
+    }
+
+    /* Light mode: dark scrollbar thumbs on light background */
+    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.15);
+    }
+
+    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(0, 0, 0, 0.3);
+    }
+
+    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:active {
+        background-color: rgba(0, 0, 0, 0.45);
+    }
+
+    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.15);
+    }
+
+    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(0, 0, 0, 0.3);
+    }
+
+    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:active {
+        background-color: rgba(0, 0, 0, 0.45);
     }
 
     .track-item {

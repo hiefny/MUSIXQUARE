@@ -113,6 +113,19 @@ html.setup-boot-block .bottom-nav {
     --glass-border: rgba(0, 0, 0, 0.06);
 }
 
+/* Light mode scrollbar: dark thumb on light background */
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:active {
+    background-color: rgba(0, 0, 0, 0.45);
+}
+
 * {
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
@@ -531,11 +544,10 @@ header.loading .header-loading-text {
     -webkit-overflow-scrolling: touch;
     display: none;
     flex-direction: column;
-    overflow-y: auto;
+    overflow: hidden;
+    /* Parent no longer scrolls directly */
     overscroll-behavior-y: contain;
-    /* 고무줄(바운스) 효과는 유지하되, 맨 끝에서 잡아당길 때 스크롤 잠김(브라우저 상위 체이닝)만 영리하게 차단! */
     padding-top: var(--header-height);
-    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 20px);
 }
 
 .tab-content.active {
@@ -551,6 +563,16 @@ header.loading .header-loading-text {
     flex-direction: column;
     min-height: 0;
     width: 100%;
+    overflow-y: auto;
+    /* Bodies handle the scroll */
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 40px);
+}
+
+/* Scrollbar stops above the bottom nav on mobile */
+.tab-body::-webkit-scrollbar-track {
+    margin-top: 0;
+    margin-bottom: var(--nav-height);
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -921,14 +943,14 @@ input[type=range]::-webkit-slider-thumb {
     margin-top: -5px;
     /* (Track 6px - Thumb 16px) / 2 = -5px */
     transform: scale(1);
-    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    filter: none;
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
 }
 
 input[type=range]:active::-webkit-slider-thumb {
     transform: scale(1.25);
     /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+    filter: none;
 }
 
 .time-info {
@@ -1490,7 +1512,7 @@ input[type=range]:active::-webkit-slider-thumb {
 
 /* Target the very first section in Settings (Theme) to bring it closer to the top/invite area */
 #tab-settings .section-group:first-of-type .section-header-row {
-    padding-top: 12px !important;
+    padding-top: 24px !important;
 }
 
 #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
@@ -1569,9 +1591,29 @@ input[type="range"] {
     border-radius: 9999px !important;
     padding: 4px !important;
     /* overrides last-child 44px padding-bottom causing huge height */
-    margin: 12px 20px 44px;
+    margin: 12px 0 44px;
     /* compensates for padding loss */
     gap: 4px;
+    position: relative;
+}
+
+/* Sliding pill indicator */
+.theme-selector::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    bottom: 4px;
+    width: calc((100% - 8px - 8px) / 3);
+    /* (total - padding*2 - gap*2) / 3 */
+    border-radius: 100px;
+    background: var(--surface-1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(calc(var(--pill-index, 1) * (100% + 4px)));
+    /* 4px = gap */
+    z-index: 0;
+    pointer-events: none;
 }
 
 .theme-opt {
@@ -1585,13 +1627,13 @@ input[type="range"] {
     color: var(--text-sub);
     border-radius: 100px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: color 0.25s;
+    position: relative;
+    z-index: 1;
 }
 
 .theme-opt.active {
-    background: var(--surface-1);
     color: var(--text-main);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* Reverb Type Chips */
@@ -1679,13 +1721,13 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background-color: var(--text-sub);
     margin-top: -5px;
     transform: scale(1);
-    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    filter: none;
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
 }
 
 input[type=range].eq-slider:active::-webkit-slider-thumb {
     transform: scale(1.25);
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+    filter: none;
 }
 
 .eq-band {
@@ -1889,10 +1931,14 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 
 /* Help Tab */
 .help-block {
-    background: var(--surface-1);
-    border-radius: var(--radius-m);
-    padding: 24px;
-    margin: 0 20px 16px;
+    background: transparent;
+    padding: 44px 0;
+    margin: 0 44px;
+    border-bottom: 1px solid var(--surface-3);
+}
+
+.help-block:last-child {
+    border-bottom: none;
 }
 
 .help-title {

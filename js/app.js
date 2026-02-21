@@ -1920,6 +1920,12 @@ function _updateThemeSelector(mode) {
         document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
         const id = mode === 'dark' ? 'theme-dark' : mode === 'light' ? 'theme-light' : 'theme-system';
         document.getElementById(id)?.classList.add('active');
+
+        // Sliding pill: set index (Light=0, Dark=1, System=2)
+        const pillIndex = mode === 'light' ? 0 : mode === 'dark' ? 1 : 2;
+        document.querySelectorAll('.theme-selector').forEach(sel => {
+            sel.style.setProperty('--pill-index', pillIndex);
+        });
     } catch (_) { /* ignore */ }
 }
 

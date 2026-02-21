@@ -50,14 +50,15 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* Setup/onboarding overlay: do NOT set explicit height.
-           inset:0 already stretches to viewport. height:100vh overrides bottom:0
-           and extends behind Android soft navigation bar. */
-        .onboarding-overlay {
-            height: auto !important;
-            min-height: 0 !important;
+        /* === ANDROID LANDSCAPE VIEWPORT FIX (v34) ===
+           These inline rules override cached CSS to handle:
+           1. Viewport not extending behind Android soft nav bar
+           2. Setup screen content overflow in landscape (650px height) */
+
+        /* Body: cap height, never exceed viewport */
+        body {
             max-height: var(--app-height, 100dvh) !important;
-            overflow: hidden !important;
+            min-height: 0 !important;
         }
 
         /* Bottom nav: fixed with safe offset */
@@ -74,10 +75,34 @@
             bottom: var(--safe-nav-bottom, 0px) !important;
         }
 
-        /* Body: cap height, never exceed viewport */
-        body {
-            max-height: var(--app-height, 100dvh) !important;
+        /* Setup overlay: fill viewport via inset:0, NO explicit height */
+        .onboarding-overlay {
+            height: auto !important;
             min-height: 0 !important;
+            max-height: none !important;
+            overflow: hidden !important;
+        }
+
+        /* Setup card: allow internal scrolling */
+        .onboarding-card {
+            overflow: visible !important;
+            min-height: 0 !important;
+        }
+
+        /* Setup mobile view: SCROLLABLE in landscape */
+        .setup-mobile-view {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch;
+            min-height: 0 !important;
+        }
+
+        /* Action buttons: sticky at bottom so always visible */
+        .onboarding-overlay .ob-actions {
+            position: sticky !important;
+            bottom: 0 !important;
+            z-index: 10 !important;
+            flex-shrink: 0 !important;
         }
     </style>
 

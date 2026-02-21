@@ -2283,14 +2283,17 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 .onboarding-overlay {
     position: fixed;
     inset: 0;
-    height: 100vh;
-    height: 100dvh;
-    height: var(--app-height, 100dvh);
-    min-height: var(--app-height, 100dvh);
+    /* Do NOT set explicit height here!
+       inset:0 already defines top:0 + bottom:0 which stretches the element
+       to the viewport height automatically. Adding height:100vh would OVERRIDE
+       the bottom:0 constraint and cause the overlay to extend behind the
+       Android soft navigation bar. */
+    max-height: var(--app-height, 100dvh);
     background: var(--bg);
     z-index: 2000;
     display: none;
     flex-direction: column;
+    overflow: hidden;
     animation: fadeInFadeOnly 0.3s ease-out;
     padding-top: calc(var(--safe-top) + 16px);
     /* Use safe-area only, no header height */

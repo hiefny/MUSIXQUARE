@@ -15,8 +15,8 @@
 // v25: Invite code copy toast wording + fix stylesheet cache mismatch (remove ?v= param)
 // v28: Portrait lock UX + mobile overscroll fix + media select icon bg + vBass routing fix
 // v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
-// v30: Stabilize iOS PWA safe-area top inset (reduce random top padding per launch) + re-freeze on pageshow/visibility
-const CACHE_VERSION = "v32";
+// v33: Android landscape viewport fix (remove viewport-fit=cover from HTML, debug overlay)
+const CACHE_VERSION = "v33";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

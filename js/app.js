@@ -108,7 +108,7 @@ if (IS_IOS) {
             const vv = window.visualViewport;
             const s = window.screen || {};
             const lines = [
-                `[VIEWPORT DEBUG v36]`,
+                `[VIEWPORT DEBUG v37]`,
                 `UA: ${navigator.userAgent.slice(0, 80)}`,
                 `IS_ANDROID:${IS_ANDROID} IS_IOS:${IS_IOS}`,
                 `innerH:${window.innerHeight} innerW:${window.innerWidth}`,

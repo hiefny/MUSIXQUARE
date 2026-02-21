@@ -50,10 +50,11 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === VIEWPORT + SETUP SCREEN FIX (v36) ===
-           overlayH was 753px with height:auto — Android bug makes fixed+inset:0
-           elements use full screen height instead of viewport height.
-           FIX: Explicit height via --app-height variable (650px). */
+        /* === VIEWPORT + SETUP SCREEN FIX (v37) ===
+           Card/MobileView were 757px despite overlay being 663px because
+           height:auto on flex children resolves to content height.
+           FIX: height:0 + flex:1 1 0% forces flex children to EXACTLY
+           match parent size. Standard CSS scrollable-flex-child pattern. */
 
         body {
             max-height: var(--app-height, 100dvh) !important;
@@ -72,7 +73,7 @@
             bottom: var(--safe-nav-bottom, 0px) !important;
         }
 
-        /* Overlay: EXPLICIT height, NOT auto! */
+        /* Overlay: explicit height = viewport */
         .onboarding-overlay {
             height: var(--app-height, 100dvh) !important;
             max-height: var(--app-height, 100dvh) !important;
@@ -80,23 +81,23 @@
             overflow: hidden !important;
         }
 
-        /* Card: fill parent, clip overflow */
+        /* Card: height:0 + flex:1 = EXACTLY fill parent, no more */
         .onboarding-card,
         .onboarding-card.full-screen {
-            flex: 1 !important;
+            flex: 1 1 0% !important;
+            height: 0 !important;
             min-height: 0 !important;
             overflow: hidden !important;
-            height: auto !important;
         }
 
-        /* Mobile view: THIS is the scroll container */
+        /* Mobile view: height:0 + flex:1 = fill card, SCROLL internally */
         .setup-mobile-view {
-            flex: 1 !important;
+            flex: 1 1 0% !important;
+            height: 0 !important;
             min-height: 0 !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             -webkit-overflow-scrolling: touch;
-            height: auto !important;
         }
     </style>
 

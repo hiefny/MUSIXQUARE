@@ -50,10 +50,10 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === VIEWPORT + SETUP SCREEN FIX (v35) ===
-           1. Body/nav: viewport height cap for Android landscape
-           2. Setup screen: make entire overlay scrollable in landscape
-              (650px is too short for all onboarding content) */
+        /* === VIEWPORT + SETUP SCREEN FIX (v36) ===
+           overlayH was 753px with height:auto — Android bug makes fixed+inset:0
+           elements use full screen height instead of viewport height.
+           FIX: Explicit height via --app-height variable (650px). */
 
         body {
             max-height: var(--app-height, 100dvh) !important;
@@ -72,26 +72,30 @@
             bottom: var(--safe-nav-bottom, 0px) !important;
         }
 
-        /* Setup overlay: ENTIRE overlay is the scroll container */
+        /* Overlay: EXPLICIT height, NOT auto! */
         .onboarding-overlay {
-            height: auto !important;
+            height: var(--app-height, 100dvh) !important;
+            max-height: var(--app-height, 100dvh) !important;
             min-height: 0 !important;
-            max-height: none !important;
+            overflow: hidden !important;
+        }
+
+        /* Card: fill parent, clip overflow */
+        .onboarding-card,
+        .onboarding-card.full-screen {
+            flex: 1 !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            height: auto !important;
+        }
+
+        /* Mobile view: THIS is the scroll container */
+        .setup-mobile-view {
+            flex: 1 !important;
+            min-height: 0 !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             -webkit-overflow-scrolling: touch;
-        }
-
-        /* Remove overflow:hidden from all intermediate containers */
-        .onboarding-overlay .onboarding-card,
-        .onboarding-overlay .onboarding-card.full-screen {
-            overflow: visible !important;
-            min-height: 0 !important;
-        }
-
-        .onboarding-overlay .setup-mobile-view {
-            overflow: visible !important;
-            min-height: 0 !important;
             height: auto !important;
         }
     </style>

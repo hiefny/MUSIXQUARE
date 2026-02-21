@@ -117,10 +117,12 @@ function updateAppHeightNow() {
     const isStandalone = isStandaloneDisplayMode();
 
     let h = 0;
-    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
-        h = Math.round(vv.height);
-    } else if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
+    // 태블릿이나 키오스크 환경(특히 안드로이드/가로모드)에서 visualViewport 높이가 브라우저 주소창이나 시스템 바를
+    // 제대로 제외하지 못하는 버그를 피하기 위해 window.innerHeight를 최우선으로 신뢰합니다.
+    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
         h = Math.round(window.innerHeight);
+    } else if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+        h = Math.round(vv.height);
     } else if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) {
         h = Math.round(de.clientHeight);
     }

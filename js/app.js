@@ -58,37 +58,78 @@ const IS_ANDROID = /Android/i.test(navigator.userAgent);
 const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
 /**
- * [Android Viewport Fix - Root Cause]
+ * [Viewport-fit Strategy]
  *
- * viewport-fit=cover tells the browser to extend the viewport behind system
- * bars (navigation bar, status bar). On iOS this is needed for notch handling
- * and iOS provides env(safe-area-inset-bottom) to compensate.
+ * viewport-fit=cover is REMOVED from the HTML <meta> tag because:
+ * - On Android WebView/Chrome, it extends the viewport behind the soft
+ *   navigation bar WITHOUT providing env(safe-area-inset-bottom) to compensate.
+ * - All height APIs (innerHeight, visualViewport.height, 100dvh) then include
+ *   the hidden area, making bottom-positioned elements invisible.
  *
- * On Android WebView/Chrome however:
- * - The viewport extends behind the soft navigation bar
- * - BUT env(safe-area-inset-bottom) returns 0 (not supported)
- * - AND innerHeight/visualViewport.height include the hidden area
- * - Result: fixed/absolute bottom:0 elements are hidden behind the nav bar
- *
- * Fix: Remove viewport-fit=cover on Android so the viewport naturally ends
- * at the navigation bar. Keep it on iOS for notch support.
+ * We add viewport-fit=cover back ONLY on iOS, where it's needed for notch
+ * handling and where env(safe-area-inset-*) works correctly.
  */
-if (IS_ANDROID) {
+if (IS_IOS) {
     try {
         const vpMeta = document.querySelector('meta[name="viewport"]');
         if (vpMeta) {
             const content = vpMeta.getAttribute('content') || '';
-            if (content.includes('viewport-fit')) {
-                const newContent = content
-                    .replace(/,\s*viewport-fit\s*=\s*[a-z]+/gi, '')
-                    .replace(/viewport-fit\s*=\s*[a-z]+\s*,?\s*/gi, '')
-                    .replace(/,\s*$/, '')
-                    .trim();
-                vpMeta.setAttribute('content', newContent);
-                log.info('[Viewport] Removed viewport-fit=cover on Android');
+            if (!content.includes('viewport-fit')) {
+                vpMeta.setAttribute('content', content + ', viewport-fit=cover');
+                log.info('[Viewport] Added viewport-fit=cover for iOS');
             }
         }
     } catch (_) { /* ignore */ }
+}
+
+/**
+ * [Visual Debug Overlay] — Android Landscape Viewport
+ * Shows critical viewport metrics on-screen for remote debugging.
+ * Tap the overlay to dismiss it.
+ * Will auto-remove after 60 seconds.
+ */
+if (IS_ANDROID) {
+    const _createDebugOverlay = () => {
+        const el = document.createElement('div');
+        el.id = '_vp-debug';
+        el.style.cssText = `
+            position:fixed; top:4px; left:4px; z-index:99999;
+            background:rgba(0,0,0,0.85); color:#0f0; font:11px/1.4 monospace;
+            padding:6px 10px; border-radius:8px; pointer-events:auto;
+            max-width:90vw; word-break:break-all; white-space:pre-wrap;
+        `;
+        el.addEventListener('click', () => el.remove());
+        document.body.appendChild(el);
+
+        const update = () => {
+            if (!document.getElementById('_vp-debug')) return;
+            const vv = window.visualViewport;
+            const s = window.screen || {};
+            const lines = [
+                `innerH:${window.innerHeight} innerW:${window.innerWidth}`,
+                `vv.H:${vv ? vv.height : '?'} vv.W:${vv ? vv.width : '?'}`,
+                `clientH:${document.documentElement.clientHeight}`,
+                `scrH:${s.height} scrW:${s.width}`,
+                `scrAvailH:${s.availHeight} scrAvailW:${s.availWidth}`,
+                `outerH:${window.outerHeight} outerW:${window.outerWidth}`,
+                `dpr:${window.devicePixelRatio}`,
+                `bodyH:${document.body.offsetHeight} bodyClientH:${document.body.clientHeight}`,
+                `--app-height: ${getComputedStyle(document.documentElement).getPropertyValue('--app-height')}`,
+                `orient: ${window.innerWidth > window.innerHeight ? 'LANDSCAPE' : 'PORTRAIT'}`,
+                `vpFit: ${document.querySelector('meta[name=viewport]')?.content || '?'}`
+            ];
+            el.textContent = lines.join('\n');
+        };
+        update();
+        const tid = setInterval(update, 1000);
+        setTimeout(() => { clearInterval(tid); el.remove(); }, 60000);
+    };
+
+    if (document.body) {
+        _createDebugOverlay();
+    } else {
+        document.addEventListener('DOMContentLoaded', _createDebugOverlay, { once: true });
+    }
 }
 
 /**

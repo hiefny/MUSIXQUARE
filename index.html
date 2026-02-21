@@ -50,18 +50,16 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === ANDROID LANDSCAPE VIEWPORT FIX (v34) ===
-           These inline rules override cached CSS to handle:
-           1. Viewport not extending behind Android soft nav bar
-           2. Setup screen content overflow in landscape (650px height) */
+        /* === VIEWPORT + SETUP SCREEN FIX (v35) ===
+           1. Body/nav: viewport height cap for Android landscape
+           2. Setup screen: make entire overlay scrollable in landscape
+              (650px is too short for all onboarding content) */
 
-        /* Body: cap height, never exceed viewport */
         body {
             max-height: var(--app-height, 100dvh) !important;
             min-height: 0 !important;
         }
 
-        /* Bottom nav: fixed with safe offset */
         .bottom-nav {
             position: fixed !important;
             bottom: var(--safe-nav-bottom, 0px) !important;
@@ -69,40 +67,32 @@
             right: 0 !important;
         }
 
-        /* Chat drawer: fixed with safe offset */
         .chat-drawer {
             position: fixed !important;
             bottom: var(--safe-nav-bottom, 0px) !important;
         }
 
-        /* Setup overlay: fill viewport via inset:0, NO explicit height */
+        /* Setup overlay: ENTIRE overlay is the scroll container */
         .onboarding-overlay {
             height: auto !important;
             min-height: 0 !important;
             max-height: none !important;
-            overflow: hidden !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch;
         }
 
-        /* Setup card: allow internal scrolling */
-        .onboarding-card {
+        /* Remove overflow:hidden from all intermediate containers */
+        .onboarding-overlay .onboarding-card,
+        .onboarding-overlay .onboarding-card.full-screen {
             overflow: visible !important;
             min-height: 0 !important;
         }
 
-        /* Setup mobile view: SCROLLABLE in landscape */
-        .setup-mobile-view {
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
-            -webkit-overflow-scrolling: touch;
+        .onboarding-overlay .setup-mobile-view {
+            overflow: visible !important;
             min-height: 0 !important;
-        }
-
-        /* Action buttons: sticky at bottom so always visible */
-        .onboarding-overlay .ob-actions {
-            position: sticky !important;
-            bottom: 0 !important;
-            z-index: 10 !important;
-            flex-shrink: 0 !important;
+            height: auto !important;
         }
     </style>
 

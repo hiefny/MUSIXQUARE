@@ -143,16 +143,11 @@ textarea {
     font-family: inherit;
 }
 
-/* Custom Scrollbar - All browsers */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
-}
-
 /* Webkit (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    /* 실제 썸네일(4px) + 우측 여백(2px) 등을 고려한 안전 영역 크기 */
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -160,16 +155,33 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.15);
+    /* background 속성을 background-color로 변경하여 clip 방해 방지 */
+    border: 2px solid transparent;
+    /* 좌우상하 2px 띄우기용 투명 테두리 추가 */
+    border-radius: 10px;
+    /* 얇아진 만큼 완전히 둥글게 처리 */
+    background-clip: padding-box;
+    /* 색상(background)이 테두리(border) 영역을 침범하지 않도록 하여 여백 렌더링 */
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.35);
+    /* 마우스 올렸을 때 좀 더 밝게 */
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.55);
+    /* 클릭해서 드래그할 때 확연하게 밝게 */
+}
+
+
+/* Firefox */
+@supports (-moz-appearance:none) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+    }
 }
 
 body {
@@ -520,14 +532,10 @@ header.loading .header-loading-text {
     display: none;
     flex-direction: column;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
+    /* 고무줄(바운스) 효과는 유지하되, 맨 끝에서 잡아당길 때 스크롤 잠김(브라우저 상위 체이닝)만 영리하게 차단! */
     padding-top: var(--header-height);
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-.tab-content::-webkit-scrollbar {
-    display: none;
 }
 
 .tab-content.active {
@@ -878,7 +886,8 @@ input[type=range] {
     width: 100%;
     background: transparent;
     cursor: pointer;
-    height: 24px;
+    /* 폰에서 터치 영역을 대폭 확보하기 위해 input 자체의 높이를 32px로 확장 */
+    height: 32px;
     margin: 0;
     /* Prevent ANY browser gestures (swipe to go back, scroll) while dragging sliders, forcing 100% control to the slider thumb */
     touch-action: none !important;
@@ -886,8 +895,9 @@ input[type=range] {
 
 input[type=range]::-webkit-slider-runnable-track {
     width: 100%;
-    height: 4px;
+    height: 6px;
     background: var(--surface-2);
+    /* 트랙의 시인성을 높이기 위해 살짝 굵게 6px 및 surface-2 사용 */
     border-radius: 100px;
     border: none;
 }
@@ -895,21 +905,21 @@ input[type=range]::-webkit-slider-runnable-track {
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    /* 모바일 터치 영역 확장을 위해 36px로 키우고, 투명 테두리로 시각적 크기는 14px 유지 */
-    height: 36px;
-    width: 36px;
-    border: 11px solid transparent;
-    background-clip: content-box;
+    height: 16px;
+    width: 16px;
     border-radius: 50%;
     background-color: var(--text-main);
-    margin-top: -16px;
-    /* (Track height 4px - Thumb height 36px) / 2 = -16px */
+    margin-top: -5px;
+    /* (Track 6px - Thumb 16px) / 2 = -5px */
     transform: scale(1);
-    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s;
 }
 
 input[type=range]:active::-webkit-slider-thumb {
-    transform: scale(1.3);
+    transform: scale(1.25);
+    /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 }
 
 .time-info {
@@ -960,12 +970,14 @@ input[type=range]:active::-webkit-slider-thumb {
 
 #volume-slider::-webkit-slider-runnable-track {
     height: 4px;
+    /* 볼륨 트랙은 UI 특성상 좀 더 얇은게 세련됨 */
 }
 
 #volume-slider::-webkit-slider-thumb {
-    height: 14px;
-    width: 14px;
-    margin-top: -5px;
+    height: 12px;
+    width: 12px;
+    margin-top: -4px;
+    /* (Track 4px - Thumb 12px) / 2 = -4px */
 }
 
 .ctrl-btn-small {
@@ -1222,7 +1234,7 @@ input[type=range]:active::-webkit-slider-thumb {
 
 .playlist-ul {
     list-style: none;
-    padding: 0 20px;
+    padding: 0 16px;
     margin: 0;
     display: flex;
     flex-direction: column;
@@ -1390,6 +1402,8 @@ input[type=range]:active::-webkit-slider-thumb {
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     color: var(--text-muted);
+    background: transparent;
+    border: none;
 }
 
 .expand-toggle:hover {
@@ -1605,9 +1619,9 @@ input[type=range].eq-slider {
 
     /* Rotation Logic */
     width: 100px;
-    /* Physical length of slider */
-    height: 20px;
-    /* Touch area thickness */
+    /* 원래 길이 복구 */
+    height: 32px;
+    /* 터치 영역 개선을 위해 input 박스 크기를 키움 */
     transform: rotate(-90deg);
 
     /* Absolute Positioning to ignore layout width */
@@ -1615,31 +1629,37 @@ input[type=range].eq-slider {
     top: 50%;
     left: 50%;
     margin-left: -50px;
-    /* Half of width */
-    margin-top: -10px;
-    /* Half of height */
+    /* Half of 100px width */
+    margin-top: -16px;
+    /* Half of 32px height */
 }
 
 /* Track */
 input[type=range].eq-slider::-webkit-slider-runnable-track {
     width: 100%;
-    height: 4px;
+    height: 6px;
     background: var(--surface-2);
-    border-radius: 2px;
+    /* 메인 슬라이더와 통일된 두께 및 색상 */
+    border-radius: 3px;
     cursor: pointer;
 }
 
-/* Thumb */
+/* EQ Thumb */
 input[type=range].eq-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    /* EQ 슬라이더 터치 영역 36px 확장 */
-    height: 36px;
-    width: 36px;
-    border: 11px solid transparent;
-    background-clip: content-box;
+    height: 16px;
+    width: 16px;
     border-radius: 50%;
     background-color: var(--text-main);
-    margin-top: -16px;
+    margin-top: -5px;
+    transform: scale(1);
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s;
+}
+
+input[type=range].eq-slider:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 }
 
 .eq-band {
@@ -1815,7 +1835,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
 }
 
 .device-row {
-    padding: 16px 20px;
+    padding: 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2279,6 +2299,21 @@ body:has(#youtube-url-overlay.active) header {
     /* Below onboarding overlay so header is hidden */
 }
 
+/* Base styles for the new split layout of setup overlay */
+#setup-desktop-brand {
+    display: none;
+    /* Hidden on mobile */
+}
+
+.setup-mobile-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
 /* YouTube Overlay Specific Spacing */
 #youtube-url-overlay .setup-header-text,
 #media-source-overlay .setup-header-text {
@@ -2339,14 +2374,18 @@ body:has(#youtube-url-overlay.active) header {
     /* Controlled by JS. Welcome starts visible via JS init */
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding-top: 0 !important;
     width: 100%;
     flex-direction: column;
 }
 
-/* Welcome Header inside the wrapper doesn't need special positioning now */
-#setup-welcome-header {
-    margin-bottom: 56px !important;
+/* Welcome Header — now uses shared .setup-header-text margin-bottom: 56px */
+
+/* 스피커 선택 화면: 다이어그램 SVG 상단 여백이 시각적 간격을 만들어
+   다른 화면(56px)과 동일하게 보이도록 착시 보정 (-14px) */
+#setup-role-area .setup-header-text {
+    margin-bottom: 42px;
 }
 
 /* Standard Header Text */
@@ -2364,7 +2403,9 @@ body:has(#youtube-url-overlay.active) header {
     display: flex;
     flex-direction: row;
     gap: 12px;
-    padding: 16px 28px calc(24px + var(--safe-bottom));
+    padding: 16px 28px calc(24px + env(safe-area-inset-bottom, 0));
+    margin-top: auto;
+    /* Natural flow to the bottom */
     background: var(--bg);
     width: 100%;
     z-index: 100;
@@ -2604,10 +2645,42 @@ body:has(#youtube-url-overlay.active) header {
     color: var(--text-main);
 }
 
+.btn-ob-text-link {
+    background: transparent;
+    color: var(--text-sub);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s, opacity 0.2s;
+    flex: 1;
+    height: 56px;
+    border-radius: 20px;
+}
+
+.btn-ob-text-link:active {
+    opacity: 0.7;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ob-actions.vertical .btn-ob-text-link {
+    flex: none;
+    height: 56px;
+    width: 100%;
+    font-size: 14px;
+    padding: 0;
+    margin-top: 0;
+}
+
 .setup-header-text {
     width: 100%;
-    margin-bottom: 20px;
-    /* Reduced from 32px to move content up */
+    margin-bottom: 56px;
     text-align: left;
 }
 
@@ -2670,8 +2743,7 @@ body:has(#youtube-url-overlay.active) header {
 .setup-guide-unified {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    /* Reduced from 48px to prevent scrollbar */
+    gap: 48px;
     margin-bottom: 24px;
     width: 100%;
 }
@@ -3612,7 +3684,7 @@ body:has(#youtube-url-overlay.active) header {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--surface-3);
+    background-color: var(--surface-2);
     transition: .4s;
 }
 
@@ -3892,7 +3964,7 @@ input:checked+.slider:before {
     flex: 1;
     overflow-y: scroll;
     /* Always show scrollbar for consistent width */
-    padding: 16px 20px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -4179,7 +4251,7 @@ input:checked+.slider:before {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
+    padding: 16px;
     border-bottom: 1px solid var(--surface-2);
 }
 
@@ -4216,7 +4288,7 @@ input:checked+.slider:before {
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -4226,7 +4298,7 @@ input:checked+.slider:before {
     display: flex;
     align-items: flex-end;
     gap: 12px;
-    padding: 10px 20px;
+    padding: 10px 16px;
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
     /* Removed the top stroke per request */
     background: #212121;

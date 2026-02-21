@@ -77,6 +77,12 @@
         position: relative !important;
         transform: none !important;
         height: 100% !important;
+        top: 0 !important;
+        /* overrides mobile persistence hack */
+        left: 0 !important;
+        /* overrides mobile persistence hack */
+        width: 100% !important;
+        /* overrides mobile persistence hack (1px) */
 
         background: transparent !important;
         /* Sleek floating card background removed */
@@ -130,23 +136,28 @@
        --------------------------------------------------- */
     /* Elegant vertical dividers via standard border */
     #tab-play {
-        padding: 0 10px 0 0 !important;
+        padding: 0 0 0 8px !important;
+        /* 다시 물리적인 8px 대칭(수학적 정렬)으로 원복 */
         border-right: 1px solid var(--surface-2) !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        max-width: 100% !important;
     }
 
     #tab-playlist {
-        padding: 0 10px !important;
+        padding: 0 0 0 8px !important;
         border-right: 1px solid var(--surface-2) !important;
         border-bottom: 1px solid var(--surface-2) !important;
     }
 
     .chat-drawer {
-        padding: 0 10px !important;
+        padding: 0 !important;
+        /* 채팅창은 다른 패널과 달리 전체가 아닌 중간 영역(.chat-drawer-messages)만 스크롤되므로 껍데기 마진 0 */
         border-right: 1px solid var(--surface-2) !important;
     }
 
     #tab-settings {
-        padding: 0 0 0 10px !important;
+        padding: 0 0 0 8px !important;
     }
 
     .play-header-desktop {
@@ -233,37 +244,344 @@
     }
 
     /* ---------------------------------------------------
-       9. Setup/Onboarding Overlay
+       9. Setup/Onboarding Overlay — Full-Width 2-Column Desktop Layout
        --------------------------------------------------- */
-    #setup-overlay,
-    #media-source-overlay,
-    #youtube-url-overlay {
+    #setup-overlay {
         position: fixed;
         inset: 0;
         z-index: 5000;
-        background: rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
+        background: var(--bg) !important;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
     }
 
-    .setup-card.full-screen {
+    #setup-overlay .setup-card.full-screen {
         position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 640px !important;
-        max-width: 90vw !important;
-        height: 80vh !important;
-        max-height: 850px !important;
-        min-height: 520px !important;
-        border-radius: 32px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5);
+        inset: 0;
+        width: 100vw !important;
+        max-width: none !important;
+        height: 100vh !important;
+        max-height: none !important;
+        border-radius: 0;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none;
+        background: transparent !important;
+        padding: 0 !important;
+        transform: none;
+        display: grid;
+        grid-template-columns: 1fr 480px;
+        grid-template-rows: 1fr;
+        overflow: hidden;
+    }
+
+    /* --- Left Column: Diagram area + step header --- */
+    #setup-desktop-brand {
+        display: flex !important;
+        flex: 1;
+        background: var(--bg) !important;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: flex-start;
+        text-align: left;
+        padding: 0;
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Hide the static brand logo/tagline — replaced by dynamic step headers */
+    #setup-desktop-brand .brand-content {
+        display: none !important;
+    }
+
+    /* --- Desktop step header (mirrored into left panel by JS) --- */
+    .desktop-step-header {
+        display: block !important;
+        padding: clamp(48px, 7vh, 80px) clamp(48px, 5vw, 80px) 0;
+        width: 100%;
+        z-index: 2;
+    }
+
+    .desktop-step-header h2 {
+        font-size: clamp(22px, 2.4vw, 32px) !important;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--text-main);
+        margin-bottom: 8px;
+        line-height: 1.2;
+    }
+
+    .desktop-step-header p {
+        font-size: clamp(13px, 1.1vw, 16px) !important;
+        color: var(--text-sub);
+        opacity: 0.55;
+        line-height: 1.5;
+    }
+
+    /* --- Desktop diagram area (elements moved here by JS) --- */
+    .desktop-diagram-area {
+        display: flex !important;
+        flex: 1;
+        width: 100%;
+        align-items: center;
+        justify-content: center;
+        padding: clamp(16px, 3vh, 40px) clamp(40px, 6vw, 100px);
+        position: relative;
+        overflow: visible;
+    }
+
+    /* --- Hide headers from the right panel (they're now mirrored to the left) --- */
+    #setup-overlay .setup-mobile-view .setup-header-text {
+        display: none !important;
+    }
+
+    /* --- Right Column: Interactive panel (vertically centered content) --- */
+    #setup-overlay .setup-mobile-view {
+        width: 480px;
+        min-width: 480px;
         background: var(--surface-1);
-        padding: 40px 0 !important;
-        /* Top and bottom generous padding, let inner items handle side paddings to avoid scrollbar clipping */
+        height: 100%;
+        box-shadow: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 0 !important;
+        overflow-y: auto !important;
+        scrollbar-gutter: stable;
+        -ms-overflow-style: auto;
+        display: flex !important;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    #setup-overlay .setup-mobile-view::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    #setup-overlay .setup-mobile-view::-webkit-scrollbar-track {
+        margin-top: 20px;
+        margin-bottom: 20px;
+        background: transparent;
+    }
+
+    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid transparent;
+        border-radius: 10px;
+        background-clip: padding-box;
+    }
+
+    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.35);
+    }
+
+    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb:active {
+        background-color: rgba(255, 255, 255, 0.55);
+    }
+
+    /* --- Onboarding slider: enlarged when inside left panel --- */
+    .desktop-diagram-area #ob-slider-area {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .desktop-diagram-area .ob-slider-viewport {
+        width: clamp(320px, 60%, 560px);
+    }
+
+    .desktop-diagram-area .ob-dots {
+        margin-top: 32px;
+    }
+
+    /* Enlarge onboarding icon circles for desktop */
+    .desktop-diagram-area .ob-icon-circle {
+        width: clamp(72px, 8vw, 100px);
+        height: clamp(72px, 8vw, 100px);
+    }
+
+    .desktop-diagram-area .ob-icon-circle svg {
+        width: clamp(32px, 3.5vw, 44px);
+        height: clamp(32px, 3.5vw, 44px);
+    }
+
+    .desktop-diagram-area .ob-slide .ob-title {
+        font-size: clamp(22px, 2.2vw, 28px);
+    }
+
+    .desktop-diagram-area .ob-slide .ob-desc {
+        font-size: clamp(13px, 1.1vw, 15px);
+    }
+
+    /* Onboarding arrows */
+    .desktop-diagram-area .ob-arrow-left {
+        left: calc(50% - clamp(160px, 30%, 280px) - 52px);
+    }
+
+    .desktop-diagram-area .ob-arrow-right {
+        right: calc(50% - clamp(160px, 30%, 280px) - 52px);
+    }
+
+    /* --- Role SVG diagram: enlarged in left panel --- */
+    .desktop-diagram-area .setup-graphic-container {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .desktop-diagram-area .setup-graphic-svg {
+        max-width: clamp(480px, 60vw, 780px) !important;
+        width: 100% !important;
+        height: auto !important;
+    }
+
+    /* --- Network guide diagrams: enlarged in left panel --- */
+    .desktop-diagram-area .setup-guide-unified {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        gap: clamp(40px, 6vh, 72px);
+        margin: 0 !important;
+    }
+
+    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
+        max-width: clamp(420px, 55vw, 680px) !important;
+        height: clamp(100px, 16vh, 200px) !important;
+    }
+
+    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
+        font-size: clamp(14px, 1.3vw, 18px);
+    }
+
+    /* --- Actions bar pinned to bottom of right column --- */
+    #setup-overlay .setup-mobile-view .ob-actions {
+        background: var(--surface-1) !important;
+        padding-left: 40px !important;
+        padding-right: 40px !important;
+        padding-bottom: 40px !important;
+        padding-top: 16px !important;
+        border-top: none;
+        margin-top: auto;
+        flex-shrink: 0;
+    }
+
+    /* --- Right panel content areas: center vertically when visible --- */
+    /* NOTE: These areas use inline style display:none/flex toggled by JS.
+       We must NOT use display:flex !important here or it overrides JS hiding.
+       Use flex properties only - they'll apply when JS sets display:flex. */
+    #setup-overlay #setup-welcome-area,
+    #setup-overlay #setup-code-area,
+    #setup-overlay #setup-join-area,
+    #setup-overlay #setup-role-area {
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        align-items: stretch;
+    }
+
+    /* --- Content padding inside right panel --- */
+    .setup-mobile-view>div:not(.ob-actions, .setup-header-pill) {
+        padding-left: 40px !important;
+        padding-right: 40px !important;
+    }
+
+    /* Map media/youtube overlays into the main Play grid area instead of full-screen popups */
+    #media-source-overlay,
+    #youtube-url-overlay {
+        position: relative !important;
+        grid-area: tab-play;
+        z-index: 5000;
+        background: var(--bg) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border-right: 1px solid var(--surface-2);
+        padding: 0 !important;
+        border-radius: 0;
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
+        scrollbar-gutter: stable;
+        -ms-overflow-style: auto;
+        display: none !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        min-height: 0 !important;
+        min-width: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        inset: auto !important;
+    }
+
+    #media-source-overlay.active,
+    #youtube-url-overlay.active {
+        display: flex !important;
+        flex-direction: column;
+    }
+
+    #media-source-overlay::-webkit-scrollbar,
+    #youtube-url-overlay::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    #media-source-overlay::-webkit-scrollbar-track,
+    #youtube-url-overlay::-webkit-scrollbar-track {
+        margin-top: 20px;
+        margin-bottom: 20px;
+        background: transparent;
+    }
+
+    #media-source-overlay::-webkit-scrollbar-thumb,
+    #youtube-url-overlay::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid transparent;
+        border-radius: 10px;
+        background-clip: padding-box;
+    }
+
+    #media-source-overlay::-webkit-scrollbar-thumb:hover,
+    #youtube-url-overlay::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.35);
+    }
+
+    #media-source-overlay::-webkit-scrollbar-thumb:active,
+    #youtube-url-overlay::-webkit-scrollbar-thumb:active {
+        background-color: rgba(255, 255, 255, 0.55);
+    }
+
+    #media-source-overlay .setup-card.full-screen,
+    #youtube-url-overlay .setup-card.full-screen {
+        position: relative !important;
+        top: 0 !important;
+        left: 0 !important;
+        transform: none !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        border-radius: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding: 40px 0 0 0 !important;
         display: flex;
         flex-direction: column;
+    }
+
+    /* Prevent horizontal overflow from mobile inline CSS hacks */
+    #setup-role-area .setup-graphic-container {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: 100% !important;
     }
 
     /* Wrap contents nicely and prevent them from shrinking weirdly */
@@ -271,84 +589,20 @@
         flex-shrink: 0;
     }
 
-    /* PIN HEADERS TO THE VERY TOP CONTINUOUSLY */
-    #setup-welcome-area,
-    #setup-code-area,
-    #setup-join-area,
-    #setup-role-area {
-        justify-content: flex-start !important;
-        margin-top: 0;
-        margin-bottom: 0;
-        padding-top: 0 !important;
-        height: 100%;
+    /* Padding for inner content (media/youtube overlays) */
+    #media-source-overlay .setup-card.full-screen>div:not(.ob-actions),
+    #youtube-url-overlay .setup-card.full-screen>div:not(.ob-actions) {
+        padding-left: 40px !important;
+        padding-right: 40px !important;
     }
 
-    /* Auto center ONLY the middle graphics so the header stays rigid at the top */
-    #ob-slider-area {
-        margin-top: auto;
-        margin-bottom: auto;
-    }
-
-    /* For connection code screens and role screen, group the graphic and the input/buttons together */
-    #setup-code-area .setup-guide-unified,
-    #setup-join-area .setup-guide-unified,
-    #setup-role-area .setup-graphic-container {
-        margin-top: auto;
-        margin-bottom: 0 !important;
-        /* Prevents huge gap down */
-    }
-
-    #setup-code-area .setup-code-area-bottom,
-    #setup-join-area .setup-code-area-bottom,
-    #setup-role-area .channel-grid {
-        margin-top: 0 !important;
-        /* Flush with graphic */
-        margin-bottom: auto !important;
-        /* Pushes everything up nicely to center the whole block */
-    }
-
-    /* Padding for inner content so the container can be flush but content has space */
-    .setup-card.full-screen>div:not(.ob-actions) {
-        padding-left: 48px !important;
-        padding-right: 48px !important;
-    }
-
-    /* Override the mobile-specific black background of ob-actions */
-    .setup-card.full-screen .ob-actions {
+    /* Override the mobile-specific padding dynamically but keep top/bottom */
+    #media-source-overlay .setup-card.full-screen .ob-actions,
+    #youtube-url-overlay .setup-card.full-screen .ob-actions {
         background: transparent !important;
-        padding: 0 48px !important;
-        /* Match inner content side padding */
-        margin-top: auto !important;
-        /* Push buttons to the very bottom */
-    }
-
-    /* Improve Typography for Desktop Setup */
-    .setup-header-text h2 {
-        font-size: 26px !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.02em !important;
-        margin-bottom: 6px !important;
-        /* Reduced title-subtitle gap */
-    }
-
-    .setup-header-text p {
-        font-size: 15px !important;
-        color: var(--text-sub) !important;
-    }
-
-    .ob-title {
-        font-size: 24px !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.02em !important;
-        margin-top: 28px !important;
-        margin-bottom: 12px !important;
-        /* Tighter gap to description */
-    }
-
-    .ob-desc {
-        font-size: 15px !important;
-        line-height: 1.5 !important;
-        color: var(--text-sub) !important;
+        padding-left: 40px !important;
+        padding-right: 40px !important;
+        padding-bottom: 40px !important;
     }
 
     /* Tab text switching (Desktop) */
@@ -431,9 +685,9 @@
 
     .help-block {
         background: transparent !important;
-        margin: 0 12px 16px !important;
+        margin: 0 16px 16px !important;
         /* Match section-group width */
-        padding: 16px 20px !important;
+        padding: 16px !important;
         /* Aligns nicely with settings items */
         border: none !important;
         box-shadow: none !important;
@@ -441,24 +695,78 @@
 
     .playlist-ul {
         margin: 0 16px !important;
-        /* Aligns inner 16px padding with 32px tab-header padding */
     }
 
     /* Restore scrollbars for desktop panels */
     .tab-content {
-        scrollbar-width: thin !important;
         -ms-overflow-style: auto !important;
+        overflow-y: scroll !important;
+        /* 항상 스크롤바 영역(투명)을 차지하게 하여 레이아웃 밀림 완벽 방지 */
+        scrollbar-gutter: stable;
+        /* 최신 브라우저용 추가 밀림 방지 속성 */
     }
 
     .tab-content::-webkit-scrollbar {
-        display: block !important;
-        width: 6px;
+        width: 8px;
+        /* 4px thumb + 2px margin on both sides */
+        height: 8px;
     }
 
     .tab-content::-webkit-scrollbar-track {
         margin-top: 86px;
-        /* Push scrollbar down below sticky header */
         margin-bottom: 20px;
+        background: transparent;
+    }
+
+    .tab-content::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid transparent;
+        /* 좌우 빈공간(마진)을 위한 투명 테두리 */
+        border-radius: 10px;
+        background-clip: padding-box;
+        /* 테두리를 제외하고 색칠 */
+    }
+
+    .tab-content::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .tab-content::-webkit-scrollbar-thumb:active {
+        background-color: rgba(255, 255, 255, 0.55);
+    }
+
+    /* Apply the exact same floaty scrollbar and layout-shift prevention to the Chat panel on Desktop, but without the 86px track margin because its header is outside the scroll area */
+    .chat-drawer-messages {
+        -ms-overflow-style: auto !important;
+        overflow-y: scroll !important;
+        scrollbar-gutter: stable;
+        padding-left: 24px !important;
+        /* 기본 여백 16px + 우측 투명 스크롤바 대칭용 물리적 여백 8px 추가 */
+    }
+
+    .chat-drawer-messages::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    .chat-drawer-messages::-webkit-scrollbar-track {
+        margin-bottom: 20px;
+        background: transparent;
+    }
+
+    .chat-drawer-messages::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid transparent;
+        border-radius: 10px;
+        background-clip: padding-box;
+    }
+
+    .chat-drawer-messages::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .chat-drawer-messages::-webkit-scrollbar-thumb:active {
+        background-color: rgba(255, 255, 255, 0.55);
     }
 
     .track-item {

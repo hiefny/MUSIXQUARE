@@ -2064,6 +2064,7 @@ function hideSetupOverlay() {
 function setupShowCodeArea(show) {
     const box = setupEl('setup-code-area');
     if (box) box.style.display = show ? 'flex' : 'none';
+    syncDesktopLeftPanel();
 }
 
 function setupSetCode(code) {
@@ -2085,17 +2086,108 @@ function setupShowInstruction(show, text = '') {
 function setupShowJoinArea(show) {
     const el = setupEl('setup-join-area');
     if (el) el.style.display = show ? 'flex' : 'none';
+    syncDesktopLeftPanel();
 }
 
 function setupShowRoleArea(show) {
     const el = setupEl('setup-role-area');
     if (el) el.style.display = show ? 'flex' : 'none';
+    syncDesktopLeftPanel();
 }
 
 function setupShowWelcome(show) {
     const el = setupEl('setup-welcome-area');
     if (el) el.style.display = show ? 'flex' : 'none';
+    syncDesktopLeftPanel();
 }
+
+/* ===== Desktop Left-Panel Sync (header + diagram mirroring) ===== */
+let _desktopSyncedDiagram = null; // reference to the element currently moved into the left panel
+let _desktopSyncedDiagramParent = null; // original parent to return it to
+let _desktopSyncedDiagramNextSibling = null; // original next sibling for precise reinsertion
+
+function isDesktopLayout() {
+    return window.matchMedia('(min-width: 1280px)').matches;
+}
+
+/** Return the moved diagram element to its original parent at its original position */
+function _restoreDesktopDiagram() {
+    if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
+        try {
+            // insertBefore(node, null) === appendChild, so this handles both cases
+            _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
+        } catch (_) { }
+    }
+    _desktopSyncedDiagram = null;
+    _desktopSyncedDiagramParent = null;
+    _desktopSyncedDiagramNextSibling = null;
+    const hc = document.getElementById('desktop-step-header');
+    const dc = document.getElementById('desktop-diagram-area');
+    if (hc) hc.innerHTML = '';
+    if (dc) dc.innerHTML = '';
+}
+
+function syncDesktopLeftPanel() {
+    const headerContainer = document.getElementById('desktop-step-header');
+    const diagramContainer = document.getElementById('desktop-diagram-area');
+    if (!headerContainer || !diagramContainer) return;
+
+    // If NOT desktop, restore everything and bail
+    if (!isDesktopLayout()) {
+        _restoreDesktopDiagram();
+        return;
+    }
+
+    // Return any previously moved diagram element to its original parent
+    if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
+        try {
+            _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
+        } catch (_) { }
+        _desktopSyncedDiagram = null;
+        _desktopSyncedDiagramParent = null;
+        _desktopSyncedDiagramNextSibling = null;
+    }
+    diagramContainer.innerHTML = '';
+    headerContainer.innerHTML = '';
+
+    // Determine which area is currently visible
+    const areas = [
+        { id: 'setup-welcome-area', diagram: () => document.getElementById('ob-slider-area') },
+        { id: 'setup-role-area', diagram: (el) => el.querySelector('.setup-graphic-container') },
+        { id: 'setup-join-area', diagram: (el) => el.querySelector('.setup-guide-unified') },
+        { id: 'setup-code-area', diagram: (el) => el.querySelector('.setup-guide-unified') },
+    ];
+
+    for (const area of areas) {
+        const areaEl = document.getElementById(area.id);
+        if (!areaEl || areaEl.style.display === 'none') continue;
+
+        // Mirror header text to left panel
+        const headerSrc = areaEl.querySelector('.setup-header-text');
+        if (headerSrc) {
+            headerContainer.innerHTML = headerSrc.innerHTML;
+        }
+
+        // Move diagram element to left panel
+        const diagramEl = area.diagram(areaEl);
+        if (diagramEl) {
+            _desktopSyncedDiagramParent = diagramEl.parentElement;
+            _desktopSyncedDiagramNextSibling = diagramEl.nextSibling; // remember position for reinsertion
+            _desktopSyncedDiagram = diagramEl;
+            diagramContainer.appendChild(diagramEl);
+        }
+
+        break; // only process the first visible area
+    }
+}
+
+/* Listen for viewport changes to restore/move elements */
+try {
+    const _desktopMql = window.matchMedia('(min-width: 1280px)');
+    _desktopMql.addEventListener('change', () => {
+        syncDesktopLeftPanel();
+    });
+} catch (_) { }
 
 function setupSetGuestJoinBusy(busy) {
     const input = setupEl('setup-join-code');
@@ -2181,7 +2273,7 @@ function setupRenderActions(buttons, layout = 'row') {
         const b = document.createElement('button');
         b.id = btn.id;
         b.type = 'button';
-        b.className = btn.kind === 'secondary' ? 'btn-ob-secondary' : 'btn-ob-primary';
+        b.className = btn.kind === 'secondary' ? 'btn-ob-secondary' : (btn.kind === 'text-link' ? 'btn-ob-text-link' : 'btn-ob-primary');
         b.textContent = btn.text;
         if (btn.disabled) b.disabled = true;
         if (btn.onClick) b.addEventListener('click', btn.onClick);
@@ -2489,7 +2581,7 @@ async function startHostFlow() {
                 }
             }
         },
-        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
     ], 'vertical');
 }
 
@@ -2500,7 +2592,6 @@ async function proceedToHostCode(mode) {
     try {
         selectStandardChannelButton(mode);
         setChannelMode(mode);
-        showPlacementToastForChannel(mode); // Show toast
     } catch (e) { log.warn(e); }
 
     // Step 2: Show Code
@@ -2516,7 +2607,7 @@ async function proceedToHostCode(mode) {
     // Temporary actions (loading state)
     setupRenderActions([
         { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true },
-        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() }
+        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() }
     ], 'vertical');
 
     try {
@@ -2534,7 +2625,7 @@ async function proceedToHostCode(mode) {
         // Show "Start" + Back button (vertical layout to match initial buttons position)
         setupRenderActions([
             { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
-            { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
+            { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
         ], 'vertical');
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
@@ -2595,7 +2686,7 @@ async function startGuestFlow() {
                 }
             }
         },
-        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
     ], 'vertical');
 
     // Visual Update
@@ -2617,14 +2708,11 @@ function proceedToGuestCode(mode) {
 
     // Apply role locally for preview? (Optional, but user said "Guest sets role then inputs number")
     // We already stored it in pendingGuestRoleMode.
-    try {
-        showPlacementToastForChannel(mode);
-    } catch (e) { }
 
     // Show "Start" + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
         { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-        { id: 'btn-setup-back-home-guest', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home-guest', text: '처음으로 돌아가기', kind: 'text-link', onClick: () => initSetupOverlay() },
     ], 'vertical');
 
     const input = setupEl('setup-join-code');
@@ -2665,6 +2753,25 @@ if (_roleArea) {
         if (!item) return;
 
         // Find role from ID
+        let mode = null;
+        if (item.id === 'svg-spk-l') mode = -1;
+        else if (item.id === 'svg-spk-r') mode = 1;
+        else if (item.id === 'svg-spk-center') mode = 0;
+        else if (item.id === 'svg-spk-woofer') mode = 2;
+
+        if (mode !== null) {
+            handleSetupRolePreview(mode);
+        }
+    });
+}
+
+// Desktop: diagram is reparented to #desktop-diagram-area, so listen there too
+const _desktopDiagramArea = document.getElementById('desktop-diagram-area');
+if (_desktopDiagramArea) {
+    _desktopDiagramArea.addEventListener('click', (e) => {
+        const item = e.target.closest('.graphic-speaker');
+        if (!item) return;
+
         let mode = null;
         if (item.id === 'svg-spk-l') mode = -1;
         else if (item.id === 'svg-spk-r') mode = 1;
@@ -5078,7 +5185,7 @@ function onReverbLowCutChange(val) {
 
 function onReverbHighCutInput(val) {
     const v = Number(val);
-    const freq = 20000 * Math.pow(0.025, v / 100);
+    const freq = 20000 * Math.pow(0.05, v / 100);
     const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'kHz' : Math.round(freq) + 'Hz';
     document.getElementById('val-rvb-highcut').innerText = txt;
 }
@@ -5118,7 +5225,7 @@ function setReverbParam(param, val) {
             document.getElementById('reverb-lowcut-slider').value = v;
             break;
         case 'highcut':
-            const hFreq = 20000 * Math.pow(0.025, v / 100);
+            const hFreq = 20000 * Math.pow(0.05, v / 100);
             if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
             document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
             document.getElementById('reverb-highcut-slider').value = v;

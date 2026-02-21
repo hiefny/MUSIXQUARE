@@ -191,6 +191,9 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
+    position: relative;
+    /* Contain absolute children like .bottom-nav */
+
     /* Viewport sizing:
        - Prefer modern viewport units (dvh/svh) when available.
        - We also allow a single-shot JS override via --app-height (fixed after boot). */
@@ -1905,7 +1908,8 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
    Bottom Nav — Toss Quick_Tabbar (Figma-exact)
    ============================================= */
 .bottom-nav {
-    position: fixed;
+    position: absolute;
+    /* Ensures bounding to body's --app-height instead of buggy viewport */
     bottom: 0;
     left: 0;
     width: 100%;
@@ -4224,7 +4228,8 @@ input:checked+.slider:before {
 
 /* Slide-up Chat Drawer */
 .chat-drawer {
-    position: fixed;
+    position: absolute;
+    /* Ensures bounding to body's --app-height instead of buggy viewport */
     left: 0;
     right: 0;
     bottom: 0;

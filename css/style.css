@@ -191,16 +191,16 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
-    position: relative;
-    /* Contain absolute children like .bottom-nav */
-
     /* Viewport sizing:
-       - Prefer modern viewport units (dvh/svh) when available.
-       - We also allow a single-shot JS override via --app-height (fixed after boot). */
+       1. Fallback: classic 100vh
+       2. Modern: 100dvh (respects dynamic viewport)
+       3. JS override via --app-height (most reliable on Android Webview landscape)
+       The JS layer also subtracts safe-area if the browser fails to do so. */
     height: 100vh;
     height: 100dvh;
     height: var(--app-height, 100dvh);
-    min-height: var(--app-height, 100dvh);
+    min-height: 0;
+    max-height: var(--app-height, 100dvh);
 
     display: flex;
     flex-direction: column;
@@ -211,7 +211,7 @@ body {
 @supports (height: 100svh) {
     body {
         height: var(--app-height, 100svh);
-        min-height: var(--app-height, 100svh);
+        max-height: var(--app-height, 100svh);
     }
 }
 
@@ -538,7 +538,7 @@ header.loading .header-loading-text {
     overscroll-behavior-y: contain;
     /* 고무줄(바운스) 효과는 유지하되, 맨 끝에서 잡아당길 때 스크롤 잠김(브라우저 상위 체이닝)만 영리하게 차단! */
     padding-top: var(--header-height);
-    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 20px);
 }
 
 .tab-content.active {
@@ -1908,11 +1908,12 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
    Bottom Nav — Toss Quick_Tabbar (Figma-exact)
    ============================================= */
 .bottom-nav {
-    position: absolute;
-    /* Ensures bounding to body's --app-height instead of buggy viewport */
-    bottom: 0;
+    position: fixed;
+    /* Fixed to the visual viewport — robust against Android softkey bugs.
+       JS will apply --safe-nav-bottom offset for softkey/safe-area. */
+    bottom: var(--safe-nav-bottom, 0px);
     left: 0;
-    width: 100%;
+    right: 0;
     z-index: 100;
     display: flex;
     justify-content: space-around;
@@ -4228,13 +4229,15 @@ input:checked+.slider:before {
 
 /* Slide-up Chat Drawer */
 .chat-drawer {
-    position: absolute;
-    /* Ensures bounding to body's --app-height instead of buggy viewport */
+    position: fixed;
+    /* Fixed to visual viewport — avoids Android softkey overrun.
+       JS handles --safe-nav-bottom for safe-area offset. */
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--safe-nav-bottom, 0px);
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
+    max-height: calc(var(--app-height, 100dvh) * 0.5);
     background: #212121;
     /* Solid background per request */
     border-top-left-radius: 20px;

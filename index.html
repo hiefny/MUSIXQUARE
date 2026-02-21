@@ -50,17 +50,14 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === VIEWPORT FIX (v38) — minimal CSS, JS handles setup screen === */
+        /* === VIEWPORT FIX (v39) — minimal, no layout changes === */
         body {
             max-height: var(--app-height, 100dvh) !important;
-            min-height: 0 !important;
         }
 
         .bottom-nav {
             position: fixed !important;
             bottom: var(--safe-nav-bottom, 0px) !important;
-            left: 0 !important;
-            right: 0 !important;
         }
 
         .chat-drawer {
@@ -69,45 +66,35 @@
         }
     </style>
 
-    <!-- JS-based setup screen fix: bypasses all CSS cascade/specificity issues -->
+    <!-- JS-based setup screen fix: MINIMAL — only height + overflow -->
     <script>
         (function fixSetupScreen() {
             function applyFix() {
-                var appH = getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim();
-                if (!appH || appH === '') appH = window.innerHeight + 'px';
+                var h = window.innerHeight;
+                if (!h || h <= 0) return;
+                var hPx = h + 'px';
 
+                // Only fix the overlay height + make mobile-view scrollable
                 var overlay = document.getElementById('setup-overlay');
                 if (overlay) {
-                    var os = overlay.style;
-                    os.setProperty('height', appH, 'important');
-                    os.setProperty('max-height', appH, 'important');
-                    os.setProperty('min-height', '0', 'important');
-                    os.setProperty('overflow', 'hidden', 'important');
-                    os.setProperty('box-sizing', 'border-box', 'important');
+                    overlay.style.setProperty('max-height', hPx, 'important');
                 }
 
-                var card = overlay ? overlay.querySelector('.onboarding-card') : null;
+                // The .setup-card.full-screen on desktop uses display:grid
+                // and height:100vh. On desktop, 100vh is fine. On tablet landscape,
+                // 100vh may exceed the visible area. Cap it.
+                var card = overlay ? overlay.querySelector('.setup-card') : null;
                 if (card) {
-                    var cs = card.style;
-                    cs.setProperty('height', '100%', 'important');
-                    cs.setProperty('max-height', '100%', 'important');
-                    cs.setProperty('min-height', '0', 'important');
-                    cs.setProperty('overflow', 'hidden', 'important');
-                    cs.setProperty('box-sizing', 'border-box', 'important');
-                    cs.setProperty('display', 'flex', 'important');
-                    cs.setProperty('flex-direction', 'column', 'important');
+                    card.style.setProperty('max-height', hPx, 'important');
                 }
 
+                // The .setup-mobile-view needs to scroll when content exceeds
+                // available height. Don't change its display/flex/height —
+                // just add overflow-y.
                 var mv = overlay ? overlay.querySelector('.setup-mobile-view') : null;
                 if (mv) {
-                    var ms = mv.style;
-                    ms.setProperty('height', '100%', 'important');
-                    ms.setProperty('max-height', '100%', 'important');
-                    ms.setProperty('min-height', '0', 'important');
-                    ms.setProperty('overflow-y', 'auto', 'important');
-                    ms.setProperty('overflow-x', 'hidden', 'important');
-                    ms.setProperty('box-sizing', 'border-box', 'important');
-                    ms.setProperty('-webkit-overflow-scrolling', 'touch');
+                    mv.style.setProperty('overflow-y', 'auto', 'important');
+                    mv.style.setProperty('max-height', hPx, 'important');
                 }
             }
 
@@ -116,7 +103,6 @@
             } else {
                 applyFix();
             }
-            // Re-apply on resize/orientation change
             window.addEventListener('resize', applyFix);
             window.addEventListener('orientationchange', function () {
                 setTimeout(applyFix, 300);

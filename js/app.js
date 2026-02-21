@@ -129,9 +129,6 @@ function updateAppHeightNow() {
 
     // iOS 홈화면 앱(standalone)에서는 innerHeight/clientHeight가 safe-area를 제외하는 경우가 있어
     // screen.height(=기기 화면 높이, CSS px)를 기준으로 더 큰 값을 사용합니다.
-    // 단, 가로모드에서는 screen.height가 회전에 따라 갱신되지 않는 케이스가 있어(특히 PWA)
-    // 오히려 app-height가 과대 평가되어 스크롤이 일부만 되는 문제가 생길 수 있습니다.
-    // -> 세로모드에서만 screen.height 보정을 적용합니다.
     let isLandscape = false;
     try {
         isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
@@ -140,6 +137,15 @@ function updateAppHeightNow() {
     }
     if (IS_IOS && isStandalone && !isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
         h = Math.max(h, Math.round(window.screen.height));
+    }
+
+    // 안드로이드 모던 웹 브라우저(태블릿, 키오스크 가로모드 포함)에서는 JS 측정값보다 
+    // 네이티브 CSS(100svh, 100dvh)가 훨씬 더 정확하게 하단 소프트키/바를 계산합니다.
+    // dvh/svh를 지원하는 안드로이드 환경이라면, 부정확한 JS 앱 높이 강제 덮어쓰기를 취소하고 CSS에 온전히 맡깁니다.
+    const supportsVpUnits = window.CSS && window.CSS.supports && (window.CSS.supports('height: 100dvh') || window.CSS.supports('height: 100svh'));
+    if (IS_ANDROID && supportsVpUnits) {
+        try { root.style.removeProperty('--app-height'); } catch (_) { /* ignore */ }
+        return;
     }
 
     if (h > 0) {

@@ -45,6 +45,66 @@
 
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
+
+    <!-- [Android Viewport Fix] Inline override to bypass service worker CSS cache.
+         These rules MUST be in HTML (network-first) because the service worker may
+         serve stale CSS from its static cache for multiple reloads. -->
+    <style id="android-viewport-fix">
+        /* Setup/onboarding overlay: do NOT set explicit height.
+           inset:0 already stretches to viewport. height:100vh overrides bottom:0
+           and extends behind Android soft navigation bar. */
+        .onboarding-overlay {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: var(--app-height, 100dvh) !important;
+            overflow: hidden !important;
+        }
+
+        /* Bottom nav: fixed with safe offset */
+        .bottom-nav {
+            position: fixed !important;
+            bottom: var(--safe-nav-bottom, 0px) !important;
+            left: 0 !important;
+            right: 0 !important;
+        }
+
+        /* Chat drawer: fixed with safe offset */
+        .chat-drawer {
+            position: fixed !important;
+            bottom: var(--safe-nav-bottom, 0px) !important;
+        }
+
+        /* Body: cap height, never exceed viewport */
+        body {
+            max-height: var(--app-height, 100dvh) !important;
+            min-height: 0 !important;
+        }
+    </style>
+
+    <!-- Force service worker update on load -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration().then(function (reg) {
+                if (reg) {
+                    reg.update();
+                    if (reg.waiting) {
+                        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                    reg.addEventListener('updatefound', function () {
+                        var newWorker = reg.installing;
+                        if (newWorker) {
+                            newWorker.addEventListener('statechange', function () {
+                                if (newWorker.state === 'installed' && reg.waiting) {
+                                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+
     <script src="vendor/Tone.js"></script>
     <script src="vendor/peerjs.min.js"></script>
 </head>

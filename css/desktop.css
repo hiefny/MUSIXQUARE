@@ -70,7 +70,11 @@
     .chat-drawer,
     #tab-playlist,
     #tab-settings {
+        padding-top: 0 !important;
+        /* Panels have internal headers now */
         display: flex !important;
+        flex-direction: column !important;
+        /* Vertical column layout */
         opacity: 1 !important;
         visibility: visible !important;
         pointer-events: auto !important;
@@ -78,45 +82,44 @@
         transform: none !important;
         height: 100% !important;
         top: 0 !important;
-        /* overrides mobile persistence hack */
         left: 0 !important;
-        /* overrides mobile persistence hack */
         width: 100% !important;
-        /* overrides mobile persistence hack (1px) */
 
         background: transparent !important;
-        /* Sleek floating card background removed */
         border-radius: 0;
-        /* Elegant rounded corners removed */
         border: none;
-        /* Extremely subtle edge removed */
-        box-shadow: none;
-        /* Deep soft ambient shadow removed */
-        overflow-x: hidden;
-        overflow-y: auto;
-        /* Inner content controls scroll */
+        box-shadow: none !important;
+        /* Reset any shadows from mobile styles */
+        overflow: hidden !important;
+        /* Parent NO LONGER scrolls */
     }
 
-    /* Clean up the scrollbars inside the panels */
-    .tab-content,
+    /* New Scrolling Architecture: Bodies handle the scroll */
+    .tab-body,
     .chat-drawer-messages {
-        overflow-y: auto;
+        flex: 1 !important;
+        overflow-y: auto !important;
         padding-bottom: 40px !important;
-        /* Give every panel a nice empty space at the bottom */
+        scrollbar-gutter: stable;
+        /* Prevent layout shift */
     }
 
-    /* Panel Headers (No Borders, Generous Padding) */
+    /* tab-play is special as it doesn't use tab-body yet, it still scrolls the parent for now or we can fix it too */
+    #tab-play {
+        overflow-y: auto !important;
+    }
+
+    /* Panel Headers: Fixed at the top, No Background Mask needed anymore! */
     .tab-header,
     .chat-drawer-header {
+        flex: none !important;
         padding: 32px 32px 16px !important;
-        /* Generous breathing space inside panels */
-        position: sticky;
-        top: 0;
-        background: var(--bg) !important;
-        /* Match canvas exactly, masking scroll content underneath */
+        position: relative !important;
+        /* No longer sticky */
+        background: transparent !important;
+        /* Masking box REMOVED */
         z-index: 10;
         border-bottom: none !important;
-        /* Removed the ugly lines under text */
         margin-bottom: 0;
     }
 
@@ -138,7 +141,7 @@
     #tab-play {
         padding: 0 0 0 8px !important;
         /* 다시 물리적인 8px 대칭(수학적 정렬)으로 원복 */
-        border-right: 1px solid var(--surface-2) !important;
+        border-right: 1px solid var(--surface-3) !important;
         min-width: 0 !important;
         min-height: 0 !important;
         max-width: 100% !important;
@@ -146,14 +149,16 @@
 
     #tab-playlist {
         padding: 0 0 0 8px !important;
-        border-right: 1px solid var(--surface-2) !important;
-        border-bottom: 1px solid var(--surface-2) !important;
+        border-right: 1px solid var(--surface-3) !important;
+        border-bottom: 1px solid var(--surface-3) !important;
     }
 
     .chat-drawer {
         padding: 0 !important;
         /* 채팅창은 다른 패널과 달리 전체가 아닌 중간 영역(.chat-drawer-messages)만 스크롤되므로 껍데기 마진 0 */
-        border-right: 1px solid var(--surface-2) !important;
+        border-right: 1px solid var(--surface-3) !important;
+        background: transparent !important;
+        box-shadow: none !important;
     }
 
     #tab-settings {
@@ -515,7 +520,7 @@
         background: var(--bg) !important;
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
-        border-right: 1px solid var(--surface-2);
+        border-right: 1px solid var(--surface-3);
         padding: 0 !important;
         border-radius: 0;
         overflow-x: hidden !important;
@@ -642,7 +647,7 @@
         box-shadow: none !important;
         border: none !important;
         border-radius: 0 !important;
-        border-bottom: 1px solid var(--surface-2) !important;
+        border-bottom: 1px solid var(--surface-3) !important;
     }
 
     #tab-settings .channel-grid {
@@ -656,8 +661,9 @@
         /* Symmetric 44px top start and 28px gap to content */
     }
 
-    #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
-        padding-top: 0 !important;
+    /* Role Selection: Match the default 44px top padding of other sections */
+    #youtube-settings-disabled-wrap .section-group:first-of-type .section-header-row {
+        padding-top: 44px !important;
     }
 
     .section-title {
@@ -709,41 +715,37 @@
         margin: 0 16px !important;
     }
 
-    /* Restore scrollbars for desktop panels */
-    .tab-content {
+    /* Restore scrollbars for desktop bodies */
+    .tab-body {
         -ms-overflow-style: auto !important;
         overflow-y: scroll !important;
-        /* 항상 스크롤바 영역(투명)을 차지하게 하여 레이아웃 밀림 완벽 방지 */
         scrollbar-gutter: stable;
-        /* 최신 브라우저용 추가 밀림 방지 속성 */
     }
 
-    .tab-content::-webkit-scrollbar {
+    .tab-body::-webkit-scrollbar {
         width: 8px;
-        /* 4px thumb + 2px margin on both sides */
         height: 8px;
     }
 
-    .tab-content::-webkit-scrollbar-track {
-        margin-top: 86px;
+    .tab-body::-webkit-scrollbar-track {
+        margin-top: 10px;
+        /* Reduced from 86px since it's now inside the body */
         margin-bottom: 20px;
         background: transparent;
     }
 
-    .tab-content::-webkit-scrollbar-thumb {
+    .tab-body::-webkit-scrollbar-thumb {
         background-color: rgba(255, 255, 255, 0.15);
         border: 2px solid transparent;
-        /* 좌우 빈공간(마진)을 위한 투명 테두리 */
         border-radius: 10px;
         background-clip: padding-box;
-        /* 테두리를 제외하고 색칠 */
     }
 
-    .tab-content::-webkit-scrollbar-thumb:hover {
+    .tab-body::-webkit-scrollbar-thumb:hover {
         background-color: rgba(255, 255, 255, 0.35);
     }
 
-    .tab-content::-webkit-scrollbar-thumb:active {
+    .tab-body::-webkit-scrollbar-thumb:active {
         background-color: rgba(255, 255, 255, 0.55);
     }
 

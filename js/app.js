@@ -1898,16 +1898,12 @@ let _activeThemeMode = 'system';
 let _systemDarkMQ = null;
 
 function _resolveTheme(mode) {
-    // [TEMPORARY OVERRIDE] Locked to dark theme for development focus
-    return 'dark';
-    /*
     if (mode === 'dark') return 'dark';
     if (mode === 'light') return 'light';
     try {
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
     } catch (_) { }
     return 'light';
-    */
 }
 
 function _applyResolvedTheme(resolved) {
@@ -1959,33 +1955,62 @@ function _onSystemThemeChange() {
     setTheme(saved || 'system');
 })();
 
+// --- Animation Utility ---
+window._batchedTransitionCb = null;
+window.animateTransition = function (callback) {
+    if (!document.startViewTransition) {
+        callback();
+        return;
+    }
+
+    // Batch synchronous calls into a single transition
+    if (window._batchedTransitionCb !== null) {
+        const oldCb = window._batchedTransitionCb;
+        window._batchedTransitionCb = () => { oldCb(); callback(); };
+        return;
+    }
+
+    window._batchedTransitionCb = callback;
+    Promise.resolve().then(() => {
+        const cb = window._batchedTransitionCb;
+        window._batchedTransitionCb = null;
+        if (!cb) return;
+        try {
+            document.startViewTransition(() => {
+                cb();
+            });
+        } catch (e) {
+            cb();
+        }
+    });
+};
+
 // --- Tab Switching ---
 function switchTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    document.getElementById(`tab-${tabId}`).classList.add('active');
-    const tabs = ['play', 'playlist', 'settings', 'guide'];
-    const idx = tabs.indexOf(tabId);
-    if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
+    animateTransition(() => {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+        const tabs = ['play', 'playlist', 'settings', 'guide'];
+        const idx = tabs.indexOf(tabId);
+        if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
 
-    // In YouTube Together mode, Settings shows an inline notice + blurred controls.
-    // (No toast needed to avoid redundant UI.)
+        // Settings 상단 초대코드(Host/Guest 공통) 즉시 반영
+        if (tabId === 'settings') {
+            updateInviteCodeUI();
+        }
 
-    // Settings 상단 초대코드(Host/Guest 공통) 즉시 반영
-    if (tabId === 'settings') {
-        updateInviteCodeUI();
-    }
+        // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
+        if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
+            // Use timeout to ensure tab transition is complete
+            setTimeout(() => refreshYouTubeDisplay(), 50);
+        }
 
-    // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
-    if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-        // Use timeout to ensure tab transition is complete
-        setTimeout(() => refreshYouTubeDisplay(), 50);
-    }
-
-    // Chat drawer logic (previously in a separate wrapper)
-    if (isChatDrawerOpen) {
-        toggleChatDrawer();
-    }
+        // Chat drawer logic (previously in a separate wrapper)
+        if (isChatDrawerOpen) {
+            toggleChatDrawer();
+        }
+    });
 }
 
 // --- Audio System (Tone.js) ---
@@ -2261,35 +2286,41 @@ async function copyInviteCode() {
 function setupEl(id) { return document.getElementById(id); }
 
 function showSetupOverlay() {
-    const ov = setupEl('setup-overlay');
-    if (ov) ov.classList.add('active');
-    // Re-enable interactions once the overlay is mounted
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
-    _setupOverlayEverShown = true;
+    animateTransition(() => {
+        const ov = setupEl('setup-overlay');
+        if (ov) ov.classList.add('active');
+        // Re-enable interactions once the overlay is mounted
+        try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
+        _setupOverlayEverShown = true;
+    });
 }
 
 function hideSetupOverlay() {
-    // Safety: ensure splash isn't left visible (e.g., in edge-case navigation/cancel flows)
-    try { hideBootSplash(); } catch (_) { /* ignore */ }
-    const overlay = setupEl('setup-overlay');
-    if (overlay) overlay.classList.remove('active');
-    stopObAutoSlide();
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
+    animateTransition(() => {
+        // Safety: ensure splash isn't left visible (e.g., in edge-case navigation/cancel flows)
+        try { hideBootSplash(); } catch (_) { /* ignore */ }
+        const overlay = setupEl('setup-overlay');
+        if (overlay) overlay.classList.remove('active');
+        stopObAutoSlide();
+        try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
 
-    // iOS PWA: closing the setup overlay can leave the bottom bar in a "pre-layout" state
-    // until a reflow happens (e.g., a tab switch). Nudge layout once here.
-    try {
-        requestAnimationFrame(() => {
-            // Reflow nudge only (no resize dispatch; avoids triggering layout jitter on some iOS PWAs)
-            try { void document.documentElement.offsetHeight; } catch (_) { /* ignore */ }
-        });
-    } catch (_) { /* ignore */ }
+        // iOS PWA: closing the setup overlay can leave the bottom bar in a "pre-layout" state
+        // until a reflow happens (e.g., a tab switch). Nudge layout once here.
+        try {
+            requestAnimationFrame(() => {
+                // Reflow nudge only (no resize dispatch; avoids triggering layout jitter on some iOS PWAs)
+                try { void document.documentElement.offsetHeight; } catch (_) { /* ignore */ }
+            });
+        } catch (_) { /* ignore */ }
+    });
 }
 
 function setupShowCodeArea(show) {
-    const box = setupEl('setup-code-area');
-    if (box) box.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
+    animateTransition(() => {
+        const box = setupEl('setup-code-area');
+        if (box) box.style.display = show ? 'flex' : 'none';
+        syncDesktopLeftPanel();
+    });
 }
 
 function setupSetCode(code) {
@@ -2309,21 +2340,27 @@ function setupShowInstruction(show, text = '') {
 }
 
 function setupShowJoinArea(show) {
-    const el = setupEl('setup-join-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
+    animateTransition(() => {
+        const el = setupEl('setup-join-area');
+        if (el) el.style.display = show ? 'flex' : 'none';
+        syncDesktopLeftPanel();
+    });
 }
 
 function setupShowRoleArea(show) {
-    const el = setupEl('setup-role-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
+    animateTransition(() => {
+        const el = setupEl('setup-role-area');
+        if (el) el.style.display = show ? 'flex' : 'none';
+        syncDesktopLeftPanel();
+    });
 }
 
 function setupShowWelcome(show) {
-    const el = setupEl('setup-welcome-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
+    animateTransition(() => {
+        const el = setupEl('setup-welcome-area');
+        if (el) el.style.display = show ? 'flex' : 'none';
+        syncDesktopLeftPanel();
+    });
 }
 
 /* ===== Desktop Left-Panel Sync (header + diagram mirroring) ===== */
@@ -5758,8 +5795,7 @@ function startVisualizer() {
             const isLight = (theme === 'light');
 
             ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(18, 18, 18, 0.9)';
-            ctx.fillRect(0, 0, logicalSize, logicalSize);
+            ctx.clearRect(0, 0, logicalSize, logicalSize);
 
             // Bass: 0 ~ 260Hz (12 bins - sync.html style for better punch)
             let bassSum = 0;
@@ -5854,8 +5890,7 @@ function drawIdleVisualizer() {
 
     // Clear canvas
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(18, 18, 18, 0.9)';
-    ctx.fillRect(0, 0, logicalSize, logicalSize);
+    ctx.clearRect(0, 0, logicalSize, logicalSize);
 
     if (isLight) ctx.globalCompositeOperation = 'source-over';
     else ctx.globalCompositeOperation = 'lighter';
@@ -10758,13 +10793,17 @@ function openMediaSourcePopup() {
         return;
     }
 
-    const ov = document.getElementById('media-source-overlay');
-    if (ov) ov.classList.add('active');
+    animateTransition(() => {
+        const ov = document.getElementById('media-source-overlay');
+        if (ov) ov.classList.add('active');
+    });
 }
 
 function closeMediaSourcePopup() {
-    const ov = document.getElementById('media-source-overlay');
-    if (ov) ov.classList.remove('active');
+    animateTransition(() => {
+        const ov = document.getElementById('media-source-overlay');
+        if (ov) ov.classList.remove('active');
+    });
 }
 
 function openYouTubePopup() {
@@ -10774,18 +10813,22 @@ function openYouTubePopup() {
         return;
     }
 
-    const ov = document.getElementById('youtube-url-overlay');
-    if (ov) ov.classList.add('active');
+    animateTransition(() => {
+        const ov = document.getElementById('youtube-url-overlay');
+        if (ov) ov.classList.add('active');
 
-    // auto-focus
-    const urlInput = document.getElementById('youtube-url-input');
-    if (urlInput) urlInput.focus();
+        // auto-focus
+        const urlInput = document.getElementById('youtube-url-input');
+        if (urlInput) urlInput.focus();
+    });
 }
 
 
 function closeYouTubePopup() {
-    const ov = document.getElementById('youtube-url-overlay');
-    if (ov) ov.classList.remove('active');
+    animateTransition(() => {
+        const ov = document.getElementById('youtube-url-overlay');
+        if (ov) ov.classList.remove('active');
+    });
 }
 
 function extractYouTubeVideoId(url) {

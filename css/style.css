@@ -20,7 +20,6 @@ html.standalone body {
 :root {
     /* Palette - Deep & Clean & Flat */
     --bg: #121212;
-    --bg-visualizer: #050505;
     --surface-1: #121212;
     /* Header, Nav, Cards */
     --surface-2: #262626;
@@ -92,27 +91,27 @@ html.setup-boot-block .bottom-nav {
     pointer-events: none !important;
 }
 
-/* 
-   [TEMPORARY OVERRIDE] 
-   다크테마(Dark Mode) 고정 요청에 의해 임시로 라이트모드 변수 선언부를 비활성화(주석 처리)합니다.
-   향후 라이트모드 UI 개발 재개 시 아래 주석을 해제하세요.
-*/
-/*
-[data-theme="DISABLED-light"] {
-    --bg: #ffffff;
-    --bg-visualizer: #ffffff;
+[data-theme="light"] {
+    /* Palette - Light & Sleek */
+    --bg: #f8f9fa;
+    /* Soft dynamic background */
     --surface-1: #ffffff;
-    --surface-2: #e5e5ea;
-    --surface-3: #d1d1d6;
-    --primary: #007aff;
-    --text-main: #444444;
-    --text-sub: #666666;
-    --text-muted: #c7c7cc;
+    /* Pure white for depth */
+    --surface-2: #f1f3f5;
+    /* Header/Nav/Cards */
+    --surface-3: #B7B9BB;
+    /* Interactions */
+    --primary: #3b82f6;
+    --text-main: #212529;
+    /* Contrast dark text */
+    --text-sub: #495057;
+    /* Darker grey for legibility */
+    --text-muted: #868e96;
+    /* Darker grey for legibility */
 
-    --glass-bg: rgba(255, 255, 255, 0.75);
-    --glass-border: transparent;
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(0, 0, 0, 0.06);
 }
-*/
 
 * {
     box-sizing: border-box;
@@ -428,14 +427,12 @@ header.loading .header-progress-bg {
 }
 
 /* Light Mode Logo Overrides */
-[data-theme="DISABLED-light"] .app-logo {
-    color: #222222;
-    /* Darker than #444444 text */
+[data-theme="light"] .app-logo {
+    color: #212529;
 }
 
-[data-theme="DISABLED-light"] .logo-fade {
-    /* Update gradient start color to #222222 */
-    background: linear-gradient(to right, #222222 20%, var(--surface-3) 100%);
+[data-theme="light"] .logo-fade {
+    background: linear-gradient(to right, #212529 20%, #adb5bd 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -548,6 +545,14 @@ header.loading .header-loading-text {
     pointer-events: auto;
 }
 
+.tab-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+}
+
 /* Structural Fix: Targeted Persistence Hack.
    Only the Play tab stays "alive" off-screen when YouTube is active in the background. */
 body.mode-video #tab-play:not(.active) {
@@ -618,12 +623,12 @@ body.mode-youtube #youtube-settings-disabled-wrap {
     will-change: filter;
 }
 
-html[data-theme="DISABLED-light"] .youtube-settings-note {
+html[data-theme="light"] .youtube-settings-note {
     border: 1px solid rgba(0, 0, 0, 0.06);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
 }
 
-html[data-theme="DISABLED-light"] body.mode-youtube #youtube-settings-disabled-wrap {
+html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     filter: blur(6px) saturate(0.95);
     opacity: 0.62;
 }
@@ -706,13 +711,14 @@ html[data-theme="DISABLED-light"] body.mode-youtube #youtube-settings-disabled-w
     justify-content: center;
     align-items: center;
     border-radius: 50%;
-    background: var(--surface-1);
+    background: transparent !important;
 }
 
 #visualizerCanvas {
     width: 100%;
     height: 100%;
     border-radius: 50%;
+    background: transparent !important;
 }
 
 .video-wrapper {
@@ -1242,6 +1248,8 @@ input[type=range]:active::-webkit-slider-thumb {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: 1;
+    /* Fill the container */
 }
 
 .track-item {
@@ -1435,7 +1443,11 @@ input[type=range]:active::-webkit-slider-thumb {
     border-radius: 0;
     margin: 0 44px;
     padding: 0 !important;
-    border-bottom: 1px solid var(--surface-2);
+    border-bottom: 1px solid var(--surface-3);
+}
+
+[data-theme="light"] .section-group {
+    border-bottom: 1px solid var(--surface-3);
 }
 
 .section-padding-bottom {
@@ -1476,9 +1488,14 @@ input[type=range]:active::-webkit-slider-thumb {
     align-items: center;
 }
 
+/* Target the very first section in Settings (Theme) to bring it closer to the top/invite area */
+#tab-settings .section-group:first-of-type .section-header-row {
+    padding-top: 12px !important;
+}
+
 #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
-    padding-top: 24px !important;
-    /* Reduce top padding for the first section to make the title closer (Total gap 44px) */
+    padding-top: 56px !important;
+    /* Increased gap from the divider above to avoid "sticking" feel */
 }
 
 .section-title {
@@ -1542,12 +1559,18 @@ input[type="range"] {
 }
 
 /* Theme Selector */
+.section-group>.theme-selector:last-child {
+    padding-bottom: 4px !important;
+}
+
 .theme-selector {
     display: flex;
     background: var(--surface-2);
     border-radius: 9999px !important;
-    padding: 4px;
-    margin: 12px 20px 0;
+    padding: 4px !important;
+    /* overrides last-child 44px padding-bottom causing huge height */
+    margin: 12px 20px 44px;
+    /* compensates for padding loss */
     gap: 4px;
 }
 
@@ -1945,7 +1968,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 }
 
 /* Light Mode */
-[data-theme="DISABLED-light"] .bottom-nav {
+[data-theme="light"] .bottom-nav {
     background: var(--glass-bg);
     box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
         0px 40px 200px 0px rgba(25, 31, 41, 0.247);
@@ -2297,7 +2320,6 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
     display: none;
     flex-direction: column;
     overflow: hidden;
-    animation: fadeInFadeOnly 0.3s ease-out;
     padding-top: calc(var(--safe-top) + 16px);
     /* Use safe-area only, no header height */
 }
@@ -2341,15 +2363,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     margin-bottom: 20px;
 }
 
-@keyframes fadeInFadeOnly {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
+/* Removed fadeInFadeOnly to use View Transitions API */
 
 .onboarding-overlay.active {
     display: flex;
@@ -2994,7 +3008,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
 }
 
 .ch-opt {
-    background: #212121;
+    background: var(--surface-2);
     border-radius: 16px;
     padding: 14px 10px;
     /* Reduced from 20px */
@@ -4035,12 +4049,14 @@ input:checked+.slider:before {
     line-height: 1.6;
 }
 
-.chat-empty {
+.chat-empty,
+.list-empty-state {
     flex: 1;
 }
 
 .list-empty-state {
-    padding: 60px 20px;
+    padding: 20px;
+    /* Removed large top padding to allow flex centering */
 }
 
 .chat-group {
@@ -4287,17 +4303,22 @@ input:checked+.slider:before {
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     max-height: calc(var(--app-height, 100dvh) * 0.5);
-    background: #212121;
-    /* Solid background per request */
+    background: var(--surface-1);
+    /* Themed background */
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
-    /* Softer Shadow */
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+    /* Slightly stronger shadow for depth */
     transform: translateY(100%);
-    transition: transform 0.3s ease;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 1000;
     display: flex;
     flex-direction: column;
+}
+
+[data-theme="light"] .chat-drawer {
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.08);
+    /* Softer shadow in light mode */
 }
 
 .chat-drawer.open {
@@ -4309,7 +4330,7 @@ input:checked+.slider:before {
     justify-content: space-between;
     align-items: center;
     padding: 16px;
-    border-bottom: 1px solid var(--surface-2);
+    border-bottom: 1px solid var(--surface-3);
 }
 
 .chat-drawer-title {
@@ -4357,9 +4378,8 @@ input:checked+.slider:before {
     gap: 12px;
     padding: 10px 16px;
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
-    /* Removed the top stroke per request */
-    background: #212121;
-    /* Match the drawer solid background */
+    background: var(--surface-1);
+    /* Match the drawer themed background */
 }
 
 
@@ -4479,26 +4499,26 @@ input:checked+.slider:before {
 }
 
 /* Light Mode Play Tab Buttons (White Background) */
-[data-theme="DISABLED-light"] .chat-preview-btn,
-[data-theme="DISABLED-light"] .file-select-btn {
+[data-theme="light"] .chat-preview-btn,
+[data-theme="light"] .file-select-btn {
     background: #ffffff;
     box-shadow: none;
     border: none;
 }
 
-[data-theme="DISABLED-light"] .chat-preview-btn .chat-preview-text,
-[data-theme="DISABLED-light"] .file-select-btn,
-[data-theme="DISABLED-light"] .file-select-btn span {
+[data-theme="light"] .chat-preview-btn .chat-preview-text,
+[data-theme="light"] .file-select-btn,
+[data-theme="light"] .file-select-btn span {
     color: #444444;
 }
 
-[data-theme="DISABLED-light"] .chat-preview-btn .chat-preview-icon,
-[data-theme="DISABLED-light"] .file-select-btn svg {
+[data-theme="light"] .chat-preview-btn .chat-preview-icon,
+[data-theme="light"] .file-select-btn svg {
     fill: #444444;
 }
 
 /* Explicitly keep the YouTube icon red in light mode */
-[data-theme="DISABLED-light"] .file-select-btn .btn-icon-bg.youtube svg {
+[data-theme="light"] .file-select-btn .btn-icon-bg.youtube svg {
     fill: #FF0000;
 }
 
@@ -4608,8 +4628,8 @@ input:checked+.slider:before {
     color: var(--text-sub);
 }
 
-[data-theme="DISABLED-light"] #btn-sync,
-[data-theme="DISABLED-light"] #btn-media-source {
+[data-theme="light"] #btn-sync,
+[data-theme="light"] #btn-media-source {
     color: #444444;
 }
 

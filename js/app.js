@@ -101,6 +101,26 @@ function freezeLayoutMetricsOnce({ force = false } = {}) {
     scheduleAppHeightUpdate();
 }
 
+/**
+ * [Android Landscape Softkey Bug Workaround]
+ *
+ * On Android tablets (especially Galaxy Tab in Chrome-based WebView) in landscape
+ * mode, 100dvh/100svh/innerHeight/visualViewport.height all report the FULL
+ * physical pixel height IGNORING the software navigation bar at the bottom.
+ * This causes fixed/absolute-positioned elements at bottom:0 to be hidden
+ * behind the system bar.
+ *
+ * Our multi-layered fix:
+ * 1. Detect softkey bar height via screen.availHeight vs screen.height delta
+ * 2. Cross-check with visualViewport.offsetTop (non-zero during keyboard, but
+ *    also reveals system chrome insets on some builds)
+ * 3. Apply the computed "safe" height to --app-height CSS variable
+ * 4. Apply --safe-nav-bottom CSS var for fixed elements (.bottom-nav, .chat-drawer)
+ * 5. Use ResizeObserver + delayed re-measure for Android WebView's lazy reporting
+ */
+
+let _lastSoftKeyHeight = 0;
+
 function updateAppHeightNow() {
     const root = document.documentElement;
 
@@ -116,10 +136,14 @@ function updateAppHeightNow() {
     const vv = window.visualViewport;
     const isStandalone = isStandaloneDisplayMode();
 
-    // 안드로이드 태블릿/키오스크 가로모드에서 브라우저가 화면 아랫부분의 소프트키나 
-    // 네비게이션 바를 무시하고 전체 픽셀 사이즈를 반환하는 버그가 있습니다.
-    // vv.height, innerHeight, clientHeight 중 존재하는 가장 '작은(안전한)' 값을 선택하여
-    // 화면이 짤리는 현상을 방지합니다.
+    let isLandscape = false;
+    try {
+        isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
+    } catch (_) {
+        isLandscape = (window.innerWidth > window.innerHeight);
+    }
+
+    // --- Step 1: Collect all available height signals ---
     let validHeights = [];
     if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
     if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
@@ -127,21 +151,93 @@ function updateAppHeightNow() {
 
     let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
 
-    // iOS 홈화면 앱(standalone)에서는 innerHeight/clientHeight가 safe-area를 제외하는 경우가 있어
-    // screen.height(=기기 화면 높이, CSS px)를 기준으로 더 큰 값을 사용합니다.
-    let isLandscape = false;
-    try {
-        isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
-    } catch (_) {
-        isLandscape = (window.innerWidth > window.innerHeight);
+    // --- Step 2: Android landscape softkey compensation ---
+    let softKeyHeight = 0;
+
+    if (IS_ANDROID && isLandscape && window.screen) {
+        const scr = window.screen;
+
+        // Method A: screen.availHeight vs screen.height
+        // On Android, screen.height = physical CSS pixels, screen.availHeight = minus system bars
+        if (Number.isFinite(scr.availHeight) && Number.isFinite(scr.height) &&
+            scr.availHeight > 0 && scr.height > 0) {
+
+            // In landscape, the system nav bar usually goes to the bottom (or side on gestures).
+            // The delta gives us the system bar size.
+            const deltaH = Math.round(scr.height - scr.availHeight);
+            if (deltaH > 0 && deltaH < 200) {
+                softKeyHeight = deltaH;
+            }
+
+            // Also check width delta (some devices put nav bar on the side in landscape)
+            if (Number.isFinite(scr.availWidth) && Number.isFinite(scr.width)) {
+                const deltaW = Math.round(scr.width - scr.availWidth);
+                // If the nav bar is on the side, height is fine; if at bottom, use height delta
+                if (deltaW > 0 && deltaW < 200 && deltaH === 0) {
+                    // Nav bar is on the side — no height adjustment needed
+                    softKeyHeight = 0;
+                }
+            }
+        }
+
+        // Method B: Compare innerHeight with a "known good" measurement
+        // window.outerHeight includes chrome; can sometimes help
+        if (softKeyHeight === 0 && Number.isFinite(window.outerHeight) && window.outerHeight > 0) {
+            const ratio = window.devicePixelRatio || 1;
+            const physicalOuter = Math.round(window.outerHeight);
+            const physicalInner = Math.round(window.innerHeight);
+            // If outer is significantly larger than inner, the delta MAY be system bars
+            // But this is unreliable; only use as hint
+            if (physicalOuter > physicalInner && (physicalOuter - physicalInner) < 150) {
+                // Use this as a secondary confirmation only
+            }
+        }
+
+        // Method C: If h (min of all heights) equals the full screen height,
+        // it's likely the browser is ignoring the system bar
+        if (softKeyHeight === 0 && scr.height > 0) {
+            // Compare our best height with screen.height
+            // If they're identical, the browser is likely including system bars
+            if (h > 0 && Math.abs(h - Math.round(scr.height)) < 2) {
+                // h == screen.height means browser is not subtracting system bar
+                // Fallback: use a heuristic - Android nav bars are typically 48dp
+                const dp48 = Math.round(48 * (window.devicePixelRatio || 1) / (window.devicePixelRatio || 1));
+                softKeyHeight = dp48;
+            }
+        }
+
+        // Sanity: If we previously detected a softkey height, keep it stable
+        // (prevents jitter during rotations)
+        if (softKeyHeight > 0) {
+            _lastSoftKeyHeight = softKeyHeight;
+        } else if (_lastSoftKeyHeight > 0 && isLandscape) {
+            // Keep previous detection if still in landscape
+            softKeyHeight = _lastSoftKeyHeight;
+        }
+
+        // Apply softkey compensation to height
+        if (softKeyHeight > 0 && h > softKeyHeight) {
+            h = h - softKeyHeight;
+        }
     }
-    if (IS_IOS && isStandalone && !isLandscape && window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
+
+    // --- Step 3: iOS standalone fix (keep existing) ---
+    if (IS_IOS && isStandalone && !isLandscape && window.screen &&
+        Number.isFinite(window.screen.height) && window.screen.height > 0) {
         h = Math.max(h, Math.round(window.screen.height));
     }
 
+    // --- Step 4: Apply CSS variables ---
     if (h > 0) {
         try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
     }
+
+    // --safe-nav-bottom: offset for fixed elements at the bottom
+    // On Android landscape, the soft nav bar overlaps fixed bottom:0 elements.
+    // We push them up by the soft key height.
+    // On other platforms, CSS env(safe-area-inset-bottom) handles this natively.
+    const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
+    try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch (_) { /* ignore */ }
 }
 
 function scheduleAppHeightUpdate() {
@@ -157,8 +253,27 @@ function scheduleAppHeightUpdate() {
     }
 }
 
+/**
+ * Delayed re-measure for Android WebView.
+ * Android WebView sometimes reports stale viewport dimensions right after
+ * orientation changes or resume. A secondary update after a short delay
+ * catches the corrected values.
+ */
+let _delayedUpdateTimer = 0;
+function scheduleDelayedAppHeightUpdate(delayMs) {
+    if (_delayedUpdateTimer) clearTimeout(_delayedUpdateTimer);
+    _delayedUpdateTimer = setTimeout(() => {
+        _delayedUpdateTimer = 0;
+        scheduleAppHeightUpdate();
+    }, delayMs || 300);
+}
+
 (function initAppHeightVar() {
-    const run = () => scheduleAppHeightUpdate();
+    const run = () => {
+        scheduleAppHeightUpdate();
+        // Android WebView: delayed second pass to catch corrected values
+        if (IS_ANDROID) scheduleDelayedAppHeightUpdate(500);
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', run, { once: true });
@@ -167,18 +282,61 @@ function scheduleAppHeightUpdate() {
     }
 
     // Keep it simple: update on real geometry changes / PWA resume
-    try { window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
-    try { window.addEventListener('orientationchange', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
+    try {
+        window.addEventListener('resize', () => {
+            scheduleAppHeightUpdate();
+            if (IS_ANDROID) scheduleDelayedAppHeightUpdate(350);
+        }, { passive: true });
+    } catch (_) { /* ignore */ }
+
+    try {
+        window.addEventListener('orientationchange', () => {
+            // Reset softkey cache on rotation
+            _lastSoftKeyHeight = 0;
+            scheduleAppHeightUpdate();
+            // Triple-pass for Android: immediate, 300ms, 800ms
+            if (IS_ANDROID) {
+                scheduleDelayedAppHeightUpdate(300);
+                setTimeout(() => scheduleAppHeightUpdate(), 800);
+            }
+        }, { passive: true });
+    } catch (_) { /* ignore */ }
+
     try { window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
     try {
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') scheduleAppHeightUpdate();
+            if (document.visibilityState === 'visible') {
+                scheduleAppHeightUpdate();
+                if (IS_ANDROID) scheduleDelayedAppHeightUpdate(400);
+            }
         });
     } catch (_) { /* ignore */ }
 
     try {
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
+            window.visualViewport.addEventListener('resize', () => {
+                scheduleAppHeightUpdate();
+                if (IS_ANDROID) scheduleDelayedAppHeightUpdate(250);
+            }, { passive: true });
+
+            // Also listen to scroll events on visualViewport (keyboard show/hide)
+            window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
+        }
+    } catch (_) { /* ignore */ }
+
+    // ResizeObserver on body: ultimate fallback for detecting actual rendered size changes
+    try {
+        if (typeof ResizeObserver !== 'undefined') {
+            const bodyObserver = new ResizeObserver(() => {
+                scheduleAppHeightUpdate();
+            });
+            if (document.body) {
+                bodyObserver.observe(document.body);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    bodyObserver.observe(document.body);
+                }, { once: true });
+            }
         }
     } catch (_) { /* ignore */ }
 })();

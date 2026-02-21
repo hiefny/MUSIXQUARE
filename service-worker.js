@@ -16,7 +16,7 @@
 // v28: Portrait lock UX + mobile overscroll fix + media select icon bg + vBass routing fix
 // v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
 // v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
-const CACHE_VERSION = "v40";
+const CACHE_VERSION = "v41";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

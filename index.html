@@ -50,12 +50,7 @@
          These rules MUST be in HTML (network-first) because the service worker may
          serve stale CSS from its static cache for multiple reloads. -->
     <style id="android-viewport-fix">
-        /* === VIEWPORT + SETUP SCREEN FIX (v37) ===
-           Card/MobileView were 757px despite overlay being 663px because
-           height:auto on flex children resolves to content height.
-           FIX: height:0 + flex:1 1 0% forces flex children to EXACTLY
-           match parent size. Standard CSS scrollable-flex-child pattern. */
-
+        /* === VIEWPORT FIX (v38) — minimal CSS, JS handles setup screen === */
         body {
             max-height: var(--app-height, 100dvh) !important;
             min-height: 0 !important;
@@ -72,34 +67,62 @@
             position: fixed !important;
             bottom: var(--safe-nav-bottom, 0px) !important;
         }
-
-        /* Overlay: explicit height = viewport */
-        .onboarding-overlay {
-            height: var(--app-height, 100dvh) !important;
-            max-height: var(--app-height, 100dvh) !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-        }
-
-        /* Card: height:0 + flex:1 = EXACTLY fill parent, no more */
-        .onboarding-card,
-        .onboarding-card.full-screen {
-            flex: 1 1 0% !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-        }
-
-        /* Mobile view: height:0 + flex:1 = fill card, SCROLL internally */
-        .setup-mobile-view {
-            flex: 1 1 0% !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
-            -webkit-overflow-scrolling: touch;
-        }
     </style>
+
+    <!-- JS-based setup screen fix: bypasses all CSS cascade/specificity issues -->
+    <script>
+        (function fixSetupScreen() {
+            function applyFix() {
+                var appH = getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim();
+                if (!appH || appH === '') appH = window.innerHeight + 'px';
+
+                var overlay = document.getElementById('setup-overlay');
+                if (overlay) {
+                    var os = overlay.style;
+                    os.setProperty('height', appH, 'important');
+                    os.setProperty('max-height', appH, 'important');
+                    os.setProperty('min-height', '0', 'important');
+                    os.setProperty('overflow', 'hidden', 'important');
+                    os.setProperty('box-sizing', 'border-box', 'important');
+                }
+
+                var card = overlay ? overlay.querySelector('.onboarding-card') : null;
+                if (card) {
+                    var cs = card.style;
+                    cs.setProperty('height', '100%', 'important');
+                    cs.setProperty('max-height', '100%', 'important');
+                    cs.setProperty('min-height', '0', 'important');
+                    cs.setProperty('overflow', 'hidden', 'important');
+                    cs.setProperty('box-sizing', 'border-box', 'important');
+                    cs.setProperty('display', 'flex', 'important');
+                    cs.setProperty('flex-direction', 'column', 'important');
+                }
+
+                var mv = overlay ? overlay.querySelector('.setup-mobile-view') : null;
+                if (mv) {
+                    var ms = mv.style;
+                    ms.setProperty('height', '100%', 'important');
+                    ms.setProperty('max-height', '100%', 'important');
+                    ms.setProperty('min-height', '0', 'important');
+                    ms.setProperty('overflow-y', 'auto', 'important');
+                    ms.setProperty('overflow-x', 'hidden', 'important');
+                    ms.setProperty('box-sizing', 'border-box', 'important');
+                    ms.setProperty('-webkit-overflow-scrolling', 'touch');
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', applyFix);
+            } else {
+                applyFix();
+            }
+            // Re-apply on resize/orientation change
+            window.addEventListener('resize', applyFix);
+            window.addEventListener('orientationchange', function () {
+                setTimeout(applyFix, 300);
+            });
+        })();
+    </script>
 
     <!-- Force service worker update on load -->
     <script>

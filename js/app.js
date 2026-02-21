@@ -108,23 +108,17 @@ if (IS_IOS) {
             const vv = window.visualViewport;
             const s = window.screen || {};
             const lines = [
-                `[VIEWPORT DEBUG v37]`,
+                `[VIEWPORT DEBUG v38]`,
                 `UA: ${navigator.userAgent.slice(0, 80)}`,
                 `IS_ANDROID:${IS_ANDROID} IS_IOS:${IS_IOS}`,
                 `innerH:${window.innerHeight} innerW:${window.innerWidth}`,
-                `vv.H:${vv ? Math.round(vv.height) : '?'} vv.W:${vv ? Math.round(vv.width) : '?'}`,
                 `clientH:${document.documentElement.clientHeight}`,
-                `scrH:${s.height} scrW:${s.width}`,
-                `scrAvailH:${s.availHeight} scrAvailW:${s.availWidth}`,
-                `outerH:${window.outerHeight}`,
-                `dpr:${window.devicePixelRatio}`,
                 `bodyH:${document.body.offsetHeight}`,
                 `--app-height:${getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim()}`,
-                `overlayH:${document.querySelector('.onboarding-overlay')?.offsetHeight || '?'}`,
-                `setupCardH:${document.querySelector('.onboarding-card')?.offsetHeight || '?'}`,
-                `mobileViewH:${document.querySelector('.setup-mobile-view')?.offsetHeight || '?'}`,
-                `orient:${window.innerWidth > window.innerHeight ? 'LAND' : 'PORT'}`,
-                `vpMeta:${(document.querySelector('meta[name=viewport]')?.content || '?').slice(0, 50)}`
+                `overlayH:${document.querySelector('#setup-overlay')?.offsetHeight || '?'}/${document.querySelector('#setup-overlay')?.clientHeight || '?'}`,
+                `cardH:${document.querySelector('.onboarding-card')?.offsetHeight || '?'}/${document.querySelector('.onboarding-card')?.clientHeight || '?'}`,
+                `mvH:${document.querySelector('.setup-mobile-view')?.offsetHeight || '?'}/${document.querySelector('.setup-mobile-view')?.scrollHeight || '?'}`,
+                `orient:${window.innerWidth > window.innerHeight ? 'LAND' : 'PORT'}`
             ];
             el.textContent = lines.join('\n');
         };

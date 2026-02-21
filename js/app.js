@@ -2848,7 +2848,7 @@ async function proceedToHostCode(mode) {
     // Temporary actions (loading state)
     setupRenderActions([
         { id: 'btn-setup-back', html: '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>', kind: 'icon-only', onClick: () => startHostFlow() },
-        { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true }
+        { id: 'btn-setup-confirm', text: '잠시만요...', kind: 'secondary', disabled: true }
     ], 'horizontal-with-back');
 
     try {

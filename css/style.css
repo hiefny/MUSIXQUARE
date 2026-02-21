@@ -895,13 +895,17 @@ input[type=range]::-webkit-slider-runnable-track {
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    height: 14px;
-    width: 14px;
+    /* 모바일 터치 영역 확장을 위해 36px로 키우고, 투명 테두리로 시각적 크기는 14px 유지 */
+    height: 36px;
+    width: 36px;
+    border: 11px solid transparent;
+    background-clip: content-box;
     border-radius: 50%;
-    background: var(--text-main);
-    margin-top: -5px;
+    background-color: var(--text-main);
+    margin-top: -16px;
+    /* (Track height 4px - Thumb height 36px) / 2 = -16px */
     transform: scale(1);
-    transition: transform 0.2s;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 input[type=range]:active::-webkit-slider-thumb {
@@ -1628,13 +1632,14 @@ input[type=range].eq-slider::-webkit-slider-runnable-track {
 /* Thumb */
 input[type=range].eq-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    height: 14px;
-    width: 14px;
+    /* EQ 슬라이더 터치 영역 36px 확장 */
+    height: 36px;
+    width: 36px;
+    border: 11px solid transparent;
+    background-clip: content-box;
     border-radius: 50%;
-    background: var(--text-main);
-    margin-top: -5px;
-    /* center on track */
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    background-color: var(--text-main);
+    margin-top: -16px;
 }
 
 .eq-band {
@@ -2103,7 +2108,7 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     opacity: 0;
     pointer-events: none;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 5000;
+    z-index: 7000;
     /* Highest priority - above all modals including help modal */
     white-space: nowrap;
 }
@@ -2128,8 +2133,8 @@ input[type=range].eq-slider::-webkit-slider-thumb {
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 4000;
-    /* Higher than onboarding-overlay (2000) */
+    z-index: 6000;
+    /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
     animation: fadeIn 0.3s ease-out;
 }
 

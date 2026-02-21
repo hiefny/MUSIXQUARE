@@ -2489,7 +2489,7 @@ async function startHostFlow() {
                 }
             }
         },
-        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
     ], 'vertical');
 }
 
@@ -2516,7 +2516,7 @@ async function proceedToHostCode(mode) {
     // Temporary actions (loading state)
     setupRenderActions([
         { id: 'btn-setup-confirm', text: '코드를 불러오고 있어요...', kind: 'secondary', disabled: true },
-        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() }
+        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() }
     ], 'vertical');
 
     try {
@@ -2534,7 +2534,7 @@ async function proceedToHostCode(mode) {
         // Show "Start" + Back button (vertical layout to match initial buttons position)
         setupRenderActions([
             { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: startSessionFromHost },
-            { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+            { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
         ], 'vertical');
     } catch (e) {
         log.error('[Setup] Host session init failed', e);
@@ -2595,7 +2595,7 @@ async function startGuestFlow() {
                 }
             }
         },
-        { id: 'btn-setup-back-home', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
     ], 'vertical');
 
     // Visual Update
@@ -2624,7 +2624,7 @@ function proceedToGuestCode(mode) {
     // Show "Start" + Back button (vertical layout to match initial buttons position)
     setupRenderActions([
         { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(pendingGuestRoleMode) },
-        { id: 'btn-setup-back-home-guest', text: '초기 화면으로 돌아가기', kind: 'secondary', onClick: () => initSetupOverlay() },
+        { id: 'btn-setup-back-home-guest', text: '처음으로', kind: 'secondary', onClick: () => initSetupOverlay() },
     ], 'vertical');
 
     const input = setupEl('setup-join-code');
@@ -5404,12 +5404,6 @@ function startVisualizer() {
 
         if (isToneAnalyser) {
             const dbData = analyser.getValue();
-            for (let i = 0; i < bufferLength; i++) {
-                // Map -100dB ~ -30dB to 0 ~ 255 (brightness coefficient: 2.5)
-                let val = (dbData[i] + 100) * 2.5;
-                if (val < 0) val = 0; if (val > 255) val = 255;
-                dataArray[i] = val;
-            }
 
             const theme = document.documentElement.getAttribute('data-theme');
             const isLight = (theme === 'light');
@@ -5423,7 +5417,11 @@ function startVisualizer() {
             let bassCount = 12;
             // Safety check for array bounds
             if (bassCount > bufferLength) bassCount = bufferLength;
-            for (let i = 0; i < bassCount; i++) { bassSum += dataArray[i]; }
+            for (let i = 0; i < bassCount; i++) {
+                let val = (dbData[i] + 100) * 2.5;
+                if (val < 0) val = 0; if (val > 255) val = 255;
+                bassSum += val;
+            }
             const bassAverage = bassSum / bassCount;
 
             // Per-band smoothing: Bass only (0.8 = smooth, High = immediate)
@@ -5438,7 +5436,11 @@ function startVisualizer() {
             let highCountVal = highEnd - highStart;
             if (highCountVal < 1) highCountVal = 1;
 
-            for (let i = highStart; i < highEnd; i++) { highSum += dataArray[i]; }
+            for (let i = highStart; i < highEnd; i++) {
+                let val = (dbData[i] + 100) * 2.5;
+                if (val < 0) val = 0; if (val > 255) val = 255;
+                highSum += val;
+            }
             const highAverage = highSum / highCountVal;
             const highPunch = Math.pow(highAverage / 255, 1.0);
 

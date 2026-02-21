@@ -386,8 +386,8 @@
 
     .section-header-row {
         border-bottom: none !important;
-        padding: 44px 20px 32px !important;
-        /* Symmetric 44px top start and 44px gap to content */
+        padding: 44px 20px 16px !important;
+        /* Symmetric 44px top start and 28px gap to content */
     }
 
     #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {

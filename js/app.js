@@ -154,160 +154,23 @@ function updateAppHeightNow() {
         if (isStandaloneDisplayMode()) root.classList.add('standalone');
     } catch (_) { /* ignore */ }
 
-    const de = document.documentElement;
-    const vv = window.visualViewport;
-    const isStandalone = isStandaloneDisplayMode();
-
-    let isLandscape = false;
-    try {
-        isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
-    } catch (_) {
-        isLandscape = (window.innerWidth > window.innerHeight);
+    // Use the most accurate viewport height available as the single source of truth
+    let h = 0;
+    if (window.visualViewport && window.visualViewport.height > 0) {
+        h = window.visualViewport.height;
+    } else if (window.innerHeight > 0) {
+        h = window.innerHeight;
+    } else if (document.documentElement.clientHeight > 0) {
+        h = document.documentElement.clientHeight;
     }
 
-    // --- Collect all available height signals ---
-    let validHeights = [];
-    if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
-    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
-    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) validHeights.push(Math.round(de.clientHeight));
-
-    let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
-
-    // --- Android: Detect if viewport STILL extends behind system bar ---
-    // (Happens when native app forces fullscreen regardless of viewport-fit)
-    let softKeyHeight = 0;
-
-    if (IS_ANDROID && isLandscape) {
-        const scr = window.screen || {};
-
-        // Debug: log viewport metrics once so we can diagnose remotely
-        if (!_vpDebugLogged) {
-            _vpDebugLogged = true;
-            try {
-                console.info('[Viewport Debug]', JSON.stringify({
-                    innerH: window.innerHeight,
-                    innerW: window.innerWidth,
-                    vvH: vv ? vv.height : 'N/A',
-                    vvW: vv ? vv.width : 'N/A',
-                    vvOffTop: vv ? vv.offsetTop : 'N/A',
-                    vvOffLeft: vv ? vv.offsetLeft : 'N/A',
-                    clientH: de.clientHeight,
-                    scrH: scr.height,
-                    scrW: scr.width,
-                    scrAvailH: scr.availHeight,
-                    scrAvailW: scr.availWidth,
-                    outerH: window.outerHeight,
-                    outerW: window.outerWidth,
-                    dpr: window.devicePixelRatio,
-                    orient: isLandscape ? 'L' : 'P'
-                }));
-            } catch (_) { /* ignore */ }
-        }
-
-        // Strategy 1: outerHeight vs innerHeight
-        // In Android Chrome, outerHeight = browser window including address bar + nav bar.
-        // If outerHeight > innerHeight, the difference includes system chrome.
-        // But this is less reliable for detecting the BOTTOM nav bar specifically.
-        if (Number.isFinite(window.outerHeight) && window.outerHeight > 0 &&
-            Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
-            const delta = Math.round(window.outerHeight - window.innerHeight);
-            // Only consider if delta is in a reasonable range for a system nav bar (20-100px)
-            // and NOT zero (which means viewport-fit removal worked)
-            if (delta < 0) {
-                // Negative delta: innerHeight > outerHeight
-                // This can happen when viewport extends behind nav bar
-                // innerHeight includes the area behind nav bar, outerHeight doesn't
-                softKeyHeight = Math.abs(delta);
-            }
-        }
-
-        // Strategy 2: screen.availHeight/availWidth deltas
-        // Note: on many Android devices, screen.height/width DON'T rotate with orientation.
-        // In landscape: screen.width = physical height, screen.height = physical width
-        // So we need to compare with the RIGHT dimension.
-        if (softKeyHeight === 0 && scr.availHeight != null && scr.availWidth != null) {
-            // In landscape, the "height" dimension is the shorter side.
-            // screen.height and screen.availHeight may or may not swap.
-            // Try both orientations:
-
-            // Case 1: screen dimensions DO rotate (modern Chrome)
-            const dH = Math.round((scr.height || 0) - (scr.availHeight || 0));
-            if (dH > 0 && dH < 150) {
-                softKeyHeight = dH;
-            }
-
-            // Case 2: Also check width delta (nav bar on side in some landscape configs)
-            if (softKeyHeight === 0) {
-                const dW = Math.round((scr.width || 0) - (scr.availWidth || 0));
-                // If width delta > 0 but height delta == 0, nav is on the side
-                // If both deltas > 0, use height delta
-                if (dW > 0 && dW < 150 && dH <= 0) {
-                    // Nav bar on side, no height adjustment needed
-                    softKeyHeight = 0;
-                }
-            }
-        }
-
-        // Strategy 3: Hardcoded 48dp fallback
-        // If we couldn't detect the nav bar, but the screen looks suspiciously full
-        // (body renders taller than we'd expect), apply a safe default.
-        // 48dp is the standard Android 3-button nav bar height.
-        if (softKeyHeight === 0) {
-            // Check: does the body currently render at the full screen height?
-            // If so, the viewport is likely extending behind the nav bar.
-            const bodyRect = document.body ? document.body.getBoundingClientRect() : null;
-            if (bodyRect && h > 0) {
-                // Compare h with screen dimensions
-                // On landscape, use the smaller of screen.height/screen.width as the height
-                const scrDimH = Math.min(scr.height || Infinity, scr.width || Infinity);
-                if (Number.isFinite(scrDimH) && scrDimH > 100) {
-                    // If h is very close to the full screen short dimension,
-                    // the nav bar is probably behind the viewport
-                    if (Math.abs(h - scrDimH) < 4) {
-                        softKeyHeight = 48; // 48dp standard nav bar
-                    }
-                }
-            }
-        }
-
-        // Clamp to reasonable range
-        if (softKeyHeight > 120) softKeyHeight = 48;
-        if (softKeyHeight < 0) softKeyHeight = 0;
-
-        // Stability: keep previous detection if in same orientation
-        if (softKeyHeight > 0) {
-            _lastSoftKeyHeight = softKeyHeight;
-        } else if (_lastSoftKeyHeight > 0 && isLandscape) {
-            softKeyHeight = _lastSoftKeyHeight;
-        }
-
-        // Apply compensation
-        if (softKeyHeight > 0 && h > softKeyHeight) {
-            h -= softKeyHeight;
-        }
-
-        if (softKeyHeight > 0) {
-            log.info(`[Viewport] Android softkey compensation: ${softKeyHeight}px`);
-        }
-    } else if (!isLandscape) {
-        // Reset cache when back to portrait
-        _lastSoftKeyHeight = 0;
-    }
-
-    // --- iOS standalone fix ---
-    if (IS_IOS && isStandalone && !isLandscape && window.screen &&
-        Number.isFinite(window.screen.height) && window.screen.height > 0) {
-        h = Math.max(h, Math.round(window.screen.height));
-    }
-
-    // --- Apply CSS variables ---
+    // Apply exact height deterministically
     if (h > 0) {
         try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
     }
 
-    // --safe-nav-bottom: pushes fixed bottom elements above the system nav bar
-    const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
-    try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch (_) { /* ignore */ }
+    // Remove the probabilistic soft-key guessing mechanism to prevent UI jitter/tangled touch areas
+    try { root.style.setProperty('--safe-nav-bottom', `0px`); } catch (_) { /* ignore */ }
 }
 
 function scheduleAppHeightUpdate() {
@@ -323,26 +186,9 @@ function scheduleAppHeightUpdate() {
     }
 }
 
-/**
- * Delayed re-measure for Android WebView.
- */
-let _delayedUpdateTimer = 0;
-function scheduleDelayedAppHeightUpdate(delayMs) {
-    if (_delayedUpdateTimer) clearTimeout(_delayedUpdateTimer);
-    _delayedUpdateTimer = setTimeout(() => {
-        _delayedUpdateTimer = 0;
-        _vpDebugLogged = false; // Re-log on delayed update for comparison
-        scheduleAppHeightUpdate();
-    }, delayMs || 300);
-}
-
 (function initAppHeightVar() {
     const run = () => {
         scheduleAppHeightUpdate();
-        if (IS_ANDROID) {
-            scheduleDelayedAppHeightUpdate(500);
-            setTimeout(() => { _vpDebugLogged = false; scheduleAppHeightUpdate(); }, 1500);
-        }
     };
 
     if (document.readyState === 'loading') {
@@ -353,21 +199,13 @@ function scheduleDelayedAppHeightUpdate(delayMs) {
 
     try {
         window.addEventListener('resize', () => {
-            _vpDebugLogged = false;
             scheduleAppHeightUpdate();
-            if (IS_ANDROID) scheduleDelayedAppHeightUpdate(350);
         }, { passive: true });
     } catch (_) { /* ignore */ }
 
     try {
         window.addEventListener('orientationchange', () => {
-            _lastSoftKeyHeight = 0;
-            _vpDebugLogged = false;
             scheduleAppHeightUpdate();
-            if (IS_ANDROID) {
-                scheduleDelayedAppHeightUpdate(300);
-                setTimeout(() => scheduleAppHeightUpdate(), 800);
-            }
         }, { passive: true });
     } catch (_) { /* ignore */ }
 
@@ -375,9 +213,7 @@ function scheduleDelayedAppHeightUpdate(delayMs) {
     try {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
-                _vpDebugLogged = false;
                 scheduleAppHeightUpdate();
-                if (IS_ANDROID) scheduleDelayedAppHeightUpdate(400);
             }
         });
     } catch (_) { /* ignore */ }
@@ -386,7 +222,6 @@ function scheduleDelayedAppHeightUpdate(delayMs) {
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', () => {
                 scheduleAppHeightUpdate();
-                if (IS_ANDROID) scheduleDelayedAppHeightUpdate(250);
             }, { passive: true });
             window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
         }

@@ -91,9 +91,7 @@
                 applyFix();
             }
             window.addEventListener('resize', applyFix);
-            window.addEventListener('orientationchange', function () {
-                setTimeout(applyFix, 300);
-            });
+            window.addEventListener('orientationchange', applyFix);
         })();
     </script>
     <script src="vendor/Tone.js"></script>

@@ -17,43 +17,77 @@
 // v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
 // v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
 // v42: Slider thumbs updated, padding adjusted, proper progress tracking for demo media
-const CACHE_VERSION = "v43";
+// v44: SW install no longer fails when optional cross-origin assets (e.g., webfonts) are blocked
+const CACHE_VERSION = "v47";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
 const APP_SHELL = [
-  './',
-  './index.html',
-  './css/style.css',
-  './js/app.js',
-  './js/sync.worker.js',
-  './js/transfer.worker.js',
-  './vendor/Tone.js',
-  './vendor/peerjs.min.js',
-  // Pretendard webfont (cached for offline use)
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Thin.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-ExtraLight.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Light.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Regular.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Medium.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-SemiBold.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Bold.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-ExtraBold.woff2',
-  'https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/woff2/Pretendard-Black.woff2',
-  './favicon.svg',
-  './manifest.webmanifest',
-  './dummy_audio.mp3',
-  './icons/icon-32.png',
-  './icons/icon-180.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  "./",
+  "./index.html",
+  "./css/pretendard.css",
+  "./css/style.css",
+  "./css/desktop.css",
+  "./js/app.js",
+  "./js/sync.worker.js",
+  "./js/transfer.worker.js",
+  "./vendor/Tone.js",
+  "./vendor/peerjs.min.js",
+  "./manifest.webmanifest",
+  "./favicon.svg",
+  "./dummy_audio.mp3",
+  "./icons/icon-32.png",
+  "./icons/icon-180.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./fonts/PretendardVariable.woff2"
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(STATIC_CACHE);
-    await cache.addAll(APP_SHELL);
+
+    // cache.addAll() fails the *entire* install if any request fails.
+    // That is desirable for core app shell assets, but NOT for optional
+    // cross-origin assets (e.g., CDN webfonts) which may be blocked by
+    // CSP / captive portals / in-app WebView policies.
+    const core = [];
+    const optional = [];
+
+    for (const asset of APP_SHELL) {
+      try {
+        const url = new URL(asset, self.location.href);
+        if (url.origin === self.location.origin) {
+          // Font files are nice-to-have; don't fail SW install if they're missing.
+          if (url.pathname.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(url.pathname)) {
+            optional.push(asset);
+          } else {
+            core.push(asset);
+          }
+        } else {
+          optional.push(asset);
+        }
+      } catch (_) {
+        // Relative URLs like './' end up here in some browsers; treat as core.
+        core.push(asset);
+      }
+    }
+
+    // 1) Core app shell (same-origin): must succeed
+    await cache.addAll(core);
+
+    // 2) Optional (cross-origin): best-effort, never fail install
+    await Promise.allSettled(optional.map(async (assetUrl) => {
+      try {
+        const req = new Request(assetUrl, { mode: 'no-cors' });
+        const res = await fetch(req);
+        if (res && (res.ok || res.type === 'opaque')) {
+          await cache.put(req, res);
+        }
+      } catch (_) {
+        // ignore
+      }
+    }));
   })());
 });
 

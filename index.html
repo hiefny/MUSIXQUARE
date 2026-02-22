@@ -5,12 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#121212">
-    <script>
-        // [TEMPORARY OVERRIDE] Locked to dark theme for development focus
-        (function () { try { document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) { } })();
-    </script>
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,10 +35,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 
     <!-- Web font: Pretendard (consistent across Windows / Android / iOS / macOS) -->
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="stylesheet" crossorigin
-        href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css" />
-
+    <link rel="stylesheet" href="css/pretendard.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
@@ -103,31 +96,6 @@
             });
         })();
     </script>
-
-    <!-- Force service worker update on load -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistration().then(function (reg) {
-                if (reg) {
-                    reg.update();
-                    if (reg.waiting) {
-                        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    }
-                    reg.addEventListener('updatefound', function () {
-                        var newWorker = reg.installing;
-                        if (newWorker) {
-                            newWorker.addEventListener('statechange', function () {
-                                if (newWorker.state === 'installed' && reg.waiting) {
-                                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                                }
-                            });
-                        }
-                    });
-                }
-            });
-        }
-    </script>
-
     <script src="vendor/Tone.js"></script>
     <script src="vendor/peerjs.min.js"></script>
 </head>
@@ -436,12 +404,23 @@
         <div class="tab-body">
             <div class="section-group">
                 <div class="section-header-row">
+                    <span class="section-title">언어</span>
+                </div>
+                <div class="lang-selector">
+                    <div class="lang-opt" id="lang-ko">한국어</div>
+                    <div class="lang-opt" id="lang-en">English</div>
+                    <div class="lang-opt" id="lang-system">System</div>
+                </div>
+            </div>
+
+            <div class="section-group">
+                <div class="section-header-row">
                     <span class="section-title">테마</span>
                 </div>
                 <div class="theme-selector">
-                    <div class="theme-opt" id="theme-light">Light</div>
-                    <div class="theme-opt" id="theme-dark">Dark</div>
-                    <div class="theme-opt" id="theme-system">System</div>
+                    <div class="theme-opt" id="theme-light">라이트</div>
+                    <div class="theme-opt" id="theme-dark">다크</div>
+                    <div class="theme-opt" id="theme-system">시스템</div>
                 </div>
             </div>
 
@@ -633,7 +612,7 @@
                 <!-- 5. Virtual Bass -->
                 <div class="section-group" id="last-setting-section">
                     <div class="section-header-row">
-                        <span class="section-title">가상 베이스 강화(방장 제어)</span>
+                        <span class="section-title">가상 베이스(방장 제어)</span>
                         <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
                             id="btn-reset-vbass">Reset</button>
                     </div>

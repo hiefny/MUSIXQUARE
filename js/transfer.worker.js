@@ -70,12 +70,33 @@ async function processQueue() {
           stack: err && err.stack ? err.stack : undefined
         });
       }
+
+      // Periodically compact the queue to avoid unbounded growth without
+      // using Array.shift() (O(n) per message).
+      //
+      // IMPORTANT: We must NOT clear the whole array at the end.
+      // New messages can arrive while we're awaiting handleMessage(), and
+      // clearing would drop them.
+      if (queueIndex >= 1024) {
+        messageQueue.splice(0, queueIndex);
+        queueIndex = 0;
+      }
     }
   } finally {
-    // Compact the queue
-    messageQueue.length = 0;
-    queueIndex = 0;
+    // Remove processed items without dropping late-arriving messages.
+    if (queueIndex > 0) {
+      messageQueue.splice(0, queueIndex);
+      queueIndex = 0;
+    }
+
     isProcessing = false;
+
+    // If new messages arrived while we were cleaning up, process them.
+    if (messageQueue.length > 0) {
+      // Fire-and-forget: onmessage won't kick while isProcessing=true,
+      // so we need to restart the drain here.
+      processQueue();
+    }
   }
 }
 

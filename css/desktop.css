@@ -691,6 +691,12 @@
         margin-right: 20px !important;
     }
 
+    /* Align language pill with section title on desktop */
+    .lang-selector {
+        margin-left: 20px !important;
+        margin-right: 20px !important;
+    }
+
     /* Soften the settings text so title stands out */
     .slider-header {
         font-weight: 500 !important;

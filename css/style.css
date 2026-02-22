@@ -1636,6 +1636,63 @@ input[type="range"] {
     color: var(--text-main);
 }
 
+
+/* Language Selector */
+.section-group>.lang-selector:last-child {
+    padding-bottom: 4px !important;
+}
+
+.lang-selector {
+    display: flex;
+    background: var(--surface-2);
+    border-radius: 9999px !important;
+    padding: 4px !important;
+    /* overrides last-child 44px padding-bottom causing huge height */
+    margin: 12px 0 44px;
+    /* compensates for padding loss */
+    gap: 4px;
+    position: relative;
+}
+
+/* Sliding pill indicator */
+.lang-selector::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    bottom: 4px;
+    width: calc((100% - 8px - 8px) / 3);
+    /* (total - padding*2 - gap*2) / 3 */
+    border-radius: 100px;
+    background: var(--surface-1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(calc(var(--pill-index, 2) * (100% + 4px)));
+    /* 4px = gap */
+    z-index: 0;
+    pointer-events: none;
+}
+
+.lang-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-sub);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: color 0.25s;
+    position: relative;
+    z-index: 1;
+}
+
+.lang-opt.active {
+    color: var(--text-main);
+}
+
 /* Reverb Type Chips */
 .reverb-list {
     display: flex;

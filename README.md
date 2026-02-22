@@ -16,9 +16,8 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 
 - **🔢 Short Code Join (In‑App Safe)**: Guests type a **6‑digit code** shown on the host device.
 - **📡 Local Network Only**: Designed for **same Wi‑Fi / same hotspot**.
-- **🔌 Direct Host Connections (Stable)**: Host connects directly to up to **3 guest devices** (Left / Right / Sub).
-- **🔊 Role‑based Routing**: Host assigns devices sequentially:
-  1) Left Speaker → 2) Right Speaker → 3) Subwoofer (optional)
+- **🔌 Direct Host Connections (Stable)**: Host connects directly to up to **3 guest devices**.
+- **🔊 Role‑based Routing**: Guests choose their output role when joining (Original / Left / Right / Woofer).
 - **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
 - **🛠️ Pro Audio Engine**: Mixing / FX powered by Tone.js.
 
@@ -69,10 +68,7 @@ Use the VSCode **Live Server** extension.
 
 1. Open the app and tap **“제가 방장할래요”**
 2. The app shows a **6‑digit code**
-3. Connect devices in order:
-   - **Left Speaker** device enters code
-   - **Right Speaker** device enters code
-   - **Subwoofer** device enters code *(optional)*
+3. Guests enter the code, then select their role on their device (Original / Left / Right / Woofer).
 4. Once ready, the host immediately sees 3 options:
    - **로컬파일 불러오기**
    - **유튜브 링크 추가하기**
@@ -90,8 +86,9 @@ Use the VSCode **Live Server** extension.
 
 This project is a static web app (HTML/CSS/JS).
 
-- **No external CDN dependencies**: Tone.js and PeerJS are included in the repo under `vendor/` for self-hosting / offline-first deployments.
-For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
+- **Core libs are self-hosted**: Tone.js and PeerJS are included in the repo under `vendor/` for self-hosting / offline-first deployments.
+- **Optional external resources**: The default UI font (Pretendard) is loaded from cdnjs and cached by the Service Worker when possible. You can self-host it if your environment blocks cross-origin requests.
+- For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
 
 ---
 
@@ -99,3 +96,20 @@ For Toss In‑App release, it is intended to be served from **Toss infrastructur
 
 - `manifest.webmanifest` and `service-worker.js` are included.
 - Service worker is registered from `js/app.js` on secure contexts.
+
+## Maintenance notes
+
+### Pretendard self-hosting (no CDN)
+
+This repo is configured to load Pretendard from **local files** (`css/pretendard.css` + `fonts/`).
+
+To download the font files into the project:
+- macOS/Linux: `./scripts/fetch-pretendard.sh`
+- Windows (PowerShell): `./scripts/fetch-pretendard.ps1`
+
+(License is included at `fonts/PRETENDARD_LICENSE.txt`.)
+
+### Debug-only relay overlay
+
+The old "relay debug overlay" console helpers were removed from `js/app.js` so they don't ship in production.
+

@@ -110,6 +110,18 @@
         overflow-y: auto !important;
     }
 
+    #tab-play .tab-body {
+        padding-bottom: 0 !important;
+    }
+
+    /* Push controls to the bottom, matching the overlay's .ob-actions structure:
+       margin-top: auto + padding-bottom on the DIRECT container */
+    #tab-play .controls-area {
+        margin-top: auto;
+        margin-bottom: 0;
+        padding-bottom: 40px;
+    }
+
     /* Panel Headers: Fixed at the top, No Background Mask needed anymore! */
     .tab-header,
     .chat-drawer-header {
@@ -177,7 +189,7 @@
         justify-content: flex-start !important;
         align-items: center;
         padding-top: 70px !important;
-        padding-bottom: 20px !important;
+        padding-bottom: 0 !important;
         gap: 16px;
         /* Tighter gap for compact vertical fit */
         overflow-y: auto;
@@ -590,7 +602,7 @@
         border: none !important;
         box-shadow: none !important;
         background: transparent !important;
-        padding: 40px 0 0 0 !important;
+        padding: 0 !important;
         display: flex;
         flex-direction: column;
     }

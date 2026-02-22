@@ -554,13 +554,13 @@ header.loading .header-loading-text {
     /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
-    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 40px);
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
 }
 
 /* Scrollbar stops above the bottom nav on mobile */
 .tab-body::-webkit-scrollbar-track {
     margin-top: 0;
-    margin-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    margin-bottom: calc(var(--nav-height) + var(--safe-bottom));
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -4386,8 +4386,6 @@ input:checked+.slider:before {
 /* Slide-up Chat Drawer */
 .chat-drawer {
     position: fixed;
-    /* Fixed to visual viewport — avoids Android softkey overrun.
-       JS handles --safe-nav-bottom for safe-area offset. */
     left: 0;
     right: 0;
     bottom: 0;

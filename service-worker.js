@@ -18,7 +18,7 @@
 // v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
 // v42: Slider thumbs updated, padding adjusted, proper progress tracking for demo media
 // v44: SW install no longer fails when optional cross-origin assets (e.g., webfonts) are blocked
-const CACHE_VERSION = "v47";
+const CACHE_VERSION = "v49";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

@@ -39,61 +39,26 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
-    <!-- [Android Viewport Fix] Inline override to bypass service worker CSS cache.
-         These rules MUST be in HTML (network-first) because the service worker may
-         serve stale CSS from its static cache for multiple reloads. -->
-    <style id="android-viewport-fix">
-        /* === VIEWPORT FIX (v40) — minimal, desktop-safe === */
-        body {
-            max-height: var(--app-height, 100dvh) !important;
+    <!-- Setup overlay: max-height capped via pure CSS (100dvh), no JS override.
+         Removes the JS timing-dependent height injection that caused top-gap jitter. -->
+    <style id="viewport-safe">
+        /* Setup overlay must not exceed the visible viewport */
+        #setup-overlay {
+            max-height: 100vh;
+            max-height: 100dvh;
         }
 
-        /* bottom-nav and chat-drawer positioning is handled by
-           desktop.css (relative) and style.css (fixed/absolute).
-           Do NOT override them here — it breaks the desktop grid layout. */
+        #setup-overlay .setup-card {
+            max-height: 100vh;
+            max-height: 100dvh;
+        }
+
+        #setup-overlay .setup-mobile-view {
+            overflow-y: auto;
+            max-height: 100vh;
+            max-height: 100dvh;
+        }
     </style>
-
-    <!-- JS-based setup screen fix: MINIMAL — only height + overflow -->
-    <script>
-        (function fixSetupScreen() {
-            function applyFix() {
-                var h = window.innerHeight;
-                if (!h || h <= 0) return;
-                var hPx = h + 'px';
-
-                // Only fix the overlay height + make mobile-view scrollable
-                var overlay = document.getElementById('setup-overlay');
-                if (overlay) {
-                    overlay.style.setProperty('max-height', hPx, 'important');
-                }
-
-                // The .setup-card.full-screen on desktop uses display:grid
-                // and height:100vh. On desktop, 100vh is fine. On tablet landscape,
-                // 100vh may exceed the visible area. Cap it.
-                var card = overlay ? overlay.querySelector('.setup-card') : null;
-                if (card) {
-                    card.style.setProperty('max-height', hPx, 'important');
-                }
-
-                // The .setup-mobile-view needs to scroll when content exceeds
-                // available height. Don't change its display/flex/height —
-                // just add overflow-y.
-                var mv = overlay ? overlay.querySelector('.setup-mobile-view') : null;
-                if (mv) {
-                    mv.style.setProperty('overflow-y', 'auto', 'important');
-                    mv.style.setProperty('max-height', hPx, 'important');
-                }
-            }
-
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', applyFix);
-            } else {
-                applyFix();
-            }
-            window.addEventListener('resize', applyFix);
-            window.addEventListener('orientationchange', applyFix);
-        })();
-    </script>
     <script src="vendor/Tone.js"></script>
     <script src="vendor/peerjs.min.js"></script>
 </head>

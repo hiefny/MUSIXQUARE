@@ -102,146 +102,41 @@ preventIOSPinchZoom();
 
 
 /**
- * [Layout] Viewport height CSS var (--app-height)
+ * [Layout] Platform detection and CSS class hooks.
  *
- * Safe-area insets (notch/home-indicator) are handled purely in CSS via:
- *   env(safe-area-inset-top/right/bottom/left)
- *
- * We only manage --app-height in JS to avoid legacy 100vh quirks in some
- * installed PWA / WebView contexts.
+ * Body height is governed entirely by CSS (100dvh with 100vh fallback).
+ * Safe-area insets are handled via CSS env(safe-area-inset-*).
+ * viewport-fit=cover is added only on iOS for notch handling.
  */
-let _appHeightRaf = 0;
 
 function isStandaloneDisplayMode() {
     try {
-        // iOS Safari: navigator.standalone
         if (window.navigator && window.navigator.standalone) return true;
-        // Others: display-mode media query
         if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
     } catch (_) { /* ignore */ }
     return false;
 }
 
-function freezeLayoutMetricsOnce({ force = false } = {}) {
-    // Kept for backward compatibility: callers expect this to exist.
-    // We do NOT pin safe-area insets here (CSS env handles it).
-    scheduleAppHeightUpdate();
-}
+// No-op stubs for backward compatibility
+function freezeLayoutMetricsOnce() { /* no-op: CSS handles viewport height */ }
+function updateAppHeightNow() { /* no-op */ }
+function scheduleAppHeightUpdate() { /* no-op */ }
 
-/**
- * [Android Landscape Softkey Bug Workaround — Simplified]
- *
- * PRIMARY FIX: viewport-fit=cover is removed on Android (above).
- * This should make innerHeight/visualViewport.height report only the
- * visible area (excluding the system navigation bar).
- *
- * FALLBACK: If the WebView is configured to extend behind the nav bar
- * regardless of viewport-fit (e.g., native fullscreen flags), we detect
- * this and apply a 48px bottom offset (standard Android nav bar = 48dp).
- */
-
-let _lastSoftKeyHeight = 0;
-let _vpDebugLogged = false;
-
-function updateAppHeightNow() {
-    const root = document.documentElement;
-
-    // Optional hooks (CSS targeting)
-    try {
-        if (IS_IOS) root.classList.add('ios');
-        if (IS_ANDROID) root.classList.add('android');
-        if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
-        if (isStandaloneDisplayMode()) root.classList.add('standalone');
-    } catch (_) { /* ignore */ }
-
-    // Use the most accurate viewport height available as the single source of truth
-    let h = 0;
-    if (window.visualViewport && window.visualViewport.height > 0) {
-        h = window.visualViewport.height;
-    } else if (window.innerHeight > 0) {
-        h = window.innerHeight;
-    } else if (document.documentElement.clientHeight > 0) {
-        h = document.documentElement.clientHeight;
+(function initPlatformClasses() {
+    function apply() {
+        const root = document.documentElement;
+        try {
+            if (IS_IOS) root.classList.add('ios');
+            if (IS_ANDROID) root.classList.add('android');
+            if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
+            if (isStandaloneDisplayMode()) root.classList.add('standalone');
+        } catch (_) { /* ignore */ }
     }
-
-    // Apply exact height deterministically
-    if (h > 0) {
-        try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
-    }
-
-    // Remove the probabilistic soft-key guessing mechanism to prevent UI jitter/tangled touch areas
-    try { root.style.setProperty('--safe-nav-bottom', `0px`); } catch (_) { /* ignore */ }
-}
-
-function scheduleAppHeightUpdate() {
-    if (_appHeightRaf) return;
-    try {
-        _appHeightRaf = requestAnimationFrame(() => {
-            _appHeightRaf = 0;
-            try { updateAppHeightNow(); } catch (_) { /* ignore */ }
-        });
-    } catch (_) {
-        _appHeightRaf = 0;
-        try { updateAppHeightNow(); } catch (_) { /* ignore */ }
-    }
-}
-
-(function initAppHeightVar() {
-    const run = () => {
-        scheduleAppHeightUpdate();
-    };
-
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', run, { once: true });
+        document.addEventListener('DOMContentLoaded', apply, { once: true });
     } else {
-        run();
+        apply();
     }
-
-    try {
-        window.addEventListener('resize', () => {
-            scheduleAppHeightUpdate();
-        }, { passive: true });
-    } catch (_) { /* ignore */ }
-
-    try {
-        window.addEventListener('orientationchange', () => {
-            scheduleAppHeightUpdate();
-        }, { passive: true });
-    } catch (_) { /* ignore */ }
-
-    try { window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true }); } catch (_) { /* ignore */ }
-    try {
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                scheduleAppHeightUpdate();
-            }
-        });
-    } catch (_) { /* ignore */ }
-
-    try {
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => {
-                scheduleAppHeightUpdate();
-            }, { passive: true });
-            window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
-        }
-    } catch (_) { /* ignore */ }
-
-    // ResizeObserver on body
-    try {
-        if (typeof ResizeObserver !== 'undefined') {
-            const bodyObserver = new ResizeObserver(() => {
-                scheduleAppHeightUpdate();
-            });
-            if (document.body) {
-                bodyObserver.observe(document.body);
-            } else {
-                document.addEventListener('DOMContentLoaded', () => {
-                    bodyObserver.observe(document.body);
-                }, { once: true });
-            }
-        }
-    } catch (_) { /* ignore */ }
 })();
 
 /**

@@ -203,28 +203,21 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
-    /* Viewport sizing:
+    /* Viewport sizing — pure CSS, no JS override.
        1. Fallback: classic 100vh
-       2. Modern: 100dvh (respects dynamic viewport)
-       3. JS override via --app-height (most reliable on Android Webview landscape)
-       The JS layer also subtracts safe-area if the browser fails to do so. */
+       2. Modern: 100dvh (respects dynamic viewport on all modern browsers)
+       No JS --app-height override: eliminates timing mismatches that cause
+       top-gap jitter and touch-area misalignment on PWA cold starts. */
     height: 100vh;
     height: 100dvh;
-    height: var(--app-height, 100dvh);
     min-height: 0;
-    max-height: var(--app-height, 100dvh);
+    max-height: 100vh;
+    max-height: 100dvh;
 
     display: flex;
     flex-direction: column;
     overflow: hidden;
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@supports (height: 100svh) {
-    body {
-        height: var(--app-height, 100svh);
-        max-height: var(--app-height, 100svh);
-    }
 }
 
 /* --------------------------------------------------------------------------
@@ -2420,7 +2413,8 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
        to the viewport height automatically. Adding height:100vh would OVERRIDE
        the bottom:0 constraint and cause the overlay to extend behind the
        Android soft navigation bar. */
-    max-height: var(--app-height, 100dvh);
+    max-height: 100vh;
+    max-height: 100dvh;
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -4408,7 +4402,7 @@ input:checked+.slider:before {
     bottom: var(--safe-nav-bottom, 0px);
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
-    max-height: calc(var(--app-height, 100dvh) * 0.5);
+    max-height: 50dvh;
     background: var(--surface-1);
     /* Themed background */
     border-top-left-radius: 20px;

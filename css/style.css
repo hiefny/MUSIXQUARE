@@ -214,13 +214,14 @@ body {
     text-size-adjust: 100%;
 
     /* Viewport sizing:
-       - Default: 100% of html (fills viewport via html { height: 100% })
-       - iOS standalone: JS sets --app-height to screen.height (includes safe areas)
-       - This matches the old working project's approach */
-    height: 100%;
-    height: var(--app-height, 100%);
+       1. Fallback: classic 100vh
+       2. Modern: 100dvh (respects dynamic viewport)
+       3. JS override via --app-height (most reliable on Android Webview landscape) */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     min-height: 0;
-    max-height: var(--app-height, 100%);
+    max-height: var(--app-height, 100dvh);
 
     display: flex;
     flex-direction: column;
@@ -555,7 +556,7 @@ header.loading .header-loading-text {
    itself ends above the nav (prevents overlay scroll indicators reaching under it). */
 @media (max-width: 1279.98px) {
     .tab-content {
-        padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
+        padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     }
 }
 
@@ -2056,7 +2057,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 
     /* Solid edge-to-edge bottom bar */
     border-radius: 0;
-    padding: 10px 16px calc(10px + var(--safe-bottom));
+    padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
 
     /* Match header translucency */
     backdrop-filter: blur(var(--glass-blur));
@@ -4421,9 +4422,10 @@ input:checked+.slider:before {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--safe-nav-bottom, 0px);
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
+    max-height: calc(var(--app-height, 100dvh) * 0.5);
     background: var(--surface-1);
     /* Themed background */
     border-top-left-radius: 20px;

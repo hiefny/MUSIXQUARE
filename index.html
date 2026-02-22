@@ -75,6 +75,10 @@
 
     <!-- Setup overlay: max-height capped to viewport -->
     <style id="viewport-safe">
+        body {
+            max-height: var(--app-height, 100dvh) !important;
+        }
+
         #setup-overlay,
         #setup-overlay .setup-card,
         #setup-overlay .setup-mobile-view {

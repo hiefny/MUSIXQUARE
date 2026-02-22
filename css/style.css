@@ -4874,12 +4874,15 @@ input:checked+.slider:before {
 
 /* Minimalist Room Diagram */
 .graphic-room {
-    stroke: var(--text-muted);
     opacity: 0.9;
     stroke-width: 1.5;
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+.graphic-room rect {
+    stroke: var(--text-muted);
 }
 
 .graphic-tv {

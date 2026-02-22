@@ -1039,11 +1039,33 @@
                     <div class="setup-graphic-container"
                         style="height: auto; aspect-ratio: 2.2; margin-bottom: 24px; background: transparent; max-height: 180px; margin-left: -28px; margin-right: -28px; width: calc(100% + 56px);">
                         <svg class="setup-graphic-svg" viewBox="0 0 340 170" style="overflow:visible;">
+                            <defs>
+                                <linearGradient id="grad-tl" x1="1" y1="1" x2="0" y2="0">
+                                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                                </linearGradient>
+                                <linearGradient id="grad-tr" x1="0" y1="1" x2="1" y2="0">
+                                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                                </linearGradient>
+                                <linearGradient id="grad-br" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                                </linearGradient>
+                                <linearGradient id="grad-bl" x1="1" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                                </linearGradient>
+                            </defs>
                             <!-- Room Perspective -->
                             <g class="graphic-room">
-                                <!-- Converging Lines + Back Wall (Wide Angle) -->
-                                <path
-                                    d="M0 0 L40 30 M340 0 L300 30 M340 170 L300 120 M0 170 L40 120 M40 30 L300 30 L300 120 L40 120 Z" />
+                                <!-- Back Wall (Solid) -->
+                                <rect x="40" y="30" width="260" height="90" />
+                                <!-- Corner Lines (Gradients) -->
+                                <line x1="40" y1="30" x2="0" y2="0" stroke="url(#grad-tl)" />
+                                <line x1="300" y1="30" x2="340" y2="0" stroke="url(#grad-tr)" />
+                                <line x1="300" y1="120" x2="340" y2="170" stroke="url(#grad-br)" />
+                                <line x1="40" y1="120" x2="0" y2="170" stroke="url(#grad-bl)" />
                             </g>
 
                             <!-- TV (Decor) -->

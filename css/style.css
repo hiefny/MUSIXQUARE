@@ -4278,7 +4278,7 @@ input:checked+.slider:before {
     background: var(--surface-1);
     border-top: 1px solid var(--surface-2);
     position: fixed;
-    bottom: calc(var(--nav-height) + var(--safe-bottom));
+    bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     left: 0;
     right: 0;
     z-index: 100;
@@ -4422,7 +4422,7 @@ input:checked+.slider:before {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--safe-nav-bottom, 0px);
+    bottom: calc(var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     max-height: calc(var(--app-height, 100dvh) * 0.5);

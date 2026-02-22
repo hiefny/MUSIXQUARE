@@ -21,8 +21,8 @@
 // v50: Mobile/PWA scrollbar contrast + scroll container ends above bottom nav
 // v51: Remove bottom-nav drop shadow (light mode + base)
 // v52: Add third-party license files + :has() fallbacks + small a11y/theme preflight fixes
-// v54: Bump version to force update of Android landscape viewport fixes.
-const CACHE_VERSION = "v54";
+// v55: Refine chat input area / drawer bottom positioning with safe-nav-bottom.
+const CACHE_VERSION = "v55";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

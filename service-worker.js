@@ -28,7 +28,8 @@
 // v59: Elastic scroll (contain), dotted help dividers, visualizer 512px calc
 // v62: Update Demo Track info translation string
 // v63: Refine Virtual Bass distortion translation (Higher = More Distortion)
-const CACHE_VERSION = "v63";
+// v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
+const CACHE_VERSION = "v64";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

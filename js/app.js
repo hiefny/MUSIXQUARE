@@ -2007,7 +2007,7 @@ const I18N_EN = {
     "안녕하세요! 본인의 역할을 선택해주세요.": "Hi! Please choose your role.",
     "앱 체험하기 (데모)": "Try it (Demo)",
     "앱 체험하기:": "Try the app:",
-    "언어": "Language",
+    "언어 · Language": "Language · 언어",
     "언제 어디서나 함께 듣는": "Listen together, anywhere",
     "업데이트": "Update",
     "에 연결되어야 해요.": ".",

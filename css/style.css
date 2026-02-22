@@ -2025,9 +2025,13 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
    ============================================= */
 .bottom-nav {
     position: fixed;
-    /* Fixed to the visual viewport — robust against Android softkey bugs.
-       JS will apply --safe-nav-bottom offset for softkey/safe-area. */
-    bottom: var(--safe-nav-bottom, 0px);
+    /* In iOS standalone PWA, fixed bottom:0 anchors to the safe area boundary
+       (above home indicator), not the screen edge. We push the nav bar down by
+       the safe-area inset so it extends through the home indicator region.
+       The internal padding-bottom already accounts for the safe area,
+       keeping button positions correct. */
+    bottom: 0;
+    bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     z-index: 100;
@@ -4389,10 +4393,10 @@ input:checked+.slider:before {
        JS handles --safe-nav-bottom for safe-area offset. */
     left: 0;
     right: 0;
-    bottom: var(--safe-nav-bottom, 0px);
+    bottom: 0;
+    bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
-    max-height: 50dvh;
     background: var(--surface-1);
     /* Themed background */
     border-top-left-radius: 20px;

@@ -578,7 +578,7 @@ header.loading .header-loading-text {
     overflow-y: auto;
     /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: none;
+    overscroll-behavior-y: contain;
     /* Small breathing room at the bottom of scroll content.
        The fixed bottom nav spacing is handled by .tab-content padding-bottom. */
     padding-bottom: 24px;

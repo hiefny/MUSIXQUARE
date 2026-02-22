@@ -48,24 +48,16 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
-    <!-- Setup overlay: max-height capped via pure CSS (100dvh), no JS override.
-         Removes the JS timing-dependent height injection that caused top-gap jitter. -->
+    <!-- Setup overlay: max-height capped to viewport -->
     <style id="viewport-safe">
-        /* Setup overlay must not exceed the visible viewport */
-        #setup-overlay {
-            max-height: 100vh;
-            max-height: 100dvh;
-        }
-
-        #setup-overlay .setup-card {
-            max-height: 100vh;
-            max-height: 100dvh;
+        #setup-overlay,
+        #setup-overlay .setup-card,
+        #setup-overlay .setup-mobile-view {
+            max-height: 100%;
         }
 
         #setup-overlay .setup-mobile-view {
             overflow-y: auto;
-            max-height: 100vh;
-            max-height: 100dvh;
         }
     </style>
     <script src="vendor/Tone.js"></script>

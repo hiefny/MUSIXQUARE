@@ -1,16 +1,12 @@
 ﻿html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-}
-
-
-/* PWA/Standalone scroll root fix (iOS Home Screen / installed PWA):
-   Some iOS standalone contexts allow the documentElement to scroll even when body is overflow:hidden,
-   causing the header to scroll away. Lock the root scroll in standalone mode and keep scrolling within
-   the active tab panel (.tab-content). */
-html.standalone {
-    overflow: hidden;
+    /* Fill the full viewport (including safe areas with viewport-fit=cover).
+       Using 100% is more reliable than dvh/svh on iOS PWA where dynamic
+       viewport units may exclude the home indicator region. */
     height: 100%;
+    overflow: hidden;
+    background-color: var(--bg);
 }
 
 html.standalone body {
@@ -203,16 +199,11 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
-    /* Viewport sizing — pure CSS, no JS override.
-       1. Fallback: classic 100vh
-       2. Modern: 100dvh (respects dynamic viewport on all modern browsers)
-       No JS --app-height override: eliminates timing mismatches that cause
-       top-gap jitter and touch-area misalignment on PWA cold starts. */
-    height: 100vh;
-    height: 100dvh;
+    /* Fill entire viewport including safe areas.
+       100% of html (which is 100% of viewport with viewport-fit=cover)
+       is more reliable than dvh/svh on iOS PWA. */
+    height: 100%;
     min-height: 0;
-    max-height: 100vh;
-    max-height: 100dvh;
 
     display: flex;
     flex-direction: column;
@@ -2413,8 +2404,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
        to the viewport height automatically. Adding height:100vh would OVERRIDE
        the bottom:0 constraint and cause the overlay to extend behind the
        Android soft navigation bar. */
-    max-height: 100vh;
-    max-height: 100dvh;
+    max-height: 100%;
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -4125,7 +4115,7 @@ input:checked+.slider:before {
 /* Chat 컨테이너 높이 조정 (YouTube 표시 시) */
 .chat-container.with-youtube {
     /* min(56.25vw, 270px) = 480px의 16:9 비율 높이 (최대 270px) */
-    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
+    height: calc(100vh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
 }
 
 .chat-messages {

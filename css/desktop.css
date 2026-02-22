@@ -216,7 +216,7 @@
     .video-wrapper {
         width: 100%;
         /* Prevent infinite scaling on wide monitors, also respect vertical space for controls */
-        max-width: min(90%, 1080px, calc((100dvh - 360px) * 16 / 9));
+        max-width: min(90%, 1080px, calc((100vh - 360px) * 16 / 9));
         margin: 0 auto 30px auto;
         border-radius: 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);

@@ -102,7 +102,7 @@ function freezeLayoutMetricsOnce() { /* no-op: CSS handles viewport height */ }
 function updateAppHeightNow() { /* no-op */ }
 function scheduleAppHeightUpdate() { /* no-op */ }
 
-(function initPlatformClasses() {
+(function initPlatformAndHeight() {
     function apply() {
         const root = document.documentElement;
         try {
@@ -111,12 +111,40 @@ function scheduleAppHeightUpdate() { /* no-op */ }
             if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
             if (isStandaloneDisplayMode()) root.classList.add('standalone');
         } catch (_) { /* ignore */ }
+
+        // [iOS Standalone Fix] restored from old working project.
+        // In iOS standalone PWA, CSS viewport units (100vh/dvh/%) don't reliably
+        // include the full screen (safe areas behind status bar / home indicator).
+        // window.screen.height is the true full-screen height in CSS pixels.
+        if (IS_IOS && isStandaloneDisplayMode()) {
+            let h = 0;
+            if (window.visualViewport && window.visualViewport.height > 0) {
+                h = window.visualViewport.height;
+            } else if (window.innerHeight > 0) {
+                h = window.innerHeight;
+            }
+            // Use screen.height as the maximum (covers safe areas)
+            if (window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0) {
+                h = Math.max(h, Math.round(window.screen.height));
+            }
+            if (h > 0) {
+                try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
+            }
+        }
     }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', apply, { once: true });
     } else {
         apply();
     }
+
+    // Re-apply on visibility change (e.g., returning from lock screen)
+    try {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') apply();
+        });
+    } catch (_) { /* ignore */ }
 })();
 
 /**

@@ -199,11 +199,14 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
-    /* Fill entire viewport including safe areas.
-       100% of html (which is 100% of viewport with viewport-fit=cover)
-       is more reliable than dvh/svh on iOS PWA. */
+    /* Viewport sizing:
+       - Default: 100% of html (fills viewport via html { height: 100% })
+       - iOS standalone: JS sets --app-height to screen.height (includes safe areas)
+       - This matches the old working project's approach */
     height: 100%;
+    height: var(--app-height, 100%);
     min-height: 0;
+    max-height: var(--app-height, 100%);
 
     display: flex;
     flex-direction: column;
@@ -2025,13 +2028,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
    ============================================= */
 .bottom-nav {
     position: fixed;
-    /* In iOS standalone PWA, fixed bottom:0 anchors to the safe area boundary
-       (above home indicator), not the screen edge. We push the nav bar down by
-       the safe-area inset so it extends through the home indicator region.
-       The internal padding-bottom already accounts for the safe area,
-       keeping button positions correct. */
     bottom: 0;
-    bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     z-index: 100;
@@ -2041,7 +2038,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 
     /* Solid edge-to-edge bottom bar */
     border-radius: 0;
-    padding: 10px 16px var(--safe-bottom);
+    padding: 10px 16px calc(10px + var(--safe-bottom));
 
     /* Match header translucency */
     backdrop-filter: blur(var(--glass-blur));
@@ -4394,7 +4391,6 @@ input:checked+.slider:before {
     left: 0;
     right: 0;
     bottom: 0;
-    bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     background: var(--surface-1);

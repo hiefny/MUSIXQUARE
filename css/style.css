@@ -115,15 +115,15 @@ html.setup-boot-block .bottom-nav {
 
 /* Light mode scrollbar: dark thumb on light background */
 [data-theme="light"] ::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.15);
+    background-color: rgba(0, 0, 0, 0.2);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgba(0, 0, 0, 0.4);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb:active {
-    background-color: rgba(0, 0, 0, 0.45);
+    background-color: rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -167,7 +167,7 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.2);
     /* background 속성을 background-color로 변경하여 clip 방해 방지 */
     border: 2px solid transparent;
     /* 좌우상하 2px 띄우기용 투명 테두리 추가 */
@@ -178,12 +178,12 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.35);
+    background-color: rgba(255, 255, 255, 0.4);
     /* 마우스 올렸을 때 좀 더 밝게 */
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background-color: rgba(255, 255, 255, 0.55);
+    background-color: rgba(255, 255, 255, 0.6);
     /* 클릭해서 드래그할 때 확연하게 밝게 */
 }
 
@@ -566,13 +566,14 @@ header.loading .header-loading-text {
     overflow-y: auto;
     /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 40px);
 }
 
 /* Scrollbar stops above the bottom nav on mobile */
 .tab-body::-webkit-scrollbar-track {
     margin-top: 0;
-    margin-bottom: var(--nav-height);
+    margin-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -944,6 +945,7 @@ input[type=range]::-webkit-slider-thumb {
     /* (Track 6px - Thumb 16px) / 2 = -5px */
     transform: scale(1);
     filter: none;
+    box-shadow: none !important;
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
 }
 
@@ -951,6 +953,7 @@ input[type=range]:active::-webkit-slider-thumb {
     transform: scale(1.25);
     /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
     filter: none;
+    box-shadow: none !important;
 }
 
 .time-info {
@@ -4473,6 +4476,8 @@ input:checked+.slider:before {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
 }
 
 .chat-drawer-input {

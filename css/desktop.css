@@ -798,27 +798,27 @@
 
     /* Light mode: dark scrollbar thumbs on light background */
     [data-theme="light"] .tab-body::-webkit-scrollbar-thumb {
-        background-color: rgba(0, 0, 0, 0.15);
+        background-color: rgba(0, 0, 0, 0.2);
     }
 
     [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(0, 0, 0, 0.3);
+        background-color: rgba(0, 0, 0, 0.4);
     }
 
     [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:active {
-        background-color: rgba(0, 0, 0, 0.45);
+        background-color: rgba(0, 0, 0, 0.6);
     }
 
     [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb {
-        background-color: rgba(0, 0, 0, 0.15);
+        background-color: rgba(0, 0, 0, 0.2);
     }
 
     [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(0, 0, 0, 0.3);
+        background-color: rgba(0, 0, 0, 0.4);
     }
 
     [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:active {
-        background-color: rgba(0, 0, 0, 0.45);
+        background-color: rgba(0, 0, 0, 0.6);
     }
 
     .track-item {

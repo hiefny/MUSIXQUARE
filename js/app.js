@@ -4131,7 +4131,12 @@ function initEventListeners() {
         el.addEventListener('click', () => {
             // iOS PWA: avoid keeping focus on the bottom nav button (can cause subtle scroll/jank)
             try { el.blur(); } catch (_) { /* ignore */ }
-            switchTab(el.dataset.tab);
+            if (el.classList.contains('active')) {
+                const tabBody = document.querySelector(`#tab-${el.dataset.tab} .tab-body`);
+                if (tabBody) tabBody.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                switchTab(el.dataset.tab);
+            }
         });
     });
 

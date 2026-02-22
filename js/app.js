@@ -1997,7 +1997,7 @@ const I18N_EN = {
     "셔플 모드 변경": "Change shuffle mode",
     "셔플: 꺼짐": "Shuffle: Off",
     "셔플: 켜짐": "Shuffle: On",
-    "데모 트랙 정보": "Demo Track Info:",
+    "데모 트랙 정보": "Demo Track",
     "스테레오(기본) 출력": "Stereo (default) output",
     "스피커로 재생하기": "Play through speakers",
     "시스템": "System",

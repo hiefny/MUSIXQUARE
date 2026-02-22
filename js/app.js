@@ -6306,14 +6306,15 @@ function startVisualizer() {
     // Scope Pollution: Keep bass state local to the loop
     let smoothedBass = 0;
 
-    // Canvas Scale Logic (High DPI)
-    const logicalSize = 240;
+    // Canvas Scale Logic (High DPI) - Dynamic sizing from wrapper
+    const wrapper = document.querySelector('.vinyl-wrapper');
+    const logicalSize = wrapper ? wrapper.clientWidth : 240;
     const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== logicalSize * dpr) {
+    if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;
         canvas.height = logicalSize * dpr;
-        canvas.style.width = `${logicalSize}px`;
-        canvas.style.height = `${logicalSize}px`;
+        canvas.style.width = '';
+        canvas.style.height = '';
         ctx.scale(dpr, dpr);
     }
 
@@ -6370,9 +6371,10 @@ function startVisualizer() {
 
             const centerX = logicalSize / 2;
             const centerY = logicalSize / 2;
+            const scale = logicalSize / 240;
 
             // Circle 1: Bass (increased amplification)
-            const bassRadius = 55 + (bassPunch * 200);
+            const bassRadius = (55 + (bassPunch * 200)) * scale;
             const bassLightness = 20 + (bassPunch * 60);
 
             if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
@@ -6383,7 +6385,7 @@ function startVisualizer() {
             ctx.fill();
 
             // Circle 2: High
-            const highRadius = 40 + (highPunch * 130);
+            const highRadius = (40 + (highPunch * 130)) * scale;
             const highLightness = 40 + (highPunch * 60);
 
             if (isLight) {
@@ -6407,13 +6409,14 @@ function drawIdleVisualizer() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    const logicalSize = 240;
+    const wrapper = document.querySelector('.vinyl-wrapper');
+    const logicalSize = wrapper ? wrapper.clientWidth : 240;
     const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== logicalSize * dpr) {
+    if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;
         canvas.height = logicalSize * dpr;
-        canvas.style.width = `${logicalSize}px`;
-        canvas.style.height = `${logicalSize}px`;
+        canvas.style.width = '';
+        canvas.style.height = '';
         ctx.scale(dpr, dpr);
     }
 
@@ -6433,9 +6436,10 @@ function drawIdleVisualizer() {
 
     const centerX = logicalSize / 2;
     const centerY = logicalSize / 2;
+    const scale = logicalSize / 240;
 
     // Base Bass Circle (0 punch)
-    const bassRadius = 55;
+    const bassRadius = 55 * scale;
     const bassLightness = 20;
     if (isLight) ctx.fillStyle = `rgba(59, 130, 246, 0.6)`;
     else ctx.fillStyle = `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
@@ -6445,7 +6449,7 @@ function drawIdleVisualizer() {
     ctx.fill();
 
     // Base High Circle (0 punch)
-    const highRadius = 40;
+    const highRadius = 40 * scale;
     const highLightness = 40;
     if (isLight) ctx.fillStyle = `rgba(96, 165, 250, 0.6)`;
     else ctx.fillStyle = `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
@@ -6455,6 +6459,19 @@ function drawIdleVisualizer() {
     ctx.fill();
 }
 window.addEventListener('DOMContentLoaded', drawIdleVisualizer);
+let _vizResizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(_vizResizeTimer);
+    _vizResizeTimer = setTimeout(() => {
+        const wrapper = document.querySelector('.vinyl-wrapper');
+        if (!wrapper || wrapper.clientWidth < 10) return;
+        if (currentState === APP_STATE.IDLE) {
+            drawIdleVisualizer();
+        } else {
+            startVisualizer();
+        }
+    }, 250);
+});
 
 function fmtTime(s) {
     if (isNaN(s)) return "0:00";

@@ -26,10 +26,9 @@
 // v57: Responsive visualizer (160-320px), divider styling, layout centering fixes
 // v58: Height-responsive visualizer (calc-based), nav-height fix, play controls spacing
 // v59: Elastic scroll (contain), dotted help dividers, visualizer 512px calc
-// v60: Fix <head> viewport-fit script typo + theme preflight data-theme attribute
-// v61: Fix chat empty state i18n key mismatch
 // v62: Update Demo Track info translation string
-const CACHE_VERSION = "v62";
+// v63: Refine Virtual Bass distortion translation (Higher = More Distortion)
+const CACHE_VERSION = "v63";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

@@ -1894,7 +1894,7 @@ const I18N_EN = {
     "기기를 왼쪽에 놓아주세요": "Place the device on the left",
     "기기를 중앙에 놓아주세요": "Place the device in the center",
     "기본값 0%": "Default 0%",
-    "기본값 0, 늘리면 가상 베이스(왜곡 증가)": "Default 0 — higher boosts virtual bass (more distortion)",
+    "기본값 0, 늘리면 가상 베이스(왜곡 증가)": "Default 0 — Higher = More Distortion",
     "기본값 0.1s": "Default 0.1s",
     "기본값 100, 줄이면 모노, 늘리면 서라운드": "Default 100 — lower = mono, higher = surround",
     "기본값 20.0kHz": "Default 20.0kHz",

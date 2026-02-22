@@ -1,0 +1,4855 @@
+﻿html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Fill the full viewport (including safe areas with viewport-fit=cover).
+       Using 100% is more reliable than dvh/svh on iOS PWA where dynamic
+       viewport units may exclude the home indicator region. */
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--surface-1);
+
+    /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
+       The *forced* scheme is controlled by html[data-theme]. */
+    color-scheme: light dark;
+}
+
+html.standalone body {
+    overflow: hidden;
+}
+
+:root {
+    /* Palette - Deep & Clean & Flat */
+    --bg: #121212;
+    --surface-1: #121212;
+    /* Header, Nav, Cards */
+    --surface-2: #262626;
+    /* Inputs, Buttons */
+    --surface-3: #404040;
+    /* Hover, Active */
+    --primary: #3b82f6;
+    --text-main: #ffffff;
+    --text: var(--text-main);
+    --text-sub: #a1a1aa;
+    --text-muted: #52525b;
+
+    --radius-l: 32px;
+    --radius-m: 20px;
+    --radius-s: 14px;
+
+    --glass-bg: rgba(38, 38, 38, 0.75);
+    --glass-border: transparent;
+    --glass-blur: 16px;
+
+    /* Scrollbar colors (desktop WebKit + Firefox).
+       Mobile overlay scrollbars aren't fully stylable, but they follow `color-scheme`. */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
+    --scrollbar-thumb-active: rgba(255, 255, 255, 0.6);
+    --scrollbar-thumb-ff: rgba(255, 255, 255, 0.25);
+
+    /* Safe areas (iOS PWA / notch devices) */
+    --safe-top: constant(safe-area-inset-top);
+    --safe-right: constant(safe-area-inset-right);
+    --safe-left: constant(safe-area-inset-left);
+    --safe-bottom: constant(safe-area-inset-bottom);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+    --header-height: calc(60px + var(--safe-top));
+    --nav-height: 74px;
+}
+
+/* iOS PWA first-launch stabilization:
+   - prevent "shaking" caused by multiple viewport/inset recalculations
+   - avoid backdrop-filter first-paint artifacts by disabling filters briefly
+*/
+html.is-booting *,
+html.is-booting *::before,
+html.is-booting *::after {
+    transition: none !important;
+}
+
+html.is-booting header,
+html.is-booting .bottom-nav {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+html.is-booting .tab-content {
+    animation: none !important;
+}
+
+/* Rotation stabilization (mobile):
+   - During device rotation, iOS can emit multiple resizes.
+   - We temporarily drop fixed metrics in JS and let CSS (dvh/svh + safe-area env) respond.
+   - Disable transitions while rotating to prevent visible "elastic" motion. */
+html.is-rotating *,
+html.is-rotating *::before,
+html.is-rotating *::after {
+    transition: none !important;
+}
+
+/* Setup overlay deferred mount: block interactions briefly until the setup overlay is shown */
+html.setup-boot-block header,
+html.setup-boot-block .tab-content,
+html.setup-boot-block .bottom-nav {
+    pointer-events: none !important;
+}
+
+/* Force UA color scheme per app theme.
+   (Critical for mobile/PWA overlay scrollbar contrast in light mode.) */
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+    color-scheme: dark;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] body {
+    color-scheme: light;
+
+    /* Palette - Light & Sleek */
+    --bg: #f8f9fa;
+    /* Soft dynamic background */
+    --surface-1: #ffffff;
+    /* Pure white for depth */
+    --surface-2: #f1f3f5;
+    /* Header/Nav/Cards */
+    --surface-3: #B7B9BB;
+    /* Interactions */
+    --primary: #3b82f6;
+    --text-main: #212529;
+    /* Contrast dark text */
+    --text-sub: #495057;
+    /* Darker grey for legibility */
+    --text-muted: #868e96;
+    /* Darker grey for legibility */
+
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(0, 0, 0, 0.06);
+
+    /* Scrollbar colors (desktop). */
+    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
+    --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
+    --scrollbar-thumb-ff: rgba(0, 0, 0, 0.2);
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Allow text selection & caret control in editable fields */
+input,
+textarea,
+[contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+}
+
+/* Normalize form controls across platforms (Android WebView/Chrome can otherwise use
+   different default fonts/sizes, breaking the layout). */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 8px;
+    /* 실제 썸네일(4px) + 우측 여백(2px) 등을 고려한 안전 영역 크기 */
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    /* background 속성을 background-color로 변경하여 clip 방해 방지 */
+    border: 2px solid transparent;
+    /* 좌우상하 2px 띄우기용 투명 테두리 추가 */
+    border-radius: 10px;
+    /* 얇아진 만큼 완전히 둥글게 처리 */
+    background-clip: padding-box;
+    /* 색상(background)이 테두리(border) 영역을 침범하지 않도록 하여 여백 렌더링 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+    /* 마우스 올렸을 때 좀 더 밝게 */
+}
+
+::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-active);
+    /* 클릭해서 드래그할 때 확연하게 밝게 */
+}
+
+
+/* Firefox */
+@supports (-moz-appearance:none) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb-ff) transparent;
+    }
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-main);
+    font-family: "Pretendard", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+
+    /* Viewport sizing:
+       1. Fallback: classic 100vh
+       2. Modern: 100dvh (respects dynamic viewport)
+       3. JS override via --app-height (most reliable on Android Webview landscape) */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    min-height: 0;
+    max-height: var(--app-height, 100dvh);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Portrait Lock (Mobile)
+   - Some browsers/PWA containers may still allow rotation even with manifest
+     orientation. We show a lightweight blocker overlay only on mobile when
+     rotated to landscape.
+   -------------------------------------------------------------------------- */
+.rotate-lock-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+    background: var(--bg);
+    text-align: center;
+}
+
+.rotate-lock-card {
+    width: min(420px, 92vw);
+    background: var(--surface-1);
+    border-radius: 24px;
+    padding: 22px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.rotate-lock-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+}
+
+.rotate-lock-desc {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-sub);
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
+html.force-portrait .rotate-lock-overlay {
+    display: flex;
+}
+
+/* Boot Splash: thin splash shown briefly before the Setup overlay mounts */
+.boot-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 220ms ease, visibility 0s linear 220ms;
+}
+
+.boot-splash.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 220ms ease;
+}
+
+.boot-splash-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.boot-splash-logo {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.5px;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+}
+
+.boot-splash-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-sub);
+}
+
+.boot-splash-spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(128, 128, 128, 0.25);
+    border-top-color: var(--primary);
+    animation: bootSpin 1s linear infinite;
+}
+
+@keyframes bootSpin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .boot-splash-spinner {
+        animation: none;
+    }
+}
+
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* --- Header --- */
+header {
+    height: var(--header-height);
+    padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2500;
+    overflow: hidden;
+    /* Important for masking animations */
+    transition: background-color 0.3s ease;
+    transform: translateZ(0);
+    will-change: transform;
+}
+
+/* Header Loading State - Progress Background */
+.header-progress-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    /* Animates from 0 to 100% */
+    background-color: var(--primary);
+    /* System Theme Color */
+    opacity: 0;
+    /* Hidden by default */
+    z-index: 1;
+    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+    pointer-events: none;
+}
+
+/* Show progress bar only when loading */
+header.loading .header-progress-bg {
+    opacity: 0.15;
+    /* Transparent but visible */
+}
+
+/* Header Content Wrapper for relative positioning */
+.header-content-wrapper {
+    position: relative;
+    /* Ensure it overlays the progress bg if needed, though they are siblings */
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+}
+
+/* Default Content (Logo, Help, Badge) */
+/* We target .header-default-content for the up/down animation */
+.header-default-content {
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* Logo Gradient Styling */
+.app-logo {
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.logo-fade {
+    background: linear-gradient(to right, var(--text-main) 20%, var(--surface-3) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Light Mode Logo Overrides */
+[data-theme="light"] .app-logo {
+    color: #212529;
+}
+
+[data-theme="light"] .logo-fade {
+    background: linear-gradient(to right, #212529 20%, #adb5bd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Loading Text (Hidden by default, moves up from below) */
+.header-loading-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+
+    transform: translateY(100%);
+    /* Start from below */
+    opacity: 0;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    z-index: 6;
+    pointer-events: none;
+}
+
+/* --- Loading Active State (Applied to <header>) --- */
+header.loading .header-default-content {
+    transform: translateY(-150%);
+    /* Move up and out */
+    opacity: 0;
+}
+
+header.loading .header-loading-text {
+    transform: translateY(0);
+    /* Move to center */
+    opacity: 1;
+}
+
+/* Update Header Right to be relative or fixed depending on need */
+/* In the HTML update, we moved .header-right inside header, so we adjust CSS */
+.header-right {
+    /* Reset fixed positioning since it's now inside flex header */
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    transform: none !important;
+    z-index: 5;
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.role-badge {
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(128, 128, 128, 0.15);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    color: var(--text-sub);
+    padding: 6px 14px;
+    border-radius: 100px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.role-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.role-badge.connected {
+    background: var(--primary);
+    color: white;
+}
+
+.role-badge.connected .role-dot {
+    background: white;
+}
+
+.tab-content {
+    /* Avoid animating entire tab panels (especially under backdrop-filter) to prevent iOS PWA jank */
+    animation: none;
+    flex: 1;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    /* Parent no longer scrolls directly */
+    overscroll-behavior-y: contain;
+    padding-top: var(--header-height);
+}
+
+/* Mobile/Tablet: reserve space for the fixed bottom nav so the scroll container
+   itself ends above the nav (prevents overlay scroll indicators reaching under it). */
+@media (max-width: 1279.98px) {
+    .tab-content {
+        padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    }
+}
+
+.tab-content.active {
+    display: flex;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.tab-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    overflow-y: auto;
+    /* Bodies handle the scroll */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
+    /* Small breathing room at the bottom of scroll content.
+       The fixed bottom nav spacing is handled by .tab-content padding-bottom. */
+    padding-bottom: 24px;
+}
+
+/* Structural Fix: Targeted Persistence Hack.
+   Only the Play tab stays "alive" off-screen when YouTube is active in the background. */
+body.mode-video #tab-play:not(.active) {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: -100vw;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* Play tab needs flex for centering content */
+#tab-play.active {
+    display: flex;
+}
+
+.tab-header {
+    padding: 32px 32px 12px;
+    /* Increased side padding for a more spacious, premium feel */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tab-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -0.03em;
+}
+
+/* Settings tab header follows the common tab header layout */
+
+/* YouTube Together mode: lock/blur advanced Settings (keep Theme available) */
+.youtube-settings-note {
+    display: none;
+    margin: 0 20px 18px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--glass-bg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    font-size: 13px;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+body.mode-youtube #youtube-settings-note {
+    display: block;
+}
+
+#youtube-settings-disabled-wrap {
+    position: relative;
+}
+
+body.mode-youtube #youtube-settings-disabled-wrap {
+    filter: blur(7px) saturate(0.95);
+    opacity: 0.55;
+    pointer-events: none;
+    transform: translateZ(0);
+    will-change: filter;
+}
+
+html[data-theme="light"] .youtube-settings-note {
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
+    filter: blur(6px) saturate(0.95);
+    opacity: 0.62;
+}
+
+.invite-code-value {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.10em;
+    padding: 2px 0;
+    border-radius: var(--radius-s);
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tab-action-btn {
+    background: var(--surface-2);
+    color: var(--text-sub);
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.tab-action-btn:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.tab-action-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+/* Playlist Controls Active States */
+.tab-action-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.tab-action-btn.active-one {
+    background: var(--primary);
+    color: white;
+}
+
+.tab-action-btn.active-one::after {
+    content: '1';
+    position: absolute;
+    font-size: 9px;
+    font-weight: 800;
+    top: -2px;
+    right: -2px;
+    background: white;
+    color: var(--primary);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--bg);
+}
+
+
+#tab-play {
+    justify-content: space-evenly;
+    padding-top: calc(var(--header-height) + 10px);
+}
+
+.vinyl-wrapper {
+    width: 240px;
+    height: 240px;
+    margin: 0 auto;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 50%;
+    background: transparent !important;
+}
+
+#visualizerCanvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: transparent !important;
+}
+
+.video-wrapper {
+    width: 100%;
+    max-width: 600px;
+    aspect-ratio: 16/9;
+    margin: 0 auto;
+    background: #000;
+    border-radius: var(--radius-m);
+    overflow: hidden;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+    pointer-events: none;
+
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    position: relative;
+    transition: opacity 0.3s;
+}
+
+.video-screen {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.fullscreen-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s;
+    opacity: 0;
+    /* Hidden by default */
+    z-index: 10;
+}
+
+.video-wrapper:hover .fullscreen-btn,
+.video-wrapper:active .fullscreen-btn {
+    opacity: 1;
+}
+
+.fullscreen-btn svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Mode Toggle */
+body.mode-video .vinyl-wrapper {
+    display: none !important;
+    /* Completely remove from layout flow */
+    height: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    margin: 0;
+}
+
+body.mode-video .video-wrapper {
+    display: flex;
+    /* Restore for video mode */
+    height: auto;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.track-box {
+    text-align: center;
+    width: 100%;
+    padding: 0 24px;
+    box-sizing: border-box;
+    margin: 10px 0 6px;
+}
+
+/* Marquee: Ping-Pong Style (Wait -> Scroll -> Wait -> Return) */
+
+.track-title-wrapper {
+    position: relative;
+    width: 100%;
+    height: 32px;
+    /* Fixed height to prevent control shift */
+    margin: 0 auto 6px;
+    overflow: hidden;
+    /* Mask on the static wrapper */
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+}
+
+.track-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-main);
+    letter-spacing: -0.5px;
+    line-height: 32px;
+    /* Fixed vertical alignment */
+
+    /* Layout for scrolling */
+    display: inline-block;
+    white-space: nowrap;
+    width: auto;
+    min-width: 100%;
+    text-align: center;
+    padding: 0 24px;
+    /* Padding inside mask */
+    box-sizing: border-box;
+}
+
+.track-title.marquee {
+    /* Animation logic remains, but width/mask handled by wrapper */
+    width: auto;
+    animation: marquee-pingpong var(--marquee-duration, 10s) cubic-bezier(0.4, 0.0, 0.2, 1) infinite;
+    will-change: transform;
+}
+
+@keyframes marquee-pingpong {
+
+    0%,
+    20% {
+        transform: translateX(0);
+    }
+
+    50%,
+    70% {
+        transform: translateX(var(--marquee-offset));
+    }
+
+    100% {
+        transform: translateX(0);
+    }
+}
+
+
+.track-artist {
+    display: none;
+    font-size: 15px;
+    color: var(--text-sub);
+    font-weight: 500;
+}
+
+.controls-area {
+    width: 100%;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 0px;
+}
+
+.progress-bar {
+    width: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    background: transparent;
+    cursor: pointer;
+    /* 폰에서 터치 영역을 대폭 확보하기 위해 input 자체의 높이를 32px로 확장 */
+    height: 32px;
+    margin: 0;
+    /* Prevent ANY browser gestures (swipe to go back, scroll) while dragging sliders, forcing 100% control to the slider thumb */
+    touch-action: none !important;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    background: var(--surface-2);
+    /* 트랙의 시인성을 높이기 위해 살짝 굵게 6px 및 surface-2 사용 */
+    border-radius: 100px;
+    border: none;
+}
+
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background-color: var(--text-sub);
+    margin-top: -5px;
+    /* (Track 6px - Thumb 16px) / 2 = -5px */
+    transform: scale(1);
+    filter: none;
+    box-shadow: none !important;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
+}
+
+input[type=range]:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+    /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
+    filter: none;
+    box-shadow: none !important;
+}
+
+.time-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-sub);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Play Controls Left Aligned */
+.play-controls-left {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 16px;
+    margin: 6px 0;
+    width: 100%;
+}
+
+.play-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.vol-group-playback {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    width: 100px;
+    min-width: 80px;
+}
+
+.vol-group-playback svg {
+    width: 18px;
+    height: 18px;
+    fill: var(--text-sub);
+    flex-shrink: 0;
+}
+
+#volume-slider {
+    width: 100%;
+    margin: 0;
+}
+
+#volume-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    /* 볼륨 트랙은 UI 특성상 좀 더 얇은게 세련됨 */
+}
+
+#volume-slider::-webkit-slider-thumb {
+    height: 12px;
+    width: 12px;
+    margin-top: -4px;
+    /* (Track 4px - Thumb 12px) / 2 = -4px */
+}
+
+.ctrl-btn-small {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ctrl-btn-small:hover {
+    color: var(--text-main);
+    background: var(--surface-2);
+}
+
+.ctrl-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    cursor: pointer;
+    padding: 8px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.ctrl-btn:active {
+    opacity: 0.5;
+}
+
+.ctrl-btn svg {
+    width: 32px;
+    height: 32px;
+    fill: currentColor;
+}
+
+.play-fab {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--text-main);
+    color: var(--bg);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s;
+}
+
+.play-fab:active {
+    transform: scale(0.92);
+}
+
+.play-fab:disabled {
+    opacity: 0.3;
+}
+
+.play-fab svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+}
+
+/* Right: Volume */
+.vol-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100px;
+    justify-content: flex-end;
+}
+
+.vol-group svg {
+    width: 18px;
+    height: 18px;
+    fill: var(--text-sub);
+}
+
+/* Mini slider for right side */
+.vol-slider-mini {
+    width: 100%;
+}
+
+.vol-slider-mini::-webkit-slider-runnable-track {
+    height: 4px;
+}
+
+.vol-slider-mini::-webkit-slider-thumb {
+    height: 14px;
+    width: 14px;
+    margin-top: -5px;
+}
+
+
+/* Sync Controls */
+.sync-row {
+    background: var(--surface-2);
+    border-radius: var(--radius-m);
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 64px;
+    /* Match file-select-btn-large height */
+}
+
+.sync-adj-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    /* Visibility improvement */
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-s);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.sync-reset-btn {
+    flex: 1;
+    background: var(--surface-1);
+    border: none;
+    color: var(--text-main);
+    height: 44px;
+    border-radius: var(--radius-s);
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.sync-adj-btn:active,
+.sync-reset-btn:active {
+    background: var(--surface-3);
+}
+
+/* Sync Button Group */
+.sync-btn-group {
+    flex: 1;
+    display: flex;
+    gap: 4px;
+    height: 48px;
+    /* Inner buttons height */
+}
+
+.sync-reset-btn.half {
+    flex: 1;
+    height: 100%;
+    margin: 0;
+    font-size: 12px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* Ensure Icons fit */
+.sync-reset-btn.half svg {
+    min-width: 16px;
+    min-height: 16px;
+}
+
+.file-select-btn {
+    width: 100%;
+    margin-top: auto;
+    background: #212121;
+    /* Darker solid background per request */
+    border: none;
+    padding: 16px;
+    border-radius: var(--radius-m);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-sub);
+    /* Darkened text as requested */
+}
+
+.file-select-btn:active {
+    background: var(--surface-3);
+    color: var(--text-main);
+}
+
+.file-select-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+
+.playlist-title-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Speaker Active State */
+.graphic-speaker {
+    transition: fill 0.3s, stroke 0.3s;
+}
+
+.graphic-speaker.active {
+    fill: rgba(var(--primary-rgb), 0.2) !important;
+    stroke: var(--primary) !important;
+    stroke-width: 2.5px !important;
+}
+
+/* Top Left Back Button */
+.btn-back-left {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    border: none;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.2s;
+}
+
+.btn-back-left:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.btn-back-left svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.playlist-ul {
+    list-style: none;
+    padding: 0 16px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    /* Fill the container */
+}
+
+.track-item {
+    background: transparent;
+    padding: 16px 16px;
+    border-radius: var(--radius-m);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.track-item:active {
+    background: var(--surface-2);
+}
+
+.track-item.active {
+    background: var(--surface-2);
+}
+
+.track-item.active .track-idx,
+.track-item.active .track-name {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.track-idx {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 24px;
+    text-align: center;
+}
+
+.track-name {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.type-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    fill: var(--text-sub);
+}
+
+/* Now Playing Animation (Wave/Equalizer) */
+.playing-indicator {
+    display: none;
+    align-items: flex-end;
+    gap: 2px;
+    width: 16px;
+    height: 12px;
+}
+
+.track-item.active .playing-indicator,
+.sub-track-item.active .playing-indicator {
+    display: flex;
+}
+
+.playing-indicator .bar {
+    width: 3px;
+    height: 100%;
+    background: var(--primary);
+    border-radius: 1px;
+    animation: playingWave 0.6s ease-in-out infinite alternate;
+}
+
+.playing-indicator .bar:nth-child(2) {
+    animation-delay: -0.4s;
+    height: 70%;
+}
+
+.playing-indicator .bar:nth-child(3) {
+    animation-delay: -0.2s;
+    height: 85%;
+}
+
+@keyframes playingWave {
+    from {
+        height: 20%;
+    }
+
+    to {
+        height: 100%;
+    }
+}
+
+
+.sub-playlist {
+    list-style: none;
+    padding: 0 0 8px 48px;
+    margin: -4px 0 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.sub-track-item {
+    padding: 8px 12px;
+    border-radius: var(--radius-s);
+    font-size: 13px;
+    color: var(--text-sub);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.2s;
+}
+
+.sub-track-item:hover {
+    background: var(--surface-2);
+    color: var(--text-main);
+}
+
+.sub-track-item.active {
+    color: var(--primary);
+    font-weight: 700;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.sub-idx {
+    font-size: 11px;
+    font-weight: 800;
+    width: 20px;
+    opacity: 0.5;
+}
+
+.sub-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sub-track-item.loading {
+    font-style: italic;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+/* Expand Toggle */
+.expand-toggle {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+}
+
+.expand-toggle:hover {
+    background: var(--surface-3);
+    color: var(--text-main);
+}
+
+.expand-toggle svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.expand-toggle.active svg {
+    transform: rotate(180deg);
+}
+
+.track-item.is-playlist {
+    position: relative;
+}
+
+
+.section-group {
+    background: transparent;
+    border-radius: 0;
+    margin: 0 44px;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--surface-3);
+}
+
+[data-theme="light"] .section-group {
+    border-bottom: 1px solid var(--surface-3);
+}
+
+.section-padding-bottom {
+    display: none !important;
+    /* Fully obsolete now */
+}
+
+.section-group:last-of-type,
+#last-setting-section {
+    border-bottom: none;
+}
+
+/* Ensure children respect the rounded corners */
+.section-group> :first-child {
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+.section-group> :last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+}
+
+/* Also ensure device list items don't overflow if list is the last child */
+#device-list:last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+    overflow: hidden;
+    /* Only clip the list itself if needed, or rely on item radius below */
+}
+
+.section-header-row {
+    padding: 44px 0 16px !important;
+    /* 44px Top gap | 16+12=28px Gap to first content */
+    border-bottom: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Target the very first section in Settings (Theme) to bring it closer to the top/invite area */
+#tab-settings .section-group:first-of-type .section-header-row {
+    padding-top: 24px !important;
+}
+
+#youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
+    padding-top: 56px !important;
+    /* Increased gap from the divider above to avoid "sticking" feel */
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    text-transform: none;
+    /* No uppercase for a more modern, minimal feel */
+    letter-spacing: -0.5px;
+}
+
+.section-row {
+    padding: 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 500;
+}
+
+/* Uniformly enforce 44px bottom gap for the visible end of every section */
+.section-group>*:last-child {
+    padding-bottom: 44px !important;
+}
+
+.section-row:last-child {
+    border-bottom: none;
+}
+
+/* Reset any default input margins that might shift the visual balance */
+input[type="range"] {
+    margin: 0;
+    display: block;
+    width: 100%;
+}
+
+.section-row.clickable {
+    cursor: pointer;
+}
+
+.section-row.clickable:active {
+    background: var(--surface-2);
+}
+
+.row-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+
+.row-val {
+    color: var(--text-sub);
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Theme Selector */
+.section-group>.theme-selector:last-child {
+    padding-bottom: 4px !important;
+}
+
+.theme-selector {
+    display: flex;
+    background: var(--surface-2);
+    border-radius: 9999px !important;
+    padding: 4px !important;
+    /* overrides last-child 44px padding-bottom causing huge height */
+    margin: 12px 0 44px;
+    /* compensates for padding loss */
+    gap: 4px;
+    position: relative;
+}
+
+/* Sliding pill indicator */
+.theme-selector::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    bottom: 4px;
+    width: calc((100% - 8px - 8px) / 3);
+    /* (total - padding*2 - gap*2) / 3 */
+    border-radius: 100px;
+    background: var(--surface-1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(calc(var(--pill-index, 1) * (100% + 4px)));
+    /* 4px = gap */
+    z-index: 0;
+    pointer-events: none;
+}
+
+.theme-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-sub);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: color 0.25s;
+    position: relative;
+    z-index: 1;
+}
+
+.theme-opt.active {
+    color: var(--text-main);
+}
+
+
+/* Language Selector */
+.section-group>.lang-selector:last-child {
+    padding-bottom: 4px !important;
+}
+
+.lang-selector {
+    display: flex;
+    background: var(--surface-2);
+    border-radius: 9999px !important;
+    padding: 4px !important;
+    /* overrides last-child 44px padding-bottom causing huge height */
+    margin: 12px 0 44px;
+    /* compensates for padding loss */
+    gap: 4px;
+    position: relative;
+}
+
+/* Sliding pill indicator */
+.lang-selector::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    bottom: 4px;
+    width: calc((100% - 8px - 8px) / 3);
+    /* (total - padding*2 - gap*2) / 3 */
+    border-radius: 100px;
+    background: var(--surface-1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(calc(var(--pill-index, 2) * (100% + 4px)));
+    /* 4px = gap */
+    z-index: 0;
+    pointer-events: none;
+}
+
+.lang-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-sub);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: color 0.25s;
+    position: relative;
+    z-index: 1;
+}
+
+.lang-opt.active {
+    color: var(--text-main);
+}
+
+/* Reverb Type Chips */
+.reverb-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 20px 20px;
+    scrollbar-width: none;
+}
+
+.reverb-list::-webkit-scrollbar {
+    display: none;
+}
+
+.rvb-chip {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    border-radius: 100px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rvb-chip.active {
+    background: var(--surface-1);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* Graphic EQ */
+.eq-container {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px 0 30px;
+    /* Aligned with the 32px section margin */
+    height: 200px;
+}
+
+
+/* Vertical Slider Compact Logic */
+input[type=range].eq-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+
+    /* Rotation Logic */
+    width: 100px;
+    /* 원래 길이 복구 */
+    height: 32px;
+    /* 터치 영역 개선을 위해 input 박스 크기를 키움 */
+    transform: rotate(-90deg);
+
+    /* Absolute Positioning to ignore layout width */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin-left: -50px;
+    /* Half of 100px width */
+    margin-top: -16px;
+    /* Half of 32px height */
+}
+
+/* Track */
+input[type=range].eq-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    background: var(--surface-2);
+    /* 메인 슬라이더와 통일된 두께 및 색상 */
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+/* EQ Thumb */
+input[type=range].eq-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background-color: var(--text-sub);
+    margin-top: -5px;
+    transform: scale(1);
+    filter: none;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
+}
+
+input[type=range].eq-slider:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+    filter: none;
+}
+
+.eq-band {
+    position: relative;
+    /* Anchor for slider */
+    height: 160px;
+    /* Fixed height for zone */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    /* Val at top, Label at bottom */
+    align-items: center;
+    flex: 1;
+    /* Distribute equally */
+    min-width: 0;
+    /* Allow shrinking */
+    padding: 10px 0;
+}
+
+.eq-val {
+    margin-bottom: auto;
+    /* Push to top */
+    z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
+}
+
+.eq-label {
+    margin-top: auto;
+    /* Push to bottom */
+    z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
+}
+
+
+/* 
+   The Unified Symmetry System: 
+   Content units use consistent padding. 
+   Sliders use tighter 6px padding (12px total gap) for a professional layout.
+*/
+.slider-wrap {
+    padding: 6px 0 !important;
+}
+
+.eq-container,
+.channel-grid {
+    padding: 12px 0 !important;
+}
+
+/* Global Grid System: Used in both Settings and Setup/Onboarding */
+.channel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    /* Fallback padding */
+}
+
+#tab-settings .channel-grid {
+    padding: 12px 0 !important;
+    /* Removed horizontal padding to perfectly align with the section title */
+}
+
+.ch-opt {
+    background: var(--surface-1);
+    color: var(--text-sub);
+    padding: 18px 12px;
+    border-radius: var(--radius-m);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid var(--surface-2);
+}
+
+.ch-opt svg {
+    width: 32px;
+    height: 32px;
+    fill: currentColor;
+    opacity: 1;
+    transition: opacity 0.2s;
+}
+
+.ch-opt.active {
+    background: var(--surface-1);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.ch-opt.active svg {
+    opacity: 1;
+    fill: var(--primary);
+}
+
+.slider-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-sub);
+    /* Subdued label color to make the slider/value stand out */
+}
+
+.val-disp {
+    color: var(--primary);
+}
+
+/* Connect Tab */
+.qr-card {
+    background: var(--surface-1);
+    border-radius: 24px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 20px 24px;
+    color: var(--text-main);
+    text-align: center;
+    display: none;
+}
+
+.qr-card.visible {
+    display: flex;
+    animation: fadeIn 0.4s ease;
+}
+
+.input.ob-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: auto;
+}
+
+.input-group {
+    display: flex;
+    gap: 10px;
+    margin: 0 20px 30px;
+}
+
+.input-box {
+    flex: 1;
+    background: var(--surface-2);
+    border: none;
+    color: var(--text-main);
+    padding: 16px;
+    border-radius: var(--radius-m);
+    font-size: 16px;
+    outline: none;
+    transition: background 0.2s;
+}
+
+.input-box:focus {
+    background: var(--surface-3);
+}
+
+.btn-action {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0 24px;
+    border-radius: var(--radius-m);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.device-row {
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.d-status {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 100px;
+}
+
+.d-status.active {
+    background: rgba(82, 196, 26, 0.2);
+    color: #52c41a;
+}
+
+.d-status.inactive {
+    background: rgba(255, 77, 79, 0.2);
+    color: #ff4d4f;
+}
+
+/* Help Tab */
+.help-block {
+    background: transparent;
+    padding: 44px 0;
+    margin: 0 44px;
+    border-bottom: 1px solid var(--surface-3);
+}
+
+.help-block:last-child {
+    border-bottom: none;
+}
+
+.help-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.help-title svg {
+    width: 22px;
+    height: 22px;
+    fill: var(--primary);
+}
+
+.help-desc {
+    font-size: 14px;
+    color: var(--text-sub);
+    line-height: 1.6;
+}
+
+.help-list {
+    margin-top: 10px;
+    margin-left: 20px;
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.help-list li {
+    margin-bottom: 4px;
+}
+
+
+/* =============================================
+   Bottom Nav — Toss Quick_Tabbar (Figma-exact)
+   ============================================= */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+
+    /* Solid edge-to-edge bottom bar */
+    border-radius: 0;
+    padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+
+    /* Match header translucency */
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    background: var(--glass-bg);
+
+    /* Figma: #191F2911 / #191F293f */
+    box-shadow: none;
+    border: none;
+
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Blur halo (Removed since nav is now a solid edge-to-edge block) */
+.nav-blur-halo {
+    display: none !important;
+}
+
+/* Light Mode */
+[data-theme="light"] .bottom-nav {
+    background: var(--glass-bg);
+    box-shadow: none;
+    border: none;
+}
+
+/* Dark Mode */
+[data-theme="dark"] .bottom-nav {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: none;
+    border: none;
+}
+
+/* --- Nav Items (Toss adaptive grey) --- */
+.nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: auto;
+    min-width: 0;
+    position: relative;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+    height: 42px;
+    /* Figma: Active/Inactive item height */
+    cursor: pointer;
+    transition: color 0.2s;
+    /* Inactive icon: adaptive.grey400 */
+    color: #B0B8C1;
+}
+
+.nav-item svg {
+    width: 24px;
+    /* Asset.frameShape.CleanW24 */
+    height: 24px;
+    fill: currentColor;
+    transition: transform 0.2s;
+}
+
+.nav-item span {
+    display: block;
+    font-size: 10px;
+    /* Toss: typography st13 */
+    font-weight: 500;
+    /* Toss: fontWeight medium */
+    text-align: center;
+    line-height: 1.2;
+    /* Inactive text: adaptive.grey600 */
+    color: #6B7684;
+}
+
+/* Active State — theme blue */
+.nav-item.active {
+    color: var(--primary);
+}
+
+.nav-item.active span {
+    color: var(--primary);
+}
+
+.nav-item.active svg {
+    fill: var(--primary);
+    transform: none;
+}
+
+.nav-item:active svg {
+    transform: scale(0.9);
+}
+
+/* Dark mode adaptive colors */
+[data-theme="dark"] .nav-item {
+    color: #6B7684;
+}
+
+[data-theme="dark"] .nav-item span {
+    color: #8B95A1;
+}
+
+[data-theme="dark"] .nav-item.active {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active span {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active svg {
+    fill: var(--primary);
+}
+
+/* Nav Icon Wrapper for Badge */
+.nav-icon-wrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+/* Chat Badge */
+.chat-badge {
+    position: absolute;
+    top: -6px;
+    right: -8px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    background: #ef4444;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 8px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.chat-badge.show {
+    display: flex;
+}
+
+/* Global Loader (Fixed overlay) */
+.vinyl-loader {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 99999;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(4px);
+    border-radius: 0;
+    /* Full screen */
+}
+
+.vinyl-loader-text {
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 16px;
+    text-align: center;
+    max-width: 200px;
+}
+
+/* Spinner (Legacy) -> Progress Ring */
+.progress-ring__circle {
+    transition: stroke-dashoffset 0.1s linear;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    stroke-dasharray: 163.36;
+    /* 2 * PI * 26 */
+    stroke-dashoffset: 163.36;
+    /* Default: 0% filled */
+    stroke-linecap: round;
+}
+
+.progress-ring.indeterminate {
+    animation: spin 1s linear infinite;
+    transform-origin: center;
+}
+
+.progress-ring.indeterminate .progress-ring__circle {
+    stroke-dashoffset: 125 !important;
+    /* ~25% visible segment */
+    transition: none;
+}
+
+.toast {
+    position: fixed;
+    bottom: 110px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #000;
+    padding: 14px 28px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 7000;
+    /* Highest priority - above all modals including help modal */
+    white-space: nowrap;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+
+/* ========================================
+   App Dialog (replaces alert())
+   ======================================== */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    /* Match other overlays (sync/media/setup) for consistency */
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 6000;
+    /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
+    animation: fadeIn 0.3s ease-out;
+}
+
+.dialog-overlay.show {
+    display: flex;
+}
+
+.dialog {
+    width: 100%;
+    max-width: 400px;
+    border-radius: var(--radius-l);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 28px 12px;
+}
+
+.dialog-title {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-main);
+}
+
+.dialog-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dialog-close:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.dialog-close svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
+.dialog-message {
+    padding: 12px 28px 24px;
+    font-size: 15px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: keep-all;
+}
+
+.dialog-actions {
+    padding: 0 28px 32px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.dialog-secondary {
+    border: 1px solid var(--glass-border);
+    background: var(--surface-2);
+    color: var(--text-main);
+    border-radius: 18px;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 100px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dialog-secondary:active {
+    transform: scale(0.97);
+    box-shadow: none;
+}
+
+.dialog-primary {
+    border: none;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 18px;
+    padding: 16px 32px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 100px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dialog-primary:active {
+    transform: scale(0.96);
+    box-shadow: none;
+}
+
+
+/* Dark theme toast - dark semi-transparent background */
+[data-theme="dark"] .toast {
+    background: rgba(30, 30, 30, 0.85);
+    color: #fff;
+}
+
+
+.onboarding-overlay {
+    position: fixed;
+    inset: 0;
+    /* Do NOT set explicit height here!
+       inset:0 already defines top:0 + bottom:0 which stretches the element
+       to the viewport height automatically. Adding height:100vh would OVERRIDE
+       the bottom:0 constraint and cause the overlay to extend behind the
+       Android soft navigation bar. */
+    max-height: 100%;
+    background: var(--bg);
+    z-index: 2000;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: calc(var(--safe-top) + 16px);
+    /* Use safe-area only, no header height */
+}
+
+/* Hide header behind fullscreen overlays */
+body:has(#setup-overlay.active) header,
+body:has(#media-source-overlay.active) header,
+body:has(#youtube-url-overlay.active) header {
+    z-index: 1;
+    /* Below onboarding overlay so header is hidden */
+}
+
+/* Hide mobile bottom navigation to prevent peeking in PWA mode */
+body:has(#setup-overlay.active) .bottom-nav,
+body:has(#media-source-overlay.active) .bottom-nav,
+body:has(#youtube-url-overlay.active) .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
+/* :has() fallback for older browsers / WebViews */
+body.overlay-open header {
+    z-index: 1;
+}
+
+body.overlay-open .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
+/* Base styles for the new split layout of setup overlay */
+#setup-desktop-brand {
+    display: none;
+    /* Hidden on mobile */
+}
+
+.setup-mobile-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* YouTube Overlay Specific Spacing */
+#youtube-url-overlay .setup-header-text,
+#media-source-overlay .setup-header-text {
+    margin-top: 40px;
+    margin-bottom: 20px;
+}
+
+/* Removed fadeInFadeOnly to use View Transitions API */
+
+.onboarding-overlay.active {
+    display: flex;
+}
+
+.onboarding-card {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+    overflow: hidden;
+    /* Parent does not scroll */
+    position: relative;
+    padding: 0;
+    margin: 0;
+}
+
+/* Content Area - This should scroll only if content overflows */
+/* Content Area - Natural flow by default */
+.onboarding-card>div:not(.ob-actions) {
+    flex: none;
+    padding: 0 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+}
+
+/* Redundant scrollbar prevention on parent */
+.onboarding-card {
+    overflow: hidden;
+    /* Scrolling happens in children */
+}
+
+/* Unified Setup Flow Areas */
+#setup-welcome-area,
+#setup-code-area,
+#setup-join-area,
+#setup-role-area {
+    display: none;
+    /* Controlled by JS. Welcome starts visible via JS init */
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-top: 0 !important;
+    width: 100%;
+    flex-direction: column;
+}
+
+/* Welcome Header — now uses shared .setup-header-text margin-bottom: 56px */
+
+/* 스피커 선택 화면: 다이어그램 SVG 상단 여백이 시각적 간격을 만들어
+   다른 화면(56px)과 동일하게 보이도록 착시 보정 (-14px) */
+#setup-role-area .setup-header-text {
+    margin-bottom: 42px;
+}
+
+/* Standard Header Text */
+.setup-header-text {
+    width: 100%;
+    margin-bottom: 16px;
+    text-align: left;
+    flex: none;
+    padding-top: 0 !important;
+}
+
+/* Footer Area - This is pinned at the bottom */
+.ob-actions {
+    flex: none;
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    padding: 16px 28px calc(24px + env(safe-area-inset-bottom, 0));
+    margin-top: auto;
+    /* Natural flow to the bottom */
+    background: var(--bg);
+    width: 100%;
+    z-index: 100;
+    border-top: none;
+    /* Removed subtle line */
+}
+
+.onboarding-card.full-screen {
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100%;
+}
+
+
+
+.setup-card {
+    padding: 32px 28px 24px !important;
+    /* Slightly more balanced padding for fixed height */
+}
+
+.ob-slider-viewport {
+    overflow: hidden;
+    width: 100%;
+    margin: 4px 0;
+}
+
+.ob-slider-track {
+    display: flex;
+    width: 100%;
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.ob-slide {
+    flex: 0 0 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    /* Align to top instead of center to reduce gap */
+    text-align: center;
+    gap: 16px;
+    padding: 0;
+    height: auto;
+}
+
+.ob-slide .setup-header-text {
+    width: 100%;
+    text-align: center;
+    /* Center titles */
+}
+
+.ob-slide .ob-title {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: var(--text-main);
+}
+
+.ob-slide .ob-desc {
+    font-size: 14px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    word-break: keep-all;
+}
+
+.ob-slide .ob-icon-circle {
+    margin: 0 auto;
+}
+
+.ob-icon-circle {
+    width: 84px;
+    height: 84px;
+    background: var(--surface-2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+
+.ob-icon-circle svg {
+    width: 38px;
+    height: 38px;
+    fill: currentColor;
+}
+
+.ob-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -0.5px;
+}
+
+.ob-desc {
+    font-size: 15.5px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    word-break: keep-all;
+    padding: 0 16px;
+}
+
+.ob-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 28px;
+    margin-bottom: 8px;
+}
+
+.ob-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ob-dot.active {
+    background: var(--primary);
+    width: 24px;
+    border-radius: 12px;
+}
+
+.ob-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) !important;
+    width: 44px;
+    height: 44px;
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    z-index: 10;
+
+    /* Aggressive Reset */
+    appearance: none;
+    -webkit-appearance: none;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    background-clip: padding-box;
+}
+
+.ob-arrow svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+    pointer-events: none;
+    /* Prevent click interference */
+}
+
+/* Optical Centering Fix */
+.ob-arrow-left svg {
+    margin-right: 2px;
+    /* Push icon slightly left -> visual center */
+}
+
+.ob-arrow-right svg {
+    margin-left: 2px;
+    /* Push icon slightly right -> visual center */
+}
+
+.ob-arrow:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-50%) !important;
+}
+
+.ob-arrow-left {
+    left: -12px;
+}
+
+.ob-arrow-right {
+    right: -12px;
+}
+
+.ob-arrow svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+}
+
+/* ob-actions handled in onboarding-card footer rule */
+
+.ob-actions.vertical {
+    flex-direction: column;
+    gap: 16px;
+}
+
+.ob-actions.horizontal-with-back {
+    flex-direction: row;
+    gap: 12px;
+    align-items: center;
+}
+
+.btn-ob-primary,
+.btn-ob-secondary {
+    flex: 1;
+    height: 56px;
+    border-radius: 20px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-ob-icon {
+    width: 60px;
+    min-width: 60px;
+    height: 56px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.btn-ob-icon:active {
+    background: var(--surface-3);
+    transform: scale(0.96);
+}
+
+.btn-ob-icon svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    margin-right: 2px;
+    /* Slight visual centering tweak for back arrow */
+}
+
+.ob-actions.vertical .btn-ob-primary,
+.ob-actions.vertical .btn-ob-secondary {
+    flex: none;
+    height: 56px;
+    width: 100%;
+    font-size: 16px;
+}
+
+.btn-ob-primary {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-ob-secondary {
+    background: var(--surface-2);
+    color: var(--text-main);
+}
+
+.btn-ob-text-link {
+    background: transparent;
+    color: var(--text-sub);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s, opacity 0.2s;
+    flex: 1;
+    height: 56px;
+    border-radius: 20px;
+}
+
+.btn-ob-text-link:active {
+    opacity: 0.7;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ob-actions.vertical .btn-ob-text-link {
+    flex: none;
+    height: 56px;
+    width: 100%;
+    font-size: 14px;
+    padding: 0;
+    margin-top: 0;
+}
+
+.setup-header-text {
+    width: 100%;
+    margin-bottom: 56px;
+    text-align: left;
+}
+
+.setup-header-text h2 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    /* Reduced from 12px */
+    letter-spacing: -0.03em;
+    color: var(--text-main);
+    line-height: 1.2;
+}
+
+.setup-header-text p {
+    font-size: 16px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
+/* --- Setup Overlay (Toss In-App) --- */
+.setup-subtitle {
+    margin-top: -6px;
+    font-size: 13px;
+    color: var(--text-sub);
+}
+
+.setup-code-label {
+    text-align: center;
+    width: 100%;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: var(--text-sub);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* Setup Illustrations */
+.setup-graphic-container {
+    width: 100%;
+    height: auto;
+    min-height: 120px;
+    /* Reduced from 180px */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 16px;
+    /* Reduced from 24px */
+    position: relative;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    overflow: hidden;
+    border: none;
+}
+
+/* Unified Guide Layout (Combined WiFi + Hotspot) */
+.setup-guide-unified {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    margin-bottom: 24px;
+    width: 100%;
+}
+
+.setup-unified-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    text-align: center;
+    box-shadow: none;
+}
+
+.setup-unified-item .setup-inner-desc {
+    margin-top: 6px;
+    font-size: 12px;
+    /* Smaller font */
+    color: var(--text-sub);
+    font-weight: 600;
+    line-height: 1.4;
+    word-break: keep-all;
+}
+
+.setup-code-area-bottom {
+    margin-top: 40px;
+    /* Perfectly identical distance for both Host and Guest */
+    padding: 16px 0 32px;
+    border-top: none;
+    text-align: center;
+    width: 100%;
+    flex: none;
+}
+
+.setup-code-area-bottom .setup-code-label {
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: var(--text-sub);
+}
+
+/* Inner Mini Slider for Connection Guide */
+.setup-inner-slider {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Added to strictly contain slides */
+}
+
+.setup-inner-track {
+    display: flex;
+    width: 200%;
+    /* Important: Must match slide count * 100% */
+    height: calc(100% - 40px);
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.setup-inner-slide {
+    flex: 0 0 50%;
+    /* 100% / Slide count */
+    width: 50%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 0 40px;
+    /* Space for internal arrows */
+}
+
+.setup-inner-desc {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-sub);
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.4;
+    word-break: keep-all;
+    padding: 0 10px;
+}
+
+.setup-inner-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.setup-inner-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    transition: all 0.3s;
+}
+
+.setup-inner-dot.active {
+    background: var(--primary);
+    width: 16px;
+    border-radius: 8px;
+}
+
+/* Mini Slider Arrows */
+.setup-code-label {
+    text-align: center;
+    width: 100%;
+}
+
+.setup-inner-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) !important;
+    width: 44px;
+    height: 44px;
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    cursor: pointer;
+    z-index: 50;
+
+    /* Aggressive Reset matching ob-arrow */
+    appearance: none;
+    -webkit-appearance: none;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
+    background-clip: padding-box;
+    transition: background 0.2s, color 0.2s;
+}
+
+.setup-inner-arrow:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-50%) !important;
+}
+
+.setup-inner-arrow:active {
+    transform: translateY(-50%) scale(0.95) !important;
+}
+
+.setup-inner-arrow svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    pointer-events: none;
+}
+
+.setup-inner-arrow.left {
+    left: 8px;
+    /* Move inside to prevent clipping */
+}
+
+.setup-inner-arrow.right {
+    right: 8px;
+    /* Move inside to prevent clipping */
+}
+
+/* Optical Centering Fix */
+.setup-inner-arrow.left svg {
+    margin-right: 2px;
+}
+
+.setup-inner-arrow.right svg {
+    margin-left: 2px;
+}
+
+/* Role Selection Grid */
+.channel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 0 8px;
+    /* Slightly reduced */
+    margin-top: 12px;
+    /* Reduced from 24px */
+    width: 100%;
+}
+
+.ch-opt {
+    background: var(--surface-2);
+    border-radius: 16px;
+    padding: 14px 10px;
+    /* Reduced from 20px */
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-sub);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid transparent;
+    /* Match selected state width to prevent shift */
+}
+
+.ch-opt:active {
+    transform: scale(0.96);
+    background: var(--surface-3);
+}
+
+.ch-opt.selected {
+    background: rgba(var(--primary-rgb), 0.08);
+    /* Lighter tint */
+    color: var(--primary);
+    border-color: var(--primary);
+    border-width: 2px;
+    font-weight: 800;
+    /* Extra bold */
+    box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
+    /* Subtle glow */
+}
+
+/* Speaker Active State */
+.graphic-speaker {
+    transition: fill 0.3s, stroke 0.3s;
+}
+
+.graphic-speaker.active {
+    fill: rgba(var(--primary-rgb), 0.2) !important;
+    stroke: var(--primary) !important;
+    stroke-width: 2.5px !important;
+}
+
+/* Top Left Back Button */
+.btn-back-left {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    border: none;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.2s;
+}
+
+.btn-back-left:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.btn-back-left svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+
+
+.setup-graphic-svg {
+    width: 100%;
+    height: 100%;
+    max-width: 280px;
+}
+
+.graphic-host {
+    fill: var(--primary);
+}
+
+.graphic-guest {
+    fill: #8B95A1;
+}
+
+.graphic-accent {
+    fill: var(--primary);
+    opacity: 0.1;
+}
+
+.graphic-device {
+    fill: var(--surface-4);
+    stroke: var(--surface-3);
+    stroke-width: 1;
+}
+
+.graphic-speaker {
+    fill: var(--surface-4);
+    stroke: var(--text-sub);
+    stroke-width: 1.5;
+}
+
+.graphic-line {
+    stroke: var(--surface-3);
+    stroke-width: 1.2;
+    stroke-dasharray: 4 4;
+    fill: none;
+}
+
+.graphic-line-active {
+    stroke: var(--primary);
+    stroke-width: 2;
+    opacity: 0.4;
+    fill: none;
+    animation: graphic-pulse 2s infinite;
+}
+
+@keyframes graphic-pulse {
+    0% {
+        stroke-dashoffset: 0;
+    }
+
+    100% {
+        stroke-dashoffset: -20;
+    }
+}
+
+.graphic-line-active {
+    stroke-dasharray: 5 5;
+}
+
+.graphic-text {
+    font-size: 10px;
+    font-weight: 700;
+    fill: var(--text-sub);
+}
+
+.setup-role-note {
+    text-align: center;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.setup-role-note span {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-sub);
+    margin-top: 4px;
+}
+
+
+
+
+
+.setup-code-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sub);
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+    text-align: center;
+}
+
+.setup-code {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    color: var(--text-main);
+    margin-right: -0.12em;
+    align-self: center;
+    /* Keep the code itself centered */
+    font-variant-numeric: tabular-nums;
+}
+
+.setup-join-input {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+    background: none;
+    border: none;
+    border-bottom: 2px solid var(--surface-3);
+    border-radius: 0;
+    padding: 8px 0;
+    padding: 8px 0;
+    font-size: 32px;
+    /* Increased font size for code visibility */
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    /* Adjusted letter spacing */
+    color: var(--text-main);
+    caret-color: var(--text-main);
+    align-self: center;
+    /* Keep centered */
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    transition: border-bottom-color 0.3s ease;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.setup-join-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.3;
+}
+
+.setup-join-input:focus {
+    border-bottom-color: var(--primary);
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.setup-code-box {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+}
+
+.setup-instruction {
+    margin-top: 12px;
+    padding: 0;
+    color: var(--text-sub);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+    line-height: 1.5;
+    text-align: left;
+    white-space: pre-line;
+}
+
+.setup-join-area {
+    margin-top: 12px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+
+
+.setup-slot-list {
+    margin-top: 12px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.setup-slot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+}
+
+.slot-label {
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.slot-status {
+    font-size: 13px;
+    font-weight: 800;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text-sub);
+}
+
+.slot-status.connected {
+    background: rgba(16, 185, 129, 0.16);
+    color: rgb(16, 185, 129);
+}
+
+.slot-status.pending {
+    background: rgba(59, 130, 246, 0.14);
+    color: rgb(59, 130, 246);
+}
+
+.slot-status.skipped {
+    background: rgba(148, 163, 184, 0.20);
+    color: rgb(148, 163, 184);
+}
+
+.btn-ob-primary:active,
+.btn-ob-secondary:active {
+    transform: scale(0.96);
+}
+
+.btn-ob-primary:active {
+    box-shadow: none;
+}
+
+.btn-ob-secondary:active {
+    background: var(--surface-3);
+}
+
+
+/* Navigation Arrows */
+.ob-arrow {
+    position: absolute;
+    top: 120px;
+    /* Align with icon area */
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    border: 1px solid var(--surface-3);
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 20;
+    transition: all 0.2s;
+    opacity: 0.3;
+}
+
+/* Manual Sync Overlay */
+
+
+.sync-card {
+    background: var(--surface-1);
+    border: 1px solid var(--surface-3);
+    border-radius: 20px;
+    padding: 24px;
+    width: 300px;
+    text-align: center;
+}
+
+.sync-card-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 24px;
+    color: var(--text-main);
+}
+
+.sync-status-text {
+    font-size: 16px;
+    color: var(--primary);
+    font-weight: 700;
+    margin-top: 16px;
+    min-height: 24px;
+}
+
+/* Host Dots */
+.sync-visual-dots {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin: 20px 0;
+}
+
+.sync-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    transition: all 0.2s;
+}
+
+.sync-dot.big {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--surface-3);
+    background: transparent;
+}
+
+.sync-dot.active {
+    background: var(--primary);
+    transform: scale(1.2);
+    box-shadow: 0 0 10px var(--primary);
+}
+
+.sync-dot.big.active {
+    background: #ef4444;
+    /* Red for Trigger */
+    border-color: #ef4444;
+    box-shadow: 0 0 15px #ef4444;
+}
+
+/* Guest Readouts */
+.sync-readout {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.readout-label {
+    font-size: 13px;
+    color: var(--text-sub);
+}
+
+.readout-val {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: monospace;
+    color: var(--text-main);
+}
+
+.readout-bar-bg {
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.readout-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    transition: width 0.1s linear;
+}
+
+.btn-close-sync {
+    background: var(--surface-2);
+    color: var(--text-main);
+    border: none;
+    padding: 10px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    margin-top: 20px;
+    cursor: pointer;
+}
+
+.onboarding-card:hover .ob-arrow {
+    opacity: 1;
+}
+
+.ob-arrow:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+    opacity: 1 !important;
+    transform: scale(1.1);
+}
+
+.ob-arrow-left {
+    left: 10px;
+}
+
+.ob-arrow-right {
+    right: 10px;
+}
+
+.ob-arrow svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+/* CSS for Calm & Clean Manual Sync UI */
+.manual-sync-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Standard Dimming */
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 3000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+}
+
+.manual-sync-overlay.show {
+    display: flex;
+    opacity: 1;
+    animation: fadeInScale 0.2s forwards;
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.sync-glass-panel {
+    width: 350px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-l);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    position: relative;
+    animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sync-glass-panel.panel-compact {
+    padding: 32px 28px 24px;
+    gap: 16px;
+}
+
+.panel-compact .sync-header {
+    margin-bottom: 0;
+}
+
+.panel-compact .sync-actions-row {
+    margin-top: 12px;
+}
+
+/* Light / Dark Mode Handling is automatic via var(--surface-1) */
+
+.sync-header {
+    width: 100%;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.sync-label {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-sub);
+    letter-spacing: 1.2px;
+}
+
+.sync-value-wrapper {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px;
+}
+
+.sync-main-val {
+    font-size: 40px;
+    font-weight: 800;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    /* No Text Shadow */
+}
+
+.sync-unit {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-sub);
+}
+
+/* Control Row: Split Left/Right */
+.sync-control-row {
+    display: flex;
+    width: 100%;
+    height: 100px;
+    gap: 12px;
+}
+
+.sync-group-side {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Buttons: Unified Look (< >) */
+.btn-nudge {
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--surface-2);
+    color: var(--text-main);
+    transition: all 0.1s;
+}
+
+.btn-nudge:active {
+    background: var(--surface-3);
+    transform: scale(0.96);
+}
+
+.btn-nudge svg {
+    fill: currentColor;
+}
+
+.btn-nudge span {
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.6;
+}
+
+.btn-nudge svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+}
+
+.btn-nudge.large {
+    flex: 2;
+    /* Takes more space */
+    height: 100%;
+    font-size: 14px;
+}
+
+.btn-nudge.large svg {
+    width: 32px;
+    height: 32px;
+}
+
+.btn-nudge.small {
+    flex: 1;
+    /* Narrower */
+    height: 100%;
+}
+
+.btn-nudge.small svg {
+    width: 18px;
+    height: 18px;
+    opacity: 0.6;
+}
+
+.sync-divider {
+    width: 1px;
+    background: var(--surface-3);
+    height: 100%;
+}
+
+/* Action Buttons Row */
+.sync-actions-row {
+    display: flex;
+    width: 100%;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.sync-popup-reset-btn,
+.sync-done-btn {
+    height: 56px;
+    /* Enforce same height */
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: transform 0.1s, background 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    /* Make them equal width */
+}
+
+.sync-popup-reset-btn {
+    background: var(--surface-2);
+    color: var(--text-sub);
+}
+
+.sync-done-btn {
+    background: var(--text-main);
+    color: var(--bg);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Media Source Button Enhancements */
+#media-source-overlay .file-select-btn-large {
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#media-source-overlay .file-select-btn-large:active {
+    transform: scale(0.97);
+    background: var(--surface-3);
+}
+
+
+
+.sync-popup-reset-btn:active,
+.sync-done-btn:active {
+    transform: scale(0.96);
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--surface-2);
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input:checked+.slider {
+    background-color: var(--primary);
+}
+
+input:focus+.slider {
+    box-shadow: 0 0 1px var(--primary);
+}
+
+input:checked+.slider:before {
+    transform: translateX(18px);
+}
+
+/* Rounded sliders */
+.slider.round {
+    border-radius: 34px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+
+.help-btn {
+    background: transparent;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-sub);
+    transition: all 0.2s;
+}
+
+.help-btn:active {
+    transform: scale(0.9);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.help-btn svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+}
+
+
+.help-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 3100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+}
+
+.help-modal-overlay.show {
+    display: flex;
+}
+
+.help-modal {
+    background: var(--surface-1);
+    border-radius: var(--radius-l);
+    width: 100%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: modalSlideUp 0.3s ease-out;
+}
+
+@keyframes modalSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.help-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.help-modal-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.help-modal-close {
+    background: var(--surface-2);
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-sub);
+    transition: all 0.2s;
+}
+
+.help-modal-close:active {
+    transform: scale(0.9);
+}
+
+.help-modal-close svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
+.help-modal-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.help-modal .help-block {
+    margin: 0;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.help-modal .help-block:last-of-type {
+    border-bottom: none;
+}
+
+.help-modal .help-footer {
+    padding: 16px 24px;
+    text-align: center;
+    border-top: 1px solid var(--surface-2);
+    background: var(--surface-1);
+    flex-shrink: 0;
+}
+
+.coffee-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #FFDD00;
+    color: #000;
+    padding: 12px 24px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    transition: transform 0.2s;
+}
+
+.coffee-btn:active {
+    transform: scale(0.95);
+}
+
+/* Help Footer Layout */
+.help-footer-row {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.help-footer-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.help-footer-label {
+    font-size: 11px;
+    color: var(--text-sub);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* Demo Button */
+.demo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--primary);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    font-family: inherit;
+}
+
+.demo-btn:active {
+    transform: scale(0.95);
+}
+
+/* Large File Select Button */
+.file-select-btn-large {
+    width: 100%;
+    padding: 18px 20px;
+    font-size: 14px;
+}
+
+
+
+/* Chat YouTube 미니 플레이어 */
+.chat-youtube-container {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.chat-youtube-player {
+    width: 100%;
+    max-width: 480px;
+    /* 데스크톱에서 Play 탭과 동일한 크기 제한 */
+    margin: 0 auto;
+    /* 중앙 정렬 */
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+}
+
+.chat-youtube-player iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
+    /* 80px = tab-header, 72px = input-area */
+}
+
+/* Chat 컨테이너 높이 조정 (YouTube 표시 시) */
+.chat-container.with-youtube {
+    /* min(56.25vw, 270px) = 480px의 16:9 비율 높이 (최대 270px) */
+    height: calc(100vh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: scroll;
+    /* Always show scrollbar for consistent width */
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chat-empty,
+.list-empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    text-align: center;
+    line-height: 1.6;
+}
+
+.chat-empty,
+.list-empty-state {
+    flex: 1;
+}
+
+.list-empty-state {
+    padding: 20px;
+    /* Removed large top padding to allow flex centering */
+}
+
+.chat-group {
+    display: flex;
+    flex-direction: column;
+    max-width: 90%;
+    animation: bubbleIn 0.2s ease-out;
+}
+
+.chat-group.mine {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.chat-group.others {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+
+.chat-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.chat-bubble {
+    max-width: 100%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+@keyframes bubbleIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.chat-bubble.mine {
+    background: var(--primary);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.chat-bubble.others {
+    background: var(--surface-2);
+    color: var(--text-main);
+    border-bottom-left-radius: 4px;
+}
+
+/* Redesign: When bubble contains YouTube, strip its own background/padding */
+.chat-bubble:has(.chat-youtube-btn) {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+/* Fallback for browsers without :has() */
+.chat-bubble.has-youtube {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+.chat-sender {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-sub);
+    margin-bottom: 4px;
+    margin-left: 2px;
+    text-transform: none;
+}
+
+.chat-text {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.chat-time {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 2px;
+    white-space: nowrap;
+}
+
+/* Chat Input styling update - Underline Style */
+.chat-input-area {
+    display: flex;
+    gap: 8px;
+    padding: 12px 24px 20px;
+    /* Adjusted padding */
+    background: var(--surface-1);
+    border-top: 1px solid var(--surface-2);
+    position: fixed;
+    bottom: calc(var(--nav-height) + var(--safe-bottom));
+    left: 0;
+    right: 0;
+    z-index: 100;
+    align-items: center;
+    /* Added for vertical alignment */
+}
+
+.chat-input-wrapper {
+    display: flex;
+    align-items: center;
+    /* Vertically center the input text/placeholder and the arrow to each other */
+    width: 100%;
+    border-bottom: 2px solid var(--surface-3);
+    padding-bottom: 6px;
+    /* Lift everything slightly above the underline together */
+    transition: border-bottom-color 0.2s;
+}
+
+.chat-input-wrapper:focus-within {
+    border-bottom-color: var(--primary) !important;
+}
+
+.chat-input {
+    flex: 1;
+    background: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 10px 4px;
+    /* Symmetrical padding for true center alignment */
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-main);
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.chat-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.chat-send-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--surface-3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-shadow: none;
+    margin-bottom: 0;
+    /* Remove manual compensation, handle natively via flex-center */
+    transition: color 0.2s ease, transform 0.2s, opacity 0.2s;
+}
+
+/* Lights up in blue when input is not empty */
+.chat-input:not(:placeholder-shown)+.chat-send-btn {
+    color: var(--primary);
+}
+
+.chat-send-btn:active {
+    transform: scale(0.92);
+    opacity: 0.8;
+}
+
+.chat-send-btn svg {
+    width: 24px;
+    /* Sleeker, correctly proportioned icon */
+    height: 24px;
+    fill: currentColor;
+}
+
+/* ========================================
+   Chat Preview Button (Play Tab)
+   ======================================== */
+.chat-preview-btn {
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    margin-top: 20px;
+    background: var(--surface-2);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.chat-preview-btn:active {
+    background: var(--surface-3);
+}
+
+.chat-preview-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+}
+
+.chat-preview-icon {
+    width: 20px;
+    height: 20px;
+    fill: var(--text-sub);
+    flex-shrink: 0;
+}
+
+.chat-preview-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-preview-badge {
+    background: #ef4444;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: none;
+    flex-shrink: 0;
+}
+
+.chat-preview-badge.show {
+    display: inline-block;
+}
+
+/* Slide-up Chat Drawer */
+.chat-drawer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--safe-nav-bottom, 0px);
+    /* 모든 경우에 화면 절반만 사용 */
+    height: 50vh;
+    max-height: calc(var(--app-height, 100dvh) * 0.5);
+    background: var(--surface-1);
+    /* Themed background */
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+    /* Slightly stronger shadow for depth */
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+}
+
+[data-theme="light"] .chat-drawer {
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.08);
+    /* Softer shadow in light mode */
+}
+
+.chat-drawer.open {
+    transform: translateY(0);
+}
+
+.chat-drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid var(--surface-3);
+}
+
+.chat-drawer-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.chat-drawer-close {
+    background: none;
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-sub);
+    transition: background 0.2s;
+}
+
+.chat-drawer-close:active {
+    background: var(--surface-2);
+}
+
+.chat-drawer-close svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.chat-drawer-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
+}
+
+.chat-drawer-input {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 10px 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+    background: var(--surface-1);
+    /* Match the drawer themed background */
+}
+
+
+/* Chat YouTube Play Button (Acts as the bubble itself) */
+.chat-youtube-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    background: #FF0000;
+    /* Clean YouTube Red */
+    border: none;
+    color: #ffffff;
+    /* Solid white text */
+    padding: 14px 16px;
+    /* Proper bubble padding */
+    border-radius: 14px;
+    font-size: 13px;
+    cursor: pointer;
+    margin: 0;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    width: 100%;
+    max-width: 260px;
+    box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
+}
+
+/* Match the tail of the bubble depending on who sent it */
+.chat-group.mine .chat-youtube-btn {
+    border-bottom-right-radius: 4px;
+}
+
+.chat-group.others .chat-youtube-btn {
+    border-bottom-left-radius: 4px;
+}
+
+.chat-yt-play-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 800;
+    color: #ffffff;
+    font-size: 14px;
+    font-family: 'Pretendard', sans-serif;
+    letter-spacing: -0.3px;
+}
+
+.chat-yt-title {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.45;
+    text-align: left;
+    word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.chat-youtube-btn:active {
+    transform: scale(0.97);
+    background: #d90000;
+    /* Slightly darker red on active */
+}
+
+/* Chat Timestamp Link */
+.chat-timestamp {
+    color: var(--primary);
+    cursor: pointer;
+    text-decoration: underline;
+    font-weight: 600;
+    transition: opacity 0.15s;
+}
+
+.chat-bubble.mine .chat-timestamp {
+    color: white;
+    /* Visibility fix */
+}
+
+.chat-timestamp:active {
+    opacity: 0.7;
+}
+
+/* Backdrop overlay when drawer is open */
+.chat-drawer-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+    z-index: 999;
+}
+
+.chat-drawer-backdrop.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Accessibility: visible focus ring */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Light Mode Play Tab Buttons (White Background) */
+[data-theme="light"] .chat-preview-btn,
+[data-theme="light"] .file-select-btn {
+    background: #ffffff;
+    box-shadow: none;
+    border: none;
+}
+
+[data-theme="light"] .chat-preview-btn .chat-preview-text,
+[data-theme="light"] .file-select-btn,
+[data-theme="light"] .file-select-btn span {
+    color: #444444;
+}
+
+[data-theme="light"] .chat-preview-btn .chat-preview-icon,
+[data-theme="light"] .file-select-btn svg {
+    fill: #444444;
+}
+
+/* Explicitly keep the YouTube icon red in light mode */
+[data-theme="light"] .file-select-btn .btn-icon-bg.youtube svg {
+    fill: #FF0000;
+}
+
+/* Animation for media play button hint */
+@keyframes blink-primary-light {
+    0% {
+        box-shadow: inset 0 0 0 100px rgba(59, 130, 246, 0.4);
+    }
+
+    50% {
+        box-shadow: none;
+    }
+}
+
+.blink-hint {
+    animation: blink-primary-light 0.8s step-end 3;
+}
+
+/* Media Source Overlay Styles */
+/* Consolidated with global .setup-header-text above */
+
+.setup-slot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.file-select-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 72px;
+    background: var(--surface-2);
+    border-radius: 20px;
+    padding: 0 20px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    color: var(--text-sub);
+    text-align: left;
+}
+
+.file-select-btn:hover {
+    background: var(--surface-3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.file-select-btn:active {
+    transform: scale(0.98);
+}
+
+.file-select-btn span {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    flex: 1;
+}
+
+.btn-icon-bg {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+    color: var(--text-main);
+    transition: color 0.2s;
+}
+
+.btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.file-select-btn:hover .btn-icon-bg {
+    background: transparent;
+    color: var(--primary);
+}
+
+.file-select-btn:hover .btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.btn-icon-bg svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Smaller Sync/Media Buttons for Main Screen (Match Chat Button) */
+#btn-sync,
+#btn-media-source {
+    height: 56px !important;
+    padding: 0 20px !important;
+    font-size: 14px !important;
+    gap: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    /* Use currentColor so icon/text stay perfectly consistent across themes */
+    color: var(--text-sub);
+}
+
+[data-theme="light"] #btn-sync,
+[data-theme="light"] #btn-media-source {
+    color: #444444;
+}
+
+#btn-sync svg,
+#btn-media-source svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    margin: 0 !important;
+    /* Remove any default margins */
+}
+
+#btn-sync span,
+#btn-media-source span {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: currentColor;
+}
+
+/* Remove hover/press lift effect on the two main buttons */
+#btn-sync:hover,
+#btn-media-source:hover {
+    background: var(--surface-2);
+    transform: none;
+    box-shadow: none;
+}
+
+#btn-sync:active,
+#btn-media-source:active {
+    transform: none;
+}
+
+/* Minimalist Room Diagram */
+.graphic-room {
+    stroke: var(--text-muted);
+    opacity: 0.9;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.graphic-tv {
+    fill: var(--surface-2);
+    stroke: none;
+    opacity: 0.8;
+}
+
+.graphic-listener {
+    fill: var(--surface-3);
+    stroke: none;
+}
+
+.graphic-speaker {
+    fill: var(--surface-1);
+    stroke: var(--text-sub);
+    stroke-width: 2;
+    transition: fill 0.3s, stroke 0.3s, stroke-width 0.3s;
+    cursor: pointer;
+}
+
+.graphic-speaker:hover {
+    stroke: var(--text-main);
+}
+
+.graphic-speaker.active {
+    stroke: var(--primary);
+    fill: var(--surface-3);
+    /* filter: drop-shadow(0 4px 12px rgba(var(--primary-rgb), 0.2)); */
+}
+
+.spk-driver {
+    fill: var(--surface-3);
+    stroke: none;
+    transition: all 0.3s;
+}
+
+.graphic-speaker.active .spk-driver {
+    fill: var(--primary);
+    stroke: none !important;
+}
+
+/* Tab text switching (Mobile) */
+.nav-text-desktop {
+    display: none !important;
+}
+
+.nav-text-mobile {
+    display: block !important;
+}
+
+.desktop-help-section {
+    display: none;
+}
+
+.play-header-desktop {
+    display: none;
+}

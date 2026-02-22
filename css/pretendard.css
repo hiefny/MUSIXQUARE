@@ -1,0 +1,20 @@
+/* Pretendard (self-hosted)
+ *
+ * This project previously loaded Pretendard from a CDN.
+ * To self-host the font files:
+ *   1) Run scripts/fetch-pretendard.(sh|ps1)
+ *   2) The font files will be placed into /fonts
+ *
+ * License: fonts/PRETENDARD_LICENSE.txt (SIL Open Font License 1.1)
+ */
+
+@font-face {
+  font-family: "Pretendard";
+  /* WOFF2 only: modern browsers/WebViews support it, and this repo
+   * intentionally does not ship a WOFF fallback.
+   */
+  src: url("../fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}

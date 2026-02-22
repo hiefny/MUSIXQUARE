@@ -59,30 +59,10 @@ const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
 /**
  * [Viewport-fit Strategy]
- *
- * viewport-fit=cover is REMOVED from the HTML <meta> tag because:
- * - On Android WebView/Chrome, it extends the viewport behind the soft
- *   navigation bar WITHOUT providing env(safe-area-inset-bottom) to compensate.
- * - All height APIs (innerHeight, visualViewport.height, 100dvh) then include
- *   the hidden area, making bottom-positioned elements invisible.
- *
- * We add viewport-fit=cover back ONLY on iOS, where it's needed for notch
- * handling and where env(safe-area-inset-*) works correctly.
+ * viewport-fit=cover is set directly in the HTML <meta> tag to avoid
+ * reflow-induced layout jitter on PWA cold starts.
+ * Android removes it synchronously in a <head> inline script.
  */
-if (IS_IOS) {
-    try {
-        const vpMeta = document.querySelector('meta[name="viewport"]');
-        if (vpMeta) {
-            const content = vpMeta.getAttribute('content') || '';
-            if (!content.includes('viewport-fit')) {
-                vpMeta.setAttribute('content', content + ', viewport-fit=cover');
-                log.info('[Viewport] Added viewport-fit=cover for iOS');
-            }
-        }
-    } catch (_) { /* ignore */ }
-}
-
-/* [Debug overlay removed — viewport fix confirmed working (v40)] */
 
 /**
  * [UX] Disable iOS pinch-zoom gesture (app-like behavior)

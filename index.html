@@ -4,7 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
-        content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+        content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <!-- Android: remove viewport-fit=cover immediately (before first paint)
+         to prevent the viewport extending behind the system navigation bar.
+         This MUST run synchronously in <head> to avoid reflow. -->
+    <script>
+        if (/Android/i.test(navigator.userAgent)) {
+            var m = document.querySelector('meta[name="viewport"]');
+            if (m) m.setAttribute('content', m.getAttribute('content').replace(', viewport-fit=cover', ''));
+        }
+    </script>
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#121212">
     <meta name="application-name" content="MUSIXQUARE">

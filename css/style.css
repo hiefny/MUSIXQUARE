@@ -4427,7 +4427,9 @@ input:checked+.slider:before {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    /* iOS PWA: keep drawer anchored to the physical bottom.
+       If we offset by safe-bottom AND translateY(100%), a visible "peek" strip can remain. */
+    bottom: 0;
     /* 모든 경우에 화면 절반만 사용 */
     height: 50vh;
     max-height: calc(var(--app-height, 100dvh) * 0.5);
@@ -4507,7 +4509,8 @@ input:checked+.slider:before {
     align-items: flex-end;
     gap: 12px;
     padding: 10px 16px;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+    /* Respect device safe areas + Android landscape system bar */
+    padding-bottom: calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     background: var(--surface-1);
     /* Match the drawer themed background */
 }

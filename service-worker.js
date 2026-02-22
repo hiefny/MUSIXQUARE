@@ -22,7 +22,8 @@
 // v51: Remove bottom-nav drop shadow (light mode + base)
 // v52: Add third-party license files + :has() fallbacks + small a11y/theme preflight fixes
 // v55: Refine chat input area / drawer bottom positioning with safe-nav-bottom.
-const CACHE_VERSION = "v55";
+// v56: iOS PWA chat drawer safe-area fix (no peek strip + reduce bottom gap)
+const CACHE_VERSION = "v56";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

@@ -87,7 +87,8 @@ Use the VSCode **Live Server** extension.
 This project is a static web app (HTML/CSS/JS).
 
 - **Core libs are self-hosted**: Tone.js and PeerJS are included in the repo under `vendor/` for self-hosting / offline-first deployments.
-- **Optional external resources**: The default UI font (Pretendard) is loaded from cdnjs and cached by the Service Worker when possible. You can self-host it if your environment blocks cross-origin requests.
+- **UI font (Pretendard)**: Loaded from **local self-hosted files** (`css/pretendard.css` + `fonts/`).
+  - License is included at `fonts/PRETENDARD_LICENSE.txt`.
 - For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
 
 ---
@@ -96,6 +97,17 @@ This project is a static web app (HTML/CSS/JS).
 
 - `manifest.webmanifest` and `service-worker.js` are included.
 - Service worker is registered from `js/app.js` on secure contexts.
+
+## 📄 Third‑Party Licenses
+
+This repo vendors (self-hosts) the following third-party libraries for offline/self-hosted deployments:
+
+- **Tone.js** — MIT License — see `vendor/Tone.js.LICENSE.txt`
+- **PeerJS** — MIT License — see `vendor/peerjs.LICENSE.txt`
+
+Fonts:
+
+- **Pretendard** — SIL Open Font License 1.1 — see `fonts/PRETENDARD_LICENSE.txt`
 
 ## Maintenance notes
 

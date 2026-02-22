@@ -18,7 +18,11 @@
 // v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
 // v42: Slider thumbs updated, padding adjusted, proper progress tracking for demo media
 // v44: SW install no longer fails when optional cross-origin assets (e.g., webfonts) are blocked
-const CACHE_VERSION = "v49";
+// v50: Mobile/PWA scrollbar contrast + scroll container ends above bottom nav
+// v51: Remove bottom-nav drop shadow (light mode + base)
+// v52: Add third-party license files + :has() fallbacks + small a11y/theme preflight fixes
+// v53: Pretendard font-face uses WOFF2 only (remove missing WOFF fallback)
+const CACHE_VERSION = "v53";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -32,7 +36,9 @@ const APP_SHELL = [
   "./js/sync.worker.js",
   "./js/transfer.worker.js",
   "./vendor/Tone.js",
+  "./vendor/Tone.js.LICENSE.txt",
   "./vendor/peerjs.min.js",
+  "./vendor/peerjs.LICENSE.txt",
   "./manifest.webmanifest",
   "./favicon.svg",
   "./dummy_audio.mp3",

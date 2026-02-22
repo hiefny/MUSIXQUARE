@@ -1647,6 +1647,9 @@ function _resolveTheme(mode) {
 function _applyResolvedTheme(resolved) {
     try {
         document.documentElement.setAttribute('data-theme', resolved);
+        // Ensure UA-rendered widgets (overlay scrollbars on mobile/PWA, form controls)
+        // follow the currently forced app theme even if the *system* theme differs.
+        try { document.documentElement.style.colorScheme = resolved; } catch (_) { /* ignore */ }
         const metaColor = resolved === 'dark' ? '#000000' : '#f2f2f7';
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', metaColor);
         document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', resolved === 'dark' ? 'dark light' : 'light dark');
@@ -2654,10 +2657,38 @@ async function copyInviteCode() {
 
 function setupEl(id) { return document.getElementById(id); }
 
+// --- Overlay state helpers (CSS :has() fallback) ---
+// Some browsers/WebViews don't support :has(), so we also toggle a body class.
+const _OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overlay'];
+
+function updateOverlayOpenClass() {
+    try {
+        const anyActive = _OVERLAY_IDS.some((id) => {
+            const el = document.getElementById(id);
+            return !!(el && el.classList && el.classList.contains('active'));
+        });
+        if (document.body) document.body.classList.toggle('overlay-open', anyActive);
+    } catch (_) { /* ignore */ }
+}
+
+function initOverlayOpenObserver() {
+    try {
+        const obs = new MutationObserver(() => updateOverlayOpenClass());
+        _OVERLAY_IDS.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+        });
+    } catch (_) { /* ignore */ }
+
+    // Initial sync
+    updateOverlayOpenClass();
+}
+
 function showSetupOverlay() {
     animateTransition(() => {
         const ov = setupEl('setup-overlay');
         if (ov) ov.classList.add('active');
+        updateOverlayOpenClass();
         // Re-enable interactions once the overlay is mounted
         try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
         _setupOverlayEverShown = true;
@@ -2670,6 +2701,7 @@ function hideSetupOverlay() {
         try { hideBootSplash(); } catch (_) { /* ignore */ }
         const overlay = setupEl('setup-overlay');
         if (overlay) overlay.classList.remove('active');
+        updateOverlayOpenClass();
         stopObAutoSlide();
         try { document.documentElement.classList.remove('setup-boot-block'); } catch (_) { /* ignore */ }
 
@@ -3952,6 +3984,9 @@ function initEventListeners() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Keep body.overlay-open in sync (fallback for browsers without :has())
+    try { initOverlayOpenObserver(); } catch (_) { /* ignore */ }
+
     initSetupOverlay();
     initEventListeners();
     installAndroidRangeScrollFix();
@@ -10703,6 +10738,11 @@ function addChatMessage(sender, text, isMine) {
         bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
         bubble.innerHTML = `<div class="chat-text">${parseMessageContent(text)}</div>`;
 
+        // Fallback for browsers without :has(): mark bubbles that contain a YouTube button
+        try {
+            if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
+        } catch (_) { /* ignore */ }
+
         const timeNode = document.createElement('div');
         timeNode.className = 'chat-time';
         timeNode.innerText = timeStr;
@@ -10787,13 +10827,13 @@ function parseMessageContent(text) {
             const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
             result += `
-                <div class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" role="button" tabindex="0">
+                <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="YouTube 링크 열기" aria-describedby="${uniqueId}">
                     <div class="chat-yt-play-row">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
                         YouTube
                     </div>
                     <div id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</div>
-                </div>
+                </button>
             `;
 
             // Async title fetch
@@ -11069,7 +11109,18 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    // If another handler already claimed this key, don't also treat it as a global shortcut.
+    if (e.defaultPrevented) return;
+
+    const activeTag = document.activeElement && document.activeElement.tagName;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+
+    // Don't hijack Space when the user is focused on an interactive control (buttons/links/etc).
+    // (Important for accessibility: Space should activate focused buttons.)
+    const interactive = (e.target && e.target.closest)
+        ? e.target.closest('button, a, [role="button"], input, textarea, select, [contenteditable="true"]')
+        : null;
+    if ((e.key === ' ' || e.code === 'Space') && interactive) return;
 
     const isPlayingAny = (currentState !== APP_STATE.IDLE);
     if (e.key === ' ' || e.code === 'Space') {
@@ -11175,6 +11226,7 @@ function openMediaSourcePopup() {
     animateTransition(() => {
         const ov = document.getElementById('media-source-overlay');
         if (ov) ov.classList.add('active');
+        updateOverlayOpenClass();
     });
 }
 
@@ -11182,6 +11234,7 @@ function closeMediaSourcePopup() {
     animateTransition(() => {
         const ov = document.getElementById('media-source-overlay');
         if (ov) ov.classList.remove('active');
+        updateOverlayOpenClass();
     });
 }
 
@@ -11195,6 +11248,7 @@ function openYouTubePopup() {
     animateTransition(() => {
         const ov = document.getElementById('youtube-url-overlay');
         if (ov) ov.classList.add('active');
+        updateOverlayOpenClass();
 
         // auto-focus
         const urlInput = document.getElementById('youtube-url-input');
@@ -11207,6 +11261,7 @@ function closeYouTubePopup() {
     animateTransition(() => {
         const ov = document.getElementById('youtube-url-overlay');
         if (ov) ov.classList.remove('active');
+        updateOverlayOpenClass();
     });
 }
 

@@ -10,9 +10,10 @@
 
 @font-face {
   font-family: "Pretendard";
-  src:
-    url("../fonts/PretendardVariable.woff2") format("woff2"),
-    url("../fonts/PretendardVariable.woff") format("woff");
+  /* WOFF2 only: modern browsers/WebViews support it, and this repo
+   * intentionally does not ship a WOFF fallback.
+   */
+  src: url("../fonts/PretendardVariable.woff2") format("woff2");
   font-weight: 45 920;
   font-style: normal;
   font-display: swap;

@@ -7,6 +7,10 @@
     height: 100%;
     overflow: hidden;
     background-color: var(--surface-1);
+
+    /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
+       The *forced* scheme is controlled by html[data-theme]. */
+    color-scheme: light dark;
 }
 
 html.standalone body {
@@ -35,6 +39,13 @@ html.standalone body {
     --glass-bg: rgba(38, 38, 38, 0.75);
     --glass-border: transparent;
     --glass-blur: 16px;
+
+    /* Scrollbar colors (desktop WebKit + Firefox).
+       Mobile overlay scrollbars aren't fully stylable, but they follow `color-scheme`. */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
+    --scrollbar-thumb-active: rgba(255, 255, 255, 0.6);
+    --scrollbar-thumb-ff: rgba(255, 255, 255, 0.25);
 
     /* Safe areas (iOS PWA / notch devices) */
     --safe-top: constant(safe-area-inset-top);
@@ -87,7 +98,17 @@ html.setup-boot-block .bottom-nav {
     pointer-events: none !important;
 }
 
-[data-theme="light"] {
+/* Force UA color scheme per app theme.
+   (Critical for mobile/PWA overlay scrollbar contrast in light mode.) */
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+    color-scheme: dark;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] body {
+    color-scheme: light;
+
     /* Palette - Light & Sleek */
     --bg: #f8f9fa;
     /* Soft dynamic background */
@@ -107,19 +128,12 @@ html.setup-boot-block .bottom-nav {
 
     --glass-bg: rgba(255, 255, 255, 0.85);
     --glass-border: rgba(0, 0, 0, 0.06);
-}
 
-/* Light mode scrollbar: dark thumb on light background */
-[data-theme="light"] ::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.2);
-}
-
-[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(0, 0, 0, 0.4);
-}
-
-[data-theme="light"] ::-webkit-scrollbar-thumb:active {
-    background-color: rgba(0, 0, 0, 0.6);
+    /* Scrollbar colors (desktop). */
+    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
+    --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
+    --scrollbar-thumb-ff: rgba(0, 0, 0, 0.2);
 }
 
 * {
@@ -163,7 +177,7 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: var(--scrollbar-thumb);
     /* background 속성을 background-color로 변경하여 clip 방해 방지 */
     border: 2px solid transparent;
     /* 좌우상하 2px 띄우기용 투명 테두리 추가 */
@@ -174,12 +188,12 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.4);
+    background-color: var(--scrollbar-thumb-hover);
     /* 마우스 올렸을 때 좀 더 밝게 */
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background-color: rgba(255, 255, 255, 0.6);
+    background-color: var(--scrollbar-thumb-active);
     /* 클릭해서 드래그할 때 확연하게 밝게 */
 }
 
@@ -188,7 +202,7 @@ textarea {
 @supports (-moz-appearance:none) {
     * {
         scrollbar-width: thin;
-        scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+        scrollbar-color: var(--scrollbar-thumb-ff) transparent;
     }
 }
 
@@ -537,6 +551,14 @@ header.loading .header-loading-text {
     padding-top: var(--header-height);
 }
 
+/* Mobile/Tablet: reserve space for the fixed bottom nav so the scroll container
+   itself ends above the nav (prevents overlay scroll indicators reaching under it). */
+@media (max-width: 1279.98px) {
+    .tab-content {
+        padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
+    }
+}
+
 .tab-content.active {
     display: flex;
     opacity: 1;
@@ -554,13 +576,9 @@ header.loading .header-loading-text {
     /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
-    padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
-}
-
-/* Scrollbar stops above the bottom nav on mobile */
-.tab-body::-webkit-scrollbar-track {
-    margin-top: 0;
-    margin-bottom: calc(var(--nav-height) + var(--safe-bottom));
+    /* Small breathing room at the bottom of scroll content.
+       The fixed bottom nav spacing is handled by .tab-content padding-bottom. */
+    padding-bottom: 24px;
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -2046,8 +2064,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
     background: var(--glass-bg);
 
     /* Figma: #191F2911 / #191F293f */
-    box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
-        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
+    box-shadow: none;
     border: none;
 
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -2061,8 +2078,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 /* Light Mode */
 [data-theme="light"] .bottom-nav {
     background: var(--glass-bg);
-    box-shadow: 0px 20px 20px -16px rgba(25, 31, 41, 0.067),
-        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
+    box-shadow: none;
     border: none;
 }
 
@@ -2427,6 +2443,17 @@ body:has(#youtube-url-overlay.active) header {
 body:has(#setup-overlay.active) .bottom-nav,
 body:has(#media-source-overlay.active) .bottom-nav,
 body:has(#youtube-url-overlay.active) .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
+/* :has() fallback for older browsers / WebViews */
+body.overlay-open header {
+    z-index: 1;
+}
+
+body.overlay-open .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
@@ -4208,6 +4235,12 @@ input:checked+.slider:before {
 
 /* Redesign: When bubble contains YouTube, strip its own background/padding */
 .chat-bubble:has(.chat-youtube-btn) {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+/* Fallback for browsers without :has() */
+.chat-bubble.has-youtube {
     background: transparent !important;
     padding: 0 !important;
 }

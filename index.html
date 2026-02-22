@@ -14,8 +14,33 @@
             if (m) m.setAttribute('content', m.getAttribute('content').replace(', viewport-fit=cover', ''));
         }
     </script>
+
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#121212">
+    <meta name="theme-color" content="#f2f2f7">
+
+    <!-- Theme preflight (before CSS):
+         - Prevent light-mode overlay scrollbars becoming white (invisible) on mobile/PWA
+         - Reduce first-paint flicker by setting data-theme early -->
+    <script>
+        (function () {
+            try {
+                var mode = localStorage.getItem('musixquare-theme') || 'system';
+                var resolved = (mode === 'dark') ? 'dark' : (mode === 'light') ? 'light'
+                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+
+                document.documentElement.setAttribute('data-theme', resolved);
+                document.documentElement.style.colorScheme = resolved;
+
+                // Match status-bar / address-bar color on first paint
+                var themeColor = (resolved === 'dark') ? '#000000' : '#f2f2f7';
+                var m = document.querySelector('meta[name="theme-color"]');
+                if (m) m.setAttribute('content', themeColor);
+
+                var cs = document.querySelector('meta[name="color-scheme"]');
+                if (cs) cs.setAttribute('content', resolved === 'dark' ? 'dark light' : 'light dark');
+            } catch (e) { }
+        })();
+    </script>
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -60,8 +85,8 @@
             overflow-y: auto;
         }
     </style>
-    <script src="vendor/Tone.js"></script>
-    <script src="vendor/peerjs.min.js"></script>
+    <script src="vendor/Tone.js" defer></script>
+    <script src="vendor/peerjs.min.js" defer></script>
 </head>
 
 <body>
@@ -230,7 +255,7 @@
         <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="tab-title">도움말</span>
-                <button id="btn-close-guide"
+                <button id="btn-close-guide" type="button" aria-label="도움말 닫기"
                     style="display:none; background:transparent; border:none; color:var(--text-main); cursor:pointer;"><svg
                         viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
                         <path

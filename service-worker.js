@@ -25,7 +25,8 @@
 // v56: iOS PWA chat drawer safe-area fix (no peek strip + reduce bottom gap)
 // v57: Responsive visualizer (160-320px), divider styling, layout centering fixes
 // v58: Height-responsive visualizer (calc-based), nav-height fix, play controls spacing
-const CACHE_VERSION = "v58";
+// v59: Elastic scroll (contain), dotted help dividers, visualizer 512px calc
+const CACHE_VERSION = "v59";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

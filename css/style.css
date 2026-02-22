@@ -2007,7 +2007,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
     background: transparent;
     padding: 44px 0;
     margin: 0 44px;
-    border-bottom: 1px solid var(--surface-3);
+    border-bottom: 1px dotted var(--surface-3);
 }
 
 .help-block:last-child {

@@ -1739,14 +1739,23 @@ async function finalizeFileProcessing(file) {
             _pendingPlayTime = undefined;
         }
 
-        // Reset state to READY so that subsequent preloads can show UI
+        // Reset state to READY and clear guards so that subsequent preloads/transfers work
         transferState = TRANSFER_STATE.READY;
+        _skipIncomingFile = false;
+        _waitingForPreload = false;
+        clearManagedTimer('prepareWatchdog');
+        clearManagedTimer('chunkWatchdog');
 
     } catch (e) {
         log.error("[Guest] Decoding failed", e);
-        showToast("오디오 디코딩 실패!");
+        showToast("오디오 디코딩 실패! 다시 요청합니다.");
         showLoader(false);
 
+        // Fallback: If decoding fails, request file again
+        const _recoveryName = (playlist && playlist[currentTrackIndex] && playlist[currentTrackIndex].name) ? playlist[currentTrackIndex].name : (meta ? meta.name : '');
+        if (hostConn && hostConn.open) {
+            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex, reason: 'decoding_failed' });
+        }
     }
 }
 
@@ -7281,6 +7290,7 @@ async function leaveSession(opts = {}) {
     _ytIOSWatchdog = null;
     _ytScriptLoading = false;
     window.isYouTubeAPIReady = false;
+    window._lastClearedTrackName = null;
 
     if (window.BlobURLManager) BlobURLManager.revoke();
 
@@ -7309,6 +7319,14 @@ async function detectConnectionType() {
 function clearPreviousTrackState(reason = '') {
     log.debug(`[State Clear] Clearing previous track state. Reason: ${reason}`);
 
+    // [Edge Case] If this function is called multiple times for the same track, skip
+    const trackName = playlist[currentTrackIndex]?.name || meta?.name || '';
+    if (reason === 'redundant-sync' && trackName && window._lastClearedTrackName === trackName) {
+        log.debug(`[State Clear] Skipping redundant clear for: ${trackName}`);
+        return;
+    }
+    window._lastClearedTrackName = trackName;
+
     // Stop timers (using centralized timer system)
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('prepareWatchdog');
@@ -7332,10 +7350,11 @@ function clearPreviousTrackState(reason = '') {
     nextExpectedPreloadChunk = 0;
 
     receivedCount = 0;
-
     meta = {}; // Old meta reference released for GC
-
     currentFileBlob = null;
+
+    // Redundant syncs should not stop audio if it's already the right track
+    if (reason === 'redundant-sync') return;
 
     // CRITICAL: Clear audio buffer to prevent previous track from replaying
     if (currentAudioBuffer) {
@@ -7369,10 +7388,14 @@ function clearPreviousTrackState(reason = '') {
 
     // Physically delete the OLD current file from OPFS when switching tracks
     if (currentFileOpfs.name) {
-        // RESET worker slot first to clear lock
-        postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
-        cleanupOPFSInWorker(currentFileOpfs.name, false);
-        currentFileOpfs.name = null;
+        // Only cleanup if the filename is DIFFERENT from what we're about to load
+        // (Prevents clearing OPFS right before playing a preloaded file with same name)
+        const isActuallyChanging = (currentFileOpfs.name !== nextMeta?.name);
+        if (isActuallyChanging) {
+            postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+            cleanupOPFSInWorker(currentFileOpfs.name, false);
+            currentFileOpfs.name = null;
+        }
     }
 
     // Note: We do NOT clear preload state here (nextFileBlob, preloadChunks, etc.)
@@ -7389,6 +7412,7 @@ async function handleFilePrepare(data) {
     if (incomingSid && incomingSid > localTransferSessionId) {
         log.debug(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
         localTransferSessionId = incomingSid;
+        window._lastClearedTrackName = null; // Forces next clear-state to run even if name matches (new session)
 
         // Force reset waiting flags on new session
         if (_waitingForPreload) {
@@ -7671,8 +7695,9 @@ async function handleFileStart(data) {
     // Stop current playback immediately when new transfer starts
     stopAllMedia();
 
-    // Clear Prepare Watchdog as we've started receiving
+    // Clear ANY pending watchdogs for file preparation/transfer
     clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
 
     // Always reset processing guard at file-start to prevent stuck loader
     // This is safe because file-start means we're (re)starting the transfer
@@ -8583,9 +8608,11 @@ async function handlePlayPreloaded(data) {
     }
 
     // Strict Index Verification: Ensure preloaded data belongs to the requested track
-    const isPreloadTargetMatch = nextMeta && (nextMeta.index === data.index || nextMeta.name === data.name);
+    // (Check both nextMeta and current meta if they refer to the same track)
+    const activeMeta = (nextMeta && (nextMeta.index === data.index || nextMeta.name === data.name)) ? nextMeta : meta;
+    const isPreloadTargetMatch = nextFileBlob && activeMeta && (activeMeta.index === data.index || activeMeta.name === data.name);
 
-    if (nextFileBlob && isPreloadTargetMatch) {
+    if (isPreloadTargetMatch) {
         // Use preloaded file if available
         log.debug("[Guest] Using preloaded file for track", data.index);
         await loadPreloadedTrack(data.index, myLoadToken);
@@ -8597,6 +8624,11 @@ async function handlePlayPreloaded(data) {
         _preloadUsedForIndex = data.index;
         _skipIncomingFile = true;
         window._playPreloadedInProgress = undefined; // Clear in-progress flag
+
+        // Final Cleanup for the new active track
+        clearManagedTimer('prepareWatchdog');
+        clearManagedTimer('chunkWatchdog');
+        _waitingForPreload = false;
 
         // RELAY LOGIC: Forward to downstream
         if (downstreamDataPeers.length > 0) {
@@ -8762,7 +8794,7 @@ async function handleStatusSync(data) {
 
                 log.debug("[Sync] Current track missing, requesting from host:", item.name);
                 showLoader(true, `파일 동기화 중: ${item.name}`);
-                clearPreviousTrackState('status-sync mismatch');
+                clearPreviousTrackState('redundant-sync');
 
                 // If in YouTube mode, stop it for the new local track
                 if (currentState === APP_STATE.PLAYING_YOUTUBE) stopYouTubeMode();
@@ -10657,7 +10689,8 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         await initAudio();
 
         // Verify track index before proceeding
-        if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+        // (If currentTrackIndex is -1, it means we are just starting, so we allow it)
+        if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
             log.warn(`[Preload] Index mismatch at start! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
             return;
         }
@@ -10691,19 +10724,22 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
             log.warn(`[Preload] Token mismatch after decode. Expected ${myToken}, current is ${_currentLoadToken}. Discarding.`);
             return;
         }
-        if (expectedIndex !== undefined && currentTrackIndex !== targetIndex) {
+        if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
             log.warn(`[Preload] Track changed during decode. Expected ${targetIndex}, now ${currentTrackIndex}. Discarding.`);
             return;
         }
 
+        // Capture expected meta for cleanup/verification (favor localMeta but fallback)
+        const activeMeta = localMeta || meta;
+
         // Only now update global state
         currentFileBlob = localBlob;
-        meta = localMeta;
+        meta = activeMeta;
         currentAudioBuffer = audioBuffer;
         log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
 
         // Proper mode based on file type (video shows video UI, audio shows visualizer)
-        const isVideo = isMediaVideo(localBlob, localMeta);
+        const isVideo = isMediaVideo(localBlob, activeMeta);
         setEngineMode(isVideo ? 'video' : 'buffer');
 
         // Visual Sync
@@ -10715,6 +10751,7 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         const dur = currentAudioBuffer.duration;
         if (isFinite(dur)) {
             document.getElementById('seek-slider').max = dur;
+            document.getElementById('slide-slider').max = dur; // Secondary slider if present
             document.getElementById('time-dur').innerText = fmtTime(dur);
         }
         BlobURLManager.confirm(localBlob);
@@ -10729,6 +10766,20 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         nextTrackIndex = -1;
 
         log.debug(`[Preload] Safe clear: nextFileBlob moved to current.`);
+
+        // Ensure transfer guards are reset
+        _skipIncomingFile = true;
+        _waitingForPreload = false;
+        clearManagedTimer('prepareWatchdog');
+        clearManagedTimer('chunkWatchdog');
+        clearManagedTimer('preloadWatchdog');
+
+        // [Enhanced Sync] Request fresh sync time from host to ensure playback matches precisely
+        setTimeout(() => {
+            if (hostConn && hostConn.open) {
+                hostConn.send({ type: MSG.GET_SYNC_TIME });
+            }
+        }, 500);
 
         // Consume pending play time if Host already sent it (Crucial for first track)
         if (hostConn && _pendingPlayTime !== undefined) {
@@ -10751,7 +10802,7 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         if (_preloadWatchdog) { try { clearTimeout(_preloadWatchdog); } catch (_) { } _preloadWatchdog = null; }
         const _recoveryName = (playlist && playlist[currentTrackIndex] && playlist[currentTrackIndex].name) ? playlist[currentTrackIndex].name : (meta ? meta.name : '');
         if (hostConn && hostConn.open) {
-            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex });
+            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex, reason: 'preload_activation_failed' });
         }
         throw e; // Re-throw so callers can handle
     }
@@ -11475,6 +11526,7 @@ function loadYouTubeFromInput() {
     document.getElementById('youtube-play-btn').style.opacity = '0.5';
 
     if (wasEmpty) {
+        clearPreviousTrackState('youtube-load');
         playTrack(0);
     } else {
         showToast(`"${previewTitle}" 플레이리스트에 추가됨`);

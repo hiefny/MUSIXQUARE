@@ -29,7 +29,8 @@
 // v62: Update Demo Track info translation string
 // v63: Refine Virtual Bass distortion translation (Higher = More Distortion)
 // v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
-const CACHE_VERSION = "v64";
+// v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
+const CACHE_VERSION = "v65";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

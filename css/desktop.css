@@ -25,7 +25,11 @@
         background: var(--bg);
         /* Deepest background for the outer space */
         overflow: hidden;
-        height: 100vh;
+        /* Use JS-measured visible viewport height when available.
+           Prevents clipping on Android tablets where 100vh may include the
+           area behind the system navigation bar (esp. landscape / PWA). */
+        height: var(--app-height, 100vh);
+        max-height: var(--app-height, 100vh);
     }
 
     header {
@@ -290,8 +294,9 @@
         inset: 0;
         width: 100vw !important;
         max-width: none !important;
-        height: 100vh !important;
-        max-height: none !important;
+        /* Same rationale as body: cap to the *visible* viewport height. */
+        height: var(--app-height, 100vh) !important;
+        max-height: var(--app-height, 100vh) !important;
         border-radius: 0;
         border: none !important;
         outline: none !important;

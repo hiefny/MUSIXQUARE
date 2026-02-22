@@ -9,9 +9,20 @@
          to prevent the viewport extending behind the system navigation bar.
          This MUST run synchronously in <head> to avoid reflow. -->
     <script>
+        // Android: remove viewport-fit=cover immediately (before first paint).
+        // Some Android tablets/WebViews can extend the viewport behind the
+        // system navigation bar when viewport-fit=cover is present, which
+        // makes bottom UI appear clipped.
         if (/Android/i.test(navigator.userAgent)) {
             var m = document.querySelector('meta[name="viewport"]');
-            if (m) m.setAttribute('content', m.getAttribute('content').replace(', viewport-fit=cover', ''));
+            if (m) {
+                var c = m.getAttribute('content') || '';
+                // Remove regardless of formatting: ", viewport-fit=cover" or "viewport-fit=cover".
+                c = c.replace(/(?:,?\s*)viewport-fit=cover/g, '');
+                // Cleanup possible trailing commas/spaces.
+                c = c.replace(/,\s*,/g, ',').replace(/,\s*$/g, '').trim();
+                m.setAttribute('content', c);
+            }
         }
     </script>
 
@@ -73,19 +84,24 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
-    <!-- Setup overlay: max-height capped to viewport -->
+    <!-- Setup overlay: cap to the *visible* viewport height (no clipping on Android tablets) -->
     <style id="viewport-safe">
         body {
             max-height: var(--app-height, 100dvh) !important;
         }
 
-        #setup-overlay,
-        #setup-overlay .setup-card,
-        #setup-overlay .setup-mobile-view {
-            max-height: 100%;
+        /* Generic overlays (setup / media / YouTube URL) */
+        .onboarding-overlay {
+            max-height: var(--app-height, 100dvh) !important;
         }
 
-        #setup-overlay .setup-mobile-view {
+        .onboarding-overlay .setup-card.full-screen {
+            height: var(--app-height, 100dvh) !important;
+            max-height: var(--app-height, 100dvh) !important;
+        }
+
+        .onboarding-overlay .setup-mobile-view {
+            max-height: var(--app-height, 100dvh) !important;
             overflow-y: auto;
         }
     </style>

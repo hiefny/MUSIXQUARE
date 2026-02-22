@@ -2422,7 +2422,12 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
        to the viewport height automatically. Adding height:100vh would OVERRIDE
        the bottom:0 constraint and cause the overlay to extend behind the
        Android soft navigation bar. */
-    max-height: 100%;
+    /* Cap to the actually visible viewport height.
+       On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
+       can include the area behind the system navigation bar, causing the
+       bottom of the setup UI to be clipped.
+       --app-height is maintained by JS using visualViewport/innerHeight. */
+    max-height: var(--app-height, 100dvh);
     background: var(--bg);
     z-index: 2000;
     display: none;
@@ -4137,14 +4142,14 @@ input:checked+.slider:before {
 .chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
+    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px);
     /* 80px = tab-header, 72px = input-area */
 }
 
 /* Chat 컨테이너 높이 조정 (YouTube 표시 시) */
 .chat-container.with-youtube {
     /* min(56.25vw, 270px) = 480px의 16:9 비율 높이 (최대 270px) */
-    height: calc(100vh - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
+    height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
 }
 
 .chat-messages {

@@ -1837,7 +1837,7 @@ let _resolvedLanguage = (function _resolveInitialSystemLanguage() {
 
 const I18N_EN = {
     ", 방장이 알려주는": ", provided by the host",
-    "0.01초 단위로 싱크를 조절할 수 있어요.": "You can adjust sync in 0.01-second steps.",
+    "동기화 버튼을 눌러서 싱크를 맞춰보세요.": "Press the sync button to adjust the sync.",
     "1개 요청 → 1개 응답": "1 request → 1 response",
     "3초 후 YouTube 재생...": "Playing YouTube in 3 seconds...",
     "3초 후 재생 시작...": "Starting playback in 3 seconds...",
@@ -1857,7 +1857,6 @@ const I18N_EN = {
     "OP 권한 회수": "Revoke OP",
     "Operator 권한이 부여되었습니다.": "Operator permission granted.",
     "Operator 권한이 해제되었습니다.": "Operator permission revoked.",
-    "QR이나 링크 없이": "No QR or link needed",
     "R 채널 출력": "R channel output",
     "Relay 응답 없음. Host 직결 전환...": "No relay response. Switching to direct Host...",
     "URL을 입력해 주세요": "Please enter a URL",
@@ -1959,7 +1958,7 @@ const I18N_EN = {
     "모든 기기가": "All devices must be connected to the",
     "모든 기기를 동일한 Wi-Fi에 연결해주세요": "Connect all devices to the same Wi‑Fi",
     "모임에 참여할래요": "Join a session",
-    "무음 모드가 켜져 있을 수 있어요.": "Silent mode might be on.",
+    "Sean Pitaro - Passport [NCS Release]": "Sean Pitaro - Passport [NCS Release]",
     "미디어 없음": "No media",
     "미디어 재생": "Play media",
     "미디어 재생하기": "Play media",
@@ -1998,7 +1997,7 @@ const I18N_EN = {
     "셔플 모드 변경": "Change shuffle mode",
     "셔플: 꺼짐": "Shuffle: Off",
     "셔플: 켜짐": "Shuffle: On",
-    "소리가 안 나와요:": "No sound:",
+    "데모 트랙 정보": "Demo Track Info:",
     "스테레오(기본) 출력": "Stereo (default) output",
     "스피커로 재생하기": "Play through speakers",
     "시스템": "System",
@@ -7268,7 +7267,7 @@ async function leaveSession(opts = {}) {
     const chatBadge = document.getElementById('chat-preview-badge');
     if (chatBadge) chatBadge.classList.remove('show');
     const chatMessages = document.getElementById('chat-messages');
-    if (chatMessages) chatMessages.innerHTML = '<div class="chat-empty">메시지가 없습니다.<br>첫 메시지를 보내보세요!</div>';
+    if (chatMessages) chatMessages.innerHTML = '<div class="chat-empty">아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!</div>';
 
     unreadChatCount = 0;
     lastChatSender = '';

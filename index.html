@@ -12,7 +12,7 @@
         // Android: remove viewport-fit=cover immediately (before first paint).
         // Some Android tablets/WebViews can extend the viewport behind the
         // system navigation bar when viewport-fit=cover is present, which
-        /kes bott clipped.
+        // keeps bottom content clipped.
         if (/Android/i.test(navigator.userAgent)) {
             var m = document.querySelector('meta[name="viewport"]');
             if (m) {
@@ -39,7 +39,7 @@
                 var resolved = (mode === 'dark') ? 'dark' : (mode === 'light') ? 'light'
                     : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 
-                document.documentElement.setAttribute('datame', resolved);
+                document.documentElement.setAttribute('data-theme', resolved);
                 document.documentElement.style.colorScheme = resolved;
 
                 // Match status-bar / address-bar color on first paint

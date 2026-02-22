@@ -6,7 +6,7 @@
        viewport units may exclude the home indicator region. */
     height: 100%;
     overflow: hidden;
-    background-color: var(--bg);
+    background-color: var(--surface-1);
 }
 
 html.standalone body {
@@ -2041,7 +2041,7 @@ input[type=range].eq-slider:active::-webkit-slider-thumb {
 
     /* Solid edge-to-edge bottom bar */
     border-radius: 0;
-    padding: 10px 16px calc(10px + var(--safe-bottom));
+    padding: 10px 16px var(--safe-bottom);
 
     /* Match header translucency */
     backdrop-filter: blur(var(--glass-blur));

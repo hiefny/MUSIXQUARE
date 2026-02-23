@@ -4593,7 +4593,7 @@ async function playTrack(index) {
         // 4. Activate preloaded track and play
         await loadPreloadedTrack(index, myLoadToken);
         play(0);
-        broadcast({ type: MSG.PLAY, time: 0 }); // Explicitly broadcast play for guests
+        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex, name: fileName }); // Explicitly broadcast play for guests
 
         // Immediate Auto-Sync (User Request)
         handleMainSyncBtn();
@@ -4679,7 +4679,7 @@ async function playTrack(index) {
             managedTimers.autoPlayTimer = setTimeout(() => {
                 managedTimers.autoPlayTimer = null;
                 play(0);
-                broadcast({ type: MSG.PLAY, time: 0 });
+                broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex, name: file.name });
             }, 3000);
         }
     }
@@ -5018,7 +5018,7 @@ function playPrevTrack() {
     const pos = getTrackPosition();
     if (pos > 3) {
         play(0); // Restart current
-        broadcast({ type: MSG.PLAY, time: 0 });
+        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
         return;
     }
     if (currentTrackIndex > 0) playTrack(currentTrackIndex - 1);
@@ -5609,7 +5609,7 @@ function togglePlay() {
         if (!hostConn) { pause(); broadcast({ type: MSG.PAUSE, time: pausedAt }); }
         else if (isOperator) hostConn.send({ type: MSG.REQUEST_PAUSE });
     } else {
-        if (!hostConn) { play(pausedAt); broadcast({ type: MSG.PLAY, time: pausedAt }); }
+        if (!hostConn) { play(pausedAt); broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex }); }
         else if (isOperator) hostConn.send({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
 }
@@ -5725,7 +5725,7 @@ function skipTime(sec) {
 
     // Broadcast
     play(target);
-    broadcast({ type: MSG.PLAY, time: target });
+    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
 }
 
 function updatePlayState(playing) {
@@ -6600,7 +6600,7 @@ if (slider) {
 
         if (isActuallyPlaying) {
             play(t);
-            broadcast({ type: MSG.PLAY, time: t });
+            broadcast({ type: MSG.PLAY, time: t, index: currentTrackIndex });
         } else {
             pausedAt = t;
             if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) videoElement.currentTime = t;
@@ -9024,6 +9024,15 @@ async function handlePlay(data) {
         clearManagedTimer('autoPlayTimer');
     }
 
+    // [Race Condition Fix] If a preloaded track is being activated asynchronously
+    // (handlePlayPreloaded → loadPreloadedTrack in progress), queue this play command.
+    // loadPreloadedTrack will pick up _pendingPlayTime when it completes.
+    if (window._playPreloadedInProgress !== undefined) {
+        log.debug(`[Guest] Play command during preloaded track activation (track ${window._playPreloadedInProgress}), queuing time=${data.time}`);
+        _pendingPlayTime = data.time;
+        return;
+    }
+
     // Index Check
     if (data.index !== undefined && data.index !== currentTrackIndex) {
         log.warn(`Play command for index ${data.index} received, but I'm on ${currentTrackIndex}. Switching...`);
@@ -9073,6 +9082,17 @@ async function handlePlay(data) {
                 }
                 return; // Early exit, play will happen after load
             }
+        }
+    }
+
+    // [Stale Audio Guard] If index is provided and matches, verify the loaded file
+    // actually belongs to this track (prevents playing old track's audio data)
+    if (data.index !== undefined && hostConn) {
+        const expectedName = data.name || (playlist[data.index] && playlist[data.index].name);
+        if (expectedName && meta && meta.name && meta.name !== expectedName) {
+            log.warn(`[Guest] Stale audio detected: loaded "${meta.name}" but play is for "${expectedName}" (index ${data.index}). Queuing...`);
+            _pendingPlayTime = data.time;
+            return;
         }
     }
 
@@ -10103,7 +10123,7 @@ function handleOperatorRequest(data) {
             showToast("자동 재생 취소됨 (OP)");
         }
         play(data.time);
-        broadcast({ type: MSG.PLAY, time: data.time });
+        broadcast({ type: MSG.PLAY, time: data.time, index: currentTrackIndex });
     } else if (data.type === MSG.REQUEST_PAUSE) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
@@ -10156,7 +10176,7 @@ function handleOperatorRequest(data) {
         }
 
         if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) play(data.time); else pausedAt = data.time;
-        broadcast({ type: MSG.PLAY, time: data.time });
+        broadcast({ type: MSG.PLAY, time: data.time, index: currentTrackIndex });
     } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
     } else if (data.type === MSG.REQUEST_REVERB_RESET) {
@@ -11379,7 +11399,7 @@ function seekToTime(seconds) {
 
     if (isActuallyPlaying) {
         play(t);
-        broadcast({ type: MSG.PLAY, time: t });
+        broadcast({ type: MSG.PLAY, time: t, index: currentTrackIndex });
     } else {
         pausedAt = t;
         if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {

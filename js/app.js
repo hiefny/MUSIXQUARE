@@ -1333,8 +1333,10 @@ let _currentLoadToken = 0; // Token to invalidate async load operations when tra
 // Network initialization is deferred to DOMContentLoaded (see listener below)
 
 // Guest Side
+let preloadChunks = [];
 let preloadCount = 0;
 let preloadMeta = null;
+let lastChunkTime = 0;
 let localTransferSessionId = 0; // [NEW] Track active transfer session on Guest side
 // Session-based state management
 const preloadSessionState = new Map(); // sessionId -> { skipped, progress, total }
@@ -2836,8 +2838,6 @@ function showSetupOverlay() {
 
 function hideSetupOverlay() {
     animateTransition(() => {
-        // Safety: ensure splash isn't left visible (e.g., in edge-case navigation/cancel flows)
-        try { hideBootSplash(); } catch (_) { /* ignore */ }
         const overlay = setupEl('setup-overlay');
         if (overlay) overlay.classList.remove('active');
         updateOverlayOpenClass();
@@ -3173,12 +3173,7 @@ function showRoleSelectionButtons() {
 let _setupOverlayEverShown = false;
 let _setupOverlayInitToken = 0;
 
-// Boot Splash (thin splash shown briefly before Setup overlay mounts)
-let _bootSplashFailsafeTimer = 0;
-
-function showBootSplash() { /* Removed */ }
-
-function hideBootSplash() { /* Removed */ }
+// Boot Splash removed (no longer used)
 
 /**
  * Wait before showing the Setup overlay so the underlying layout can settle first.
@@ -3223,15 +3218,10 @@ function initSetupOverlay() {
 
     const showAndStart = () => {
         if (token !== _setupOverlayInitToken) {
-            // Avoid leaving splash stuck if init is superseded.
-            hideBootSplash();
             return;
         }
         // Update viewport height CSS var once (safe-area uses CSS env) before revealing UI.
         try { freezeLayoutMetricsOnce({ force: true }); } catch (_) { /* ignore */ }
-
-        // Fade out the boot splash right before mounting the setup overlay.
-        hideBootSplash();
         showSetupOverlay();
         startObAutoSlide();
     };
@@ -3563,43 +3553,22 @@ if (_setupRoleGrid) {
 }
 
 // --- Setup SVG Speaker Click Handler ---
-const _roleArea = document.getElementById('setup-role-area');
-if (_roleArea) {
-    _roleArea.addEventListener('click', (e) => {
-        const item = e.target.closest('.graphic-speaker');
-        if (!item) return;
+// Shared handler for speaker icon clicks (used in both mobile and desktop diagram areas)
+function _handleSpeakerClick(e) {
+    const item = e.target.closest('.graphic-speaker');
+    if (!item) return;
 
-        // Find role from ID
-        let mode = null;
-        if (item.id === 'svg-spk-l') mode = -1;
-        else if (item.id === 'svg-spk-r') mode = 1;
-        else if (item.id === 'svg-spk-center') mode = 0;
-        else if (item.id === 'svg-spk-woofer') mode = 2;
-
-        if (mode !== null) {
-            handleSetupRolePreview(mode);
-        }
-    });
+    const SVG_ID_TO_MODE = { 'svg-spk-l': -1, 'svg-spk-r': 1, 'svg-spk-center': 0, 'svg-spk-woofer': 2 };
+    const mode = SVG_ID_TO_MODE[item.id];
+    if (mode !== undefined) handleSetupRolePreview(mode);
 }
+
+const _roleArea = document.getElementById('setup-role-area');
+if (_roleArea) _roleArea.addEventListener('click', _handleSpeakerClick);
 
 // Desktop: diagram is reparented to #desktop-diagram-area, so listen there too
 const _desktopDiagramArea = document.getElementById('desktop-diagram-area');
-if (_desktopDiagramArea) {
-    _desktopDiagramArea.addEventListener('click', (e) => {
-        const item = e.target.closest('.graphic-speaker');
-        if (!item) return;
-
-        let mode = null;
-        if (item.id === 'svg-spk-l') mode = -1;
-        else if (item.id === 'svg-spk-r') mode = 1;
-        else if (item.id === 'svg-spk-center') mode = 0;
-        else if (item.id === 'svg-spk-woofer') mode = 2;
-
-        if (mode !== null) {
-            handleSetupRolePreview(mode);
-        }
-    });
-}
+if (_desktopDiagramArea) _desktopDiagramArea.addEventListener('click', _handleSpeakerClick);
 
 // Back button handler for Role Area
 const _btnRoleBack = document.getElementById('btn-role-back');
@@ -3768,20 +3737,10 @@ async function activateAudio() {
     requestWakeLock();
 }
 
-window.actionCreateRoom = async function () {
-    // Legacy entry point (kept for compatibility)
-    await startHostFlow();
-};
-
-window.actionJoinRoom = async function () {
-    // Legacy entry point (kept for compatibility)
-    await startGuestFlow();
-};
-
-window.actionEnterSession = async function () {
-    // Legacy entry point (kept for compatibility)
-    await startGuestFlow();
-};
+// Legacy entry points (delegate to current flow functions)
+window.actionCreateRoom = startHostFlow;
+window.actionJoinRoom = startGuestFlow;
+window.actionEnterSession = startGuestFlow;
 
 /**
  * UI Update Logic for Status Pill
@@ -4089,18 +4048,7 @@ function initEventListeners() {
         });
     }
 
-    // Guest: role preview in Setup overlay
-    document.querySelectorAll('#setup-role-grid .ch-opt[data-join-ch]').forEach(el => {
-        el.addEventListener('click', () => {
-            const v = el?.dataset?.joinCh;
-            const mode = parseInt(v, 10);
-            if (Number.isNaN(mode)) return;
-            handleSetupRolePreview(mode);
-        });
-    });
-
-    // Guest: Click on SVG speakers in Setup overlay to select role (Deprecated, moved to setup-role-area delegation above)
-
+    // (setup-role-grid click handler is registered via event delegation above, near line 3553)
 
     // --- Manual Sync Popup ---
     $on('btn-nudge-minus10', 'click', () => nudgeSync(-10));
@@ -5988,53 +5936,7 @@ function updateSettings(type, val) {
     }
 }
 
-function onReverbInput(val) { setReverbParam('mix', val); }
-function onReverbChange(val) {
-    if (!hostConn) broadcast({ type: MSG.REVERB, value: val });
-    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb', value: val });
-}
-
-function onReverbDecayInput(val) {
-    document.getElementById('val-rvb-decay').innerText = val + 's';
-}
-function onReverbDecayChange(val) {
-    setReverbParam('decay', val);
-    if (!hostConn) broadcast({ type: MSG.REVERB_DECAY, value: val });
-    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-decay', value: val });
-}
-
-function onReverbPreDelayInput(val) {
-    document.getElementById('val-rvb-predelay').innerText = val + 's';
-}
-function onReverbPreDelayChange(val) {
-    setReverbParam('predelay', val);
-    if (!hostConn) broadcast({ type: MSG.REVERB_PREDELAY, value: val });
-    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-predelay', value: val });
-}
-
-function onReverbLowCutInput(val) {
-    const v = Number(val);
-    const freq = 20 * Math.pow(50, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'kHz' : Math.round(freq) + 'Hz';
-    document.getElementById('val-rvb-lowcut').innerText = txt;
-}
-function onReverbLowCutChange(val) {
-    setReverbParam('lowcut', val);
-    if (!hostConn) broadcast({ type: MSG.REVERB_LOWCUT, value: val });
-    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-lowcut', value: val });
-}
-
-function onReverbHighCutInput(val) {
-    const v = Number(val);
-    const freq = 20000 * Math.pow(0.05, v / 100);
-    const txt = freq >= 1000 ? (freq / 1000).toFixed(1) + 'kHz' : Math.round(freq) + 'Hz';
-    document.getElementById('val-rvb-highcut').innerText = txt;
-}
-function onReverbHighCutChange(val) {
-    setReverbParam('highcut', val);
-    if (!hostConn) broadcast({ type: MSG.REVERB_HIGHCUT, value: val });
-    else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'reverb-highcut', value: val });
-}
+// Legacy reverb input/change handlers removed (replaced by updateAudioEffect routing)
 
 function setReverbParam(param, val) {
     const v = Number(val);
@@ -6072,18 +5974,18 @@ function setReverbParam(param, val) {
     applySettings();
 }
 
-// Restore missing setters for updateAudioEffect and legacy handlers
-function setReverb(val, localOnly) { setReverbParam('mix', val); if (!localOnly) onReverbChange(val); }
-function setReverbDecay(val, localOnly) { setReverbParam('decay', val); if (!localOnly) onReverbDecayChange(val); }
-function setReverbPreDelay(val, localOnly) { setReverbParam('predelay', val); if (!localOnly) onReverbPreDelayChange(val); }
-function setReverbLowCut(val, localOnly) { setReverbParam('lowcut', val); if (!localOnly) onReverbLowCutChange(val); }
-function setReverbHighCut(val, localOnly) { setReverbParam('highcut', val); if (!localOnly) onReverbHighCutChange(val); }
+// Reverb setters: apply param locally; callers handle broadcasting
+function setReverb(val) { setReverbParam('mix', val); }
+function setReverbDecay(val) { setReverbParam('decay', val); }
+function setReverbPreDelay(val) { setReverbParam('predelay', val); }
+function setReverbLowCut(val) { setReverbParam('lowcut', val); }
+function setReverbHighCut(val) { setReverbParam('highcut', val); }
 
-function resetReverbMix() { setReverbParam('mix', 0); onReverbChange(0); }
-function resetReverbDecay() { setReverbParam('decay', 5.0); onReverbDecayChange(5.0); }
-function resetReverbPreDelay() { setReverbParam('predelay', 0.1); onReverbPreDelayChange(0.1); }
-function resetReverbLowCut() { setReverbParam('lowcut', 0); onReverbLowCutChange(0); }
-function resetReverbHighCut() { setReverbParam('highcut', 0); onReverbHighCutChange(0); }
+function resetReverbMix() { setReverbParam('mix', 0); }
+function resetReverbDecay() { setReverbParam('decay', 5.0); }
+function resetReverbPreDelay() { setReverbParam('predelay', 0.1); }
+function resetReverbLowCut() { setReverbParam('lowcut', 0); }
+function resetReverbHighCut() { setReverbParam('highcut', 0); }
 
 
 function resetReverb() {
@@ -7013,6 +6915,7 @@ function handleHostIncomingConnection(conn) {
     conn.on('data', (data) => {
         try {
             handleData(data, conn);
+            handleOperatorRequest(data, conn);
         } catch (e) {
             log.error('[Host] Error handling incoming data', e);
         }
@@ -9242,22 +9145,18 @@ function updateAudioEffect(type, param, value, isInput = false) {
 
     // 1. Reverb
     if (type === MSG.REVERB) {
-        switch (param) {
-            case 'mix':
-                if (typeof setReverb === 'function') setReverb(val, isLocalOnly);
-                break;
-            case 'decay':
-                if (typeof setReverbDecay === 'function') setReverbDecay(val, isLocalOnly);
-                break;
-            case 'predelay':
-                if (typeof setReverbPreDelay === 'function') setReverbPreDelay(val, isLocalOnly);
-                break;
-            case 'lowcut':
-                if (typeof setReverbLowCut === 'function') setReverbLowCut(val, isLocalOnly);
-                break;
-            case 'highcut':
-                if (typeof setReverbHighCut === 'function') setReverbHighCut(val, isLocalOnly);
-                break;
+        const REVERB_SETTERS = { mix: setReverb, decay: setReverbDecay, predelay: setReverbPreDelay, lowcut: setReverbLowCut, highcut: setReverbHighCut };
+        const setter = REVERB_SETTERS[param];
+        if (setter) setter(val);
+
+        // Broadcast on release (not while dragging)
+        if (!isInput) {
+            const REVERB_MSG_MAP = { mix: MSG.REVERB, decay: MSG.REVERB_DECAY, predelay: MSG.REVERB_PREDELAY, lowcut: MSG.REVERB_LOWCUT, highcut: MSG.REVERB_HIGHCUT };
+            const msgType = REVERB_MSG_MAP[param];
+            if (msgType) {
+                if (!hostConn) broadcast({ type: msgType, value: val });
+                else if (isOperator) hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value: val });
+            }
         }
     }
     // 2. Stereo Width
@@ -9791,16 +9690,8 @@ function resetTotalSync() {
 
 function updateSyncDisplay() {
     const totalMs = Math.round((localOffset + autoSyncOffset) * 1000);
-    const autoMs = Math.round(autoSyncOffset * 1000);
-    const manualMs = Math.round(localOffset * 1000);
-
     const el = document.getElementById('manual-sync-value');
     if (el) el.innerText = (totalMs > 0 ? '+' : '') + totalMs;
-
-    // const detailEl = document.getElementById('sync-details');
-    // if (detailEl) {
-    //     detailEl.innerHTML = `<span style="opacity:0.7">Auto: ${autoMs}ms</span> <span style="opacity:0.4">|</span> <span style="opacity:0.7">Manual: ${manualMs}ms</span>`;
-    // }
 }
 
 function handleRelayConnection(conn) {
@@ -10063,13 +9954,7 @@ window.toggleOperator = function (peerId) {
     if (p) {
         p.isOp = !p.isOp;
         p.conn.send({ type: p.isOp ? 'operator-grant' : 'operator-revoke' });
-        broadcastDeviceList();
-        renderDeviceList([
-            { id: myId, label: 'HOST', status: 'connected', isHost: true },
-            ...connectedPeers.map(p => ({
-                id: p.id, label: p.label, status: p.status, isHost: false, isOp: p.isOp
-            }))
-        ]);
+        broadcastDeviceList(); // Already calls renderDeviceList internally
         showToast(`${p.label} 권한 ${p.isOp ? '부여됨' : '회수됨'}`);
     }
 };
@@ -10169,20 +10054,6 @@ function handleOperatorRequest(data) {
     }
 }
 
-
-/**
- * Operator plumbing (legacy no-ops)
- *
- * Some builds referenced these hooks but never implemented them.
- * Keep them as safe no-ops to avoid breaking Host data handlers.
- */
-function handleOperatorAction(_data, _conn) {
-    // Reserved for future granular operator actions.
-}
-
-function handleOperatorStatusUpdate(_data, _conn) {
-    // Reserved for future operator UI/status updates.
-}
 
 function sendRecoveryRequest(forceChunk = null) {
     // Prefer Relay Node for recovery if assigned
@@ -10956,7 +10827,7 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         // Allow fallback download if preload activation failed (avoid getting stuck skipping incoming transfer)
         _skipIncomingFile = false;
         _waitingForPreload = false;
-        if (_preloadWatchdog) { try { clearTimeout(_preloadWatchdog); } catch (_) { } _preloadWatchdog = null; }
+        clearManagedTimer('preloadWatchdog');
         const _recoveryName = (playlist && playlist[currentTrackIndex] && playlist[currentTrackIndex].name) ? playlist[currentTrackIndex].name : (meta ? meta.name : '');
         if (hostConn && hostConn.open) {
             hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex, reason: 'preload_activation_failed' });
@@ -10985,9 +10856,6 @@ function openHelpModal() {
     switchTab('guide');
 }
 
-function closeHelpModal() {
-    // No-op (legacy).
-}
 
 let myChatLabel = 'Host';
 
@@ -11133,15 +11001,8 @@ function escapeHtml(value) {
     return str.replace(_ESCAPE_HTML_RE_G, (ch) => _ESCAPE_HTML_MAP[ch] || ch);
 }
 
-// Escapes a string for safe use inside HTML attributes (prevents quote-breaking XSS)
-function escapeAttr(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
+// escapeAttr delegates to escapeHtml (same character set: & < > " ')
+const escapeAttr = escapeHtml;
 
 function parseMessageContent(text) {
     const ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]{11}[^\s]*/gi;
@@ -11384,14 +11245,7 @@ function loadYouTubeFromChat(url) {
 
     updatePlaylistUI();
 
-    const metaList = () => playlist.map(item => ({
-        type: item.type,
-        name: item.name || item.title,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null
-    }));
-
-    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList() });
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: buildPlaylistMetaList() });
 
     playTrack(playlist.length - 1);
     showToast("YouTube 재생 시작");
@@ -11408,7 +11262,7 @@ function loadYouTubeFromChat(url) {
                 updateTrackInfoDisplay();
             }
             // Broadcast the updated title to guests
-            broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList() });
+            broadcast({ type: MSG.PLAYLIST_UPDATE, list: buildPlaylistMetaList() });
         }
     }).catch(e => log.warn('Chat YT title fetch err:', e));
 }
@@ -11665,13 +11519,7 @@ function loadYouTubeFromInput() {
 
     updatePlaylistUI();
 
-    const metaList = playlist.map(item => ({
-        type: item.type,
-        name: item.name || item.title,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null
-    }));
-    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: buildPlaylistMetaList() });
 
     closeYouTubePopup();
 
@@ -11882,8 +11730,7 @@ function updateYouTubeUI() {
         const duration = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
         const state = youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : -1;
 
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-        if (isIOS && (state === 5 || state === -1)) {
+        if (IS_IOS && (state === 5 || state === -1)) {
             if (!_ytIOSWatchdog) _ytIOSWatchdog = Date.now();
             if (Date.now() - _ytIOSWatchdog > 3000) {
                 showYouTubeSyncOverlay(true);
@@ -12209,13 +12056,7 @@ async function loadDemoMedia() {
         updatePlaylistUI();
 
         // Broadcast playlist update to guests
-        const metaList = playlist.map(item => ({
-            type: item.type,
-            name: item.name || item.title,
-            videoId: item.videoId || null,
-            playlistId: item.playlistId || null
-        }));
-        broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+        broadcast({ type: MSG.PLAYLIST_UPDATE, list: buildPlaylistMetaList() });
 
         showToast("데모 음원 로드 완료. 재생을 시작합니다.");
 
@@ -12382,7 +12223,6 @@ async function processRelayQueue() {
 // [SECTION] WINDOW EXPORTS (Public API for HTML/UI)
 // ============================================================================
 window.openHelpModal = openHelpModal;
-window.closeHelpModal = closeHelpModal;
 window.toggleFullscreen = toggleFullscreen;
 window.playPrevTrack = playPrevTrack;
 window.togglePlay = togglePlay;

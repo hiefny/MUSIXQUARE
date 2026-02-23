@@ -1274,6 +1274,11 @@ let _preloadUsedForIndex = null;
 let _preloadWatchdog = null;
 let _recoveryInProgress = {};
 let _recoveryLastRequest = {};
+let _recoveryRetryCount = 0;
+const MAX_RECOVERY_RETRIES = 3;
+const RECOVERY_BACKOFF = [2000, 5000, 10000];
+let _recoveryPending = false;
+let _lastReceivedCountSnapshot = 0;
 let _skipIncomingFile = false;
 let _skipIncomingPreload = false;
 let _waitingForPreload = false;
@@ -4547,6 +4552,10 @@ async function playTrack(index) {
     // FIX: Clear existing autoplay timer to prevent audio overlap
     clearManagedTimer('autoPlayTimer');
 
+    // Cancel any in-flight preload immediately upon track change
+    preloadSessionId++;
+    isPreloading = false;
+
     // Auto-switch to Play tab when starting a track (Host only)
     if (!hostConn) switchTab('play');
 
@@ -4589,8 +4598,8 @@ async function playTrack(index) {
         // Immediate Auto-Sync (User Request)
         handleMainSyncBtn();
 
-        // Trigger Next Preload
-        preloadNextTrack();
+        // Trigger Next Preload (debounced to let track settle)
+        schedulePreload();
         return;
     }
 
@@ -4607,9 +4616,8 @@ async function playTrack(index) {
             // Stop local playback first (prevent overlap)
             stopAllMedia();
 
-            // Cancel any running preload immediately
-            preloadSessionId++;
-            isPreloading = false;
+            // Preload already cancelled at top of playTrack()
+            // Clear preload blobs for YouTube (no file preload needed)
 
             // IMMEDIATELY broadcast to guests so they switch too
             broadcast({
@@ -4675,6 +4683,15 @@ async function playTrack(index) {
             }, 3000);
         }
     }
+}
+
+let _preloadScheduleTimer = null;
+function schedulePreload(delayMs = 500) {
+    if (_preloadScheduleTimer) clearTimeout(_preloadScheduleTimer);
+    _preloadScheduleTimer = setTimeout(() => {
+        _preloadScheduleTimer = null;
+        preloadNextTrack();
+    }, delayMs);
 }
 
 async function preloadNextTrack() {
@@ -5460,6 +5477,7 @@ function stopAllMedia() {
     // It should persist if we just finished loading and are waiting for Host to start (3s count).
     // It is safely cleared in clearPreviousTrackState when track actually changes.
     preloadSessionId++; // Invalidate any ongoing preloads
+    if (_preloadScheduleTimer) { clearTimeout(_preloadScheduleTimer); _preloadScheduleTimer = null; }
     if (managedTimers.autoPlayTimer) {
         clearManagedTimer('autoPlayTimer');
     }
@@ -7107,12 +7125,17 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         // Message handler
         conn.on('data', handleData);
 
+        // Guard: PeerJS fires both 'error' and 'close' on failure → deduplicate popup
+        conn._errorHandled = false;
+
         conn.on('close', () => {
             log.warn('[Join] Host connection closed');
-
             hostConn = null;
             isConnecting = false;
             updateRoleBadge();
+
+            if (conn._errorHandled) { isIntentionalDisconnect = false; return; }
+            conn._errorHandled = true;
 
             if (!isIntentionalDisconnect) {
                 showConnectionFailedOverlay('연결이 끊어졌어요', '네트워크 상태를 확인한 후 다시 참가해 주세요.', hostId);
@@ -7122,10 +7145,12 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
 
         conn.on('error', (err) => {
             log.error('[Join] Host connection error', err);
-
             hostConn = null;
             isConnecting = false;
             updateRoleBadge();
+
+            if (conn._errorHandled) return;
+            conn._errorHandled = true;
 
             showConnectionFailedOverlay('연결에 문제가 생겼어요', '네트워크 상태를 확인한 후 다시 참가해 주세요.', hostId);
         });
@@ -7391,19 +7416,24 @@ async function handleFilePrepare(data) {
     // Increment token to invalidate any previous async operations
     const myLoadToken = ++_currentLoadToken;
 
+    // Always clear stuck preload waiting state on new file-prepare
+    if (_waitingForPreload) {
+        log.debug(`[file-prepare] Clearing stale _waitingForPreload flag`);
+        _waitingForPreload = false;
+    }
+    if (_preloadWatchdog) {
+        clearTimeout(_preloadWatchdog);
+        _preloadWatchdog = null;
+    }
+    clearManagedTimer('preloadWatchdog');
+    _recoveryRetryCount = 0; // Reset recovery counter for new track
+
     // Immediate Session Check to invalidate old chunks
     const incomingSid = data.sessionId;
     if (incomingSid && incomingSid > localTransferSessionId) {
         log.debug(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
         localTransferSessionId = incomingSid;
         window._lastClearedTrackName = null; // Forces next clear-state to run even if name matches (new session)
-
-        // Force reset waiting flags on new session
-        if (_waitingForPreload) {
-            log.debug(`[file-prepare] Clearing stale _waitingForPreload flag`);
-            _waitingForPreload = false;
-            clearManagedTimer('preloadWatchdog');
-        }
     }
 
     // Immediate stop for Guest during transition
@@ -7773,23 +7803,24 @@ async function handleFileStart(data) {
     // Watchdog Start
     clearManagedTimer('chunkWatchdog');
     lastChunkTime = Date.now();
+    _lastReceivedCountSnapshot = receivedCount;
+    _recoveryRetryCount = 0; // Reset retry counter on new transfer
     managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
         const isMetaInvalid = !meta || !meta.total;
+        const isStuck = (receivedCount === _lastReceivedCountSnapshot) && timeSinceLast > WATCHDOG_TIMEOUT;
 
-        if (timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
-            // Timeout or Invalid State!
+        if (isStuck || timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
             clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
 
-            // Detach bad relay info if present (so we show 'Host' in UI next time)
             if (upstreamDataConn) upstreamDataConn = null;
 
             if (hostConn && hostConn.open) {
-                // GAP-BASED RECOVERY: (Simplified usage of helper)
                 sendRecoveryRequest(receivedCount || 0);
             }
         }
+        _lastReceivedCountSnapshot = receivedCount;
     }, 1000);
 
     // RELAY LOGIC: Forward 'file-start' header to downstream (validated, single-send)
@@ -7854,19 +7885,22 @@ async function handleFileResume(data) {
     // Restart watchdog
     clearManagedTimer('chunkWatchdog');
     lastChunkTime = Date.now();
+    _lastReceivedCountSnapshot = receivedCount;
+    _recoveryRetryCount = 0; // Reset retry counter on resume
     managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
-        if (timeSinceLast > 12000) {
+        const isStuck = (receivedCount === _lastReceivedCountSnapshot) && timeSinceLast > 12000;
+
+        if (isStuck || timeSinceLast > 12000) {
             clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
             if (upstreamDataConn) upstreamDataConn = null;
 
             if (hostConn && hostConn.open) {
-                // Find first missing chunk via helper
                 sendRecoveryRequest(receivedCount || 0);
-
             }
         }
+        _lastReceivedCountSnapshot = receivedCount;
     }, 1000);
 }
 
@@ -8014,6 +8048,7 @@ async function handleFileChunk(data) {
     if (meta && receivedCount >= meta.total && transferState !== TRANSFER_STATE.PROCESSING) {
         // Set guard BEFORE any async operation to prevent race conditions
         transferState = TRANSFER_STATE.PROCESSING;
+        _recoveryRetryCount = 0; // Transfer complete, reset recovery counter
         const processingIndex = meta.index;   // Capture track index for ACK
 
         // Notify Host that we have this file now
@@ -8245,6 +8280,9 @@ async function handlePreloadStart(data) {
         return;
     }
 
+    // Clear any stuck waiting state from previous preload
+    _waitingForPreload = false;
+
     // Initialize session state
     preloadSessionState.set(sessionId, {
         skipped: false,
@@ -8296,12 +8334,16 @@ async function handlePreloadStart(data) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
 
-    // [Stability Fix] Add watchdog to clear loader if transfer hangs
+    // [Stability Fix] Watchdog: unconditionally clear preload loader after 30s
     clearManagedTimer('preloadWatchdog');
     managedTimers.preloadWatchdog = setTimeout(() => {
-        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
-            log.warn("[Preload] Watchdog Triggered: Loader forcefully hidden after 30s timeout.");
-            showLoader(false);
+        log.warn("[Preload] Watchdog: forcing preload loader reset after 30s");
+        showLoader(false);
+        _waitingForPreload = false;
+        // If main transfer is still in progress, restore its loader
+        if (transferState === TRANSFER_STATE.RECEIVING && meta) {
+            const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
+            showLoader(true, `수신 중... ${pct}%`);
         }
     }, 30000);
 }
@@ -8582,12 +8624,13 @@ async function handlePreloadEnd(data) {
     // Removed duplicate preload-ack - already sent in OPFS_FILE_READY handler (line 576)
     // This prevents Host from receiving 2 acks per preload
 
-    // Hide Loader when Preload Complete
-    // Only if main track transfer is NOT in progress
-    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
-        showLoader(false);
-    } else {
-        log.debug("[Preload] Complete, but keeping loader for main track transfer...");
+    // Hide preload loader unconditionally
+    showLoader(false);
+    _waitingForPreload = false;
+    // If main transfer is still in progress, restore its loader
+    if (transferState === TRANSFER_STATE.RECEIVING && meta) {
+        const pct = meta.total > 0 ? Math.round((receivedCount / meta.total) * 100) : 0;
+        showLoader(true, `수신 중... ${pct}%`);
     }
 }
 
@@ -10108,10 +10151,30 @@ function handleOperatorRequest(data) {
 
 
 function sendRecoveryRequest(forceChunk = null) {
-    // Prefer Relay Node for recovery if assigned
-    const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
+    // Guard: Prevent overlapping recovery requests
+    if (_recoveryPending) {
+        log.debug('[Recovery] Request already pending, skipping');
+        return;
+    }
 
-    if (!targetConn || !targetConn.open) return;
+    // Check retry limit
+    if (_recoveryRetryCount >= MAX_RECOVERY_RETRIES) {
+        log.error(`[Recovery] Max retries (${MAX_RECOVERY_RETRIES}) exceeded. Giving up.`);
+        showToast("파일 수신 실패. 다시 시도하려면 곡을 다시 선택해 주세요.");
+        clearManagedTimer('chunkWatchdog');
+        transferState = TRANSFER_STATE.IDLE;
+        showLoader(false);
+        _recoveryPending = false;
+        _recoveryRetryCount = 0;
+        return;
+    }
+
+    // Verify connection health
+    const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
+    if (!targetConn || !targetConn.open) {
+        log.warn('[Recovery] No healthy connection for recovery');
+        return;
+    }
 
     const fileName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
     const index = _pendingFileIndex !== undefined ? _pendingFileIndex : currentTrackIndex;
@@ -10122,16 +10185,38 @@ function sendRecoveryRequest(forceChunk = null) {
         chunkToAsk = receivedCount || 0;
     }
 
-    const sourceLabel = targetConn === upstreamDataConn ? "Relay" : "Host";
-    log.debug(`[Recovery] Requesting from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk})`);
+    // Progressive backoff
+    const backoffMs = RECOVERY_BACKOFF[Math.min(_recoveryRetryCount, RECOVERY_BACKOFF.length - 1)];
+    _recoveryRetryCount++;
+    _recoveryPending = true;
 
-    targetConn.send({
-        type: MSG.REQUEST_DATA_RECOVERY,
-        nextChunk: chunkToAsk,
-        fileName: fileName,
-        index: index,
-        sessionId: currentSid
-    });
+    const sourceLabel = targetConn === upstreamDataConn ? "Relay" : "Host";
+    log.debug(`[Recovery] Attempt ${_recoveryRetryCount}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk}, backoff: ${backoffMs}ms)`);
+
+    setTimeout(() => {
+        _recoveryPending = false;
+
+        // Re-check connection after backoff
+        if (!targetConn.open) {
+            log.warn('[Recovery] Connection closed during backoff');
+            return;
+        }
+        // Re-check meta freshness: abort if track changed during backoff
+        const latestName = (meta && meta.name) ? meta.name : (window._pendingFileName || '');
+        if (latestName && fileName && latestName !== fileName) {
+            log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
+            _recoveryRetryCount = 0;
+            return;
+        }
+
+        targetConn.send({
+            type: MSG.REQUEST_DATA_RECOVERY,
+            nextChunk: chunkToAsk,
+            fileName: fileName,
+            index: index,
+            sessionId: currentSid
+        });
+    }, backoffMs);
 }
 
 async function broadcastFile(file, explicitSessionId = null) {

@@ -1598,6 +1598,10 @@ const handleWorkerMessage = async (e) => {
             // Drive catch-up pump (if active)
             onOpfsCatchupReadComplete(peerId, sessionId, requestTag);
         }
+        else if (data.type === 'OPFS_WRITE_ERROR') {
+            // Bug #46: Handle individual chunk write errors from worker
+            log.warn(`[Worker-OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
+        }
         else if (data.type === 'OPFS_ERROR' || data.type === 'OPFS_READ_ERROR') {
             log.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
 
@@ -3266,7 +3270,10 @@ function initSetupOverlay() {
 
     document.querySelectorAll('.ob-dot').forEach(dot => {
         dot.onclick = (e) => {
-            currentObSlide = parseInt(e.target.dataset.idx, 10);
+            const dotEl = e.target.closest('.ob-dot');
+            const idx = parseInt(dotEl?.dataset?.idx, 10);
+            if (isNaN(idx)) return; // Bug #2: NaN guard
+            currentObSlide = idx;
             updateObSlider();
             startObAutoSlide(); // Reset timer on manual click
         };
@@ -3715,10 +3722,7 @@ async function activateAudio() {
     requestWakeLock();
 }
 
-// Legacy entry points (delegate to current flow functions)
-window.actionCreateRoom = startHostFlow;
-window.actionJoinRoom = startGuestFlow;
-window.actionEnterSession = startGuestFlow;
+// Legacy entry points removed (Bug #39: were dead exports — never called from HTML or JS)
 
 /**
  * UI Update Logic for Status Pill
@@ -4133,7 +4137,7 @@ function toggleRepeat() {
     }
 }
 
-function setRepeatMode(mode) {
+function setRepeatMode(mode, notify = true) {
     repeatMode = mode;
     const btn = document.getElementById('btn-repeat');
     if (!btn) return;
@@ -4141,12 +4145,12 @@ function setRepeatMode(mode) {
     btn.classList.remove('active', 'active-one');
     if (repeatMode === 1) {
         btn.classList.add('active');
-        showToast("반복 재생: 전체");
+        if (notify) showToast("반복 재생: 전체");
     } else if (repeatMode === 2) {
         btn.classList.add('active-one');
-        showToast("반복 재생: 한 곡");
+        if (notify) showToast("반복 재생: 한 곡");
     } else {
-        showToast("반복 재생: 끔");
+        if (notify) showToast("반복 재생: 끔");
     }
 }
 
@@ -4162,13 +4166,13 @@ function toggleShuffle() {
     }
 }
 
-function setShuffle(enabled) {
+function setShuffle(enabled, notify = true) {
     isShuffle = enabled;
     const btn = document.getElementById('btn-shuffle');
     if (btn) {
         btn.classList.toggle('active', isShuffle);
     }
-    showToast(isShuffle ? "셔플: 켜짐" : "셔플: 꺼짐");
+    if (notify) showToast(isShuffle ? "셔플: 켜짐" : "셔플: 꺼짐");
 }
 
 function updatePlaylistUI() {
@@ -4683,10 +4687,6 @@ async function preloadNextTrack() {
 
     // Determine Next Index logic
     let nextIdx = -1;
-    if (playlist.length === 0) {
-        nextTrackIndex = -1;
-        return;
-    }
 
     if (repeatMode === 2) {
         nextIdx = currentTrackIndex; // Repeat One
@@ -5101,10 +5101,10 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
             const dur = currentAudioBuffer ? currentAudioBuffer.duration : videoElement.duration;
 
             if (dur && isFinite(dur)) {
-                document.getElementById('time-dur').innerText = fmtTime(dur);
+                const timeDurEl = document.getElementById('time-dur');
+                if (timeDurEl) timeDurEl.innerText = fmtTime(dur);
                 const sSlider = document.getElementById('seek-slider');
-                sSlider.max = dur;
-                sSlider.value = 0;
+                if (sSlider) { sSlider.max = dur; sSlider.value = 0; }
             }
             BlobURLManager.confirm(file);
         });
@@ -5112,7 +5112,8 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         videoElement.load();
 
         const isGuest = !!hostConn;
-        document.getElementById('play-btn').disabled = isGuest && !isOperator;
+        const _playBtnLoad = document.getElementById('play-btn');
+        if (_playBtnLoad) _playBtnLoad.disabled = isGuest && !isOperator;
 
         if (connectedPeers.length > 0) {
             // Do NOT await broadcastFile.
@@ -5140,10 +5141,9 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         // Removed duplicate auto-play - playTrack() already handles this via autoPlayTimer
 
         // Ensure play button is enabled for Host even if load fails or halts
-        if (!hostConn) {
-            document.getElementById('play-btn').disabled = false;
-        } else if (isOperator) {
-            document.getElementById('play-btn').disabled = false;
+        const _playBtnFinal = document.getElementById('play-btn');
+        if (_playBtnFinal) {
+            if (!hostConn || isOperator) _playBtnFinal.disabled = false;
         }
     }
 }
@@ -5288,14 +5288,11 @@ async function _internalPlay(offset) {
             videoElement.play().catch(() => { });
         }
 
-    } else {
-        // --- NO SOURCE (Safety) ---
-        log.warn("[Play] Attempted to play without AudioBuffer.");
-        return;
     }
+    // Note: The else branch was unreachable since hasBufferSource guard at top already returns.
 
-    // Formula Refactor: startedAt represents the RAW start time point.
-    // getTrackPosition will dynamically add (localOffset + autoSyncOffset).
+    // Formula Refactor: startedAt bakes in current offsets.
+    // Changing localOffset/autoSyncOffset at runtime requires re-calling play(getTrackPosition()).
     startedAt = Tone.now() - (safeOffset - (localOffset + autoSyncOffset));
     pausedAt = safeOffset;
     log.debug(`[BufferMode] Started transient node at ${safeOffset}s (startedAt: ${startedAt})`);
@@ -5379,7 +5376,7 @@ function handleEnded() {
 
     const isPastEnd = (curr >= duration - 0.2);
 
-    if (currentState !== APP_STATE.IDLE && isPastEnd) {
+    if (isPastEnd) {
         log.debug(`Track ended at ${curr.toFixed(2)} s / ${duration.toFixed(2)} s`);
 
         // Use centralized stopAllMedia() which sets state to IDLE
@@ -5629,7 +5626,7 @@ function stopPlayback() {
 
     // Host: Local file mode
     stopAllMedia();
-    pausedAt = 0;
+    // Note: stopAllMedia() already resets pausedAt via setState(IDLE)
 
     // Reset UI immediately
     const slider = document.getElementById('seek-slider');
@@ -5725,8 +5722,10 @@ function skipTime(sec) {
 }
 
 function updatePlayState(playing) {
-    document.getElementById('icon-play').style.display = playing ? 'none' : 'block';
-    document.getElementById('icon-pause').style.display = playing ? 'block' : 'none';
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+    if (iconPlay) iconPlay.style.display = playing ? 'none' : 'block';
+    if (iconPause) iconPause.style.display = playing ? 'block' : 'none';
 }
 
 function adjustSync(val) {
@@ -5984,47 +5983,52 @@ function setReverbParam(param, val) {
     const v = Number(val);
     if (!Number.isFinite(v)) return;
 
+    // Helper to safely set DOM element properties
+    const _setEl = (id, prop, val) => { const el = document.getElementById(id); if (el) el[prop] = val; };
+
     switch (param) {
         case 'mix':
             reverbMix = v / 100;
-            document.getElementById('val-reverb').innerText = v + '%';
-            document.getElementById('reverb-slider').value = v;
+            _setEl('val-reverb', 'innerText', v + '%');
+            _setEl('reverb-slider', 'value', v);
             break;
         case 'decay':
             reverbDecay = v;
-            document.getElementById('val-rvb-decay').innerText = v + 's';
-            document.getElementById('reverb-decay-slider').value = v;
+            _setEl('val-rvb-decay', 'innerText', v + 's');
+            _setEl('reverb-decay-slider', 'value', v);
             break;
         case 'predelay':
             reverbPreDelay = v;
-            document.getElementById('val-rvb-predelay').innerText = v + 's';
-            document.getElementById('reverb-predelay-slider').value = v;
+            _setEl('val-rvb-predelay', 'innerText', v + 's');
+            _setEl('reverb-predelay-slider', 'value', v);
             break;
-        case 'lowcut':
+        case 'lowcut': {
             reverbLowCut = v;
             const lFreq = 20 * Math.pow(50, v / 100);
-            document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz');
-            document.getElementById('reverb-lowcut-slider').value = v;
+            _setEl('val-rvb-lowcut', 'innerText', (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz'));
+            _setEl('reverb-lowcut-slider', 'value', v);
             break;
-        case 'highcut':
+        }
+        case 'highcut': {
             reverbHighCut = v;
             const hFreq = 20000 * Math.pow(0.05, v / 100);
-            document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
-            document.getElementById('reverb-highcut-slider').value = v;
+            _setEl('val-rvb-highcut', 'innerText', (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz'));
+            _setEl('reverb-highcut-slider', 'value', v);
             break;
+        }
     }
     applySettings();
 }
 
 // Reverb setters: apply param locally; callers handle broadcasting
-function setReverbType(type) {
+async function setReverbType(type) {
     if (reverb) {
         if (type === 'room') { reverbDecay = 1.5; reverbPreDelay = 0.05; }
         else if (type === 'hall') { reverbDecay = 3.5; reverbPreDelay = 0.1; }
         else if (type === 'space') { reverbDecay = 7.0; reverbPreDelay = 0.2; }
         reverb.decay = reverbDecay;
         reverb.preDelay = reverbPreDelay;
-        reverb.generate();
+        try { await reverb.generate(); } catch (e) { log.warn('[Reverb] generate() failed:', e); }
     }
 }
 function setReverb(val) { setReverbParam('mix', val); }
@@ -6361,6 +6365,8 @@ function startVisualizer() {
         canvas.height = logicalSize * dpr;
         canvas.style.width = '';
         canvas.style.height = '';
+        // Reset transform before scaling to prevent accumulation (Bug #48)
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
     }
 
@@ -6463,6 +6469,8 @@ function drawIdleVisualizer() {
         canvas.height = logicalSize * dpr;
         canvas.style.width = '';
         canvas.style.height = '';
+        // Reset transform before scaling to prevent accumulation (Bug #48)
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
     }
 
@@ -7263,6 +7271,10 @@ async function leaveSession(opts = {}) {
 
     clearAllManagedTimers();
 
+    // Clear raw timers not tracked by managedTimers (Bug #7/#8)
+    if (_preloadWatchdog) { clearTimeout(_preloadWatchdog); _preloadWatchdog = null; }
+    if (typeof _resyncTimer !== 'undefined' && _resyncTimer) { clearTimeout(_resyncTimer); _resyncTimer = null; }
+
     // [Cleanup PeerJS]
     if (hostConn) {
         try {
@@ -7366,6 +7378,10 @@ async function leaveSession(opts = {}) {
 
     if (window.BlobURLManager) BlobURLManager.revoke();
 
+    // Clear session-scoped data structures (Bug #42/#43 - memory leak)
+    try { fileReorderBuffer.clear(); } catch (_) { }
+    isIntentionalDisconnect = false; // Reset for next session (Bug #42)
+
     setState(APP_STATE.IDLE);
 
     // Back to Setup overlay (network will be initialized on demand)
@@ -7438,9 +7454,9 @@ function clearPreviousTrackState(reason = '') {
     window._pendingEarlyChunks = [];
     _pendingPlayTime = undefined; // Clear pending play intention on track change
 
-    // Reset state to IDLE so that subsequent sync/play commands for the new track 
+    // Reset state to IDLE so that subsequent sync/play commands for the new track
     // are not ignored as "already playing" stale state.
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
+    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         setState(APP_STATE.IDLE);
     }
 
@@ -7846,7 +7862,6 @@ async function handleFileStart(data) {
             size: CHUNK_SIZE,
             sessionId: validateSessionId(incomingSid)
         });
-        currentFileOpfs.name = data.name;
 
         incomingChunks = []; // Clear in-memory array (legacy; OPFS is primary)
         receivedCount = 0;
@@ -7962,9 +7977,9 @@ async function handleFileResume(data) {
     _recoveryRetryCount = 0; // Reset retry counter on resume
     managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
-        const isStuck = (receivedCount === _lastReceivedCountSnapshot) && timeSinceLast > 12000;
+        const isStuck = (receivedCount === _lastReceivedCountSnapshot) && timeSinceLast > WATCHDOG_TIMEOUT;
 
-        if (isStuck || timeSinceLast > 12000) {
+        if (isStuck || timeSinceLast > WATCHDOG_TIMEOUT) {
             clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
             if (upstreamDataConn) upstreamDataConn = null;
@@ -8850,14 +8865,14 @@ async function handlePlayPreloaded(data) {
             const jitter = Math.random() * 1000 + 200;
             log.debug(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
 
-            setTimeout(() => {
+            setTimeout(async () => {
                 // Double check before sending request
                 if (hostConn && hostConn.open && !nextFileBlob) {
                     // Last check: did we get it during delay?
                     const hasItNow = (nextMeta && nextMeta.index === data.index && nextFileBlob);
                     if (hasItNow) {
                         log.debug("[Guest] Preload arrived during jitter wait! Playing...");
-                        loadPreloadedTrack(data.index, myLoadToken);
+                        await loadPreloadedTrack(data.index, myLoadToken);
                         return;
                     }
 
@@ -8885,7 +8900,7 @@ async function handleStatusSync(data) {
     if (!validateMessage(data, ['playlistMeta', 'currentTrackIndex'])) return;
 
     // [Synchronization Logic] Playlist-Centric Model
-    const { playlistMeta, currentTrackIndex: hostTrackIndex, isPlaying: hostIsPlayingAny } = data;
+    const { playlistMeta, currentTrackIndex: hostTrackIndex } = data;
 
     // Empty Playlist Defense - Skip if already in empty state
     if (!playlistMeta || playlistMeta.length === 0) {
@@ -8900,12 +8915,12 @@ async function handleStatusSync(data) {
         return;
     }
 
-    // 0. Sync Repeat/Shuffle State
+    // 0. Sync Repeat/Shuffle State (silent = no toast spam on guests)
     if (data.repeatMode !== undefined && data.repeatMode !== repeatMode) {
-        setRepeatMode(data.repeatMode);
+        setRepeatMode(data.repeatMode, false);
     }
     if (data.isShuffle !== undefined && data.isShuffle !== isShuffle) {
-        setShuffle(data.isShuffle);
+        setShuffle(data.isShuffle, false);
     }
 
     // 1. Sync Playlist Structure if different
@@ -8935,7 +8950,7 @@ async function handleStatusSync(data) {
             if (!hasBlob && isPreloaded) {
                 log.debug("[Sync] Required track found in preload cache. Activating...");
                 _currentLoadToken++;
-                loadPreloadedTrack(hostTrackIndex, _currentLoadToken);
+                await loadPreloadedTrack(hostTrackIndex, _currentLoadToken);
                 return;
             }
 
@@ -9290,6 +9305,8 @@ async function handlePlaylistUpdate(data) {
     if (!Array.isArray(playlist)) playlist = [];
     if (currentTrackIndex >= playlist.length) currentTrackIndex = playlist.length - 1;
     if (currentTrackIndex < -1) currentTrackIndex = -1;
+    // Bug #16: If we received a non-empty playlist but index is still -1, default to 0
+    if (currentTrackIndex === -1 && playlist.length > 0) currentTrackIndex = 0;
 
     updatePlaylistUI();
 }
@@ -9780,6 +9797,8 @@ async function handleData(data, conn) {
 
 // --- Relay Functions ---
 
+let _relayConnTimer = null; // Track relay connection timeout (Bug #14)
+
 function connectToRelay(targetId) {
     // Close existing relay connection if we are reassigning
     if (upstreamDataConn) {
@@ -9788,12 +9807,15 @@ function connectToRelay(targetId) {
         upstreamDataConn = null;
     }
 
+    // Cancel previous relay connection timeout (Bug #14)
+    if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
+
     const conn = peer.connect(targetId, {
         metadata: { type: MSG.DATA_RELAY, label: myId }
     });
 
     const FAIL_TIMEOUT = 10000;
-    const connTimer = setTimeout(() => {
+    _relayConnTimer = setTimeout(() => {
         if (!conn.open) {
             log.warn("Relay Connect Timeout");
             conn.close();
@@ -9817,7 +9839,7 @@ function connectToRelay(targetId) {
     }, FAIL_TIMEOUT);
 
     conn.on('open', () => {
-        clearTimeout(connTimer);
+        if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
         upstreamDataConn = conn;
         showToast("Connected to Relay Node");
         conn.on('data', handleData);
@@ -9902,6 +9924,8 @@ function nudgeSync(ms) {
 }
 
 function resetTotalSync() {
+    // Capture current position BEFORE clearing offsets (Bug #12)
+    const currentPos = getTrackPosition();
     localOffset = 0;
     autoSyncOffset = 0;
     updateSyncDisplay();
@@ -9911,7 +9935,7 @@ function resetTotalSync() {
         syncReset();
     } else {
         showToast("호스트 연결 없음. 로컬 초기화 완료.");
-        if (videoElement && !videoElement.paused) play(Tone.now() - startedAt);
+        if (currentState !== APP_STATE.IDLE) play(currentPos);
     }
 }
 
@@ -10065,10 +10089,14 @@ async function relayPreloadFromCache(blob, index, sessionId) {
  */
 function broadcast(msg, isDataOnly = false) {
     connectedPeers.forEach(p => {
-        if (p.status === 'connected' && p.conn.open) {
-            if (!isDataOnly || p.isDataTarget !== false) {
-                p.conn.send(msg);
+        try {
+            if (p.status === 'connected' && p.conn && p.conn.open) {
+                if (!isDataOnly || p.isDataTarget !== false) {
+                    p.conn.send(msg);
+                }
             }
+        } catch (e) {
+            log.warn(`[broadcast] Send failed for peer ${p.label || p.id}:`, e);
         }
     });
 }
@@ -10076,11 +10104,15 @@ function broadcast(msg, isDataOnly = false) {
 // Broadcast to all peers except one (useful for chat relays to avoid duplicates)
 function broadcastExcept(excludePeerId, msg, isDataOnly = false) {
     connectedPeers.forEach(p => {
-        if (p.status === 'connected' && p.conn.open) {
-            if (excludePeerId && p.id === excludePeerId) return;
-            if (!isDataOnly || p.isDataTarget !== false) {
-                p.conn.send(msg);
+        try {
+            if (p.status === 'connected' && p.conn && p.conn.open) {
+                if (excludePeerId && p.id === excludePeerId) return;
+                if (!isDataOnly || p.isDataTarget !== false) {
+                    p.conn.send(msg);
+                }
             }
+        } catch (e) {
+            log.warn(`[broadcastExcept] Send failed for peer ${p.label || p.id}:`, e);
         }
     });
 }
@@ -10507,6 +10539,18 @@ async function broadcastFile(file, explicitSessionId = null) {
             p.processQueue();
         }
     });
+
+    // Cleanup: Release per-peer chunk queues after transfer completes
+    // Use a short delay to allow processQueue to drain the remaining messages
+    setTimeout(() => {
+        eligiblePeers.forEach(p => {
+            if (p.chunkQueue && p._chunkQueueHead >= p.chunkQueue.length) {
+                p.chunkQueue = [];
+                p._chunkQueueHead = 0;
+                p.openSender = false;
+            }
+        });
+    }, 5000);
 }
 
 async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {

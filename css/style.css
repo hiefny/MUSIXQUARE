@@ -28,6 +28,8 @@ html.standalone body {
     /* Hover, Active */
     --divider: var(--surface-2);
     --primary: #3b82f6;
+    --primary-rgb: 59, 130, 246;
+    --surface-4: #525252;
     --text-main: #ffffff;
     --text: var(--text-main);
     --text-sub: #a1a1aa;
@@ -121,6 +123,8 @@ html[data-theme="light"] body {
     /* Interactions */
     --divider: var(--surface-3);
     --primary: #3b82f6;
+    --primary-rgb: 59, 130, 246;
+    --surface-4: #d1d5db;
     --text-main: #212529;
     /* Contrast dark text */
     --text-sub: #495057;
@@ -3531,25 +3535,7 @@ body.overlay-open .bottom-nav {
 }
 
 
-/* Navigation Arrows */
-.ob-arrow {
-    position: absolute;
-    top: 120px;
-    /* Align with icon area */
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: var(--surface-2);
-    border: 1px solid var(--surface-3);
-    color: var(--text-main);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    z-index: 20;
-    transition: all 0.2s;
-    opacity: 0.3;
-}
+/* Navigation Arrows (removed duplicate .ob-arrow — see line ~2770 for canonical definition) */
 
 /* Manual Sync Overlay */
 
@@ -3669,7 +3655,7 @@ body.overlay-open .bottom-nav {
     color: white;
     border-color: var(--primary);
     opacity: 1 !important;
-    transform: scale(1.1);
+    transform: translateY(-50%) scale(1.1);
 }
 
 .ob-arrow-left {

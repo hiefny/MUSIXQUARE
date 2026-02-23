@@ -63,14 +63,14 @@
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="MUSIXQUARE">
     <meta property="og:locale" content="ko_KR">
-    <meta property="og:url" content="./">
-    <meta property="og:image" content="icons/icon-512.png">
+    <meta property="og:url" content="https://musixquare.com/">
+    <meta property="og:image" content="https://musixquare.com/icons/icon-512.png">
     <meta property="og:image:width" content="512">
     <meta property="og:image:height" content="512">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="MUSIXQUARE">
     <meta name="twitter:description" content="여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요. P2P 기반 실시간 오디오 동기화 웹앱.">
-    <meta name="twitter:image" content="icons/icon-512.png">
+    <meta name="twitter:image" content="https://musixquare.com/icons/icon-512.png">
     <title>MUSIXQUARE</title>
     <meta name="description" content="MUSIXQUARE - 여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요. P2P 기반 실시간 오디오 동기화 웹앱.">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -974,7 +974,7 @@
 
                     <div class="setup-code-area-bottom">
                         <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
-                        <input type="text" class="setup-join-input" id="setup-code" value="------" readonly disabled
+                        <input type="text" class="setup-join-input" id="setup-code" value="------" readonly
                             style="border-bottom: 2px solid transparent; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
                     </div>
                 </div>
@@ -1191,6 +1191,24 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg">메시지</span>
+    </div>
+
+    <!-- Manual Sync Overlay (Bug #1: was missing from HTML) -->
+    <div class="manual-sync-overlay" id="manual-sync-overlay">
+        <div class="sync-glass-panel">
+            <div class="sync-card-title">수동 싱크 조절</div>
+            <div class="sync-status-text" id="manual-sync-value">0</div>
+            <div style="display:flex; gap:8px; justify-content:center; margin:16px 0;">
+                <button class="btn-action" id="btn-nudge-minus10" style="flex:1;">-10ms</button>
+                <button class="btn-action" id="btn-nudge-minus1" style="flex:1;">-1ms</button>
+                <button class="btn-action" id="btn-nudge-plus1" style="flex:1;">+1ms</button>
+                <button class="btn-action" id="btn-nudge-plus10" style="flex:1;">+10ms</button>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+                <button class="btn-action" id="btn-auto-sync" style="flex:1;">초기화</button>
+                <button class="btn-ob-primary" id="btn-sync-done" style="flex:1;">완료</button>
+            </div>
+        </div>
     </div>
 
     <div id="media-source-overlay" class="onboarding-overlay">

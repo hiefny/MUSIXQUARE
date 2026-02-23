@@ -127,7 +127,7 @@ function isValidSessionId(sessionId) {
  * - Keeps existing "newer session can preempt" behavior (needed for churn recovery)
  * - Rejects only when another session is actively locked and still fresh.
  */
-function acquireLock(opfsObj, sessionId, filename, isPreload) {
+async function acquireLock(opfsObj, sessionId, filename, isPreload) {
   const now = nowMs();
   const timeout = isPreload ? PRELOAD_LOCK_TIMEOUT_MS : LOCK_TIMEOUT_MS;
 
@@ -136,23 +136,36 @@ function acquireLock(opfsObj, sessionId, filename, isPreload) {
     return false;
   }
 
-  // If already locked on same filename, treat as renewal.
+  // If already locked on same filename by the SAME session, treat as renewal (Bug #2 fix).
   if (opfsObj.isLocked && opfsObj.name === filename) {
-    opfsObj.sessionId = sessionId;
-    opfsObj.lockTime = now;
-    return true;
+    if (sessionId === opfsObj.sessionId) {
+      // Same session renewal — safe
+      opfsObj.lockTime = now;
+      return true;
+    }
+    // Different session on same filename — only allow if newer
+    if (sessionId < opfsObj.sessionId) {
+      console.warn(`[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${opfsObj.sessionId}`);
+      return false;
+    }
+    // Newer session: clean up old handle before preemption (Bug #3 fix)
+    await cleanupHandle(opfsObj, `Preemption by session ${sessionId} (was ${opfsObj.sessionId})`);
   }
 
-  if (opfsObj.isLocked) {
+  if (opfsObj.isLocked && opfsObj.name !== filename) {
     const age = now - opfsObj.lockTime;
 
     // If lock is fresh and current session is newer? Allow preempt (original behavior)
     if (sessionId >= opfsObj.sessionId) {
       // Permit preemption even when fresh to avoid deadlocks on fast session churn.
-      // Old session messages will be rejected by SESSION_MISMATCH guards.
+      // Clean up old handle before preemption (Bug #3 fix)
+      await cleanupHandle(opfsObj, `Preemption for new file by session ${sessionId}`);
     } else if (age < timeout) {
       // Older session cannot steal a fresh lock.
       return false;
+    } else {
+      // Stale lock — clean up before taking over
+      await cleanupHandle(opfsObj, `Stale lock cleanup by session ${sessionId}`);
     }
   }
 
@@ -282,7 +295,7 @@ async function handleMessage(data) {
       return;
     }
 
-    if (!acquireLock(opfsObj, sessionId, filename, isPreload)) {
+    if (!(await acquireLock(opfsObj, sessionId, filename, isPreload))) {
       safePost({ type: 'OPFS_ERROR', error: 'Lock Collision', filename, isPreload, code: 'LOCKED' });
       return;
     }
@@ -477,7 +490,7 @@ async function handleMessage(data) {
 
       const sidSnapshot = opfsObj.sessionId;
 
-      await cleanupHandle(opfsObj, 'Finalizing');
+      // Note: releaseLock already calls cleanupHandle internally, so skip explicit cleanupHandle here (Bug #47)
       safePost({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId: sidSnapshot });
       await releaseLock(opfsObj);
 

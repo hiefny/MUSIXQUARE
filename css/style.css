@@ -3261,13 +3261,13 @@ body.overlay-open .bottom-nav {
 }
 
 .graphic-device {
-    fill: var(--surface-4);
+    fill: #000000;
     stroke: var(--surface-3);
     stroke-width: 1;
 }
 
 .graphic-speaker {
-    fill: var(--surface-4);
+    fill: #000000;
     stroke: var(--text-sub);
     stroke-width: 1.5;
 }
@@ -4830,7 +4830,7 @@ input:checked+.slider:before {
 }
 
 .graphic-speaker {
-    fill: var(--surface-1);
+    fill: #000000;
     stroke: var(--text-sub);
     stroke-width: 2;
     transition: fill 0.3s, stroke 0.3s, stroke-width 0.3s;
@@ -4843,7 +4843,7 @@ input:checked+.slider:before {
 
 .graphic-speaker.active {
     stroke: var(--primary);
-    fill: var(--surface-3);
+    fill: #000000;
     /* filter: drop-shadow(0 4px 12px rgba(var(--primary-rgb), 0.2)); */
 }
 

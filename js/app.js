@@ -520,21 +520,23 @@ function setState(newState, options = {}) {
         return;
     }
 
-    _isStateTransitioning = true;
-    log.debug(`[State] Transition: ${oldState} -> ${newState}`, options);
+    try {
+        _isStateTransitioning = true;
+        log.debug(`[State] Transition: ${oldState} -> ${newState}`, options);
 
-    // Clean up previous state (optional)
-    if (!options.skipCleanup) {
-        cleanupState(oldState);
+        // Clean up previous state (optional)
+        if (!options.skipCleanup) {
+            cleanupState(oldState);
+        }
+
+        // Set new state
+        currentState = newState;
+
+        // Update UI for new state
+        updateUIForState(newState);
+    } finally {
+        _isStateTransitioning = false;
     }
-
-    // Set new state
-    currentState = newState;
-
-    // Update UI for new state
-    updateUIForState(newState);
-
-    _isStateTransitioning = false;
 
     // Execute completion callback
     if (options.onComplete) {
@@ -759,6 +761,11 @@ let mediaDownmixNode = null; // Stereo Downmixer for Standard Mode
 let virtualBass = 0; // 0.0 ~ 1.0
 let stereoWidth = 1.0;
 let reverbMix = 0;
+let reverbDecay = 5.0;
+let reverbPreDelay = 0.1;
+let reverbLowCut = 0; // 0-100
+let reverbHighCut = 0; // 0-100
+let eqValues = [0, 0, 0, 0, 0];
 let reverbType = 'hall';
 let subFreq = 120; // VB Crossover
 let masterVolume = 1.0;
@@ -2499,10 +2506,15 @@ function switchTab(tabId) {
             updateInviteCodeUI();
         }
 
-        // FIX: YouTube Black Screen - Force refresh container when switching to 'play' tab
-        if (tabId === 'play' && currentState === APP_STATE.PLAYING_YOUTUBE) {
-            // Use timeout to ensure tab transition is complete
-            setTimeout(() => refreshYouTubeDisplay(), 50);
+        // FIX: YouTube Black Screen & Visualizer Disappearance
+        if (tabId === 'play') {
+            setTimeout(() => {
+                if (currentState === APP_STATE.PLAYING_YOUTUBE) refreshYouTubeDisplay();
+
+                // Ensure visualizer is resized and running
+                if (currentState === APP_STATE.IDLE) drawIdleVisualizer();
+                else startVisualizer();
+            }, 50);
         }
 
         // Chat drawer logic (previously in a separate wrapper)
@@ -6017,40 +6029,38 @@ function onReverbHighCutChange(val) {
 
 function setReverbParam(param, val) {
     const v = Number(val);
-    if (!reverb) return;
+    if (!Number.isFinite(v)) return;
 
     switch (param) {
         case 'mix':
             reverbMix = v / 100;
             document.getElementById('val-reverb').innerText = v + '%';
             document.getElementById('reverb-slider').value = v;
-            applySettings();
             break;
         case 'decay':
-            reverb.decay = v;
-            reverb.generate();
+            reverbDecay = v;
             document.getElementById('val-rvb-decay').innerText = v + 's';
             document.getElementById('reverb-decay-slider').value = v;
             break;
         case 'predelay':
-            reverb.preDelay = v;
-            reverb.generate();
+            reverbPreDelay = v;
             document.getElementById('val-rvb-predelay').innerText = v + 's';
             document.getElementById('reverb-predelay-slider').value = v;
             break;
         case 'lowcut':
+            reverbLowCut = v;
             const lFreq = 20 * Math.pow(50, v / 100);
-            if (rvbLowCut) rvbLowCut.frequency.rampTo(lFreq, 0.1);
             document.getElementById('val-rvb-lowcut').innerText = (lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz');
             document.getElementById('reverb-lowcut-slider').value = v;
             break;
         case 'highcut':
+            reverbHighCut = v;
             const hFreq = 20000 * Math.pow(0.05, v / 100);
-            if (rvbHighCut) rvbHighCut.frequency.rampTo(hFreq, 0.1);
             document.getElementById('val-rvb-highcut').innerText = (hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
             document.getElementById('reverb-highcut-slider').value = v;
             break;
     }
+    applySettings();
 }
 
 // Restore missing setters for updateAudioEffect and legacy handlers
@@ -6080,10 +6090,13 @@ function setEQ(idx, val, localOnly = false, fromSync = false) {
     const bandIdx = Number(idx);
     const bandVal = Number(val);
 
+    // Cached State Update
+    eqValues[bandIdx] = bandVal;
+
     // Tone.js Update
     if (eqNodes && eqNodes[bandIdx]) {
         // eqNodes are Tone.Filter(peaking)
-        eqNodes[bandIdx].gain.value = bandVal;
+        eqNodes[bandIdx].gain.rampTo(bandVal, 0.1);
     }
 
     // UI Update
@@ -6138,6 +6151,10 @@ function resetEQ(fromSync = false) {
         setEQ(idx, 0, false, true);
     });
     setPreamp(0, false, true);
+    // Explicitly reset cached values for safety
+    eqValues = [0, 0, 0, 0, 0];
+    userPreampGain = 1.0;
+    applySettings();
     if (!hostConn && !fromSync) broadcast({ type: MSG.EQ_RESET });
 }
 
@@ -6180,6 +6197,35 @@ function applySettings() {
 
     // Reverb Mix (CrossFade)
     if (rvbCrossFade) rvbCrossFade.fade.rampTo(reverbMix, 0.1);
+
+    // Reverb Engine Sync (Decay/PreDelay/Filters)
+    if (reverb) {
+        if (reverb.decay !== reverbDecay) {
+            reverb.decay = reverbDecay;
+            reverb.generate();
+        }
+        if (reverb.preDelay !== reverbPreDelay) {
+            reverb.preDelay = reverbPreDelay;
+            reverb.generate();
+        }
+    }
+    if (rvbLowCut) {
+        const lFreq = 20 * Math.pow(50, reverbLowCut / 100);
+        rvbLowCut.frequency.rampTo(lFreq, 0.1);
+    }
+    if (rvbHighCut) {
+        const hFreq = 20000 * Math.pow(0.05, reverbHighCut / 100);
+        rvbHighCut.frequency.rampTo(hFreq, 0.1);
+    }
+
+    // EQ Sync
+    if (eqNodes) {
+        eqNodes.forEach((node, i) => {
+            if (node.gain.value !== eqValues[i]) {
+                node.gain.rampTo(eqValues[i], 0.1);
+            }
+        });
+    }
 
     // Stereo Width & Gain Compensation
     if (widener) {
@@ -6316,7 +6362,8 @@ function startVisualizer() {
 
     // Canvas Scale Logic (High DPI) - Dynamic sizing from wrapper
     const wrapper = document.querySelector('.vinyl-wrapper');
-    const logicalSize = wrapper ? wrapper.clientWidth : 240;
+    // Guard against 0 size (e.g. tab hidden) - use fallback but keep retry loop active
+    const logicalSize = (wrapper && wrapper.clientWidth > 10) ? wrapper.clientWidth : 240;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
         canvas.width = logicalSize * dpr;
@@ -6862,18 +6909,28 @@ function handleHostIncomingConnection(conn) {
 
         // Sync current settings/state (late-join bootstrap)
         try { conn.send({ type: MSG.VOLUME, value: masterVolume }); } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.REVERB, value: reverbMix }); } catch (e) { /* noop */ }
-        try { if (reverb) conn.send({ type: MSG.REVERB_DECAY, value: reverb.decay }); } catch (e) { /* noop */ }
-        try { if (reverb) conn.send({ type: MSG.REVERB_PREDELAY, value: reverb.preDelay }); } catch (e) { /* noop */ }
-        try { if (rvbLowCut) conn.send({ type: MSG.REVERB_LOWCUT, value: rvbLowCut.frequency.value }); } catch (e) { /* noop */ }
-        try { if (rvbHighCut) conn.send({ type: MSG.REVERB_HIGHCUT, value: rvbHighCut.frequency.value }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB, value: reverbMix * 100 }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB_DECAY, value: reverbDecay }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB_PREDELAY, value: reverbPreDelay }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB_LOWCUT, value: reverbLowCut }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.REVERB_HIGHCUT, value: reverbHighCut }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.REPEAT_MODE, value: repeatMode }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle }); } catch (e) { /* noop */ }
-
-        // Sync playlist (metadata only - do NOT send File objects)
         try {
-            const metaList = buildPlaylistMetaList(playlist);
-            conn.send({ type: MSG.PLAYLIST_UPDATE, list: metaList, currentTrackIndex });
+            eqValues.forEach((val, i) => {
+                conn.send({ type: MSG.EQ_UPDATE, band: i, value: val });
+            });
+        } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.PREAMP, value: Math.round(20 * Math.log10(userPreampGain)) }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100 }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.VBASS, value: virtualBass * 100 }); } catch (e) { /* noop */ }
+
+        // Playlist Sync (Full state for joiners)
+        try {
+            conn.send({
+                type: MSG.PLAYLIST,
+                list: buildPlaylistMetaList()
+            });
         } catch (e) { /* noop */ }
 
         // If a local file is already loaded, push it directly (for late-join / reconnect).
@@ -6923,10 +6980,8 @@ function handleHostIncomingConnection(conn) {
                         autoplay: autoplay,
                         subIndex: subIdx
                     });
-                } catch (e) { /* noop */ }
 
-                // Also send an immediate sync frame (player might ignore until ready; Host will keep sending every 3s)
-                try {
+                    // Also send an immediate sync frame
                     conn.send({
                         type: MSG.YOUTUBE_SYNC,
                         time: ytTime,
@@ -6934,29 +6989,13 @@ function handleHostIncomingConnection(conn) {
                         subIndex: subIdx
                     });
                 } catch (e) { /* noop */ }
-
             } else {
-                // Fallback: if YouTube state is inconsistent, just send pause
-                try {
-                    conn.send({
-                        type: MSG.PAUSE,
-                        time: nowPos,
-                        index: currentTrackIndex,
-                        state: currentState,
-                        timestamp: Date.now()
-                    });
-                } catch (e) { /* noop */ }
+                // If YouTube state is inconsistent, send pause
+                sendPauseState(conn, nowPos);
             }
         } else {
-            try {
-                conn.send({
-                    type: MSG.PAUSE,
-                    time: nowPos,
-                    index: currentTrackIndex,
-                    state: currentState,
-                    timestamp: Date.now()
-                });
-            } catch (e) { /* noop */ }
+            // IDLE: Send pause to sync position
+            sendPauseState(conn, nowPos);
         }
 
         updateRoleBadge();
@@ -7015,6 +7054,19 @@ function handleHostIncomingConnection(conn) {
 
         try { conn.close(); } catch (e) { /* noop */ }
     });
+}
+
+function sendPauseState(conn, time) {
+    try {
+        if (!conn || !conn.open) return;
+        conn.send({
+            type: MSG.PAUSE,
+            time: time,
+            index: currentTrackIndex,
+            state: currentState,
+            timestamp: Date.now()
+        });
+    } catch (e) { /* noop */ }
 }
 
 // Guest Logic
@@ -10750,9 +10802,14 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         // Set UI immediately based on buffer
         const dur = currentAudioBuffer.duration;
         if (isFinite(dur)) {
-            document.getElementById('seek-slider').max = dur;
-            document.getElementById('slide-slider').max = dur; // Secondary slider if present
-            document.getElementById('time-dur').innerText = fmtTime(dur);
+            const seekSlider = document.getElementById('seek-slider');
+            if (seekSlider) seekSlider.max = dur;
+
+            const slideSlider = document.getElementById('slide-slider');
+            if (slideSlider) slideSlider.max = dur;
+
+            const timeDur = document.getElementById('time-dur');
+            if (timeDur) timeDur.innerText = fmtTime(dur);
         }
         BlobURLManager.confirm(localBlob);
 

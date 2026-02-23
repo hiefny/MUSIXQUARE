@@ -3267,7 +3267,7 @@ body.overlay-open .bottom-nav {
 }
 
 .graphic-speaker {
-    fill: #000000;
+    fill: var(--surface-1);
     stroke: var(--text-sub);
     stroke-width: 1.5;
 }
@@ -4830,7 +4830,7 @@ input:checked+.slider:before {
 }
 
 .graphic-speaker {
-    fill: #000000;
+    fill: var(--surface-1);
     stroke: var(--text-sub);
     stroke-width: 2;
     transition: fill 0.3s, stroke 0.3s, stroke-width 0.3s;

@@ -50,7 +50,7 @@ const log = {
 
 const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
     ? crypto.randomUUID()
-    : (Date.now().toString(36) + Math.random().toString(36).substr(2, 9));
+    : (Date.now().toString(36) + Math.random().toString(36).slice(2, 11));
 
 // [iOS Latency Engineering]
 const IS_IOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) ||
@@ -122,7 +122,6 @@ function updateAppHeightNow() {
         if (isStandaloneDisplayMode()) root.classList.add('standalone');
     } catch (_) { /* ignore */ }
 
-    const de = document.documentElement;
     const vv = window.visualViewport;
     const isStandalone = isStandaloneDisplayMode();
 
@@ -137,7 +136,7 @@ function updateAppHeightNow() {
     let validHeights = [];
     if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
     if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
-    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) validHeights.push(Math.round(de.clientHeight));
+    if (root && Number.isFinite(root.clientHeight) && root.clientHeight > 0) validHeights.push(Math.round(root.clientHeight));
 
     let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
 
@@ -742,6 +741,8 @@ function clearManagedTimer(name) {
 
 function clearAllManagedTimers() {
     Object.keys(managedTimers).forEach(clearManagedTimer);
+    // Also clear raw timers not tracked by managedTimers
+    if (_preloadWatchdog) { clearTimeout(_preloadWatchdog); _preloadWatchdog = null; }
 }
 
 let channelMode = 0; // 0=Stereo, -1=Left, 1=Right, 2=Sub
@@ -1739,9 +1740,13 @@ async function finalizeFileProcessing(file) {
         currentFileBlob = file;
 
         videoElement.addEventListener('loadedmetadata', () => {
-            document.getElementById('seek-slider').max = audioBuffer.duration;
-            document.getElementById('seek-slider').value = 0;
-            document.getElementById('time-dur').innerText = fmtTime(audioBuffer.duration);
+            // Use currentAudioBuffer (live reference) instead of closed-over audioBuffer
+            // to avoid stale duration during rapid track switching
+            const buf = currentAudioBuffer || audioBuffer;
+            const seekSlider = document.getElementById('seek-slider');
+            const timeDur = document.getElementById('time-dur');
+            if (seekSlider) { seekSlider.max = buf.duration; seekSlider.value = 0; }
+            if (timeDur) timeDur.innerText = fmtTime(buf.duration);
             BlobURLManager.confirm(file);
         }, { once: true });
         videoElement.addEventListener('error', () => BlobURLManager.confirm(file), { once: true });
@@ -2425,6 +2430,19 @@ function _applyResolvedLanguage(resolved) {
                         m.addedNodes?.forEach(n => {
                             if (n.nodeType === 3) _i18nTranslateTextNode(n);
                             else if (n.nodeType === 1) _i18nTranslateSubtree(n);
+                        });
+                        // Cleanup removed nodes to prevent memory leak
+                        m.removedNodes?.forEach(n => {
+                            if (n.nodeType === 3) _i18nOriginalText.delete(n);
+                            else if (n.nodeType === 1) {
+                                _i18nOriginalAttr.delete(n);
+                                // Also clean text nodes inside removed subtree
+                                try {
+                                    const walker = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+                                    let tn;
+                                    while ((tn = walker.nextNode())) _i18nOriginalText.delete(tn);
+                                } catch (_) { /* detached node, ignore */ }
+                            }
                         });
                     }
                 }
@@ -3245,22 +3263,17 @@ function initSetupOverlay() {
     showRoleSelectionButtons();
 
     const showAndStart = () => {
-        if (token !== _setupOverlayInitToken) {
-            return;
-        }
         // Update viewport height CSS var once (safe-area uses CSS env) before revealing UI.
-        try { freezeLayoutMetricsOnce({ force: true }); } catch (_) { /* ignore */ }
+        try { freezeLayoutMetricsOnce(); } catch (_) { /* ignore */ }
         showSetupOverlay();
         startObAutoSlide();
     };
 
-    // On the very first app launch, show Setup immediately.
+    // On the very first app launch, add boot-block class
     if (!_setupOverlayEverShown) {
         try { document.documentElement.classList.add('setup-boot-block'); } catch (_) { /* ignore */ }
-        showAndStart();
-    } else {
-        showAndStart();
     }
+    showAndStart();
 
     // Bind slider events
     const btnNext = setupEl('ob-next');
@@ -4485,42 +4498,45 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
 
     log.debug(`[YouTube Feed] Starting title fetch for playlist: ${playlistId} (${ids.length} items)`);
 
-    for (let i = 0; i < ids.length; i++) {
-        // Skip if already has title
-        if (data.titles[i]) continue;
+    try {
+        for (let i = 0; i < ids.length; i++) {
+            // Skip if already has title
+            if (data.titles[i]) continue;
 
-        try {
-            const videoId = ids[i];
-            // Sequential fetching with a small delay to avoid rate limiting
-            const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`);
-            if (!response.ok) continue;
-            const json = await response.json();
+            try {
+                const videoId = ids[i];
+                // Sequential fetching with a small delay to avoid rate limiting
+                const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`);
+                if (!response.ok) continue;
+                const json = await response.json();
 
-            if (json && json.title) {
-                data.titles[i] = json.title;
-                log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
+                if (json && json.title) {
+                    data.titles[i] = json.title;
+                    log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 
-                // Update UI
-                updatePlaylistUI();
+                    // Update UI
+                    updatePlaylistUI();
 
-                // Only Host broadcasts to others to keep it centralized
-                if (!hostConn) {
-                    broadcast({
-                        type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
-                        playlistId: playlistId,
-                        subIdx: i,
-                        title: json.title
-                    });
+                    // Only Host broadcasts to others to keep it centralized
+                    if (!hostConn) {
+                        broadcast({
+                            type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
+                            playlistId: playlistId,
+                            subIdx: i,
+                            title: json.title
+                        });
+                    }
                 }
+            } catch (e) {
+                log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
             }
-        } catch (e) {
-            log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
-        }
 
-        // 200ms delay between requests
-        await new Promise(r => setTimeout(r, DELAY.RETRY));
+            // 200ms delay between requests
+            await new Promise(r => setTimeout(r, DELAY.RETRY));
+        }
+    } finally {
+        data._isFetching = false;
     }
-    data._isFetching = false;
 }
 
 async function playTrack(index) {
@@ -5936,7 +5952,9 @@ async function setChannel(mode, el, force = false, notify = true) {
     }
 
     if (!masterGain) await initAudio();
-    document.querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
+    // Scope active class removal to the parent grid of the clicked element
+    const parentGrid = el ? el.closest('.channel-grid') : null;
+    (parentGrid || document).querySelectorAll('.ch-opt').forEach(e => e.classList.remove('active'));
     if (el) el.classList.add('active');
     setChannelMode(mode);
 
@@ -6194,7 +6212,9 @@ function applySettings() {
             reverb.preDelay = reverbPreDelay;
             needsGenerate = true;
         }
-        if (needsGenerate) reverb.generate();
+        if (needsGenerate) {
+            reverb.generate().catch(e => log.warn('[Reverb] generate() failed:', e));
+        }
     }
     if (rvbLowCut) {
         const lFreq = 20 * Math.pow(50, reverbLowCut / 100);
@@ -6348,9 +6368,6 @@ function startVisualizer() {
 
     // Determine buffer size
     const bufferLength = isToneAnalyser ? analyser.size : analyser.frequencyBinCount;
-    // Tone analyzer size is usually 1024 or 2048.
-    // If Tone, we map Float32 to Uint8 manually for compatibility with drawing logic
-    const dataArray = isToneAnalyser ? new Float32Array(bufferLength) : new Uint8Array(bufferLength);
 
     // Scope Pollution: Keep bass state local to the loop
     let smoothedBass = 0;
@@ -6375,7 +6392,7 @@ function startVisualizer() {
         if (!isToneAnalyser) { animationId = null; return; }
         animationId = requestAnimationFrame(draw);
 
-        if (isToneAnalyser) {
+        {
             const dbData = analyser.getValue();
 
             const theme = document.documentElement.getAttribute('data-theme');
@@ -7190,8 +7207,8 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         } catch (e) { /* noop */ }
         pendingPlacementToastMode = null;
 
-        // Message handler
-        conn.on('data', handleData);
+        // Message handler (must wrap to pass conn — PeerJS only sends data)
+        conn.on('data', (data) => handleData(data, conn));
 
         // Guard: PeerJS fires both 'error' and 'close' on failure → deduplicate popup
         conn._errorHandled = false;
@@ -7367,6 +7384,17 @@ async function leaveSession(opts = {}) {
     lastChatText = '';
     isChatDrawerOpen = false;
 
+    // Transfer State Flags (prevent stale state on rejoin)
+    _skipIncomingFile = false;
+    _skipIncomingPreload = false;
+    _waitingForRelayData = false;
+    transferState = TRANSFER_STATE.IDLE;
+    nextExpectedChunk = 0;
+    nextExpectedPreloadChunk = 0;
+    latestPreloadSessionId = 0;
+    _preloadUsedForIndex = null;
+    window._playPreloadedInProgress = undefined;
+
     // Global Window State
     _activeBroadcastSession = null;
     _pendingFileName = null;
@@ -7380,6 +7408,8 @@ async function leaveSession(opts = {}) {
 
     // Clear session-scoped data structures (Bug #42/#43 - memory leak)
     try { fileReorderBuffer.clear(); } catch (_) { }
+    try { preloadReorderBuffer.clear(); } catch (_) { }
+    try { preloadSessionState.clear(); } catch (_) { }
     isIntentionalDisconnect = false; // Reset for next session (Bug #42)
 
     setState(APP_STATE.IDLE);
@@ -7586,13 +7616,13 @@ async function handleFilePrepare(data) {
 
     // CHECK: If preload is IN PROGRESS for this track, wait for it instead of starting new download
     if (preloadInProgressByIndex || preloadInProgressByName) {
-        const incomingSid = data.sessionId;
-        if (!incomingSid) return; // Strict validation
+        const preloadSid = data.sessionId;
+        if (!preloadSid) return; // Strict validation
 
         // Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
-        if (incomingSid > prevLocalSid) {
+        if (preloadSid > prevLocalSid) {
             log.debug("[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.");
-            localTransferSessionId = incomingSid;
+            localTransferSessionId = preloadSid;
             clearPreloadState();
             // Continue to normal flow below (_skipIncomingFile = false)
         } else {
@@ -7977,9 +8007,10 @@ async function handleFileResume(data) {
     _recoveryRetryCount = 0; // Reset retry counter on resume
     managedTimers.chunkWatchdog = setInterval(() => {
         const timeSinceLast = Date.now() - lastChunkTime;
+        const isMetaInvalid = !meta || !meta.total;
         const isStuck = (receivedCount === _lastReceivedCountSnapshot) && timeSinceLast > WATCHDOG_TIMEOUT;
 
-        if (isStuck || timeSinceLast > WATCHDOG_TIMEOUT) {
+        if (isStuck || timeSinceLast > WATCHDOG_TIMEOUT || (incomingChunks.length > 0 && isMetaInvalid)) {
             clearManagedTimer('chunkWatchdog');
             showToast("데이터 수신 불안정. Host 복구 요청...");
             if (upstreamDataConn) upstreamDataConn = null;
@@ -8265,8 +8296,14 @@ async function handleSyncResponse(data) {
     log.debug(`[AutoSync] Hard sync triggered (Compensated time: ${compensatedTime.toFixed(3)}s)`);
 
     if (data.isPlaying) {
-        // Always restart the playback engine at the precise corrected time
-        play(compensatedTime + localOffset);
+        // Guard: only play if we actually have audio data loaded
+        const hasAudio = currentAudioBuffer || (currentFileBlob && currentFileBlob.size > 0);
+        if (hasAudio) {
+            play(compensatedTime + localOffset);
+        } else {
+            log.debug("[AutoSync] Host is playing but we have no audio data yet. Storing position.");
+            pausedAt = compensatedTime + localOffset;
+        }
     }
     else {
         // Don't stop if we are waiting for a scheduled play command (Host countdown)
@@ -9344,7 +9381,8 @@ async function handleYouTubeStop(data) {
 async function handleOperatorGrant(data) {
     isOperator = true;
     showToast("Operator 권한이 부여되었습니다.");
-    document.getElementById('play-btn').disabled = false;
+    const playBtn = document.getElementById('play-btn');
+    if (playBtn) playBtn.disabled = false;
     updateRoleBadge();
 }
 
@@ -9450,7 +9488,7 @@ async function handleChat(data, conn) {
         if (!senderLabel) senderLabel = PEER_NAME_PREFIX;
 
         const senderRole = (data.senderRole || data.role || '').toString();
-        const displayName = _formatChatDisplayName(senderLabel, senderRole);
+        const displayName = _formatChatDisplayName(senderLabel);
 
         // Show on Host UI
         addChatMessage(displayName, text, false);
@@ -9479,7 +9517,7 @@ async function handleChat(data, conn) {
     if (senderLabel === 'HOST') senderLabel = 'Host';
 
     const senderRole = (data.senderRole || data.role || '').toString();
-    const displayName = _formatChatDisplayName(senderLabel, senderRole);
+    const displayName = _formatChatDisplayName(senderLabel);
 
     const isMine = senderId ? (String(senderId) === String(myId)) : (String(data.sender || '') === String(myDeviceLabel));
     addChatMessage(displayName, text, isMine);
@@ -9746,6 +9784,19 @@ async function handleRequestDataRecovery(data, conn) {
     await unicastFile(conn, fileToSend, startChunk, sid);
 }
 
+const RELAYABLE_COMMANDS = [
+    MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
+    MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
+    MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
+    MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
+    MSG.STEREO_WIDTH, MSG.VBASS,
+    MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
+    MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
+    MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE,
+    MSG.SYS_TOAST, MSG.STATUS_SYNC, MSG.CHAT,
+    MSG.PLAYLIST_UPDATE, MSG.PLAYLIST
+];
+
 async function handleData(data, conn) {
     // [Security] Generic validation for all messages
     if (!validateMessage(data, [])) return;
@@ -9763,19 +9814,6 @@ async function handleData(data, conn) {
     if (hostConn) {
         // 1. RELAY DOWNSTREAM (Control commands from Upstream -> Downstream)
         if (downstreamDataPeers.length > 0) {
-            const RELAYABLE_COMMANDS = [
-                MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
-                MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
-                MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
-                MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
-                MSG.STEREO_WIDTH, MSG.VBASS,
-                MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
-                MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
-                MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE,
-                MSG.SYS_TOAST, MSG.STATUS_SYNC, MSG.CHAT,
-                MSG.PLAYLIST_UPDATE, MSG.PLAYLIST
-            ];
-
             if (RELAYABLE_COMMANDS.includes(data.type)) {
                 downstreamDataPeers.forEach(p => {
                     if (p.open) {
@@ -9786,7 +9824,7 @@ async function handleData(data, conn) {
         }
 
         // 2. RELAY UPSTREAM (Operator requests from Downstream -> Upstream)
-        if (conn !== hostConn && hostConn.open) {
+        if (conn && conn !== hostConn && hostConn && hostConn.open) {
             if (data.type && data.type.startsWith('request-')) {
                 log.debug(`[Relay] Forwarding request downstream->upstream: ${data.type}`);
                 hostConn.send(data);
@@ -9842,7 +9880,7 @@ function connectToRelay(targetId) {
         if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
         upstreamDataConn = conn;
         showToast("Connected to Relay Node");
-        conn.on('data', handleData);
+        conn.on('data', (data) => handleData(data, conn));
 
         log.debug("Requesting file from relay...");
         conn.send({ type: MSG.REQUEST_CURRENT_FILE });
@@ -9923,21 +9961,7 @@ function nudgeSync(ms) {
     }, 450); // Balanced debounce
 }
 
-function resetTotalSync() {
-    // Capture current position BEFORE clearing offsets (Bug #12)
-    const currentPos = getTrackPosition();
-    localOffset = 0;
-    autoSyncOffset = 0;
-    updateSyncDisplay();
-
-    if (hostConn && hostConn.open) {
-        showToast("초기화 및 재보정 시작...");
-        syncReset();
-    } else {
-        showToast("호스트 연결 없음. 로컬 초기화 완료.");
-        if (currentState !== APP_STATE.IDLE) play(currentPos);
-    }
-}
+// resetTotalSync removed — dead code (never called)
 
 function updateSyncDisplay() {
     const totalMs = Math.round((localOffset + autoSyncOffset) * 1000);
@@ -9972,11 +9996,11 @@ function handleRelayConnection(conn) {
 
             if (isMatchCurrent) {
                 log.debug(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta?.name}`);
-                unicastFile(conn, currentFileBlob);
+                unicastFile(conn, currentFileBlob).catch(e => log.error('[Relay] unicast current failed:', e));
             }
             else if (isMatchPreload) {
                 log.debug(`[Relay] Serving preloaded file to ${conn.peer.substr(-4)}: ${nextMeta.name}`);
-                unicastFile(conn, nextFileBlob);
+                unicastFile(conn, nextFileBlob).catch(e => log.error('[Relay] unicast preload failed:', e));
             }
             else if (meta?.name && meta.name === (reqName || currentTrackName)) {
                 // Mid-download relay bootstrapping
@@ -10313,7 +10337,7 @@ function handleOperatorRequest(data) {
         else if (data.settingType === MSG.PREAMP) {
             const val = parseFloat(data.value);
             setPreamp(val, false, true);
-            broadcast({ type: MSG.PREAMP, value: data.value });
+            broadcast({ type: MSG.PREAMP, value: val });
         }
         else if (data.settingType === 'stereo') { setStereoWidth(data.value); broadcast({ type: MSG.STEREO_WIDTH, value: data.value }); }
         else if (data.settingType === MSG.VBASS) { setVirtualBass(data.value); broadcast({ type: MSG.VBASS, value: data.value }); }
@@ -10542,6 +10566,7 @@ async function broadcastFile(file, explicitSessionId = null) {
 
     // Cleanup: Release per-peer chunk queues after transfer completes
     // Use a short delay to allow processQueue to drain the remaining messages
+    const cleanupSessionId = sessionId;
     setTimeout(() => {
         eligiblePeers.forEach(p => {
             if (p.chunkQueue && p._chunkQueueHead >= p.chunkQueue.length) {
@@ -10550,6 +10575,10 @@ async function broadcastFile(file, explicitSessionId = null) {
                 p.openSender = false;
             }
         });
+        // Allow re-broadcast of same session after cleanup (e.g., reconnection retry)
+        if (_activeBroadcastSession === cleanupSessionId) {
+            _activeBroadcastSession = null;
+        }
     }, 5000);
 }
 
@@ -10965,11 +10994,7 @@ async function copyTextToClipboard(text) {
 
 // copyLink removed (Toss in-app: external links are not allowed)
 
-function autoSync() {
-    localOffset = 0;
-    showToast("모든 기기 Auto Sync 요청...");
-    broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-}
+// autoSync removed — dead code (never called; handleAutoSync is the actual handler)
 
 function loopUI() {
     const isPlaybackState = currentState === APP_STATE.PLAYING_VIDEO ||
@@ -11190,7 +11215,7 @@ function openHelpModal() {
 }
 
 
-let myChatLabel = 'Host';
+// myChatLabel removed — dead variable (assigned but never read)
 
 // Chat sender label rules:
 // - Host shows as "Host"
@@ -11214,7 +11239,7 @@ function _getChatLabelBase() {
     return label;
 }
 
-function _formatChatDisplayName(label, roleLabel) {
+function _formatChatDisplayName(label) {
     // Chat sender 표시: 역할(Original/Left/Right/Surround 등)은 숨기고 이름(Host/Peer N)만 보여줍니다.
     const l = (label && String(label).trim()) ? String(label).trim() : PEER_NAME_PREFIX;
     return l;
@@ -11229,9 +11254,7 @@ function sendChatMessage() {
 
     const senderLabel = _getChatLabelBase();
     const senderRole = getRoleLabelByChannelMode(channelMode);
-    const displayName = _formatChatDisplayName(senderLabel, senderRole);
-
-    myChatLabel = senderLabel;
+    const displayName = _formatChatDisplayName(senderLabel);
 
     addChatMessage(displayName, text, true);
 
@@ -11525,16 +11548,16 @@ function seekToTime(seconds) {
         return;
     }
 
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
+    const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO
+        || currentState === APP_STATE.PLAYING_VIDEO
+        || (videoElement && !videoElement.paused);
 
     if (isActuallyPlaying) {
         play(t);
         broadcast({ type: MSG.PLAY, time: t, index: currentTrackIndex });
     } else {
         pausedAt = t;
-        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {
-            if (videoElement) videoElement.currentTime = t;
-        }
+        if (videoElement) videoElement.currentTime = t;
         // Broadcast pause with updated time to sync guests without starting playback
         broadcast({ type: MSG.PAUSE, time: t });
     }
@@ -11741,7 +11764,7 @@ function updateChatYouTube(active) {
 }
 
 let youtubePlayer = null;
-let youtubeSessionId = 0;
+// youtubeSessionId removed — redundant with _currentYouTubeSessionId
 
 function openMediaSourcePopup() {
     // Host-only (guests are not allowed to add media)
@@ -11869,9 +11892,8 @@ function loadYouTubeFromInput() {
 }
 
 function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex = 0) {
-    youtubeSessionId++;
-    const currentSessionId = youtubeSessionId;
-    _currentYouTubeSessionId = currentSessionId;
+    _currentYouTubeSessionId++;
+    const currentSessionId = _currentYouTubeSessionId;
 
     stopAllMedia();
     setEngineMode('youtube');
@@ -11919,7 +11941,7 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
     // Safety Timeout: prevents infinite loader if YouTube API fails silently
     if (_ytLoadTimeout) clearTimeout(_ytLoadTimeout);
     _ytLoadTimeout = setTimeout(() => {
-        if (_currentYouTubeSessionId === currentSessionId && (!youtubePlayer || !isYouTubeAPIReady)) {
+        if (_currentYouTubeSessionId === currentSessionId && (!youtubePlayer || !window.isYouTubeAPIReady)) {
             log.warn('[YouTube] Load timeout triggered.');
             showLoader(false);
             showToast('YouTube 로드 시간 초과. 다시 시도해주세요.');

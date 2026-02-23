@@ -821,12 +821,6 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 /* Mode Toggle */
 body.mode-video .vinyl-wrapper {
     display: none !important;
-    /* Completely remove from layout flow */
-    height: 0;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    margin: 0;
 }
 
 body.mode-video .video-wrapper {
@@ -1918,7 +1912,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 }
 
 .eq-container,
-.channel-grid {
+#tab-settings .channel-grid {
     padding: 12px 0 !important;
 }
 
@@ -1936,7 +1930,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     /* Removed horizontal padding to perfectly align with the section title */
 }
 
-.ch-opt {
+#tab-settings .ch-opt {
     background: var(--surface-1);
     color: var(--text-sub);
     padding: 18px 12px;
@@ -1952,7 +1946,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     border: 1px solid var(--surface-2);
 }
 
-.ch-opt svg {
+#tab-settings .ch-opt svg {
     width: 32px;
     height: 32px;
     fill: currentColor;
@@ -1960,7 +1954,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     transition: opacity 0.2s;
 }
 
-.ch-opt.active {
+#tab-settings .ch-opt.active {
     background: var(--surface-1);
     border-color: var(--primary);
     color: var(--primary);
@@ -2618,14 +2612,7 @@ body.overlay-open .bottom-nav {
     margin-bottom: 42px;
 }
 
-/* Standard Header Text */
-.setup-header-text {
-    width: 100%;
-    margin-bottom: 16px;
-    text-align: left;
-    flex: none;
-    padding-top: 0 !important;
-}
+/* Standard Header Text — canonical definition is below in .setup-step section */
 
 /* Footer Area - This is pinned at the bottom */
 .ob-actions {
@@ -2812,7 +2799,7 @@ body.overlay-open .bottom-nav {
 .ob-arrow:hover {
     background: var(--primary);
     color: white;
-    transform: translateY(-50%) !important;
+    transform: translateY(-50%) scale(1.1);
 }
 
 .ob-arrow-left {
@@ -2946,6 +2933,8 @@ body.overlay-open .bottom-nav {
     width: 100%;
     margin-bottom: 56px;
     text-align: left;
+    flex: none;
+    padding-top: 0 !important;
 }
 
 .setup-header-text h2 {
@@ -3356,7 +3345,6 @@ body.overlay-open .bottom-nav {
     border-bottom: 2px solid var(--surface-3);
     border-radius: 0;
     padding: 8px 0;
-    padding: 8px 0;
     font-size: 32px;
     /* Increased font size for code visibility */
     font-weight: 900;
@@ -3639,7 +3627,9 @@ body.overlay-open .bottom-nav {
 .ob-arrow svg {
     width: 20px;
     height: 20px;
-    fill: currentColor;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
 }
 
 /* CSS for Calm & Clean Manual Sync UI */

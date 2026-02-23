@@ -1,49 +1,591 @@
-import { log, LOG_LEVEL } from './core/log.js';
-import { APP_STATE, TRANSFER_STATE, DELAY, MSG, LARGE_FILE_THRESHOLD, RELAY_MONITOR_INTERVAL, ENDED_CHECK_THROTTLE, WATCHDOG_TIMEOUT } from './core/constants.js';
-import { IS_IOS, IS_ANDROID, isStandaloneDisplayMode } from './core/platform.js';
-import { updateAppHeightNow, scheduleAppHeightUpdate, freezeLayoutMetricsOnce } from './core/viewport.js';
-import { validateSessionId, postWorkerCommand } from './core/worker-client.js';
-import { i18nTranslate, setLanguageMode, getResolvedLanguage } from './core/i18n.js';
-import { BlobURLManager } from './core/blob-url-manager.js';
-import { state, setState as _setState, registerUpdateHook, registerCleanupHook } from './core/state.js';
-import { NetworkManager } from './core/network.js';
-import { PeerManager } from './core/peer-manager.js';
-import { FileTransferManager } from './core/file-transfer.js';
+/**
+ * ============================================================================
+ * MUSIXQUARE - Multi-Device Synchronized Audio Player
+ * ============================================================================
+ * Multi-device P2P synchronized surround audio system web application.
+ *
+ * [DEPENDENCIES]
+ * - Tone.js (Audio Engine)
+ * - PeerJS (WebRTC P2P)
+ * - (This build intentionally avoids QR/link onboarding)
+ *
+ * [SECTION INDEX]
+ * - Global Constants & State Machine
+ * - Resource Management (Blob URLs)
+ * - Network & File Transfer (PeerJS / OPFS)
+ * - Audio Engine (Tone.js) & Effects
+ * - Playback Engine & Playlist
+ * - YouTube Integration
+ * - Chat & UI
+ * - Window Exports (Public API)
+ * ============================================================================
+ */
 
-// Backward compatibility for app.js internal logic
-const _resolvedLanguage = getResolvedLanguage();
-const setState = _setState;
+// ============================================================================
+// [SECTION] GLOBAL CONSTANTS & INSTANCE ID
+// ============================================================================
 
-// --- Missing variable declarations (moved from monolith scope) ---
-const IOS_STARTUP_BIAS = 0;
-const OPFS_INSTANCE_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : (Date.now().toString(36) + Math.random().toString(36).substr(2, 8));
-
-let currentState = APP_STATE.IDLE;
-let isOperator = false;
-let isConnecting = false;
-let isIntentionalDisconnect = false;
-let currentAudioBuffer = null;
-let playerNode = null;
-let localOffset = 0;
-let autoSyncOffset = 0;
-let syncRequestTime = 0;
-
-// Keep currentState in sync with state module
-registerUpdateHook((newState) => {
-    currentState = newState;
-    updateUIForState(newState);
+// [Error Boundary] Catch uncaught exceptions and unhandled promise rejections
+window.onerror = function (msg, src, line, col, err) {
+    console.error(`[Global Error] ${msg} at ${src}:${line}:${col}`, err);
+    return false; // Allow default browser handling
+};
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Unhandled Promise Rejection]', event.reason);
 });
 
-// Initialize Managers
-PeerManager.init();
-FileTransferManager.onToast = (msg) => typeof showToast === 'function' ? showToast(msg) : console.log(msg);
-FileTransferManager.onStatus = (show, txt) => typeof showLoader === 'function' ? showLoader(show, txt) : null;
-FileTransferManager.onProgress = (pct) => typeof updateLoader === 'function' ? updateLoader(pct) : null;
-FileTransferManager.postWorkerCommand = (cmd) => postWorkerCommand(cmd);
-FileTransferManager.validateSessionId = (sid) => validateSessionId(sid);
-FileTransferManager.getHostSessionId = () => currentTransferSessionId;
+// Log Level System: set window.LOG_LEVEL = 0 for DEBUG output
+const LOG_LEVEL = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3, SILENT: 4 };
+let _logLevel = LOG_LEVEL.INFO;
+Object.defineProperty(window, 'LOG_LEVEL', {
+    get: () => _logLevel,
+    set: (v) => { _logLevel = v; console.info(`[Log] Level set to ${Object.keys(LOG_LEVEL).find(k => LOG_LEVEL[k] === v) || v}`); }
+});
+const log = {
+    debug: (...args) => { if (_logLevel <= LOG_LEVEL.DEBUG) console.debug(...args); },
+    info: (...args) => { if (_logLevel <= LOG_LEVEL.INFO) console.info(...args); },
+    warn: (...args) => { if (_logLevel <= LOG_LEVEL.WARN) console.warn(...args); },
+    error: (...args) => { if (_logLevel <= LOG_LEVEL.ERROR) console.error(...args); },
+};
+
+const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : (Date.now().toString(36) + Math.random().toString(36).substr(2, 9));
+
+// [iOS Latency Engineering]
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
+
+/**
+ * [Viewport-fit Strategy]
+ * viewport-fit=cover is set directly in the HTML <meta> tag to avoid
+ * reflow-induced layout jitter on PWA cold starts.
+ * Android removes it synchronously in a <head> inline script.
+ */
+
+/**
+ * [UX] Disable iOS pinch-zoom gesture (app-like behavior)
+ * NOTE: Disabling zoom can reduce accessibility. Remove if you want to allow zoom.
+ */
+function preventIOSPinchZoom() {
+    if (!IS_IOS) return;
+    ["gesturestart", "gesturechange", "gestureend"].forEach((evt) => {
+        document.addEventListener(evt, (e) => e.preventDefault(), { passive: false });
+    });
+}
+preventIOSPinchZoom();
+
+// [iOS] Overscroll edge guard removed.
+// CSS `overscroll-behavior-y: contain` on .tab-content handles this natively
+// without the side-effect of blocking touch gestures at scroll edges.
+
+
+/**
+ * [Layout] Platform detection and CSS class hooks.
+ *
+ * Body height is governed entirely by CSS (100dvh with 100vh fallback).
+ * Safe-area insets are handled via CSS env(safe-area-inset-*).
+ * viewport-fit=cover is added only on iOS for notch handling.
+ */
+
+function isStandaloneDisplayMode() {
+    try {
+        if (window.navigator && window.navigator.standalone) return true;
+        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+    } catch (_) { /* ignore */ }
+    return false;
+}
+
+/**
+ * [Layout] Viewport height CSS var (--app-height)
+ *
+ * Safe-area insets (notch/home-indicator) are handled purely in CSS via:
+ *   env(safe-area-inset-top/right/bottom/left)
+ *
+ * We only manage --app-height in JS to avoid legacy 100vh quirks in some
+ * installed PWA / WebView contexts.
+ */
+let _appHeightRaf = 0;
+
+let _lastSoftKeyHeight = 0;
+
+function updateAppHeightNow() {
+    const root = document.documentElement;
+
+    // Optional hooks (CSS targeting)
+    try {
+        if (IS_IOS) root.classList.add('ios');
+        if (IS_ANDROID) root.classList.add('android');
+        if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
+        if (isStandaloneDisplayMode()) root.classList.add('standalone');
+    } catch (_) { /* ignore */ }
+
+    const de = document.documentElement;
+    const vv = window.visualViewport;
+    const isStandalone = isStandaloneDisplayMode();
+
+    let isLandscape = false;
+    try {
+        isLandscape = !!(window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
+    } catch (_) {
+        isLandscape = (window.innerWidth > window.innerHeight);
+    }
+
+    // --- Collect all available height signals ---
+    let validHeights = [];
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
+    if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
+    if (de && Number.isFinite(de.clientHeight) && de.clientHeight > 0) validHeights.push(Math.round(de.clientHeight));
+
+    let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
+
+    // --- Android: Detect if viewport STILL extends behind system bar ---
+    // (Happens when native app forces fullscreen regardless of viewport-fit)
+    let softKeyHeight = 0;
+    const scr = window.screen || {};
+
+    if (IS_ANDROID && isLandscape) {
+        // Strategy 1: outerHeight vs innerHeight
+        if (Number.isFinite(window.outerHeight) && window.outerHeight > 0 &&
+            Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
+            const delta = Math.round(window.outerHeight - window.innerHeight);
+            if (delta < 0) {
+                softKeyHeight = Math.abs(delta);
+            }
+        }
+
+        // Strategy 2: screen.availHeight/availWidth deltas
+        if (softKeyHeight === 0 && scr.availHeight != null && scr.availWidth != null) {
+            const dH = Math.round((scr.height || 0) - (scr.availHeight || 0));
+            if (dH > 0 && dH < 150) {
+                softKeyHeight = dH;
+            }
+            // Strategy 2 removed: was a no-op (assigned 0 to already-0 variable)
+        }
+
+        // Strategy 3: Hardcoded 48dp fallback
+        if (softKeyHeight === 0) {
+            const scrDimH = Math.min(scr.height || Infinity, scr.width || Infinity);
+            if (Number.isFinite(scrDimH) && scrDimH > 100) {
+                if (Math.abs(h - scrDimH) < 4) {
+                    softKeyHeight = 48; // 48dp standard nav bar
+                }
+            }
+        }
+
+        // Clamp to reasonable range
+        if (softKeyHeight > 120) softKeyHeight = 48;
+        if (softKeyHeight < 0) softKeyHeight = 0;
+
+        // Stability: keep previous detection if in same orientation
+        if (softKeyHeight > 0) {
+            _lastSoftKeyHeight = softKeyHeight;
+        } else if (_lastSoftKeyHeight > 0 && isLandscape) {
+            softKeyHeight = _lastSoftKeyHeight;
+        }
+
+        // Apply compensation
+        if (softKeyHeight > 0 && h > softKeyHeight) {
+            h -= softKeyHeight;
+            log.info(`[Viewport] Android landscape softkey compensation: ${softKeyHeight}px`);
+        }
+    } else if (!isLandscape) {
+        // Reset cache when back to portrait
+        _lastSoftKeyHeight = 0;
+    }
+
+    // --- iOS standalone fix ---
+    if (IS_IOS && isStandalone && !isLandscape && window.screen &&
+        Number.isFinite(window.screen.height) && window.screen.height > 0) {
+        h = Math.max(h, Math.round(window.screen.height));
+    }
+
+    // --- Apply CSS variables ---
+    if (h > 0) {
+        try { root.style.setProperty('--app-height', `${h}px`); } catch (_) { /* ignore */ }
+    }
+
+    // --safe-nav-bottom: pushes fixed bottom elements above the system nav bar
+    const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
+    try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch (_) { /* ignore */ }
+}
+
+function scheduleAppHeightUpdate() {
+    if (_appHeightRaf) return;
+    try {
+        _appHeightRaf = requestAnimationFrame(() => {
+            _appHeightRaf = 0;
+            try { updateAppHeightNow(); } catch (_) { /* ignore */ }
+        });
+    } catch (_) {
+        _appHeightRaf = 0;
+        try { updateAppHeightNow(); } catch (_) { /* ignore */ }
+    }
+}
+
+// Stub for backward compatibility
+function freezeLayoutMetricsOnce() { scheduleAppHeightUpdate(); }
+
+(function initPlatformAndHeight() {
+    const run = () => {
+        scheduleAppHeightUpdate();
+        if (IS_ANDROID) {
+            setTimeout(scheduleAppHeightUpdate, 500);
+            setTimeout(scheduleAppHeightUpdate, 1500);
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+        run();
+    }
+
+    try {
+        window.addEventListener('resize', () => {
+            scheduleAppHeightUpdate();
+        }, { passive: true });
+        window.addEventListener('orientationchange', () => {
+            scheduleAppHeightUpdate();
+            if (IS_ANDROID) setTimeout(scheduleAppHeightUpdate, 500);
+        }, { passive: true });
+        window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') scheduleAppHeightUpdate();
+        });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
+            window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
+        }
+    } catch (_) { /* ignore */ }
+})();
+
+/**
+ * [Robustness] Session ID Normalization
+ * - transfer.worker.js의 OPFS lock은 sessionId가 'number & integer' 여야 합니다.
+ * - PeerJS/DOM 등에서 string으로 들어오는 경우가 있어 항상 정수로 강제합니다.
+ * - 유효하지 않으면 0을 반환합니다(0은 'no-session' sentinel).
+ */
+const _warnedBadSessionIds = new Set();
+function validateSessionId(id, strict = false) {
+    const n = Number(id);
+    const sid = Number.isFinite(n) ? Math.trunc(n) : 0;
+
+    const ok = Number.isSafeInteger(sid) && sid > 0;
+    if (!ok) {
+        // Avoid log spam (same bad value repeated)
+        const key = String(id);
+        // Prevent unbounded growth if an attacker/bug keeps sending random values
+        // (edge-case: malformed peers / reconnect loops)
+        if (_warnedBadSessionIds.size > 200) _warnedBadSessionIds.clear();
+        if (!_warnedBadSessionIds.has(key)) {
+            _warnedBadSessionIds.add(key);
+            log.warn(`[Session] Invalid sessionId (${typeof id}):`, id);
+        }
+        if (strict) {
+            throw new Error(`Invalid sessionId: ${id}`);
+        }
+        return 0;
+    }
+    return sid;
+}
+
+/**
+ * [Worker] Centralized Protocol Wrapper
+ * Routes commands to either SyncWorker (timers) or TransferWorker (OPFS)
+ *
+ * NOTE:
+ * - OPFS_* 명령은 transfer.worker.js 내부에서 sessionId 타입(number/integer)을 강하게 요구합니다.
+ * - 아직 Worker가 초기화되기 전에도 호출될 수 있으므로 window.syncWorker / window.transferWorker를 사용합니다.
+ */
+function postWorkerCommand(payload, transfers) {
+    if (!payload || !payload.command) return;
+
+    const cmd = payload.command;
+
+    // OPFS commands require filename + valid numeric sessionId.
+    // Exclude RESET/CLEANUP from strict session enforcement.
+    if (cmd.startsWith('OPFS_') && cmd !== 'OPFS_RESET' && cmd !== 'OPFS_CLEANUP') {
+        if (!payload.filename) log.warn(`[Worker] Missing filename in ${cmd}`);
+
+        payload.sessionId = validateSessionId(payload.sessionId);
+
+        // For critical write-path operations, never send with sid=0 (prevents cross-session corruption).
+        const isCriticalOp = (cmd === 'OPFS_START' || cmd === 'OPFS_WRITE' || cmd === 'OPFS_END');
+        if (isCriticalOp && !payload.sessionId) {
+            log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
+            return;
+        }
+    }
+
+    if (cmd.startsWith('OPFS_')) {
+        const tw = window.transferWorker;
+        if (tw && typeof tw.postMessage === 'function') {
+            tw.postMessage(payload, transfers);
+        } else {
+            log.warn(`[Worker] TransferWorker not ready. Dropping command: ${cmd}`);
+        }
+    } else {
+        const sw = window.syncWorker;
+        if (sw && typeof sw.postMessage === 'function') {
+            sw.postMessage(payload, transfers);
+        } else {
+            log.warn(`[Worker] SyncWorker not ready. Dropping command: ${cmd}`);
+        }
+    }
+}
+
+/**
+ * [Diagnostics] Check if the browser environment supports required features.
+ * Distinguishes between insecure context (HTTP) and outdated browsers (No OPFS).
+ */
+function checkSystemCompatibility() {
+    const isSecure = window.isSecureContext;
+    const hasOPFS = !!(navigator.storage && navigator.storage.getDirectory);
+
+    // Give some time for UI/Toast engine to load
+    setTimeout(() => {
+        if (!isSecure) {
+            log.error("[Compatibility] Insecure context detected.");
+            showToast("HTTPS 필수: 보안 연결에서만 작동합니다.");
+        } else if (!hasOPFS) {
+            log.error("[Compatibility] OPFS not supported.");
+            showToast("브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.");
+        } else if (IS_IOS) {
+            // iOS 감지: 별도 토스트는 표시하지 않습니다.
+            log.info(`[Compatibility] iOS detected. IOS_STARTUP_BIAS=${IOS_STARTUP_BIAS}`);
+        }
+    }, 1500);
+}
+
+// Run checks on startup
+checkSystemCompatibility();
+
+/**
+ * [PWA] Service Worker Registration (App Shell Cache)
+ * - HTTPS(또는 localhost)에서만 동작
+ * - 업데이트 감지 시 사용자에게 "새로고침" 안내 후 적용
+ */
+let _swReloading = false;
+let _swWantsReload = false;
+
+async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    if (!window.isSecureContext) return;
+
+    // Use an absolute URL derived from the current location to avoid path confusion
+    const swUrl = new URL('service-worker.js', window.location.href);
+
+    try {
+        const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
+        log.debug('[PWA] Service worker registered:', reg.scope);
+
+        // Listen for controller changes only when we explicitly want to reload.
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!_swWantsReload || _swReloading) return;
+            _swReloading = true;
+            window.location.reload();
+        });
+
+        // Update flow
+        reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+
+            newWorker.addEventListener('statechange', async () => {
+                // "installed" with an existing controller means: update is ready
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    try {
+                        const r = await showDialog({
+                            title: '업데이트',
+                            message: '새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.',
+                            buttonText: '새로고침',
+                            // 사용자가 실수로 배경 클릭/ESC로 닫으면 업데이트가 강제 적용되는 문제 방지
+                            dismissible: true
+                        });
+
+                        // '확인/새로고침' 버튼을 눌렀을 때만 진행
+                        if (r && r.action !== 'ok') return;
+
+                        _swWantsReload = true;
+                        // Ask the waiting SW to activate immediately
+                        if (reg.waiting) {
+                            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        } else {
+                            // Fallback: reload directly (some browsers may not expose waiting)
+                            if (!_swReloading) {
+                                _swReloading = true;
+                                window.location.reload();
+                            }
+                        }
+                    } catch (_) {
+                        // If dialog fails, do nothing (best effort)
+                    }
+                }
+            });
+        });
+
+        // Proactively check for updates (best effort)
+        try { await reg.update(); } catch (_) { }
+
+    } catch (err) {
+        log.warn('[PWA] Service worker registration failed:', err?.message || err);
+    }
+}
+
+window.addEventListener('load', () => {
+    // Delay registration slightly so it doesn't compete with critical startup work
+    setTimeout(() => { registerServiceWorker(); }, 500);
+
+    // [Diagnostics] Detect CDN/script load failures (common in in-app webviews / captive portals)
+    setTimeout(() => {
+        try {
+            const missing = [];
+            if (!window.Tone) missing.push('Tone.js');
+            if (!window.Peer) missing.push('PeerJS');
+
+            if (missing.length) {
+                showDialog({
+                    title: '필수 라이브러리 로드 실패',
+                    message: `${missing.join(', ')} 를(을) 불러오지 못했어요.
+
+가능한 원인:
+- 인터넷 연결 불안정 / 차단
+- 인앱(WebView) 보안 정책(CSP)으로 외부 스크립트 차단
+
+해결 방법:
+- 네트워크를 확인한 뒤 새로고침
+- 운영 환경에서는 Tone.js/PeerJS를 동일 도메인에 로컬로 포함(번들링)해 주세요.`,
+                    buttonText: '확인',
+                    dismissible: true
+                });
+            }
+        } catch (_) {
+            // best-effort only
+        }
+    }, 2500);
+});
+
+
+// ============================================================================
+// [SECTION] AUDIO ENGINE - Tone.js Nodes
+// Dependencies: Tone.js CDN
+// ============================================================================
+let toneSplit, toneMerge;
+let gainL, gainR, masterGain;
+let reverb, rvbLowCut, rvbHighCut, rvbCrossFade, eqNodes = [];
+let playerNode = null;   // Transient BufferSource for precise start
+let currentAudioBuffer = null; // Decoded PCM data in RAM
+let vbFilter, vbCheby, vbPostFilter, vbGain;
+let preamp, widener;
+let globalLowPass = null;
+let analyser;
+
+// Audio init race guard (prevents double graph creation on rapid user actions)
+let _initAudioPromise = null;
+
+// ============================================================================
+// [SECTION] APP STATE MACHINE (State Pattern)
+// ============================================================================
+const APP_STATE = {
+    IDLE: 'IDLE',
+    PLAYING_AUDIO: 'PLAYING_AUDIO',     // Audio playback (Buffer Mode with Tone.js)
+    PLAYING_VIDEO: 'PLAYING_VIDEO',     // Video playback (uses videoElement)
+    PLAYING_YOUTUBE: 'PLAYING_YOUTUBE'  // YouTube embedded player
+};
+
+let currentState = APP_STATE.IDLE;
+let _isStateTransitioning = false; // Guard against recursive state changes
+
+/**
+ * Centralized state transition function.
+ * @param {string} newState - APP_STATE value
+ * @param {object} options - { skipCleanup: boolean, onComplete: function }
+ */
+function setState(newState, options = {}) {
+    const oldState = currentState;
+
+    // Ignore same-state transitions
+    if (oldState === newState) return;
+
+    // Prevent recursive transitions
+    if (_isStateTransitioning) {
+        log.warn(`[State] Transition Blocked: Currently moving to another state. Rejecting ${newState}.`);
+        return;
+    }
+
+    try {
+        _isStateTransitioning = true;
+        log.debug(`[State] Transition: ${oldState} -> ${newState}`, options);
+
+        // Clean up previous state (optional)
+        if (!options.skipCleanup) {
+            cleanupState(oldState);
+        }
+
+        // Set new state
+        currentState = newState;
+
+        // Update UI for new state
+        updateUIForState(newState);
+    } finally {
+        _isStateTransitioning = false;
+    }
+
+    // Execute completion callback
+    if (options.onComplete) {
+        try { options.onComplete(); } catch (e) { log.error('[State] onComplete error:', e); }
+    }
+}
+
+/**
+ * Clean up resources based on previous state.
+ */
+function cleanupState(oldState) {
+    // Capture current time before stopping the current engine to prevent drift
+    if (oldState !== APP_STATE.IDLE) {
+        // YouTube uses a different clock; avoid accidentally capturing stale Tone.now()-based time.
+        if (oldState === APP_STATE.PLAYING_YOUTUBE) {
+            try {
+                if (youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
+                    const t = Number(youtubePlayer.getCurrentTime());
+                    pausedAt = (Number.isFinite(t) && t >= 0) ? t : 0;
+                } else {
+                    pausedAt = 0;
+                }
+            } catch (_) {
+                pausedAt = 0;
+            }
+        } else {
+            pausedAt = getTrackPosition();
+        }
+    }
+    switch (oldState) {
+        case APP_STATE.PLAYING_VIDEO:
+        case APP_STATE.PLAYING_AUDIO:
+            // Stop video element
+            if (videoElement) {
+                videoElement.pause();
+            }
+            // Don't revoke URL here! It kills the visible source during sync/pause.
+            // Revocation is moved to clearPreviousTrackState.
+            break;
+
+        case APP_STATE.PLAYING_YOUTUBE:
+            // Stop YouTube player
+            if (typeof youtubePlayer !== 'undefined' && youtubePlayer && youtubePlayer.stopVideo) {
+                try { youtubePlayer.stopVideo(); } catch (e) { /* best-effort cleanup */ }
+            }
+            // Ensure any active Blob URL is cleared when entering YouTube mode
+            BlobURLManager.revoke();
+            break;
+
+        case APP_STATE.IDLE:
+            BlobURLManager.revoke();
+            break;
+    }
+}
 
 function isMediaVideo(blob, metadata) {
     if (!blob) return false;
@@ -224,42 +766,242 @@ let subFreq = 120; // VB Crossover
 let masterVolume = 1.0;
 let preMuteVolume = 1.0; // Store volume before muting
 
-// Resource Management moved to core/blob-url-manager.js
+// ============================================================================
+// [SECTION] RESOURCE MANAGEMENT (Blob URLs)
+// ============================================================================
+
+const BlobURLManager = {
+    _activeURL: null,
+    _preparingURL: null,
+
+    // url -> timeoutId (scheduled revocation)
+    _pendingRevocations: new Map(),
+
+    // If we attempted to revoke while the URL was still attached to <video>,
+    // we defer until the source is detached (e.g., stopAllMedia / clearPreviousTrackState).
+    _deferredUntilDetached: new Set(),
+
+    // BlobURL Queue: Avoid memory pressure during fast switching (Strict 5)
+    MAX_PENDING: 5,
+
+    _normalizeOptions(options) {
+        if (!options || typeof options !== 'object') return {};
+        return options;
+    },
+
+    _isUrlAttached(url) {
+        try {
+            return !!(url && typeof url === 'string' && typeof videoElement !== 'undefined' && videoElement && videoElement.src === url);
+        } catch (_) {
+            return false;
+        }
+    },
+
+    _clearScheduled(url) {
+        const t = this._pendingRevocations.get(url);
+        if (t) {
+            try { clearTimeout(t); } catch (_) { }
+        }
+        this._pendingRevocations.delete(url);
+    },
+
+    _revokeNow(url, reason = '') {
+        if (!url) return;
+
+        // Cancel any scheduled revocation first
+        this._clearScheduled(url);
+        this._deferredUntilDetached.delete(url);
+
+        try {
+            URL.revokeObjectURL(url);
+            log.debug(`[BlobURL] Revoked: ${url}${reason ? ` (${reason})` : ''}`);
+        } catch (e) {
+            log.debug('[BlobURL] Revoke failed (non-critical):', e?.message || e);
+        }
+
+        if (this._activeURL === url) this._activeURL = null;
+        if (this._preparingURL === url) this._preparingURL = null;
+    },
+
+    /**
+     * Create a new Blob URL in 'Preparing' state.
+     * Use confirm() to move it to 'Active' state and schedule previous URL for revocation.
+     */
+    create(blob) {
+        if (!blob) return null;
+
+        // If we were preparing something else that never got confirmed, revoke it immediately
+        if (this._preparingURL) {
+            this._revokeNow(this._preparingURL, 'abandoned-preparing');
+        }
+
+        this._preparingURL = URL.createObjectURL(blob);
+        log.debug(`[BlobURL] Prepared: ${this._preparingURL}`);
+        return this._preparingURL;
+    },
+
+    /**
+     * Confirm the prepared URL as the active one.
+     * This schedules the previous active URL for delayed revocation.
+     */
+    confirm(_blobUnused) {
+        if (!this._preparingURL) return;
+
+        const nextUrl = this._preparingURL;
+        const prevUrl = this._activeURL;
+
+        this._activeURL = nextUrl;
+        this._preparingURL = null;
+
+        // Schedule previous ACTIVE URL for delayed revocation
+        if (prevUrl && prevUrl !== nextUrl) {
+            this.safeRevoke(prevUrl);
+        }
+
+        log.debug(`[BlobURL] Confirmed Active: ${this._activeURL}`);
+    },
+
+    /**
+     * Schedule a specific URL for revocation after a safety delay.
+     * If the URL is still attached to <video>, we defer until detached.
+     *
+     * @param {string} url
+     * @param {object} options  { delayMs?: number, force?: boolean }
+     */
+    safeRevoke(url, options) {
+        if (!url) return;
+
+        const opt = this._normalizeOptions(options);
+        const force = opt.force === true;
+        const delayMs = (typeof opt.delayMs === 'number' && opt.delayMs >= 0) ? opt.delayMs : DELAY.BLOB_REVOCATION;
+
+        // Already scheduled
+        if (this._pendingRevocations.has(url)) return;
+
+        // If it's still attached, don't risk breaking playback/paused state. Defer until detached.
+        if (!force && this._isUrlAttached(url)) {
+            this._deferredUntilDetached.add(url);
+            log.debug(`[BlobURL] Deferred revocation (still attached): ${url}`);
+            return;
+        }
+
+        // Strict Queue management (Max 5 scheduled revocations)
+        if (this._pendingRevocations.size >= this.MAX_PENDING) {
+            const oldest = this._pendingRevocations.keys().next().value;
+            log.debug(`[BlobURL] Queue full. Revoking oldest immediately: ${oldest}`);
+            this._revokeNow(oldest, 'queue-overflow');
+        }
+
+        if (delayMs === 0) {
+            this._revokeNow(url, 'delay=0');
+            return;
+        }
+
+        const t = setTimeout(() => {
+            this._revokeNow(url, 'scheduled');
+        }, delayMs);
+
+        this._pendingRevocations.set(url, t);
+        log.debug(`[BlobURL] Scheduled for revocation (${delayMs}ms): ${url}`);
+    },
+
+    /**
+     * Flush deferred URLs that were blocked because they were still attached to <video>.
+     * Call this right after videoElement.src is detached/reset.
+     */
+    flushDeferred(reason = '') {
+        if (!this._deferredUntilDetached.size) return;
+
+        const urls = Array.from(this._deferredUntilDetached);
+        let flushed = 0;
+
+        for (const url of urls) {
+            if (!this._isUrlAttached(url)) {
+                // Force scheduling now that it is detached
+                this._deferredUntilDetached.delete(url);
+                this.safeRevoke(url, { force: true });
+                flushed++;
+            }
+        }
+
+        if (flushed) log.debug(`[BlobURL] Flushed deferred: ${flushed}${reason ? ` (${reason})` : ''}`);
+    },
+
+    /**
+     * Attempt to revoke the currently active URL (and any preparing URL).
+     * If still attached, it will be deferred until detached.
+     */
+    revoke(options) {
+        // Preparing URL: safe to revoke quickly (it should not be attached yet)
+        if (this._preparingURL) {
+            this.safeRevoke(this._preparingURL, { force: true, delayMs: 0 });
+        }
+        if (this._activeURL) {
+            this.safeRevoke(this._activeURL, options);
+        }
+    },
+
+    /**
+     * Force revoke everything (use ONLY after detaching media sources).
+     */
+    revokeAllNow(reason = 'force') {
+        // Cancel scheduled revocations (and revoke)
+        const scheduled = Array.from(this._pendingRevocations.keys());
+        for (const url of scheduled) {
+            this._revokeNow(url, reason);
+        }
+
+        // Deferred revocations
+        const deferred = Array.from(this._deferredUntilDetached);
+        for (const url of deferred) {
+            this._revokeNow(url, reason);
+        }
+
+        // Active/preparing
+        if (this._activeURL) this._revokeNow(this._activeURL, reason);
+        if (this._preparingURL) this._revokeNow(this._preparingURL, reason);
+
+        this._pendingRevocations.clear();
+        this._deferredUntilDetached.clear();
+        this._activeURL = null;
+        this._preparingURL = null;
+    }
+};
 
 
-// --- Network Management ---
-let myId = null, peer = null;
-let hostConn = null;
-let upstreamDataConn = null;
-let downstreamDataPeers = [];
-let connectedPeers = PeerManager.connectedPeers;
-let lastLatencyMs = 0;
-let latencyHistory = [];
-let myDeviceLabel = 'HOST';
-let usePingCompensation = true;
+// ============================================================================
+// [SECTION] NETWORK STATE - PeerJS
+// Dependencies: PeerJS CDN
+// ============================================================================
+let myId = null, peer = null, hostConn = null;
+window.hostConn = null; // Expose for inline onclick handlers (e.g. demo button in Help modal)
+let localOffset = 0;
+let autoSyncOffset = 0; // NEW: Store the Auto-Sync (Latency) Offset in Seconds
+let usePingCompensation = true; // Default: apply RTT/2 compensation (set false for local network)
+let myDeviceLabel = 'HOST'; // Store my label for UI updates
+let lastLatencyMs = 0; // Store Median RTT (Robust)
+let latencyHistory = []; // Buffer to filter noise
+let syncRequestTime = 0; // Capture exact time of sync request
+
+let connectedPeers = [];
+// Latest device roster snapshot (host broadcasts). Used for UI/toasts such as
+// "연결된 기기 N대 | 초대 코드 000000".
 let lastKnownDeviceList = null;
-let peerLabels = {};
+let isOperator = false;
+let deviceCounter = 0; // Host-side counter for unique device names
+const peerLabels = {}; // Key: PeerID, Value: "DEVICE X"
+let isIntentionalDisconnect = false;
+let isConnecting = false;
+
+// Beta Relay State
+let upstreamDataConn = null; // Connection to receive file chunks from (Host or Relay info)
+let downstreamDataPeers = []; // Peers I need to forward file chunks to
+const MAX_DIRECT_DATA_PEERS = 2; // Host sends data to max 2 people directly
+
+// [SECTION] RELAY MANAGEMENT - Queue & Back-pressure
 let relayChunkQueue = [];
 let isRelaying = false;
-
-function syncNetworkState() {
-    myId = NetworkManager.myId;
-    peer = NetworkManager.peer;
-    hostConn = NetworkManager.hostConn;
-    upstreamDataConn = NetworkManager.upstreamDataConn;
-    downstreamDataPeers = NetworkManager.downstreamDataPeers;
-    // NOTE: connectedPeers is NOT synced here — it always references PeerManager.connectedPeers
-    // (the canonical peer list). NetworkManager.connectedPeers is only used for default
-    // connection handling, which is bypassed when Host sets onIncomingConnection.
-    lastLatencyMs = NetworkManager.lastLatencyMs;
-    latencyHistory = NetworkManager.latencyHistory;
-    usePingCompensation = NetworkManager.usePingCompensation;
-    myDeviceLabel = state.isOperator ? 'HOST' : 'GUEST'; // Simplified
-    lastKnownDeviceList = NetworkManager.lastKnownDeviceList;
-    peerLabels = NetworkManager.peerLabels;
-    relayChunkQueue = NetworkManager.relayChunkQueue;
-    isRelaying = NetworkManager.isRelaying;
-}
+const MAX_BUFFER_THRESHOLD = 65536; // 64KB
 
 // ============================================================================
 // [SECTION] OPFS CATCH-UP (Relay Bootstrap) - Controlled OPFS_READ Pump
@@ -269,12 +1011,239 @@ function syncNetworkState() {
 // iOS/저사양 기기에서 프리징/메모리 급증/락 충돌이 발생할 수 있습니다.
 // 아래 Pump는 "1개 요청 → 1개 응답" 방식으로 천천히 읽어오며, RTC back-pressure를 반영합니다.
 
-// [SECTION] OPFS CATCHUP
-// Logic moved to FileTransferManager
+const opfsCatchupPumps = new Map(); // peerId -> pump
+
+function stopOpfsCatchupStream(peerId, reason = '') {
+    const pump = opfsCatchupPumps.get(peerId);
+    if (!pump) return;
+    pump.active = false;
+    if (pump._timer) {
+        clearTimeout(pump._timer);
+        pump._timer = null;
+    }
+    opfsCatchupPumps.delete(peerId);
+    if (reason) log.debug(`[OPFS Catchup] Stop ...${String(peerId).slice(-4)}: ${reason}`);
+}
+
+function startOpfsCatchupStream(conn, { filename, sessionId, startIndex = 0, endIndexExclusive = 0, isPreload = false } = {}) {
+    if (!conn || !conn.peer) return;
+    const peerId = conn.peer;
+
+    stopOpfsCatchupStream(peerId, 'restart');
+
+    const sid = validateSessionId(sessionId);
+    if (!sid) {
+        log.warn(`[OPFS Catchup] Invalid sessionId, abort for peer ...${peerId.slice(-4)}`);
+        return;
+    }
+
+    const pump = {
+        peerId,
+        conn,
+        filename,
+        sessionId: sid,
+        isPreload: !!isPreload,
+        nextIndex: Math.max(0, startIndex | 0),
+        endIndex: Math.max(0, endIndexExclusive | 0),
+        awaiting: false,
+        awaitingIndex: null,
+        lastActivity: Date.now(),
+        active: true,
+        _timer: null
+    };
+
+    opfsCatchupPumps.set(peerId, pump);
+    scheduleOpfsCatchupPump(pump, 0);
+}
+
+function scheduleOpfsCatchupPump(pump, delayMs) {
+    if (!pump || !pump.active) return;
+    if (pump._timer) clearTimeout(pump._timer);
+    pump._timer = setTimeout(() => runOpfsCatchupPump(pump), Math.max(0, delayMs | 0));
+}
+
+function runOpfsCatchupPump(pump) {
+    if (!pump || !pump.active) return;
+
+    const conn = pump.conn;
+    if (!conn || !conn.open) {
+        stopOpfsCatchupStream(pump.peerId, 'peer closed');
+        return;
+    }
+
+    // Session guard: app이 더 새로운 session으로 넘어가면 중단
+    if (pump.sessionId && pump.sessionId < localTransferSessionId) {
+        stopOpfsCatchupStream(pump.peerId, 'session advanced');
+        return;
+    }
+
+    if (!pump.filename || pump.nextIndex >= pump.endIndex) {
+        stopOpfsCatchupStream(pump.peerId, 'complete');
+        return;
+    }
+
+    // Wait for previous OPFS_READ response (sequential pump)
+    if (pump.awaiting) {
+        // If it's stuck for too long, retry the same chunk once.
+        const stuckMs = Date.now() - pump.lastActivity;
+        if (stuckMs > 6000 && pump.awaitingIndex !== null) {
+            log.warn(`[OPFS Catchup] Stuck ${stuckMs}ms, retry idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`);
+            pump.awaiting = false;
+            pump.nextIndex = pump.awaitingIndex; // rewind to retry
+            pump.awaitingIndex = null;
+        }
+        scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+        return;
+    }
+
+    // Back-pressure: don't read faster than RTC can send.
+    const peerQueueLen = conn._relayQueue ? conn._relayQueue.length : 0;
+    const bufAmt = conn.dataChannel ? conn.dataChannel.bufferedAmount : 0;
+
+    // Conservative thresholds: keep catch-up smooth and prevent queue drops.
+    if (peerQueueLen > 120 || bufAmt > 256 * 1024 || relayChunkQueue.length > 250) {
+        scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+        return;
+    }
+
+    const idx = pump.nextIndex;
+    pump.nextIndex++;
+    pump.awaiting = true;
+    pump.awaitingIndex = idx;
+    pump.lastActivity = Date.now();
+
+    // requestId에 peerId + tag를 넣어, OPFS_READ_COMPLETE에서 peerId를 안정적으로 복원합니다.
+    postWorkerCommand({
+        command: 'OPFS_READ',
+        filename: pump.filename,
+        index: idx,
+        isPreload: pump.isPreload,
+        sessionId: pump.sessionId,
+        requestId: `${pump.peerId}|catchup`
+    });
+}
+
+function onOpfsCatchupReadComplete(peerId, sessionId, requestTag) {
+    const pump = opfsCatchupPumps.get(peerId);
+    if (!pump || !pump.active) return;
+
+    // Only advance pump when this response is from catchup-tag.
+    if (requestTag !== 'catchup') return;
+
+    // Session guard
+    if (sessionId && pump.sessionId && sessionId !== pump.sessionId) {
+        stopOpfsCatchupStream(peerId, 'session mismatch');
+        return;
+    }
+
+    pump.awaiting = false;
+    pump.awaitingIndex = null;
+    pump.lastActivity = Date.now();
+    scheduleOpfsCatchupPump(pump, 0);
+}
 
 
-// Constants and Enums moved to core/constants.js
-const CHUNK_SIZE = 16384;
+// ============================================================================
+// [SECTION] CONSTANTS
+// ============================================================================
+const CHUNK_SIZE = 16384; // 16KB per chunk
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
+const RELAY_MONITOR_INTERVAL = 10000; // 10 seconds
+const ENDED_CHECK_THROTTLE = 500; // 500ms throttle for handleEnded
+const WATCHDOG_TIMEOUT = 12000; // 12 seconds for chunk watchdog
+
+// Delay constants (ms)
+const DELAY = {
+    TICK: 10,             // Micro-yield for main thread breathing
+    BACKPRESSURE: 50,     // Backpressure polling interval
+    UI_REFRESH: 100,      // UI state refresh / short debounce
+    RETRY: 200,           // Retry / reconnection pause
+    TRANSITION: 300,      // UI transition / animation settling
+    DEBOUNCE: 500,        // Standard debounce / throttle
+    CONNECTION_CHECK: 500, // Peer connection readiness check
+    BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
+    JOIN_TIMEOUT: 10000,  // Max wait for peer.open
+    RECOVERY_COOLDOWN: 5000, // Rate-limit recovery requests
+};
+
+const MSG = {
+    ASSIGN_DATA_SOURCE: 'assign-data-source',
+    CHAT: 'chat',
+    DATA_RELAY: 'data-relay',
+    DEVICE_LIST_UPDATE: 'device-list-update',
+    EQ_RESET: 'eq-reset',
+    EQ_UPDATE: 'eq-update',
+    FILE_CHUNK: 'file-chunk',
+    FILE_END: 'file-end',
+    FILE_PREPARE: 'file-prepare',
+    FILE_RESUME: 'file-resume',
+    FILE_START: 'file-start',
+    FILE_WAIT: 'file-wait',
+    FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
+    GET_SYNC_TIME: 'get-sync-time',
+    GLOBAL_RESYNC_REQUEST: 'global-resync-request',
+    HEARTBEAT: 'heartbeat',
+    HEARTBEAT_ACK: 'heartbeat-ack',
+    PAUSE: 'pause',
+    PING_LATENCY: 'ping-latency',
+    PLAY: 'play',
+    PLAYLIST: 'playlist',
+    PLAYLIST_UPDATE: 'playlist-update',
+    PLAY_PRELOADED: 'play-preloaded',
+    PONG_LATENCY: 'pong-latency',
+    PREAMP: 'preamp',
+    PRELOAD_ACK: 'preload-ack',
+    PRELOAD_CHUNK: 'preload-chunk',
+    PRELOAD_END: 'preload-end',
+    PRELOAD_START: 'preload-start',
+    REPEAT_MODE: 'repeat-mode',
+    REQUEST_CURRENT_FILE: 'request-current-file',
+    REQUEST_DATA_RECOVERY: 'request-data-recovery',
+    REQUEST_EQ_RESET: 'request-eq-reset',
+    REQUEST_REVERB_RESET: 'request-reverb-reset',
+    REQUEST_NEXT_TRACK: 'request-next-track',
+    REQUEST_PAUSE: 'request-pause',
+    REQUEST_PLAY: 'request-play',
+    REQUEST_PREV_TRACK: 'request-prev-track',
+    REQUEST_SEEK: 'request-seek',
+    REQUEST_SETTING: 'request-setting',
+    REQUEST_SKIP_TIME: 'request-skip-time',
+    REQUEST_TRACK_CHANGE: 'request-track-change',
+    REQUEST_YOUTUBE_PAUSE: 'request-youtube-pause',
+    REQUEST_YOUTUBE_PLAY: 'request-youtube-play',
+    REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
+    REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
+    REVERB: 'reverb',
+    REVERB_DECAY: 'reverb-decay',
+    REVERB_HIGHCUT: 'reverb-highcut',
+    REVERB_LOWCUT: 'reverb-lowcut',
+    REVERB_PREDELAY: 'reverb-predelay',
+    REVERB_TYPE: 'reverb-type',
+    SHUFFLE_MODE: 'shuffle-mode',
+    STATUS_SYNC: 'status-sync',
+    STEREO_WIDTH: 'stereo-width',
+    SYNC_RESPONSE: 'sync-response',
+    VBASS: 'vbass',
+    VOLUME: 'volume',
+    WELCOME: 'welcome',
+    SESSION_START: 'session-start',
+    SESSION_FULL: 'session-full',
+    YOUTUBE_PLAY: 'youtube-play',
+    YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
+    YOUTUBE_STATE: 'youtube-state',
+    YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
+    YOUTUBE_SYNC: 'youtube-sync',
+};
+
+// ============================================================================
+// [SECTION] FILE TRANSFER STATE
+// ============================================================================
+const TRANSFER_STATE = {
+    IDLE: 'IDLE',
+    RECEIVING: 'RECEIVING',
+    PROCESSING: 'PROCESSING',
+    READY: 'READY'
+};
 let transferState = TRANSFER_STATE.IDLE;
 let incomingChunks = [];
 let receivedCount = 0;
@@ -304,36 +1273,6 @@ const MAX_RECOVERY_RETRIES = 3;
 const RECOVERY_BACKOFF = [2000, 5000, 10000];
 let _recoveryPending = false;
 let _lastReceivedCountSnapshot = 0;
-// --- Audio Engine ---
-import { AudioEngine } from './core/audio-engine.js';
-let masterGain, preamp, widener, reverb, eqNodes, analyser;
-let toneSplit, toneMerge, gainL, gainR;
-let rvbLowCut, rvbHighCut, rvbCrossFade;
-let vbFilter, vbCheby, vbPostFilter, vbGain;
-let globalLowPass;
-let _initAudioPromise = null;
-
-// Backward compatibility: proxy variables from the engine
-function syncAudioNodes() {
-    masterGain = AudioEngine.masterGain;
-    preamp = AudioEngine.preamp;
-    widener = AudioEngine.widener;
-    reverb = AudioEngine.reverb;
-    eqNodes = AudioEngine.eqNodes;
-    analyser = AudioEngine.analyser;
-    toneSplit = AudioEngine.toneSplit;
-    toneMerge = AudioEngine.toneMerge;
-    gainL = AudioEngine.gainL;
-    gainR = AudioEngine.gainR;
-    rvbLowCut = AudioEngine.rvbLowCut;
-    rvbHighCut = AudioEngine.rvbHighCut;
-    rvbCrossFade = AudioEngine.rvbCrossFade;
-    vbFilter = AudioEngine.vbFilter;
-    vbCheby = AudioEngine.vbCheby;
-    vbPostFilter = AudioEngine.vbPostFilter;
-    vbGain = AudioEngine.vbGain;
-    globalLowPass = AudioEngine.globalLowPass;
-}
 let _skipIncomingFile = false;
 let _skipIncomingPreload = false;
 let _waitingForPreload = false;
@@ -624,7 +1563,7 @@ const handleWorkerMessage = async (e) => {
             const { chunk, index, filename, requestId, sessionId } = data;
 
             // requestId format: "<peerId>|<tag>"  (tag is optional)
-            const reqStr = String(requestId || '');
+            const reqStr = (requestId === undefined || requestId === null) ? '' : String(requestId);
             const [peerIdRaw, requestTagRaw] = reqStr.split('|');
             const peerId = peerIdRaw || reqStr;
             const requestTag = requestTagRaw || '';
@@ -632,37 +1571,40 @@ const handleWorkerMessage = async (e) => {
             // Session guard: discard stale catch-up chunks from old track
             if (sessionId && sessionId < localTransferSessionId) {
                 log.warn(`[OPFS_READ] Stale session chunk discarded (got ${sessionId}, current ${localTransferSessionId})`);
-                FileTransferManager.onOpfsReadComplete(peerId, sessionId, requestTag);
+                onOpfsCatchupReadComplete(peerId, sessionId, requestTag);
                 return;
             }
 
-            const pObj = connectedPeers.find(p => p.id === peerId);
-            if (pObj && pObj.conn && pObj.conn.open) {
-                // For recovered chunks, we send directly or via queue
-                pObj.conn.send({
+            const dConn = downstreamDataPeers.find(p => p.peer === peerId);
+            if (dConn && dConn.open) {
+                // Use Relay Queue for recovered chunks to enforce back-pressure
+                // Include metadata for downstream peers that missed file-start
+                relayChunkQueue.push({
                     type: MSG.FILE_CHUNK,
                     chunk,
                     index,
                     sessionId,
                     total: meta?.total,
-                    name: meta?.name || filename
+                    name: meta?.name || filename,
+                    targetPeerId: peerId
                 });
+                processRelayQueue();
             }
 
             // Drive catch-up pump (if active)
-            FileTransferManager.onOpfsReadComplete(peerId, sessionId, requestTag);
+            onOpfsCatchupReadComplete(peerId, sessionId, requestTag);
         }
         else if (data.type === 'OPFS_ERROR' || data.type === 'OPFS_READ_ERROR') {
             log.error(`[Worker-OPFS] Error for ${data.filename}:`, data.error);
 
             // If this was a catch-up pump request, stop the pump to avoid infinite retries.
             if (data.type === 'OPFS_READ_ERROR') {
-                const reqStr = String(data.requestId || '');
+                const reqStr = (data.requestId === undefined || data.requestId === null) ? '' : String(data.requestId);
                 const [peerIdRaw, tagRaw] = reqStr.split('|');
                 const peerId = peerIdRaw || reqStr;
                 const tag = tagRaw || '';
                 if (tag === 'catchup') {
-                    FileTransferManager.stopOpfsCatchupStream(peerId, 'OPFS_READ_ERROR');
+                    stopOpfsCatchupStream(peerId, 'OPFS_READ_ERROR');
                 }
             }
 
@@ -896,7 +1838,630 @@ function _onSystemThemeChange() {
 })();
 
 
-// Language and I18N moved to core/i18n.js
+// --- Language / i18n ---
+let _activeLanguageMode = 'system'; // 'ko' | 'en' | 'system'
+// Resolved language is what the UI actually uses ('ko' or 'en').
+let _resolvedLanguage = (function _resolveInitialSystemLanguage() {
+    try {
+        const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+        const first = String(langs[0] || '').toLowerCase();
+        return first.startsWith('ko') ? 'ko' : 'en';
+    } catch (_) {
+        return 'ko';
+    }
+})();
+
+const I18N_EN = {
+    ", 방장이 알려주는": ", provided by the host",
+    "동기화 버튼을 눌러서 싱크를 맞춰보세요.": "Press the sync button to adjust the sync.",
+    "1개 요청 → 1개 응답": "1 request → 1 response",
+    "3초 후 YouTube 재생...": "Playing YouTube in 3 seconds...",
+    "3초 후 재생 시작...": "Starting playback in 3 seconds...",
+    "6자리 숫자 코드로 연결할 수 있어요.": "You can connect with a 6-digit code.",
+    "6자리 코드": "6-digit code",
+    "6자리 코드를 입력해 주세요": "Please enter the 6-digit code",
+    "HTTPS 필수: 보안 연결에서만 작동합니다.": "HTTPS required: works only on a secure connection.",
+    "Host 연결 끊김 - 파일을 받을 수 없습니다": "Host disconnected — can't receive the file",
+    "Host 요청: 싱크 초기화 및 재설정...": "Host request: reset and recalibrate sync...",
+    "Host 직결로 전환되었습니다 (릴레이 끊김)": "Switched to direct Host connection (relay disconnected)",
+    "Host만 실행할 수 있습니다.": "Only Host can run this.",
+    "Host에 파일 요청 중...": "Requesting file from Host...",
+    "ID 생성 중...": "Generating ID...",
+    "L 채널 출력": "L channel output",
+    "MUSIXQUARE는 JavaScript가 필요해요. 브라우저 설정에서 JavaScript를 켠 뒤 다시 시도해 주세요.": "MUSIXQUARE requires JavaScript. Enable JavaScript in your browser settings and try again.",
+    "OP 권한 부여": "Grant OP",
+    "OP 권한 회수": "Revoke OP",
+    "Operator 권한이 부여되었습니다.": "Operator permission granted.",
+    "Operator 권한이 해제되었습니다.": "Operator permission revoked.",
+    "R 채널 출력": "R channel output",
+    "Relay 응답 없음. Host 직결 전환...": "No relay response. Switching to direct Host...",
+    "URL을 입력해 주세요": "Please enter a URL",
+    "VPN/사내 보안망이 켜져 있으면 연결이 실패할 수 있어요.": "If a VPN/corporate network is on, the connection may fail.",
+    "Wi-Fi가 없다면 호스트의 핫스팟에 연결해주세요": "No Wi‑Fi? Connect to the host's hotspot.",
+    "YouTube API 로드 실패. 인터넷 연결 확인!": "Failed to load the YouTube API. Check your connection!",
+    "YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다": "Watch YouTube together — advanced audio effects are disabled.",
+    "YouTube 로드 시간 초과. 다시 시도해주세요.": "YouTube load timed out. Please try again.",
+    "YouTube 링크 입력": "Enter YouTube link",
+    "YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.": "In YouTube mode, role settings and audio effects are unavailable.",
+    "YouTube 모드에서는 정밀 동기화를 지원하지 않아요": "High-precision sync isn't available in YouTube mode.",
+    "YouTube 미리보기 썸네일": "YouTube preview thumbnail",
+    "YouTube 비디오 또는 플레이리스트 링크를 입력하세요.": "Enter a YouTube video or playlist link.",
+    "YouTube 이동 실패": "Failed to open YouTube",
+    "YouTube 재생 시작": "YouTube playback started",
+    "YouTube 함께보기": "Watch YouTube together",
+    "YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.": "YouTube is ready! Press Play.",
+    "“모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)": "“Join a session” → enter the code → choose a role (Original/Left/Right/Bass)",
+    "“제가 방장할래요” → 코드 확인 → “시작할래요!”": "“I'll host” → check the code → “Start!”",
+    "가상 베이스 강도": "Virtual bass intensity",
+    "가상 베이스(방장 제어)": "Virtual bass (host-ctrl)",
+    "가상 서라운드 너비 조절": "Adjust virtual surround width",
+    "가상 서라운드(방장 제어)": "Virtual surround (host-ctrl)",
+    "각 기기의 역할을 설정해 보세요.": "Set a role for each device.",
+    "강도": "Intensity",
+    "같은 Wi‑Fi인지 확인하고 다시 시도해주세요.": "Check that you're on the same Wi‑Fi and try again.",
+    "거대한 오디오 시스템을 만들어 보세요.": "Create a giant audio system.",
+    "고급 음향": "Advanced audio",
+    "고급 효과를 시스템에 적용할 수 있어요.": "You can apply advanced effects system-wide.",
+    "고정밀 동기화: 오디오를 준비하고 있어요…": "High-precision sync: preparing audio…",
+    "공개된 링크만 함께 들을 수 있어요.": "Only public links can be played together.",
+    "권한": "permission",
+    "기기 파일에서 음악/영상을 선택": "Choose music/video from your device",
+    "기기를 오른쪽에 놓아주세요": "Place the device on the right",
+    "기기를 왼쪽에 놓아주세요": "Place the device on the left",
+    "기기를 중앙에 놓아주세요": "Place the device in the center",
+    "기본값 0%": "Default 0%",
+    "기본값 0, 늘리면 가상 베이스(왜곡 증가)": "Default 0 — Higher = More Distortion",
+    "기본값 0.1s": "Default 0.1s",
+    "기본값 100, 줄이면 모노, 늘리면 서라운드": "Default 100 — lower = mono, higher = surround",
+    "기본값 20.0kHz": "Default 20.0kHz",
+    "기본값 20Hz": "Default 20Hz",
+    "기본값 5.0s": "Default 5.0s",
+    "기타 문의:": "Contact:",
+    "나중에 설정에서 바꿀 수 있어요.": "You can change it later in Settings.",
+    "남아있기": "Stay",
+    "너비": "Width",
+    "네트워크 상태를 확인한 후 다시 참가해 주세요.": "Check your network and try joining again.",
+    "네트워크 연결 상태와 코드를 확인해주세요.": "Check your network connection and the code.",
+    "네트워크 오류가 발생했어요. 같은 Wi‑Fi인지 확인해주세요.": "Network error occurred. Make sure you're on the same Wi‑Fi.",
+    "네트워크 초기화 실패": "Network init failed",
+    "네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.": "Network quality may be low. Try moving closer to the router.",
+    "다운로드 마무리 중...": "Finishing download...",
+    "다운로드 완료 후 재생됩니다": "Will play after download completes",
+    "다음 설명": "Next",
+    "다음 트랙": "Next track",
+    "다음으로": "Next",
+    "다크": "Dark",
+    "닫기": "Close",
+    "데모 로드 실패:": "Demo load failed:",
+    "데모 미디어로 프로그램 테스트": "Test the app with demo media",
+    "데모 음원 로드 완료. 재생을 시작합니다.": "Demo track loaded. Starting playback.",
+    "데모 음원 로딩 중...": "Loading demo track...",
+    "데이터 수신 불안정. Host 복구 요청...": "Data reception unstable. Requesting Host recovery...",
+    "도움말": "Help",
+    "도움이 필요할 때": "Need help?",
+    "동기화": "Sync",
+    "동시에 재생": "Play together",
+    "동영상 또는 플레이리스트 링크를 입력하세요": "Enter a video or playlist link",
+    "동일한 네트워크": "same network",
+    "두 기기가 같은 네트워크인지 확인해 보세요.": "Make sure both devices are on the same network.",
+    "라이트": "Light",
+    "로우패스": "Low-pass",
+    "로컬 네트워크 전용": "Local network only",
+    "로컬 파일 선택": "Choose local file",
+    "로컬(같은 Wi‑Fi/핫스팟)": "local (same Wi‑Fi/hotspot)",
+    "로컬파일 불러오기": "Load local file",
+    "로컬파일 불러오기:": "Load local file:",
+    "를 입력해 연결해요.": " and enter it to connect.",
+    "리버브 로우컷": "Reverb low-cut",
+    "리버브 믹스": "Reverb mix",
+    "리버브 반사 시간": "Reverb decay",
+    "리버브 프리딜레이": "Reverb pre-delay",
+    "리버브 하이컷": "Reverb high-cut",
+    "리버브(방장 제어)": "Reverb (host-ctrl)",
+    "리버브, 이퀄라이저, 가상 효과 등": "Reverb, EQ, virtual effects, and more",
+    "릴레이 대기 중... 잠시만 기다려주세요": "Waiting for relay... please hold on",
+    "릴레이 응답 없음. Host에서 직접 수신...": "No relay response. Receiving directly from Host...",
+    "릴레이에 파일 요청 중...": "Requesting file via relay...",
+    "링크를 붙여넣어 재생 목록에 추가": "Paste a link to add it to the playlist",
+    "마지막이에요!": "Last step!",
+    "메시지": "Message",
+    "메시지 보내기": "Send message",
+    "메시지 입력...": "Type a message...",
+    "메인": "Home",
+    "메인 화면으로 이동": "Go to Home",
+    "모든 기기 Auto Sync 요청...": "Requesting Auto Sync on all devices...",
+    "모든 기기 재동기화 요청...": "Requesting resync on all devices...",
+    "모든 기기가": "All devices must be connected to the",
+    "모든 기기를 동일한 Wi-Fi에 연결해주세요": "Connect all devices to the same Wi‑Fi",
+    "모임에 참여할래요": "Join a session",
+    "Sean Pitaro - Passport [NCS Release]": "Sean Pitaro - Passport [NCS Release]",
+    "미디어 없음": "No media",
+    "미디어 재생": "Play media",
+    "미디어 재생하기": "Play media",
+    "미디어 추가": "Add media",
+    "미디어를 추가해주세요.": "Please add media.",
+    "믹스": "Mix",
+    "반복 모드 변경": "Change repeat mode",
+    "반복 재생: 끔": "Repeat: Off",
+    "반복 재생: 전체": "Repeat: All",
+    "반복 재생: 한 곡": "Repeat: One",
+    "반사 시간": "Decay time",
+    "반사 지연": "Pre-delay",
+    "방장 제외 최대 3대": "3 devices excluding the host",
+    "방장:": "Host:",
+    "방장만 미디어를 추가할 수 있어요.": "Only the host can add media.",
+    "방장만 유튜브 링크를 추가할 수 있어요.": "Only the host can add YouTube links.",
+    "방장에게는 3가지 선택지가 나와요.": "Hosts see three options.",
+    "방장이 알려준 6자리 코드를 입력해주세요": "Enter the 6-digit code from the host",
+    "배치": "Placement",
+    "백그라운드 작업 오류가 발생했어요": "A background task error occurred",
+    "복사하지 못했어요": "Couldn't copy",
+    "볼륨 조절": "Adjust volume",
+    "부여됨": "granted",
+    "브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.": "Browser update required: update to the latest iOS (15.2+).",
+    "새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.": "A new version is ready. Refresh to update.",
+    "새로고침": "Refresh",
+    "서브우퍼": "Subwoofer",
+    "서브우퍼 조절하기": "Adjust subwoofer",
+    "서브우퍼 컷오프 주파수": "Subwoofer cutoff frequency",
+    "서브우퍼:": "Subwoofer:",
+    "설정": "Settings",
+    "설정 · 도움말": "Settings · Help",
+    "세션을 만들지 못했어요": "Couldn't create session",
+    "세션이 가득 찼어요": "Session is full",
+    "세션이 초기화되었습니다.": "Session has been reset.",
+    "셔플 모드 변경": "Change shuffle mode",
+    "셔플: 꺼짐": "Shuffle: Off",
+    "셔플: 켜짐": "Shuffle: On",
+    "데모 트랙 정보": "Demo Track",
+    "스테레오(기본) 출력": "Stereo (default) output",
+    "스피커로 재생하기": "Play through speakers",
+    "시스템": "System",
+    "시작하기": "Start",
+    "아직 메시지가 없어요.": "No messages yet.",
+    "안내": "Info",
+    "안녕하세요! 본인의 역할을 선택해주세요.": "Hi! Please choose your role.",
+    "앱 체험하기 (데모)": "Try it (Demo)",
+    "앱 체험하기:": "Try the app:",
+    "언어 · Language": "Language · 언어",
+    "언제 어디서나 함께 듣는": "Listen together, anywhere",
+    "업데이트": "Update",
+    "에 연결되어야 해요.": ".",
+    "에서 역할을 언제든 바꿀 수 있어요.": ".",
+    "에서만 연결됩니다.": ".",
+    "여러 기기를 무선으로 연결해": "Connect multiple devices wirelessly",
+    "역할": "Role",
+    "역할(출력 채널)": "Role (output channel)",
+    "역할을 선택해 주세요": "Please select a role",
+    "역할을 선택해 참가해 주세요.": "Select a role to join.",
+    "역할을 선택해주세요": "Please select a role",
+    "역할이 자동 설정되어 변경할 수 없어요.": "Role is auto-assigned and can't be changed.",
+    "연결 실패": "Connection failed",
+    "연결 오류: 파일 전송 실패": "Connection error: file transfer failed",
+    "연결 준비 실패": "Failed to prepare connection",
+    "연결 중...": "Connecting...",
+    "연결 코드 6자리 입력": "Enter 6-digit code",
+    "연결 코드를 입력해주세요.": "Please enter the connection code.",
+    "연결된 기기 N대 | 초대 코드 000000": "Connected devices: N | Invite code 000000",
+    "연결된 모든 기기에서 동시에 재생돼요.": "Playback is synchronized on all connected devices.",
+    "연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.": "The selected media plays simultaneously on all connected devices.",
+    "연결됨": "connected",
+    "연결에 문제가 생겼어요": "Connection issue occurred",
+    "연결이 끊어졌어요": "Disconnected",
+    "연결이 불안정해요:": "Unstable connection:",
+    "연결이 안 되면: Wi‑Fi 재연결 → 앱 새로고침 순서로 확인해 주세요.": "If it won't connect: reconnect Wi‑Fi → refresh the app.",
+    "연결하지 못했어요": "Couldn't connect",
+    "연결할 수 있는 기기는": "You can connect up to",
+    "영상 정보 불러오는 중...": "Loading video info...",
+    "영상 정보를 불러올 수 없습니다": "Couldn't load video info",
+    "예요.": ".",
+    "오디오 디코딩 실패!": "Audio decode failed!",
+    "오디오 디코딩 중...": "Decoding audio...",
+    "오디오 메모리 로드 중...": "Loading audio into memory...",
+    "오디오 엔진을 불러오지 못했어요. 네트워크를 확인해 보세요.": "Couldn't load the audio engine. Check your network.",
+    "오디오 엔진을 준비하지 못했어요": "Couldn't prepare the audio engine",
+    "오디오 엔진이 아직 준비되지 않았어요. 네트워크를 확인해 보세요.": "The audio engine isn't ready yet. Check your network.",
+    "오디오를 준비하지 못했어요. 화면을 한 번 터치한 뒤 다시 시도해 보세요.": "Couldn't prepare audio. Tap the screen once and try again.",
+    "오른쪽 스피커": "Right speaker",
+    "오른쪽 스피커:": "Right speaker:",
+    "완벽한 사운드 경험": "A perfect sound experience",
+    "왼쪽 스피커": "Left speaker",
+    "왼쪽 스피커:": "Left speaker:",
+    "왼쪽, 오른쪽 소리를 따로 재생하고": "Play left and right channels separately, and",
+    "우퍼 모드로 웅장한 저음을 느껴보세요.": "Feel powerful bass with Woofer mode.",
+    "워커 메시지 처리 중 오류": "Error handling worker message",
+    "워커 작업 중 오류 발생!": "Worker error occurred!",
+    "유튜브 (호환 모드)": "YouTube (compatibility mode)",
+    "유튜브(채널분리 미지원):": "YouTube (no channel split):",
+    "유효하지 않은 YouTube 링크": "Invalid YouTube link",
+    "유효하지 않은 시간입니다": "Invalid time",
+    "유효한 YouTube 링크가 아닙니다": "Not a valid YouTube link",
+    "을 선택해요.": ".",
+    "이 기기 역할 설정하기": "Set this device's role",
+    "이 기기로 어떤 소리를 낼까요?": "What should this device play?",
+    "이 버전은": "This version works only on",
+    "이 코드를 다른 기기에 입력해주세요": "Enter this code on your other devices",
+    "이렇게 연결해요": "How to connect",
+    "이전 설명": "Previous",
+    "이전 트랙": "Previous track",
+    "이제 다른 기기들과 연결해주세요.": "Now connect your other devices.",
+    "이퀄라이저 (방장 제어)": "Equalizer (host-ctrl)",
+    "일시정지": "Pause",
+    "입체 음향": "Spatial audio",
+    "자동 재생 취소됨 (OP)": "Auto-play canceled (OP)",
+    "자동 재생을 취소했어요": "Auto-play canceled",
+    "잠시 후 다시 시도해주세요.": "Please try again in a moment.",
+    "잠시만요...": "Just a moment...",
+    "재생 시작": "Play",
+    "재생 위치 조절": "Seek",
+    "재생 준비 완료": "Ready to play",
+    "재생/일시정지": "Play/Pause",
+    "재생목록": "Playlist",
+    "재생할 미디어를 선택해주세요": "Select media to play",
+    "저역 믹스 출력": "Bass mix output",
+    "전체화면 전환": "Toggle fullscreen",
+    "정지": "Stop",
+    "정지 요청을 보냈어요": "Stop request sent",
+    "제가 방장할래요": "I'll host",
+    "준비 지연 중... Host 복구 요청": "Preparation delayed... requesting Host recovery",
+    "중앙 스피커": "Center speaker",
+    "중앙 스피커:": "Center speaker:",
+    "직접 동기화 완료 (로컬 네트워크)": "Direct sync complete (local network)",
+    "참가자": "Guest",
+    "참가자:": "Guest:",
+    "참가자가": "Guests choose the",
+    "참가하는 중...": "Joining...",
+    "참가하는 중…": "Joining…",
+    "참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.": "Couldn't join. Make sure you're connected to the same Wi‑Fi.",
+    "참가할 수 없어요": "Can't join",
+    "채팅": "Chat",
+    "채팅 닫기": "Close chat",
+    "채팅 메시지 입력": "Type a chat message",
+    "채팅 열기": "Open chat",
+    "채팅을 시작하세요": "Start chatting",
+    "첫 메시지를 보내 보세요!": "Send your first message!",
+    "초기 화면": "Home screen",
+    "초기 화면으로 돌아갈까요?": "Return to the start screen?",
+    "초기화 및 재보정 시작...": "Starting reset and recalibration...",
+    "초대 코드": "Invite code",
+    "초대 코드 표시 및 복사": "Show & copy invite code",
+    "초대 코드가 아직 없어요": "No invite code yet",
+    "초대 코드는 설정과 도움말에서 확인할 수 있어요": "You can find the invite code in Settings and Help.",
+    "초대와 공유": "Invite & Share",
+    "최적 싱크 보정 적용 중...": "Applying optimal sync calibration...",
+    "취소": "Cancel",
+    "코드를 입력했는데 연결이 안 돼요:": "I entered the code but can't connect:",
+    "클릭하여 초대코드 복사": "Click to copy invite code",
+    "테마": "Theme",
+    "파일 요청 중...": "Requesting file...",
+    "파일을 보내고 있어요…": "Sending file…",
+    "파일을 선택하거나 플레이리스트를 확인하세요": "Select a file or check the playlist",
+    "파일을 선택할 수 없어요": "Can't select a file",
+    "파일이 준비됐어요! 재생 버튼을 눌러 보세요.": "Your file is ready! Press Play.",
+    "프리로드 누락 - 파일 수신 중...": "Preload missing — receiving file...",
+    "프리로드 완료 대기 중...": "Waiting for preload to complete...",
+    "프리로드 재생 실패 - 다시 로드합니다": "Preload playback failed — reloading",
+    "프리로드된 파일 사용!": "Using preloaded file!",
+    "프리앰프": "Preamp",
+    "프리앰프 게인": "Preamp gain",
+    "플레이리스트 펼치기/접기": "Expand/collapse playlist",
+    "플레이리스트에 추가됨": "added to playlist",
+    "필수 라이브러리 로드 실패": "Failed to load required libraries",
+    "필요하면": "If needed, you can change the role anytime in",
+    "하이패스": "High-pass",
+    "현재 세션과 연결이 끊어져요.": "You will be disconnected from the current session.",
+    "현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.": "This session has reached the device limit (3 excluding the host).",
+    "호스트 연결 없음. 로컬 초기화 완료.": "No host connection. Local reset complete.",
+    "호스트가 미디어를 재생하면": "When the host starts playback,",
+    "호스트만 조작할 수 있어요": "Only the host can control this",
+    "호스트만 파일을 추가할 수 있어요": "Only the host can add files",
+    "호스트에 연결할 수 없어요": "Can't connect to the host",
+    "호스트에서 연결이 종료되었습니다. 메인 화면으로 이동합니다.": "The host ended the connection. Returning to Home.",
+    "호스트의 설정에 맞추어": "In sync with the host's settings",
+    "호스트의 코드를 입력해주세요.": "Enter the host's code.",
+    "홈 화면에 추가": "Add to Home Screen",
+    "확인": "OK",
+    "확인/새로고침": "OK / Refresh",
+    "환경 제한으로 백그라운드 타이머(Worker)를 사용할 수 없어요.": "Due to environment limits, background timers (Worker) aren't available.",
+    "환경 제한으로 파일 저장/전송(Worker)을 사용할 수 없어요.": "Due to environment limits, file save/transfer (Worker) isn't available.",
+    "회수됨": "revoked"
+};
+
+const I18N_EN_REGEX = [
+    // Invite code
+    [/^초대 코드:\s*(\d{6})$/i, (_m, code) => `Invite code: ${code}`],
+    // Connected devices | invite code
+    [/^연결된 기기\s*(\d+)대\s*\|\s*초대 코드\s*(\d{6})$/i, (_m, cnt, code) => `Connected devices: ${cnt} | Invite code ${code}`],
+    // Added tracks: "3곡을 추가했어요"
+    [/^(\d+)곡을 추가했어요$/i, (_m, cnt) => {
+        const n = Number(cnt);
+        if (!Number.isFinite(n)) return `Added ${cnt} tracks`;
+        return n === 1 ? 'Added 1 track' : `Added ${n} tracks`;
+    }],
+    // Added to playlist: ""Title" 플레이리스트에 추가됨"
+    [/^"(.+)"\s*플레이리스트에 추가됨$/i, (_m, title) => `Added "${title}" to playlist`],
+    // Preparing / waiting
+    [/^준비 중:\s*(.+)$/i, (_m, name) => `Preparing: ${name}`],
+    [/^복구 대기 중:\s*(.+)$/i, (_m, name) => `Recovery pending: ${name}`],
+    [/^파일 동기화 중:\s*(.+)$/i, (_m, name) => `Syncing file: ${name}`],
+    // File save error
+    [/^파일 저장 오류:\s*(.+)$/i, (_m, name) => `File save error: ${name}`],
+    // Device connection status
+    [/^(.+)가\s*연결됐어요$/i, (_m, name) => `${name} connected`],
+    [/^(.+)\s*연결이 끊겼어요$/i, (_m, name) => `${name} disconnected`],
+    [/^(.+)\s*연결 오류$/i, (_m, name) => `${name} connection error`],
+    // Transfer resume
+    [/^(.+)로부터\s*전송 이어받기$/i, (_m, src) => `Resume transfer from ${src}`],
+    [/^(.+)로부터\s*파일 수신 시작$/i, (_m, src) => `Started receiving file from ${src}`],
+    [/^(.+)로부터\s*전송 재개\s*\((.+)부터\)$/i, (_m, src, start) => `Resuming transfer from ${src} (from ${start})`],
+    // Receiving progress
+    [/^(.+)\s*수신 중\.\.\.\s*(.*)$/i, (_m, src, rest) => `Receiving from ${src}... ${rest}`],
+    // Auto sync calibration
+    [/^자동 싱크 보정 완료,\s*\+?(\d+)ms$/i, (_m, ms) => `Auto sync calibration done, +${ms}ms`],
+    // Reverb type
+    [/^리버브 타입:\s*(.+)$/i, (_m, v) => `Reverb type: ${v}`],
+    // Host forced sync
+    [/^Host 강제 동기화:\s*(.+)$/i, (_m, t) => `Host force sync: ${t}`],
+    // Relay connected
+    [/^Relay:\s*(.+)\s*연결됨$/i, (_m, id) => `Relay: ${id} connected`],
+    // Seek: "00:12로 이동"
+    [/^(.+)로\s*이동$/i, (_m, t) => `Seek to ${t}`],
+    // Next track preparing: "다음 곡 준비 중... (Track)"
+    [/^다음 곡 준비 중\.\.\.\s*\((.+)\)$/i, (_m, name) => `Preparing next track... (${name})`],
+];
+
+let _i18nObserver = null;
+let _i18nApplying = false;
+const _i18nOriginalText = new Map(); // Text node -> { raw, translated }
+const _i18nOriginalAttr = new Map(); // Element -> { attrName: { raw, translated } }
+let _i18nKeyOrder = null;
+
+function _i18nNorm(s) {
+    return String(s ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function i18nTranslate(str) {
+    // Public helper for UI strings.
+    if (_resolvedLanguage !== 'en') return str;
+    if (str === null || str === undefined) return str;
+
+    const raw = String(str);
+    const lead = raw.match(/^\s*/)?.[0] ?? '';
+    const trail = raw.match(/\s*$/)?.[0] ?? '';
+    const core = raw.trim();
+    const key = _i18nNorm(core);
+    if (!key) return raw;
+
+    // 1) Exact match
+    let translated = I18N_EN[key];
+
+    // 2) Regex rules (dynamic strings)
+    if (!translated) {
+        for (const [re, fn] of I18N_EN_REGEX) {
+            const m = key.match(re);
+            if (!m) continue;
+            try {
+                translated = (typeof fn === 'function') ? fn(...m) : key.replace(re, fn);
+            } catch (_) {
+                translated = null;
+            }
+            break;
+        }
+    }
+
+    // 3) Fragment replacement fallback (handles things like "OP 권한 부여됨")
+    if (!translated) {
+        if (!_i18nKeyOrder) {
+            _i18nKeyOrder = Object.keys(I18N_EN).sort((a, b) => b.length - a.length);
+        }
+        let out = key;
+        for (const k of _i18nKeyOrder) {
+            if (!out.includes(k)) continue;
+            out = out.split(k).join(I18N_EN[k]);
+        }
+        translated = out;
+    }
+
+    // Keep original outer whitespace without duplicating it
+    let t = translated;
+    if (lead) t = t.replace(/^\s+/, '');
+    if (trail) t = t.replace(/\s+$/, '');
+    return lead + t + trail;
+}
+
+function _i18nShouldSkipTextNode(node) {
+    try {
+        const p = node?.parentNode;
+        if (!p || p.nodeType !== 1) return false;
+        const tag = p.tagName;
+        return tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT';
+    } catch (_) {
+        return false;
+    }
+}
+
+function _i18nTranslateTextNode(node) {
+    if (!node || node.nodeType !== 3) return;
+    if (_i18nShouldSkipTextNode(node)) return;
+
+    const raw = node.data;
+    if (!raw || !raw.trim()) return;
+
+    const translated = i18nTranslate(raw);
+    if (translated === raw) return;
+
+    _i18nOriginalText.set(node, { raw, translated });
+    node.data = translated;
+}
+
+function _i18nTranslateElementAttrs(el) {
+    if (!el || el.nodeType !== 1) return;
+    const tag = el.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return;
+
+    const attrs = ['aria-label', 'title', 'placeholder', 'alt'];
+    for (const a of attrs) {
+        if (!el.hasAttribute(a)) continue;
+        const raw = el.getAttribute(a);
+        if (!raw) continue;
+
+        const translated = i18nTranslate(raw);
+        if (translated === raw) continue;
+
+        let store = _i18nOriginalAttr.get(el);
+        if (!store) {
+            store = {};
+            _i18nOriginalAttr.set(el, store);
+        }
+        store[a] = { raw, translated };
+        el.setAttribute(a, translated);
+    }
+}
+
+function _i18nTranslateSubtree(root) {
+    if (_resolvedLanguage !== 'en') return;
+    if (!root) return;
+
+    _i18nApplying = true;
+    try {
+        // Attributes
+        if (root.nodeType === 1) {
+            _i18nTranslateElementAttrs(root);
+            root.querySelectorAll?.('*')?.forEach(el => _i18nTranslateElementAttrs(el));
+        }
+
+        // Text nodes
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = walker.nextNode())) {
+            _i18nTranslateTextNode(n);
+        }
+    } finally {
+        _i18nApplying = false;
+    }
+}
+
+function _i18nRestoreAll() {
+    _i18nApplying = true;
+    try {
+        for (const [node, st] of _i18nOriginalText.entries()) {
+            try {
+                if (!st) continue;
+                const current = node.data;
+                if (current === st.translated) node.data = st.raw;
+            } catch (_) { /* ignore */ }
+        }
+        for (const [el, store] of _i18nOriginalAttr.entries()) {
+            try {
+                for (const [a, st] of Object.entries(store || {})) {
+                    if (!st) continue;
+                    const cur = el.getAttribute(a);
+                    if (cur === st.translated) el.setAttribute(a, st.raw);
+                }
+            } catch (_) { /* ignore */ }
+        }
+        // Release references so detached DOM nodes can be GC'd
+        _i18nOriginalText.clear();
+        _i18nOriginalAttr.clear();
+    } finally {
+        _i18nApplying = false;
+    }
+}
+
+function _resolveSystemLanguage() {
+    try {
+        const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+        const first = String(langs[0] || '').toLowerCase();
+        return first.startsWith('ko') ? 'ko' : 'en';
+    } catch (_) {
+        return 'ko';
+    }
+}
+
+function _applyResolvedLanguage(resolved) {
+    _resolvedLanguage = resolved === 'en' ? 'en' : 'ko';
+    try {
+        document.documentElement.setAttribute('lang', _resolvedLanguage);
+    } catch (_) { /* ignore */ }
+
+    // Ensure observer exists once (best-effort)
+    if (!_i18nObserver && typeof MutationObserver !== 'undefined') {
+        _i18nObserver = new MutationObserver((mutations) => {
+            if (_i18nApplying) return;
+            if (_resolvedLanguage !== 'en') return;
+
+            _i18nApplying = true;
+            try {
+                for (const m of mutations) {
+                    if (m.type === 'characterData') {
+                        _i18nTranslateTextNode(m.target);
+                    } else if (m.type === 'attributes') {
+                        _i18nTranslateElementAttrs(m.target);
+                    } else if (m.type === 'childList') {
+                        m.addedNodes?.forEach(n => {
+                            if (n.nodeType === 3) _i18nTranslateTextNode(n);
+                            else if (n.nodeType === 1) _i18nTranslateSubtree(n);
+                        });
+                    }
+                }
+            } finally {
+                _i18nApplying = false;
+            }
+        });
+        try {
+            _i18nObserver.observe(document.body || document.documentElement, {
+                subtree: true,
+                childList: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['aria-label', 'title', 'placeholder', 'alt']
+            });
+        } catch (_) { /* ignore */ }
+    }
+
+    if (_resolvedLanguage === 'en') {
+        _i18nTranslateSubtree(document.body || document.documentElement);
+    } else {
+        _i18nRestoreAll();
+    }
+}
+
+function _updateLanguageSelector(mode) {
+    try {
+        document.querySelectorAll('.lang-opt').forEach(el => el.classList.remove('active'));
+        const id = mode === 'ko' ? 'lang-ko' : mode === 'en' ? 'lang-en' : 'lang-system';
+        document.getElementById(id)?.classList.add('active');
+
+        // Sliding pill: set index (Korean=0, English=1, System=2)
+        const pillIndex = mode === 'ko' ? 0 : mode === 'en' ? 1 : 2;
+        document.querySelectorAll('.lang-selector').forEach(sel => {
+            sel.style.setProperty('--pill-index', pillIndex);
+        });
+    } catch (_) { /* ignore */ }
+}
+
+function setLanguageMode(mode) {
+    // Requirement: Always start internally as "system".
+    if (mode !== 'ko' && mode !== 'en' && mode !== 'system') mode = 'system';
+    _activeLanguageMode = mode;
+    _updateLanguageSelector(mode);
+
+    const resolved = (mode === 'system') ? _resolveSystemLanguage() : mode;
+    _applyResolvedLanguage(resolved);
+}
+
+(function initLanguageMode() {
+    // Start in "System" every time (no persistence).
+    setLanguageMode('system');
+
+    // Best-effort: re-apply if browser language changes while in System.
+    try {
+        window.addEventListener('languagechange', () => {
+            if (_activeLanguageMode !== 'system') return;
+            _applyResolvedLanguage(_resolveSystemLanguage());
+        });
+    } catch (_) { /* ignore */ }
+})();
 
 
 // --- Animation Utility ---
@@ -966,17 +2531,145 @@ function switchTab(tabId) {
 
 // --- Audio System (Tone.js) ---
 async function initAudio() {
-    if (_initAudioPromise) return _initAudioPromise;
-    _initAudioPromise = AudioEngine.init();
-    await _initAudioPromise;
-    syncAudioNodes();
-
-    // Initial Defaults
-    if (typeof setChannelMode === 'function') {
-        setChannelMode(channelMode);
+    // Fast-path: already initialized.
+    if (masterGain) {
+        if (typeof Tone !== 'undefined' && Tone?.context?.state !== 'running') {
+            try { await Tone.start(); } catch (_) { /* best-effort */ }
+        }
+        return;
     }
 
-    return _initAudioPromise;
+    // Prevent concurrent initializations (e.g., play() + slider actions firing together)
+    if (_initAudioPromise) return _initAudioPromise;
+
+    _initAudioPromise = (async () => {
+        if (typeof Tone === 'undefined' || !Tone?.context) {
+            throw new Error('Tone.js not loaded');
+        }
+
+        if (Tone.context.state !== 'running') {
+            await Tone.start();
+        }
+        if (masterGain) return; // Another call may have finished while awaiting
+
+        // 2. Channel & Stereo Processing
+        toneSplit = new Tone.Split();
+        toneMerge = new Tone.Merge();
+        gainL = new Tone.Gain(1);
+        gainR = new Tone.Gain(1);
+
+        toneSplit.connect(gainL, 0); // L -> gainL
+        toneSplit.connect(gainR, 1); // R -> gainR
+
+        // Default Routing: Stereo (L->0, R->1 of merge)
+        gainL.connect(toneMerge, 0, 0);
+        gainR.connect(toneMerge, 0, 1);
+
+        // 3. Effects Chain
+        masterGain = new Tone.Gain(1);
+
+        // EQ (5-Band) - Using 5 Peaking Filters
+        const freqs = [60, 230, 910, 3600, 14000];
+        eqNodes = freqs.map(f => {
+            const filt = new Tone.Filter({
+                type: "peaking",
+                frequency: f,
+                Q: 1.0,
+                gain: 0
+            });
+            return filt;
+        });
+
+        // Preamplifier
+        preamp = new Tone.Gain(1);
+        widener = new Tone.StereoWidener(1);
+
+        // Reverb
+        reverb = new Tone.Reverb({
+            decay: 5.0,
+            preDelay: 0.1
+        });
+        reverb.wet.value = 1; // 100% Wet for parallel routing
+        await reverb.generate();
+
+        // Damping & Mixing (New)
+        // Smooth filters (-12dB/oct) for natural sound
+        rvbLowCut = new Tone.Filter(20, "highpass", -12);
+        rvbHighCut = new Tone.Filter(20000, "lowpass", -12);
+        rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
+
+        // 4. Virtual Bass Chain (The "Secret Sauce")
+        // Parallel Path: Source -> LPF -> Chebyshev -> (optional LPF) -> Gain -> Master
+        // - For L/R/Center: Chebyshev harmonics are kept (psychoacoustic bass on small speakers)
+        // - For Sub/LFE: We keep only low frequencies (filter-based), instead of hard-muting.
+        vbFilter = new Tone.Filter(subFreq, "lowpass", -12); // Dynamic crossover/extraction
+        vbCheby = new Tone.Chebyshev(50); // Harmonics generator
+        vbPostFilter = new Tone.Filter(20000, "lowpass", -12); // Sub/LFE harmonics suppression (configured in applySettings)
+        vbGain = new Tone.Gain(0); // Mix level
+
+        // Connections
+        // New Order: Player -> Widener -> Preamp -> Split -> (Channel Logic) -> Merge -> EQ -> Reverb -> Master
+
+        // 1. Pre-Processing (Stereo Width & Preamp)
+        // Audio is handled via Tone.js (Buffer Mode)
+        widener.connect(preamp);
+
+        // 2. Channel Splitting
+        preamp.connect(toneSplit);
+
+        // toneSplit connects to gainL/gainR (already set above: toneSplit.connect(gainL, 0)...)
+        // gainL/gainR connect to toneMerge (managed by setChannelMode)
+
+        // 3. Post-Processing (EQ & Reverb after Merge)
+        // Chain: Merge -> GlobalLowPass -> EQ -> Reverb -> Master
+        globalLowPass = new Tone.Filter(20000, "lowpass"); // Default Open
+
+        toneMerge.connect(globalLowPass);
+        let eqIn = globalLowPass;
+        eqNodes.forEach(fx => {
+            eqIn.connect(fx);
+            eqIn = fx;
+        });
+
+        // [Wet/Dry Routing with Damping]
+        // 1. Dry Path
+        eqIn.connect(rvbCrossFade.a);
+
+        // 2. Wet Path (Reverb -> LowCut -> HighCut -> CrossFade)
+        eqIn.connect(reverb);
+        reverb.connect(rvbLowCut);
+        rvbLowCut.connect(rvbHighCut);
+        rvbHighCut.connect(rvbCrossFade.b);
+
+        // 3. Output
+        rvbCrossFade.connect(masterGain);
+
+        // 4. Virtual Bass Chain (Parallel)
+        // Tap AFTER channel routing (+EQ) so it respects the selected role (L/R/Center/Sub)
+        // and doesn't leak the opposite channel in L/R modes.
+        eqIn.connect(vbFilter);
+        vbFilter.connect(vbCheby);
+        vbCheby.connect(vbPostFilter);
+        vbPostFilter.connect(vbGain);
+        vbGain.connect(masterGain);
+
+        // Visualizer
+        analyser = new Tone.Analyser("fft", 2048);
+        analyser.smoothing = 0.3; // Lower = more immediate/punchy response
+        masterGain.connect(analyser);
+        masterGain.toDestination();
+
+        // Initial Defaults
+        // - Apply current channelMode routing (user may have selected a role before audio init)
+        // - applySettings() is called inside setChannelMode()
+        setChannelMode(channelMode);
+    })();
+
+    try {
+        await _initAudioPromise;
+    } finally {
+        _initAudioPromise = null;
+    }
 }
 
 
@@ -998,24 +2691,45 @@ const MAX_GUEST_SLOTS = 3;
 
 const PEER_NAME_PREFIX = 'Peer';
 
-// Slot management moved to PeerManager
-const peerSlotByPeerId = PeerManager.peerSlotByPeerId;
-const activeHostConnByPeerId = PeerManager.activeHostConnByPeerId;
+// Slot index: 1..MAX_GUEST_SLOTS (0 is unused)
+const peerSlots = new Array(MAX_GUEST_SLOTS + 1).fill(null); // slot -> peerId
+const peerSlotByPeerId = new Map(); // peerId -> slot
+
+// Track currently-active Host-side PeerJS connections to avoid stale close events
+// freeing the slot when a duplicate connection is replaced.
+const activeHostConnByPeerId = new Map(); // peerId -> PeerJS DataConnection
 
 function getPeerLabelBySlot(slot) {
-    return PeerManager.getPeerLabel(slot);
+    return `${PEER_NAME_PREFIX} ${slot}`;
 }
 
 function getAvailablePeerSlot(preferredSlot = null, peerId = null) {
-    return PeerManager.getAvailableSlot(preferredSlot, peerId);
+    const pref = Number(preferredSlot);
+    if (Number.isInteger(pref) && pref >= 1 && pref <= MAX_GUEST_SLOTS) {
+        const occupant = peerSlots[pref];
+        if (!occupant || occupant === peerId) return pref;
+    }
+    for (let i = 1; i <= MAX_GUEST_SLOTS; i++) {
+        if (!peerSlots[i]) return i;
+    }
+    return null;
 }
 
 function assignPeerSlot(peerId, slot) {
-    PeerManager.assignSlot(peerId, slot);
+    if (!peerId) return;
+    const s = Number(slot);
+    if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
+    peerSlots[s] = peerId;
+    peerSlotByPeerId.set(peerId, s);
 }
 
 function releasePeerSlot(peerId) {
-    PeerManager.releaseSlot(peerId);
+    if (!peerId) return;
+    const slot = peerSlotByPeerId.get(peerId);
+    if (slot) {
+        if (peerSlots[slot] === peerId) peerSlots[slot] = null;
+    }
+    peerSlotByPeerId.delete(peerId);
 }
 
 let appRole = 'idle'; // 'host' | 'guest' | 'idle'
@@ -4973,18 +6687,56 @@ function updateSyncBtnState(isGuest) {
 
 // Network initialization
 async function initNetwork(requestedId = null) {
-    try {
-        // Wire up app-level host connection handler before init
-        NetworkManager.onIncomingConnection = handleHostIncomingConnection;
-        const id = await NetworkManager.init(requestedId);
-        syncNetworkState();
-        return id;
-    } catch (err) {
-        if (err.message === 'PEERJS_NOT_LOADED') {
-            showToast('네트워크 초기화 실패');
-        }
-        throw err;
+    // PeerJS must already be loaded (via CDN script)
+    if (!window.Peer) {
+        log.error('[Network] PeerJS not found on window.');
+        showToast('네트워크 초기화 실패');
+        throw new Error('PEERJS_NOT_LOADED');
     }
+
+    // Clean up existing peer instance
+    if (peer) {
+        try { peer.destroy(); } catch (e) { /* noop */ }
+        peer = null;
+    }
+
+    // Local-only ICE: no STUN/TURN (forces same LAN / same Wi‑Fi)
+    const peerOpts = {
+        debug: 2,
+        config: {
+            iceServers: [],
+            sdpSemantics: 'unified-plan',
+            bundlePolicy: 'max-bundle',
+            iceCandidatePoolSize: 0,
+        }
+    };
+
+    // Optional: allow Toss (or any) infrastructure to provide a custom PeerJS signaling server
+    // Example injection (global):
+    // window.__MUSIXQUARE_PEER_SERVER__ = { host: 'peer.yourdomain.com', port: 443, path: '/peerjs', secure: true };
+    const customPeerServer = window.__MUSIXQUARE_PEER_SERVER__;
+    if (customPeerServer && typeof customPeerServer === 'object') {
+        if (customPeerServer.host) peerOpts.host = customPeerServer.host;
+        if (customPeerServer.port) peerOpts.port = customPeerServer.port;
+        if (customPeerServer.path) peerOpts.path = customPeerServer.path;
+        if (typeof customPeerServer.secure === 'boolean') peerOpts.secure = customPeerServer.secure;
+        if (customPeerServer.key) peerOpts.key = customPeerServer.key;
+    }
+
+    // If requestedId is provided, claim it as our PeerJS ID (used as 6-digit session code for Host)
+    peer = new Peer(requestedId || undefined, peerOpts);
+
+    setupPeerEvents();
+
+    // Wait for open (or fail fast on error)
+    const id = await new Promise((resolve, reject) => {
+        peer.once('open', resolve);
+        peer.once('error', reject);
+    });
+
+    myId = id;
+    log.info('[Network] Peer opened:', myId);
+    return myId;
 }
 
 function generateSessionCode() {
@@ -5016,8 +6768,38 @@ function handleSetupJoin() {
 }
 
 function setupPeerEvents() {
-    // Moved to NetworkManager
+
+    peer.on('error', (err) => {
+        log.error('[PeerJS] Error:', err);
+
+        // Host: most errors should be surfaced
+        if (appRole === 'host' && !hostConn) {
+            if (err && err.type === 'id-taken') {
+                // handled by createHostSessionWithShortCode retry loop
+                return;
+            }
+            showToast('네트워크 오류가 발생했어요. 같은 Wi‑Fi인지 확인해주세요.');
+        }
+
+        // Guest: joinSession handles common errors
+    });
+
+    peer.on('disconnected', () => {
+        log.warn('[PeerJS] Disconnected from signaling server');
+    });
+
+    peer.on('connection', (conn) => {
+        // Incoming connections are HOST-only.
+        if (appRole !== 'host') {
+            try { conn.close(); } catch (e) { /* noop */ }
+            return;
+        }
+        handleHostIncomingConnection(conn);
+    });
 }
+
+// (v3 이전) 슬롯 기반(L/R/Sub) 자동 세팅 로직은 Toss 인앱 요구사항에 맞춰 제거되었습니다.
+
 function handleHostIncomingConnection(conn) {
     const peerId = conn.peer;
 
@@ -5040,7 +6822,7 @@ function handleHostIncomingConnection(conn) {
     }
 
     // Remove any lingering peer object with the same id
-    PeerManager.removePeer(peerId);
+    connectedPeers = connectedPeers.filter(p => p.id !== peerId);
 
     // --------------------------------------------------------------------
     // Enforce max guests (host 제외)
@@ -5063,15 +6845,21 @@ function handleHostIncomingConnection(conn) {
     // --------------------------------------------------------------------
     // Host-assigned slot naming: Peer 1..N (reuse freed slots)
     // --------------------------------------------------------------------
-    const slot = PeerManager.getAvailableSlot(PeerManager.peerSlotByPeerId.get(peerId), peerId);
+    const preferredSlot = peerSlotByPeerId.get(peerId) || null;
+    const slot = getAvailablePeerSlot(preferredSlot, peerId);
     if (!slot) {
-        // Defensive close if full
-        try { conn.send({ type: MSG.SESSION_FULL, message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.' }); } catch (e) { }
-        try { conn.close(); } catch (e) { }
+        // Defensive: should not happen if length check passed, but keep safe.
+        try {
+            conn.send({
+                type: MSG.SESSION_FULL,
+                message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
+            });
+        } catch (e) { /* noop */ }
+        try { conn.close(); } catch (e) { /* noop */ }
         return;
     }
-    PeerManager.assignSlot(peerId, slot);
-    const deviceName = PeerManager.getPeerLabel(slot);
+    assignPeerSlot(peerId, slot);
+    const deviceName = getPeerLabelBySlot(slot);
 
     // Keep guest-provided metadata only as informational (do NOT use it as the device name)
     const metaLabel = (conn && conn.metadata && typeof conn.metadata.label === 'string') ? conn.metadata.label.trim() : '';
@@ -5080,7 +6868,7 @@ function handleHostIncomingConnection(conn) {
     peerLabels[peerId] = deviceName;
 
     // New connection becomes the active one
-    PeerManager.activeHostConnByPeerId.set(peerId, conn);
+    activeHostConnByPeerId.set(peerId, conn);
 
     const peerObj = {
         id: peerId,
@@ -5098,7 +6886,7 @@ function handleHostIncomingConnection(conn) {
         currentFileId: null,
     };
 
-    PeerManager.addPeer(peerObj);
+    connectedPeers.push(peerObj);
 
     updateRoleBadge();
 
@@ -5228,8 +7016,8 @@ function handleHostIncomingConnection(conn) {
     conn.on('data', (data) => {
         try { handleData(data, conn); }
         catch (e) { log.error('[Host] Error in handleData', e); }
-        // Note: handleOperatorRequest is dispatched via the handlers table (request-* entries)
-        // to avoid double execution. No direct call needed here.
+        try { handleOperatorRequest(data, conn); }
+        catch (e) { log.error('[Host] Error in handleOperatorRequest', e); }
     });
 
     conn.on('close', () => {
@@ -5243,7 +7031,7 @@ function handleHostIncomingConnection(conn) {
         activeHostConnByPeerId.delete(peerId);
         releasePeerSlot(peerId);
 
-        PeerManager.removePeer(peerId);
+        connectedPeers = connectedPeers.filter(p => p.id !== peerId);
 
         updateRoleBadge();
 
@@ -5264,7 +7052,7 @@ function handleHostIncomingConnection(conn) {
         activeHostConnByPeerId.delete(peerId);
         releasePeerSlot(peerId);
 
-        PeerManager.removePeer(peerId);
+        connectedPeers = connectedPeers.filter(p => p.id !== peerId);
 
         updateRoleBadge();
 
@@ -5389,8 +7177,8 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         } catch (e) { /* noop */ }
         pendingPlacementToastMode = null;
 
-        // Message handler (bind conn so handleData can identify sender)
-        conn.on('data', (data) => handleData(data, conn));
+        // Message handler
+        conn.on('data', handleData);
 
         // Guard: PeerJS fires both 'error' and 'close' on failure → deduplicate popup
         conn._errorHandled = false;
@@ -5465,7 +7253,7 @@ async function leaveSession(opts = {}) {
     // Stop background worker timers & any in-flight OPFS catch-up pumps
     stopBackgroundWorkerTimers();
     try {
-        FileTransferManager.opfsCatchupPumps.forEach((_, pid) => FileTransferManager.stopOpfsCatchupStream(pid, 'leave-session'));
+        opfsCatchupPumps.forEach((_, pid) => stopOpfsCatchupStream(pid, 'leave-session'));
     } catch (_) { }
 
     clearAllManagedTimers();
@@ -5492,8 +7280,15 @@ async function leaveSession(opts = {}) {
             if (p.conn && typeof p.conn.close === 'function') p.conn.close();
         } catch (e) { /* best-effort close on guest connection */ }
     });
-    PeerManager.init();
+    connectedPeers = [];
     downstreamDataPeers = [];
+
+    // Reset host-assigned peer slots
+    try {
+        activeHostConnByPeerId.clear();
+        peerSlotByPeerId.clear();
+        for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
+    } catch (_) { /* best-effort */ }
 
     // [Cleanup Media & State]
     stopAllMedia();
@@ -7364,10 +9159,8 @@ async function handlePause(data) {
     pause();
 }
 async function handleVolume(data) {
-    const val = Number(data.value);
-    if (!Number.isFinite(val)) return;
-    setVolume(val);
-    showToast(`Volume: ${Math.round(val * 100)}%`);
+    setVolume(data.value);
+    showToast(`Volume: ${Math.round(data.value * 100)}%`);
 }
 
 async function handleReverb(data) { setReverbParam('mix', data.value); }
@@ -7716,32 +9509,28 @@ const handlers = {
     'request-current-file': handleRequestCurrentFile,
     'request-data-recovery': handleRequestDataRecovery,
     'preload-ack': handlePreloadAck,
-    'request-eq-reset': (data, conn) => handleOperatorRequest(data, conn),
-    'request-setting': (data, conn) => handleOperatorRequest(data, conn),
-    'request-play': (data, conn) => handleOperatorRequest(data, conn),
-    'request-pause': (data, conn) => handleOperatorRequest(data, conn),
-    'request-seek': (data, conn) => handleOperatorRequest(data, conn),
-    'request-track-change': (data, conn) => handleOperatorRequest(data, conn),
-    'request-next-track': (data, conn) => handleOperatorRequest(data, conn),
-    'request-prev-track': (data, conn) => handleOperatorRequest(data, conn),
-    'request-youtube-play': (data, conn) => handleOperatorRequest(data, conn),
-    'request-youtube-pause': (data, conn) => handleOperatorRequest(data, conn),
-    'request-reverb-reset': (data, conn) => handleOperatorRequest(data, conn),
-    'request-skip-time': (data, conn) => handleOperatorRequest(data, conn),
-    'request-youtube-sub-seek': (data, conn) => handleOperatorRequest(data, conn),
+    'request-eq-reset': (data, conn) => handleOperatorRequest(data),
+    'request-setting': (data, conn) => handleOperatorRequest(data),
+    'request-play': (data, conn) => handleOperatorRequest(data),
+    'request-pause': (data, conn) => handleOperatorRequest(data),
+    'request-seek': (data, conn) => handleOperatorRequest(data),
+    'request-track-change': (data, conn) => handleOperatorRequest(data),
+    'request-next-track': (data, conn) => handleOperatorRequest(data),
+    'request-prev-track': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-play': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-pause': (data, conn) => handleOperatorRequest(data),
+    'request-reverb-reset': (data, conn) => handleOperatorRequest(data),
+    'request-skip-time': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-sub-seek': (data, conn) => handleOperatorRequest(data),
     'request-youtube-playlist-info': (data, conn) => {
-        if (hostConn) return;
+        // Host responds with cached playlist sub-item data
+        if (hostConn) return; // Only host handles this
         const pid = data.playlistId;
         if (pid && youtubeSubItemsMap[pid]) {
             conn.send({ type: MSG.YOUTUBE_PLAYLIST_INFO, playlistId: pid, ids: youtubeSubItemsMap[pid].ids || [], titles: youtubeSubItemsMap[pid].titles || [] });
         }
     },
 };
-
-// Register all handlers to NetworkManager
-Object.entries(handlers).forEach(([type, fn]) => {
-    NetworkManager.registerHandler(type, fn);
-});
 
 async function handlePreloadAck(data, conn) {
     if (hostConn) return; // Guest ignores
@@ -7979,7 +9768,7 @@ function connectToRelay(targetId) {
         clearTimeout(connTimer);
         upstreamDataConn = conn;
         showToast("Connected to Relay Node");
-        conn.on('data', (data) => handleData(data, conn));
+        conn.on('data', handleData);
 
         log.debug("Requesting file from relay...");
         conn.send({ type: MSG.REQUEST_CURRENT_FILE });
@@ -8134,7 +9923,7 @@ function handleRelayConnection(conn) {
                     // [Stability] Worker queue 폭주 방지:
                     // 기존처럼 OPFS_READ를 receivedCount 만큼 한꺼번에 보내면 (특히 대용량 파일/저사양 iOS에서)
                     // 프리징/메모리 급증/락 충돌이 발생할 수 있습니다.
-                    FileTransferManager.startOpfsCatchupStream(conn, {
+                    startOpfsCatchupStream(conn, {
                         filename: meta.name,
                         sessionId: meta.sessionId || localTransferSessionId,
                         startIndex: 0,
@@ -8167,7 +9956,7 @@ function handleRelayConnection(conn) {
 
     conn.on('close', () => {
         downstreamDataPeers = downstreamDataPeers.filter(p => p.peer !== conn.peer);
-        FileTransferManager.stopOpfsCatchupStream(conn.peer, 'peer close');
+        stopOpfsCatchupStream(conn.peer, 'peer close');
     });
 }
 
@@ -8345,12 +10134,7 @@ window.toggleOperator = function (peerId) {
     }
 };
 
-function handleOperatorRequest(data, conn) {
-    // Verify sender is an operator (Host-side only)
-    if (conn) {
-        const peer = connectedPeers.find(p => p.id === conn.peer);
-        if (!peer || !peer.isOp) return;
-    }
+function handleOperatorRequest(data) {
     if (data.type === MSG.REQUEST_PLAY) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
@@ -8529,18 +10313,237 @@ function sendRecoveryRequest(forceChunk = null) {
     }, backoffMs);
 }
 
-// [SECTION] FILE TRANSFER
-// Implementation moved to FileTransferManager
-function broadcastFile(file, explicitSessionId = null) {
-    return FileTransferManager.broadcastFile(file, connectedPeers, explicitSessionId);
+async function broadcastFile(file, explicitSessionId = null) {
+    let sessionId;
+    if (explicitSessionId !== null) {
+        sessionId = explicitSessionId;
+        // Ensure global counter is at least equal to this (sync check)
+        if (sessionId > currentTransferSessionId) currentTransferSessionId = sessionId;
+    } else {
+        currentTransferSessionId++;
+        sessionId = currentTransferSessionId;
+    }
+
+    const CHUNK = CHUNK_SIZE;
+    const total = Math.ceil(file.size / CHUNK);
+    const header = { type: MSG.FILE_START, name: file.name, mime: file.type, total: total, size: file.size, index: currentTrackIndex, sessionId: sessionId };
+
+    const getEligiblePeers = () => {
+        return connectedPeers.filter(p => {
+            const trackIdx = currentTrackIndex;
+            const alreadyHasPreload = p.preloadedIndexes && p.preloadedIndexes.has(trackIdx);
+
+            // For direct playback (broadcastFile), always send even if they had it preloaded.
+            // Guests will ignore it via _skipIncomingFile if they still have the data.
+            // This prevents "Previous Track" from failing if Guest deleted the file.
+            return (p.status === 'connected' && p.conn.open && p.isDataTarget !== false);
+        });
+    };
+
+    const eligiblePeers = getEligiblePeers();
+
+    if (eligiblePeers.length === 0) {
+        log.debug("[broadcastFile] All peers have preload or no peers, skipping file transfer");
+        return;
+    }
+
+    // Session Guard: Prevent double-broadcast of the same file/session
+    if (_activeBroadcastSession === sessionId) return;
+    _activeBroadcastSession = sessionId;
+
+    log.debug(`[broadcastFile] Sending to ${eligiblePeers.length} peers (${connectedPeers.filter(p => p.status === 'connected').length - eligiblePeers.length} skipped due to preload)`);
+
+    // Per-peer send queue init (edge-cases):
+    // - Avoid Array.shift() O(n) behavior on large queues
+    // - Ensure queue exists even if total===0 (empty file)
+    const ensurePeerSendQueue = (p) => {
+        if (!p || p.openSender) return;
+        p.openSender = true;
+        p.chunkQueue = [];
+        p._chunkQueueHead = 0;
+        p.isSending = false;
+
+        p.processQueue = async () => {
+            // Fast exit
+            if (p.isSending) return;
+            if (!p.chunkQueue || p._chunkQueueHead >= p.chunkQueue.length) return;
+            p.isSending = true;
+            try {
+                while (p.chunkQueue && p._chunkQueueHead < p.chunkQueue.length) {
+                    const msg = p.chunkQueue[p._chunkQueueHead++];
+
+                    // Per-peer backpressure check
+                    while (p.conn?.dataChannel && p.conn.dataChannel.bufferedAmount > 512 * 1024) {
+                        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+                        if (!p.conn?.open) break;
+                    }
+
+                    if (p.conn?.open) {
+                        try { p.conn.send(msg); } catch (e) { log.warn(`[Send] Failed for ${p.label}:`, e); }
+                    } else {
+                        // Connection closed: drop queue
+                        p.chunkQueue = [];
+                        p._chunkQueueHead = 0;
+                        break;
+                    }
+
+                    // Periodic compaction to prevent unbounded memory growth
+                    if (p._chunkQueueHead > 1024) {
+                        p.chunkQueue = p.chunkQueue.slice(p._chunkQueueHead);
+                        p._chunkQueueHead = 0;
+                    }
+                }
+            } finally {
+                p.isSending = false;
+                // If new items arrived while sending, kick once more.
+                if (p.chunkQueue && p._chunkQueueHead < p.chunkQueue.length) {
+                    try { p.processQueue(); } catch (_) { /* noop */ }
+                }
+            }
+        };
+    };
+
+    eligiblePeers.forEach(ensurePeerSendQueue);
+
+    // Send header (best-effort)
+    eligiblePeers.forEach(p => {
+        try { if (p?.conn?.open) p.conn.send(header); } catch (e) { log.warn('[broadcastFile] header send failed:', e); }
+    });
+
+    for (let i = 0; i < total; i++) {
+        // Session Guard: abort if track changed
+        if (_activeBroadcastSession !== sessionId) {
+            log.debug(`[broadcastFile] Session cancelled (ID: ${sessionId}), stopping transfer at chunk ${i}`);
+            eligiblePeers.forEach(p => {
+                if (p.chunkQueue) p.chunkQueue = [];
+                p._chunkQueueHead = 0;
+                p.isSending = false;
+            });
+            return;
+        }
+
+        const start = i * CHUNK;
+        const end = Math.min(start + CHUNK, file.size);
+        const chunkBlob = file.slice(start, end);
+        const chunkBuf = await chunkBlob.arrayBuffer();
+        const chunk = new Uint8Array(chunkBuf);
+        const chunkMsg = { type: MSG.FILE_CHUNK, chunk: chunk, index: i, sessionId: sessionId, total: total, name: file.name };
+
+        // Send to each peer independently and wait for their own backpressure
+        for (const p of eligiblePeers) {
+            ensurePeerSendQueue(p);
+            if (p.conn.open) {
+                p.chunkQueue.push(chunkMsg);
+                p.processQueue();
+            }
+        }
+
+        // Slight throttle to prevent main thread starvation during large file slicing
+        if (i % 50 === 0) await new Promise(r => setTimeout(r, DELAY.TICK));
+    }
+
+    // Prepare end message and send to all
+    const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId: sessionId };
+    eligiblePeers.forEach(p => {
+        ensurePeerSendQueue(p);
+        if (p.conn.open) {
+            p.chunkQueue.push(endMsg);
+            p.processQueue();
+        }
+    });
 }
-
-
 
 async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
-    return FileTransferManager.unicastFile(conn, file, startChunkIndex, sessionId);
-}
+    if (!conn || !conn.open) {
+        log.error("[Unicast] Connection is not open, cannot send file");
+        showToast("연결 오류: 파일 전송 실패");
+        return;
+    }
 
+    const effectiveSessionId = sessionId !== null ? sessionId : currentTransferSessionId;
+
+    const CHUNK = CHUNK_SIZE;
+    const total = Math.ceil(file.size / CHUNK);
+
+    const isResume = startChunkIndex > 0;
+    const msgType = isResume ? 'file-resume' : 'file-start';
+    log.debug(`[Unicast] Sending ${msgType}: ${file.name}, chunk ${startChunkIndex}/${total} (SID: ${effectiveSessionId})`);
+
+    try {
+        conn.send({
+            type: msgType,
+            name: file.name,
+            mime: file.type,
+            total: total,
+            size: file.size,
+            startChunk: startChunkIndex,
+            sessionId: effectiveSessionId
+        });
+    } catch (e) {
+        log.error(`[Unicast] Failed to send ${msgType}:`, e);
+        return;
+    }
+
+    await new Promise(r => setTimeout(r, 100));
+
+    if (startChunkIndex > 0) {
+        showToast(`Resuming transfer from ${startChunkIndex}...`);
+    }
+
+    try {
+        for (let i = startChunkIndex; i < total; i++) {
+            // Session Guard: abort if sequence changed
+            if (currentTransferSessionId !== effectiveSessionId) {
+                log.debug(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${currentTransferSessionId}), aborting transfer at chunk ${i}`);
+                return;
+            }
+
+            if (!conn.open) {
+                log.warn(`[Unicast] Connection closed at chunk ${i}/${total}. Aborting.`);
+                return;
+            }
+
+            try {
+                // Robust Back-pressure for Unicast
+                const startWait = Date.now();
+                while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
+                    if (Date.now() - startWait > 30000) break;
+                    await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+                }
+            } catch (bufferErr) {
+                log.warn("[Unicast] Buffer check failed, continuing:", bufferErr);
+            }
+
+            const start = i * CHUNK;
+            const end = Math.min(start + CHUNK, file.size);
+            const chunkBlob = file.slice(start, end);
+            const chunkBuf = await chunkBlob.arrayBuffer();
+            const chunk = new Uint8Array(chunkBuf);
+
+            try {
+                conn.send({ type: MSG.FILE_CHUNK, chunk: chunk, index: i, sessionId: effectiveSessionId, total: total, name: file.name });
+            } catch (sendErr) {
+                log.warn(`[Unicast] Send failed at chunk ${i}:`, sendErr);
+                return;
+            }
+
+            if (i % 50 === 0) {
+                await new Promise(r => setTimeout(r, DELAY.TICK));
+                if (i % 100 === 0) {
+                    log.debug(`[Unicast] Progress: ${i}/${total} chunks`);
+                }
+            }
+        }
+
+        if (conn.open) {
+            conn.send({ type: MSG.FILE_END, name: file.name, mime: file.type, sessionId: effectiveSessionId });
+            log.debug("[Unicast] Transfer complete:", file.name);
+        }
+
+    } catch (e) {
+        log.error("[Unicast] Transfer error:", e);
+    }
+}
 
 // [Consolidated] Use broadcast(msg, isDataOnly) above
 

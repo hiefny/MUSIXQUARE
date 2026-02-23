@@ -454,13 +454,10 @@
         font-size: clamp(13px, 1.1vw, 15px);
     }
 
-    /* Onboarding arrows */
-    .desktop-diagram-area .ob-arrow-left {
-        left: calc(50% - clamp(160px, 30%, 280px) - 52px);
-    }
-
-    .desktop-diagram-area .ob-arrow-right {
-        right: calc(50% - clamp(160px, 30%, 280px) - 52px);
+    /* Onboarding mini arrows — slightly larger on desktop */
+    .ob-nav-arrow {
+        font-size: 24px;
+        padding: 2px 8px;
     }
 
     /* --- Role SVG diagram: enlarged in left panel --- */

@@ -2730,8 +2730,6 @@ body.overlay-open .bottom-nav {
     display: flex;
     justify-content: center;
     gap: 8px;
-    margin-top: 28px;
-    margin-bottom: 8px;
 }
 
 .ob-dot {
@@ -2749,75 +2747,40 @@ body.overlay-open .bottom-nav {
     border-radius: 12px;
 }
 
-.ob-arrow {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%) !important;
-    width: 44px;
-    height: 44px;
-    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
-    border-radius: 50%;
+/* --- Onboarding nav row: dots + mini arrows --- */
+.ob-nav-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--primary);
-    cursor: pointer;
-    transition: background 0.2s, color 0.2s;
-    z-index: 10;
+    gap: 10px;
+    margin-top: 12px;
+    margin-bottom: 8px;
+}
 
-    /* Aggressive Reset */
+.ob-nav-arrow {
     appearance: none;
     -webkit-appearance: none;
-    border: none !important;
-    outline: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
-    background-clip: padding-box;
+    border: none;
+    outline: none;
+    background: none;
+    color: var(--text-sub, #888);
+    font-size: 22px;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.2s, background 0.15s;
+    user-select: none;
+    font-weight: 300;
 }
 
-.ob-arrow svg {
-    display: block;
-    width: 24px;
-    height: 24px;
-    pointer-events: none;
-    /* Prevent click interference */
+.ob-nav-arrow:hover {
+    color: var(--primary);
+    background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
 }
 
-/* Optical Centering Fix */
-.ob-arrow-left svg {
-    margin-right: 2px;
-    /* Push icon slightly left -> visual center */
-}
-
-.ob-arrow-right svg {
-    margin-left: 2px;
-    /* Push icon slightly right -> visual center */
-}
-
-.ob-arrow:hover {
-    background: var(--primary);
-    color: white;
-    transform: translateY(-50%) scale(1.1);
-}
-
-.ob-arrow-left {
-    left: -12px;
-}
-
-.ob-arrow-right {
-    right: -12px;
-}
-
-.ob-arrow svg {
-    width: 24px;
-    height: 24px;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    fill: none;
+.ob-nav-arrow:active {
+    transform: scale(0.9);
 }
 
 /* ob-actions handled in onboarding-card footer rule */
@@ -3602,34 +3565,6 @@ body.overlay-open .bottom-nav {
     font-weight: 600;
     margin-top: 20px;
     cursor: pointer;
-}
-
-.onboarding-card:hover .ob-arrow {
-    opacity: 1;
-}
-
-.ob-arrow:hover {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-    opacity: 1 !important;
-    transform: translateY(-50%) scale(1.1);
-}
-
-.ob-arrow-left {
-    left: 10px;
-}
-
-.ob-arrow-right {
-    right: 10px;
-}
-
-.ob-arrow svg {
-    width: 20px;
-    height: 20px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.2;
 }
 
 /* CSS for Calm & Clean Manual Sync UI */

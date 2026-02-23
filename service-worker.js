@@ -31,7 +31,7 @@
 // v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v67: UI null check fix for preload activation
-const CACHE_VERSION = "v74"; // Fix late-joiner empty playlist, misc cleanup
+const CACHE_VERSION = "v75"; // Fix channel mode fallback, skipTime duration, meta.index, operator resync, dead code cleanup
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

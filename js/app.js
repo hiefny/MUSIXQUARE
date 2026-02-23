@@ -161,12 +161,7 @@ function updateAppHeightNow() {
             if (dH > 0 && dH < 150) {
                 softKeyHeight = dH;
             }
-            if (softKeyHeight === 0) {
-                const dW = Math.round((scr.width || 0) - (scr.availWidth || 0));
-                if (dW > 0 && dW < 150 && dH <= 0) {
-                    softKeyHeight = 0;
-                }
-            }
+            // Strategy 2 removed: was a no-op (assigned 0 to already-0 variable)
         }
 
         // Strategy 3: Hardcoded 48dp fallback
@@ -1253,7 +1248,6 @@ let transferState = TRANSFER_STATE.IDLE;
 let incomingChunks = [];
 let receivedCount = 0;
 let meta = {};
-let _isProcessingBlob = false;
 
 // ============================================================================
 // [SECTION] OPFS STATE
@@ -1544,7 +1538,6 @@ const handleWorkerMessage = async (e) => {
 
                 // Dedup: Only send ack once per index
                 if (hostConn && typeof hostConn.send === 'function' && hostConn.open && nextTrackIndex !== undefined) {
-                    if (!_preloadAckSent) _preloadAckSent = new Set();
                     if (!_preloadAckSent.has(nextTrackIndex)) {
                         _preloadAckSent.add(nextTrackIndex);
                         hostConn.send({ type: MSG.PRELOAD_ACK, index: nextTrackIndex });
@@ -5108,7 +5101,7 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         videoElement.muted = true;
 
         // meta is updated here for Host
-        meta = { name: file.name, type: file.type };
+        meta = { name: file.name, type: file.type, index: currentTrackIndex };
 
         // redundant setEngineMode('buffer') removed.
         // _internalPlay will handle the state transition correctly soon.
@@ -5721,10 +5714,12 @@ function skipTime(sec) {
     let current = getTrackPosition();
 
     let target = current + sec;
-    const duration = videoElement ? videoElement.duration : 0;
+    const duration = (currentAudioBuffer && currentAudioBuffer.duration)
+        ? currentAudioBuffer.duration
+        : (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
 
     if (target < 0) target = 0;
-    if (target > duration) target = duration;
+    if (duration > 0 && target > duration) target = duration;
 
     // Broadcast
     play(target);
@@ -5797,7 +5792,9 @@ function setChannelMode(mode) {
         gainR.gain.value = 0.5;
 
     } else {
-        // Fallback
+        // Fallback: reconnect in stereo to prevent silent output after disconnect
+        gainL.connect(toneMerge, 0, 0);
+        gainR.connect(toneMerge, 0, 1);
         gainL.gain.rampTo(1, ramp);
         gainR.gain.rampTo(1, ramp);
     }
@@ -6404,7 +6401,7 @@ function startVisualizer() {
                 highSum += val;
             }
             const highAverage = highSum / highCountVal;
-            const highPunch = Math.pow(highAverage / 255, 1.0);
+            const highPunch = highAverage / 255;
 
             if (isLight) ctx.globalCompositeOperation = 'source-over';
             else ctx.globalCompositeOperation = 'lighter';
@@ -7419,7 +7416,6 @@ function clearPreviousTrackState(reason = '') {
     }
     stopPlayerNode();  // Stop any playing audio
     _skipIncomingFile = false;
-    _isProcessingBlob = false;
     window._pendingEarlyChunks = [];
     _pendingPlayTime = undefined; // Clear pending play intention on track change
 
@@ -8580,12 +8576,9 @@ async function handlePreloadChunk(data) {
 
     // Update progress
     // Rely on Session State for progress tracking to avoid Global Variable pollution
-    if (sessionState) {
-        sessionState.progress = sessionState.nextExpectedChunk;
-        preloadCount = sessionState.progress; // Sync global for legacy UI if needed
-    } else {
-        preloadCount = sessionState ? sessionState.nextExpectedChunk : 0; // Fallback
-    }
+    // sessionState is guaranteed truthy here (early return above if missing)
+    sessionState.progress = sessionState.nextExpectedChunk;
+    preloadCount = sessionState.progress; // Sync global for legacy UI if needed
 
     // Update UI for Preload
     if (preloadMeta && preloadMeta.total > 0) {
@@ -10197,6 +10190,10 @@ function handleOperatorRequest(data) {
             if (videoElement) videoElement.currentTime = data.time;
             broadcast({ type: MSG.PAUSE, time: data.time });
         }
+        // Schedule global resync after operator seek (consistent with slider/chat seeks)
+        setTimeout(() => {
+            broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+        }, 1000);
     } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
     } else if (data.type === MSG.REQUEST_REVERB_RESET) {

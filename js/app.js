@@ -4362,16 +4362,24 @@ function updatePlaylistUI() {
     // Update the main header title and artist text immediately when the playlist UI is updated.
     // This ensures the title always matches the active item even during rapid clicks.
     const currentItem = playlist[currentTrackIndex];
-    if (currentItem) {
-        const title = currentItem.name || currentItem.title || 'Unknown';
-        updateTitleWithMarquee(title);
+    if (currentTrackIndex !== -1) {
+        // [Metadata Sync Fix] Prefer 'meta.name' if it matches the current index, 
+        // as the playlist itself might not have updated yet (ordered messaging race).
+        let displayTitle = 'Unknown';
+        if (meta && meta.index === currentTrackIndex && meta.name) {
+            displayTitle = meta.name;
+        } else if (currentItem) {
+            displayTitle = currentItem.name || currentItem.title || 'Unknown';
+        }
+
+        updateTitleWithMarquee(displayTitle);
 
         const artistEl = document.getElementById('track-artist');
         if (artistEl) {
-            if (currentItem.artist) {
+            if (currentItem && currentItem.artist) {
                 artistEl.innerText = currentItem.artist;
             } else {
-                artistEl.innerText = (currentItem.type === 'youtube' && !currentItem.artist) ? 'YouTube Video' : `Track ${currentTrackIndex + 1}`;
+                artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? 'YouTube Video' : `Track ${currentTrackIndex + 1}`;
             }
         }
     }
@@ -4659,6 +4667,7 @@ async function playTrack(index) {
                 type: MSG.YOUTUBE_PLAY,
                 videoId: item.videoId,
                 playlistId: item.playlistId,
+                name: item.name || item.title,
                 index: index,
                 autoplay: false  // Will send 'play' command separately
             });
@@ -7004,9 +7013,6 @@ function handleHostIncomingConnection(conn) {
     conn.on('data', (data) => {
         try {
             handleData(data, conn);
-            handleOperatorRequest(data, conn);
-            handleOperatorAction(data, conn);
-            handleOperatorStatusUpdate(data, conn);
         } catch (e) {
             log.error('[Host] Error handling incoming data', e);
         }
@@ -7603,6 +7609,10 @@ async function handleFilePrepare(data) {
         // stopAllMedia(); // Removed - already called at the top of handler
         if (data.index !== undefined) {
             currentTrackIndex = data.index;
+            // [Metadata Sync Fix] Cache name temporarily if not in playlist yet
+            if (data.name && playlist[data.index]) {
+                playlist[data.index].name = data.name;
+            }
             updatePlaylistUI();
         }
 
@@ -8243,6 +8253,10 @@ async function handleYouTubePlay(data) {
     // 4. Sync track index
     if (data.index !== undefined) {
         currentTrackIndex = data.index;
+        // [Metadata Sync Fix] Cache name temporarily if not in playlist yet
+        if (data.name && playlist[data.index]) {
+            playlist[data.index].name = data.name;
+        }
         updatePlaylistUI();
     }
 
@@ -8351,6 +8365,15 @@ async function handlePreloadStart(data) {
     if (downstreamDataPeers.length > 0) {
         downstreamDataPeers.forEach(p => { if (p.open) p.send(data); });
     }
+
+    // [Stability Fix] Add watchdog to clear loader if transfer hangs
+    clearManagedTimer('preloadWatchdog');
+    managedTimers.preloadWatchdog = setTimeout(() => {
+        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+            log.warn("[Preload] Watchdog Triggered: Loader forcefully hidden after 30s timeout.");
+            showLoader(false);
+        }
+    }, 30000);
 }
 
 // Network Data Integrity: Preload Reordering Buffer
@@ -8411,6 +8434,14 @@ function drainPreloadReorderBuffer(sessionId) {
 
     // Update preload UI if main transfer is not using the loader
     if (preloadMeta && preloadMeta.total > 0) {
+        // Tick watchdog
+        clearManagedTimer('preloadWatchdog');
+        managedTimers.preloadWatchdog = setTimeout(() => {
+            if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+                showLoader(false);
+            }
+        }, 15000);
+
         if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
             const pct = Math.min(100, Math.floor((sessionState.progress / preloadMeta.total) * 100));
             updateLoader(pct);
@@ -8563,7 +8594,14 @@ async function handlePreloadChunk(data) {
 }
 
 async function handlePreloadEnd(data) {
-    if (_skipIncomingPreload) return;
+    clearManagedTimer('preloadWatchdog'); // Always clear on end
+    if (_skipIncomingPreload) {
+        // [Infinite Preparing Fix] Even if skipped, we MUST hide the loader if it was showing.
+        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+            showLoader(false);
+        }
+        return;
+    }
 
     /* Retrieve Session State to verify completeness */
     // NO FALLBACK to 0. Must have valid SID.
@@ -8651,6 +8689,12 @@ async function handlePlayPreloaded(data) {
     }
 
     currentTrackIndex = data.index;
+
+    // [Metadata Sync Fix] Cache name temporarily if not in playlist yet
+    if (data.name && playlist[data.index]) {
+        playlist[data.index].name = data.name;
+    }
+
     updatePlaylistUI(); // Update active highlight
 
     // If Guest was in YouTube mode, stop it before loading file
@@ -9401,7 +9445,28 @@ const handlers = {
     'get-sync-time': handleGetSyncTime,
     'request-current-file': handleRequestCurrentFile,
     'request-data-recovery': handleRequestDataRecovery,
+    'preload-ack': handlePreloadAck,
+    'request-eq-reset': (data, conn) => handleOperatorRequest(data),
+    'request-setting': (data, conn) => handleOperatorRequest(data),
+    'request-play': (data, conn) => handleOperatorRequest(data),
+    'request-pause': (data, conn) => handleOperatorRequest(data),
+    'request-seek': (data, conn) => handleOperatorRequest(data),
+    'request-track-change': (data, conn) => handleOperatorRequest(data),
+    'request-next-track': (data, conn) => handleOperatorRequest(data),
+    'request-prev-track': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-play': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-pause': (data, conn) => handleOperatorRequest(data),
 };
+
+async function handlePreloadAck(data, conn) {
+    if (hostConn) return; // Guest ignores
+    const p = connectedPeers.find(p => p.id === conn.peer);
+    if (p && data.index !== undefined) {
+        if (!p.preloadedIndexes) p.preloadedIndexes = new Set();
+        p.preloadedIndexes.add(Number(data.index));
+        log.debug(`[Host] Marked index ${data.index} as CACHED for peer ${p.label}`);
+    }
+}
 
 async function handleGetSyncTime(data, conn) {
     if (hostConn) return; // Guest ignores this
@@ -9548,6 +9613,41 @@ async function handleData(data, conn) {
             await handler(data, conn);
         } catch (e) {
             log.error(`Error handling ${data.type}:`, e);
+        }
+    }
+
+    // [Relay Architecture Fix] Automated Command Relay (Bi-directional)
+    if (hostConn) {
+        // 1. RELAY DOWNSTREAM (Control commands from Upstream -> Downstream)
+        if (downstreamDataPeers.length > 0) {
+            const RELAYABLE_COMMANDS = [
+                MSG.PLAY, MSG.PAUSE, MSG.VOLUME, MSG.SEEK,
+                MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
+                MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
+                MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
+                MSG.STEREO_WIDTH, MSG.VBASS,
+                MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
+                MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
+                MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE,
+                MSG.SYS_TOAST, MSG.STATUS_SYNC, MSG.CHAT,
+                MSG.PLAYLIST_UPDATE, MSG.PLAYLIST
+            ];
+
+            if (RELAYABLE_COMMANDS.includes(data.type)) {
+                downstreamDataPeers.forEach(p => {
+                    if (p.open) {
+                        try { p.send(data); } catch (_) { /* peer might have closed */ }
+                    }
+                });
+            }
+        }
+
+        // 2. RELAY UPSTREAM (Operator requests from Downstream -> Upstream)
+        if (conn !== hostConn && hostConn.open) {
+            if (data.type && data.type.startsWith('request-')) {
+                log.debug(`[Relay] Forwarding request downstream->upstream: ${data.type}`);
+                hostConn.send(data);
+            }
         }
     }
 }

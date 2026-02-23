@@ -26,8 +26,11 @@ export const FileTransferManager = {
         }
 
         const total = Math.ceil(file.size / CHUNK_SIZE);
+        const effectiveSessionId = sessionId !== null ? sessionId : this.localTransferSessionId;
         const isResume = startChunkIndex > 0;
         const msgType = isResume ? 'file-resume' : 'file-start';
+
+        log.debug(`[Unicast] Sending ${msgType}: ${file.name}, chunk ${startChunkIndex}/${total} (SID: ${effectiveSessionId})`);
 
         try {
             conn.send({
@@ -37,7 +40,7 @@ export const FileTransferManager = {
                 total: total,
                 size: file.size,
                 startChunk: startChunkIndex,
-                sessionId: sessionId
+                sessionId: effectiveSessionId
             });
         } catch (e) {
             log.error(`[FileTransfer] Failed to send ${msgType}:`, e);
@@ -54,6 +57,12 @@ export const FileTransferManager = {
             for (let i = startChunkIndex; i < total; i++) {
                 // Connection Guard
                 if (!conn.open) return;
+
+                // Session Guard: abort if sequence changed
+                if (this.localTransferSessionId !== effectiveSessionId) {
+                    log.debug(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${this.localTransferSessionId}), aborting at chunk ${i}`);
+                    return;
+                }
 
                 // Back-pressure
                 while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {

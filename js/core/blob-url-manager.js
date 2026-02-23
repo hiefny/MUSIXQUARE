@@ -1,12 +1,13 @@
 import { log } from './log.js';
 
-const _revocationQueue = [];
-let _isRevoking = false;
-
 export const BlobURLManager = {
     _urls: new Set(),
 
     create: (blob) => {
+        if (!blob) {
+            log.warn('[BlobURLManager] create() called with null/undefined blob');
+            return null;
+        }
         const url = URL.createObjectURL(blob);
         BlobURLManager._urls.add(url);
         return url;

@@ -25,7 +25,6 @@ export const FileTransferManager = {
             return;
         }
 
-        const effectiveSessionId = sessionId;
         const total = Math.ceil(file.size / CHUNK_SIZE);
         const isResume = startChunkIndex > 0;
         const msgType = isResume ? 'file-resume' : 'file-start';
@@ -38,7 +37,7 @@ export const FileTransferManager = {
                 total: total,
                 size: file.size,
                 startChunk: startChunkIndex,
-                sessionId: effectiveSessionId
+                sessionId: sessionId
             });
         } catch (e) {
             log.error(`[FileTransfer] Failed to send ${msgType}:`, e);

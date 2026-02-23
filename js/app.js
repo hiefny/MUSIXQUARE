@@ -7361,8 +7361,10 @@ async function handlePause(data) {
     pause();
 }
 async function handleVolume(data) {
-    setVolume(data.value);
-    showToast(`Volume: ${Math.round(data.value * 100)}%`);
+    const val = Number(data.value);
+    if (!Number.isFinite(val)) return;
+    setVolume(val);
+    showToast(`Volume: ${Math.round(val * 100)}%`);
 }
 
 async function handleReverb(data) { setReverbParam('mix', data.value); }

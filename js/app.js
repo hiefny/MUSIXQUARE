@@ -2360,6 +2360,9 @@ function _i18nRestoreAll() {
                 }
             } catch (_) { /* ignore */ }
         }
+        // Release references so detached DOM nodes can be GC'd
+        _i18nOriginalText.clear();
+        _i18nOriginalAttr.clear();
     } finally {
         _i18nApplying = false;
     }
@@ -2481,12 +2484,14 @@ window.animateTransition = function (callback) {
         const cb = window._batchedTransitionCb;
         window._batchedTransitionCb = null;
         if (!cb) return;
+        let executed = false;
         try {
             document.startViewTransition(() => {
+                executed = true;
                 cb();
             });
         } catch (e) {
-            cb();
+            if (!executed) cb();
         }
     });
 };
@@ -3240,7 +3245,7 @@ function initSetupOverlay() {
 
     document.querySelectorAll('.ob-dot').forEach(dot => {
         dot.onclick = (e) => {
-            currentObSlide = parseInt(e.target.dataset.idx);
+            currentObSlide = parseInt(e.target.dataset.idx, 10);
             updateObSlider();
             startObAutoSlide(); // Reset timer on manual click
         };
@@ -3543,7 +3548,7 @@ if (_setupRoleGrid) {
     _setupRoleGrid.addEventListener('click', (e) => {
         const item = e.target.closest('.ch-opt');
         if (!item) return;
-        const mode = parseInt(item.dataset.joinCh);
+        const mode = parseInt(item.dataset.joinCh, 10);
         if (isNaN(mode)) return;
 
         handleSetupRolePreview(mode);
@@ -3938,12 +3943,12 @@ function initEventListeners() {
 
     // --- Settings: Channel Grid (Standard) ---
     document.querySelectorAll('#grid-standard .ch-opt[data-ch]').forEach(el => {
-        el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch), el));
+        el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch, 10), el));
     });
 
     // --- Settings: Surround Grid (7.1) ---
     document.querySelectorAll('#grid-surround .ch-opt[data-sch]').forEach(el => {
-        el.addEventListener('click', () => setSurroundChannel(parseInt(el.dataset.sch), el));
+        el.addEventListener('click', () => setSurroundChannel(parseInt(el.dataset.sch, 10), el));
     });
 
     // --- Settings: Subwoofer Cutoff ---
@@ -5655,25 +5660,25 @@ function stopPlayback() {
     showToast("정지");
 }
 function pause(forcedTime) {
-    if (currentState !== APP_STATE.IDLE) {
-        // Capture current position BEFORE stopping the engine (prevents drift)
-        if (typeof forcedTime === 'number' && isFinite(forcedTime) && forcedTime >= 0) {
-            pausedAt = forcedTime;
-        } else {
-            pausedAt = getTrackPosition();
-        }
+    if (currentState === APP_STATE.IDLE) return; // Already idle — nothing to pause
 
-        // True pause for Buffer Mode (prevents overlap when resuming)
-        stopPlayerNode();
-
-        if (videoElement) {
-            try { videoElement.pause(); } catch (_) { }
-            try { videoElement.currentTime = pausedAt; } catch (_) { }
-        }
-
-        // Set state to IDLE so loopUI stops
-        setState(APP_STATE.IDLE, { skipCleanup: true });
+    // Capture current position BEFORE stopping the engine (prevents drift)
+    if (typeof forcedTime === 'number' && isFinite(forcedTime) && forcedTime >= 0) {
+        pausedAt = forcedTime;
+    } else {
+        pausedAt = getTrackPosition();
     }
+
+    // True pause for Buffer Mode (prevents overlap when resuming)
+    stopPlayerNode();
+
+    if (videoElement) {
+        try { videoElement.pause(); } catch (_) { }
+        try { videoElement.currentTime = pausedAt; } catch (_) { }
+    }
+
+    // Set state to IDLE so loopUI stops
+    setState(APP_STATE.IDLE, { skipCleanup: true });
     updatePlayState(false);
     showToast("일시정지");
     postWorkerCommand({ command: 'STOP_TIMER', id: 'video-sync' });
@@ -6317,6 +6322,8 @@ function setVolume(val) {
 // ==============================================================
 // [Visualizer] Light/Dark Mode Supported
 // ==============================================================
+let _visualizerRetryCount = 0;
+const MAX_VISUALIZER_RETRIES = 120; // ~2 seconds at 60fps
 function startVisualizer() {
     // Prevent Loop Nesting: Clear previous loop if exists
     if (animationId) {
@@ -6329,9 +6336,15 @@ function startVisualizer() {
 
     // Init Guard: If audio engine isn't ready (Race condition with play() -> initAudio()), retry next frame
     if (!analyser) {
+        if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
+            log.warn("[Visualizer] Gave up waiting for analyser after", MAX_VISUALIZER_RETRIES, "frames");
+            _visualizerRetryCount = 0;
+            return;
+        }
         animationId = requestAnimationFrame(startVisualizer);
         return;
     }
+    _visualizerRetryCount = 0;
 
     // Check type of global analyser (Tone or Native)
     const isToneAnalyser = (analyser && !analyser.getByteFrequencyData);
@@ -6407,7 +6420,6 @@ function startVisualizer() {
             else ctx.globalCompositeOperation = 'lighter';
 
             ctx.shadowBlur = 0;
-            ctx.lineWidth = 0;
 
             const centerX = logicalSize / 2;
             const centerY = logicalSize / 2;
@@ -6472,7 +6484,6 @@ function drawIdleVisualizer() {
     else ctx.globalCompositeOperation = 'lighter';
 
     ctx.shadowBlur = 0;
-    ctx.lineWidth = 0;
 
     const centerX = logicalSize / 2;
     const centerY = logicalSize / 2;
@@ -6910,7 +6921,7 @@ function handleHostIncomingConnection(conn) {
                 conn.send({ type: MSG.EQ_UPDATE, band: i, value: val });
             });
         } catch (e) { /* noop */ }
-        try { conn.send({ type: MSG.PREAMP, value: Math.round(20 * Math.log10(userPreampGain)) }); } catch (e) { /* noop */ }
+        try { conn.send({ type: MSG.PREAMP, value: Math.round(20 * Math.log10(Math.max(userPreampGain, 1e-6))) }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100 }); } catch (e) { /* noop */ }
         try { conn.send({ type: MSG.VBASS, value: virtualBass * 100 }); } catch (e) { /* noop */ }
 

@@ -1234,7 +1234,9 @@ const MSG = {
     YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
     YOUTUBE_STATE: 'youtube-state',
     YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
+    YOUTUBE_STOP: 'youtube-stop',
     YOUTUBE_SYNC: 'youtube-sync',
+    SYS_TOAST: 'sys-toast',
 };
 
 // ============================================================================
@@ -4201,7 +4203,7 @@ function updatePlaylistUI() {
         }
 
         const icon = item.type === 'youtube'
-            ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#ff0000;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47.13 1.33.22 2.65.28 1.3.07 2.49.1 3.59.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
+            ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#ff0000;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47-.13-1.33-.22-2.65-.28-1.3-.07-2.49-.1-3.59-.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
             : '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
 
         const displayName = item.name || item.title || 'Unknown';
@@ -4568,7 +4570,7 @@ async function playTrack(index) {
         broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex, name: fileName }); // Explicitly broadcast play for guests
 
         // Auto-Sync after 1s settle (allow all devices to finish loading)
-        setTimeout(() => handleMainSyncBtn(), 1000);
+        requestGlobalResyncDelayed();
 
         // Trigger Next Preload (debounced to let track settle)
         schedulePreload();
@@ -4652,6 +4654,9 @@ async function playTrack(index) {
                 managedTimers.autoPlayTimer = null;
                 play(0);
                 broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex, name: file.name });
+
+                // [Auto-Sync] Request global resync after 1s settle to ensure all devices are perfectly aligned.
+                requestGlobalResyncDelayed();
             }, 3000);
         }
     }
@@ -5584,7 +5589,13 @@ function togglePlay() {
         if (!hostConn) { pause(); broadcast({ type: MSG.PAUSE, time: pausedAt }); }
         else if (isOperator) hostConn.send({ type: MSG.REQUEST_PAUSE });
     } else {
-        if (!hostConn) { play(pausedAt); broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex }); }
+        if (!hostConn) {
+            play(pausedAt);
+            broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex });
+
+            // [Auto-Sync] Request global resync after 1s settle to ensure all devices are perfectly aligned.
+            requestGlobalResyncDelayed();
+        }
         else if (isOperator) hostConn.send({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
 }
@@ -5704,6 +5715,9 @@ function skipTime(sec) {
     if (isPlaying) {
         play(target);
         broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
+
+        // [Auto-Sync] Request global resync after 1s settle (Skip-time jump)
+        requestGlobalResyncDelayed();
     } else {
         pausedAt = target;
         broadcast({ type: MSG.PAUSE, time: target });
@@ -6608,10 +6622,7 @@ if (slider) {
         }
 
         // Schedule global resync after seek (Host only)
-        setTimeout(() => {
-            broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-            log.debug("[Host] Global resync requested after seek");
-        }, 1000);
+        requestGlobalResyncDelayed();
     });
 
     // Additional handlers to ensure isSeeking is reset on pointer release
@@ -6641,6 +6652,24 @@ function handleMainSyncBtn() {
         updateSyncDisplay();
         syncReset();
     }
+}
+
+/**
+ * [Auto-Sync] Requests a global resync pulse from all guests after a short delay.
+ * Ensures the host-side playback state change has settled across the network.
+ * @param {number} delay - Milliseconds to wait before broadcasting (default 1000ms)
+ */
+let _resyncTimer = null;
+function requestGlobalResyncDelayed(delay = 1000) {
+    if (hostConn) return; // Host only
+    if (_resyncTimer) clearTimeout(_resyncTimer);
+    _resyncTimer = setTimeout(() => {
+        _resyncTimer = null;
+        if (!hostConn) {
+            broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+            log.debug(`[Sync] Automatic global resync requested (delay: ${delay}ms)`);
+        }
+    }, delay);
 }
 
 function syncReset() {
@@ -6996,8 +7025,6 @@ function handleHostIncomingConnection(conn) {
     conn.on('data', (data) => {
         try { handleData(data, conn); }
         catch (e) { log.error('[Host] Error in handleData', e); }
-        try { handleOperatorRequest(data, conn); }
-        catch (e) { log.error('[Host] Error in handleOperatorRequest', e); }
     });
 
     conn.on('close', () => {
@@ -7058,8 +7085,6 @@ function sendPauseState(conn, time) {
 }
 
 // Guest Logic
-let connectionTimeoutId = null;
-
 function joinSession(retryAttempt = 0, hostIdOverride = null) {
     // Already connected?
     if (hostConn && hostConn.open) {
@@ -7467,6 +7492,7 @@ async function handleFilePrepare(data) {
 
     // Immediate Session Check to invalidate old chunks
     const incomingSid = data.sessionId;
+    const prevLocalSid = localTransferSessionId; // Save before update (used for deadlock detection)
     if (incomingSid && incomingSid > localTransferSessionId) {
         log.debug(`[file-prepare] New session detected: ${incomingSid} (Previous: ${localTransferSessionId}). Invalidating old chunks.`);
         localTransferSessionId = incomingSid;
@@ -7548,7 +7574,7 @@ async function handleFilePrepare(data) {
         if (!incomingSid) return; // Strict validation
 
         // Resolve Deadlock: If Host has started Main Session (SID increased), prioritize it over preload
-        if (incomingSid > localTransferSessionId) {
+        if (incomingSid > prevLocalSid) {
             log.debug("[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.");
             localTransferSessionId = incomingSid;
             clearPreloadState();
@@ -9721,7 +9747,7 @@ async function handleData(data, conn) {
         // 1. RELAY DOWNSTREAM (Control commands from Upstream -> Downstream)
         if (downstreamDataPeers.length > 0) {
             const RELAYABLE_COMMANDS = [
-                MSG.PLAY, MSG.PAUSE, MSG.VOLUME, MSG.SEEK,
+                MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
                 MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
                 MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
                 MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
@@ -9921,7 +9947,7 @@ function handleRelayConnection(conn) {
             );
 
             if (isMatchCurrent) {
-                log.debug(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta.name}`);
+                log.debug(`[Relay] Serving current file to ${conn.peer.substr(-4)}: ${meta?.name}`);
                 unicastFile(conn, currentFileBlob);
             }
             else if (isMatchPreload) {
@@ -10171,6 +10197,9 @@ function handleOperatorRequest(data) {
         }
         play(data.time);
         broadcast({ type: MSG.PLAY, time: data.time, index: currentTrackIndex });
+
+        // [Auto-Sync] Request global resync after 1s settle (OP requested play)
+        requestGlobalResyncDelayed();
     } else if (data.type === MSG.REQUEST_PAUSE) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
@@ -10231,9 +10260,7 @@ function handleOperatorRequest(data) {
             broadcast({ type: MSG.PAUSE, time: data.time });
         }
         // Schedule global resync after operator seek (consistent with slider/chat seeks)
-        setTimeout(() => {
-            broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-        }, 1000);
+        requestGlobalResyncDelayed();
     } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
     } else if (data.type === MSG.REQUEST_REVERB_RESET) {
@@ -11094,7 +11121,7 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
         if (hostConn && hostConn.open) {
             hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: _recoveryName, index: currentTrackIndex, reason: 'preload_activation_failed' });
         }
-        throw e; // Re-throw so callers can handle
+        // Recovery complete — do NOT re-throw (callers are fire-and-forget)
     }
 }
 
@@ -11469,10 +11496,7 @@ function seekToTime(seconds) {
     }
 
     // Schedule global resync after seek (Host only)
-    setTimeout(() => {
-        broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-        log.debug("[Host] Global resync requested after seek (chat timestamp)");
-    }, 1000);
+    requestGlobalResyncDelayed();
 
     showToast(`${fmtTime(t)}로 이동`);
 }

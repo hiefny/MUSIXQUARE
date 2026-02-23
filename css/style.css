@@ -775,7 +775,7 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     visibility: hidden;
     pointer-events: none;
 
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    box-shadow: none;
     position: relative;
     transition: opacity 0.3s;
 }

@@ -237,7 +237,7 @@
         /* Center vertically in remaining space above controls (like visualizer) */
         margin: auto auto 0 auto;
         border-radius: 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        box-shadow: none;
     }
 
     /* Play Controller adjustments */
@@ -642,6 +642,36 @@
         padding-left: 40px !important;
         padding-right: 40px !important;
         padding-bottom: 40px !important;
+    }
+
+    /* YouTube URL overlay: keep buttons always visible, let middle content scroll */
+    #youtube-url-overlay .setup-card.full-screen {
+        height: 100% !important;
+        max-height: 100% !important;
+        overflow: hidden !important;
+    }
+
+    #youtube-url-overlay .setup-card.full-screen .setup-join-area {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    #youtube-url-overlay .setup-card.full-screen .ob-actions {
+        flex-shrink: 0;
+        margin-top: auto;
+    }
+
+    /* Limit preview thumbnail to avoid pushing buttons off-screen */
+    #youtube-url-overlay #youtube-preview {
+        max-height: calc(100vh - 420px);
+        overflow-y: auto;
+    }
+
+    #youtube-url-overlay #youtube-preview-thumb {
+        max-height: 40vh;
+        width: 100%;
+        object-fit: cover;
     }
 
     /* Tab text switching (Desktop) */

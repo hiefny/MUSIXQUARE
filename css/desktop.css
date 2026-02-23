@@ -454,10 +454,10 @@
         font-size: clamp(13px, 1.1vw, 15px);
     }
 
-    /* Onboarding mini arrows — match mobile, same height as dots */
+    /* Onboarding mini arrows — slightly larger on desktop */
     .ob-nav-arrow {
-        font-size: 18px;
-        height: 8px;
+        width: 22px;
+        height: 22px;
     }
 
     /* --- Role SVG diagram: enlarged in left panel --- */

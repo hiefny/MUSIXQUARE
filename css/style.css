@@ -2765,18 +2765,21 @@ body.overlay-open .bottom-nav {
     outline: none;
     background: none;
     color: var(--text-sub, #888);
-    font-size: 18px;
-    line-height: 0;
-    height: 8px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 6px;
+    padding: 0;
+    margin: 0;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 50%;
     transition: color 0.2s, background 0.15s;
-    user-select: none;
-    font-weight: 300;
+}
+
+.ob-nav-arrow svg {
+    display: block;
+    flex-shrink: 0;
 }
 
 .ob-nav-arrow:hover {

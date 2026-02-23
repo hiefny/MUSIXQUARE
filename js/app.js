@@ -1205,6 +1205,7 @@ const MSG = {
     REQUEST_CURRENT_FILE: 'request-current-file',
     REQUEST_DATA_RECOVERY: 'request-data-recovery',
     REQUEST_EQ_RESET: 'request-eq-reset',
+    REQUEST_REVERB_RESET: 'request-reverb-reset',
     REQUEST_NEXT_TRACK: 'request-next-track',
     REQUEST_PAUSE: 'request-pause',
     REQUEST_PLAY: 'request-play',
@@ -3953,7 +3954,7 @@ function initEventListeners() {
     $on('cutoff-slider', 'dblclick', function () { updateSettings('cutoff', 120); this.value = 120; });
 
     // --- Settings: Reverb ---
-    $on('btn-reset-reverb', 'click', resetReverb);
+    $on('btn-reset-reverb', 'click', () => resetReverb());
     const reverbSliders = [
         { id: 'reverb-slider', param: 'mix', resetVal: 0 },
         { id: 'reverb-decay-slider', param: 'decay', resetVal: 5.0 },
@@ -3968,7 +3969,7 @@ function initEventListeners() {
     });
 
     // --- Settings: EQ ---
-    $on('btn-reset-eq', 'click', resetEQ);
+    $on('btn-reset-eq', 'click', () => resetEQ());
     $on('preamp-slider', 'input', function () { setPreamp(this.value, true); });
     $on('preamp-slider', 'change', function () { setPreamp(this.value); });
     $on('preamp-slider', 'dblclick', () => setPreamp(0));
@@ -5975,6 +5976,14 @@ function setReverbParam(param, val) {
 }
 
 // Reverb setters: apply param locally; callers handle broadcasting
+function setReverbType(type) {
+    if (reverb) {
+        if (type === 'room') { reverb.decay = 1.5; reverb.preDelay = 0.05; }
+        else if (type === 'hall') { reverb.decay = 3.5; reverb.preDelay = 0.1; }
+        else if (type === 'space') { reverb.decay = 7.0; reverb.preDelay = 0.2; }
+        reverb.generate();
+    }
+}
 function setReverb(val) { setReverbParam('mix', val); }
 function setReverbDecay(val) { setReverbParam('decay', val); }
 function setReverbPreDelay(val) { setReverbParam('predelay', val); }
@@ -5988,12 +5997,26 @@ function resetReverbLowCut() { setReverbParam('lowcut', 0); }
 function resetReverbHighCut() { setReverbParam('highcut', 0); }
 
 
-function resetReverb() {
+function resetReverb(fromSync = false) {
+    if (isOperator && !fromSync) {
+        hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
+        return;
+    }
+
     resetReverbMix();
     resetReverbDecay();
     resetReverbPreDelay();
     resetReverbLowCut();
     resetReverbHighCut();
+
+    // Broadcast all reverb defaults to guests
+    if (!hostConn && !fromSync) {
+        broadcast({ type: MSG.REVERB, value: 0 });
+        broadcast({ type: MSG.REVERB_DECAY, value: 5.0 });
+        broadcast({ type: MSG.REVERB_PREDELAY, value: 0.1 });
+        broadcast({ type: MSG.REVERB_LOWCUT, value: 0 });
+        broadcast({ type: MSG.REVERB_HIGHCUT, value: 0 });
+    }
 }
 
 // Graphic EQ
@@ -8161,6 +8184,10 @@ async function handleYouTubePlay(data) {
             playlist[data.index].name = data.name;
         }
         updatePlaylistUI();
+
+        // [Title Sync Fix] Update title so guest UI reflects the YouTube track
+        const ytTrackName = data.name || (playlist[data.index] && playlist[data.index].name) || `Track ${data.index + 1}`;
+        updateTitleWithMarquee(ytTrackName);
     }
 
     // 5. Load YouTube (autoplay based on Host's command)
@@ -8600,6 +8627,12 @@ async function handlePlayPreloaded(data) {
 
     updatePlaylistUI(); // Update active highlight
 
+    // [Title Sync Fix] Update title immediately so guest UI reflects new track
+    const preloadedTrackName = data.name || (playlist[data.index] && playlist[data.index].name) || `Track ${data.index + 1}`;
+    updateTitleWithMarquee(preloadedTrackName);
+    const _artistEl = document.getElementById('track-artist');
+    if (_artistEl) _artistEl.innerText = `Track ${data.index + 1}`;
+
     // If Guest was in YouTube mode, stop it before loading file
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
         log.debug("[Guest] Switching from YouTube to Preloaded Local Track");
@@ -8913,6 +8946,10 @@ async function handlePlay(data) {
         // 2. Switch index and metadata
         currentTrackIndex = data.index;
         updatePlaylistUI();
+
+        // [Title Sync Fix] Update title so guest UI reflects the new track
+        const playTrackName = (playlist[data.index] && playlist[data.index].name) || `Track ${data.index + 1}`;
+        updateTitleWithMarquee(playTrackName);
 
         // 3. Initiate recovery/loading if needed
         const item = playlist[currentTrackIndex];
@@ -9355,6 +9392,17 @@ const handlers = {
     'request-prev-track': (data, conn) => handleOperatorRequest(data),
     'request-youtube-play': (data, conn) => handleOperatorRequest(data),
     'request-youtube-pause': (data, conn) => handleOperatorRequest(data),
+    'request-reverb-reset': (data, conn) => handleOperatorRequest(data),
+    'request-skip-time': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-sub-seek': (data, conn) => handleOperatorRequest(data),
+    'request-youtube-playlist-info': (data, conn) => {
+        // Host responds with cached playlist sub-item data
+        if (hostConn) return; // Only host handles this
+        const pid = data.playlistId;
+        if (pid && youtubeSubItemsMap[pid]) {
+            conn.send({ type: MSG.YOUTUBE_PLAYLIST_INFO, playlistId: pid, ids: youtubeSubItemsMap[pid].ids || [], titles: youtubeSubItemsMap[pid].titles || [] });
+        }
+    },
 };
 
 async function handlePreloadAck(data, conn) {
@@ -10022,6 +10070,8 @@ function handleOperatorRequest(data) {
         broadcast({ type: MSG.PLAY, time: data.time });
     } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
+    } else if (data.type === MSG.REQUEST_REVERB_RESET) {
+        resetReverb();
     } else if (data.type === MSG.REQUEST_SETTING) {
         if (data.settingType === MSG.REVERB) { setReverb(data.value); broadcast({ type: MSG.REVERB, value: data.value }); }
         else if (data.settingType === MSG.REVERB_TYPE) { setReverbType(data.value); broadcast({ type: MSG.REVERB_TYPE, value: data.value }); }
@@ -10042,6 +10092,8 @@ function handleOperatorRequest(data) {
         }
         else if (data.settingType === 'stereo') { setStereoWidth(data.value); broadcast({ type: MSG.STEREO_WIDTH, value: data.value }); }
         else if (data.settingType === MSG.VBASS) { setVirtualBass(data.value); broadcast({ type: MSG.VBASS, value: data.value }); }
+        else if (data.settingType === MSG.REPEAT_MODE) { setRepeatMode(data.value); broadcast({ type: MSG.REPEAT_MODE, value: data.value }); }
+        else if (data.settingType === MSG.SHUFFLE_MODE) { setShuffle(data.value); broadcast({ type: MSG.SHUFFLE_MODE, value: data.value }); }
     } else if (data.type === MSG.REQUEST_YOUTUBE_SUB_SEEK) {
         log.debug("[Host] OP requested YouTube sub-seek:", data.subIdx);
         if (currentState === APP_STATE.PLAYING_YOUTUBE && youtubePlayer && youtubePlayer.playVideoAt) {

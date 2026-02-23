@@ -10135,6 +10135,9 @@ window.toggleOperator = function (peerId) {
 };
 
 function handleOperatorRequest(data) {
+    // Only the Host should execute operator commands; relay/guest must ignore.
+    if (hostConn) return;
+
     if (data.type === MSG.REQUEST_PLAY) {
         if (managedTimers.autoPlayTimer) {
             clearManagedTimer('autoPlayTimer');
@@ -10477,7 +10480,8 @@ async function unicastFile(conn, file, startChunkIndex = 0, sessionId = null) {
             total: total,
             size: file.size,
             startChunk: startChunkIndex,
-            sessionId: effectiveSessionId
+            sessionId: effectiveSessionId,
+            index: currentTrackIndex
         });
     } catch (e) {
         log.error(`[Unicast] Failed to send ${msgType}:`, e);
@@ -11491,7 +11495,7 @@ function loadYouTubeFromChat(url) {
 
             // If it's currently playing this track, update the UI header
             if (currentTrackIndex === playlist.indexOf(newItem)) {
-                updateTrackInfoDisplay();
+                updateTitleWithMarquee(fetchedTitle);
             }
             // Broadcast the updated title to guests
             broadcast({ type: MSG.PLAYLIST_UPDATE, list: buildPlaylistMetaList() });

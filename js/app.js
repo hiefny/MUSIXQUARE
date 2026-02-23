@@ -43,6 +43,7 @@ FileTransferManager.onStatus = (show, txt) => typeof showLoader === 'function' ?
 FileTransferManager.onProgress = (pct) => typeof updateLoader === 'function' ? updateLoader(pct) : null;
 FileTransferManager.postWorkerCommand = (cmd) => postWorkerCommand(cmd);
 FileTransferManager.validateSessionId = (sid) => validateSessionId(sid);
+FileTransferManager.getHostSessionId = () => currentTransferSessionId;
 
 function isMediaVideo(blob, metadata) {
     if (!blob) return false;
@@ -247,7 +248,9 @@ function syncNetworkState() {
     hostConn = NetworkManager.hostConn;
     upstreamDataConn = NetworkManager.upstreamDataConn;
     downstreamDataPeers = NetworkManager.downstreamDataPeers;
-    connectedPeers = NetworkManager.connectedPeers;
+    // NOTE: connectedPeers is NOT synced here — it always references PeerManager.connectedPeers
+    // (the canonical peer list). NetworkManager.connectedPeers is only used for default
+    // connection handling, which is bypassed when Host sets onIncomingConnection.
     lastLatencyMs = NetworkManager.lastLatencyMs;
     latencyHistory = NetworkManager.latencyHistory;
     usePingCompensation = NetworkManager.usePingCompensation;

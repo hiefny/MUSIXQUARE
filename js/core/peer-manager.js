@@ -7,9 +7,9 @@ export const PeerManager = {
     maxGuestSlots: 3,
 
     init() {
-        this.connectedPeers = [];
-        this.activeHostConnByPeerId = new Map();
-        this.peerSlotByPeerId = new Map();
+        this.connectedPeers.length = 0;   // Clear in-place (preserve array reference)
+        this.activeHostConnByPeerId.clear();
+        this.peerSlotByPeerId.clear();
     },
 
     addPeer(peerObj) {
@@ -17,8 +17,10 @@ export const PeerManager = {
     },
 
     removePeer(peerId) {
-        this.connectedPeers = this.connectedPeers.filter(p => p.id !== peerId);
+        const idx = this.connectedPeers.findIndex(p => p.id === peerId);
+        if (idx >= 0) this.connectedPeers.splice(idx, 1);  // In-place (preserve array reference)
         this.activeHostConnByPeerId.delete(peerId);
+        this.peerSlotByPeerId.delete(peerId);
     },
 
     getPeer(peerId) {

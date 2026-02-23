@@ -5682,9 +5682,14 @@ function skipTime(sec) {
     if (target < 0) target = 0;
     if (duration > 0 && target > duration) target = duration;
 
-    // Broadcast
-    play(target);
-    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
+    const isPlaying = (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO);
+    if (isPlaying) {
+        play(target);
+        broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
+    } else {
+        pausedAt = target;
+        broadcast({ type: MSG.PAUSE, time: target });
+    }
 }
 
 function updatePlayState(playing) {
@@ -6572,14 +6577,14 @@ if (slider) {
             return;
         }
 
-        const isActuallyPlaying = (videoElement && !videoElement.paused);
+        const isActuallyPlaying = (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO);
 
         if (isActuallyPlaying) {
             play(t);
             broadcast({ type: MSG.PLAY, time: t, index: currentTrackIndex });
         } else {
             pausedAt = t;
-            if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) videoElement.currentTime = t;
+            if (videoElement) videoElement.currentTime = t;
             // Broadcast pause with updated time to sync guests without starting playback
             broadcast({ type: MSG.PAUSE, time: t });
         }
@@ -7782,6 +7787,7 @@ async function handleFileStart(data) {
 
         // Update meta but don't touch receivedCount
         meta = data;
+        transferState = TRANSFER_STATE.RECEIVING;
     } else {
         // NEW FILE: Initialize fresh
         log.debug(`[file-start] New file, initializing Worker-OPFS for ${data.total} chunks`);
@@ -8516,10 +8522,8 @@ async function handlePreloadChunk(data) {
         const chunkClone = new Uint8Array(chunk);
         const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : null);
         if (!fileName) {
-            log.warn('[Preload] Skipping OPFS write: no filename available');
-            sessionBuffer.delete(nextChunkPtr);
-            nextChunkPtr++;
-            continue;
+            log.warn('[Preload] Waiting for filename before OPFS write');
+            break; // Keep chunks buffered until filename is available
         }
 
         // RELAY LOGIC: Forward to downstream

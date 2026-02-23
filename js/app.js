@@ -4567,6 +4567,7 @@ async function playTrack(index) {
         log.debug("[Host] Using Preloaded Track:", index);
         currentTrackIndex = index;
         updatePlaylistUI();
+        updateMediaSessionMetadata(playlist[index]);
 
         // CRITICAL:
         // When switching to a preloaded track, we MUST advance the Host-side transfer session id.
@@ -5153,9 +5154,12 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         log.error(err);
         showToast(`Load Failed: ${err.message} `);
     } finally {
-        showLoader(false);
-        pausedAt = 0;
-        updatePlayState(false);
+        // Only touch UI if this is still the active load session
+        if (myLoadId === activeLoadSessionId) {
+            showLoader(false);
+            pausedAt = 0;
+            updatePlayState(false);
+        }
 
         // Removed duplicate auto-play - playTrack() already handles this via autoPlayTimer
 
@@ -6021,9 +6025,11 @@ function setReverbParam(param, val) {
 // Reverb setters: apply param locally; callers handle broadcasting
 function setReverbType(type) {
     if (reverb) {
-        if (type === 'room') { reverb.decay = 1.5; reverb.preDelay = 0.05; }
-        else if (type === 'hall') { reverb.decay = 3.5; reverb.preDelay = 0.1; }
-        else if (type === 'space') { reverb.decay = 7.0; reverb.preDelay = 0.2; }
+        if (type === 'room') { reverbDecay = 1.5; reverbPreDelay = 0.05; }
+        else if (type === 'hall') { reverbDecay = 3.5; reverbPreDelay = 0.1; }
+        else if (type === 'space') { reverbDecay = 7.0; reverbPreDelay = 0.2; }
+        reverb.decay = reverbDecay;
+        reverb.preDelay = reverbPreDelay;
         reverb.generate();
     }
 }
@@ -6042,7 +6048,7 @@ function resetReverbHighCut() { setReverbParam('highcut', 0); }
 
 function resetReverb(fromSync = false) {
     if (isOperator && !fromSync) {
-        hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
+        if (hostConn && hostConn.open) hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
         return;
     }
 
@@ -6121,7 +6127,7 @@ function setPreamp(val, localOnly = false, fromSync = false) {
 
 function resetEQ(fromSync = false) {
     if (isOperator && !fromSync) {
-        hostConn.send({ type: MSG.REQUEST_EQ_RESET });
+        if (hostConn && hostConn.open) hostConn.send({ type: MSG.REQUEST_EQ_RESET });
         return;
     }
     document.querySelectorAll('.eq-slider').forEach((el, idx) => {
@@ -6175,16 +6181,18 @@ function applySettings() {
     // Reverb Mix (CrossFade)
     if (rvbCrossFade) rvbCrossFade.fade.rampTo(reverbMix, 0.1);
 
-    // Reverb Engine Sync (Decay/PreDelay/Filters)
+    // Reverb Engine Sync (Decay/PreDelay/Filters) — batch changes, generate once
     if (reverb) {
+        let needsGenerate = false;
         if (reverb.decay !== reverbDecay) {
             reverb.decay = reverbDecay;
-            reverb.generate();
+            needsGenerate = true;
         }
         if (reverb.preDelay !== reverbPreDelay) {
             reverb.preDelay = reverbPreDelay;
-            reverb.generate();
+            needsGenerate = true;
         }
+        if (needsGenerate) reverb.generate();
     }
     if (rvbLowCut) {
         const lFreq = 20 * Math.pow(50, reverbLowCut / 100);
@@ -6809,13 +6817,17 @@ function handleHostIncomingConnection(conn) {
     // Enforce max guests (host 제외)
     // --------------------------------------------------------------------
     if (connectedPeers.length >= MAX_GUEST_SLOTS) {
-        try {
-            conn.send({
-                type: MSG.SESSION_FULL,
-                message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
-            });
-        } catch (e) { /* noop */ }
-        try { conn.close(); } catch (e) { /* noop */ }
+        const sendFullAndClose = () => {
+            try {
+                conn.send({
+                    type: MSG.SESSION_FULL,
+                    message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.'
+                });
+            } catch (e) { /* noop */ }
+            setTimeout(() => { try { conn.close(); } catch (e) { /* noop */ } }, 500);
+        };
+        if (conn.open) sendFullAndClose();
+        else conn.once('open', sendFullAndClose);
         return;
     }
 
@@ -6991,12 +7003,10 @@ function handleHostIncomingConnection(conn) {
     });
 
     conn.on('data', (data) => {
-        try {
-            handleData(data, conn);
-            handleOperatorRequest(data, conn);
-        } catch (e) {
-            log.error('[Host] Error handling incoming data', e);
-        }
+        try { handleData(data, conn); }
+        catch (e) { log.error('[Host] Error in handleData', e); }
+        try { handleOperatorRequest(data, conn); }
+        catch (e) { log.error('[Host] Error in handleOperatorRequest', e); }
     });
 
     conn.on('close', () => {
@@ -7057,9 +7067,6 @@ function sendPauseState(conn, time) {
 }
 
 // Guest Logic
-let connectionRetryCount = 0;
-const MAX_CONNECTION_RETRIES = 3;
-const CONNECTION_TIMEOUT_MS = 7000; // Reduced from 10s to 7s for faster retry if it hangs
 let connectionTimeoutId = null;
 
 function joinSession(retryAttempt = 0, hostIdOverride = null) {
@@ -7588,14 +7595,15 @@ async function handleFilePrepare(data) {
     _skipIncomingFile = false;
     _waitingForPreload = false;
 
-    // Store pending file name for recovery requests
-    window._pendingFileName = data.name;
-    _pendingFileIndex = data.index;
-
     // CRITICAL: Don't clear state if we're resuming the SAME file!
     // This preserves already-received chunks during recovery
+    // Check BEFORE updating _pendingFileIndex (otherwise comparison is always true)
     const isSameFile = (meta && meta.name === data.name) ||
         (_pendingFileIndex !== undefined && _pendingFileIndex === data.index);
+
+    // Store pending file name for recovery requests (AFTER isSameFile check)
+    window._pendingFileName = data.name;
+    _pendingFileIndex = data.index;
     const isResuming = isSameFile && receivedCount > 0;
 
     if (isResuming) {
@@ -8816,7 +8824,7 @@ async function handlePlayPreloaded(data) {
                     const hasItNow = (nextMeta && nextMeta.index === data.index && nextFileBlob);
                     if (hasItNow) {
                         log.debug("[Guest] Preload arrived during jitter wait! Playing...");
-                        loadPreloadedTrack();
+                        loadPreloadedTrack(data.index, myLoadToken);
                         return;
                     }
 
@@ -9057,7 +9065,9 @@ async function handlePlay(data) {
 
             if (!hasFile && isPreloaded) {
                 log.debug("Required track found in preload cache. Activating...");
-                loadPreloadedTrack();
+                _pendingPlayTime = data.time;
+                await loadPreloadedTrack(currentTrackIndex, _currentLoadToken);
+                return; // loadPreloadedTrack will pick up _pendingPlayTime
             } else if (!hasFile || (meta && meta.name !== item.name)) {
                 // Check if currently preloading
                 const isPreloadingThis = isPreloading && preloadMeta && (preloadMeta.index === currentTrackIndex || preloadMeta.name === item.name);
@@ -9528,7 +9538,7 @@ async function handleGetSyncTime(data, conn) {
     if (hostConn) return; // Guest ignores this
     if (conn && conn.open) {
         const t = getTrackPosition();
-        const isPlaying = (currentState !== APP_STATE.IDLE && (videoElement && !videoElement.paused));
+        const isPlaying = (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_YOUTUBE);
 
         conn.send({
             type: MSG.SYNC_RESPONSE,
@@ -9869,7 +9879,7 @@ function handleRelayConnection(conn) {
             const currentTrackName = playlist[currentTrackIndex]?.name;
 
             // More intelligent source selection based on name/index
-            const isMatchCurrent = currentFileBlob && (!reqName || meta.name === reqName);
+            const isMatchCurrent = currentFileBlob && (!reqName || (meta && meta.name === reqName));
             const isMatchPreload = nextFileBlob && (
                 (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
                 (reqName && nextMeta?.name === reqName) ||
@@ -9884,7 +9894,7 @@ function handleRelayConnection(conn) {
                 log.debug(`[Relay] Serving preloaded file to ${conn.peer.substr(-4)}: ${nextMeta.name}`);
                 unicastFile(conn, nextFileBlob);
             }
-            else if (meta?.name && (meta.name === (reqName || currentTrackName) || currentTrackName)) {
+            else if (meta?.name && meta.name === (reqName || currentTrackName)) {
                 // Mid-download relay bootstrapping
                 // If relay peer is still receiving chunks, start downstream with available data
                 const bootName = meta.name || reqName || currentTrackName;
@@ -10175,8 +10185,14 @@ function handleOperatorRequest(data) {
             return;
         }
 
-        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) play(data.time); else pausedAt = data.time;
-        broadcast({ type: MSG.PLAY, time: data.time, index: currentTrackIndex });
+        if (currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO) {
+            play(data.time);
+            broadcast({ type: MSG.PLAY, time: data.time, index: currentTrackIndex });
+        } else {
+            pausedAt = data.time;
+            if (videoElement) videoElement.currentTime = data.time;
+            broadcast({ type: MSG.PAUSE, time: data.time });
+        }
     } else if (data.type === MSG.REQUEST_EQ_RESET) {
         resetEQ();
     } else if (data.type === MSG.REQUEST_REVERB_RESET) {

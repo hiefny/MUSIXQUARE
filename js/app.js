@@ -982,6 +982,7 @@ let usePingCompensation = true; // Default: apply RTT/2 compensation (set false 
 let myDeviceLabel = 'HOST'; // Store my label for UI updates
 let lastLatencyMs = 0; // Store Median RTT (Robust)
 let latencyHistory = []; // Buffer to filter noise
+let lastHeartbeatAckAt = 0; // Timestamp of latest heartbeat-ack (diagnostics)
 let syncRequestTime = 0; // Capture exact time of sync request
 
 let connectedPeers = [];
@@ -1526,7 +1527,7 @@ const handleWorkerMessage = async (e) => {
             // but getting a fresh one from root is always safe)
             const root = await navigator.storage.getDirectory();
             // Use Instance ID for filename matching
-            const safeName = (data.isPreload ? "preload_" : "current_") + data.filename.replace(/[^a-z0-9._-]/gi, '_') + "_" + OPFS_INSTANCE_ID;
+            const safeName = data.safeName || buildSafeOpfsName(data.filename, data.isPreload);
 
             const fileHandle = await root.getFileHandle(safeName);
             const file = await fileHandle.getFile();
@@ -1662,6 +1663,23 @@ function stopBackgroundWorkerTimers() {
 
 
 
+
+
+// -----------------------------
+// OPFS Name Helpers
+// -----------------------------
+function sanitizeOpfsFilename(filename) {
+    return String(filename || '').replace(/[^a-z0-9._-]/gi, '_');
+}
+
+/**
+ * [OPFS] Build the exact OPFS entry name used by transfer.worker.js.
+ * Prefer using worker-provided safeName when available.
+ */
+function buildSafeOpfsName(filename, isPreload = false) {
+    return (isPreload ? "preload_" : "current_") + sanitizeOpfsFilename(filename) + "_" + OPFS_INSTANCE_ID;
+}
+
 /**
  * [OPFS] Best-effort helper to read an already-written file back from OPFS.
  * - Edge-case: we may have received all chunks but lost the in-memory File reference
@@ -1674,7 +1692,7 @@ async function tryGetOpfsFile(filename, isPreload = false) {
 
     try {
         const root = await navigator.storage.getDirectory();
-        const safeName = (isPreload ? "preload_" : "current_") + name.replace(/[^a-z0-9._-]/gi, '_') + "_" + OPFS_INSTANCE_ID;
+        const safeName = buildSafeOpfsName(name, isPreload);
         const fileHandle = await root.getFileHandle(safeName);
         return await fileHandle.getFile();
     } catch (_) {
@@ -8938,11 +8956,34 @@ async function handleStatusSync(data) {
     }
 }
 
-function handleHeartbeat(data) {
-    if (hostConn && hostConn.open) hostConn.send({ type: MSG.HEARTBEAT_ACK });
+function handleHeartbeat(data, conn) {
+    // Update liveness timestamp on host/relay side (best-effort)
+    try {
+        if (conn && conn.peer) {
+            const p = connectedPeers.find(x => x.id === conn.peer);
+            if (p) p.lastHeartbeat = Date.now();
+        }
+    } catch (_) { /* ignore */ }
+
+    // Reply to the sender (not hostConn)
+    if (conn && conn.open && typeof conn.send === 'function') {
+        conn.send({ type: MSG.HEARTBEAT_ACK });
+    }
+}
+
+function handleHeartbeatAck() {
+    lastHeartbeatAckAt = Date.now();
+}
+
+function handlePingLatency(data, conn) {
+    if (!data || typeof data.timestamp !== 'number') return;
+    if (conn && conn.open && typeof conn.send === 'function') {
+        conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp });
+    }
 }
 
 function handlePongLatency(data) {
+    if (!data || typeof data.timestamp !== 'number') return;
     const ms = Date.now() - data.timestamp;
     latencyHistory.push(ms);
     if (latencyHistory.length > 10) latencyHistory.shift();
@@ -9430,6 +9471,8 @@ function validateMessage(data, requiredFields) {
 
 const handlers = {
     'heartbeat': handleHeartbeat,
+    'heartbeat-ack': handleHeartbeatAck,
+    'ping-latency': handlePingLatency,
     'pong-latency': handlePongLatency,
     'welcome': handleWelcome,
     'session-start': handleSessionStart,

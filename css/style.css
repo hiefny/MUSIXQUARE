@@ -1284,16 +1284,7 @@ input[type=range]:active::-moz-range-thumb {
     gap: 8px;
 }
 
-/* Speaker Active State */
-.graphic-speaker {
-    transition: fill 0.3s, stroke 0.3s;
-}
-
-.graphic-speaker.active {
-    fill: rgba(var(--primary-rgb), 0.2) !important;
-    stroke: var(--primary) !important;
-    stroke-width: 2.5px !important;
-}
+/* Speaker Active State — see canonical definition near line 4885+ */
 
 /* Top Left Back Button */
 .btn-back-left {
@@ -3247,52 +3238,8 @@ body.overlay-open .bottom-nav {
     /* Subtle glow */
 }
 
-/* Speaker Active State */
-.graphic-speaker {
-    transition: fill 0.3s, stroke 0.3s;
-}
-
-.graphic-speaker.active {
-    fill: rgba(var(--primary-rgb), 0.2) !important;
-    stroke: var(--primary) !important;
-    stroke-width: 2.5px !important;
-}
-
-/* Top Left Back Button */
-.btn-back-left {
-    position: absolute;
-    top: 24px;
-    left: 24px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--surface-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-main);
-    border: none;
-    cursor: pointer;
-    z-index: 100;
-    transition: all 0.2s;
-}
-
-.btn-back-left:active {
-    transform: scale(0.9);
-    background: var(--surface-3);
-}
-
-.btn-back-left svg {
-    width: 24px;
-    height: 24px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-
-
+/* Speaker Active State — canonical definition is near line 4885+.
+   Removed duplicate !important rules that caused translucent fill override. */
 
 .setup-graphic-svg {
     width: 100%;

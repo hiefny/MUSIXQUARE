@@ -4567,8 +4567,8 @@ async function playTrack(index) {
         play(0);
         broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex, name: fileName }); // Explicitly broadcast play for guests
 
-        // Immediate Auto-Sync (User Request)
-        handleMainSyncBtn();
+        // Auto-Sync after 1s settle (allow all devices to finish loading)
+        setTimeout(() => handleMainSyncBtn(), 1000);
 
         // Trigger Next Preload (debounced to let track settle)
         schedulePreload();
@@ -6652,7 +6652,7 @@ function syncReset() {
 
     showToast("최적 싱크 보정 적용 중...");
     syncRequestTime = Date.now();
-    hostConn.send({ type: MSG.GET_SYNC_TIME });
+    hostConn.send({ type: MSG.GET_SYNC_TIME, ts: syncRequestTime });
 }
 
 function updateSyncBtnState(isGuest) {
@@ -8197,11 +8197,20 @@ async function handleSyncResponse(data) {
         return;
     }
 
-    // [Latency Compensation - Conditional based on ICE type]
-    // For relay (TURN): apply RTT/2 compensation
-    // For direct (host/srflx): skip compensation (local network has minimal latency)
-    let oneWayLatencySeconds = 0;
+    // [Host-Busy Detection] If the round-trip took too long, the host was
+    // likely blocked (file I/O, chunk sending, etc.) and its position snapshot
+    // is stale. Silently retry once after a short cooldown.
+    if (data.reqTs && data.reqTs > 0) {
+        const elapsed = Date.now() - data.reqTs;
+        if (elapsed > 150) {
+            log.debug(`[AutoSync] Host was busy (${elapsed}ms round-trip). Retrying in 300ms...`);
+            setTimeout(() => syncReset(), 300);
+            return;
+        }
+    }
 
+    // [Latency Compensation - Conditional based on ICE type]
+    let oneWayLatencySeconds = 0;
     if (usePingCompensation) {
         oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
     }
@@ -9567,7 +9576,8 @@ async function handleGetSyncTime(data, conn) {
         conn.send({
             type: MSG.SYNC_RESPONSE,
             time: t,
-            isPlaying: isPlaying
+            isPlaying: isPlaying,
+            reqTs: data.ts || 0 // Echo guest's timestamp for busy-host detection
         });
         log.debug(`[Host] Sent fresh sync time (${t.toFixed(2)}s) to peer ${conn.peer.substr(-4)}`);
     }

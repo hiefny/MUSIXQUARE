@@ -31,7 +31,7 @@
 // v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v67: UI null check fix for preload activation
-const CACHE_VERSION = "v80"; // Patch: OPFS safeName handshake + ping/pong latency + heartbeat ack + remove vendor sourcemaps
+const CACHE_VERSION = "v81"; // Sync: 1s delay after track load, host-busy retry detection
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

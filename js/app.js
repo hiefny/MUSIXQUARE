@@ -274,7 +274,7 @@ function freezeLayoutMetricsOnce() { scheduleAppHeightUpdate(); }
  */
 const _warnedBadSessionIds = new Set();
 function validateSessionId(id, strict = false) {
-    const n = (typeof id === 'bigint') ? Number(id) : Number(id);
+    const n = Number(id);
     const sid = Number.isFinite(n) ? Math.trunc(n) : 0;
 
     const ok = Number.isSafeInteger(sid) && sid > 0;
@@ -1353,7 +1353,6 @@ function nextSessionId() {
 }
 
 // OPFS Helper coordination (now handled by worker)
-// Async Cleanup with Worker Acknowledgment
 // Async Cleanup with Worker Acknowledgment
 async function cleanupOPFSInWorker(filename, isPreload) {
     if (!filename) return;
@@ -6144,8 +6143,10 @@ function resetEQ(fromSync = false) {
 // Virtual Stereo Width
 function setStereoWidth(val) {
     stereoWidth = val / 100;
-    document.getElementById('val-width').innerText = val + '%';
-    document.getElementById('width-slider').value = val;
+    const label = document.getElementById('val-width');
+    const slider = document.getElementById('width-slider');
+    if (label) label.innerText = val + '%';
+    if (slider) slider.value = val;
     applySettings();
 }
 
@@ -6165,8 +6166,10 @@ function resetVBass() {
 // Virtual Bass Control
 function setVirtualBass(val) {
     virtualBass = val / 100;
-    document.getElementById('val-vbass').innerText = val + '%';
-    document.getElementById('vbass-slider').value = val;
+    const label = document.getElementById('val-vbass');
+    const slider = document.getElementById('vbass-slider');
+    if (label) label.innerText = val + '%';
+    if (slider) slider.value = val;
     applySettings();
 }
 
@@ -9474,6 +9477,7 @@ const handlers = {
     'eq-reset': handleEQReset,
     'stereo-width': handleStereoWidth,
     'vbass': handleVBass,
+    'playlist': handlePlaylistUpdate,
     'playlist-update': handlePlaylistUpdate,
     'sync-response': handleSyncResponse,
     'shuffle-mode': handleShuffle,
@@ -10899,6 +10903,7 @@ function loopUI() {
 function toggleFullscreen() {
     const wrapper = document.querySelector('.video-wrapper');
     const video = document.getElementById('main-video');
+    if (!video || !wrapper) return;
 
     if (video.webkitEnterFullscreen) {
         video.webkitEnterFullscreen();
@@ -12176,8 +12181,8 @@ function stopYouTubeMode() {
         return;
     }
 
-    if (managedTimers.youtubeUILoop) clearInterval(managedTimers.youtubeUILoop);
-    if (managedTimers.youtubeSyncLoop) clearInterval(managedTimers.youtubeSyncLoop);
+    if (managedTimers.youtubeUILoop) { clearInterval(managedTimers.youtubeUILoop); managedTimers.youtubeUILoop = null; }
+    if (managedTimers.youtubeSyncLoop) { clearInterval(managedTimers.youtubeSyncLoop); managedTimers.youtubeSyncLoop = null; }
 
     if (_ytLoadTimeout) {
         clearTimeout(_ytLoadTimeout);

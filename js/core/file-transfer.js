@@ -12,6 +12,7 @@ export const FileTransferManager = {
     onToast: null,
     postWorkerCommand: null, // Callback to postWorkerCommand in worker-client
     validateSessionId: null,
+    getHostSessionId: null,  // Callback: () => currentTransferSessionId (Host-side session)
 
     // Internal state
     activeBroadcastSession: null,
@@ -26,7 +27,8 @@ export const FileTransferManager = {
         }
 
         const total = Math.ceil(file.size / CHUNK_SIZE);
-        const effectiveSessionId = sessionId !== null ? sessionId : this.localTransferSessionId;
+        const hostSid = typeof this.getHostSessionId === 'function' ? this.getHostSessionId() : this.localTransferSessionId;
+        const effectiveSessionId = sessionId !== null ? sessionId : hostSid;
         const isResume = startChunkIndex > 0;
         const msgType = isResume ? 'file-resume' : 'file-start';
 
@@ -58,9 +60,10 @@ export const FileTransferManager = {
                 // Connection Guard
                 if (!conn.open) return;
 
-                // Session Guard: abort if sequence changed
-                if (this.localTransferSessionId !== effectiveSessionId) {
-                    log.debug(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${this.localTransferSessionId}), aborting at chunk ${i}`);
+                // Session Guard: abort if Host moved to a new track/session
+                const currentHostSid = typeof this.getHostSessionId === 'function' ? this.getHostSessionId() : this.localTransferSessionId;
+                if (currentHostSid !== effectiveSessionId) {
+                    log.debug(`[Unicast] Session mismatch (Expected: ${effectiveSessionId}, Got: ${currentHostSid}), aborting at chunk ${i}`);
                     return;
                 }
 

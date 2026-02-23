@@ -1269,7 +1269,7 @@ let _currentYouTubeSessionId = null;
 let _lastEndedCheck = 0;
 let _pendingFileIndex = undefined;
 let _pendingPlayTime = undefined;
-let _preloadAckSent = false;
+let _preloadAckSent = new Set();
 let _preloadUsedForIndex = null;
 let _preloadWatchdog = null;
 let _recoveryInProgress = {};
@@ -4873,6 +4873,31 @@ async function backgroundTransfer(file, index, sessionId) {
 }
 
 
+// Send preload data to a single peer (for late-joining guests)
+async function unicastPreload(conn, file, index, sessionId) {
+    if (!conn || !conn.open || !file) return;
+    const CHUNK = 16384;
+    const total = Math.ceil(file.size / CHUNK);
+    conn.send({
+        type: MSG.PRELOAD_START, name: file.name, mime: file.type,
+        total: total, size: file.size, index: index, sessionId: sessionId, skipped: false
+    });
+    for (let i = 0; i < total; i++) {
+        if (!conn.open) return;
+        // Backpressure loop (match broadcastPreloadFile pattern)
+        while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
+            await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+        }
+        if (!conn.open) return;
+        const start = i * CHUNK;
+        const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
+        conn.send({ type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId: sessionId });
+    }
+    if (conn.open) {
+        conn.send({ type: MSG.PRELOAD_END, name: file.name, index: index, sessionId: sessionId });
+    }
+}
+
 function playNextTrack() {
     // Guest (non-OP): blocked
     if (hostConn && !isOperator) return showToast("호스트만 조작할 수 있어요");
@@ -5121,7 +5146,7 @@ async function loadAndBroadcastFile(file, sessionId = null, skipTabSync = false,
         }
 
         if (!hostConn) {
-            preloadNextTrack();
+            schedulePreload();
         }
 
     } catch (err) {
@@ -6894,15 +6919,26 @@ function handleHostIncomingConnection(conn) {
             } catch (e) { /* noop */ }
         }
 
+        // Send preloaded next track to late-joining guest
+        if (nextFileBlob && nextMeta && nextTrackIndex >= 0 &&
+            Array.isArray(playlist) && playlist[nextTrackIndex] && playlist[nextTrackIndex].type !== 'youtube') {
+            const preloadSid = nextMeta.sessionId || preloadSessionId;
+            log.debug(`[Host] Sending preloaded track ${nextTrackIndex} to late joiner`);
+            unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid)
+                .catch((e) => log.error('[Host] unicastPreload to late joiner failed', e));
+        }
+
         // Playback state (time-sync for late joiners)
         const nowPos = getTrackPosition();
 
         if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+            const _itemName = (Array.isArray(playlist) && playlist[currentTrackIndex]) ? (playlist[currentTrackIndex].name || playlist[currentTrackIndex].file?.name) : null;
             try {
                 conn.send({
                     type: MSG.PLAY,
                     time: nowPos,
                     index: currentTrackIndex,
+                    name: _itemName,
                     state: currentState,
                     timestamp: Date.now()
                 });
@@ -6928,6 +6964,7 @@ function handleHostIncomingConnection(conn) {
                         type: MSG.YOUTUBE_PLAY,
                         videoId: item.videoId,
                         playlistId: item.playlistId,
+                        name: item.name || item.title,
                         index: currentTrackIndex,
                         autoplay: autoplay,
                         subIndex: subIdx
@@ -7486,6 +7523,10 @@ async function handleFilePrepare(data) {
         currentTrackIndex = data.index !== undefined ? data.index : currentTrackIndex;
         updatePlaylistUI();
 
+        // [Title Sync Fix] Update title when using preloaded track
+        const preloadName = data.name || (nextMeta && nextMeta.name) || (playlist[data.index] && playlist[data.index].name) || `Track ${data.index + 1}`;
+        updateTitleWithMarquee(preloadName);
+
         // Use preloaded file directly
         await loadPreloadedTrack(data.index, myLoadToken);
 
@@ -7515,6 +7556,8 @@ async function handleFilePrepare(data) {
         } else {
             log.debug("[file-prepare] Preload in progress for this track, waiting...");
             showLoader(true, `프리로드 완료 대기 중: ${data.name}`);
+            // [Title Sync Fix] Update title while waiting for preload
+            if (data.name) updateTitleWithMarquee(data.name);
 
             // Set pending info
             window._pendingFileName = data.name;
@@ -7558,6 +7601,8 @@ async function handleFilePrepare(data) {
     if (isResuming) {
         log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
         showLoader(true, `복구 대기 중: ${data.name}`);
+        // [Title Sync Fix] Ensure title is set even during resume
+        if (data.name) updateTitleWithMarquee(data.name);
     } else {
         // Clear previous track state before receiving new file
         clearPreviousTrackState('file-prepare (new download)');
@@ -8990,9 +9035,10 @@ async function handlePlay(data) {
         currentTrackIndex = data.index;
         updatePlaylistUI();
 
-        // [Title Sync Fix] Update title so guest UI reflects the new track
-        const playTrackName = (playlist[data.index] && playlist[data.index].name) || `Track ${data.index + 1}`;
-        updateTitleWithMarquee(playTrackName);
+        // [Title Sync Fix] Use explicit name if provided, otherwise playlist lookup
+        // (avoid overwriting title already set by FILE_PREPARE/PLAY_PRELOADED with generic fallback)
+        const _playName = data.name || (playlist[data.index] && playlist[data.index].name);
+        if (_playName) updateTitleWithMarquee(_playName);
 
         // 3. Initiate recovery/loading if needed
         const item = playlist[currentTrackIndex];

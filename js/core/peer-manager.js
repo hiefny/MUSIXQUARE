@@ -40,7 +40,7 @@ export const PeerManager = {
     },
 
     getPeerLabel(slot) {
-        const labels = ['HOST', 'DEVICE 1', 'DEVICE 2', 'DEVICE 3', 'DEVICE 4'];
+        const labels = ['HOST', 'DEVICE 1', 'DEVICE 2', 'DEVICE 3'];
         return labels[slot] || `DEVICE ${slot}`;
     },
 
@@ -49,6 +49,6 @@ export const PeerManager = {
     },
 
     releaseSlot(peerId) {
-        // We might keep the slot assignment in peerSlotByPeerId for reconnections
+        this.peerSlotByPeerId.delete(peerId);
     }
 };

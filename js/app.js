@@ -53,7 +53,8 @@ const OPFS_INSTANCE_ID = (typeof crypto.randomUUID === 'function')
     : (Date.now().toString(36) + Math.random().toString(36).substr(2, 9));
 
 // [iOS Latency Engineering]
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const IS_IOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
 const IOS_STARTUP_BIAS = 0; // Reset to 0 as Tone.Player handles precision.
 
@@ -1713,14 +1714,13 @@ async function finalizeFileProcessing(file) {
         // Set currentFileBlob on Guest as well so hasBlob checks work in sync logic
         currentFileBlob = file;
 
-        videoElement.addEventListener('loadedmetadata', function _onMetaLoaded() {
-            videoElement.removeEventListener('loadedmetadata', _onMetaLoaded);
-            // Duration based on accurate audio buffer
+        videoElement.addEventListener('loadedmetadata', () => {
             document.getElementById('seek-slider').max = audioBuffer.duration;
             document.getElementById('seek-slider').value = 0;
             document.getElementById('time-dur').innerText = fmtTime(audioBuffer.duration);
             BlobURLManager.confirm(file);
-        });
+        }, { once: true });
+        videoElement.addEventListener('error', () => BlobURLManager.confirm(file), { once: true });
         videoElement.load();
 
         document.getElementById('play-btn').disabled = !isOperator;
@@ -2501,7 +2501,8 @@ function switchTab(tabId) {
     animateTransition(() => {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-        document.getElementById(`tab-${tabId}`).classList.add('active');
+        const tabEl = document.getElementById(`tab-${tabId}`);
+        if (tabEl) tabEl.classList.add('active');
         const tabs = ['play', 'playlist', 'settings', 'guide'];
         const idx = tabs.indexOf(tabId);
         if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
@@ -3267,53 +3268,7 @@ function initSetupOverlay() {
     }
 }
 
-/**
- * Mini Slider for Setup Connection Guides
- */
-function initSetupInnerSlider(sliderId) {
-    const slider = document.getElementById(sliderId);
-    if (!slider) return;
-
-    const track = slider.querySelector('.setup-inner-track');
-    const dots = slider.querySelectorAll('.setup-inner-dot');
-    let currentIdx = 0;
-    const totalSlides = slider.querySelectorAll('.setup-inner-slide').length;
-
-    const update = () => {
-        if (track) track.style.transform = `translateX(-${(currentIdx * 100) / totalSlides}%)`;
-        dots.forEach((dot, i) => dot.classList.toggle('active', i === currentIdx));
-    };
-
-    // Correct track width for multi-slide
-    if (track) track.style.width = `${totalSlides * 100}%`;
-
-    let timer = setInterval(() => {
-        currentIdx = (currentIdx + 1) % totalSlides;
-        update();
-    }, 4500);
-
-    const btnNext = slider.querySelector('.setup-inner-arrow.right');
-    const btnPrev = slider.querySelector('.setup-inner-arrow.left');
-
-    const stopAuto = () => { if (timer) { clearInterval(timer); timer = null; } };
-
-    if (btnNext) btnNext.onclick = (e) => { e.stopPropagation(); stopAuto(); currentIdx = (currentIdx + 1) % totalSlides; update(); };
-    if (btnPrev) btnPrev.onclick = (e) => { e.stopPropagation(); stopAuto(); currentIdx = (currentIdx + totalSlides - 1) % totalSlides; update(); };
-
-    // Swipe support
-    let startX = 0;
-    slider.ontouchstart = (e) => { stopAuto(); startX = e.touches[0].clientX; };
-    slider.ontouchend = (e) => {
-        const diff = startX - e.changedTouches[0].clientX;
-        if (Math.abs(diff) > 30) {
-            if (diff > 0) currentIdx = (currentIdx + 1) % totalSlides;
-            else currentIdx = (currentIdx + totalSlides - 1) % totalSlides;
-            update();
-        }
-    };
-
-    update(); // Initial call
-}
+// initSetupInnerSlider removed — dead code (never called)
 
 
 
@@ -4514,6 +4469,7 @@ async function fetchPlaylistSubTitles(playlistId, ids) {
             const videoId = ids[i];
             // Sequential fetching with a small delay to avoid rate limiting
             const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`);
+            if (!response.ok) continue;
             const json = await response.json();
 
             if (json && json.title) {
@@ -5598,7 +5554,7 @@ function togglePlay() {
         return;
     }
 
-    const isActuallyPlaying = (videoElement && !videoElement.paused);
+    const isActuallyPlaying = (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO);
 
     // Cancel pending auto-play timer if host manually controls playback
     if (!hostConn && managedTimers.autoPlayTimer) {
@@ -6372,7 +6328,8 @@ function startVisualizer() {
     }
 
     function draw() {
-        if (currentState === APP_STATE.IDLE) return;
+        if (currentState === APP_STATE.IDLE) { animationId = null; return; }
+        if (!isToneAnalyser) { animationId = null; return; }
         animationId = requestAnimationFrame(draw);
 
         if (isToneAnalyser) {
@@ -7322,11 +7279,14 @@ async function leaveSession(opts = {}) {
     const trackArtistEl = document.getElementById('track-artist');
     if (trackArtistEl) trackArtistEl.innerText = "Select a file or check Playlist";
 
-    document.getElementById('play-btn').disabled = true;
-    document.getElementById('seek-slider').disabled = true;
-    document.getElementById('seek-slider').value = 0;
-    document.getElementById('time-curr').innerText = "0:00";
-    document.getElementById('time-dur').innerText = "0:00";
+    const playBtn = document.getElementById('play-btn');
+    const seekSlider = document.getElementById('seek-slider');
+    const timeCurr = document.getElementById('time-curr');
+    const timeDur = document.getElementById('time-dur');
+    if (playBtn) playBtn.disabled = true;
+    if (seekSlider) { seekSlider.disabled = true; seekSlider.value = 0; }
+    if (timeCurr) timeCurr.innerText = "0:00";
+    if (timeDur) timeDur.innerText = "0:00";
 
     const myIdEl = document.getElementById('my-id');
     if (myIdEl) myIdEl.innerText = 'ID 생성 중...';
@@ -7989,7 +7949,8 @@ async function handleFileChunk(data) {
         // Reset existing state
         clearPreviousTrackState('session-change');
 
-        // Reorder Buffer Reset
+        // Reorder Buffer Reset (clear old sessions to prevent memory leak)
+        fileReorderBuffer.clear();
         fileReorderBuffer.set(incomingSid, new Map());
         nextExpectedChunk = 0;
         receivedCount = 0;
@@ -8235,7 +8196,7 @@ async function handleSyncResponse(data) {
     }
     else {
         // Don't stop if we are waiting for a scheduled play command (Host countdown)
-        if (_pendingPlayTime) {
+        if (_pendingPlayTime !== undefined) {
             log.debug("[AutoSync] Host is not playing yet, but we have a pending start. Keeping status quo.");
             pausedAt = compensatedTime; // Sync time for when we DO start
             return;
@@ -8553,7 +8514,13 @@ async function handlePreloadChunk(data) {
 
         // Clone chunk to prevent detachment issues (one for relay, one for worker)
         const chunkClone = new Uint8Array(chunk);
-        const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : 'Unknown');
+        const fileName = sessionState.name || (preloadMeta ? preloadMeta.name : null);
+        if (!fileName) {
+            log.warn('[Preload] Skipping OPFS write: no filename available');
+            sessionBuffer.delete(nextChunkPtr);
+            nextChunkPtr++;
+            continue;
+        }
 
         // RELAY LOGIC: Forward to downstream
         if (downstreamDataPeers.length > 0) {
@@ -8621,6 +8588,7 @@ async function handlePreloadChunk(data) {
             });
             // NOTE: We do NOT reset preloadCount to 0 here because it's needed for handlePreloadEnd's check.
             // It will be reset in clearPreloadState().
+            preloadReorderBuffer.delete(sessionId); // Prevent memory leak
         }
     }
 }
@@ -8674,7 +8642,8 @@ async function handlePreloadEnd(data) {
     // Allow slight mismatch (e.g. -1) or exact match
     if (progress < total) {
         log.warn(`[Preload] Incomplete! Got ${progress}/${total} chunks.`);
-        // Force try finalizing if we are very close (optional logic, but safe to just warn for now)
+        showLoader(false);
+        _waitingForPreload = false;
         return;
     }
 
@@ -9166,9 +9135,6 @@ async function handleVolume(data) {
 async function handleReverb(data) { setReverbParam('mix', data.value); }
 async function handleReverbType(data) {
     if (reverb) {
-        // Dynamic Reverb Type dispatcher
-        // Currently Tone.Reverb doesn't have internal presets, but we can adjust parameters
-        // to simulate different types (e.g. 'room', 'hall', 'space')
         if (data.value === 'room') {
             reverb.decay = 1.5;
             reverb.preDelay = 0.05;
@@ -9179,7 +9145,10 @@ async function handleReverbType(data) {
             reverb.decay = 7.0;
             reverb.preDelay = 0.2;
         }
-        reverb.generate();
+        // Sync global state so reset doesn't revert
+        reverbDecay = reverb.decay;
+        reverbPreDelay = reverb.preDelay;
+        await reverb.generate();
         showToast(`리버브 타입: ${data.value}`);
     }
 }
@@ -11932,13 +11901,16 @@ function onYouTubePlayerStateChange(event) {
 
     const state = event.data;
 
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+
     if (state === YT.PlayerState.PLAYING) {
         showYouTubeSyncOverlay(false);
-        document.getElementById('icon-play').style.display = 'none';
-        document.getElementById('icon-pause').style.display = 'block';
+        if (iconPlay) iconPlay.style.display = 'none';
+        if (iconPause) iconPause.style.display = 'block';
     } else if (state === YT.PlayerState.PAUSED) {
-        document.getElementById('icon-play').style.display = 'block';
-        document.getElementById('icon-pause').style.display = 'none';
+        if (iconPlay) iconPlay.style.display = 'block';
+        if (iconPause) iconPause.style.display = 'none';
     } else if (state === YT.PlayerState.ENDED) {
         setState(APP_STATE.IDLE);
 

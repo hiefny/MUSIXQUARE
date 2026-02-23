@@ -31,7 +31,7 @@
 // v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v67: UI null check fix for preload activation
-const CACHE_VERSION = "v77"; // Fix: undefined updateTrackInfoDisplay, OP host guard, unicast resume index
+const CACHE_VERSION = "v78"; // Final audit: MEDIUM/LOW fixes (20 items) — iPadOS, togglePlay, draw loop, reorder buffers, reverb, null guards
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

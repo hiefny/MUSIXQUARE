@@ -234,7 +234,8 @@
         width: 100%;
         /* Prevent infinite scaling on wide monitors, also respect vertical space for controls */
         max-width: min(90%, 1080px, calc((100vh - 360px) * 16 / 9));
-        margin: 0 auto 30px auto;
+        /* Center vertically in remaining space above controls (like visualizer) */
+        margin: auto auto 0 auto;
         border-radius: 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
     }

@@ -431,7 +431,7 @@
         width: clamp(320px, 60%, 560px);
     }
 
-    .desktop-diagram-area .ob-dots {
+    .desktop-diagram-area .ob-nav-row {
         margin-top: 32px;
     }
 

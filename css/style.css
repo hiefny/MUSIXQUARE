@@ -3419,6 +3419,29 @@ body.overlay-open .bottom-nav {
     gap: 10px;
 }
 
+/* YouTube URL overlay: prevent preview from pushing buttons off-screen (mobile) */
+#youtube-url-overlay .setup-card.full-screen {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+#youtube-url-overlay .setup-card.full-screen .setup-join-area {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+#youtube-url-overlay .setup-card.full-screen .ob-actions {
+    flex-shrink: 0;
+}
+
+#youtube-url-overlay #youtube-preview-thumb {
+    max-height: 35vh;
+    width: 100%;
+    object-fit: cover;
+}
+
 
 
 .setup-slot-list {

@@ -30,8 +30,9 @@
 // v63: Refine Virtual Bass distortion translation (Higher = More Distortion)
 // v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
-// v67: UI null check fix for preload activation
-const CACHE_VERSION = "v88"; // Final cleanup: timers, memory, CSS dedup, dead code
+// v88: Final cleanup: timers, memory, CSS dedup, dead code
+// v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
+const CACHE_VERSION = "v89"; // UI refinements & i18n updates
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

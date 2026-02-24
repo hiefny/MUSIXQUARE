@@ -490,9 +490,10 @@ async function handleMessage(data) {
 
       const sidSnapshot = opfsObj.sessionId;
 
-      // Note: releaseLock already calls cleanupHandle internally, so skip explicit cleanupHandle here (Bug #47)
-      safePost({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId: sidSnapshot });
+      // Release lock BEFORE notifying main thread, to avoid race where main thread
+      // tries to re-open the file while SyncAccessHandle is still held
       await releaseLock(opfsObj);
+      safePost({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId: sidSnapshot });
 
     } catch (e) {
       await releaseLock(opfsObj);

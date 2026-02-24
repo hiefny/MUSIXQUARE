@@ -1240,36 +1240,6 @@ input[type=range]:active::-moz-range-thumb {
     min-height: 16px;
 }
 
-.file-select-btn {
-    width: 100%;
-    margin-top: auto;
-    background: #212121;
-    /* Darker solid background per request */
-    border: none;
-    padding: 16px;
-    border-radius: var(--radius-m);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text-sub);
-    /* Darkened text as requested */
-}
-
-.file-select-btn:active {
-    background: var(--surface-3);
-    color: var(--text-main);
-}
-
-.file-select-btn svg {
-    width: 20px;
-    height: 20px;
-    fill: currentColor;
-}
 
 
 .playlist-title-area {
@@ -1925,11 +1895,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     /* Fallback padding */
 }
 
-#tab-settings .channel-grid {
-    padding: 12px 0 !important;
-    /* Removed horizontal padding to perfectly align with the section title */
-}
-
 #tab-settings .ch-opt {
     background: var(--surface-1);
     color: var(--text-sub);
@@ -1984,7 +1949,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     background: var(--surface-1);
     border-radius: 24px;
     padding: 32px;
-    display: flex;
     flex-direction: column;
     align-items: center;
     margin: 0 20px 24px;
@@ -1998,12 +1962,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     animation: fadeIn 0.4s ease;
 }
 
-.input.ob-actions {
-    display: flex;
-    gap: 12px;
-    width: 100%;
-    margin-top: auto;
-}
+/* .input.ob-actions removed: typo selector, .ob-actions (line 2618) is the correct one */
 
 .input-group {
     display: flex;
@@ -3077,11 +3036,6 @@ body.overlay-open .bottom-nav {
 }
 
 /* Mini Slider Arrows */
-.setup-code-label {
-    text-align: center;
-    width: 100%;
-}
-
 .setup-inner-arrow {
     position: absolute;
     top: 50%;
@@ -3224,12 +3178,6 @@ body.overlay-open .bottom-nav {
     fill: #000000;
     stroke: var(--surface-3);
     stroke-width: 1;
-}
-
-.graphic-speaker {
-    fill: var(--surface-1);
-    stroke: var(--text-sub);
-    stroke-width: 1.5;
 }
 
 .graphic-line {
@@ -3408,7 +3356,8 @@ body.overlay-open .bottom-nav {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    margin-bottom: 8px;
 }
 
 .setup-slot-row {
@@ -4639,23 +4588,19 @@ input:checked+.slider:before {
 /* Media Source Overlay Styles */
 /* Consolidated with global .setup-header-text above */
 
-.setup-slot-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 8px;
-}
-
 .file-select-btn {
     display: flex;
     align-items: center;
     width: 100%;
     height: 72px;
+    margin-top: auto;
+    gap: 10px;
     background: var(--surface-2);
     border-radius: 20px;
     padding: 0 20px;
     border: 2px solid transparent;
     cursor: pointer;
+    font-family: inherit;
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
     appearance: none;
     -webkit-appearance: none;
@@ -4671,6 +4616,8 @@ input:checked+.slider:before {
 }
 
 .file-select-btn:active {
+    background: var(--surface-3);
+    color: var(--text-main);
     transform: scale(0.98);
 }
 

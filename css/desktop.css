@@ -109,11 +109,6 @@
         /* Prevent layout shift */
     }
 
-    /* tab-play is special as it doesn't use tab-body yet, it still scrolls the parent for now or we can fix it too */
-    #tab-play {
-        overflow-y: auto !important;
-    }
-
     #tab-play .tab-body {
         padding-bottom: 0 !important;
     }
@@ -154,14 +149,19 @@
     /* ---------------------------------------------------
        4. Specific Panel: Play (Main)
        --------------------------------------------------- */
-    /* Elegant vertical dividers via standard border */
     #tab-play {
+        grid-area: tab-play;
+        flex-direction: column;
+        justify-content: flex-start !important;
+        align-items: center;
         padding: 0 0 0 8px !important;
-        /* 다시 물리적인 8px 대칭(수학적 정렬)으로 원복 */
         border-right: 1px solid var(--divider) !important;
         min-width: 0 !important;
         min-height: 0 !important;
         max-width: 100% !important;
+        gap: 16px;
+        overflow-y: auto !important;
+        overflow-x: hidden;
     }
 
     #tab-playlist {
@@ -184,21 +184,6 @@
 
     .play-header-desktop {
         display: none !important;
-        /* Hide "Main" header on PC as requested */
-    }
-
-    #tab-play {
-        grid-area: tab-play;
-        flex-direction: column;
-        justify-content: flex-start !important;
-        align-items: center;
-        /* TEST: 비주얼라이저 위 안전영역 제거 테스트 */
-        /* padding-top: 70px !important; */
-        padding-bottom: 0 !important;
-        gap: 16px;
-        /* Tighter gap for compact vertical fit */
-        overflow-y: auto;
-        overflow-x: hidden;
     }
 
     .play-action-buttons {

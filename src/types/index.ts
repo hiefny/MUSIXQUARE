@@ -310,9 +310,6 @@ export interface EventMap {
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];
 
-  // ── Platform ──────────────────────────────────────────────────────
-  'platform:freeze-layout': [];
-
   // ── Dynamic State ─────────────────────────────────────────────────
   [key: `state:${string}`]: [value: unknown];
 }

@@ -546,7 +546,6 @@ function initSetupOverlay(): void {
   showRoleSelectionButtons();
 
   const showAndStart = () => {
-    try { bus.emit('platform:freeze-layout'); } catch { /* ignore */ }
     showSetupOverlay();
     startObAutoSlide();
   };

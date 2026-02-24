@@ -32,30 +32,23 @@
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v88: Final cleanup: timers, memory, CSS dedup, dead code
 // v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
-const CACHE_VERSION = "v90"; // Fix: remove stale js/ references → SW install was failing → no CSS cache
+// v91: Adapt APP_SHELL for Vite build — CSS/fonts/icons are now hashed in /assets/
+const CACHE_VERSION = "v91";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
+// Only list assets that keep stable paths after Vite build.
+// Vite-hashed assets (CSS, JS bundles, icons, fonts, manifest) are cached
+// at runtime via the stale-while-revalidate fetch handler below.
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./css/pretendard.css",
-  "./css/style.css",
-  "./css/desktop.css",
-  // JS is now bundled by Vite into src/app.ts → assets/index-*.js
-  // Workers are built by Vite as well (no longer at js/*.worker.js)
   "./vendor/Tone.js",
   "./vendor/Tone.js.LICENSE.txt",
   "./vendor/peerjs.min.js",
   "./vendor/peerjs.LICENSE.txt",
-  "./manifest.webmanifest",
-  "./favicon.svg",
   "./dummy_audio.mp3",
-  "./icons/icon-32.png",
-  "./icons/icon-180.png",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./fonts/PretendardVariable.woff2"
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener('install', (event) => {

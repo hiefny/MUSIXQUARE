@@ -1493,11 +1493,6 @@ input[type=range]:active::-moz-range-thumb {
     border-bottom: 1px dotted var(--surface-3);
 }
 
-.section-padding-bottom {
-    display: none !important;
-    /* Fully obsolete now */
-}
-
 .section-group:last-of-type,
 #last-setting-section {
     border-bottom: none;
@@ -4509,25 +4504,6 @@ input:checked+.slider:before {
 
 .chat-timestamp:active {
     opacity: 0.7;
-}
-
-/* Backdrop overlay when drawer is open */
-.chat-drawer-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.3s, visibility 0.3s;
-    z-index: 999;
-}
-
-.chat-drawer-backdrop.show {
-    opacity: 1;
-    visibility: visible;
 }
 
 @keyframes spin {

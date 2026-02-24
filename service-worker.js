@@ -138,7 +138,7 @@ function isCacheableRequest(request) {
 
   // Always allow the tiny built-in dummy audio used for iOS/AudioContext keep-alive.
   // (If we block all .mp3, offline mode would fail even though it's in APP_SHELL.)
-  if (path.endsWith('/dummy_audio.mp3') || path.endsWith('dummy_audio.mp3')) return true;
+  if (path.endsWith('dummy_audio.mp3')) return true;
 
   const ext = path.split('.').pop().toLowerCase();
   // NOTE: Range requests are already excluded above.
@@ -167,7 +167,7 @@ self.addEventListener('fetch', (event) => {
       } catch (_) {
         // Fallback to cached index or cached navigation
         const cached = await caches.match(request);
-        return cached || caches.match('./index.html');
+        return cached || await caches.match('./index.html') || new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
       }
     })());
     return;

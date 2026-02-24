@@ -33,8 +33,8 @@ function createOpfsSlot() {
   };
 }
 
-let currentFileOpfs = createOpfsSlot();
-let preloadFileOpfs = createOpfsSlot();
+const currentFileOpfs = createOpfsSlot();
+const preloadFileOpfs = createOpfsSlot();
 
 let instanceId = 'default';
 
@@ -71,13 +71,12 @@ async function processQueue() {
         });
       }
 
+      // Release processed message reference immediately to allow GC of chunk data
+      messageQueue[queueIndex - 1] = null;
+
       // Periodically compact the queue to avoid unbounded growth without
       // using Array.shift() (O(n) per message).
-      //
-      // IMPORTANT: We must NOT clear the whole array at the end.
-      // New messages can arrive while we're awaiting handleMessage(), and
-      // clearing would drop them.
-      if (queueIndex >= 1024) {
+      if (queueIndex >= 128) {
         messageQueue.splice(0, queueIndex);
         queueIndex = 0;
       }
@@ -277,6 +276,7 @@ async function handleMessage(data) {
 
   if (command === 'INIT_INSTANCE') {
     instanceId = data.instanceId || 'default';
+    _lastMismatchKey = null; // Reset mismatch dedup on new instance
     console.log(`[TransferWorker] Instance Initialized: ${instanceId}`);
     return;
   }
@@ -406,6 +406,8 @@ async function handleMessage(data) {
       }
     } catch (e) {
       safePost({ type: 'OPFS_WRITE_ERROR', error: e && e.message ? e.message : String(e), filename, chunk: index, isPreload });
+      // Release lock on write failure to prevent stuck state for subsequent sessions
+      try { await releaseLock(opfsObj, 'write error'); } catch (_) { /* ignore */ }
     }
 
     return;
@@ -581,25 +583,36 @@ async function handleMessage(data) {
       const fileHandle = await root.getFileHandle(safeName);
 
       if (fileHandle && typeof fileHandle.createSyncAccessHandle === 'function') {
-        // Use a temporary sync handle if available
-        const ah = await fileHandle.createSyncAccessHandle();
+        // Use a temporary sync handle if available.
+        // This can fail with NoModificationAllowedError if the file is locked
+        // by another slot, so we fall through to the File-based fallback.
+        let ah = null;
         try {
-          const buffer = new Uint8Array(chunkSize);
-          const bytesRead = ah.read(buffer, { at: offset });
-          const chunk = (bytesRead === chunkSize) ? buffer : buffer.slice(0, bytesRead);
-
-          safePost({
-            type: 'OPFS_READ_COMPLETE',
-            chunk,
-            index,
-            filename,
-            requestId,
-            sessionId
-          }, [chunk.buffer]);
-        } finally {
-          try { await ah.close(); } catch (_) { /* ignore */ }
+          ah = await fileHandle.createSyncAccessHandle();
+        } catch (lockErr) {
+          // Fall through to async File slicing below
+          console.warn('[TransferWorker] SyncAccessHandle unavailable for read, using File fallback:', lockErr.message);
         }
-        return;
+
+        if (ah) {
+          try {
+            const buffer = new Uint8Array(chunkSize);
+            const bytesRead = ah.read(buffer, { at: offset });
+            const chunk = (bytesRead === chunkSize) ? buffer : buffer.slice(0, bytesRead);
+
+            safePost({
+              type: 'OPFS_READ_COMPLETE',
+              chunk,
+              index,
+              filename,
+              requestId,
+              sessionId
+            }, [chunk.buffer]);
+          } finally {
+            try { await ah.close(); } catch (_) { /* ignore */ }
+          }
+          return;
+        }
       }
 
       // Fallback: async File slicing

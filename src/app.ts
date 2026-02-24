@@ -274,10 +274,10 @@ function bootstrap(): void {
   initWakeLock();
   initBeforeUnload();
 
-  // 11. System compatibility check (deferred to not block bootstrap)
+  // 12. System compatibility check (deferred to not block bootstrap)
   setTimeout(checkSystemCompatibility, 100);
 
-  // 12. Expose debug helpers on window
+  // 13. Expose debug helpers on window
   const debugObj = {
     state: snapshot,
     bus,

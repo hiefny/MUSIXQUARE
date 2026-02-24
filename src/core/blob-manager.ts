@@ -115,7 +115,8 @@ export const BlobURLManager = {
 
     // Queue overflow protection
     if (this._pendingRevocations.size >= this.MAX_PENDING) {
-      const oldest = this._pendingRevocations.keys().next().value!;
+      const oldest = this._pendingRevocations.keys().next().value;
+      if (!oldest) return;
       if (this._isUrlAttached(oldest)) {
         this._deferredUntilDetached.add(oldest);
         this._pendingRevocations.delete(oldest);

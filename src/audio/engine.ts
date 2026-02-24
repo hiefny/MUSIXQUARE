@@ -309,13 +309,6 @@ export function toneNow(): number {
   }
 }
 
-/** Start Tone context (user gesture required) */
-export async function ensureToneStarted(): Promise<void> {
-  if (typeof Tone !== 'undefined' && Tone?.context?.state === 'suspended') {
-    await Tone.start();
-  }
-}
-
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Set master volume (0-1) */

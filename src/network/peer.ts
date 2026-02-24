@@ -558,7 +558,7 @@ export function leaveSession(): void {
     // Playlist
     'playlist.items': [],
     'playlist.currentTrackIndex': -1,
-    'playlist.nextTrackIndex': -1,
+    'preload.nextTrackIndex': -1,
     // Transfer
     'transfer.meta': null,
     'transfer.state': 'IDLE',
@@ -574,7 +574,6 @@ export function leaveSession(): void {
     'sync.autoSyncOffset': 0,
     // Player
     'player.pausedAt': 0,
-    'player.currentAudioBuffer': null,
     // App state
     'appState': APP_STATE.IDLE,
   });

@@ -154,16 +154,16 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   setState('transfer.skipIncomingFile', false);
   setState('transfer.waitingForPreload', false);
 
-  // Store pending file info
-  setState('recovery.pendingFileName', data.name as string || '');
-  setState('recovery.pendingFileIndex', data.index as number);
-
-  // Check if same file (resume scenario) — BEFORE updating meta
+  // Check if same file (resume scenario) — read BEFORE updating pending info
   const meta = getState<Record<string, unknown>>('transfer.meta');
   const receivedCount = getState<number>('transfer.receivedCount');
   const pendingFileIndex = getState<number | undefined>('recovery.pendingFileIndex');
   const isSameFile = (meta.name === data.name) ||
     (pendingFileIndex !== undefined && pendingFileIndex === data.index);
+
+  // Store pending file info (after reading old values above)
+  setState('recovery.pendingFileName', data.name as string || '');
+  setState('recovery.pendingFileIndex', data.index as number);
   const isResuming = isSameFile && receivedCount > 0;
 
   if (isResuming) {

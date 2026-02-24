@@ -135,7 +135,7 @@ export interface StateTree {
   // Relay
   relay: {
     upstreamDataConn: DataConnection | null;
-    downstreamDataPeers: string[];
+    downstreamDataPeers: DataConnection[];
     chunkQueue: unknown[];
     isRelaying: boolean;
   };
@@ -448,9 +448,3 @@ export function resetState(): void {
   _state = createInitialState();
 }
 
-/**
- * Direct access to the state tree (use sparingly — prefer getState/setState).
- */
-export function getRawState(): StateTree {
-  return _state;
-}

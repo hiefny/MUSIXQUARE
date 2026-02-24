@@ -414,12 +414,18 @@ function handleYouTubePlay(data: Record<string, unknown>): void {
   const playlistId = data.playlistId as string | null;
   const index = data.index as number | undefined;
   const autoplay = data.autoplay as boolean | undefined;
+  const subIndex = data.subIndex as number | undefined;
+
+  if (!videoId && !playlistId) {
+    log.warn('[YouTube] handleYouTubePlay: no videoId or playlistId');
+    return;
+  }
 
   if (index !== undefined) {
     setState('playlist.currentTrackIndex', index);
   }
 
-  loadYouTubeVideo(videoId, playlistId, autoplay ?? false);
+  loadYouTubeVideo(videoId, playlistId, autoplay ?? false, subIndex ?? 0);
 }
 
 function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConnection): void {

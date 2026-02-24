@@ -28,7 +28,7 @@ export function updateMediaSessionMetadata(item: PlaylistItem | null): void {
     if (item.playlistId && currentYouTubeSubIndex !== -1) {
       const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
       const subData = subMap[item.playlistId];
-      if (subData?.titles?.[currentYouTubeSubIndex]) {
+      if (subData?.titles && currentYouTubeSubIndex >= 0 && currentYouTubeSubIndex < subData.titles.length && subData.titles[currentYouTubeSubIndex]) {
         title = subData.titles[currentYouTubeSubIndex];
       } else {
         title = `${item.title || 'Playlist'} (${currentYouTubeSubIndex + 1})`;

@@ -52,7 +52,7 @@ export function initTabs(): void {
         const tabBody = document.querySelector(`#tab-${el.dataset.tab} .tab-body`);
         if (tabBody) tabBody.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        switchTab(el.dataset.tab!);
+        if (el.dataset.tab) switchTab(el.dataset.tab);
       }
     });
   });

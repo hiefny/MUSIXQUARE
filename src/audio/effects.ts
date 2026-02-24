@@ -72,24 +72,25 @@ export function applySettings(): void {
     }
   }
 
-  // Reverb damping filters
+  // Reverb damping filters (clamp to [0, 100] for safety)
   const rlc = getRvbLowCut();
   if (rlc) {
-    const lFreq = 20 * Math.pow(50, reverbLowCut / 100);
+    const lFreq = 20 * Math.pow(50, Math.max(0, Math.min(100, reverbLowCut)) / 100);
     rlc.frequency.rampTo(lFreq, 0.1);
   }
   const rhc = getRvbHighCut();
   if (rhc) {
-    const hFreq = 20000 * Math.pow(0.05, reverbHighCut / 100);
+    const hFreq = 20000 * Math.pow(0.05, Math.max(0, Math.min(100, reverbHighCut)) / 100);
     rhc.frequency.rampTo(hFreq, 0.1);
   }
 
-  // EQ Sync
+  // EQ Sync (clamp to [-12, 12] dB for safety)
   const nodes = getEqNodes();
   if (nodes && eqValues) {
     nodes.forEach((node, i) => {
-      if (node.gain.value !== eqValues[i]) {
-        node.gain.rampTo(eqValues[i], 0.1);
+      const clamped = Math.max(-12, Math.min(12, eqValues[i]));
+      if (node.gain.value !== clamped) {
+        node.gain.rampTo(clamped, 0.1);
       }
     });
   }

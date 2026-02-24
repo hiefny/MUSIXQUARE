@@ -111,7 +111,8 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       setState('youtube.currentSubIndex', hostSubIndex);
 
       if (player.playVideoAt && player.getPlaylistIndex) {
-        if (player.getPlaylistIndex() !== hostSubIndex) {
+        const ytPlaylist = player.getPlaylist?.() || [];
+        if (hostSubIndex >= 0 && hostSubIndex < ytPlaylist.length && player.getPlaylistIndex() !== hostSubIndex) {
           player.playVideoAt(hostSubIndex);
         }
       }

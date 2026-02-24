@@ -577,9 +577,10 @@ function initSetupOverlay(): void {
   const viewport = setupEl('ob-slider-viewport');
   if (viewport) {
     let startX = 0;
-    viewport.ontouchstart = (e) => { startX = (e as TouchEvent).touches[0].clientX; };
+    viewport.ontouchstart = (e) => { startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0; };
     viewport.ontouchend = (e) => {
-      const endX = (e as TouchEvent).changedTouches[0].clientX;
+      const endX = (e as TouchEvent).changedTouches?.[0]?.clientX;
+      if (endX === undefined) return;
       const diff = startX - endX;
       if (Math.abs(diff) > 50) {
         if (diff > 0) nextObSlide(false);

@@ -89,13 +89,6 @@ export interface PlaylistItem {
   isExpanded?: boolean;
 }
 
-export interface PlaylistMetaItem {
-  type: string | undefined;
-  name: string;
-  videoId: string | null;
-  playlistId: string | null;
-}
-
 // ─── Worker Messages ───────────────────────────────────────────────
 export interface WorkerCommand {
   command: string;

@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
@@ -157,6 +157,7 @@ export function stopAllMedia(): void {
   // 3. Clear pending triggers
   clearManagedTimer('preloadScheduleTimer');
   clearManagedTimer('autoPlayTimer');
+  _pendingPlayTime = undefined;
 
   setState('appState', APP_STATE.IDLE);
   bus.emit('player:state-changed', APP_STATE.IDLE);
@@ -484,7 +485,7 @@ export function skipTime(sec: number): void {
     ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
 
   if (target < 0) target = 0;
-  if (duration > 0 && target > duration) target = duration;
+  if (duration > 0 && target > duration) target = Math.max(0, duration - 0.001);
 
   const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
   const isPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
@@ -680,6 +681,7 @@ export async function loadPreloadedTrack(
 
     if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
       log.warn(`[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
+      _pendingPlayTime = undefined;
       return;
     }
 
@@ -1169,7 +1171,7 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
 
     // Reset guards
-    setState('transfer.state', 'READY');
+    setState('transfer.state', TRANSFER_STATE.READY);
     setState('transfer.skipIncomingFile', false);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');

@@ -1,0 +1,200 @@
+/**
+ * MUSIXQUARE 2.0 — Channel Mode Routing
+ * Extracted from original app.js lines 5127-5320
+ *
+ * Manages channel routing (Stereo/Left/Right/Sub) and 7.1 Surround mode.
+ * Direct imports from engine.ts (same domain).
+ */
+
+import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
+import { getState, setState } from '../core/state.ts';
+import {
+  getMasterGain,
+  getToneSplit,
+  getToneMerge,
+  getGainL,
+  getGainR,
+  getPreamp,
+  getGlobalLowPass,
+  ensureSurroundNodes,
+  getSurroundSplitter,
+  getSurroundGain,
+  initAudio,
+} from './engine.ts';
+import { applySettings } from './effects.ts';
+import type { ToneGainNode, ToneNode } from './engine.ts';
+
+// ─── Channel Mode ──────────────────────────────────────────────────
+
+/**
+ * Set the audio channel routing mode.
+ * @param mode  0=Stereo, -1=Left, 1=Right, 2=Sub
+ */
+export function setChannelMode(mode: number): void {
+  setState('audio.channelMode', mode);
+
+  const mg = getMasterGain();
+  if (!mg) return;
+
+  const gL = getGainL()!;
+  const gR = getGainR()!;
+  const merge = getToneMerge()!;
+  const lowPass = getGlobalLowPass();
+  const subFreq = getState<number>('audio.subFreq');
+  const ramp = 0.05;
+
+  // Reset LowPass to full range
+  if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = 20000;
+
+  // Reset routing
+  try { gL.disconnect(); } catch { /* expected */ }
+  try { gR.disconnect(); } catch { /* expected */ }
+
+  // Reset gains
+  gL.gain.value = 1;
+  gR.gain.value = 1;
+
+  if (mode === 0) {
+    // Stereo: L→0, R→1
+    gL.connect(merge, 0, 0);
+    gR.connect(merge, 0, 1);
+    gL.gain.rampTo(1, ramp);
+    gR.gain.rampTo(1, ramp);
+  } else if (mode === -1) {
+    // Left (Dual Mono): L→both
+    gL.connect(merge, 0, 0);
+    gL.connect(merge, 0, 1);
+    gL.gain.rampTo(1, ramp);
+  } else if (mode === 1) {
+    // Right (Dual Mono): R→both
+    gR.connect(merge, 0, 0);
+    gR.connect(merge, 0, 1);
+    gR.gain.rampTo(1, ramp);
+  } else if (mode === 2) {
+    // Sub: L+R summed to both, with lowpass
+    if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = subFreq;
+    gL.connect(merge, 0, 0);
+    gL.connect(merge, 0, 1);
+    gR.connect(merge, 0, 0);
+    gR.connect(merge, 0, 1);
+    // Instant gain drop to prevent +6dB spike
+    gL.gain.value = 0.5;
+    gR.gain.value = 0.5;
+  } else {
+    // Fallback: stereo
+    gL.connect(merge, 0, 0);
+    gR.connect(merge, 0, 1);
+    gL.gain.rampTo(1, ramp);
+    gR.gain.rampTo(1, ramp);
+  }
+
+  applySettings();
+  bus.emit('audio:channel-changed', mode);
+}
+
+// ─── 7.1 Surround Mode ────────────────────────────────────────────
+
+/**
+ * Toggle 7.1 surround mode on/off.
+ */
+export function toggleSurroundMode(enabled: boolean): void {
+  setState('audio.isSurroundMode', enabled);
+
+  if (enabled) {
+    ensureSurroundNodes();
+    const idx = getState<number>('audio.surroundChannelIndex');
+    if (idx === -1) setSurroundChannel(2); // Default to Center
+    else setSurroundChannel(idx);
+  } else {
+    // Restore standard channel mode
+    setChannelMode(getState<number>('audio.channelMode'));
+  }
+}
+
+/**
+ * Set 7.1 surround channel index (0-7).
+ *
+ * 5.1 Layout: L(0), R(1), C(2), LFE(3), SL(4), SR(5)
+ * 7.1 Layout: L(0), R(1), C(2), LFE(3), SL(4), SR(5), BL(6), BR(7)
+ */
+export function setSurroundChannel(idx: number): void {
+  setState('audio.surroundChannelIndex', idx);
+
+  const splitter = getSurroundSplitter();
+  const sGain = getSurroundGain();
+  if (!splitter || !sGain) return;
+
+  const isSurround = getState<boolean>('audio.isSurroundMode');
+  if (!isSurround) return;
+
+  const gL = getGainL()!;
+  const gR = getGainR()!;
+  const merge = getToneMerge()!;
+  const lowPass = getGlobalLowPass();
+  const subFreq = getState<number>('audio.subFreq');
+  const preampNode = getPreamp()!;
+
+  try {
+    sGain.disconnect();
+    sGain.connect(preampNode);
+    splitter.disconnect();
+
+    // 5.1/7.1 compatibility routing
+    if (idx === 6) {
+      // Rear Left: fallback to Side Left for 5.1
+      splitter.connect(sGain, 6, 0);
+      splitter.connect(sGain, 4, 0);
+    } else if (idx === 7) {
+      // Rear Right: fallback to Side Right for 5.1
+      splitter.connect(sGain, 7, 0);
+      splitter.connect(sGain, 5, 0);
+    } else if (idx === 3) {
+      // LFE (Sub) - Direct
+      splitter.connect(sGain, 3, 0);
+    } else {
+      // Standard 1:1 mapping
+      splitter.connect(sGain, idx, 0);
+    }
+
+    // LowPass for LFE channel
+    if (lowPass) {
+      (lowPass as { frequency: { value: number } }).frequency.value =
+        idx === 3 ? subFreq : 20000;
+    }
+
+    // Force output to Dual Mono
+    try { gL.disconnect(); } catch { /* */ }
+    try { gR.disconnect(); } catch { /* */ }
+    gL.connect(merge, 0, 0);
+    gR.connect(merge, 0, 1);
+    gL.gain.rampTo(1, 0.1);
+    gR.gain.rampTo(1, 0.1);
+
+    const names = [
+      'Front Left (L)', 'Front Right (R)', 'Center (Dialog)',
+      'LFE (Sub)', 'Side Left', 'Side Right',
+      'Rear Left (Back)', 'Rear Right (Back)',
+    ];
+    log.info(`[Surround] Channel set: ${names[idx]}`);
+  } catch (e) {
+    log.warn('[Surround] setSurroundChannel error:', e);
+  }
+
+  bus.emit('audio:channel-changed', idx);
+}
+
+/**
+ * Set channel mode with audio init (called from UI).
+ */
+export async function setChannel(mode: number): Promise<void> {
+  if (!getMasterGain()) await initAudio();
+  setChannelMode(mode);
+}
+
+// ─── Bus Event Handlers ─────────────────────────────────────────
+
+bus.on('audio:set-channel-mode', ((...args: unknown[]) => {
+  const mode = Number(args[0]);
+  if (Number.isFinite(mode)) setChannel(mode);
+}) as (...args: unknown[]) => void);

@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "vite": "^7.3.1"
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
   }
 }

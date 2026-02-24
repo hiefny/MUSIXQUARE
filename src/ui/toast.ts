@@ -10,6 +10,8 @@ import { i18nTranslate } from './i18n.ts';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
+let _loaderResetTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function updateLoader(percent: number): void {
   const progressBg = document.getElementById('header-progress-bg');
   if (progressBg) {
@@ -23,6 +25,7 @@ export function showLoader(show: boolean, txt?: string): void {
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
 
   if (show) {
+    if (_loaderResetTimer) { clearTimeout(_loaderResetTimer); _loaderResetTimer = null; }
     header?.classList.add('loading');
     if (txt && loadingText) loadingText.innerText = i18nTranslate(txt) ?? '';
     if (progressBg && (progressBg.style.width === '0px' || progressBg.style.width === '')) {
@@ -30,8 +33,9 @@ export function showLoader(show: boolean, txt?: string): void {
     }
   } else {
     header?.classList.remove('loading');
-    setTimeout(() => {
+    _loaderResetTimer = setTimeout(() => {
       if (progressBg) progressBg.style.width = '0%';
+      _loaderResetTimer = null;
     }, 400);
   }
 }

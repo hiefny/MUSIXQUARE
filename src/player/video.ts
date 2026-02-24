@@ -125,12 +125,18 @@ function updateBodyModeClass(appState: string): void {
 
   if (appState === APP_STATE.PLAYING_AUDIO) body.classList.add('mode-audio');
 
-  // ── YouTube container visibility (default: hidden) ──
+  // ── YouTube container visibility ──
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
-    ytContainer.style.opacity = '0';
-    ytContainer.style.pointerEvents = 'none';
-    ytContainer.style.display = 'none';
+    if (appState === APP_STATE.PLAYING_YOUTUBE) {
+      ytContainer.style.display = 'block';
+      ytContainer.style.opacity = '1';
+      ytContainer.style.pointerEvents = 'auto';
+    } else {
+      ytContainer.style.opacity = '0';
+      ytContainer.style.pointerEvents = 'none';
+      ytContainer.style.display = 'none';
+    }
   }
 
   // ── Video wrapper: explicit inline style (backup for CSS) ──
@@ -147,13 +153,6 @@ function updateBodyModeClass(appState: string): void {
   if (videoElement) {
     const showMainVideo = (appState === APP_STATE.PLAYING_VIDEO) || keepVideoVisibleOnIdle;
     videoElement.style.display = showMainVideo ? 'block' : 'none';
-  }
-
-  // ── YouTube container: show for YouTube mode ──
-  if (appState === APP_STATE.PLAYING_YOUTUBE && ytContainer) {
-    ytContainer.style.display = 'block';
-    ytContainer.style.opacity = '1';
-    ytContainer.style.pointerEvents = 'auto';
   }
 }
 

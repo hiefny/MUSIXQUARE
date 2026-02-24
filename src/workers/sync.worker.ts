@@ -5,8 +5,6 @@
  * Timer & Heartbeat background tasks with robust error handling.
  */
 
-'use strict';
-
 // self is already typed as DedicatedWorkerGlobalScope in WebWorker lib
 
 const timers = new Map<string, ReturnType<typeof setInterval>>();
@@ -59,8 +57,7 @@ self.onmessage = (e: MessageEvent) => {
     switch (command) {
       case 'START_TIMER': {
         const id = toId(data.id);
-        const interval = normalizeIntervalMs(data.interval);
-        startTimer(id, interval);
+        startTimer(id, data.interval as number);
         break;
       }
       case 'STOP_TIMER': {

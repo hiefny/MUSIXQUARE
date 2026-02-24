@@ -111,12 +111,20 @@ export function applySettings(): void {
 
   // Virtual Bass
   const isWooferRole = channelMode === 2 || (isSurroundMode && surroundChannelIndex === 3);
+  const vbf = getVbFilter();
+  if (vbf) vbf.frequency.rampTo(subFreq, 0.1);
   const vbpf = getVbPostFilter();
   if (vbpf) {
     vbpf.frequency.rampTo(isWooferRole ? subFreq : 20000, 0.1);
   }
   const vbg = getVbGain();
   if (vbg) vbg.gain.rampTo(virtualBass, 0.1);
+
+  // Global LowPass
+  const lp = getGlobalLowPass();
+  if (lp) {
+    lp.frequency.rampTo(isWooferRole ? subFreq : 20000, 0.1);
+  }
 }
 
 // ─── Reverb Controls ───────────────────────────────────────────────
@@ -162,10 +170,11 @@ export function setEQ(idx: number, val: number): void {
   const bandVal = Number(val);
 
   const eqValues = getState<number[]>('audio.eqValues');
-  if (eqValues) {
-    eqValues[bandIdx] = bandVal;
-    setState('audio.eqValues', [...eqValues]);
-  }
+  if (!eqValues || bandIdx < 0 || bandIdx >= eqValues.length) return;
+
+  const newValues = [...eqValues];
+  newValues[bandIdx] = bandVal;
+  setState('audio.eqValues', newValues);
 
   const nodes = getEqNodes();
   if (nodes?.[bandIdx]) {
@@ -307,7 +316,17 @@ bus.on('audio:update-effect', ((...args: unknown[]) => {
     case 'stereo':
       if (param === 'mix') {
         setStereoWidth(value);
-        if (!isPreview) _broadcastOrRequestSetting(MSG.STEREO_WIDTH, value);
+        if (!isPreview) {
+          const hostConn = getState<DataConnection | null>('network.hostConn');
+          if (!hostConn) {
+            broadcast({ type: MSG.STEREO_WIDTH, value });
+          } else {
+            const isOperator = getState<boolean>('network.isOperator');
+            if (isOperator) {
+              hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
+            }
+          }
+        }
       }
       break;
     case 'vbass':
@@ -386,7 +405,7 @@ bus.on('audio:reset-stereo', (() => {
   } else {
     const isOperator = getState<boolean>('network.isOperator');
     if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.STEREO_WIDTH, value: 100 });
+      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value: 100 });
     }
   }
 }) as (...args: unknown[]) => void);
@@ -509,7 +528,6 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
     default:
       return;
   }
-  setState('audio.reverbType', type);
   applySettings();
   bus.emit('ui:show-toast', `리버브 타입: ${type}`);
 }

@@ -52,6 +52,7 @@ export interface StateTree {
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
     skipIncomingFile: boolean;
+    waitingForPreload: boolean;
   };
 
   // Preload
@@ -88,6 +89,7 @@ export interface StateTree {
     virtualBass: number;
     subFreq: number;
     userPreampGain: number;
+    analyser: unknown | null;
   };
 
   // Sync
@@ -144,7 +146,6 @@ export interface StateTree {
     currentTrackIndex: number;
     repeatMode: number;
     isShuffle: boolean;
-    isFirstTrackLoad: boolean;
   };
 
   // Files
@@ -222,6 +223,7 @@ function createInitialState(): StateTree {
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
       skipIncomingFile: false,
+      waitingForPreload: false,
     },
 
     preload: {
@@ -256,6 +258,7 @@ function createInitialState(): StateTree {
       virtualBass: 0,
       subFreq: 120,
       userPreampGain: 1.0,
+      analyser: null,
     },
 
     sync: {
@@ -300,7 +303,6 @@ function createInitialState(): StateTree {
       currentTrackIndex: -1,
       repeatMode: 0,
       isShuffle: false,
-      isFirstTrackLoad: true,
     },
 
     files: {
@@ -341,6 +343,8 @@ function createInitialState(): StateTree {
 // ─── State Instance ────────────────────────────────────────────────
 
 let _state: StateTree = createInitialState();
+let _isBatching = false;
+let _batchedPaths: string[] = [];
 
 // ─── Accessors ─────────────────────────────────────────────────────
 
@@ -361,7 +365,7 @@ export function getState<T = unknown>(path: string): T {
 
 /**
  * Set a state value by dot-separated path.
- * Emits `state:<path>` events for each parent path.
+ * Emits a `state:<path>` event on change (skipped during batching).
  */
 export function setState(path: string, value: unknown): void {
   const keys = path.split('.');
@@ -381,21 +385,53 @@ export function setState(path: string, value: unknown): void {
 
   current[lastKey] = value;
 
-  // Emit events for the changed path and all parent paths
-  let eventPath = '';
-  for (const key of keys) {
-    eventPath = eventPath ? `${eventPath}.${key}` : key;
-    bus.emit(`state:${eventPath}`, value, path);
+  if (!_isBatching) {
+    bus.emit(`state:${path}`, value, path);
   }
 }
 
 /**
- * Batch multiple state updates, emitting events only once per path.
+ * Batch multiple state updates, emitting events only once per unique path.
+ * During the batch, setState applies values but skips event emission.
+ * After all mutations, deduplicated events are emitted.
  */
 export function batchSetState(updates: Record<string, unknown>): void {
-  for (const [path, value] of Object.entries(updates)) {
-    setState(path, value);
+  _isBatching = true;
+  _batchedPaths = [];
+
+  try {
+    for (const [path, value] of Object.entries(updates)) {
+      const keys = path.split('.');
+      let current: Record<string, unknown> = _state as unknown as Record<string, unknown>;
+
+      for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        if (current[key] == null || typeof current[key] !== 'object') {
+          current[key] = {};
+        }
+        current = current[key] as Record<string, unknown>;
+      }
+
+      const lastKey = keys[keys.length - 1];
+      const oldValue = current[lastKey];
+      if (oldValue !== value) {
+        current[lastKey] = value;
+        _batchedPaths.push(path);
+      }
+    }
+  } finally {
+    _isBatching = false;
   }
+
+  // Emit deduplicated events
+  const seen = new Set<string>();
+  for (const path of _batchedPaths) {
+    if (!seen.has(path)) {
+      seen.add(path);
+      bus.emit(`state:${path}`, getState(path), path);
+    }
+  }
+  _batchedPaths = [];
 }
 
 /**

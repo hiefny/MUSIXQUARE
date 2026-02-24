@@ -16,7 +16,7 @@ import type { DataConnection } from '../types/index.ts';
 // ─── URL Extraction ────────────────────────────────────────────────
 
 const VIDEO_PATTERNS = [
-  /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+  /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
 ];
 

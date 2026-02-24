@@ -2,21 +2,10 @@
  * MUSIXQUARE 2.0 — Shared Type Definitions
  */
 
-// ─── App State Machine ─────────────────────────────────────────────
-export const enum AppState {
-  IDLE = 'IDLE',
-  PAUSED = 'PAUSED',
-  PLAYING_AUDIO = 'PLAYING_AUDIO',
-  PLAYING_VIDEO = 'PLAYING_VIDEO',
-  PLAYING_YOUTUBE = 'PLAYING_YOUTUBE',
-}
+// NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
+//       Removed duplicate const enums that were never imported.
 
-export const enum TransferState {
-  IDLE = 'IDLE',
-  RECEIVING = 'RECEIVING',
-  PROCESSING = 'PROCESSING',
-  READY = 'READY',
-}
+import type { AppStateValue } from '../core/constants.ts';
 
 // ─── Channel Modes ─────────────────────────────────────────────────
 /** -1 = Left, 0 = Stereo/Original, 1 = Right, 2 = Sub/LFE */
@@ -111,6 +100,7 @@ export interface PlaylistMetaItem {
 export interface WorkerCommand {
   command: string;
   id?: string;
+  interval?: number;
   filename?: string;
   sessionId?: number;
   index?: number;
@@ -196,7 +186,7 @@ export interface EventMap {
   'player:stop': [];
   'player:ended': [];
   'player:track-changed': [index: number];
-  'player:state-changed': [state: AppState, prev: AppState];
+  'player:state-changed': [state: AppStateValue, prev: AppStateValue];
   'player:position': [position: number, duration: number];
   // YouTube
   'youtube:play': [videoId: string];

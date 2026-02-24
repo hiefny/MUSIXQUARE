@@ -376,8 +376,8 @@ function _i18nNorm(s: string): string {
 // ─── Public API ──────────────────────────────────────────────────
 
 export function i18nTranslate(str: string | null | undefined): string {
-  if (_resolvedLanguage !== 'en') return str as string;
-  if (str === null || str === undefined) return str as unknown as string;
+  if (str === null || str === undefined) return '';
+  if (_resolvedLanguage !== 'en') return str ?? '';
 
   const raw = String(str);
   const lead = raw.match(/^\s*/)?.[0] ?? '';

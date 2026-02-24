@@ -160,7 +160,7 @@ function getConnectedDeviceCount(): number {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   const appRole = getState<string>('network.appRole');
   const sessionStarted = getState<boolean>('setup.sessionStarted');
-  const peerConnected = connectedPeers.filter(p => p && p.status === 'connected').length;
+  const peerConnected = Array.isArray(connectedPeers) ? connectedPeers.filter(p => p && p.status === 'connected').length : 0;
   if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0)) {
     return 1 + peerConnected;
   }
@@ -389,6 +389,7 @@ function initSeekBar(): void {
 
   slider.addEventListener('mouseup', () => setState('player.isSeeking', false));
   slider.addEventListener('touchend', () => setState('player.isSeeking', false));
+  slider.addEventListener('touchcancel', () => setState('player.isSeeking', false), { passive: true });
 }
 
 // ─── Volume Sync ─────────────────────────────────────────────────
@@ -558,6 +559,18 @@ export function initPlayerControls(): void {
     const error = args[1] as string;
     log.error(`[OPFS] Error for ${filename}:`, error);
     showToast(`파일 저장 오류: ${filename || 'unknown'}`);
+  }) as (...args: unknown[]) => void);
+
+  bus.on('opfs:read-error', ((...args: unknown[]) => {
+    const data = args[0] as Record<string, unknown>;
+    log.error('[OPFS] Read error:', data?.filename, data?.error);
+    showToast(`파일 읽기 오류: ${data?.filename || 'unknown'}`);
+  }) as (...args: unknown[]) => void);
+
+  bus.on('opfs:session-mismatch', ((...args: unknown[]) => {
+    const data = args[0] as Record<string, unknown>;
+    log.warn('[OPFS] Session mismatch:', data?.filename);
+    showToast('세션 불일치 감지 — 파일 전송이 재시도됩니다.');
   }) as (...args: unknown[]) => void);
 
   // ── Bus Event Bridge ──────────────────────────────────────────

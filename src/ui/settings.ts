@@ -54,7 +54,7 @@ export function selectStandardChannelButton(mode: number): void {
   if (el) el.classList.add('active');
 }
 
-function setChannel(mode: number, _el: Element): void {
+function setChannel(mode: number): void {
   selectStandardChannelButton(mode);
   bus.emit('audio:set-channel-mode', mode);
 }
@@ -130,7 +130,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
 
     const shortId = document.createElement('span');
     shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
-    shortId.textContent = `(${String(p.id || '').substr(-4)})`;
+    shortId.textContent = `(${String(p.id || '').slice(-4)})`;
     name.appendChild(document.createTextNode(' '));
     name.appendChild(shortId);
 
@@ -202,7 +202,7 @@ export function initSettings(): void {
 
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
-    el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch!, 10), el));
+    el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch!, 10)));
   });
 
   // Surround toggle
@@ -236,8 +236,8 @@ export function initSettings(): void {
   });
 
   // Subwoofer cutoff
-  $on('cutoff-slider', 'input', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', this.value, true); });
-  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', this.value); });
+  $on('cutoff-slider', 'input', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', Number(this.value), true); });
+  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', Number(this.value)); });
   $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', 120); this.value = '120'; });
 
   // Reverb
@@ -250,32 +250,32 @@ export function initSettings(): void {
     { id: 'reverb-highcut-slider', param: 'highcut', resetVal: 0 },
   ];
   reverbSliders.forEach(({ id, param, resetVal }) => {
-    $on(id, 'input', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, this.value, true); });
-    $on(id, 'change', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, this.value); });
+    $on(id, 'input', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, Number(this.value), true); });
+    $on(id, 'change', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, Number(this.value)); });
     $on(id, 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, resetVal); this.value = String(resetVal); });
   });
 
   // EQ
   $on('btn-reset-eq', 'click', () => resetEQ());
-  $on('preamp-slider', 'input', function (this: HTMLInputElement) { setPreamp(this.value, true); });
-  $on('preamp-slider', 'change', function (this: HTMLInputElement) { setPreamp(this.value); });
+  $on('preamp-slider', 'input', function (this: HTMLInputElement) { setPreamp(Number(this.value), true); });
+  $on('preamp-slider', 'change', function (this: HTMLInputElement) { setPreamp(Number(this.value)); });
   $on('preamp-slider', 'dblclick', () => { setPreamp(0); const el = document.getElementById('preamp-slider') as HTMLInputElement; if (el) el.value = '0'; });
   for (let i = 0; i < 5; i++) {
-    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { setEQ(i, this.value, true); });
-    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { setEQ(i, this.value); });
+    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { setEQ(i, Number(this.value), true); });
+    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { setEQ(i, Number(this.value)); });
     $on(`eq-slider-${i}`, 'dblclick', () => { setEQ(i, 0); const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement; if (el) el.value = '0'; });
   }
 
   // Stereo Width
   $on('btn-reset-stereo', 'click', () => resetStereo());
-  $on('width-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', this.value, true); });
-  $on('width-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', this.value); });
+  $on('width-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', Number(this.value), true); });
+  $on('width-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', Number(this.value)); });
   $on('width-slider', 'dblclick', () => resetStereo());
 
   // Virtual Bass
   $on('btn-reset-vbass', 'click', () => resetVBass());
-  $on('vbass-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', this.value, true); });
-  $on('vbass-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', this.value); });
+  $on('vbass-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', Number(this.value), true); });
+  $on('vbass-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', Number(this.value)); });
   $on('vbass-slider', 'dblclick', () => { updateAudioEffect('vbass', 'mix', 0); const el = document.getElementById('vbass-slider') as HTMLInputElement; if (el) el.value = '0'; });
 
   // Manual sync popup

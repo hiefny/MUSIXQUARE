@@ -16,7 +16,7 @@ import {
   play, stopAllMedia, loadAndBroadcastFile, loadPreloadedTrack,
   getTrackPosition, updatePlayState, incrementLoadToken,
 } from './playback.ts';
-import { isIdleOrPaused } from './video.ts';
+
 import { schedulePreload } from '../storage/preload.ts';
 import {
   setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
@@ -32,6 +32,7 @@ import type { DataConnection, PlaylistItem } from '../types/index.ts';
 export function toggleRepeat(): void {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   const isOperator = getState<boolean>('network.isOperator');
+  if (hostConn && !isOperator) return;
   const repeatMode = getState<number>('playlist.repeatMode') || 0;
   const nextMode = (repeatMode + 1) % 3;
   setRepeatMode(nextMode);
@@ -63,6 +64,7 @@ export function setRepeatMode(mode: number, notify = true): void {
 export function toggleShuffle(): void {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   const isOperator = getState<boolean>('network.isOperator');
+  if (hostConn && !isOperator) return;
   const isShuffle = getState<boolean>('playlist.isShuffle');
   const nextShuffle = !isShuffle;
   setShuffle(nextShuffle);
@@ -96,13 +98,6 @@ export function clearPreloadState(): void {
   setState('preload.isPreloading', false);
 
   // Guest side
-  setState('preload.count', 0);
-  if (!isNextTrackActive) {
-    setState('preload.guestMeta', null);
-  }
-  setState('preload.skipIncoming', false);
-  setState('preload.opfsName', null);
-
   postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
 }
 
@@ -465,7 +460,6 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
     }
     case MSG.REVERB_TYPE: {
       // Reverb type preset handled via protocol handler, just broadcast
-      setState('audio.reverbType', String(val));
       broadcast({ type: MSG.REVERB_TYPE, value: val });
       break;
     }
@@ -538,7 +532,7 @@ async function loadDemoMedia(): Promise<void> {
       title: DEMO_TITLE,
     };
 
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = [...(getState<PlaylistItem[]>('playlist.items') || [])];
     playlist.push(newTrack);
     setState('playlist.items', playlist);
     bus.emit('ui:update-playlist');
@@ -574,7 +568,7 @@ function handleFilesSelected(files: FileList | null): void {
     return;
   }
 
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const playlist = [...(getState<PlaylistItem[]>('playlist.items') || [])];
   let addedCount = 0;
 
   for (let i = 0; i < files.length; i++) {
@@ -609,7 +603,7 @@ function handleFilesSelected(files: FileList | null): void {
 
   // Auto-play first added file if nothing is playing
   const currentState = getState<string>('appState');
-  if (isIdleOrPaused(currentState)) {
+  if (currentState === APP_STATE.IDLE) {
     playTrack(playlist.length - addedCount);
   }
 }
@@ -652,11 +646,13 @@ export function initPlaylist(): void {
   // Silent mode setters (for handleStatusSync — no toast, no broadcast)
   bus.on('playlist:set-repeat-mode', ((...args: unknown[]) => {
     const mode = Number(args[0]) || 0;
-    setRepeatMode(mode);
+    const notify = args[1] !== false;
+    setRepeatMode(mode, notify);
   }) as (...args: unknown[]) => void);
 
   bus.on('playlist:set-shuffle', ((...args: unknown[]) => {
-    setShuffle(!!args[0]);
+    const notify = args[1] !== false;
+    setShuffle(!!args[0], notify);
   }) as (...args: unknown[]) => void);
 
   // Demo media loading

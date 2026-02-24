@@ -65,47 +65,40 @@ export function initMediaSession(): void {
 
   navigator.mediaSession.setActionHandler('play', () => {
     if (isBlocked()) return;
-    try {
-      const currentState = getState<string>('appState');
-      if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-        togglePlay();
-        return;
-      }
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-      if (currentTrackIndex >= 0 && currentState !== APP_STATE.IDLE) {
-        togglePlay();
-      }
-    } catch {
-      try { togglePlay(); } catch { /* noop */ }
+    const currentState = getState<string>('appState');
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+      togglePlay();
+      return;
+    }
+    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    if (currentTrackIndex >= 0 && currentState !== APP_STATE.IDLE) {
+      togglePlay();
     }
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
     if (isBlocked()) return;
-    try {
-      const currentState = getState<string>('appState');
-      if (!isIdleOrPaused(currentState)) togglePlay();
-    } catch {
-      try {
-        const st = getState<string>('appState');
-        if (!isIdleOrPaused(st)) togglePlay();
-      } catch { /* noop */ }
-    }
+    const currentState = getState<string>('appState');
+    if (!isIdleOrPaused(currentState)) togglePlay();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {
+    if (isBlocked()) return;
     bus.emit('playlist:prev-track');
   });
 
   navigator.mediaSession.setActionHandler('nexttrack', () => {
+    if (isBlocked()) return;
     bus.emit('playlist:next-track');
   });
 
   navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+    if (isBlocked()) return;
     skipTime(-(details.seekOffset || 10));
   });
 
   navigator.mediaSession.setActionHandler('seekforward', (details) => {
+    if (isBlocked()) return;
     skipTime(details.seekOffset || 10);
   });
 

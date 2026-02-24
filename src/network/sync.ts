@@ -15,6 +15,8 @@ import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, sendToHost } from './peer.ts';
 
+let _syncBusyRetryCount = 0;
+
 // ─── Sync Button Logic ──────────────────────────────────────────────
 
 /**
@@ -48,7 +50,6 @@ function syncReset(): void {
 
   bus.emit('sync:display-update');
   const ts = Date.now();
-  setState('sync.syncRequestTime', ts);
   hostConn.send({ type: MSG.GET_SYNC_TIME, ts });
 }
 
@@ -140,7 +141,7 @@ function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): 
 }
 
 function handleHeartbeatAck(): void {
-  setState('sync.lastHeartbeatAckAt', Date.now());
+  // Heartbeat ACK received — no action needed currently
 }
 
 function handlePingLatency(data: Record<string, unknown>, conn: DataConnection): void {
@@ -168,13 +169,15 @@ function handleSyncResponse(data: Record<string, unknown>): void {
   if (data.reqTs && typeof data.reqTs === 'number' && data.reqTs > 0) {
     const elapsed = Date.now() - data.reqTs;
     if (elapsed > 150) {
-      const retryCount = (data._syncBusyRetry as number || 0);
-      if (retryCount < 3) {
-        log.debug(`[AutoSync] Host was busy (${elapsed}ms). Retry ${retryCount + 1}/3 in 300ms...`);
+      _syncBusyRetryCount++;
+      if (_syncBusyRetryCount < 3) {
+        log.debug(`[AutoSync] Host was busy (${elapsed}ms). Retry ${_syncBusyRetryCount}/3 in 300ms...`);
         setTimeout(() => syncReset(), 300);
         return;
       }
       log.warn(`[AutoSync] Host busy retries exhausted (${elapsed}ms). Proceeding with stale data.`);
+    } else {
+      _syncBusyRetryCount = 0;
     }
   }
 

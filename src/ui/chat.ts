@@ -13,6 +13,7 @@ import { MSG } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
 import { showToast } from './toast.ts';
+import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -20,21 +21,8 @@ import type { DataConnection } from '../types/index.ts';
 
 const PEER_NAME_PREFIX = 'Peer';
 
-const STANDARD_ROLE_MAP: Record<string, { label: string }> = {
-  '0': { label: 'Original' },
-  '-1': { label: 'Left' },
-  '1': { label: 'Right' },
-  '2': { label: 'Woofer' },
-};
-
-function getRoleLabelByChannelMode(mode: number): string {
-  return (STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).label;
-}
-
 // ─── Chat State ──────────────────────────────────────────────────
 
-let _lastChatSender = '';
-let _lastChatText = '';
 let _unreadCount = 0;
 let _isChatDrawerOpen = false;
 
@@ -271,8 +259,6 @@ export function addChatMessage(sender: string, text: string, isMine: boolean): v
     container.scrollTop = container.scrollHeight;
   }
 
-  _lastChatSender = sender;
-  _lastChatText = text;
   updateChatPreview(sender, text);
 
   if (!isMine) {

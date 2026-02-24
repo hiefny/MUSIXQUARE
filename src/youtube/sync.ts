@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, DELAY } from '../core/constants.ts';
+import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -156,6 +156,18 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   try {
     const state = Number(data.state);
     const time = Number(data.time) || 0;
+
+    // Handle sub-index change from Host broadcast
+    const subIndex = data.subIndex as number | undefined;
+    if (subIndex !== undefined && subIndex >= 0) {
+      if (player.playVideoAt) {
+        const currentIdx = player.getPlaylistIndex?.() ?? -1;
+        if (currentIdx !== subIndex) {
+          player.playVideoAt(subIndex);
+          setState('youtube.currentSubIndex', subIndex);
+        }
+      }
+    }
 
     if (state === 1 && player.playVideo) {
       if (player.seekTo) player.seekTo(time, true);

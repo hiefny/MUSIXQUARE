@@ -194,7 +194,6 @@ function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob |
     if (matchNextByIndex || matchNextByName) blob = nextFileBlob;
   }
 
-  if (!blob) blob = currentFileBlob || nextFileBlob;
   return blob;
 }
 

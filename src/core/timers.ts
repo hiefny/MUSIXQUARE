@@ -18,7 +18,7 @@ type TimerName =
   | 'obAutoSlideTimer'
   | 'preloadScheduleTimer';
 
-const _timers: Record<string, ReturnType<typeof setTimeout> | null> = {
+const _timers: Record<TimerName, ReturnType<typeof setTimeout> | null> = {
   chunkWatchdog: null,
   prepareWatchdog: null,
   autoPlayTimer: null,

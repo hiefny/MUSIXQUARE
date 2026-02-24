@@ -243,9 +243,17 @@ export function connectToRelay(targetId: string): void {
   conn.on('error', (err: unknown) => {
     log.warn('[Relay] Connection error:', err);
     if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
+    try { conn.close(); } catch { /* noop */ }
+    const currentUpstream = getState<DataConnection | null>('relay.upstreamDataConn');
+    if (currentUpstream === conn) {
+      setState('relay.upstreamDataConn', null);
+    }
   });
 
   conn.on('close', () => {
+    const currentUpstream = getState<DataConnection | null>('relay.upstreamDataConn');
+    if (currentUpstream && currentUpstream !== conn) return;
+
     setState('relay.upstreamDataConn', null);
     bus.emit('ui:show-toast', 'Relay 연결 해제');
 

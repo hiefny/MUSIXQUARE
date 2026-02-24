@@ -75,8 +75,10 @@ export function updatePlaylistUI(): void {
 
     const displayName = item.name || item.title || 'Unknown';
     li.onclick = () => {
-      if (!hostConn) bus.emit('playlist:play-track', idx);
-      else if (isOperator) hostConn.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
+      const hc = getState<DataConnection | null>('network.hostConn');
+      const op = getState<boolean>('network.isOperator');
+      if (!hc) bus.emit('playlist:play-track', idx);
+      else if (op) hc.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
     };
 
     li.innerHTML = `
@@ -126,11 +128,13 @@ export function updatePlaylistUI(): void {
 
           sli.onclick = (e) => {
             e.stopPropagation();
-            if (hostConn && !isOperator) return;
-            if (!hostConn) {
+            const hc = getState<DataConnection | null>('network.hostConn');
+            const op = getState<boolean>('network.isOperator');
+            if (hc && !op) return;
+            if (!hc) {
               bus.emit('youtube:sub-seek', idx, sIdx, isCurrent);
             } else {
-              hostConn.send({ type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
+              hc.send({ type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
             }
           };
           subUl.appendChild(sli);

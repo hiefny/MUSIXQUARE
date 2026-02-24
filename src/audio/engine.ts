@@ -136,11 +136,11 @@ export function isAudioReady(): boolean { return masterGain !== null; }
 
 // For surround mode setup
 export function ensureSurroundNodes(): { splitter: ToneNode; gain: ToneGainNode } {
-  if (!surroundSplitter) {
+  if (!surroundSplitter || !surroundGain) {
     surroundSplitter = new Tone.Split(8);
     surroundGain = new Tone.Gain(1);
   }
-  return { splitter: surroundSplitter, gain: surroundGain! };
+  return { splitter: surroundSplitter, gain: surroundGain };
 }
 
 // ─── Initialization ────────────────────────────────────────────────
@@ -216,6 +216,7 @@ async function _doInitAudio(): Promise<void> {
     [toneSplit, toneMerge, gainL, gainR, masterGain, preamp, widener, reverb].forEach(n => {
       try { if (n) n.dispose(); } catch { /* */ }
     });
+    eqNodes.forEach(n => { try { n.dispose(); } catch { /* */ } });
     toneSplit = toneMerge = gainL = gainR = masterGain = preamp = widener = null;
     reverb = null;
     eqNodes = [];
@@ -337,9 +338,6 @@ bus.on('audio:set-volume', ((...args: unknown[]) => {
 bus.on('audio:apply-youtube-volume', (() => {
   const vol = getState<number>('audio.masterVolume') ?? 1;
   // YouTube player volume is 0-100
-  const w = window as unknown as Record<string, unknown>;
-  const mxqr = w.__MXQR as Record<string, unknown> | undefined;
-  // Try to get the YouTube player directly via bus
   bus.emit('youtube:set-volume', Math.round(vol * 100));
 }) as (...args: unknown[]) => void);
 

@@ -76,7 +76,7 @@ export function updateTitleWithMarquee(text: string): void {
   el.style.removeProperty('--marquee-offset');
   el.style.removeProperty('--marquee-duration');
 
-  setTimeout(() => {
+  requestAnimationFrame(() => {
     const parent = el.parentElement;
     if (!parent) return;
 
@@ -93,7 +93,7 @@ export function updateTitleWithMarquee(text: string): void {
       el.style.setProperty('--marquee-duration', `${totalDuration}s`);
       el.style.animation = '';
     }
-  }, 100);
+  });
 }
 
 // ─── Clipboard ───────────────────────────────────────────────────

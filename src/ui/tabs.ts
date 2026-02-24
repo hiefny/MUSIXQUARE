@@ -11,18 +11,6 @@ import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { animateTransition } from './dom.ts';
 
-// ─── Chat Drawer State ───────────────────────────────────────────
-
-let _isChatDrawerOpen = false;
-
-export function isChatDrawerOpen(): boolean {
-  return _isChatDrawerOpen;
-}
-
-export function setChatDrawerOpen(open: boolean): void {
-  _isChatDrawerOpen = open;
-}
-
 // ─── Tab Switching ───────────────────────────────────────────────
 
 export function switchTab(tabId: string): void {
@@ -49,9 +37,7 @@ export function switchTab(tabId: string): void {
       }, 50);
     }
 
-    if (_isChatDrawerOpen) {
-      bus.emit('ui:toggle-chat-drawer');
-    }
+    bus.emit('ui:close-chat-drawer');
   });
 }
 

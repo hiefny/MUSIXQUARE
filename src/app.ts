@@ -20,6 +20,7 @@ import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
+import { BlobURLManager } from './core/blob-manager.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady } from './audio/engine.ts';
@@ -228,21 +229,27 @@ function bootstrap(): void {
     log.warn('[App] SyncWorker failed:', e);
   }
 
+  let transferWorkerReady = false;
   try {
     const transferW = new Worker(
       new URL('./workers/transfer.worker.ts', import.meta.url),
       { type: 'module' },
     );
     setTransferWorker(transferW);
+    transferWorkerReady = true;
     transferW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] TransferWorker started');
   } catch (e) {
     log.warn('[App] TransferWorker failed:', e);
   }
 
-  initTransfer();
-  initPreload();
-  initRecovery();
+  if (transferWorkerReady) {
+    initTransfer();
+    initPreload();
+    initRecovery();
+  } else {
+    log.warn('[App] Skipping transfer/preload/recovery init — worker unavailable');
+  }
 
   // 7. YouTube
   initYouTube();
@@ -259,7 +266,10 @@ function bootstrap(): void {
   // 9. Service Worker
   registerServiceWorker();
 
-  // 10. Keyboard shortcuts, Wake Lock & Cleanup
+  // 10. Blob URL cleanup on disconnect
+  bus.on('blob:revoke-all', () => BlobURLManager.revokeAllNow('session-end'));
+
+  // 11. Keyboard shortcuts, Wake Lock & Cleanup
   initKeyboardShortcuts();
   initWakeLock();
   initBeforeUnload();

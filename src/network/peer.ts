@@ -232,13 +232,12 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   const preferredSlot = peerSlotByPeerId.get(peerId) || null;
   const slot = getAvailablePeerSlot(preferredSlot, peerId);
   if (!slot) {
-    try {
-      conn.send({
-        type: MSG.SESSION_FULL,
-        message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.',
-      });
-    } catch { /* noop */ }
-    try { conn.close(); } catch { /* noop */ }
+    const sendFullAndClose = () => {
+      try { conn.send({ type: MSG.SESSION_FULL, message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.' }); } catch { /* noop */ }
+      try { conn.close(); } catch { /* noop */ }
+    };
+    if (conn.open) sendFullAndClose();
+    else conn.on('open', sendFullAndClose);
     return;
   }
   assignPeerSlot(peerId, slot);
@@ -308,6 +307,11 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     activeHostConnByPeerId.delete(peerId);
     releasePeerSlot(peerId);
 
+    const peerLabelsOnClose = getState<Record<string, string>>('network.peerLabels');
+    if (peerLabelsOnClose) {
+      delete peerLabelsOnClose[peerId];
+    }
+
     const peers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
     setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
 
@@ -332,6 +336,11 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     activeHostConnByPeerId.delete(peerId);
     releasePeerSlot(peerId);
 
+    const peerLabelsOnError = getState<Record<string, string>>('network.peerLabels');
+    if (peerLabelsOnError) {
+      delete peerLabelsOnError[peerId];
+    }
+
     const peers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
     setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
 
@@ -353,9 +362,13 @@ function handleHostIncomingConnection(conn: DataConnection): void {
  */
 export function joinSession(hostId: string, retryAttempt = 0): void {
   const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (hostConn && hostConn.open) {
-    log.warn('[Join] Already connected to host.');
-    return;
+  if (hostConn) {
+    if (hostConn.open) {
+      log.warn('[Join] Already connected to host.');
+      return;
+    }
+    try { hostConn.close(); } catch { /* noop */ }
+    setState('network.hostConn', null);
   }
 
   if (!hostId) {
@@ -419,7 +432,6 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
     setState('network.hostConn', conn);
     setState('network.isConnecting', false);
-    setState('session.hostId', hostId);
 
     // Deduplicate error/close handlers
     (conn as unknown as Record<string, unknown>)._errorHandled = false;
@@ -489,11 +501,6 @@ export function leaveSession(): void {
     try { hostConn.close(); } catch { /* noop */ }
   }
 
-  if (peer) {
-    try { peer.destroy(); } catch { /* noop */ }
-    peer = null;
-  }
-
   const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
@@ -507,6 +514,12 @@ export function leaveSession(): void {
   downstreamDataPeers.forEach(p => {
     try { p.close(); } catch { /* noop */ }
   });
+
+  // Destroy peer AFTER all connections are closed
+  if (peer) {
+    try { peer.destroy(); } catch { /* noop */ }
+    peer = null;
+  }
 
   // ── 4. Clear peer slots and maps ──
   const activeHostConnByPeerId = getState<Map<string, DataConnection>>('network.activeHostConnByPeerId');
@@ -762,7 +775,7 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
       bus.emit('network:kicked-from-session');
       return;
     }
-    const me = list.find(p => p && p.id === myId);
+    const me = amIStillConnected;
     if (me && me.label) {
       setState('network.myDeviceLabel', String(me.label));
     }

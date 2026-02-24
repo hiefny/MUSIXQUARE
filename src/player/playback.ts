@@ -37,6 +37,7 @@ let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _pendingPlayTime: number | undefined;
 let _playPreloadedInProgress = false;
+let _lastClearedTrackName = '';
 
 // ─── Getters ───────────────────────────────────────────────────────
 
@@ -166,9 +167,6 @@ export function stopAllMedia(): void {
 
   // Stop player node
   stopPlayerNode();
-
-  // Clear relay queues
-  setState('relay.chunkQueue', []);
 
   // Reset master clock
   setState('player.startedAt', 0);
@@ -357,7 +355,6 @@ function handleEnded(): void {
     : (videoElement ? videoElement.duration : 0);
 
   if (!duration || !Number.isFinite(duration) || duration <= 0.5) return;
-  if (!videoElement) return;
   if (isIdleOrPaused(currentState)) return;
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
@@ -558,11 +555,6 @@ export async function loadAndBroadcastFile(
 
   bus.emit('ui:show-loader', true, `준비 중: ${file.name}`);
   stopAllMedia();
-
-  const appState = getState<string>('appState');
-  if (appState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:stop-mode');
-  }
 
   try {
     await initAudio();
@@ -844,11 +836,9 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
   const loadedName = (meta?.name as string) || '';
   if (expectedName && loadedName && expectedName !== loadedName) {
-    if (incomingIndex !== undefined && incomingIndex !== currentTrackIndex) {
-      log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
-      _pendingPlayTime = time;
-      return;
-    }
+    log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
+    _pendingPlayTime = time;
+    return;
   }
 
   if (_currentAudioBuffer || getVideoElement()?.src) {
@@ -1072,19 +1062,15 @@ function clearPreviousTrackState(reason = ''): void {
   const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
   const meta = getState<Record<string, unknown>>('transfer.meta');
   const trackName = playlist[currentTrackIndex]?.name || (meta?.name as string) || '';
-  const win = window as unknown as Record<string, unknown>;
-  if (reason === 'redundant-sync' && trackName && win._lastClearedTrackName === trackName) {
+  if (reason === 'redundant-sync' && trackName && _lastClearedTrackName === trackName) {
     log.debug(`[State Clear] Skipping redundant clear for: ${trackName}`);
     return;
   }
-  win._lastClearedTrackName = trackName;
+  _lastClearedTrackName = trackName;
 
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
-
-  // Clear relay queues
-  setState('relay.chunkQueue', []);
 
   // Reset transfer state
   setState('transfer.receivedCount', 0);
@@ -1131,7 +1117,7 @@ function clearPreviousTrackState(reason = ''): void {
     if (isActuallyChanging) {
       postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
       cleanupOPFSInWorker(opfsFilename.name, false);
-      opfsFilename.name = null;
+      setState('files.currentFileOpfs', { name: null });
     }
   }
 }
@@ -1361,37 +1347,6 @@ export function initPlayback(): void {
   bus.on('storage:transfer-progress', ((...args: unknown[]) => {
     const percent = args[0] as number;
     bus.emit('ui:show-loader', true, `수신 중... ${percent}%`);
-  }) as (...args: unknown[]) => void);
-
-  // Preloaded file activated from OPFS (for play-preloaded flow)
-  bus.on('storage:play-preloaded', (async (...args: unknown[]) => {
-    const index = args[0] as number;
-    const _name = args[1] as string;
-
-    log.debug(`[Playback] Play preloaded track, index: ${index}`);
-    const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-    if (nextFileBlob) {
-      _currentLoadToken++;
-      await loadPreloadedTrack(index, _currentLoadToken);
-    } else {
-      log.warn('[Playback] No preloaded blob for play-preloaded, requesting from host');
-      bus.emit('ui:show-loader', true, '파일 요청 중...');
-      clearPreviousTrackState('play-preloaded fallback');
-
-      const hostConn = getState<DataConnection | null>('network.hostConn');
-      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-      const trackName = _name || playlist[index]?.name || '';
-      if (hostConn?.open) {
-        const jitter = Math.random() * 1000 + 200;
-        setTimeout(() => {
-          if (!hostConn?.open) return;
-          const blob = getState<Blob | null>('preload.nextFileBlob');
-          if (!blob) {
-            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: trackName, index });
-          }
-        }, jitter);
-      }
-    }
   }) as (...args: unknown[]) => void);
 
   // Host: Send playback state + current file to newly connected peer (late-join bootstrap)

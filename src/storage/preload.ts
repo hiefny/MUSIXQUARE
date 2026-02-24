@@ -289,7 +289,6 @@ function handlePreloadStart(data: Record<string, unknown>): void {
     size: data.size,
     sessionId: sid,
   });
-  setState('preload.count', 0);
 
   // OPFS: Start preload slot
   // Reset preload slot before starting (clear stale locks)
@@ -373,7 +372,6 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 
   session.nextExpectedChunk = nextChunkPtr;
   session.progress = nextChunkPtr;
-  setState('preload.count', session.progress);
 
   // Tick watchdog on progress
   const preloadMeta = getState<Record<string, unknown> | null>('preload.meta');

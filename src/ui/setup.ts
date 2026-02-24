@@ -501,9 +501,6 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();
 
-  setState('setup.selectedJoinChannelMode', mode);
-  setState('setup.pendingPlacementToastMode', mode);
-
   try {
     selectStandardChannelButton(mode);
     bus.emit('audio:set-channel-mode', mode);

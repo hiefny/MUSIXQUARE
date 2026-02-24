@@ -15,7 +15,7 @@ import { broadcast } from '../network/peer.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/playback.ts';
-import { isIdleOrPaused, setEngineMode } from '../player/video.ts';
+import { setEngineMode } from '../player/video.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
@@ -157,6 +157,7 @@ function initYouTubePlayer(
   if (playlistId) {
     playerVars.listType = 'playlist';
     playerVars.list = playlistId;
+    playerVars.index = subIndex;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -351,12 +352,14 @@ function refreshYouTubeDisplay(): void {
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(): void {
-  const currentState = getState<string>('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
-
   _cachedYtDuration = 0; // Reset duration cache
-  setState('appState', APP_STATE.IDLE);
-  bus.emit('player:state-changed', APP_STATE.IDLE);
+
+  // Always transition to IDLE — state may already have been changed (e.g. by ENDED handler)
+  const currentState = getState<string>('appState');
+  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    setState('appState', APP_STATE.IDLE);
+    bus.emit('player:state-changed', APP_STATE.IDLE);
+  }
 
   clearManagedTimer('youtubeUILoop');
   clearManagedTimer('youtubeSyncLoop');
@@ -736,12 +739,14 @@ export function initYouTube(): void {
 
     // Fetch title in background and update
     fetchOEmbedTitle(url).then(title => {
-      if (title && playlist[newIndex]) {
-        playlist[newIndex].name = title;
-        playlist[newIndex].title = title;
-        setState('playlist.items', [...playlist]);
+      if (!title) return;
+      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      if (currentPlaylist[newIndex]) {
+        const updated = [...currentPlaylist];
+        updated[newIndex] = { ...updated[newIndex], name: title, title: title };
+        setState('playlist.items', updated);
         bus.emit('ui:update-playlist');
-        bus.emit('player:metadata-update', playlist[newIndex]);
+        bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
   }) as (...args: unknown[]) => void);
@@ -902,12 +907,14 @@ export function initYouTube(): void {
 
     // Fetch title in background
     fetchOEmbedTitle(url).then(title => {
-      if (title && playlist[newIndex]) {
-        playlist[newIndex].name = title;
-        playlist[newIndex].title = title;
-        setState('playlist.items', [...playlist]);
+      if (!title) return;
+      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      if (currentPlaylist[newIndex]) {
+        const updated = [...currentPlaylist];
+        updated[newIndex] = { ...updated[newIndex], name: title, title: title };
+        setState('playlist.items', updated);
         bus.emit('ui:update-playlist');
-        bus.emit('player:metadata-update', playlist[newIndex]);
+        bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
   }) as (...args: unknown[]) => void);

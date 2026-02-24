@@ -27,11 +27,13 @@ const OPFS_INSTANCE_ID = INSTANCE_ID;
 export function setTransferWorker(worker: Worker): void {
   _transferWorker = worker;
   _transferWorker.onmessage = handleTransferWorkerMessage;
+  worker.onerror = (e) => { log.error('[Worker] Unhandled error:', e); };
 }
 
 export function setSyncWorker(worker: Worker): void {
   _syncWorker = worker;
   _syncWorker.onmessage = handleSyncWorkerMessage;
+  worker.onerror = (e) => { log.error('[Worker] Unhandled error:', e); };
 }
 
 export function getTransferWorker(): Worker | null { return _transferWorker; }
@@ -168,6 +170,10 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       }
       break;
     }
+
+    case 'WORKER_ERROR':
+      log.error(`[OPFS] Worker error: ${data.error} (command: ${(data as Record<string, unknown>).command})`);
+      break;
 
     case 'OPFS_RESET_COMPLETE':
       log.debug('[OPFS] Reset complete');

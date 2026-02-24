@@ -53,7 +53,8 @@ class EventBusImpl {
   emit<K extends EventKey>(event: K, ...args: unknown[]): void {
     const set = this._listeners.get(event as string);
     if (!set) return;
-    for (const fn of set) {
+    const snapshot = [...set];
+    for (const fn of snapshot) {
       try {
         fn(...args);
       } catch (e) {

@@ -80,7 +80,6 @@ function handleFilePrepare(data: Record<string, unknown>): void {
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
-    setState('preload.count', 0);
   }
 
   if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
@@ -257,7 +256,7 @@ function handleFileStart(data: Record<string, unknown>): void {
   if (opfsFilename.name && opfsFilename.name !== data.name) {
     cleanupOPFSInWorker(opfsFilename.name, false);
   }
-  opfsFilename.name = data.name as string;
+  setState('files.currentFileOpfs', { name: data.name as string });
 
   if (isRecoverySameFile && receivedCount > 0) {
     // Recovery mode: keep existing chunks
@@ -328,8 +327,7 @@ function handleFileResume(data: Record<string, unknown>): void {
     size: CHUNK_SIZE,
   });
 
-  const opfsFilename = getState<{ name: string | null }>('files.currentFileOpfs');
-  opfsFilename.name = data.name as string;
+  setState('files.currentFileOpfs', { name: data.name as string });
 
   nextExpectedChunk = (data.startChunk as number) || 0;
   setState('transfer.meta', data);
@@ -368,6 +366,7 @@ function handleFileChunk(data: Record<string, unknown>): void {
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'session-change');
     fileReorderBuffer.clear();
+    _pendingEarlyChunks.length = 0;
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
   }
@@ -402,7 +401,7 @@ function handleFileChunk(data: Record<string, unknown>): void {
 
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
-        opfsFilename.name = fname;
+        setState('files.currentFileOpfs', { name: fname });
         postWorkerCommand({
           command: 'OPFS_START',
           filename: fname,
@@ -459,8 +458,9 @@ function handleFileChunk(data: Record<string, unknown>): void {
   setState('transfer.receivedCount', receivedCount);
   lastChunkTime = Date.now();
 
-  // Progress update
-  const total = (meta.total as number) || 0;
+  // Progress update — re-read meta from state to avoid stale reference after recovery
+  const currentMeta = getState<Record<string, unknown>>('transfer.meta');
+  const total = (currentMeta?.total as number) || 0;
   if (total > 0) {
     const percent = Math.min(100, Math.floor((receivedCount / total) * 100));
     bus.emit('storage:transfer-progress', percent, total);
@@ -473,7 +473,7 @@ function handleFileChunk(data: Record<string, unknown>): void {
 
     // Notify Host that we have this file
     const hostConn = getState<DataConnection | null>('network.hostConn');
-    const processingIndex = meta.index as number;
+    const processingIndex = currentMeta.index as number;
     if (hostConn && hostConn.open && processingIndex !== undefined) {
       hostConn.send({ type: MSG.PRELOAD_ACK, index: processingIndex });
     }
@@ -481,10 +481,10 @@ function handleFileChunk(data: Record<string, unknown>): void {
     // Finalize in OPFS
     postWorkerCommand({
       command: 'OPFS_END',
-      filename: (meta.name as string) || '',
+      filename: (currentMeta.name as string) || '',
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
-      totalSize: meta.size as number,
+      totalSize: currentMeta.size as number,
     });
 
     clearManagedTimer('chunkWatchdog');

@@ -38,9 +38,11 @@ export function setChannelMode(mode: number): void {
   const mg = getMasterGain();
   if (!mg) return;
 
-  const gL = getGainL()!;
-  const gR = getGainR()!;
-  const merge = getToneMerge()!;
+  const gL = getGainL();
+  const gR = getGainR();
+  const merge = getToneMerge();
+  if (!gL || !gR || !merge) return;
+
   const lowPass = getGlobalLowPass();
   const subFreq = getState<number>('audio.subFreq');
   const ramp = 0.05;
@@ -135,12 +137,14 @@ export function setSurroundChannel(idx: number): void {
   const isSurround = getState<boolean>('audio.isSurroundMode');
   if (!isSurround) return;
 
-  const gL = getGainL()!;
-  const gR = getGainR()!;
-  const merge = getToneMerge()!;
+  const gL = getGainL();
+  const gR = getGainR();
+  const merge = getToneMerge();
+  const preampNode = getPreamp();
+  if (!gL || !gR || !merge || !preampNode) return;
+
   const lowPass = getGlobalLowPass();
   const subFreq = getState<number>('audio.subFreq');
-  const preampNode = getPreamp()!;
 
   try {
     sGain.disconnect();
@@ -203,7 +207,7 @@ export async function setChannel(mode: number): Promise<void> {
 
 bus.on('audio:set-channel-mode', ((...args: unknown[]) => {
   const mode = Number(args[0]);
-  if (Number.isFinite(mode)) setChannel(mode);
+  if (Number.isFinite(mode)) setChannel(mode).catch(e => log.warn('[Channel] setChannel failed:', e));
 }) as (...args: unknown[]) => void);
 
 bus.on('audio:toggle-surround', ((...args: unknown[]) => {

@@ -5,8 +5,6 @@
  * Handles heavy file I/O operations with session-aware locking.
  */
 
-'use strict';
-
 // self is already typed as DedicatedWorkerGlobalScope in WebWorker lib
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -317,6 +315,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     }
 
     if (!filename || opfsObj.name !== filename) return;
+    if (!opfsObj.isLocked) return;
 
     const index = normalizeIndex(data.index);
     if (index === null) {
@@ -346,7 +345,6 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       }
     } catch (e: unknown) {
       safePost({ type: 'OPFS_WRITE_ERROR', error: (e as Error)?.message ?? String(e), filename, chunk: index, isPreload });
-      try { await releaseLock(opfsObj); } catch { /* ignore */ }
     }
     return;
   }

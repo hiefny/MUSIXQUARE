@@ -138,7 +138,3 @@ self.addEventListener('messageerror', () => {
   } catch (_) { /* ignore */ }
 });
 
-// Defensive: if the worker ever gets terminated/reloaded, clear timers.
-self.addEventListener('close', () => {
-  try { stopAllTimers(); } catch (_) { /* ignore */ }
-});

@@ -148,7 +148,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       break;
 
     case 'OPFS_WRITE_ERROR':
-      log.warn(`[OPFS] Write error for ${data.filename} chunk ${(data as unknown as Record<string, unknown>).chunk}:`, data.error);
+      log.warn(`[OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
       break;
 
     case 'OPFS_READ_ERROR':
@@ -172,7 +172,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
     }
 
     case 'WORKER_ERROR':
-      log.error(`[OPFS] Worker error: ${data.error} (command: ${(data as Record<string, unknown>).command})`);
+      log.error(`[OPFS] Worker error: ${data.error} (command: ${data.command})`);
       break;
 
     case 'OPFS_RESET_COMPLETE':

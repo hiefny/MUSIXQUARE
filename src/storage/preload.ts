@@ -22,6 +22,25 @@ const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
 
+/**
+ * Clean up reorder buffers and session state for stale (non-current) sessions.
+ */
+function cleanupStalePreloadSessions(keepSessionId: number): void {
+  // Clean up reorder buffers for old sessions
+  for (const sid of preloadReorderBuffer.keys()) {
+    if (sid !== keepSessionId) {
+      preloadReorderBuffer.delete(sid);
+    }
+  }
+  // Clean up finalized/skipped session entries (keep only the active one)
+  const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
+  for (const [sid, entry] of sessionState.entries()) {
+    if (sid !== keepSessionId && (entry.finalized || entry.skipped)) {
+      sessionState.delete(sid);
+    }
+  }
+}
+
 // ─── Host: Schedule Preload ─────────────────────────────────────────
 
 /**
@@ -241,6 +260,11 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   }
 
   clearManagedTimer('prepareWatchdog');
+
+  // Clean up buffers from previous sessions when a new one starts
+  if (latestPreloadSessionId && latestPreloadSessionId !== sid) {
+    cleanupStalePreloadSessions(sid);
+  }
   latestPreloadSessionId = sid;
 
   // Skip if this preload was already marked as skipped by host
@@ -264,6 +288,12 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Clear any stuck waiting state from previous preload
   setState('transfer.waitingForPreload', false);
+
+  // Validate required metadata
+  if (!data.name || !data.total || (data.total as number) <= 0) {
+    log.error('[Preload] Start message has invalid metadata:', data);
+    return;
+  }
 
   log.debug(`[Preload] Start: ${data.name} (index: ${data.index}, total: ${data.total})`);
 
@@ -396,7 +426,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
         command: 'OPFS_END',
         filename: session.name,
         isPreload: true,
-        sessionId: sessionId,
+        sessionId: validateSessionId(sessionId),
         totalSize: fileSize,
       });
       preloadReorderBuffer.delete(sessionId); // Prevent memory leak
@@ -411,6 +441,9 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
     sid = latestPreloadSessionId;
   }
   if (!sid) return;
+
+  // Ignore chunks from sessions older than the latest known
+  if (latestPreloadSessionId && sid < latestPreloadSessionId) return;
 
   const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
   const session = sessionState.get(sid);
@@ -431,8 +464,10 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
   // keep buffering until sessionState exists so we have a reliable filename/total.
   if (!session) {
     if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
-      log.warn(`[Preload] Too many early chunks without session state (SID: ${sid}). Dropping.`);
-      preloadReorderBuffer.delete(sid);
+      // Drop oldest chunk instead of entire buffer to preserve recent data
+      const oldestKey = Math.min(...sessionBuffer.keys());
+      sessionBuffer.delete(oldestKey);
+      log.warn(`[Preload] Early chunk buffer overflow (SID: ${sid}). Dropped oldest chunk ${oldestKey}.`);
     }
     return;
   }

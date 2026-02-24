@@ -2176,6 +2176,7 @@ const I18N_EN = {
     "초기 화면": "Home screen",
     "초기 화면으로 돌아갈까요?": "Return to the start screen?",
     "초기화 및 재보정 시작...": "Starting reset and recalibration...",
+    "초기화": "Reset",
     "초대 코드": "Invite code",
     "초대 코드 표시 및 복사": "Show & copy invite code",
     "초대 코드가 아직 없어요": "No invite code yet",
@@ -2662,7 +2663,7 @@ async function initAudio() {
         } catch (reverbErr) {
             // Clean up partially created nodes before rethrowing
             [toneSplit, toneMerge, gainL, gainR, masterGain, preamp, widener, reverb].forEach(n => {
-                try { if (n) n.dispose(); } catch (_) {}
+                try { if (n) n.dispose(); } catch (_) { }
             });
             toneSplit = toneMerge = gainL = gainR = masterGain = preamp = widener = reverb = null;
             eqNodes = null;

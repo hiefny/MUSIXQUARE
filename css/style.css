@@ -1850,9 +1850,9 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     z-index: 2;
     font-size: 11px;
     /* Smaller font */
-    color: var(--text-sub);
-    /* Gray color */
-    font-weight: 500;
+    color: var(--primary);
+    /* Match preamp blue */
+    font-weight: 700;
 }
 
 .eq-label {
@@ -1890,7 +1890,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     /* Fallback padding */
 }
 
-#tab-settings .ch-opt {
+.ch-opt {
     background: var(--surface-1);
     color: var(--text-sub);
     padding: 18px 12px;
@@ -1901,26 +1901,32 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid var(--surface-2);
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    border: 2px solid var(--surface-2);
 }
 
-#tab-settings .ch-opt svg {
+.ch-opt svg {
     width: 32px;
     height: 32px;
     fill: currentColor;
     opacity: 1;
     transition: opacity 0.2s;
+    flex-shrink: 0;
 }
 
-#tab-settings .ch-opt.active {
-    background: var(--surface-1);
-    border-color: var(--primary);
+.ch-opt.active,
+.ch-opt.selected {
+    background: rgba(var(--primary-rgb), 0.08) !important;
+    border-color: var(--primary) !important;
+    border-width: 2px !important;
     color: var(--primary);
+    box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);
 }
 
-.ch-opt.active svg {
+.ch-opt.active svg,
+.ch-opt.selected svg {
     opacity: 1;
     fill: var(--primary);
 }
@@ -3100,51 +3106,29 @@ body.overlay-open .bottom-nav {
     margin-left: 2px;
 }
 
-/* Role Selection Grid */
-.channel-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+/* Role Selection Grid Specifics (Setup Overlay) */
+#setup-role-grid.channel-grid {
     padding: 0 8px;
-    /* Slightly reduced */
     margin-top: 12px;
-    /* Reduced from 24px */
     width: 100%;
 }
 
-.ch-opt {
+#setup-role-grid .ch-opt {
     background: var(--surface-2);
-    border-radius: 16px;
-    padding: 14px 10px;
-    /* Reduced from 20px */
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-sub);
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    /* Setup overlay uses slightly different background depth */
     border: 2px solid transparent;
     /* Match selected state width to prevent shift */
 }
 
-.ch-opt:active {
+#setup-role-grid .ch-opt:active {
     transform: scale(0.96);
     background: var(--surface-3);
 }
 
-.ch-opt.selected {
+#setup-role-grid .ch-opt.selected {
     background: rgba(var(--primary-rgb), 0.08);
-    /* Lighter tint */
-    color: var(--primary);
     border-color: var(--primary);
-    border-width: 2px;
-    font-weight: 800;
-    /* Extra bold */
     box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
-    /* Subtle glow */
 }
 
 /* Speaker Active State — canonical definition is near line 4885+.

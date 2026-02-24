@@ -18,7 +18,7 @@ import {
   showPlacementToastForChannel,
 } from './player-controls.ts';
 import { selectStandardChannelButton } from './settings.ts';
-import { createHostSessionWithShortCode } from '../network/peer.ts';
+import { createHostSessionWithShortCode, leaveSession } from '../network/peer.ts';
 import { joinSession } from '../network/peer.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -683,15 +683,18 @@ export function initSetup(): void {
 
   // Return to main event
   bus.on('app:return-to-main', ((..._args: unknown[]) => {
+    leaveSession();
     initSetupOverlay();
   }) as (...args: unknown[]) => void);
 
   // Network error handling (connection failures, timeouts, etc.)
   bus.on('network:error', ((...args: unknown[]) => {
-    const err = args[0] as Error | null;
-    const msg = err?.message || '';
+    const err = args[0] as Record<string, unknown> | null;
+    const msg = (err as Error | null)?.message || '';
+    const peerType = (err && typeof err === 'object') ? String(err.type || '') : '';
     let userMsg = '네트워크 오류가 발생했어요';
 
+    // Our custom error messages
     if (msg === 'HOST_UNREACHABLE') userMsg = '호스트에 연결할 수 없어요. 같은 Wi‑Fi에 있는지 확인해 보세요.';
     else if (msg === 'HOST_DISCONNECTED') userMsg = '호스트와 연결이 끊어졌어요';
     else if (msg === 'HOST_CONNECTION_ERROR') userMsg = '호스트 연결 중 오류가 발생했어요';
@@ -699,6 +702,13 @@ export function initSetup(): void {
     else if (msg === 'PEER_NOT_READY') userMsg = '피어 연결이 아직 준비되지 않았어요';
     else if (msg === 'NETWORK_INIT_FAILED') userMsg = '네트워크 초기화에 실패했어요';
     else if (msg === 'NO_HOST_ID') userMsg = '호스트 ID가 없어요';
+    // PeerJS native error types
+    else if (peerType === 'peer-unavailable') userMsg = '상대방을 찾을 수 없어요. 코드를 다시 확인해 주세요.';
+    else if (peerType === 'network') userMsg = '네트워크 연결에 문제가 있어요. 인터넷 연결을 확인해 주세요.';
+    else if (peerType === 'server-error') userMsg = '시그널링 서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.';
+    else if (peerType === 'socket-error' || peerType === 'socket-closed') userMsg = '서버와의 연결이 끊어졌어요.';
+    else if (peerType === 'unavailable-id') userMsg = '세션 ID를 사용할 수 없어요. 다시 시도해 주세요.';
+    else if (peerType === 'webrtc') userMsg = 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.';
 
     const isConnecting = getState<boolean>('network.isConnecting');
     if (isConnecting) {

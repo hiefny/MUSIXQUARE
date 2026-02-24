@@ -9,6 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { APP_STATE } from '../core/constants.ts';
 import {
   getMasterGain,
   getToneSplit,
@@ -110,6 +111,12 @@ export function toggleSurroundMode(enabled: boolean): void {
     // Restore standard channel mode
     setChannelMode(getState<number>('audio.channelMode'));
   }
+
+  // Instant refresh: restart playback at current position if currently playing
+  const currentState = getState<string>('appState');
+  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+    bus.emit('audio:surround-toggled');
+  }
 }
 
 /**
@@ -197,4 +204,14 @@ export async function setChannel(mode: number): Promise<void> {
 bus.on('audio:set-channel-mode', ((...args: unknown[]) => {
   const mode = Number(args[0]);
   if (Number.isFinite(mode)) setChannel(mode);
+}) as (...args: unknown[]) => void);
+
+bus.on('audio:toggle-surround', ((...args: unknown[]) => {
+  const enabled = !!args[0];
+  toggleSurroundMode(enabled);
+}) as (...args: unknown[]) => void);
+
+bus.on('audio:set-surround-channel', ((...args: unknown[]) => {
+  const idx = Number(args[0]);
+  if (Number.isFinite(idx) && idx >= 0 && idx <= 7) setSurroundChannel(idx);
 }) as (...args: unknown[]) => void);

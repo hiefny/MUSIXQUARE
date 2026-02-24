@@ -9,8 +9,10 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX } from '../core/constants.ts';
+import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE } from '../core/constants.ts';
+import { clearAllManagedTimers } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
+import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, PeerInstance } from '../types/index.ts';
 
 // ─── PeerJS global declaration ──────────────────────────────────────
@@ -311,6 +313,11 @@ function handleHostIncomingConnection(conn: DataConnection): void {
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
+
+    const sessionStarted = getState<boolean>('setup.sessionStarted');
+    if (sessionStarted) {
+      bus.emit('ui:show-toast', `${deviceName} 연결이 끊겼어요`);
+    }
     log.info(`[Host] ${deviceName} disconnected`);
   });
 
@@ -330,6 +337,11 @@ function handleHostIncomingConnection(conn: DataConnection): void {
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
+
+    const sessionStarted = getState<boolean>('setup.sessionStarted');
+    if (sessionStarted) {
+      bus.emit('ui:show-toast', `${deviceName} 연결 오류`);
+    }
     try { conn.close(); } catch { /* noop */ }
   });
 }
@@ -460,28 +472,28 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
  * Leave the current session and clean up all network state.
  */
 export function leaveSession(): void {
-  log.debug('[Network] Leaving session and resetting state...');
+  log.debug('[Network] Leaving session — full cleanup...');
 
   setState('network.isIntentionalDisconnect', true);
 
-  // Stop heartbeat & ping timers
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'heartbeat' });
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'ping' });
+  // ── 1. Stop all background timers ──
+  stopBackgroundWorkerTimers();
+  clearAllManagedTimers();
 
-  // Close host connection (guest side)
+  // ── 2. Stop media playback ──
+  bus.emit('player:stop-all-media');
+
+  // ── 3. Close network connections ──
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (hostConn) {
     try { hostConn.close(); } catch { /* noop */ }
-    setState('network.hostConn', null);
   }
 
-  // Destroy peer instance
   if (peer) {
     try { peer.destroy(); } catch { /* noop */ }
     peer = null;
   }
 
-  // Close all guest connections (host side)
   const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
@@ -490,7 +502,13 @@ export function leaveSession(): void {
     } catch { /* noop */ }
   });
 
-  // Reset peer slots
+  // Close downstream relay connections
+  const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+  downstreamDataPeers.forEach(p => {
+    try { p.close(); } catch { /* noop */ }
+  });
+
+  // ── 4. Clear peer slots and maps ──
   const activeHostConnByPeerId = getState<Map<string, DataConnection>>('network.activeHostConnByPeerId');
   const peerSlotByPeerId = getState<Map<string, number>>('network.peerSlotByPeerId');
   activeHostConnByPeerId.clear();
@@ -498,8 +516,20 @@ export function leaveSession(): void {
   const peerSlots = getState<(string | null)[]>('network.peerSlots');
   for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
 
-  // Reset network state
+  // ── 5. Clear transfer state ──
+  const fileReorderBuffer = getState<Map<unknown, unknown>>('transfer.fileReorderBuffer');
+  const preloadReorderBuffer = getState<Map<unknown, unknown>>('transfer.preloadReorderBuffer');
+  const preloadSessionState = getState<Map<unknown, unknown>>('transfer.preloadSessionState');
+  if (fileReorderBuffer) fileReorderBuffer.clear();
+  if (preloadReorderBuffer) preloadReorderBuffer.clear();
+  if (preloadSessionState) preloadSessionState.clear();
+
+  // ── 6. Revoke blob URLs ──
+  bus.emit('blob:revoke-all');
+
+  // ── 7. Reset all state ──
   batchSetState({
+    // Network
     'network.myId': null,
     'network.myDeviceLabel': 'HOST',
     'network.hostConn': null,
@@ -509,9 +539,38 @@ export function leaveSession(): void {
     'network.lastKnownDeviceList': null,
     'network.peerLabels': {},
     'network.isIntentionalDisconnect': false,
+    // Relay
+    'relay.upstreamDataConn': null,
+    'relay.downstreamDataPeers': [],
+    // Playlist
+    'playlist.items': [],
+    'playlist.currentTrackIndex': -1,
+    'playlist.nextTrackIndex': -1,
+    // Transfer
+    'transfer.meta': null,
+    'transfer.state': 'IDLE',
+    'transfer.receivedCount': 0,
+    'transfer.localSessionId': 0,
+    // Files
+    'files.currentFileBlob': null,
+    // Preload
+    'preload.nextFileBlob': null,
+    'preload.meta': null,
+    // Sync
+    'sync.localOffset': 0,
+    'sync.autoSyncOffset': 0,
+    // Player
+    'player.pausedAt': 0,
+    'player.currentAudioBuffer': null,
+    // App state
+    'appState': APP_STATE.IDLE,
   });
 
-  log.debug('[Network] Session left and state reset.');
+  // ── 8. Reset UI ──
+  bus.emit('ui:update-playlist');
+  bus.emit('player:state-changed', APP_STATE.IDLE);
+
+  log.debug('[Network] Session left — full cleanup complete.');
 }
 
 // ─── Broadcast Utilities ────────────────────────────────────────────

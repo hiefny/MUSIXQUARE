@@ -394,6 +394,12 @@ export function stopYouTubeMode(): void {
     fsBtn.style.display = '';
   }
 
+  // Remove YouTube container from chat drawer
+  const chatDrawer = document.getElementById('chat-drawer');
+  if (chatDrawer) chatDrawer.classList.remove('with-youtube');
+  const chatYtContainer = document.getElementById('chat-youtube-container');
+  if (chatYtContainer) chatYtContainer.remove();
+
   bus.emit('ui:update-playlist');
   log.debug('[YouTube] Mode stopped');
 }
@@ -673,11 +679,16 @@ export function initYouTube(): void {
       return;
     }
 
-    // Close the overlay
+    // Close the overlay + reset preview UI
     const overlay = document.getElementById('youtube-url-overlay');
-    if (overlay) {
-      overlay.classList.remove('active');
-    }
+    if (overlay) overlay.classList.remove('active');
+    input.value = '';
+    const previewEl = document.getElementById('youtube-preview');
+    if (previewEl) previewEl.style.display = 'none';
+    const statusEl = document.getElementById('youtube-preview-status');
+    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '링크를 입력하면 미리보기가 표시됩니다'; }
+    const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+    if (playBtn) playBtn.disabled = true;
 
     // Add YouTube entry to playlist
     const playlist = getState<PlaylistItem[]>('playlist.items') || [];
@@ -745,65 +756,6 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Nudge error:', e);
     }
-  }) as (...args: unknown[]) => void);
-
-  // YouTube chat load (from chat YouTube link click)
-  bus.on('youtube:load-from-chat', ((...args: unknown[]) => {
-    const url = args[0] as string;
-    if (!url) return;
-
-    const videoId = extractYouTubeVideoId(url);
-    const playlistId = extractYouTubePlaylistId(url);
-    if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', '유효한 YouTube 링크가 아닙니다');
-      return;
-    }
-
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    if (hostConn) {
-      bus.emit('ui:show-toast', 'Host만 실행할 수 있습니다.');
-      return;
-    }
-
-    // Add to playlist and play
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-    const newTrack: PlaylistItem = {
-      type: 'youtube',
-      name: url,
-      title: url,
-      videoId: videoId || undefined,
-      playlistId: playlistId || undefined,
-    };
-    playlist.push(newTrack);
-    setState('playlist.items', playlist);
-    const newIndex = playlist.length - 1;
-    setState('playlist.currentTrackIndex', newIndex);
-    bus.emit('ui:update-playlist');
-    bus.emit('player:metadata-update', newTrack);
-
-    if (!hostConn) {
-      const metaList = playlist.map(item => ({
-        type: item.type,
-        name: item.name,
-        title: item.title || item.name,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
-      }));
-      broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-      broadcast({ type: MSG.YOUTUBE_PLAY, videoId, playlistId, index: newIndex, autoplay: true });
-    }
-
-    loadYouTubeVideo(videoId, playlistId, true);
-
-    fetchOEmbedTitle(url).then(title => {
-      if (title && playlist[newIndex]) {
-        playlist[newIndex].name = title;
-        playlist[newIndex].title = title;
-        setState('playlist.items', [...playlist]);
-        bus.emit('ui:update-playlist');
-        bus.emit('player:metadata-update', playlist[newIndex]);
-      }
-    });
   }) as (...args: unknown[]) => void);
 
   // YouTube refresh display (from tab switch)
@@ -896,9 +848,22 @@ export function initYouTube(): void {
     const url = args[0] as string;
     if (!url) return;
 
+    // Host-only guard
+    const hostConn = getState<DataConnection | null>('network.hostConn');
+    if (hostConn) {
+      bus.emit('ui:show-toast', '방장만 유튜브 링크를 추가할 수 있어요.');
+      return;
+    }
+
     const videoId = extractYouTubeVideoId(url);
     const playlistId = extractYouTubePlaylistId(url);
-    if (!videoId && !playlistId) return;
+    if (!videoId && !playlistId) {
+      bus.emit('ui:show-toast', '유효하지 않은 YouTube 링크');
+      return;
+    }
+
+    // Close chat drawer if open
+    bus.emit('ui:close-chat-drawer');
 
     // Add YouTube entry to playlist
     const playlist = getState<PlaylistItem[]>('playlist.items') || [];
@@ -916,24 +881,22 @@ export function initYouTube(): void {
     bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    if (!hostConn) {
-      const metaList = playlist.map(item => ({
-        type: item.type,
-        name: item.name,
-        title: item.title || item.name,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
-      }));
-      broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-      broadcast({
-        type: MSG.YOUTUBE_PLAY,
-        videoId,
-        playlistId,
-        index: newIndex,
-        autoplay: true,
-      });
-    }
+    // hostConn is already confirmed null from guard above — we are Host
+    const metaList = playlist.map(item => ({
+      type: item.type,
+      name: item.name,
+      title: item.title || item.name,
+      videoId: item.videoId || null,
+      playlistId: item.playlistId || null,
+    }));
+    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+    broadcast({
+      type: MSG.YOUTUBE_PLAY,
+      videoId,
+      playlistId,
+      index: newIndex,
+      autoplay: true,
+    });
 
     loadYouTubeVideo(videoId, playlistId, true);
 

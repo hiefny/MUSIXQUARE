@@ -110,6 +110,7 @@ export interface PlaylistMetaItem {
 // ─── Worker Messages ───────────────────────────────────────────────
 export interface WorkerCommand {
   command: string;
+  id?: string;
   filename?: string;
   sessionId?: number;
   index?: number;
@@ -117,7 +118,9 @@ export interface WorkerCommand {
   isPreload?: boolean;
   requestId?: string;
   total?: number;
+  totalSize?: number;
   size?: number;
+  keepExisting?: boolean;
   instanceId?: string;
 }
 

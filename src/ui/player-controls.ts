@@ -190,38 +190,53 @@ async function copyInviteCode(): Promise<void> {
 function openMediaSourcePopup(): void {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (hostConn) {
-    showToast('Host만 실행할 수 있습니다.');
+    showToast('방장만 미디어를 추가할 수 있어요.');
     return;
   }
-  const overlay = document.getElementById('media-source-overlay');
-  if (overlay) {
-    overlay.classList.add('active');
-    updateOverlayOpenClass();
-  }
+  animateTransition(() => {
+    const overlay = document.getElementById('media-source-overlay');
+    if (overlay) {
+      overlay.classList.add('active');
+      updateOverlayOpenClass();
+    }
+  });
 }
 
 function closeMediaSourcePopup(): void {
-  const overlay = document.getElementById('media-source-overlay');
-  if (overlay) {
-    overlay.classList.remove('active');
-    updateOverlayOpenClass();
-  }
+  animateTransition(() => {
+    const overlay = document.getElementById('media-source-overlay');
+    if (overlay) {
+      overlay.classList.remove('active');
+      updateOverlayOpenClass();
+    }
+  });
 }
 
 function openYouTubePopup(): void {
-  const overlay = document.getElementById('youtube-url-overlay');
-  if (overlay) {
-    overlay.classList.add('active');
-    updateOverlayOpenClass();
+  const hostConn = getState<DataConnection | null>('network.hostConn');
+  if (hostConn) {
+    showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+    return;
   }
+  animateTransition(() => {
+    const overlay = document.getElementById('youtube-url-overlay');
+    if (overlay) {
+      overlay.classList.add('active');
+      updateOverlayOpenClass();
+    }
+    const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
+    if (input) setTimeout(() => input.focus(), 100);
+  });
 }
 
 function closeYouTubePopup(): void {
-  const overlay = document.getElementById('youtube-url-overlay');
-  if (overlay) {
-    overlay.classList.remove('active');
-    updateOverlayOpenClass();
-  }
+  animateTransition(() => {
+    const overlay = document.getElementById('youtube-url-overlay');
+    if (overlay) {
+      overlay.classList.remove('active');
+      updateOverlayOpenClass();
+    }
+  });
 }
 
 // ─── File Selector ───────────────────────────────────────────────

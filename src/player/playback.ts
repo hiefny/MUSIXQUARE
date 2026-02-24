@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
-import { clearManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './video.ts';
@@ -36,6 +36,7 @@ let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _pendingPlayTime: number | undefined;
+let _playPreloadedInProgress = false;
 
 // ─── Getters ───────────────────────────────────────────────────────
 
@@ -400,8 +401,11 @@ export function togglePlay(): void {
   const pausedAt = getState<number>('player.pausedAt') || 0;
   const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
 
-  // Cancel pending auto-play
-  if (!hostConn) clearManagedTimer('autoPlayTimer');
+  // Cancel pending auto-play (with user feedback)
+  if (!hostConn && getManagedTimer('autoPlayTimer')) {
+    clearManagedTimer('autoPlayTimer');
+    bus.emit('ui:show-toast', '자동 재생을 취소했어요');
+  }
 
   if (isActuallyPlaying) {
     if (!hostConn) {
@@ -677,6 +681,8 @@ export async function loadPreloadedTrack(
     return;
   }
 
+  _playPreloadedInProgress = true;
+
   try {
     await initAudio();
 
@@ -755,6 +761,8 @@ export async function loadPreloadedTrack(
       }, 500);
     }
 
+    _playPreloadedInProgress = false;
+
     // Consume pending play time
     const localOffset = getState<number>('sync.localOffset') || 0;
     const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
@@ -766,6 +774,7 @@ export async function loadPreloadedTrack(
     }
 
   } catch (e: unknown) {
+    _playPreloadedInProgress = false;
     log.error('[Preload] Activation failed:', e);
     bus.emit('ui:show-toast', '프리로드 재생 실패 - 다시 로드합니다');
 
@@ -792,6 +801,55 @@ export async function loadPreloadedTrack(
 
 function handlePlayMsg(data: Record<string, unknown>): void {
   const time = Number(data.time) || 0;
+  const incomingIndex = data.index as number | undefined;
+
+  // Guard: If loadPreloadedTrack is in progress, queue the play time
+  if (_playPreloadedInProgress) {
+    _pendingPlayTime = time;
+    log.debug(`[Guest] Preload in progress, queuing play time: ${time}`);
+    return;
+  }
+
+  // Index-mismatch recovery: Host sent PLAY for a different track
+  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  if (incomingIndex !== undefined && incomingIndex !== currentTrackIndex) {
+    log.warn(`[Guest] Index mismatch: current=${currentTrackIndex}, play=${incomingIndex}`);
+    _pendingPlayTime = time;
+    setState('playlist.currentTrackIndex', incomingIndex);
+    bus.emit('ui:update-playlist');
+
+    // Check if preloaded track matches
+    const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
+    const nextTrackIndex = getState<number>('preload.nextTrackIndex');
+    if (nextFileBlob && nextTrackIndex === incomingIndex) {
+      log.debug(`[Guest] Found preloaded track for index ${incomingIndex}`);
+      _currentLoadToken++;
+      loadPreloadedTrack(incomingIndex, _currentLoadToken);
+      return;
+    }
+
+    // No preload — request file from host
+    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const name = playlist[incomingIndex]?.name || '';
+    if (hostConn?.open) {
+      hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
+    }
+    return;
+  }
+
+  // Stale audio guard: verify loaded file matches expected name
+  const meta = getState<Record<string, unknown>>('transfer.meta');
+  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
+  const loadedName = (meta?.name as string) || '';
+  if (expectedName && loadedName && expectedName !== loadedName) {
+    if (incomingIndex !== undefined && incomingIndex !== currentTrackIndex) {
+      log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
+      _pendingPlayTime = time;
+      return;
+    }
+  }
 
   if (_currentAudioBuffer || getVideoElement()?.src) {
     play(time);
@@ -862,7 +920,6 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     play(time);
     broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
-    requestGlobalResyncDelayed();
   } else {
     setState('player.pausedAt', time);
     const videoElement = getVideoElement();
@@ -1228,6 +1285,14 @@ export function initPlayback(): void {
 
   // Sync: apply nudge offset by re-seeking
   bus.on('sync:nudge-apply', ((..._args: unknown[]) => {
+    const currentState = getState<string>('appState');
+    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+      play(getTrackPosition());
+    }
+  }) as (...args: unknown[]) => void);
+
+  // Surround mode toggled during playback: restart at current position
+  bus.on('audio:surround-toggled', (() => {
     const currentState = getState<string>('appState');
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
       play(getTrackPosition());

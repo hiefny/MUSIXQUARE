@@ -17,7 +17,7 @@ let _transferWorker: Worker | null = null;
 let _syncWorker: Worker | null = null;
 
 // ─── Worker Timer IDs ───────────────────────────────────────────────
-const WORKER_TIMER_IDS = ['heartbeat', 'ping', 'uiLoop'];
+const WORKER_TIMER_IDS = ['heartbeat', 'ping', 'video-sync'];
 
 // ─── OPFS Instance ID (same as core session) ───────────────────────
 const OPFS_INSTANCE_ID = INSTANCE_ID;
@@ -121,7 +121,7 @@ export async function readFileFromOpfs(filename: string, isPreload: boolean): Pr
 
 export function stopBackgroundWorkerTimers(): void {
   WORKER_TIMER_IDS.forEach((id) => {
-    try { postWorkerCommand({ command: 'STOP_TIMER', filename: id }); } catch { /* noop */ }
+    try { postWorkerCommand({ command: 'STOP_TIMER', id }); } catch { /* noop */ }
   });
 }
 
@@ -136,17 +136,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       log.debug(`[OPFS] Session started: ${data.filename} (SID: ${data.sessionId})`);
       break;
 
-    case 'OPFS_WRITE_COMPLETE':
-      // Relay catchup streaming notification
-      if (data.requestId) {
-        const parts = data.requestId.split('|');
-        if (parts.length >= 2) {
-          bus.emit('opfs:write-complete', parts[0], data.sessionId, parts[1]);
-        }
-      }
-      break;
-
-    case 'OPFS_END_COMPLETE':
+    case 'OPFS_FILE_READY':
       log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
       bus.emit('opfs:file-ready', data.filename, data.sessionId, data.isPreload || false);
       break;
@@ -155,9 +145,36 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       bus.emit('opfs:read-complete', data);
       break;
 
+    case 'OPFS_WRITE_ERROR':
+      log.warn(`[OPFS] Write error for ${data.filename} chunk ${(data as unknown as Record<string, unknown>).chunk}:`, data.error);
+      break;
+
+    case 'OPFS_READ_ERROR':
+      log.error(`[OPFS] Read error for ${data.filename}:`, data.error);
+      bus.emit('opfs:read-error', data);
+      break;
+
     case 'OPFS_ERROR':
       log.error(`[OPFS] Worker error: ${data.error} (${data.filename})`);
       bus.emit('opfs:error', data.error, data.filename);
+      break;
+
+    case 'SESSION_MISMATCH': {
+      const isPreload = !!data.isPreload;
+      log.warn(`[OPFS] Session Mismatch: ${data.filename} (${isPreload ? 'preload' : 'current'})`);
+      // Preload mismatches are non-fatal
+      if (!isPreload) {
+        bus.emit('opfs:session-mismatch', data);
+      }
+      break;
+    }
+
+    case 'OPFS_RESET_COMPLETE':
+      log.debug('[OPFS] Reset complete');
+      break;
+
+    case 'OPFS_CLEANUP_COMPLETE':
+      log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
       break;
 
     default:

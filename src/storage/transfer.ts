@@ -10,7 +10,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE } from '../core/constants.ts';
 import { validateSessionId, nextSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
@@ -21,6 +21,7 @@ import type { DataConnection } from '../types/index.ts';
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let nextExpectedChunk = 0;
 let lastChunkTime = 0;
+let _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Chunk Watchdog ─────────────────────────────────────────────────
 
@@ -46,11 +47,20 @@ function startChunkWatchdog(): void {
 // ─── File Receive Handlers ──────────────────────────────────────────
 
 function handleFilePrepare(data: Record<string, unknown>): void {
+  // Always clear stuck preload waiting state on new file-prepare
+  if (getState<boolean>('transfer.waitingForPreload')) {
+    log.debug('[file-prepare] Clearing stale waitingForPreload flag');
+    setState('transfer.waitingForPreload', false);
+  }
+  clearManagedTimer('preloadWatchdog');
+  setState('recovery.retryCount', 0);
+
   const incomingSid = data.sessionId as number;
-  const localSid = getState<number>('transfer.localSessionId');
+  const prevLocalSid = getState<number>('transfer.localSessionId');
 
   // Update session if newer
-  if (incomingSid && incomingSid > localSid) {
+  if (incomingSid && incomingSid > prevLocalSid) {
+    log.debug(`[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid})`);
     setState('transfer.localSessionId', incomingSid);
   }
 
@@ -60,36 +70,111 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   const hasPreloadedByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
   const hasPreloadedByName = preloadMeta && data.name && data.name === preloadMeta.name;
 
+  // Preload INDEX MISMATCH: Don't use stale preload from a different track
+  const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
+  if (isMismatch) {
+    log.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`);
+    setState('transfer.waitingForPreload', false);
+    clearManagedTimer('preloadWatchdog');
+    // Clear stale preload state
+    setState('preload.nextFileBlob', null);
+    setState('preload.meta', null);
+    setState('preload.nextTrackIndex', -1);
+    setState('preload.count', 0);
+  }
+
   if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
-    setState('transfer.skipIncomingFile', true);
+    bus.emit('ui:show-toast', '프리로드된 파일 사용!');
+
+    // Stop old media right before loading preloaded track (minimizes audio gap)
+    bus.emit('player:stop-all-media');
 
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);
     }
+    bus.emit('ui:update-playlist');
 
+    setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
+
+    bus.emit('ui:show-loader', false);
     return;
   }
 
-  // Normal flow: prepare for download
+  // Not using preloaded track — stop current media
+  bus.emit('player:stop-all-media');
+
+  // Check if preload is IN PROGRESS for this track
+  const preloadInProgressByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
+  const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
+  const isPreloading = getState<boolean>('preload.isPreloading');
+
+  if (isPreloading && (preloadInProgressByIndex || preloadInProgressByName)) {
+    // Resolve Deadlock: If Host started new Main Session (SID increased), prioritize it
+    if (incomingSid > prevLocalSid) {
+      log.debug('[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.');
+      setState('preload.nextFileBlob', null);
+      setState('preload.meta', null);
+      setState('preload.nextTrackIndex', -1);
+      // Continue to normal flow below
+    } else {
+      log.debug('[file-prepare] Preload in progress for this track, waiting...');
+      bus.emit('ui:show-loader', true, `프리로드 완료 대기 중: ${data.name}`);
+
+      setState('recovery.pendingFileName', data.name as string || '');
+      setState('recovery.pendingFileIndex', data.index as number);
+      setState('transfer.waitingForPreload', true);
+      setState('transfer.skipIncomingFile', true);
+
+      if (data.index !== undefined) {
+        setState('playlist.currentTrackIndex', data.index as number);
+        bus.emit('ui:update-playlist');
+      }
+
+      // Preload Watchdog: If preloading fails to complete, recover after 10s
+      setManagedTimer('preloadWatchdog', () => {
+        if (getState<boolean>('transfer.waitingForPreload')) {
+          log.warn('[Guest] Preload wait timed out. Force recovering...');
+          setState('transfer.waitingForPreload', false);
+          bus.emit('ui:show-loader', false);
+          setState('transfer.skipIncomingFile', false);
+
+          const hostConn = getState<DataConnection | null>('network.hostConn');
+          if (hostConn && hostConn.open) {
+            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: data.name, index: data.index });
+          }
+        }
+      }, 10000);
+
+      return; // Don't start new download
+    }
+  }
+
+  // Normal flow: No preload available, prepare for download
   setState('transfer.skipIncomingFile', false);
-  setState('recovery.retryCount', 0);
+  setState('transfer.waitingForPreload', false);
 
   // Store pending file info
   setState('recovery.pendingFileName', data.name as string || '');
   setState('recovery.pendingFileIndex', data.index as number);
 
-  // Check if same file (resume scenario)
+  // Check if same file (resume scenario) — BEFORE updating meta
   const meta = getState<Record<string, unknown>>('transfer.meta');
   const receivedCount = getState<number>('transfer.receivedCount');
-  const isSameFile = (meta.name === data.name);
+  const pendingFileIndex = getState<number | undefined>('recovery.pendingFileIndex');
+  const isSameFile = (meta.name === data.name) ||
+    (pendingFileIndex !== undefined && pendingFileIndex === data.index);
   const isResuming = isSameFile && receivedCount > 0;
 
-  if (!isResuming) {
+  if (isResuming) {
+    log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
+    bus.emit('ui:show-loader', true, `복구 대기 중: ${data.name}`);
+  } else {
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);
+      bus.emit('ui:update-playlist');
     }
     // Update meta
     setState('transfer.meta', {
@@ -98,19 +183,36 @@ function handleFilePrepare(data: Record<string, unknown>): void {
       index: data.index ?? getState<number>('playlist.currentTrackIndex'),
       size: data.size || 0,
       mime: data.mime || '',
-      sessionId: data.sessionId || localSid,
+      sessionId: data.sessionId || getState<number>('transfer.localSessionId'),
     });
+
+    // Stop YouTube mode for incoming local file
+    const currentState = getState<string>('appState');
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+      log.debug('[file-prepare] Stopping YouTube mode for incoming local file');
+      bus.emit('youtube:stop-mode');
+    }
+
+    bus.emit('ui:show-loader', true, `준비 중: ${data.name}`);
   }
 
-  bus.emit('ui:show-loader', true, `준비 중: ${data.name}`);
-
-  // Prepare watchdog
+  // Prepare watchdog with jitter recovery
   setManagedTimer('prepareWatchdog', () => {
     const transferState = getState<string>('transfer.state');
     const rc = getState<number>('transfer.receivedCount');
     if (transferState === TRANSFER_STATE.IDLE || rc === 0) {
       log.warn('[Prepare Watchdog] Timeout waiting for data start!');
-      bus.emit('storage:request-recovery');
+      bus.emit('ui:show-toast', '준비 지연 중... Host 복구 요청');
+
+      const hostConn = getState<DataConnection | null>('network.hostConn');
+      if (hostConn && hostConn.open) {
+        const jitter = Math.random() * 1000 + 200;
+        setTimeout(() => {
+          if (hostConn.open && !getState<Blob | null>('files.currentFileBlob')) {
+            bus.emit('storage:request-recovery');
+          }
+        }, jitter);
+      }
     }
   }, 15000);
 }
@@ -166,6 +268,8 @@ function handleFileStart(data: Record<string, unknown>): void {
       filename: data.name as string,
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
+      size: CHUNK_SIZE,
+      keepExisting: true,
     });
 
     setState('transfer.meta', data);
@@ -177,6 +281,7 @@ function handleFileStart(data: Record<string, unknown>): void {
       filename: data.name as string,
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
+      size: CHUNK_SIZE,
     });
 
     setState('transfer.receivedCount', 0);
@@ -188,6 +293,15 @@ function handleFileStart(data: Record<string, unknown>): void {
   }
 
   startChunkWatchdog();
+
+  // Replay any early chunks that arrived before FILE_START
+  if (_pendingEarlyChunks.length > 0) {
+    const earlyChunks = _pendingEarlyChunks.splice(0);
+    log.debug(`[file-start] Replaying ${earlyChunks.length} early chunks`);
+    for (const pending of earlyChunks) {
+      handleFileChunk(pending);
+    }
+  }
 
   // Relay header downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
@@ -211,6 +325,7 @@ function handleFileResume(data: Record<string, unknown>): void {
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
+    size: CHUNK_SIZE,
   });
 
   const opfsFilename = getState<{ name: string | null }>('files.currentFileOpfs');
@@ -234,6 +349,14 @@ function handleFileChunk(data: Record<string, unknown>): void {
   if (getState<boolean>('transfer.skipIncomingFile')) {
     const localSid = getState<number>('transfer.localSessionId');
     if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
+    return;
+  }
+
+  // Buffer early chunks that arrive before FILE_START sets up the session
+  const transferState = getState<string>('transfer.state');
+  if (transferState === TRANSFER_STATE.IDLE && !fileReorderBuffer.has(incomingSid)) {
+    _pendingEarlyChunks.push(data);
+    if (_pendingEarlyChunks.length > 200) _pendingEarlyChunks.shift(); // overflow protection
     return;
   }
 
@@ -263,6 +386,37 @@ function handleFileChunk(data: Record<string, unknown>): void {
   const meta = getState<Record<string, unknown>>('transfer.meta');
   const opfsFilename = getState<{ name: string | null }>('files.currentFileOpfs');
   let receivedCount = getState<number>('transfer.receivedCount');
+
+  // Meta-recovery: if we missed FILE_START, extract meta from chunk data
+  if (!meta || meta.total === undefined || meta.total === 0) {
+    if (data.total !== undefined && Number(data.total) > 0) {
+      const recoveredMeta = {
+        name: data.name || meta?.name || '',
+        total: data.total,
+        sessionId: incomingSid,
+        size: data.size || 0,
+        mime: data.mime || '',
+      };
+      setState('transfer.meta', recoveredMeta);
+      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+
+      const fname = (recoveredMeta.name as string) || '';
+      if (fname) {
+        opfsFilename.name = fname;
+        postWorkerCommand({
+          command: 'OPFS_START',
+          filename: fname,
+          isPreload: false,
+          sessionId: validateSessionId(incomingSid),
+          size: CHUNK_SIZE,
+        });
+      }
+      log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
+    } else if (!meta || meta.total === undefined) {
+      // Orphan chunk with no meta — can't process
+      return;
+    }
+  }
 
   // Process all contiguous chunks in order
   while (sessionBuffer.has(nextExpectedChunk)) {
@@ -330,7 +484,7 @@ function handleFileChunk(data: Record<string, unknown>): void {
       filename: (meta.name as string) || '',
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
-      total: meta.size as number,
+      totalSize: meta.size as number,
     });
 
     clearManagedTimer('chunkWatchdog');
@@ -348,14 +502,55 @@ function handleFileEnd(data: Record<string, unknown>): void {
 }
 
 function handleFileWait(): void {
-  log.debug('[Guest] Relay has no data yet, waiting...');
+  log.debug('[Guest] Relay has no data yet, waiting for forwarded data...');
+  bus.emit('ui:show-toast', '릴레이 대기 중... 잠시만 기다려주세요');
 
   clearManagedTimer('relayWaitTimeout');
   setManagedTimer('relayWaitTimeout', () => {
     const receivedCount = getState<number>('transfer.receivedCount');
     if (receivedCount === 0) {
       log.debug('[Guest] Relay wait timeout - falling back to Host');
-      bus.emit('storage:request-recovery');
+      bus.emit('ui:show-toast', '릴레이 응답 없음. Host에서 직접 수신...');
+
+      // Disconnect from relay upstream
+      const upstreamDataConn = getState<DataConnection | null>('relay.upstreamDataConn');
+      if (upstreamDataConn) {
+        upstreamDataConn.close();
+        setState('relay.upstreamDataConn', null);
+      }
+
+      // Request file from Host
+      const hostConn = getState<DataConnection | null>('network.hostConn');
+      if (hostConn && hostConn.open) {
+        const pendingFileName = getState<string>('recovery.pendingFileName') || '';
+        const pendingFileIndex = getState<number | undefined>('recovery.pendingFileIndex');
+        const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+        const recoveryIndex = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
+        const playlist = getState<unknown[]>('playlist.items') || [];
+
+        // Validation: Don't send recovery with invalid index
+        if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
+          log.warn('[file-wait timeout] Invalid index, skipping recovery:', recoveryIndex);
+          bus.emit('ui:show-loader', false);
+          return;
+        }
+
+        // Check if preload is in progress for this track
+        const preloadMeta = getState<Record<string, unknown> | null>('preload.meta');
+        if (preloadMeta && preloadMeta.index === recoveryIndex) {
+          log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
+          bus.emit('ui:show-toast', '프리로드 완료 대기 중...');
+          return;
+        }
+
+        log.debug(`[file-wait timeout] Requesting from Host: ${pendingFileName} index: ${recoveryIndex}`);
+        hostConn.send({
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: 0,
+          fileName: pendingFileName,
+          index: recoveryIndex,
+        });
+      }
     }
   }, 10000);
 }

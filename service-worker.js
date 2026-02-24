@@ -32,7 +32,7 @@
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v88: Final cleanup: timers, memory, CSS dedup, dead code
 // v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
-const CACHE_VERSION = "v89"; // UI refinements & i18n updates
+const CACHE_VERSION = "v90"; // Fix: remove stale js/ references → SW install was failing → no CSS cache
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -42,9 +42,8 @@ const APP_SHELL = [
   "./css/pretendard.css",
   "./css/style.css",
   "./css/desktop.css",
-  "./js/app.js",
-  "./js/sync.worker.js",
-  "./js/transfer.worker.js",
+  // JS is now bundled by Vite into src/app.ts → assets/index-*.js
+  // Workers are built by Vite as well (no longer at js/*.worker.js)
   "./vendor/Tone.js",
   "./vendor/Tone.js.LICENSE.txt",
   "./vendor/peerjs.min.js",

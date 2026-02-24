@@ -33,6 +33,16 @@ export function setTheme(mode: string): void {
     resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   document.documentElement.setAttribute('data-theme', resolved);
+
+  // Persist preference
+  try { localStorage.setItem('musixquare-theme', mode); } catch { /* ignore */ }
+
+  // Update meta tags for PWA/browser integration
+  document.documentElement.style.colorScheme = resolved;
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.setAttribute('content', resolved === 'dark' ? '#000000' : '#f2f2f7');
+  const schemeMeta = document.querySelector('meta[name="color-scheme"]');
+  if (schemeMeta) schemeMeta.setAttribute('content', resolved);
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
@@ -44,13 +54,7 @@ export function selectStandardChannelButton(mode: number): void {
   if (el) el.classList.add('active');
 }
 
-function setChannel(mode: number, el: Element): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (hostConn) {
-    showToast('역할이 자동 설정되어 변경할 수 없어요.');
-    return;
-  }
-
+function setChannel(mode: number, _el: Element): void {
   selectStandardChannelButton(mode);
   bus.emit('audio:set-channel-mode', mode);
 }
@@ -196,13 +200,44 @@ export function initSettings(): void {
   $on('lang-en', 'click', () => setLanguageMode('en'));
   $on('lang-system', 'click', () => setLanguageMode('system'));
 
-  // Channel grid
+  // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
     el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch!, 10), el));
   });
 
+  // Surround toggle
+  $on('btn-surround-toggle', 'click', () => {
+    const current = getState<boolean>('audio.isSurroundMode');
+    bus.emit('audio:toggle-surround', !current);
+
+    // Toggle UI grid visibility
+    const stdGrid = document.getElementById('grid-standard');
+    const surrGrid = document.getElementById('grid-surround');
+    if (stdGrid) stdGrid.style.display = !current ? 'none' : '';
+    if (surrGrid) surrGrid.style.display = !current ? '' : 'none';
+
+    // Toggle button active state
+    const btn = document.getElementById('btn-surround-toggle');
+    if (btn) btn.classList.toggle('active', !current);
+  });
+
+  // Surround channel grid buttons
+  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-surround-ch]').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.surroundCh!, 10);
+      bus.emit('audio:set-surround-channel', idx);
+
+      // Highlight active button
+      document.querySelectorAll('#grid-surround .ch-opt[data-surround-ch]').forEach(
+        e => e.classList.remove('active'),
+      );
+      el.classList.add('active');
+    });
+  });
+
   // Subwoofer cutoff
   $on('cutoff-slider', 'input', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', this.value, true); });
+  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', this.value); });
   $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', 120); this.value = '120'; });
 
   // Reverb
@@ -267,8 +302,9 @@ export function initSettings(): void {
     });
   } catch { /* ignore */ }
 
-  // Initial theme: system
-  setTheme('system');
+  // Initial theme: restore from localStorage or default to system
+  const savedTheme = localStorage.getItem('musixquare-theme');
+  setTheme(savedTheme || 'system');
 
   log.info('[Settings] Initialized');
 }

@@ -28,7 +28,7 @@ import { setChannelMode } from './audio/channel.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
-import { initPeerHandlers } from './network/peer.ts';
+import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initRelay } from './network/relay.ts';
 
@@ -67,6 +67,19 @@ import { registerServiceWorker } from './sw-register.ts';
 // ── System Compatibility Check ──
 
 function checkSystemCompatibility(): void {
+  // HTTPS check
+  if (!window.isSecureContext) {
+    bus.emit('ui:show-toast', 'HTTPS 필수: 보안 연결에서만 작동합니다.');
+    log.warn('[App] Not a secure context');
+  }
+
+  // OPFS support check
+  if (!(navigator.storage && navigator.storage.getDirectory)) {
+    bus.emit('ui:show-toast', '브라우저를 업데이트해 주세요 (iOS 15.2+, Chrome 86+)');
+    log.warn('[App] OPFS not supported');
+  }
+
+  // Vendor library check
   const errors: string[] = [];
 
   if (typeof (window as unknown as Record<string, unknown>).Tone === 'undefined') {
@@ -152,6 +165,24 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized');
 }
 
+// ── Global Error Handlers ──
+
+window.onerror = (msg, src, line, col, err) => {
+  log.error(`[Global] ${msg} at ${src}:${line}:${col}`, err);
+  return false;
+};
+window.addEventListener('unhandledrejection', (e) => {
+  log.error('[Global] Unhandled rejection:', e.reason);
+});
+
+// ── Beforeunload Cleanup ──
+
+function initBeforeUnload(): void {
+  window.addEventListener('beforeunload', () => {
+    try { leaveSession(); } catch { /* noop */ }
+  });
+}
+
 // ── Bootstrap ──
 
 function bootstrap(): void {
@@ -191,7 +222,7 @@ function bootstrap(): void {
       { type: 'module' },
     );
     setSyncWorker(syncW);
-    syncW.postMessage({ command: 'INIT_INSTANCE' });
+    syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] SyncWorker started');
   } catch (e) {
     log.warn('[App] SyncWorker failed:', e);
@@ -203,6 +234,7 @@ function bootstrap(): void {
       { type: 'module' },
     );
     setTransferWorker(transferW);
+    transferW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] TransferWorker started');
   } catch (e) {
     log.warn('[App] TransferWorker failed:', e);
@@ -227,9 +259,10 @@ function bootstrap(): void {
   // 9. Service Worker
   registerServiceWorker();
 
-  // 10. Keyboard shortcuts & Wake Lock
+  // 10. Keyboard shortcuts, Wake Lock & Cleanup
   initKeyboardShortcuts();
   initWakeLock();
+  initBeforeUnload();
 
   // 11. System compatibility check (deferred to not block bootstrap)
   setTimeout(checkSystemCompatibility, 100);

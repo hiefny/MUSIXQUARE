@@ -150,19 +150,19 @@ function updateChatPreview(sender: string, text: string): void {
 function incrementUnread(): void {
   if (_isChatDrawerOpen) return;
   _unreadCount++;
-  const badge = document.getElementById('chat-unread-badge');
+  const badge = document.getElementById('chat-preview-badge');
   if (badge) {
-    badge.textContent = String(_unreadCount);
-    badge.style.display = _unreadCount > 0 ? '' : 'none';
+    badge.textContent = _unreadCount > 9 ? '9+' : String(_unreadCount);
+    badge.classList.add('show');
   }
 }
 
 function resetUnread(): void {
   _unreadCount = 0;
-  const badge = document.getElementById('chat-unread-badge');
+  const badge = document.getElementById('chat-preview-badge');
   if (badge) {
     badge.textContent = '0';
-    badge.style.display = 'none';
+    badge.classList.remove('show');
   }
 }
 
@@ -177,8 +177,10 @@ export function toggleChatDrawer(): void {
 
   if (_isChatDrawerOpen) {
     resetUnread();
+    const messages = document.getElementById('chat-messages');
+    if (messages) messages.scrollTop = messages.scrollHeight;
     const input = document.getElementById('chat-input') as HTMLInputElement | null;
-    if (input) setTimeout(() => input.focus(), 100);
+    if (input) setTimeout(() => input.focus(), 300);
   }
 }
 
@@ -375,6 +377,11 @@ export function initChat(): void {
   // Bus event for toggling drawer from other modules
   bus.on('ui:toggle-chat-drawer', ((..._args: unknown[]) => {
     toggleChatDrawer();
+  }) as (...args: unknown[]) => void);
+
+  // Close chat drawer (used by YouTube load-from-chat)
+  bus.on('ui:close-chat-drawer', ((..._args: unknown[]) => {
+    if (_isChatDrawerOpen) toggleChatDrawer();
   }) as (...args: unknown[]) => void);
 
   log.info('[Chat] Initialized');

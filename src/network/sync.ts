@@ -29,11 +29,13 @@ export function handleMainSyncBtn(): void {
   if (!hostConn) {
     // Host: Broadcast resync request to all guests
     broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+    bus.emit('ui:show-toast', '모든 기기 재동기화 요청...');
   } else {
     // Guest: Perform auto-sync
     setState('sync.localOffset', 0);
     setState('sync.autoSyncOffset', 0);
     bus.emit('sync:display-update');
+    bus.emit('ui:show-toast', '최적 싱크 보정 적용 중...');
     syncReset();
   }
 }
@@ -192,6 +194,7 @@ function handleSyncResponse(data: Record<string, unknown>): void {
 }
 
 function handleGlobalResyncRequest(): void {
+  bus.emit('ui:show-toast', 'Host 요청: 싱크 초기화 및 재설정...');
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
   setTimeout(() => syncReset(), Math.random() * 500);
@@ -245,14 +248,14 @@ export function initSync(): void {
 
   bus.on('sync:close-manual', (() => {
     const overlay = document.getElementById('manual-sync-overlay');
-    if (overlay) overlay.classList.remove('active');
+    if (overlay) overlay.classList.remove('show');
   }) as (...args: unknown[]) => void);
 
   bus.on('sync:display-update', (() => {
     const localOffset = getState<number>('sync.localOffset') || 0;
     const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
     const total = localOffset + autoSyncOffset;
-    const el = document.getElementById('sync-offset-display');
+    const el = document.getElementById('manual-sync-value');
     if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
   }) as (...args: unknown[]) => void);
 

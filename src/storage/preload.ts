@@ -9,12 +9,18 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import type { DataConnection, PreloadSessionEntry } from '../types/index.ts';
+
+// ─── Reorder Buffer ──────────────────────────────────────────────────
+// sessionId → Map(chunkIndex → Uint8Array)
+const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
+let latestPreloadSessionId = 0;
+const MAX_EARLY_PRELOAD_CHUNKS = 128;
 
 // ─── Host: Schedule Preload ─────────────────────────────────────────
 
@@ -229,13 +235,35 @@ export async function unicastPreload(
 
 function handlePreloadStart(data: Record<string, unknown>): void {
   const sid = data.sessionId as number;
-  if (!sid) return;
+  if (!sid) {
+    log.warn('[Preload] Start message missing sessionId. Ignoring.');
+    return;
+  }
+
+  clearManagedTimer('prepareWatchdog');
+  latestPreloadSessionId = sid;
 
   // Skip if this preload was already marked as skipped by host
   if (data.skipped) {
-    log.debug(`[Preload] Host says we already have index ${data.index}, skipping`);
+    log.debug(`[Preload] Skipping session ${sid}`);
+    const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
+    sessionState.set(sid, {
+      skipped: true,
+      progress: 0,
+      total: (data.total as number) || 0,
+      name: (data.name as string) || '',
+      index: (data.index as number) || 0,
+      size: (data.size as number) || 0,
+      mime: (data.mime as string) || '',
+      nextExpectedChunk: 0,
+      finalized: false,
+    });
+    try { preloadReorderBuffer.delete(sid); } catch { /* ignore */ }
     return;
   }
+
+  // Clear any stuck waiting state from previous preload
+  setState('transfer.waitingForPreload', false);
 
   log.debug(`[Preload] Start: ${data.name} (index: ${data.index}, total: ${data.total})`);
 
@@ -264,50 +292,155 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   setState('preload.count', 0);
 
   // OPFS: Start preload slot
+  // Reset preload slot before starting (clear stale locks)
+  postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
+
   postWorkerCommand({
     command: 'OPFS_START',
     filename: data.name as string,
     isPreload: true,
     sessionId: validateSessionId(sid),
+    size: CHUNK_SIZE,
   });
+
+  // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
+  try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ }
 
   // Relay downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
   downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+
+  // Watchdog: unconditionally clear preload loader after 30s
+  clearManagedTimer('preloadWatchdog');
+  setManagedTimer('preloadWatchdog', () => {
+    log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
+    bus.emit('ui:show-loader', false);
+    setState('transfer.waitingForPreload', false);
+    // If main transfer is still in progress, restore its loader
+    const transferState = getState<string>('transfer.state');
+    if (transferState === TRANSFER_STATE.RECEIVING) {
+      const meta = getState<Record<string, unknown>>('transfer.meta');
+      const receivedCount = getState<number>('transfer.receivedCount');
+      const total = (meta?.total as number) || 0;
+      if (total > 0) {
+        const pct = Math.round((receivedCount / total) * 100);
+        bus.emit('ui:update-loader', pct);
+      }
+    }
+  }, 30000);
+}
+
+function drainPreloadReorderBuffer(sessionId: number): void {
+  const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
+  const session = sessionState.get(sessionId);
+  if (!session || session.skipped) return;
+
+  const sessionBuffer = preloadReorderBuffer.get(sessionId);
+  if (!sessionBuffer) return;
+
+  let nextChunkPtr = session.nextExpectedChunk || 0;
+
+  while (sessionBuffer.has(nextChunkPtr)) {
+    const chunk = sessionBuffer.get(nextChunkPtr)!;
+
+    // Clone chunk to prevent detachment issues (one for relay, one for worker)
+    const chunkClone = new Uint8Array(chunk);
+    const fileName = session.name;
+
+    // If we still don't know the filename, keep buffering
+    if (!fileName) break;
+
+    // Relay downstream
+    const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+    if (downstreamPeers.length > 0) {
+      const relayCopy = new Uint8Array(chunk);
+      const relayMsg = { type: MSG.PRELOAD_CHUNK, chunk: relayCopy, index: nextChunkPtr, sessionId };
+      downstreamPeers.forEach(p => { if (p.open) p.send(relayMsg); });
+    }
+
+    postWorkerCommand({
+      command: 'OPFS_WRITE',
+      chunk: chunkClone.buffer as ArrayBuffer,
+      index: nextChunkPtr,
+      isPreload: true,
+      filename: fileName,
+      sessionId: validateSessionId(sessionId),
+    });
+
+    sessionBuffer.delete(nextChunkPtr);
+    nextChunkPtr++;
+  }
+
+  session.nextExpectedChunk = nextChunkPtr;
+  session.progress = nextChunkPtr;
+  setState('preload.count', session.progress);
+
+  // Tick watchdog on progress
+  const preloadMeta = getState<Record<string, unknown> | null>('preload.meta');
+  if (preloadMeta && (preloadMeta.total as number) > 0) {
+    clearManagedTimer('preloadWatchdog');
+    setManagedTimer('preloadWatchdog', () => {
+      const transferState = getState<string>('transfer.state');
+      if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+        bus.emit('ui:show-loader', false);
+      }
+    }, 15000);
+  }
+
+  // Finalize if all chunks received (in-chunk finalization)
+  const totalExpected = session.total || 0;
+  const fileSize = session.size || 0;
+  if (totalExpected > 0 && session.progress >= totalExpected) {
+    if (!session.finalized) {
+      log.debug(`[Preload] All chunks received (${session.progress}/${totalExpected}). Finalizing...`);
+      session.finalized = true;
+      postWorkerCommand({
+        command: 'OPFS_END',
+        filename: session.name,
+        isPreload: true,
+        sessionId: sessionId,
+        totalSize: fileSize,
+      });
+      preloadReorderBuffer.delete(sessionId); // Prevent memory leak
+    }
+  }
 }
 
 function handlePreloadChunk(data: Record<string, unknown>): void {
-  const sid = data.sessionId as number;
+  // Require explicit sessionId — fallback to latestPreloadSessionId
+  let sid = data.sessionId as number;
+  if (!sid && latestPreloadSessionId !== 0) {
+    sid = latestPreloadSessionId;
+  }
   if (!sid) return;
 
   const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
   const session = sessionState.get(sid);
-  if (!session || session.skipped || session.finalized) return;
 
-  const chunk = data.chunk as Uint8Array;
-  const idx = data.index as number;
+  // If session state is marked skipped/finalized, ignore
+  if (session?.skipped || session?.finalized) return;
 
-  postWorkerCommand({
-    command: 'OPFS_WRITE',
-    chunk: chunk instanceof ArrayBuffer ? chunk : (chunk as Uint8Array).buffer as ArrayBuffer,
-    index: idx,
-    isPreload: true,
-    filename: session.name,
-    sessionId: validateSessionId(sid),
-  });
-
-  session.progress++;
-  let preloadCount = getState<number>('preload.count');
-  preloadCount++;
-  setState('preload.count', preloadCount);
-
-  // Relay downstream
-  const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  if (downstreamPeers.length > 0) {
-    const relayCopy = new Uint8Array(chunk);
-    const relayMsg = { type: MSG.PRELOAD_CHUNK, chunk: relayCopy, index: idx, sessionId: sid };
-    downstreamPeers.forEach(p => { if (p.open) p.send(relayMsg); });
+  // Buffer the chunk in the reorder map
+  if (!preloadReorderBuffer.has(sid)) {
+    preloadReorderBuffer.set(sid, new Map());
   }
+  const sessionBuffer = preloadReorderBuffer.get(sid)!;
+
+  // Clone data before storing to avoid detached ArrayBuffer issues
+  sessionBuffer.set(data.index as number, new Uint8Array(data.chunk as Uint8Array));
+
+  // If PRELOAD_START hasn't been processed yet (unordered delivery),
+  // keep buffering until sessionState exists so we have a reliable filename/total.
+  if (!session) {
+    if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
+      log.warn(`[Preload] Too many early chunks without session state (SID: ${sid}). Dropping.`);
+      preloadReorderBuffer.delete(sid);
+    }
+    return;
+  }
+
+  // Drain the reorder buffer sequentially
+  drainPreloadReorderBuffer(sid);
 }
 
 function handlePreloadEnd(data: Record<string, unknown>): void {
@@ -318,16 +451,22 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
   const session = sessionState.get(sid);
   if (!session || session.skipped) return;
 
-  session.finalized = true;
+  // Only finalize if not already finalized by in-chunk detection
+  if (!session.finalized) {
+    session.finalized = true;
 
-  // Finalize OPFS
-  postWorkerCommand({
-    command: 'OPFS_END',
-    filename: session.name,
-    isPreload: true,
-    sessionId: validateSessionId(sid),
-    total: session.size,
-  });
+    // Finalize OPFS
+    postWorkerCommand({
+      command: 'OPFS_END',
+      filename: session.name,
+      isPreload: true,
+      sessionId: validateSessionId(sid),
+      totalSize: session.size,
+    });
+  }
+
+  // Cleanup reorder buffer
+  preloadReorderBuffer.delete(sid);
 
   log.debug(`[Preload] End: ${session.name} (${session.progress}/${session.total} chunks)`);
 

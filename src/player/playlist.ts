@@ -18,6 +18,9 @@ import {
 } from './playback.ts';
 import { isIdleOrPaused } from './video.ts';
 import { schedulePreload } from '../storage/preload.ts';
+import {
+  setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
+} from '../audio/effects.ts';
 import { postWorkerCommand } from '../storage/opfs.ts';
 import { broadcast } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
@@ -338,11 +341,30 @@ function handleShuffleMode(data: Record<string, unknown>): void {
 }
 
 function handlePlaylistUpdate(data: Record<string, unknown>): void {
-  const list = data.list;
-  if (Array.isArray(list)) {
-    setState('playlist.items', list);
+  // Backward-compat: legacy may send `playlist` instead of `list`
+  const incoming = Array.isArray(data.list) ? data.list :
+    (Array.isArray(data.playlist) ? data.playlist : null);
+  if (!incoming) {
+    setState('playlist.items', []);
     bus.emit('ui:update-playlist');
+    return;
   }
+  setState('playlist.items', incoming);
+
+  // Sync current track index from host (late-join bootstrap)
+  let idx = getState<number>('playlist.currentTrackIndex');
+  if (typeof data.currentTrackIndex === 'number') {
+    idx = data.currentTrackIndex;
+  } else if (typeof data.index === 'number') {
+    idx = data.index;
+  }
+  // Clamp to valid range
+  if (idx >= incoming.length) idx = incoming.length - 1;
+  if (idx < -1) idx = -1;
+  if (idx === -1 && incoming.length > 0) idx = 0;
+  setState('playlist.currentTrackIndex', idx);
+
+  bus.emit('ui:update-playlist');
 }
 
 function handleTrackChange(data: Record<string, unknown>, conn: DataConnection): void {
@@ -395,17 +417,76 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
     return;
   }
 
-  switch (data.settingType) {
+  const st = data.settingType as string;
+  const val = data.value;
+  switch (st) {
     case 'repeat-mode': {
-      const mode = Number(data.value) || 0;
+      const mode = Number(val) || 0;
       setRepeatMode(mode);
       broadcast({ type: MSG.REPEAT_MODE, value: mode });
       break;
     }
     case 'shuffle-mode': {
-      const enabled = !!data.value;
+      const enabled = !!val;
       setShuffle(enabled);
       broadcast({ type: MSG.SHUFFLE_MODE, value: enabled });
+      break;
+    }
+    // ─── Audio Effect Settings (OP → Host apply + broadcast) ──
+    case 'eq': {
+      const band = parseInt(String(data.band), 10);
+      const v = parseFloat(String(val));
+      setEQ(band, v);
+      broadcast({ type: MSG.EQ_UPDATE, band, value: v });
+      break;
+    }
+    case MSG.PREAMP: {
+      const v = parseFloat(String(val));
+      setPreamp(v);
+      broadcast({ type: MSG.PREAMP, value: v });
+      break;
+    }
+    case 'stereo': {
+      const v = Number(val);
+      setStereoWidth(v);
+      broadcast({ type: MSG.STEREO_WIDTH, value: v });
+      break;
+    }
+    case MSG.VBASS: {
+      const v = Number(val);
+      setVirtualBass(v);
+      broadcast({ type: MSG.VBASS, value: v });
+      break;
+    }
+    case MSG.REVERB: {
+      setReverbParam('mix', Number(val));
+      broadcast({ type: MSG.REVERB, value: val });
+      break;
+    }
+    case MSG.REVERB_TYPE: {
+      // Reverb type preset handled via protocol handler, just broadcast
+      setState('audio.reverbType', String(val));
+      broadcast({ type: MSG.REVERB_TYPE, value: val });
+      break;
+    }
+    case MSG.REVERB_DECAY: {
+      setReverbParam('decay', Number(val));
+      broadcast({ type: MSG.REVERB_DECAY, value: val });
+      break;
+    }
+    case MSG.REVERB_PREDELAY: {
+      setReverbParam('predelay', Number(val));
+      broadcast({ type: MSG.REVERB_PREDELAY, value: val });
+      break;
+    }
+    case MSG.REVERB_LOWCUT: {
+      setReverbParam('lowcut', Number(val));
+      broadcast({ type: MSG.REVERB_LOWCUT, value: val });
+      break;
+    }
+    case MSG.REVERB_HIGHCUT: {
+      setReverbParam('highcut', Number(val));
+      broadcast({ type: MSG.REVERB_HIGHCUT, value: val });
       break;
     }
   }

@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import { getCurrentAudioBuffer } from './playback.ts';
 
 // ─── Video Element ─────────────────────────────────────────────────
 
@@ -167,6 +168,22 @@ export function initVideo(): void {
   // Sync body mode class with app state changes
   bus.on('player:state-changed', ((...args: unknown[]) => {
     updateBodyModeClass(args[0] as string);
+  }) as (...args: unknown[]) => void);
+
+  // Sync video element volume with master volume
+  bus.on('player:sync-video-volume', ((...args: unknown[]) => {
+    const vol = Number(args[0]);
+    if (!_videoElement || !Number.isFinite(vol)) return;
+
+    // [Double Audio Fix] Mute video when playing via audio buffer decode mode
+    if (getCurrentAudioBuffer()) {
+      _videoElement.volume = 0;
+      _videoElement.muted = true;
+    } else {
+      try { _videoElement.volume = vol; } catch (e) {
+        log.debug('[Video] Volume set failed:', e);
+      }
+    }
   }) as (...args: unknown[]) => void);
 
   log.info('[Video] Initialized');

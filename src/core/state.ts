@@ -261,7 +261,7 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       autoSyncOffset: 0,
-      usePingCompensation: false,
+      usePingCompensation: true,
       lastLatencyMs: 0,
       latencyHistory: [],
       lastHeartbeatAckAt: 0,

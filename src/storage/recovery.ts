@@ -171,30 +171,6 @@ async function handleRequestDataRecovery(data: Record<string, unknown>, conn: Da
   if (fileToSend) await unicastFile(conn, fileToSend, startChunk, sid);
 }
 
-// ─── Host: Sync Time Handler ────────────────────────────────────────
-
-function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (hostConn) return; // Guest ignores
-
-  if (conn && conn.open) {
-    // Request position from player module via event
-    bus.emit('sync:get-position', (position: number) => {
-      const currentState = getState<string>('appState');
-      const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
-                        currentState === APP_STATE.PLAYING_VIDEO ||
-                        currentState === APP_STATE.PLAYING_YOUTUBE;
-
-      conn.send({
-        type: MSG.SYNC_RESPONSE,
-        time: position,
-        isPlaying,
-        reqTs: (data.ts as number) || 0,
-      });
-    });
-  }
-}
-
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob | null {

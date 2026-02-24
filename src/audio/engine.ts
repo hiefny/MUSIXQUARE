@@ -324,11 +324,13 @@ bus.on('audio:set-volume', ((...args: unknown[]) => {
   const clamped = Math.max(0, Math.min(1, vol));
   setState('audio.masterVolume', clamped);
   if (masterGain) {
-    masterGain.gain.rampTo(clamped, 0.05);
+    masterGain.gain.rampTo(clamped, 0.1);
   }
   bus.emit('audio:volume-changed', clamped);
   // Also sync YouTube player volume when in YouTube mode
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
+  // Sync video element volume (native video playback)
+  bus.emit('player:sync-video-volume', clamped);
 }) as (...args: unknown[]) => void);
 
 /** Apply volume to YouTube player */

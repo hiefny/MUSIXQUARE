@@ -745,7 +745,8 @@ const managedTimers = {
     youtubeUILoop: null,
     youtubeSyncLoop: null,
     obAutoSlideTimer: null,
-    preloadScheduleTimer: null
+    preloadScheduleTimer: null,
+    toast: null
 };
 
 // Timer cleanup helper function
@@ -759,8 +760,7 @@ function clearManagedTimer(name) {
 
 function clearAllManagedTimers() {
     Object.keys(managedTimers).forEach(clearManagedTimer);
-    // Also clear raw timers not tracked by managedTimers
-    if (_preloadWatchdog) { clearTimeout(_preloadWatchdog); _preloadWatchdog = null; }
+    // (All preload watchdog timers are now tracked via managedTimers.preloadWatchdog)
 }
 
 let channelMode = 0; // 0=Stereo, -1=Left, 1=Right, 2=Sub
@@ -1009,6 +1009,7 @@ let lastLatencyMs = 0; // Store Median RTT (Robust)
 let latencyHistory = []; // Buffer to filter noise
 let lastHeartbeatAckAt = 0; // Timestamp of latest heartbeat-ack (diagnostics)
 let syncRequestTime = 0; // Capture exact time of sync request
+let _syncBusyRetryCount = 0; // Track sync busy retries locally (not on wire)
 
 let connectedPeers = [];
 // Latest device roster snapshot (host broadcasts). Used for UI/toasts such as
@@ -1290,7 +1291,7 @@ let _pendingFileIndex = undefined;
 let _pendingPlayTime = undefined;
 let _preloadAckSent = new Set();
 let _preloadUsedForIndex = null;
-let _preloadWatchdog = null;
+// _preloadWatchdog consolidated into managedTimers.preloadWatchdog
 let _recoveryInProgress = {};
 let _recoveryLastRequest = {};
 let _recoveryRetryCount = 0;
@@ -1358,7 +1359,7 @@ let _currentLoadToken = 0; // Token to invalidate async load operations when tra
 // Network initialization is deferred to DOMContentLoaded (see listener below)
 
 // Guest Side
-let preloadChunks = [];
+// preloadChunks removed: vestigial from pre-Worker architecture
 let preloadCount = 0;
 let preloadMeta = null;
 let lastChunkTime = 0;
@@ -1633,9 +1634,9 @@ const handleWorkerMessage = async (e) => {
             // If this was a catch-up pump request, stop the pump to avoid infinite retries.
             if (data.type === 'OPFS_READ_ERROR') {
                 const reqStr = (data.requestId === undefined || data.requestId === null) ? '' : String(data.requestId);
-                const [peerIdRaw, tagRaw] = reqStr.split('|');
-                const peerId = peerIdRaw || reqStr;
-                const tag = tagRaw || '';
+                const sepIdx = reqStr.lastIndexOf('|');
+                const peerId = sepIdx > 0 ? reqStr.slice(0, sepIdx) : reqStr;
+                const tag = sepIdx > 0 ? reqStr.slice(sepIdx + 1) : '';
                 if (tag === 'catchup') {
                     stopOpfsCatchupStream(peerId, 'OPFS_READ_ERROR');
                 }
@@ -2314,12 +2315,7 @@ function setupSetCode(code) {
     setupShowCodeArea(!!code);
 }
 
-function setupShowInstruction(show, text = '') {
-    const el = setupEl('setup-instruction');
-    if (!el) return;
-    el.style.display = show ? 'block' : 'none';
-    el.textContent = text || '';
-}
+// setupShowInstruction removed: no #setup-instruction element in HTML
 
 function setupShowJoinArea(show) {
     animateTransition(() => {
@@ -2632,7 +2628,6 @@ function initSetupOverlay() {
     setupShowJoinArea(false);
     setupShowRoleArea(false);
     setupShowWelcome(true);
-    setupShowInstruction(false, '');
     setupSetGuestJoinBusy(false);
 
     // Reset state
@@ -2742,7 +2737,6 @@ async function startHostFlow() {
     setupShowCodeArea(false);
     setupShowWelcome(false);
     setupShowRoleArea(true);
-    setupShowInstruction(false); // Use internal note in setup-role-area instead
     setupHighlightJoinRole(null); // Reset visual selection
 
     // Hide slider area but keep note
@@ -2810,7 +2804,6 @@ async function proceedToHostCode(mode) {
         updateRoleBadge();
 
         // Instruction is now embedded in HTML (label above input)
-        setupShowInstruction(false);
 
         // Show "Start" + Back button 
         setupRenderActions([
@@ -2845,15 +2838,10 @@ async function startGuestFlow() {
     setupShowJoinArea(false);
     setupShowWelcome(false);
     setupShowRoleArea(true);
-    setupShowInstruction(false); // Use internal note in setup-role-area
     setupHighlightJoinRole(null);
     setupSetGuestJoinBusy(false);
 
-    // Hide slider area but keep note
-    // Note: setup-note might be hidden/shown depending on logic.
-    // In new design, setup-note is inside role area. We should hide the global one if exists.
-    const globalNote = document.querySelector('.onboarding-card > .setup-note');
-    if (globalNote) globalNote.style.display = 'none';
+    // Hide slider area
 
     const sliderArea = setupEl('ob-slider-area');
     if (sliderArea) {
@@ -2889,7 +2877,6 @@ function proceedToGuestCode(mode) {
     // Step 2: Show Input
     setupShowRoleArea(false);
     setupShowJoinArea(true);
-    setupShowInstruction(false); // Use internal label in setup-join-area
 
     // Initialize the slider for Guest guide
     // Unified guide layout used instead of slider
@@ -2952,14 +2939,7 @@ if (_roleArea) _roleArea.addEventListener('click', _handleSpeakerClick);
 const _desktopDiagramArea = document.getElementById('desktop-diagram-area');
 if (_desktopDiagramArea) _desktopDiagramArea.addEventListener('click', _handleSpeakerClick);
 
-// Back button handler for Role Area
-const _btnRoleBack = document.getElementById('btn-role-back');
-if (_btnRoleBack) {
-    _btnRoleBack.onclick = (e) => {
-        e.stopPropagation();
-        initSetupOverlay(); // Go back to very start
-    };
-}
+// btn-role-back removed: back button is now rendered dynamically via setupRenderActions
 
 function handleSetupRolePreview(mode) {
     if (appRole !== 'guest' && appRole !== 'host') return;
@@ -4566,6 +4546,12 @@ async function play(offset) {
         // Play Lock Safety: Add small timeout to prevent rapid-fire command overlaps
         setTimeout(() => {
             _isPlayLocked = false;
+            // Drain queued play request if one was stored while locked
+            if (_pendingPlayTime !== undefined) {
+                const pendingOffset = _pendingPlayTime;
+                _pendingPlayTime = undefined;
+                play(pendingOffset);
+            }
         }, 10);
     }
 }
@@ -4865,9 +4851,7 @@ function stopAllMedia() {
     // It is safely cleared in clearPreviousTrackState when track actually changes.
     preloadSessionId++; // Invalidate any ongoing preloads
     clearManagedTimer('preloadScheduleTimer');
-    if (managedTimers.autoPlayTimer) {
-        clearManagedTimer('autoPlayTimer');
-    }
+    clearManagedTimer('autoPlayTimer');
 
     setState(APP_STATE.IDLE, { skipCleanup: true });
     updatePlayState(false);
@@ -5231,7 +5215,7 @@ function toggleSurroundMode(enabled) {
     }
 }
 
-function setSurroundChannel(idx, el, skipSetup = false) {
+function setSurroundChannel(idx, el) {
     surroundChannelIndex = idx;
 
     // UI Highlight Logic
@@ -5407,7 +5391,7 @@ function setReverbParam(param, val, skipApply = false) {
 }
 
 // Reverb setters: apply param locally; callers handle broadcasting
-async function setReverbType(type) {
+function setReverbType(type) {
     if (reverb) {
         let decay, predelay;
         if (type === 'room') { decay = 1.5; predelay = 0.05; }
@@ -5425,11 +5409,7 @@ function setReverbPreDelay(val) { setReverbParam('predelay', val); }
 function setReverbLowCut(val) { setReverbParam('lowcut', val); }
 function setReverbHighCut(val) { setReverbParam('highcut', val); }
 
-function resetReverbMix() { setReverbParam('mix', 0); }
-function resetReverbDecay() { setReverbParam('decay', 5.0); }
-function resetReverbPreDelay() { setReverbParam('predelay', 0.1); }
-function resetReverbLowCut() { setReverbParam('lowcut', 0); }
-function resetReverbHighCut() { setReverbParam('highcut', 0); }
+// Individual reverb reset wrappers removed: unused (resetReverb calls setReverbParam directly)
 
 
 function resetReverb(fromSync = false) {
@@ -6015,7 +5995,7 @@ if (slider) {
             broadcast({ type: MSG.PLAY, time: t, index: currentTrackIndex });
         } else {
             pausedAt = t;
-            if (videoElement) videoElement.currentTime = t;
+            if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) videoElement.currentTime = t;
             // Broadcast pause with updated time to sync guests without starting playback
             broadcast({ type: MSG.PAUSE, time: t });
         }
@@ -6083,13 +6063,7 @@ function syncReset() {
     hostConn.send({ type: MSG.GET_SYNC_TIME, ts: syncRequestTime });
 }
 
-function updateSyncBtnState(isGuest) {
-    const btn = document.getElementById('btn-auto-sync');
-    if (!btn) return; // Safety check
-
-    // Unify Icon (Refresh) and Text (AUTO SYNC) for both roles
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> 초기화`;
-}
+// updateSyncBtnState removed: dead code, never called
 
 // --- Networking (Updated from network.html) ---
 
@@ -6110,7 +6084,7 @@ async function initNetwork(requestedId = null) {
 
     // Local-only ICE: no STUN/TURN (forces same LAN / same Wi‑Fi)
     const peerOpts = {
-        debug: 2,
+        debug: 0,
         config: {
             iceServers: [],
             sdpSemantics: 'unified-plan',
@@ -6616,8 +6590,6 @@ function joinSession(retryAttempt = 0, hostIdOverride = null) {
         // Previous builds used {type:'startHeartbeat'} which was silently ignored by postWorkerCommand.
         postWorkerCommand({ command: 'START_TIMER', id: MSG.HEARTBEAT, interval: 1000 });
         postWorkerCommand({ command: 'START_TIMER', id: 'ping', interval: 2000 });
-        setTimeout(() => detectConnectionType(), 2000);
-
         switchTab('play');
     });
 }
@@ -6660,7 +6632,6 @@ async function leaveSession(opts = {}) {
     clearAllManagedTimers();
 
     // Clear raw timers not tracked by managedTimers (Bug #7/#8)
-    if (_preloadWatchdog) { clearTimeout(_preloadWatchdog); _preloadWatchdog = null; }
     if (typeof _resyncTimer !== 'undefined' && _resyncTimer) { clearTimeout(_resyncTimer); _resyncTimer = null; }
 
     // [Cleanup PeerJS]
@@ -6767,8 +6738,8 @@ async function leaveSession(opts = {}) {
 
     // Global Window State
     _activeBroadcastSession = null;
-    _pendingFileName = null;
-    _pendingFileIndex = null;
+    _pendingFileName = undefined;
+    _pendingFileIndex = undefined;
     _ytIOSWatchdog = null;
     _ytScriptLoading = false;
     window.isYouTubeAPIReady = false;
@@ -6796,12 +6767,7 @@ async function leaveSession(opts = {}) {
 // --- Data Handling ---
 // Note: currentFileOpfs, preloadFileOpfs handles are used for storage
 
-// Local-only build: no STUN/TURN, no relay mode
-async function detectConnectionType() {
-    // In this Toss in-app build we force local network connectivity (same Wi‑Fi).
-    // Ping compensation / relay handling is intentionally disabled for simplicity.
-    usePingCompensation = false;
-}
+// detectConnectionType removed: local-only build, usePingCompensation is already false
 
 // Helper: Clear all previous track state to prevent data mixing
 function clearPreviousTrackState(reason = '') {
@@ -6879,7 +6845,7 @@ function clearPreviousTrackState(reason = '') {
         }
     }
 
-    // Note: We do NOT clear preload state here (nextFileBlob, preloadChunks, etc.)
+    // Note: We do NOT clear preload state here (nextFileBlob, etc.)
     // Those are intentionally preserved for upcoming track switch
 }
 
@@ -6892,10 +6858,6 @@ async function handleFilePrepare(data) {
     if (_waitingForPreload) {
         log.debug(`[file-prepare] Clearing stale _waitingForPreload flag`);
         _waitingForPreload = false;
-    }
-    if (_preloadWatchdog) {
-        clearTimeout(_preloadWatchdog);
-        _preloadWatchdog = null;
     }
     clearManagedTimer('preloadWatchdog');
     _recoveryRetryCount = 0; // Reset recovery counter for new track
@@ -6939,17 +6901,14 @@ async function handleFilePrepare(data) {
             _waitingForPreload = false;
             log.debug("Cancelled stuck preload wait due to mismatch");
         }
-        if (_preloadWatchdog) {
-            clearTimeout(_preloadWatchdog);
-            _preloadWatchdog = null;
-        }
+        clearManagedTimer('preloadWatchdog');
 
         clearPreloadState();
     }
 
     if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
 
-        log.debug("[Guest] ?? Using preloaded track instead of re-downloading:", data.name);
+        log.debug("[Guest] Using preloaded track instead of re-downloading:", data.name);
         showToast("프리로드된 파일 사용!");
 
         // Stop old media right before loading preloaded track (minimizes audio gap)
@@ -7007,8 +6966,8 @@ async function handleFilePrepare(data) {
             updatePlaylistUI();
 
             // Preload Watchdog: If preloading fails to complete, recover after 10s
-            if (_preloadWatchdog) clearTimeout(_preloadWatchdog);
-            _preloadWatchdog = setTimeout(() => {
+            clearManagedTimer('preloadWatchdog');
+            managedTimers.preloadWatchdog = setTimeout(() => {
                 if (_waitingForPreload) {
                     log.warn("[Guest] Preload wait timed out. Force recovering...");
                     _waitingForPreload = false;
@@ -7506,7 +7465,7 @@ async function handleFileChunk(data) {
 
         if (meta.size) {
             const totalMB = ((meta.size / 1024 / 1024)).toFixed(1);
-            const currentBytes = receivedCount * CHUNK_SIZE;
+            const currentBytes = Math.min(receivedCount * CHUNK_SIZE, meta.size);
             const currentMB = ((currentBytes / 1024 / 1024)).toFixed(1);
             progressText = `${currentMB}MB / ${totalMB}MB (${percent}%)`;
         }
@@ -7540,6 +7499,9 @@ async function handleFileChunk(data) {
 
         // [Stability Fix] Explicitly clear watchdog once file is fully received
         clearManagedTimer('chunkWatchdog');
+
+        // Cleanup reorder buffer to prevent memory leak across track switches
+        fileReorderBuffer.delete(incomingSid);
 
         // Finalize UI/playback state will happen in Worker message handler
         return;
@@ -7627,13 +7589,16 @@ async function handleSyncResponse(data) {
     if (data.reqTs && data.reqTs > 0) {
         const elapsed = Date.now() - data.reqTs;
         if (elapsed > 150) {
-            const retryCount = (data._syncBusyRetry || 0);
-            if (retryCount < 3) {
-                log.debug(`[AutoSync] Host was busy (${elapsed}ms round-trip). Retry ${retryCount + 1}/3 in 300ms...`);
+            _syncBusyRetryCount++;
+            if (_syncBusyRetryCount < 3) {
+                log.debug(`[AutoSync] Host was busy (${elapsed}ms round-trip). Retry ${_syncBusyRetryCount}/3 in 300ms...`);
                 setTimeout(() => syncReset(), 300);
                 return;
             }
             log.warn(`[AutoSync] Host busy retries exhausted (${elapsed}ms). Proceeding with stale data.`);
+            _syncBusyRetryCount = 0;
+        } else {
+            _syncBusyRetryCount = 0;
         }
     }
 
@@ -7750,7 +7715,6 @@ async function handlePreloadStart(data) {
         try { preloadReorderBuffer.delete(sessionId); } catch (_) { /* ignore */ } // Memory safety
         latestPreloadSessionId = sessionId; // Track active session
 
-        preloadChunks = [];
         preloadCount = 0;
         preloadMeta = { ...data, isSkipped: true };
         _skipIncomingPreload = true;
@@ -7811,7 +7775,6 @@ async function handlePreloadStart(data) {
     });
     preloadFileOpfs.name = data.name;
 
-    preloadChunks = [];
     preloadCount = 0;
     preloadMeta = data;
     _skipIncomingPreload = false;
@@ -8271,16 +8234,15 @@ async function handlePlayPreloaded(data) {
             log.debug(`[PlayPreloaded] Delaying fallback recovery by ${Math.round(jitter)}ms`);
 
             setTimeout(async () => {
-                // Double check before sending request
-                if (hostConn && hostConn.open && !nextFileBlob) {
-                    // Last check: did we get it during delay?
-                    const hasItNow = (nextMeta && nextMeta.index === data.index && nextFileBlob);
-                    if (hasItNow) {
-                        log.debug("[Guest] Preload arrived during jitter wait! Playing...");
-                        await loadPreloadedTrack(data.index, myLoadToken);
-                        return;
-                    }
+                if (!hostConn || !hostConn.open) return;
+                // Recheck: did preload arrive during jitter delay?
+                if (nextMeta && nextMeta.index === data.index && nextFileBlob) {
+                    log.debug("[Guest] Preload arrived during jitter wait! Playing...");
+                    await loadPreloadedTrack(data.index, ++_currentLoadToken);
+                    return;
+                }
 
+                if (hostConn && hostConn.open) {
                     log.debug("[Guest] Requesting file from Host:", trackName, "index:", data.index);
                     hostConn.send({
                         type: MSG.REQUEST_DATA_RECOVERY,
@@ -8609,14 +8571,13 @@ async function handlePlay(data) {
     if (isIdleOrPaused(currentState) || Math.abs((Tone.now() - startedAt) - target) > 0.15) play(target);
 }
 
-async function handlePause(data) {
+function handlePause(data) {
     const t = (data && data.time !== undefined) ? Number(data.time) : undefined;
 
     if (t !== undefined && Number.isFinite(t)) {
         pausedAt = t;
 
-        const usesVideo = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
-        if (usesVideo && videoElement) {
+        if (currentState === APP_STATE.PLAYING_VIDEO && videoElement) {
             try { videoElement.currentTime = t; } catch (_) { }
         }
 
@@ -8632,15 +8593,17 @@ async function handlePause(data) {
 
     pause();
 }
-async function handleVolume(data) {
+function handleVolume(data) {
     if (data.value === undefined || data.value === null) return;
     setVolume(data.value);
     showToast(`Volume: ${Math.round(data.value * 100)}%`);
 }
 
-async function handleReverb(data) { if (data.value === undefined) return; setReverbParam('mix', data.value); }
+function handleReverb(data) { if (data.value === undefined) return; setReverbParam('mix', data.value); }
 async function handleReverbType(data) {
     if (reverb && data.value) {
+        const prevDecay = reverbDecay;
+        const prevPreDelay = reverbPreDelay;
         if (data.value === 'room') {
             reverb.decay = 1.5;
             reverb.preDelay = 0.05;
@@ -8659,48 +8622,53 @@ async function handleReverbType(data) {
         try {
             await reverb.generate();
         } catch (e) {
-            log.warn('[Reverb] generate() failed during type change:', e?.message || e);
+            // Revert state on failure
+            reverb.decay = prevDecay;
+            reverb.preDelay = prevPreDelay;
+            reverbDecay = prevDecay;
+            reverbPreDelay = prevPreDelay;
+            log.warn('[Reverb] generate() failed during type change, reverted:', e?.message || e);
             showToast('리버브 적용 실패');
             return;
         }
         showToast(`리버브 타입: ${data.value}`);
     }
 }
-async function handleReverbDecay(data) { if (data.value === undefined) return; setReverbParam('decay', data.value); }
-async function handleReverbPreDelay(data) { if (data.value === undefined) return; setReverbParam('predelay', data.value); }
-async function handleReverbLowCut(data) { if (data.value === undefined) return; setReverbParam('lowcut', data.value); }
-async function handleReverbHighCut(data) { if (data.value === undefined) return; setReverbParam('highcut', data.value); }
+function handleReverbDecay(data) { if (data.value === undefined) return; setReverbParam('decay', data.value); }
+function handleReverbPreDelay(data) { if (data.value === undefined) return; setReverbParam('predelay', data.value); }
+function handleReverbLowCut(data) { if (data.value === undefined) return; setReverbParam('lowcut', data.value); }
+function handleReverbHighCut(data) { if (data.value === undefined) return; setReverbParam('highcut', data.value); }
 
-async function handleEQUpdate(data) {
+function handleEQUpdate(data) {
     if (data.band === undefined || data.value === undefined) return;
     setEQ(data.band, data.value, false, true);
 }
 
-async function handlePreamp(data) {
+function handlePreamp(data) {
     if (data.value === undefined) return;
     setPreamp(data.value, false, true);
 }
 
-async function handleEQReset(data) {
+function handleEQReset(data) {
     resetEQ(true);
 }
 
-async function handleStereoWidth(data) {
+function handleStereoWidth(data) {
     if (data.value === undefined) return;
     setStereoWidth(data.value);
 }
 
-async function handleVBass(data) {
+function handleVBass(data) {
     if (data.value === undefined) return;
     setVirtualBass(data.value);
 }
 
-async function handleShuffle(data) {
+function handleShuffle(data) {
     if (data.value === undefined) return;
     setShuffle(data.value);
 }
 
-async function handleRepeatMode(data) {
+function handleRepeatMode(data) {
     if (data.value === undefined) return;
     setRepeatMode(data.value);
 }
@@ -8796,7 +8764,6 @@ async function handleOperatorRevoke(data) {
  */
 function updateAudioEffect(type, param, value, isInput = false) {
     const val = parseFloat(value);
-    const isLocalOnly = isInput; // Don't broadcast while dragging
 
     // 1. Reverb
     if (type === MSG.REVERB) {
@@ -9308,9 +9275,8 @@ window.closeManualSync = function () {
     if (el) el.classList.remove('show');
 };
 
-function handleManualSync() {
-    openManualSyncUI();
-}
+// handleManualSync simplified: direct alias
+const handleManualSync = openManualSyncUI;
 
 function handleAutoSync() {
     localOffset = 0; // [RE-ENGINEERING] Reset manual tweaks when clicking AUTO
@@ -9821,8 +9787,9 @@ function sendRecoveryRequest(forceChunk = null) {
     setTimeout(() => {
         _recoveryPending = false;
 
-        // Re-check connection after backoff
-        if (!targetConn.open) {
+        // Re-evaluate connection after backoff (original may have been replaced)
+        const freshConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
+        if (!freshConn || !freshConn.open) {
             log.warn('[Recovery] Connection closed during backoff');
             return;
         }
@@ -9834,7 +9801,7 @@ function sendRecoveryRequest(forceChunk = null) {
             return;
         }
 
-        targetConn.send({
+        freshConn.send({
             type: MSG.REQUEST_DATA_RECOVERY,
             nextChunk: chunkToAsk,
             fileName: fileName,
@@ -10120,7 +10087,6 @@ function showLoader(show, txt) {
     }
 }
 
-let toastTimer = null;
 function showToast(msg) {
     // Harden: toast can be called very early (or in embedded contexts where the DOM differs).
     // Never throw from UI notifications.
@@ -10130,20 +10096,20 @@ function showToast(msg) {
         const text = (msg === undefined || msg === null) ? '' : String(msg);
 
         if (!t || !msgEl) {
-            console.info('[Toast]', text);
+            log.info('[Toast]', text);
             return;
         }
 
         msgEl.innerText = i18nTranslate(text);
         t.classList.add('show');
 
-        if (toastTimer) clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => {
+        clearManagedTimer('toast');
+        managedTimers.toast = setTimeout(() => {
             try { t.classList.remove('show'); } catch (_) { /* noop */ }
         }, 2000);
     } catch (e) {
         // Last resort fallback
-        console.info('[Toast fallback]', msg);
+        log.info('[Toast fallback]', msg);
     }
 }
 
@@ -10552,10 +10518,11 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
             const timeDur = document.getElementById('time-dur');
             if (timeDur) timeDur.innerText = fmtTime(dur);
         }
+        // Video load (confirm after load starts)
+        if (videoElement) {
+            videoElement.load();
+        }
         BlobURLManager.confirm(localBlob);
-
-        // Video load
-        videoElement.load();
 
         // Safe Clearing: Avoid the global clearPreloadState() hammer.
         // Only clear the satisfy-cache variables that we just moved to "current".
@@ -10606,20 +10573,7 @@ async function loadPreloadedTrack(expectedIndex = undefined, loadToken = undefin
     }
 }
 
-function updateUISlider(duration) {
-    const slider = document.getElementById('seek-slider');
-    const timeDur = document.getElementById('time-dur');
-
-    if (slider && isFinite(duration)) {
-        slider.max = duration;
-        slider.value = 0;
-        slider.disabled = false;
-    }
-
-    if (timeDur && isFinite(duration)) {
-        timeDur.innerText = fmtTime(duration);
-    }
-}
+// updateUISlider removed: dead code, never called
 
 function openHelpModal() {
     // Help modal has been replaced by the bottom "? guide" tab.
@@ -11222,6 +11176,8 @@ function openYouTubePopup() {
 
 
 function closeYouTubePopup() {
+    // Clear pending preview fetch to avoid updating DOM after popup is closed
+    if (youtubePreviewDebounce) { clearTimeout(youtubePreviewDebounce); youtubePreviewDebounce = null; }
     animateTransition(() => {
         const ov = document.getElementById('youtube-url-overlay');
         if (ov) ov.classList.remove('active');
@@ -11340,7 +11296,7 @@ function loadYouTubeVideo(videoId, playlistId = null, autoplay = true, subIndex 
             tag.src = 'https://www.youtube.com/iframe_api';
 
             // YouTube API loading error handling
-            tag.onload = () => log.debug('[YouTube] API script loaded');
+            tag.onload = () => { _ytScriptLoading = false; log.debug('[YouTube] API script loaded'); };
             tag.onerror = () => {
                 log.error('[YouTube] Failed to load API script');
                 _ytScriptLoading = false;

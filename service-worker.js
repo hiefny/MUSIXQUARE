@@ -32,7 +32,8 @@
 // v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
 // v88: Final cleanup: timers, memory, CSS dedup, dead code
 // v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
-const CACHE_VERSION = "v89"; // UI refinements & i18n updates
+// v90: Bug fixes, dead code cleanup, add i18n.js to cache
+const CACHE_VERSION = "v90";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -43,6 +44,7 @@ const APP_SHELL = [
   "./css/style.css",
   "./css/desktop.css",
   "./js/app.js",
+  "./js/i18n.js",
   "./js/sync.worker.js",
   "./js/transfer.worker.js",
   "./vendor/Tone.js",

@@ -33,6 +33,7 @@ let _currentObSlide = 0;
 let _setupOverlayEverShown = false;
 let _pendingSetupRole: number | null = null;
 let _pendingGuestRoleMode: number | null = null;
+let _hostCodeFlowId = 0;
 
 // ─── Desktop Left Panel Sync ─────────────────────────────────────
 
@@ -325,6 +326,7 @@ function handleSetupRolePreview(mode: number): void {
 // ─── Host Flow ───────────────────────────────────────────────────
 
 function startHostFlow(): void {
+  ++_hostCodeFlowId;
   bus.emit('audio:activate');
 
   setState('network.appRole', 'host');
@@ -360,6 +362,8 @@ async function proceedToHostCode(mode: number): Promise<void> {
   const appRole = getState<string>('network.appRole');
   if (appRole !== 'host') return;
 
+  const flowId = ++_hostCodeFlowId;
+
   try {
     selectStandardChannelButton(mode);
     bus.emit('audio:set-channel-mode', mode);
@@ -382,6 +386,12 @@ async function proceedToHostCode(mode: number): Promise<void> {
   try {
     const code = await createHostSessionWithShortCode();
 
+    // User navigated away while code was loading — discard stale result
+    if (flowId !== _hostCodeFlowId) {
+      log.info('[Setup] Host code flow cancelled (user navigated away)');
+      return;
+    }
+
     setState('network.sessionCode', code);
     setupSetCode(code);
     updateInviteCodeUI();
@@ -394,6 +404,9 @@ async function proceedToHostCode(mode: number): Promise<void> {
       { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => startSessionFromHost() },
     ], 'horizontal-with-back');
   } catch (e) {
+    // User navigated away — ignore the error silently
+    if (flowId !== _hostCodeFlowId) return;
+
     log.error('[Setup] Host session init failed', e);
     showToast('세션을 만들지 못했어요');
     startHostFlow();
@@ -524,6 +537,7 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
 // ─── Init ────────────────────────────────────────────────────────
 
 function initSetupOverlay(): void {
+  ++_hostCodeFlowId;
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
 

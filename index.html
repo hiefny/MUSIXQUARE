@@ -79,19 +79,34 @@
     <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 
-    <!-- FOUC guard: hide body until stylesheets arrive.
-         Removed by style.css itself (:root { ... }) or by the fallback timer below. -->
+    <!-- FOUC guard: hide body until stylesheets are parsed.
+         Removed by the rAF poll below (checks for --bg CSS variable from style.css). -->
     <style id="fouc-guard">
         body { opacity: 0 !important; }
     </style>
 
     <!-- Web font: Pretendard (consistent across Windows / Android / iOS / macOS) -->
     <link rel="stylesheet" href="css/pretendard.css">
-    <link rel="stylesheet" href="css/style.css" onload="document.getElementById('fouc-guard')?.remove()">
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
-    <!-- Fallback: if onload never fires (SW offline error, etc.), show body after 3s -->
-    <script>setTimeout(function(){var g=document.getElementById('fouc-guard');if(g)g.remove();},3000);</script>
+    <!-- Remove FOUC guard as soon as CSS is parsed (works with both dev & Vite-bundled builds).
+         Polls via rAF for the --bg custom property defined in :root — typically resolves in 1-2 frames. -->
+    <script>
+        (function () {
+            var g = document.getElementById('fouc-guard');
+            if (!g) return;
+            function check() {
+                if (getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()) {
+                    g.remove();
+                } else {
+                    requestAnimationFrame(check);
+                }
+            }
+            requestAnimationFrame(check);
+            setTimeout(function () { if (g.parentNode) g.remove(); }, 3000);
+        })();
+    </script>
 
     <!-- Setup overlay: cap to the *visible* viewport height (no clipping on Android tablets) -->
     <style id="viewport-safe">

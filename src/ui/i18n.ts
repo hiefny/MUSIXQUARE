@@ -247,7 +247,7 @@ const I18N_EN: Record<string, string> = {
   "을 선택해요.": ".",
   "이 기기 역할 설정하기": "Set this device's role",
   "이 기기로 어떤 소리를 낼까요?": "What should this device play?",
-  "쾌적한 환경을 누리시려면 동일한 네트워크에 연결해주세요.": "For the best experience, connect all devices to the same network.",
+  "동일한 네트워크에 연결하면 모든 기능을 이용할 수 있어요.": "Connect to the same network to unlock all features.",
   "이 버전은": "This version works only on",
   "이 코드를 다른 기기에 입력해주세요": "Enter this code on your other devices",
   "이렇게 연결해요": "How to connect",

@@ -167,10 +167,31 @@ function scheduleAppHeightUpdate(): void {
 }
 
 /**
+ * Remove the is-booting guard class after viewport calculations stabilize.
+ * This re-enables CSS transitions and backdrop-filter.
+ */
+function endBootingPhase(): void {
+  try {
+    const root = document.documentElement;
+    if (!root.classList.contains('is-booting')) return;
+    // Use rAF to ensure the final layout has been painted before enabling transitions
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        root.classList.remove('is-booting');
+      });
+    });
+  } catch { /* ignore */ }
+}
+
+/**
  * Initialize platform detection and viewport height tracking.
  * Call once at app bootstrap.
  */
 export function initPlatform(): void {
+  // Suppress all transitions/animations during boot to prevent layout shaking.
+  // CSS html.is-booting * { transition: none !important } handles the rest.
+  try { document.documentElement.classList.add('is-booting'); } catch { /* ignore */ }
+
   preventIOSPinchZoom();
 
   const run = () => {
@@ -178,6 +199,11 @@ export function initPlatform(): void {
     if (IS_ANDROID) {
       setTimeout(scheduleAppHeightUpdate, 500);
       setTimeout(scheduleAppHeightUpdate, 1500);
+      // Remove boot guard after last Android height update settles
+      setTimeout(endBootingPhase, 1800);
+    } else {
+      // Non-Android: remove boot guard after a short stabilization window
+      setTimeout(endBootingPhase, 300);
     }
   };
 

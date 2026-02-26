@@ -63,9 +63,10 @@ html.standalone body {
     --nav-height: 72px;
 }
 
-/* iOS PWA first-launch stabilization:
+/* Boot stabilization (all platforms):
    - prevent "shaking" caused by multiple viewport/inset recalculations
    - avoid backdrop-filter first-paint artifacts by disabling filters briefly
+   - is-booting is added by initPlatform() and removed after height calcs settle
 */
 html.is-booting *,
 html.is-booting *::before,

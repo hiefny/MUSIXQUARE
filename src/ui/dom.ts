@@ -64,15 +64,13 @@ export const escapeAttr = escapeHtml;
 
 // ─── Marquee Title ───────────────────────────────────────────────
 
-export function updateTitleWithMarquee(text: string): void {
-  const el = document.getElementById('track-title');
-  if (!el) return;
+let _currentMarqueeText: string | null = null;
+let _marqueeResizeTimer: ReturnType<typeof setTimeout> | null = null;
+let _marqueeResizeListenerAdded = false;
 
+function applyMarquee(el: HTMLElement): void {
   el.classList.remove('marquee');
   el.style.animation = 'none';
-  el.innerText = text;
-  el.removeAttribute('data-text');
-
   el.style.removeProperty('--marquee-offset');
   el.style.removeProperty('--marquee-duration');
 
@@ -88,12 +86,37 @@ export function updateTitleWithMarquee(text: string): void {
       el.style.setProperty('--marquee-offset', `${targetOffset}px`);
 
       const speed = 40;
-      const travelDuration = (Math.abs(targetOffset) / speed);
+      const travelDuration = Math.abs(targetOffset) / speed;
       const totalDuration = travelDuration * 2 + 4;
       el.style.setProperty('--marquee-duration', `${totalDuration}s`);
       el.style.animation = '';
     }
   });
+}
+
+function onMarqueeResize(): void {
+  if (_marqueeResizeTimer) clearTimeout(_marqueeResizeTimer);
+  _marqueeResizeTimer = setTimeout(() => {
+    if (!_currentMarqueeText) return;
+    const el = document.getElementById('track-title');
+    if (!el) return;
+    applyMarquee(el);
+  }, 250);
+}
+
+export function updateTitleWithMarquee(text: string): void {
+  const el = document.getElementById('track-title');
+  if (!el) return;
+
+  _currentMarqueeText = text;
+  el.innerText = text;
+  el.removeAttribute('data-text');
+  applyMarquee(el);
+
+  if (!_marqueeResizeListenerAdded) {
+    _marqueeResizeListenerAdded = true;
+    window.addEventListener('resize', onMarqueeResize);
+  }
 }
 
 // ─── Clipboard ───────────────────────────────────────────────────

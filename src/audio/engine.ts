@@ -268,7 +268,7 @@ async function _doInitAudio(): Promise<void> {
 
   // Visualizer — 256 bins is enough (only bass 0~12 and high 70%~100% are used)
   analyser = new Tone.Analyser('fft', 256) as ToneAnalyserNode;
-  analyser.smoothing = 0.4;
+  analyser.smoothing = 0;
   masterGain.connect(analyser);
   masterGain.toDestination();
 

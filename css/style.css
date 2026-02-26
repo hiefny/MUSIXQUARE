@@ -2072,8 +2072,10 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 .bottom-nav {
     position: fixed;
     bottom: calc(12px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
-    left: 16px;
-    right: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 32px);
+    max-width: 336px;
     z-index: 100;
     display: flex;
     justify-content: space-around;
@@ -2081,7 +2083,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
     /* Floating pill shape */
     border-radius: 30px;
-    padding: 9px;
+    padding: 9px 20px;
 
     /* Frosted glass */
     backdrop-filter: blur(10px);

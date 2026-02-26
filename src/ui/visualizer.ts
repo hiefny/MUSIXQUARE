@@ -68,6 +68,7 @@ export function startVisualizer(): void {
     : (analyser as unknown as AnalyserNode).frequencyBinCount;
 
   let smoothedBass = 0;
+  let smoothedHigh = 0;
 
   // Canvas scale (High DPI)
   const wrapper = document.querySelector('.vinyl-wrapper');
@@ -137,7 +138,8 @@ export function startVisualizer(): void {
       highSum += val;
     }
     const highAverage = highSum / highCountVal;
-    const highPunch = highAverage / 255;
+    smoothedHigh = smoothedHigh * 0.8 + highAverage * 0.2;
+    const highPunch = smoothedHigh / 255;
 
     ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
     ctx.shadowBlur = 0;

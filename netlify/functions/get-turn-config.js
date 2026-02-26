@@ -3,23 +3,31 @@
  *
  * Returns Metered.ca TURN credentials to the client for WebRTC relay.
  * Environment variables: TURN_USER, TURN_PASS
+ *
+ * CORS: same-origin, local dev, and trusted cross-origin (Toss in-app etc.)
  */
 
 exports.handler = async (event) => {
   const username = process.env.TURN_USER || "";
   const credential = process.env.TURN_PASS || "";
 
-  // CORS — same-origin + local dev
   const origin = (event?.headers?.origin || event?.headers?.Origin) || "";
   const host = event?.headers?.host || "";
 
-  const sameOriginCandidates = [
-    host ? `https://${host}` : "",
-    host ? `http://${host}` : "",
-  ].filter(Boolean);
+  // Trusted origins for cross-origin TURN credential requests
+  const trustedPatterns = [
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i,        // local dev
+    /^https:\/\/[^/]*\.toss\.im$/i,                          // Toss in-app
+    /^https:\/\/[^/]*\.toss-internal\.com$/i,                 // Toss internal
+    /^https:\/\/musixquare\.netlify\.app$/i,                  // production
+  ];
 
-  const isLocalDev = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
-  const allowOrigin = (sameOriginCandidates.includes(origin) || isLocalDev) ? origin : "";
+  const sameOrigin = origin && (
+    origin === `https://${host}` || origin === `http://${host}`
+  );
+
+  const isTrusted = sameOrigin || trustedPatterns.some(p => p.test(origin));
+  const allowOrigin = isTrusted ? origin : "";
 
   const corsHeaders = allowOrigin
     ? {

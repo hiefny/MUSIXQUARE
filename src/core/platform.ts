@@ -135,6 +135,23 @@ function updateAppHeightNow(): void {
     try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
   }
 
+  // DEBUG: show viewport diagnostics on iOS standalone (remove after fixing)
+  if (IS_IOS && isStandalone) {
+    try {
+      let dbg = document.getElementById('__dbg');
+      if (!dbg) {
+        dbg = document.createElement('div');
+        dbg.id = '__dbg';
+        dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:red;color:white;font:11px/1.4 monospace;padding:4px 8px;pointer-events:none;white-space:pre';
+        document.body.appendChild(dbg);
+      }
+      const safeB = getComputedStyle(root).getPropertyValue('--safe-bottom');
+      const safeT = getComputedStyle(root).getPropertyValue('--safe-top');
+      const bodyH = getComputedStyle(document.body).height;
+      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:${h} body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
+    } catch { /* ignore */ }
+  }
+
   const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
   try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch { /* ignore */ }
 }

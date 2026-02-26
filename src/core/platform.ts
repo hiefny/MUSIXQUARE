@@ -134,7 +134,9 @@ function updateAppHeightNow(): void {
   // on iOS standalone. Use window.innerHeight which correctly reports the full
   // viewport including safe areas, and set html element height directly.
   if (IS_IOS && isStandalone && !isLandscape) {
-    const fullH = Math.max(window.innerHeight, vv?.height || 0);
+    const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
+    const vvH = (vv && Number.isFinite(vv.height)) ? Math.round(vv.height) : 0;
+    const fullH = Math.max(ih, vvH);
     if (fullH > 0) {
       try {
         root.style.height = `${fullH}px`;

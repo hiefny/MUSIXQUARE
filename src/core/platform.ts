@@ -130,14 +130,18 @@ function updateAppHeightNow(): void {
     } catch { /* ignore */ }
   }
 
-  // iOS PWA portrait: Do NOT set --app-height.
-  // JS height signals (innerHeight, visualViewport) frequently exclude
-  // safe-area-inset-bottom, and the viewport-safe <style> in index.html
-  // clamps body with !important. Removing --app-height lets the CSS
-  // fallback (100dvh) handle it correctly — dvh includes safe areas
-  // under viewport-fit=cover in standalone mode.
+  // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
+  // on iOS standalone (812px instead of 874px). Use window.innerHeight which
+  // correctly reports the full viewport including safe areas.
+  // Also set html element height directly (CSS can't reach the correct value).
   if (IS_IOS && isStandalone && !isLandscape) {
-    try { root.style.removeProperty('--app-height'); } catch { /* ignore */ }
+    const fullH = Math.max(window.innerHeight, vv?.height || 0);
+    if (fullH > 0) {
+      try {
+        root.style.height = `${fullH}px`;
+        root.style.setProperty('--app-height', `${fullH}px`);
+      } catch { /* ignore */ }
+    }
   } else if (h > 0) {
     try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
   }
@@ -155,7 +159,8 @@ function updateAppHeightNow(): void {
       const safeB = getComputedStyle(root).getPropertyValue('--safe-bottom');
       const safeT = getComputedStyle(root).getPropertyValue('--safe-top');
       const bodyH = getComputedStyle(document.body).height;
-      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:UNSET(dvh) body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
+      const fullH = Math.max(window.innerHeight, vv?.height || 0);
+      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:${fullH} body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
     } catch { /* ignore */ }
   }
 

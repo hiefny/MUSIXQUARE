@@ -6,33 +6,53 @@
  */
 
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { i18nTranslate } from './i18n.ts';
 
-// ─── Loader (Header Progress Bar) ────────────────────────────────
+// ─── Loader (Toss: Chat Preview Button Progress) ─────────────────
 
 let _loaderResetTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastSystemMsgBase: string | null = null;
 
 export function updateLoader(percent: number): void {
-  const progressBg = document.getElementById('header-progress-bg');
+  const progressBg = document.getElementById('chat-preview-progress-bg');
   if (progressBg) {
     (progressBg as HTMLElement).style.width = `${percent}%`;
   }
 }
 
 export function showLoader(show: boolean, txt?: string): void {
-  const header = document.getElementById('main-header');
-  const loadingText = document.getElementById('header-loading-text');
-  const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
+  const chatBtn = document.getElementById('chat-preview-btn');
+  const chatText = document.getElementById('chat-preview-text');
+  const progressBg = document.getElementById('chat-preview-progress-bg') as HTMLElement | null;
 
   if (show) {
     if (_loaderResetTimer) { clearTimeout(_loaderResetTimer); _loaderResetTimer = null; }
-    header?.classList.add('loading');
-    if (txt && loadingText) loadingText.innerText = i18nTranslate(txt) ?? '';
+    chatBtn?.classList.add('loading');
+    if (txt && chatText) {
+      if (!chatText.dataset.originalText) {
+        chatText.dataset.originalText = chatText.textContent || '';
+      }
+      chatText.innerText = i18nTranslate(txt) ?? '';
+
+      // Emit system message to chat (deduplicate % updates)
+      const translated = i18nTranslate(txt) ?? txt;
+      const base = translated.replace(/\d+%/, '').trim();
+      if (base !== _lastSystemMsgBase) {
+        _lastSystemMsgBase = base;
+        bus.emit('chat:system-message', translated);
+      }
+    }
     if (progressBg && (progressBg.style.width === '0px' || progressBg.style.width === '')) {
       progressBg.style.width = '0%';
     }
   } else {
-    header?.classList.remove('loading');
+    chatBtn?.classList.remove('loading');
+    if (chatText?.dataset.originalText) {
+      chatText.innerText = chatText.dataset.originalText;
+      delete chatText.dataset.originalText;
+    }
+    _lastSystemMsgBase = null;
     _loaderResetTimer = setTimeout(() => {
       if (progressBg) progressBg.style.width = '0%';
       _loaderResetTimer = null;

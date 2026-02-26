@@ -59,7 +59,7 @@ html.standalone body {
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-    --header-height: calc(60px + var(--safe-top));
+    --header-height: 0px;
     --nav-height: 72px;
 }
 
@@ -362,7 +362,27 @@ html.force-portrait .rotate-lock-overlay {
     }
 }
 
-/* --- Header --- */
+/* --- Toss: Header hidden (Toss provides its own navigation bar) --- */
+header#main-header {
+    display: none !important;
+}
+
+.fullscreen-btn {
+    display: none !important;
+}
+
+#theme-section {
+    display: none;
+}
+
+/* Toss desktop: header hidden → body right padding becomes dead space. */
+@media (min-width: 1280px) {
+    body {
+        padding-right: 0 !important;
+    }
+}
+
+/* --- Header (legacy, hidden by Toss override above) --- */
 header {
     height: var(--header-height);
     padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
@@ -4408,6 +4428,15 @@ input:checked+.slider:before {
     border-bottom: none;
 }
 
+.chat-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chat-role-badge {
+    display: none;
+}
 
 .chat-drawer-title {
     font-size: 20px;

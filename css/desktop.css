@@ -63,6 +63,13 @@
         display: none !important;
     }
 
+    /* Desktop: show role badge in chat drawer header */
+    .chat-role-badge {
+        display: flex !important;
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+
     /* ---------------------------------------------------
        3. Shared Panel Styles
        --------------------------------------------------- */

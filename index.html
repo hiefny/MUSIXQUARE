@@ -26,30 +26,16 @@
         }
     </script>
 
-    <meta name="color-scheme" content="light dark">
+    <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#f2f2f7">
 
-    <!-- Theme preflight (before CSS):
-         - Prevent light-mode overlay scrollbars becoming white (invisible) on mobile/PWA
-         - Reduce first-paint flicker by setting data-theme early -->
+    <!-- Toss: force light mode (no dark mode support) -->
     <script>
         (function () {
-            try {
-                var mode = localStorage.getItem('musixquare-theme') || 'system';
-                var resolved = (mode === 'dark') ? 'dark' : (mode === 'light') ? 'light'
-                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-
-                document.documentElement.setAttribute('data-theme', resolved);
-                document.documentElement.style.colorScheme = resolved;
-
-                // Match status-bar / address-bar color on first paint
-                var themeColor = (resolved === 'dark') ? '#000000' : '#f2f2f7';
-                var m = document.querySelector('meta[name="theme-color"]');
-                if (m) m.setAttribute('content', themeColor);
-
-                var cs = document.querySelector('meta[name="color-scheme"]');
-                if (cs) cs.setAttribute('content', resolved);
-            } catch (e) { }
+            document.documentElement.setAttribute('data-theme', 'light');
+            document.documentElement.style.colorScheme = 'light';
+            var m = document.querySelector('meta[name="theme-color"]');
+            if (m) m.setAttribute('content', '#f2f2f7');
         })();
     </script>
     <meta name="application-name" content="MUSIXQUARE">
@@ -157,10 +143,7 @@
         </div>
 
         <div class="header-right header-default-content" style="display: flex; align-items: center;">
-            <div class="role-badge" id="role-badge">
-                <div class="role-dot"></div>
-                <span id="role-text">OFFLINE</span>
-            </div>
+            <!-- Toss: role badge moved to chat preview button -->
         </div>
     </header>
 
@@ -232,14 +215,23 @@
 
                 <!-- Chat Preview Button -->
                 <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label="채팅 열기">
+                    <div class="chat-preview-progress-bg" id="chat-preview-progress-bg"></div>
                     <div class="chat-preview-left">
-                        <svg viewBox="0 0 24 24" class="chat-preview-icon">
-                            <path
-                                d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
-                        </svg>
+                        <div class="chat-icon-wrapper">
+                            <svg viewBox="0 0 24 24" class="chat-preview-icon">
+                                <path
+                                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
+                            </svg>
+                            <span class="chat-preview-badge" id="chat-preview-badge"></span>
+                        </div>
                         <span class="chat-preview-text" id="chat-preview-text">채팅을 시작하세요</span>
                     </div>
-                    <span class="chat-preview-badge" id="chat-preview-badge"></span>
+                    <div class="chat-preview-right">
+                        <div class="role-badge" id="role-badge">
+                            <div class="role-dot"></div>
+                            <span id="role-text">SETUP</span>
+                        </div>
+                    </div>
                 </button>
 
                 <!-- Buttons Row: SYNC (left) + Media (right) -->
@@ -774,12 +766,18 @@
     <div class="chat-drawer" id="chat-drawer">
         <div class="chat-drawer-header">
             <span class="chat-drawer-title">채팅</span>
-            <button class="chat-drawer-close" id="btn-chat-close" aria-label="채팅 닫기">
-                <svg viewBox="0 0 24 24">
-                    <path
-                        d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                </svg>
-            </button>
+            <div class="chat-header-right">
+                <div class="chat-role-badge" id="chat-role-badge">
+                    <div class="role-dot"></div>
+                    <span id="chat-role-text">SETUP</span>
+                </div>
+                <button class="chat-drawer-close" id="btn-chat-close" aria-label="채팅 닫기">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                </button>
+            </div>
         </div>
         <div class="chat-drawer-messages" id="chat-messages">
             <div class="chat-empty">아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!</div>

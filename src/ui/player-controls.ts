@@ -93,6 +93,15 @@ function toggleMute(): void {
 
 // ─── Role Badge ──────────────────────────────────────────────────
 
+function syncChatRoleBadge(badge: HTMLElement): void {
+  const chatBadge = document.getElementById('chat-role-badge');
+  const chatText = document.getElementById('chat-role-text');
+  if (!chatBadge || !chatText) return;
+  const text = document.getElementById('role-text');
+  if (text) chatText.innerText = text.innerText;
+  chatBadge.classList.toggle('connected', badge.classList.contains('connected'));
+}
+
 export function updateRoleBadge(): void {
   const badge = document.getElementById('role-badge');
   const text = document.getElementById('role-text');
@@ -103,6 +112,7 @@ export function updateRoleBadge(): void {
   const isConnecting = getState<boolean>('network.isConnecting');
   if (isConnecting) {
     text.innerText = '연결 중...';
+    syncChatRoleBadge(badge);
     return;
   }
 
@@ -112,6 +122,7 @@ export function updateRoleBadge(): void {
     const label = myDeviceLabel.trim() || 'Peer';
     text.innerText = label;
     badge.classList.add('connected');
+    syncChatRoleBadge(badge);
     return;
   }
 
@@ -119,15 +130,18 @@ export function updateRoleBadge(): void {
   if (appRole === 'host') {
     text.innerText = 'Host';
     badge.classList.add('connected');
+    syncChatRoleBadge(badge);
     return;
   }
 
   if (appRole === 'guest') {
     text.innerText = 'Guest';
+    syncChatRoleBadge(badge);
     return;
   }
 
   text.innerText = 'SETUP';
+  syncChatRoleBadge(badge);
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

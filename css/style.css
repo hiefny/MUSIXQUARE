@@ -2106,6 +2106,10 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
                 opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Exclude from View Transitions API cross-fade so the pill doesn't
+       flicker transparent during tab switches */
+    view-transition-name: none;
 }
 
 /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
@@ -2490,7 +2494,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateY(20px);
+    transform: translateX(-50%) translateY(20px);
 }
 
 /* :has() fallback for older browsers / WebViews */
@@ -2502,7 +2506,7 @@ body.overlay-open .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateY(20px);
+    transform: translateX(-50%) translateY(20px);
 }
 
 /* Base styles for the new split layout of setup overlay */

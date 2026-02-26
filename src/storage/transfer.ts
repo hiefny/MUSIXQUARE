@@ -422,8 +422,16 @@ function handleFileChunk(data: Record<string, unknown>): void {
     return;
   }
 
-  // Buffer early chunks that arrive before FILE_START sets up the session
+  // Skip stale chunks that arrive after the transfer already completed.
+  // This prevents broadcast chunks (whose FILE_START was skipped due to
+  // preload) from re-showing the loader after finalizeGuestFile finishes.
   const transferState = getState<string>('transfer.state');
+  if ((transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.PROCESSING) &&
+      incomingSid <= getState<number>('transfer.localSessionId')) {
+    return;
+  }
+
+  // Buffer early chunks that arrive before FILE_START sets up the session
   if (transferState === TRANSFER_STATE.IDLE && !fileReorderBuffer.has(incomingSid)) {
     _pendingEarlyChunks.push(data);
     if (_pendingEarlyChunks.length > 200) _pendingEarlyChunks.shift(); // overflow protection

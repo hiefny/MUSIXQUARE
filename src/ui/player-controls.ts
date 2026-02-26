@@ -107,7 +107,7 @@ export function updateRoleBadge(): void {
   const text = document.getElementById('role-text');
   if (!badge || !text) return;
 
-  badge.classList.remove('connected');
+  badge.classList.remove('connected', 'remote');
 
   const isConnecting = getState<boolean>('network.isConnecting');
   if (isConnecting) {
@@ -122,6 +122,9 @@ export function updateRoleBadge(): void {
     const label = myDeviceLabel.trim() || 'Peer';
     text.innerText = label;
     badge.classList.add('connected');
+    if (getState<string>('network.connectionType') === 'remote') {
+      badge.classList.add('remote');
+    }
     syncChatRoleBadge(badge);
     return;
   }

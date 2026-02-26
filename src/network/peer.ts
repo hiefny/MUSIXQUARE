@@ -24,6 +24,28 @@ let peer: PeerInstance | null = null;
 // ─── Public Getters ─────────────────────────────────────────────────
 export function getPeer(): PeerInstance | null { return peer; }
 
+// ─── ICE Connection Type Detection ──────────────────────────────────
+
+async function detectConnectionType(conn: DataConnection): Promise<'local' | 'remote'> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pc = (conn as any).peerConnection as RTCPeerConnection | undefined;
+    if (!pc) return 'remote';
+
+    const stats = await pc.getStats();
+    for (const report of stats.values()) {
+      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+        const localCandidate = stats.get(report.localCandidateId);
+        if (localCandidate?.candidateType === 'host') return 'local';
+        return 'remote'; // srflx or relay
+      }
+    }
+  } catch {
+    log.debug('[Peer] ICE stats unavailable, assuming remote');
+  }
+  return 'remote';
+}
+
 // ─── Peer Slot Management ───────────────────────────────────────────
 
 function getPeerLabelBySlot(slot: number): string {
@@ -83,11 +105,34 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     peer = null;
   }
 
-  // Local-only ICE: no STUN/TURN (forces same LAN / same Wi-Fi)
+  // ICE servers: STUN always, TURN only for remote (Metered.ca via Netlify Function)
+  const iceServers: Record<string, unknown>[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+  ];
+
+  // Fetch TURN credentials from Netlify Function (non-blocking on failure)
+  try {
+    const resp = await fetch('/.netlify/functions/get-turn-config');
+    if (resp.ok) {
+      const { username, credential } = await resp.json() as { username: string; credential: string };
+      if (username && credential) {
+        iceServers.push(
+          { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+          { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
+          { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+        );
+        log.info('[Network] TURN credentials loaded (Metered.ca)');
+      }
+    }
+  } catch {
+    log.debug('[Network] TURN config unavailable — STUN only');
+  }
+
   const peerOpts: Record<string, unknown> = {
     debug: 2,
     config: {
-      iceServers: [],
+      iceServers,
       sdpSemantics: 'unified-plan',
       bundlePolicy: 'max-bundle',
       iceCandidatePoolSize: 0,
@@ -287,6 +332,14 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
+    // Detect local vs remote for this guest after ICE stabilizes
+    setTimeout(async () => {
+      const type = await detectConnectionType(conn);
+      (peerObj as Record<string, unknown>).connectionType = type;
+      log.info(`[Host] ${deviceName} connection type: ${type}`);
+      broadcastDeviceList();
+    }, 1500);
+
     // Broadcast updated device list to all peers
     broadcastDeviceList();
     bus.emit('network:role-badge-update');
@@ -418,15 +471,20 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     return;
   }
 
-  // Timeout if host is unreachable
+  // Own flag — don't trust conn.open (PeerJS can set it true before 'open' event fires)
+  let dataChannelOpened = false;
+
+  // Timeout if host is unreachable (15s to allow TURN relay negotiation)
   const timeoutId = setTimeout(() => {
-    if (!conn || conn.open || getState<DataConnection | null>('network.hostConn')) return;
+    if (dataChannelOpened || getState<DataConnection | null>('network.hostConn')) return;
+    log.warn('[Join] Connection timeout — data channel did not open in 15s');
     try { conn.close(); } catch { /* noop */ }
     setState('network.isConnecting', false);
     bus.emit('network:error', new Error('HOST_UNREACHABLE'));
-  }, 10000);
+  }, 15000);
 
   conn.on('open', () => {
+    dataChannelOpened = true;
     clearTimeout(timeoutId);
     log.info('[Join] Connected to host:', hostId);
 
@@ -472,6 +530,14 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     // Start heartbeat & ping timers for guest
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'heartbeat', interval: 1000 });
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'ping', interval: 2000 });
+
+    // Detect local vs remote connection after ICE stabilizes
+    setTimeout(async () => {
+      const type = await detectConnectionType(conn);
+      setState('network.connectionType', type);
+      log.info(`[Peer] Connection type: ${type}`);
+      bus.emit('network:role-badge-update');
+    }, 1500);
 
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');
@@ -647,6 +713,7 @@ export function broadcastDeviceList(): void {
         status: p.status,
         isHost: false,
         isOp: p.isOp,
+        connectionType: (p.connectionType as string) || 'unknown',
       })),
   ];
 

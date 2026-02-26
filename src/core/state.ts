@@ -108,6 +108,7 @@ export interface StateTree {
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
+    connectionType: 'local' | 'remote' | 'unknown';
   };
 
   // Relay
@@ -228,6 +229,7 @@ function createInitialState(): StateTree {
       peerSlots: [null, null, null, null], // index 0 unused, 1-3 for guests
       peerSlotByPeerId: new Map(),
       activeHostConnByPeerId: new Map(),
+      connectionType: 'unknown' as const,
     },
 
     relay: {

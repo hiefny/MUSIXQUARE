@@ -10,7 +10,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
@@ -26,18 +26,23 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Chunk Watchdog ─────────────────────────────────────────────────
 
+function getEffectiveWatchdogTimeout(): number {
+  return getState<string>('network.connectionType') === 'remote' ? 60000 : WATCHDOG_TIMEOUT;
+}
+
 function startChunkWatchdog(): void {
   clearManagedTimer('chunkWatchdog');
   lastChunkTime = Date.now();
   setState('transfer.lastReceivedCountSnapshot', getState<number>('transfer.receivedCount'));
 
   setManagedTimer('chunkWatchdog', () => {
+    const timeout = getEffectiveWatchdogTimeout();
     const timeSinceLast = Date.now() - lastChunkTime;
     const receivedCount = getState<number>('transfer.receivedCount');
     const lastSnapshot = getState<number>('transfer.lastReceivedCountSnapshot');
-    const isStuck = (receivedCount === lastSnapshot) && timeSinceLast > WATCHDOG_TIMEOUT;
+    const isStuck = (receivedCount === lastSnapshot) && timeSinceLast > timeout;
 
-    if (isStuck || timeSinceLast > WATCHDOG_TIMEOUT) {
+    if (isStuck || timeSinceLast > timeout) {
       clearManagedTimer('chunkWatchdog');
       bus.emit('storage:request-recovery');
     }
@@ -47,7 +52,58 @@ function startChunkWatchdog(): void {
 
 // ─── File Receive Handlers ──────────────────────────────────────────
 
+async function fetchDemoFromServer(index: number): Promise<void> {
+  bus.emit('ui:show-loader', true, '서버에서 데모 음원 로딩 중...');
+  bus.emit('ui:update-loader', 0);
+
+  try {
+    const blob: Blob = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', DEMO_FILE_NAME, true);
+      xhr.responseType = 'blob';
+      xhr.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          bus.emit('ui:update-loader', percent);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as Blob);
+        else reject(new Error(`HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('Network Error'));
+      xhr.send();
+    });
+
+    const file = new File([blob], DEMO_FILE_NAME, { type: 'audio/mpeg' });
+
+    // Use the preload path for seamless playback
+    setState('preload.nextFileBlob', file);
+    setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_TITLE, index, size: file.size, mime: 'audio/mpeg' });
+    bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
+  } catch (e) {
+    log.error('[Transfer] Demo server fetch failed:', e);
+    bus.emit('ui:show-toast', '데모 로드 실패');
+    bus.emit('ui:show-loader', false);
+    // Fallback: allow normal P2P transfer
+    setState('transfer.skipIncomingFile', false);
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: DEMO_FILE_NAME, index });
+  }
+}
+
 function handleFilePrepare(data: Record<string, unknown>): void {
+  // Demo track: fetch directly from server instead of P2P transfer
+  if (data.name === DEMO_FILE_NAME) {
+    setState('transfer.skipIncomingFile', true);
+    bus.emit('player:stop-all-media');
+    if (data.index !== undefined) {
+      setState('playlist.currentTrackIndex', data.index as number);
+      bus.emit('ui:update-playlist');
+    }
+    fetchDemoFromServer(data.index as number ?? 0);
+    return;
+  }
+
   // Always clear stuck preload waiting state on new file-prepare
   if (getState<boolean>('transfer.waitingForPreload')) {
     log.debug('[file-prepare] Clearing stale waitingForPreload flag');
@@ -195,6 +251,7 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   }
 
   // Prepare watchdog with jitter recovery
+  const prepareTimeout = getState<string>('network.connectionType') === 'remote' ? 60000 : 15000;
   setManagedTimer('prepareWatchdog', () => {
     const transferState = getState<string>('transfer.state');
     const rc = getState<number>('transfer.receivedCount');
@@ -212,7 +269,7 @@ function handleFilePrepare(data: Record<string, unknown>): void {
         }, jitter);
       }
     }
-  }, 15000);
+  }, prepareTimeout);
 }
 
 function handleFileStart(data: Record<string, unknown>): void {

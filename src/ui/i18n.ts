@@ -608,6 +608,9 @@ export function setLanguageMode(mode: string): void {
   _activeLanguageMode = mode as 'ko' | 'en' | 'system';
   _updateLanguageSelector(mode);
 
+  // Persist preference
+  try { localStorage.setItem('musixquare-lang', mode); } catch { /* ignore */ }
+
   const resolved = (mode === 'system') ? _resolveSystemLanguage() : mode;
   _applyResolvedLanguage(resolved);
 }
@@ -615,7 +618,8 @@ export function setLanguageMode(mode: string): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initI18n(): void {
-  setLanguageMode('system');
+  const savedLang = localStorage.getItem('musixquare-lang');
+  setLanguageMode(savedLang || 'system');
 
   try {
     window.addEventListener('languagechange', () => {

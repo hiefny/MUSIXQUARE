@@ -117,10 +117,17 @@ function updateAppHeightNow(): void {
     _lastSoftKeyHeight = 0;
   }
 
-  // iOS standalone fix
-  if (IS_IOS && isStandalone && !isLandscape && window.screen &&
-      Number.isFinite(window.screen.height) && window.screen.height > 0) {
-    h = Math.max(h, Math.round(window.screen.height));
+  // iOS: JS height signals (innerHeight, visualViewport) can exclude safe-area-inset
+  // under viewport-fit=cover. Measure actual CSS viewport via a fixed-position probe.
+  if (IS_IOS && !isLandscape) {
+    try {
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
+      document.body.appendChild(probe);
+      const cssVh = probe.offsetHeight;
+      document.body.removeChild(probe);
+      if (cssVh > 0) h = Math.max(h, cssVh);
+    } catch { /* ignore */ }
   }
 
   // Apply CSS variables

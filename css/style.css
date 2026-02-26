@@ -233,13 +233,6 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* iOS: --app-height (JS) can exclude safe-area-inset under viewport-fit=cover.
-   Use html height (100% = full viewport incl. safe areas) as the source of truth. */
-html.ios body {
-    height: 100%;
-    max-height: 100%;
-}
-
 /* --------------------------------------------------------------------------
    Portrait Lock (Mobile)
    - Some browsers/PWA containers may still allow rotation even with manifest

@@ -105,22 +105,37 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     peer = null;
   }
 
-  // Public STUN for NAT traversal (enables remote connections)
+  // ICE servers: STUN always, TURN only for remote (Metered.ca via Netlify Function)
+  const iceServers: Record<string, unknown>[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+  ];
+
+  // Fetch TURN credentials from Netlify Function (non-blocking on failure)
+  try {
+    const resp = await fetch('/.netlify/functions/get-turn-config');
+    if (resp.ok) {
+      const { username, credential } = await resp.json() as { username: string; credential: string };
+      if (username && credential) {
+        iceServers.push(
+          { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+          { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
+          { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+        );
+        log.info('[Network] TURN credentials loaded (Metered.ca)');
+      }
+    }
+  } catch {
+    log.debug('[Network] TURN config unavailable — STUN only');
+  }
+
   const peerOpts: Record<string, unknown> = {
     debug: 2,
     config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-          urls: 'turn:0.peerjs.com:3478',
-          username: 'peerjs',
-          credential: 'peerjsp',
-        },
-      ],
+      iceServers,
       sdpSemantics: 'unified-plan',
       bundlePolicy: 'max-bundle',
-      iceCandidatePoolSize: 2,
+      iceCandidatePoolSize: 0,
     },
   };
 

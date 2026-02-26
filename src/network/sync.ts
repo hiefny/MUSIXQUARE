@@ -201,7 +201,7 @@ function handleGlobalResyncRequest(): void {
   bus.emit('ui:show-toast', 'Host 요청: 싱크 초기화 및 재설정...');
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
-  setTimeout(() => syncReset(), Math.random() * 500);
+  setTimeout(() => syncReset(), 500 + Math.random() * 500);
 }
 
 function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {

@@ -207,15 +207,8 @@ export function initPlatform(): void {
       setTimeout(scheduleAppHeightUpdate, 1500);
       // Remove boot guard after last Android height update settles
       setTimeout(endBootingPhase, 1800);
-    } else if (IS_IOS && isStandaloneDisplayMode()) {
-      // iOS PWA cold-start: viewport dimensions may not stabilise for
-      // several hundred milliseconds. Re-measure at staggered intervals
-      // and keep the boot guard until the last measurement lands.
-      setTimeout(scheduleAppHeightUpdate, 300);
-      setTimeout(scheduleAppHeightUpdate, 600);
-      setTimeout(endBootingPhase, 800);
     } else {
-      // Non-Android, non-iOS-standalone: short stabilization window
+      // Non-Android: remove boot guard after a short stabilization window
       setTimeout(endBootingPhase, 300);
     }
   };

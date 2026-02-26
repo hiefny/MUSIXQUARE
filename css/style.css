@@ -234,13 +234,6 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* iOS PWA: JS --app-height may exclude safe-area-inset-bottom in standalone
-   mode on some devices. Compensate by ensuring body min-height covers the
-   full screen including the home-indicator region. */
-html.ios-standalone body {
-    min-height: calc(var(--app-height, 100dvh) + env(safe-area-inset-bottom, 0px));
-}
-
 /* --------------------------------------------------------------------------
    Portrait Lock (Mobile)
    - Some browsers/PWA containers may still allow rotation even with manifest

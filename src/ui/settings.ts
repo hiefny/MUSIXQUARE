@@ -17,12 +17,32 @@ import type { DataConnection } from '../types/index.ts';
 
 // ─── Theme ───────────────────────────────────────────────────────
 
-export function setTheme(_mode?: string): void {
-  // Toss mini-app: always force light mode
-  document.documentElement.setAttribute('data-theme', 'light');
-  document.documentElement.style.colorScheme = 'light';
+export function setTheme(mode: string): void {
+  document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
+  const id = mode === 'light' ? 'theme-light' : mode === 'dark' ? 'theme-dark' : 'theme-system';
+  document.getElementById(id)?.classList.add('active');
+
+  // Sliding pill
+  const pillIndex = mode === 'light' ? 0 : mode === 'dark' ? 1 : 2;
+  document.querySelectorAll<HTMLElement>('.theme-selector').forEach(sel => {
+    sel.style.setProperty('--pill-index', String(pillIndex));
+  });
+
+  let resolved = mode;
+  if (mode === 'system') {
+    resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', resolved);
+
+  // Persist preference
+  try { localStorage.setItem('musixquare-theme', mode); } catch { /* ignore */ }
+
+  // Update meta tags for PWA/browser integration
+  document.documentElement.style.colorScheme = resolved;
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.setAttribute('content', '#f2f2f7');
+  if (themeMeta) themeMeta.setAttribute('content', resolved === 'dark' ? '#000000' : '#f2f2f7');
+  const schemeMeta = document.querySelector('meta[name="color-scheme"]');
+  if (schemeMeta) schemeMeta.setAttribute('content', resolved);
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
@@ -272,8 +292,19 @@ export function initSettings(): void {
     if (Array.isArray(list)) renderDeviceList(list);
   }) as (...args: unknown[]) => void);
 
-  // Toss mini-app: always force light mode
-  setTheme('light');
+  // Theme: listen for system change
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      const themeSystem = document.getElementById('theme-system');
+      if (themeSystem?.classList.contains('active')) {
+        setTheme('system');
+      }
+    });
+  } catch { /* ignore */ }
+
+  // Initial theme: restore from localStorage or default to system
+  const savedTheme = localStorage.getItem('musixquare-theme');
+  setTheme(savedTheme || 'system');
 
   log.info('[Settings] Initialized');
 }

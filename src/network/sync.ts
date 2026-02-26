@@ -181,13 +181,13 @@ function handleSyncResponse(data: Record<string, unknown>): void {
     }
   }
 
-  // Latency compensation — disabled for Toss mini-app (local network only, causes drift)
-  // const usePingCompensation = getState<boolean>('sync.usePingCompensation');
-  // if (usePingCompensation) {
-  //   const lastLatencyMs = getState<number>('sync.lastLatencyMs');
-  //   oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
-  // }
-  const oneWayLatencySeconds = 0;
+  // Latency compensation
+  let oneWayLatencySeconds = 0;
+  const usePingCompensation = getState<boolean>('sync.usePingCompensation');
+  if (usePingCompensation) {
+    const lastLatencyMs = getState<number>('sync.lastLatencyMs');
+    oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
+  }
 
   setState('sync.autoSyncOffset', oneWayLatencySeconds);
   bus.emit('sync:display-update');

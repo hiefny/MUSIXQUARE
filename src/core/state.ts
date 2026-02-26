@@ -206,7 +206,7 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       autoSyncOffset: 0,
-      usePingCompensation: false, // Toss mini-app: local network only, compensation causes drift
+      usePingCompensation: true,
       lastLatencyMs: 0,
       latencyHistory: [],
       resyncTimer: null,

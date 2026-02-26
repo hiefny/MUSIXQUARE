@@ -103,7 +103,6 @@ export function updateRoleBadge(): void {
   const isConnecting = getState<boolean>('network.isConnecting');
   if (isConnecting) {
     text.innerText = '연결 중...';
-    syncChatRoleBadge(badge);
     return;
   }
 
@@ -113,7 +112,6 @@ export function updateRoleBadge(): void {
     const label = myDeviceLabel.trim() || 'Peer';
     text.innerText = label;
     badge.classList.add('connected');
-    syncChatRoleBadge(badge);
     return;
   }
 
@@ -121,29 +119,15 @@ export function updateRoleBadge(): void {
   if (appRole === 'host') {
     text.innerText = 'Host';
     badge.classList.add('connected');
-    syncChatRoleBadge(badge);
     return;
   }
 
   if (appRole === 'guest') {
     text.innerText = 'Guest';
-    syncChatRoleBadge(badge);
     return;
   }
 
   text.innerText = 'SETUP';
-  syncChatRoleBadge(badge);
-}
-
-/** Mirror the primary role-badge state to the chat drawer header clone. */
-function syncChatRoleBadge(sourceBadge: HTMLElement): void {
-  const chatBadge = document.getElementById('chat-role-badge');
-  const chatText = document.getElementById('chat-role-text');
-  const sourceText = document.getElementById('role-text');
-  if (!chatBadge || !chatText || !sourceText) return;
-
-  chatText.innerText = sourceText.innerText;
-  chatBadge.classList.toggle('connected', sourceBadge.classList.contains('connected'));
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

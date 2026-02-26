@@ -389,11 +389,7 @@ export function initChat(): void {
   if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer);
 
   const previewBtn = document.getElementById('chat-preview-btn');
-  if (previewBtn) previewBtn.addEventListener('click', (e) => {
-    // Don't toggle chat if click was on the role badge
-    if ((e.target as HTMLElement)?.closest?.('#role-badge')) return;
-    toggleChatDrawer();
-  });
+  if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer);
 
   // Chat input: send on Enter
   const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;

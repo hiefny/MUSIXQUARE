@@ -111,21 +111,33 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
 
-  // Fetch TURN credentials from Netlify Function (non-blocking on failure)
-  try {
-    const resp = await fetch('/.netlify/functions/get-turn-config');
-    if (resp.ok) {
-      const { username, credential } = await resp.json() as { username: string; credential: string };
-      if (username && credential) {
-        iceServers.push(
-          { urls: 'turn:standard.relay.metered.ca:443', username, credential },
-          { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
-          { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
-        );
-        log.info('[Network] TURN credentials loaded (Metered.ca)');
+  // Fetch TURN credentials from Netlify Function
+  // Try relative path first (same-origin Netlify), then absolute URL fallback (Toss in-app etc.)
+  const turnEndpoints = [
+    '/.netlify/functions/get-turn-config',
+    'https://musixquare.netlify.app/.netlify/functions/get-turn-config',
+  ];
+
+  for (const url of turnEndpoints) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const { username, credential } = await resp.json() as { username: string; credential: string };
+        if (username && credential) {
+          iceServers.push(
+            { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+            { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
+            { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+          );
+          log.info('[Network] TURN credentials loaded (Metered.ca)');
+          break;
+        }
       }
+    } catch {
+      // Try next endpoint
     }
-  } catch {
+  }
+  if (iceServers.length <= 2) {
     log.debug('[Network] TURN config unavailable — STUN only');
   }
 

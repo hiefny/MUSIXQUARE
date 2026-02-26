@@ -163,6 +163,7 @@ const I18N_EN: Record<string, string> = {
   "브라우저 업데이트 필요: 최신 iOS(15.2+)로 업데이트하세요.": "Browser update required: update to the latest iOS (15.2+).",
   "새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.": "A new version is ready. Refresh to update.",
   "새로고침": "Refresh",
+  "서버에서 데모 음원 로딩 중...": "Loading demo track from server...",
   "서브우퍼": "Subwoofer",
   "서브우퍼 조절하기": "Adjust subwoofer",
   "서브우퍼 컷오프 주파수": "Subwoofer cutoff frequency",

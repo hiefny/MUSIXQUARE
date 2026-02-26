@@ -542,6 +542,10 @@ header.loading .header-loading-text {
     background: white;
 }
 
+.role-badge.connected.remote {
+    background: #f59e0b;
+}
+
 .tab-content {
     /* Avoid animating entire tab panels (especially under backdrop-filter) to prevent iOS PWA jank */
     animation: none;

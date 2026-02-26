@@ -24,6 +24,28 @@ let peer: PeerInstance | null = null;
 // ─── Public Getters ─────────────────────────────────────────────────
 export function getPeer(): PeerInstance | null { return peer; }
 
+// ─── ICE Connection Type Detection ──────────────────────────────────
+
+async function detectConnectionType(conn: DataConnection): Promise<'local' | 'remote'> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pc = (conn as any).peerConnection as RTCPeerConnection | undefined;
+    if (!pc) return 'remote';
+
+    const stats = await pc.getStats();
+    for (const report of stats.values()) {
+      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+        const localCandidate = stats.get(report.localCandidateId);
+        if (localCandidate?.candidateType === 'host') return 'local';
+        return 'remote'; // srflx or relay
+      }
+    }
+  } catch {
+    log.debug('[Peer] ICE stats unavailable, assuming remote');
+  }
+  return 'remote';
+}
+
 // ─── Peer Slot Management ───────────────────────────────────────────
 
 function getPeerLabelBySlot(slot: number): string {
@@ -83,14 +105,17 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     peer = null;
   }
 
-  // Local-only ICE: no STUN/TURN (forces same LAN / same Wi-Fi)
+  // Public STUN for NAT traversal (enables remote connections)
   const peerOpts: Record<string, unknown> = {
     debug: 2,
     config: {
-      iceServers: [],
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
       sdpSemantics: 'unified-plan',
       bundlePolicy: 'max-bundle',
-      iceCandidatePoolSize: 0,
+      iceCandidatePoolSize: 2,
     },
   };
 
@@ -287,6 +312,14 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
+    // Detect local vs remote for this guest after ICE stabilizes
+    setTimeout(async () => {
+      const type = await detectConnectionType(conn);
+      (peerObj as Record<string, unknown>).connectionType = type;
+      log.info(`[Host] ${deviceName} connection type: ${type}`);
+      broadcastDeviceList();
+    }, 1500);
+
     // Broadcast updated device list to all peers
     broadcastDeviceList();
     bus.emit('network:role-badge-update');
@@ -473,6 +506,14 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'heartbeat', interval: 1000 });
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'ping', interval: 2000 });
 
+    // Detect local vs remote connection after ICE stabilizes
+    setTimeout(async () => {
+      const type = await detectConnectionType(conn);
+      setState('network.connectionType', type);
+      log.info(`[Peer] Connection type: ${type}`);
+      bus.emit('network:role-badge-update');
+    }, 1500);
+
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');
   });
@@ -647,6 +688,7 @@ export function broadcastDeviceList(): void {
         status: p.status,
         isHost: false,
         isOp: p.isOp,
+        connectionType: (p.connectionType as string) || 'unknown',
       })),
   ];
 

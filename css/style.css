@@ -2075,7 +2075,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
    ============================================= */
 .bottom-nav {
     position: fixed;
-    bottom: calc(12px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    bottom: calc(max(12px, var(--safe-bottom)) + var(--safe-nav-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - 32px);

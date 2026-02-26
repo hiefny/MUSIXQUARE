@@ -104,6 +104,22 @@ function handleFilePrepare(data: Record<string, unknown>): void {
     return;
   }
 
+  // Remote guests: block file transfer, show guide message instead of track title
+  if (getState<string>('network.connectionType') === 'remote') {
+    setState('transfer.skipIncomingFile', true);
+    if (data.index !== undefined) {
+      setState('playlist.currentTrackIndex', data.index as number);
+      bus.emit('ui:update-playlist');
+    }
+    bus.emit('player:metadata-update', {
+      title: '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',
+      name: data.name,
+    });
+    bus.emit('ui:show-loader', false);
+    log.info('[Transfer] Remote guest — file transfer skipped');
+    return;
+  }
+
   // Always clear stuck preload waiting state on new file-prepare
   if (getState<boolean>('transfer.waitingForPreload')) {
     log.debug('[file-prepare] Clearing stale waitingForPreload flag');

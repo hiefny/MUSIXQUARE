@@ -14,7 +14,7 @@ import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   play, stopAllMedia, loadAndBroadcastFile, loadPreloadedTrack,
-  getTrackPosition, updatePlayState, incrementLoadToken,
+  getTrackPosition, incrementLoadToken,
 } from './playback.ts';
 
 import { schedulePreload } from '../storage/preload.ts';
@@ -250,7 +250,7 @@ export function playNextTrack(): void {
 
   if (playlist.length === 0) return;
 
-  let nextIndex = -1;
+  let nextIndex: number;
 
   if (repeatMode === 2) {
     nextIndex = currentTrackIndex;

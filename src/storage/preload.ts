@@ -70,7 +70,7 @@ async function preloadNextTrack(): Promise<void> {
   setState('preload.sessionId', currentSession);
 
   // Determine next index
-  let nextIdx = -1;
+  let nextIdx: number;
   if (repeatMode === 2) {
     nextIdx = currentTrackIndex; // Repeat One
   } else if (isShuffle && playlist.length > 1) {

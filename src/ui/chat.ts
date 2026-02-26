@@ -8,12 +8,11 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
-import { showToast } from './toast.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';

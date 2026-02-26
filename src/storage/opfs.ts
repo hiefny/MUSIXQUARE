@@ -8,7 +8,6 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
 

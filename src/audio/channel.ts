@@ -23,7 +23,6 @@ import {
   initAudio,
 } from './engine.ts';
 import { applySettings } from './effects.ts';
-import type { ToneGainNode, ToneNode } from './engine.ts';
 
 // ─── Channel Mode ──────────────────────────────────────────────────
 

@@ -51,8 +51,6 @@ export function updatePlaylistUI(): void {
 
   const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
   const currentYouTubeSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
   const subItemsMap = getState<Record<string, { ids?: string[]; titles?: string[] }>>('youtube.subItemsMap') || {};
 
   playlist.forEach((item, idx) => {
@@ -110,7 +108,7 @@ export function updatePlaylistUI(): void {
 
       const subData = subItemsMap[item.playlistId];
       if (subData && subData.ids) {
-        subData.ids.forEach((sid, sIdx) => {
+        subData.ids.forEach((_sid, sIdx) => {
           const sli = document.createElement('li');
           const isActiveSub = (isCurrent && sIdx === currentYouTubeSubIndex);
           sli.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;

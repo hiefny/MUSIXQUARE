@@ -11,7 +11,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE } from '../core/constants.ts';
-import { validateSessionId, nextSessionId } from '../core/session.ts';
+import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -22,7 +22,7 @@ import type { DataConnection } from '../types/index.ts';
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let nextExpectedChunk = 0;
 let lastChunkTime = 0;
-let _pendingEarlyChunks: Array<Record<string, unknown>> = [];
+const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Chunk Watchdog ─────────────────────────────────────────────────
 

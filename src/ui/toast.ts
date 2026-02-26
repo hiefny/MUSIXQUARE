@@ -62,7 +62,7 @@ export function showToast(msg: unknown): void {
     _toastTimer = setTimeout(() => {
       try { t.classList.remove('show'); } catch { /* noop */ }
     }, 2000);
-  } catch (e) {
+  } catch {
     console.info('[Toast fallback]', msg);
   }
 }

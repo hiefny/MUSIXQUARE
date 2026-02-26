@@ -19,20 +19,20 @@ import { setEngineMode } from '../player/video.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 declare const YT: any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 // ─── Module State ──────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let _youtubePlayer: any = null;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;
 let _ytLoadTimeout: ReturnType<typeof setTimeout> | null = null;
 let _ytIOSWatchdog: number | null = null;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function getYouTubePlayer(): any {
   return _youtubePlayer;
 }
@@ -144,7 +144,7 @@ function initYouTubePlayer(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const playerVars: Record<string, any> = {
     autoplay: autoplay ? 1 : 0,
     controls: 1,
@@ -160,7 +160,7 @@ function initYouTubePlayer(
     playerVars.index = subIndex;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const playerOptions: Record<string, any> = {
     width: '100%',
     height: '100%',
@@ -396,12 +396,6 @@ export function stopYouTubeMode(): void {
     fsBtn.style.removeProperty('display');
     fsBtn.style.display = '';
   }
-
-  // Remove YouTube container from chat drawer
-  const chatDrawer = document.getElementById('chat-drawer');
-  if (chatDrawer) chatDrawer.classList.remove('with-youtube');
-  const chatYtContainer = document.getElementById('chat-youtube-container');
-  if (chatYtContainer) chatYtContainer.remove();
 
   // Notify guests to stop YouTube (Host only)
   const hostConn = getState<DataConnection | null>('network.hostConn');

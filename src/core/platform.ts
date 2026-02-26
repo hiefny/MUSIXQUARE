@@ -57,7 +57,7 @@ function updateAppHeightNow(): void {
   const vv = window.visualViewport;
   const isStandalone = isStandaloneDisplayMode();
 
-  let isLandscape = false;
+  let isLandscape: boolean;
   try {
     isLandscape = !!window.matchMedia?.('(orientation: landscape)').matches;
   } catch {

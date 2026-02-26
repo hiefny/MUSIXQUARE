@@ -203,7 +203,7 @@ function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob |
 
 function ensureValidSessionId(): number {
   const meta = getState<Record<string, unknown>>('transfer.meta');
-  let currentTransferSessionId = getState<number>('transfer.currentSessionId');
+  const currentTransferSessionId = getState<number>('transfer.currentSessionId');
   let sid = (meta?.sessionId as number) || currentTransferSessionId;
   if (!sid || sid < 1) {
     sid = nextSessionId();

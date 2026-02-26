@@ -20,8 +20,6 @@ import {
 import { selectStandardChannelButton } from './settings.ts';
 import { createHostSessionWithShortCode, leaveSession } from '../network/peer.ts';
 import { joinSession } from '../network/peer.ts';
-import type { DataConnection } from '../types/index.ts';
-
 // ─── Constants ───────────────────────────────────────────────────
 
 const PEER_NAME_PREFIX = 'Peer';
@@ -674,7 +672,7 @@ export function initSetup(): void {
     hideSetupOverlay();
   }) as (...args: unknown[]) => void);
 
-  bus.on('setup:guest-join-failure', ((...args: unknown[]) => {
+  bus.on('setup:guest-join-failure', ((..._args: unknown[]) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
     showToast('참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.');

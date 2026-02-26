@@ -16,8 +16,8 @@ import { showLoader, updateLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
 import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
 import { showDialog } from './dialog.ts';
-import { fmtTime, getTrackPosition, togglePlay, play, skipTime } from '../player/playback.ts';
-import { playNextTrack, playPrevTrack, toggleRepeat, toggleShuffle } from '../player/playlist.ts';
+import { fmtTime, getTrackPosition, togglePlay, play } from '../player/playback.ts';
+import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
@@ -645,7 +645,6 @@ export function initPlayerControls(): void {
       const pos = getTrackPosition();
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
-      const td = document.getElementById('time-dur');
       const isSeeking = getState<boolean>('player.isSeeking');
       if (slider && !isSeeking) {
         slider.value = String(pos);

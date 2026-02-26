@@ -10,7 +10,6 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
-import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -23,13 +22,13 @@ import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 declare const Tone: any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 // ─── Module-local State ────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let _playerNode: any = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
 let _currentLoadToken = 0;

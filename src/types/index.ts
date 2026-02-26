@@ -22,7 +22,7 @@ export interface PeerSlot {
   status: 'connecting' | 'connected' | 'disconnected';
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- PeerJS external API boundary */
+ 
 
 /** PeerJS DataConnection (minimal typing for our use) */
 export interface DataConnection {
@@ -53,7 +53,7 @@ export interface PeerInstance {
   reconnect(): void;
 }
 
-/* eslint-enable @typescript-eslint/no-explicit-any */
+ 
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {

@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
-import type { DataConnection, PeerInstance } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { getPeer, safeSend, sendToHost } from './peer.ts';
 import { unicastFile } from '../storage/transfer.ts';

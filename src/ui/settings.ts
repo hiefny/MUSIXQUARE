@@ -9,10 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
-import { showToast } from './toast.ts';
 import { setLanguageMode } from './i18n.ts';
-import { getRoleLabelByChannelMode } from './player-controls.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Theme ───────────────────────────────────────────────────────

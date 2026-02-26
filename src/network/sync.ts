@@ -13,7 +13,7 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
-import { broadcast, sendToHost } from './peer.ts';
+import { broadcast } from './peer.ts';
 
 let _syncBusyRetryCount = 0;
 

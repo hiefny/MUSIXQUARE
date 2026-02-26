@@ -1168,7 +1168,9 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
-    // Consume pending play time
+    // Consume pending play time (stale from PLAY message received before transfer).
+    // Start playback immediately at the saved position, then auto-sync with the
+    // host 1 second later to correct for time elapsed during the file transfer.
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (hostConn && _pendingPlayTime !== undefined) {
       const localOffset = getState<number>('sync.localOffset') || 0;
@@ -1177,6 +1179,14 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
       play(target);
       _pendingPlayTime = undefined;
+
+      // Auto-sync after 1s to get accurate host position
+      setTimeout(() => {
+        if (hostConn.open) {
+          log.debug('[Guest] Post-download auto-sync: requesting host position');
+          try { hostConn.send({ type: MSG.GET_SYNC_TIME, ts: Date.now() }); } catch { /* noop */ }
+        }
+      }, 1000);
     }
 
     bus.emit('ui:play-btn-state', true);

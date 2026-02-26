@@ -351,12 +351,16 @@ function initSeekBar(): void {
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
   slider.addEventListener('touchstart', () => setState('player.isSeeking', true));
   slider.addEventListener('input', () => {
+    const currentState = getState<string>('appState');
+    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = fmtTime(parseFloat(slider.value));
   });
 
   slider.addEventListener('change', () => {
     setState('player.isSeeking', false);
+    const currentState = getState<string>('appState');
+    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const t = parseFloat(slider.value);
 
     const hostConn = getState<DataConnection | null>('network.hostConn');
@@ -372,7 +376,6 @@ function initSeekBar(): void {
     }
 
     // YouTube mode: seek via YouTube API
-    const currentState = getState<string>('appState');
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
       bus.emit('youtube:seek-to', t);
       return;

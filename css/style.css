@@ -2714,7 +2714,7 @@ body.overlay-open .bottom-nav {
     align-items: center;
     justify-content: center;
     gap: 10px;
-    margin-top: 12px;
+    margin-top: 24px;
     margin-bottom: 8px;
 }
 
@@ -2749,6 +2749,11 @@ body.overlay-open .bottom-nav {
 
 .ob-nav-arrow:active {
     transform: scale(0.9);
+}
+
+/* Hide carousel arrows on mobile — swipe is enough */
+.setup-mobile-view .ob-nav-arrow {
+    display: none;
 }
 
 /* ob-actions handled in onboarding-card footer rule */

@@ -29,7 +29,6 @@ html.standalone body {
     --divider: var(--surface-2);
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
-    --surface-4: #525252;
     --text-main: #ffffff;
     --text: var(--text-main);
     --text-sub: #a1a1aa;
@@ -60,8 +59,8 @@ html.standalone body {
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-    --header-height: calc(60px + var(--safe-top));
-    --nav-height: 62px;
+    --header-height: 0px;
+    --nav-height: 72px;
 }
 
 /* iOS PWA first-launch stabilization:
@@ -124,7 +123,6 @@ html[data-theme="light"] body {
     --divider: var(--surface-3);
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
-    --surface-4: #d1d5db;
     --text-main: #212529;
     /* Contrast dark text */
     --text-sub: #495057;
@@ -364,7 +362,27 @@ html.force-portrait .rotate-lock-overlay {
     }
 }
 
-/* --- Header --- */
+/* --- Toss: Header hidden (Toss provides its own navigation bar) --- */
+header#main-header {
+    display: none !important;
+}
+
+.fullscreen-btn {
+    display: none !important;
+}
+
+#theme-section {
+    display: none;
+}
+
+/* Toss desktop: header hidden → body right padding becomes dead space. */
+@media (min-width: 1280px) {
+    body {
+        padding-right: 0 !important;
+    }
+}
+
+/* --- Header (legacy, hidden by Toss override above) --- */
 header {
     height: var(--header-height);
     padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
@@ -2069,32 +2087,34 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 
 /* =============================================
-   Bottom Nav — Toss Quick_Tabbar (Figma-exact)
+   Bottom Nav — Toss Quick_Tabbar (Floating Pill)
    ============================================= */
 .bottom-nav {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    bottom: calc(12px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    left: 16px;
+    right: 16px;
     z-index: 100;
     display: flex;
     justify-content: space-around;
     align-items: center;
 
-    /* Solid edge-to-edge bottom bar */
-    border-radius: 0;
-    padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    /* Floating pill shape */
+    border-radius: 30px;
+    padding: 9px;
 
-    /* Match header translucency */
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    background: var(--glass-bg);
+    /* Frosted glass */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 
-    /* Figma: #191F2911 / #191F293f */
-    box-shadow: none;
+    /* Toss layered shadow */
+    box-shadow:
+        0px 20px 20px -16px rgba(25, 31, 41, 0.067),
+        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
     border: none;
 
-    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
@@ -2102,19 +2122,23 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     display: none !important;
 }
 
-/* Light Mode */
+/* Light Mode — white frosted pill */
 [data-theme="light"] .bottom-nav {
-    background: var(--glass-bg);
-    box-shadow: none;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow:
+        0px 20px 20px -16px rgba(25, 31, 41, 0.067),
+        0px 40px 200px 0px rgba(25, 31, 41, 0.247);
     border: none;
 }
 
-/* Dark Mode */
+/* Dark Mode — dark frosted pill */
 [data-theme="dark"] .bottom-nav {
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    box-shadow: none;
+    background: rgba(30, 30, 30, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+        0px 20px 20px -16px rgba(0, 0, 0, 0.3),
+        0px 40px 200px 0px rgba(0, 0, 0, 0.5);
     border: none;
 }
 
@@ -2130,31 +2154,28 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     width: auto;
     min-width: 0;
     position: relative;
-    padding: 0;
+    padding: 0 4px;
     margin: 0;
     flex: 1;
     height: 42px;
-    /* Figma: Active/Inactive item height */
     cursor: pointer;
+    border-radius: 20px;
     transition: color 0.2s;
     /* Inactive icon: adaptive.grey400 */
     color: #B0B8C1;
 }
 
 .nav-item svg {
-    width: 24px;
-    /* Asset.frameShape.CleanW24 */
-    height: 24px;
+    width: 22px;
+    height: 22px;
     fill: currentColor;
-    transition: transform 0.2s;
+    transition: transform 0.15s ease;
 }
 
 .nav-item span {
     display: block;
-    font-size: 10px;
-    /* Toss: typography st13 */
+    font-size: 11px;
     font-weight: 500;
-    /* Toss: fontWeight medium */
     text-align: center;
     line-height: 1.2;
     /* Inactive text: adaptive.grey600 */
@@ -2478,6 +2499,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
+    transform: translateY(20px);
 }
 
 /* :has() fallback for older browsers / WebViews */
@@ -2489,6 +2511,7 @@ body.overlay-open .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
+    transform: translateY(20px);
 }
 
 /* Base styles for the new split layout of setup overlay */
@@ -4051,15 +4074,6 @@ input:checked+.slider:before {
     height: calc(var(--app-height, 100dvh) - var(--header-height) - var(--nav-height) - var(--safe-bottom) - 80px - 72px - min(56.25vw, 270px) - 24px);
 }
 
-.chat-messages {
-    flex: 1;
-    overflow-y: scroll;
-    /* Always show scrollbar for consistent width */
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
 
 .chat-empty,
 .list-empty-state {
@@ -4157,6 +4171,36 @@ input:checked+.slider:before {
     margin-bottom: 4px;
     margin-left: 2px;
     text-transform: none;
+}
+
+/* System messages — full-width notice style */
+.chat-group.system {
+    align-self: stretch !important;
+    max-width: 100% !important;
+    align-items: stretch !important;
+}
+
+.chat-group.system .chat-sender {
+    display: none;
+}
+
+.chat-group.system .chat-row {
+    width: calc(100% + 32px);
+    margin: 0 -16px;
+}
+
+.chat-group.system .chat-bubble {
+    background: var(--surface-2);
+    color: var(--text-sub);
+    font-size: 12px;
+    text-align: center;
+    width: 100%;
+    border-radius: 0;
+    padding: 10px 16px;
+}
+
+.chat-group.system .chat-time {
+    display: none;
 }
 
 .chat-text {
@@ -4277,6 +4321,46 @@ input:checked+.slider:before {
     border-radius: 16px;
     cursor: pointer;
     transition: background 0.2s;
+    position: relative;
+    overflow: visible;
+}
+
+/* Progress background (loading state) */
+.chat-preview-progress-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    background-color: var(--primary);
+    opacity: 0;
+    z-index: 0;
+    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+    pointer-events: none;
+    border-radius: 16px;
+}
+
+.chat-preview-btn.loading .chat-preview-progress-bg {
+    opacity: 0.15;
+}
+
+.chat-preview-left,
+.chat-preview-right {
+    position: relative;
+    z-index: 1;
+}
+
+.chat-preview-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Role badge inside chat preview — compact fit */
+.chat-preview-btn .role-badge {
+    font-size: 11px;
+    padding: 4px 10px;
 }
 
 .chat-preview-btn:active {
@@ -4287,13 +4371,19 @@ input:checked+.slider:before {
     display: flex;
     align-items: center;
     gap: 12px;
-    overflow: hidden;
+    overflow: visible;
+    min-width: 0;
 }
 
 .chat-preview-icon {
     width: 20px;
     height: 20px;
     fill: var(--text-sub);
+    flex-shrink: 0;
+}
+
+.chat-icon-wrapper {
+    position: relative;
     flex-shrink: 0;
 }
 
@@ -4307,18 +4397,25 @@ input:checked+.slider:before {
 }
 
 .chat-preview-badge {
+    position: absolute;
+    top: -6px;
+    right: -8px;
     background: #ef4444;
     color: white;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 10px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    padding: 0 4px;
+    border-radius: 8px;
     display: none;
-    flex-shrink: 0;
+    z-index: 2;
 }
 
 .chat-preview-badge.show {
-    display: inline-block;
+    display: block;
 }
 
 /* Slide-up Chat Drawer */
@@ -4362,6 +4459,17 @@ input:checked+.slider:before {
     border-bottom: none;
 }
 
+.chat-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Hidden on mobile — shown only in desktop via desktop.css */
+.chat-role-badge {
+    display: none;
+}
+
 .chat-drawer-title {
     font-size: 20px;
     font-weight: 700;
@@ -4395,12 +4503,18 @@ input:checked+.slider:before {
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
+}
+
+.chat-drawer-messages::-webkit-scrollbar {
+    display: none;
 }
 
 .chat-drawer-input {

@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import { sendToHost } from './peer.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
@@ -118,10 +119,10 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   }
 
   // 2. RELAY UPSTREAM (Operator requests from Downstream → Upstream)
-  if (conn && conn !== hostConn && hostConn.open) {
+  if (conn && conn !== hostConn) {
     if (msgType.startsWith('request-')) {
       log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType}`);
-      hostConn.send(data);
+      sendToHost(data);
     }
   }
 }

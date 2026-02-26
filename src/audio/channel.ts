@@ -12,7 +12,6 @@ import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import {
   getMasterGain,
-  getToneSplit,
   getToneMerge,
   getGainL,
   getGainR,

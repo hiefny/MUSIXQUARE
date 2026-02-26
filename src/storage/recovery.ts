@@ -94,13 +94,17 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       return;
     }
 
-    targetConn.send({
-      type: MSG.REQUEST_DATA_RECOVERY,
-      nextChunk: chunkToAsk,
-      fileName,
-      index,
-      sessionId: currentSid,
-    });
+    try {
+      targetConn.send({
+        type: MSG.REQUEST_DATA_RECOVERY,
+        nextChunk: chunkToAsk,
+        fileName,
+        index,
+        sessionId: currentSid,
+      });
+    } catch {
+      log.warn('[Recovery] Failed to send recovery request');
+    }
   }, backoffMs);
 }
 

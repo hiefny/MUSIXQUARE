@@ -16,15 +16,6 @@ import type { FileMeta, PlaylistItem, PreloadSessionEntry, DeviceInfo, DataConne
 export interface StateTree {
   // App
   appState: AppStateValue;
-  isStateTransitioning: boolean;
-
-  // Session
-  session: {
-    peerId: string | null;
-    inviteCode: string | null;
-    hostId: string | null;
-    started: boolean;
-  };
 
   // Setup
   setup: {
@@ -36,9 +27,6 @@ export interface StateTree {
     startedAt: number;
     pausedAt: number;
     isSeeking: boolean;
-    isPlayLocked: boolean;
-    activeLoadSessionId: number;
-    currentLoadToken: number;
     isFirstTrackLoad: boolean;
   };
 
@@ -59,22 +47,16 @@ export interface StateTree {
   preload: {
     isPreloading: boolean;
     sessionId: number;
-    count: number;
     meta: Partial<FileMeta> | null;
     nextTrackIndex: number;
     nextFileBlob: Blob | null;
-    skipIncoming: boolean;
-    waitingFor: boolean;
-    usedForIndex: number | null;
     ackSent: Set<number>;
     sessionState: Map<number, PreloadSessionEntry>;
-    watchdog: ReturnType<typeof setTimeout> | null;
   };
 
   // Audio
   audio: {
     masterVolume: number;
-    preMuteVolume: number;
     channelMode: number;
     isSurroundMode: boolean;
     surroundChannelIndex: number;
@@ -83,7 +65,6 @@ export interface StateTree {
     reverbPreDelay: number;
     reverbLowCut: number;
     reverbHighCut: number;
-    reverbType: string;
     eqValues: number[];
     stereoWidth: number;
     virtualBass: number;
@@ -99,8 +80,6 @@ export interface StateTree {
     usePingCompensation: boolean;
     lastLatencyMs: number;
     latencyHistory: number[];
-    lastHeartbeatAckAt: number;
-    syncRequestTime: number;
     resyncTimer: ReturnType<typeof setTimeout> | null;
   };
 
@@ -125,7 +104,6 @@ export interface StateTree {
     isConnecting: boolean;
     isIntentionalDisconnect: boolean;
     lastKnownDeviceList: DeviceInfo[] | null;
-    deviceCounter: number;
     peerLabels: Record<string, string>;
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
@@ -136,8 +114,6 @@ export interface StateTree {
   relay: {
     upstreamDataConn: DataConnection | null;
     downstreamDataPeers: DataConnection[];
-    chunkQueue: unknown[];
-    isRelaying: boolean;
   };
 
   // Playlist
@@ -151,39 +127,23 @@ export interface StateTree {
   // Files
   files: {
     currentFileBlob: Blob | null;
-    currentAudioBuffer: AudioBuffer | null;
     currentFileOpfs: { name: string | null };
-    preloadFileOpfs: { name: string | null };
   };
 
   // YouTube
   youtube: {
-    currentSessionId: number;
     currentSubIndex: number;
     subItemsMap: Record<string, { ids: string[]; titles: string[] }>;
-    scriptLoading: boolean;
-    loadTimeout: ReturnType<typeof setTimeout> | null;
-    iosWatchdog: number | null;
   };
 
   // Recovery
   recovery: {
     pending: boolean;
-    inProgress: Record<string, boolean>;
-    lastRequest: Record<string, number>;
     retryCount: number;
     pendingFileName: string;
     pendingFileIndex: number | undefined;
-    pendingPlayTime: number | undefined;
   };
 
-  // UI
-  ui: {
-    animationId: number | null;
-    uiLoopId: number | null;
-    isChatDrawerOpen: boolean;
-    unreadChatCount: number;
-  };
 }
 
 // ─── Initial State ─────────────────────────────────────────────────
@@ -191,14 +151,6 @@ export interface StateTree {
 function createInitialState(): StateTree {
   return {
     appState: APP_STATE.IDLE,
-    isStateTransitioning: false,
-
-    session: {
-      peerId: null,
-      inviteCode: null,
-      hostId: null,
-      started: false,
-    },
 
     setup: {
       sessionStarted: false,
@@ -208,9 +160,6 @@ function createInitialState(): StateTree {
       startedAt: 0,
       pausedAt: 0,
       isSeeking: false,
-      isPlayLocked: false,
-      activeLoadSessionId: 0,
-      currentLoadToken: 0,
       isFirstTrackLoad: true,
     },
 
@@ -229,21 +178,15 @@ function createInitialState(): StateTree {
     preload: {
       isPreloading: false,
       sessionId: 0,
-      count: 0,
       meta: null,
       nextTrackIndex: -1,
       nextFileBlob: null,
-      skipIncoming: false,
-      waitingFor: false,
-      usedForIndex: null,
       ackSent: new Set(),
       sessionState: new Map(),
-      watchdog: null,
     },
 
     audio: {
       masterVolume: 1.0,
-      preMuteVolume: 1.0,
       channelMode: 0,
       isSurroundMode: false,
       surroundChannelIndex: -1,
@@ -252,7 +195,6 @@ function createInitialState(): StateTree {
       reverbPreDelay: 0.1,
       reverbLowCut: 0,
       reverbHighCut: 0,
-      reverbType: 'hall',
       eqValues: [0, 0, 0, 0, 0],
       stereoWidth: 1.0,
       virtualBass: 0,
@@ -264,11 +206,9 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       autoSyncOffset: 0,
-      usePingCompensation: true,
+      usePingCompensation: false, // Toss mini-app: local network only, compensation causes drift
       lastLatencyMs: 0,
       latencyHistory: [],
-      lastHeartbeatAckAt: 0,
-      syncRequestTime: 0,
       resyncTimer: null,
     },
 
@@ -284,7 +224,6 @@ function createInitialState(): StateTree {
       isConnecting: false,
       isIntentionalDisconnect: false,
       lastKnownDeviceList: null,
-      deviceCounter: 0,
       peerLabels: {},
       peerSlots: [null, null, null, null], // index 0 unused, 1-3 for guests
       peerSlotByPeerId: new Map(),
@@ -294,8 +233,6 @@ function createInitialState(): StateTree {
     relay: {
       upstreamDataConn: null,
       downstreamDataPeers: [],
-      chunkQueue: [],
-      isRelaying: false,
     },
 
     playlist: {
@@ -307,36 +244,21 @@ function createInitialState(): StateTree {
 
     files: {
       currentFileBlob: null,
-      currentAudioBuffer: null,
       currentFileOpfs: { name: null },
-      preloadFileOpfs: { name: null },
     },
 
     youtube: {
-      currentSessionId: 0,
       currentSubIndex: -1,
       subItemsMap: {},
-      scriptLoading: false,
-      loadTimeout: null,
-      iosWatchdog: null,
     },
 
     recovery: {
       pending: false,
-      inProgress: {},
-      lastRequest: {},
       retryCount: 0,
       pendingFileName: '',
       pendingFileIndex: undefined,
-      pendingPlayTime: undefined,
     },
 
-    ui: {
-      animationId: null,
-      uiLoopId: null,
-      isChatDrawerOpen: false,
-      unreadChatCount: 0,
-    },
   };
 }
 

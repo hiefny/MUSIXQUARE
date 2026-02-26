@@ -18,7 +18,7 @@ import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './
 import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../storage/opfs.ts';
 import { broadcastFile, unicastFile } from '../storage/transfer.ts';
 import { schedulePreload, unicastPreload } from '../storage/preload.ts';
-import { broadcast } from '../network/peer.ts';
+import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
@@ -410,7 +410,7 @@ export function togglePlay(): void {
       pause();
       broadcast({ type: MSG.PAUSE, time: getState<number>('player.pausedAt') });
     } else if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_PAUSE });
+      sendToHost({ type: MSG.REQUEST_PAUSE });
     }
   } else {
     if (!hostConn) {
@@ -418,7 +418,7 @@ export function togglePlay(): void {
       broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex });
       requestGlobalResyncDelayed();
     } else if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_PLAY, time: pausedAt });
+      sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
   }
 }
@@ -468,7 +468,7 @@ export function skipTime(sec: number): void {
   }
 
   if (hostConn && isOperator) {
-    hostConn.send({ type: MSG.REQUEST_SKIP_TIME, sec });
+    sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
     return;
   }
 
@@ -751,7 +751,7 @@ export async function loadPreloadedTrack(
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (hostConn?.open) {
       setTimeout(() => {
-        if (hostConn.open) hostConn.send({ type: MSG.GET_SYNC_TIME });
+        sendToHost({ type: MSG.GET_SYNC_TIME });
       }, 500);
     }
 
@@ -780,14 +780,11 @@ export async function loadPreloadedTrack(
     clearManagedTimer('preloadWatchdog');
 
     // Request recovery from host
-    const hostConn = getState<DataConnection | null>('network.hostConn');
     const playlist = getState<unknown[]>('playlist.items') || [];
     const meta = getState<Record<string, unknown>>('transfer.meta');
     const idx = getState<number>('playlist.currentTrackIndex');
     const name = (playlist[idx] as Record<string, string>)?.name || (meta?.name as string) || '';
-    if (hostConn?.open) {
-      hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name, index: idx, reason: 'preload_activation_failed' });
-    }
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: idx, reason: 'preload_activation_failed' });
   }
 }
 
@@ -823,12 +820,9 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     }
 
     // No preload — request file from host
-    const hostConn = getState<DataConnection | null>('network.hostConn');
     const playlist = getState<PlaylistItem[]>('playlist.items') || [];
     const name = playlist[incomingIndex]?.name || '';
-    if (hostConn?.open) {
-      hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
-    }
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
     return;
   }
 
@@ -1027,12 +1021,11 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
         if (hostConn?.open) {
           const jitter = Math.random() * 1000 + 200;
           setTimeout(() => {
-            if (!hostConn?.open) return;
             const alreadyGotIt = getState<Blob | null>('files.currentFileBlob') ||
               getState<Blob | null>('preload.nextFileBlob');
             const idx = getState<number>('playlist.currentTrackIndex');
             if (idx === hostTrackIndex && !alreadyGotIt) {
-              hostConn.send({
+              sendToHost({
                 type: MSG.REQUEST_DATA_RECOVERY,
                 nextChunk: 0,
                 fileName: item.name,
@@ -1192,13 +1185,10 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     log.error('[Guest] Decoding failed', err);
     bus.emit('ui:show-toast', '오디오 디코딩 실패! 다시 요청합니다.');
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
     const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
     const playlist = getState<PlaylistItem[]>('playlist.items') || [];
     const name = playlist[currentTrackIndex]?.name || '';
-    if (hostConn?.open) {
-      hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name, index: currentTrackIndex, reason: 'decoding_failed' });
-    }
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: currentTrackIndex, reason: 'decoding_failed' });
   } finally {
     bus.emit('ui:show-loader', false);
   }
@@ -1349,6 +1339,7 @@ export function initPlayback(): void {
   bus.on('storage:transfer-progress', ((...args: unknown[]) => {
     const percent = args[0] as number;
     bus.emit('ui:show-loader', true, `수신 중... ${percent}%`);
+    bus.emit('ui:update-loader', percent);
   }) as (...args: unknown[]) => void);
 
   // Host: Send playback state + current file to newly connected peer (late-join bootstrap)

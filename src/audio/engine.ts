@@ -114,7 +114,6 @@ let _initAudioPromise: Promise<void> | null = null;
 
 export function getMasterGain(): ToneGainNode | null { return masterGain; }
 export function getAnalyser(): ToneAnalyserNode | null { return analyser; }
-export function getToneSplit(): ToneNode | null { return toneSplit; }
 export function getToneMerge(): ToneNode | null { return toneMerge; }
 export function getGainL(): ToneGainNode | null { return gainL; }
 export function getGainR(): ToneGainNode | null { return gainR; }
@@ -127,7 +126,6 @@ export function getRvbCrossFade(): ToneCrossFadeNode | null { return rvbCrossFad
 export function getEqNodes(): ToneFilterNode[] { return eqNodes; }
 export function getGlobalLowPass(): ToneFilterNode | null { return globalLowPass; }
 export function getVbFilter(): ToneFilterNode | null { return vbFilter; }
-export function getVbCheby(): ToneNode | null { return vbCheby; }
 export function getVbPostFilter(): ToneFilterNode | null { return vbPostFilter; }
 export function getVbGain(): ToneGainNode | null { return vbGain; }
 export function getSurroundSplitter(): ToneNode | null { return surroundSplitter; }
@@ -296,17 +294,6 @@ async function _doInitAudio(): Promise<void> {
 
   log.info('[Audio] Tone.js graph initialized');
   bus.emit('audio:ready');
-}
-
-// ─── Utility ───────────────────────────────────────────────────────
-
-/** Get Tone.now() safely */
-export function toneNow(): number {
-  try {
-    return typeof Tone !== 'undefined' ? Tone.now() : 0;
-  } catch {
-    return 0;
-  }
 }
 
 // ─── Bus Event Handlers ─────────────────────────────────────────

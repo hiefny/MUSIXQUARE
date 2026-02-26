@@ -13,7 +13,7 @@ import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import type { DataConnection, PeerInstance } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
-import { getPeer } from './peer.ts';
+import { getPeer, safeSend, sendToHost } from './peer.ts';
 import { unicastFile } from '../storage/transfer.ts';
 import { ensureNamedFile, postWorkerCommand } from '../storage/opfs.ts';
 
@@ -210,19 +210,16 @@ export function connectToRelay(targetId: string): void {
       setState('relay.upstreamDataConn', null);
 
       // Fallback: request recovery from host
-      const hostConn = getState<DataConnection | null>('network.hostConn');
-      if (hostConn && hostConn.open) {
-        const meta = getState<Record<string, unknown>>('transfer.meta');
-        const receivedCount = getState<number>('transfer.receivedCount');
-        const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const meta = getState<Record<string, unknown>>('transfer.meta');
+      const receivedCount = getState<number>('transfer.receivedCount');
+      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
 
-        hostConn.send({
-          type: MSG.REQUEST_DATA_RECOVERY,
-          nextChunk: receivedCount || 0,
-          fileName: meta?.name || '',
-          index: currentTrackIndex,
-        });
-      }
+      sendToHost({
+        type: MSG.REQUEST_DATA_RECOVERY,
+        nextChunk: receivedCount || 0,
+        fileName: meta?.name || '',
+        index: currentTrackIndex,
+      });
     }
   }, FAIL_TIMEOUT);
 
@@ -237,7 +234,7 @@ export function connectToRelay(targetId: string): void {
     });
 
     // Request current file from relay
-    conn.send({ type: MSG.REQUEST_CURRENT_FILE });
+    safeSend(conn, { type: MSG.REQUEST_CURRENT_FILE });
   });
 
   conn.on('error', (err: unknown) => {
@@ -340,7 +337,7 @@ export async function relayPreloadFromCache(
     size: blob.size,
   };
   downstreamDataPeers.forEach(p => {
-    if (p.open) p.send(startMsg);
+    safeSend(p, startMsg);
   });
 
   // Send chunks
@@ -353,7 +350,7 @@ export async function relayPreloadFromCache(
     const chunk = new Uint8Array(await blob.slice(start, end).arrayBuffer());
 
     const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId };
-    activeDownstream.forEach(p => p.send(chunkMsg));
+    activeDownstream.forEach(p => safeSend(p, chunkMsg));
 
     // Backpressure: yield every 10 chunks
     if (i % 10 === 0) await new Promise(r => setTimeout(r, 40));
@@ -362,7 +359,7 @@ export async function relayPreloadFromCache(
   // Send PRELOAD_END
   const endMsg = { type: MSG.PRELOAD_END, name: fileName, index, sessionId };
   downstreamDataPeers.forEach(p => {
-    if (p.open) p.send(endMsg);
+    safeSend(p, endMsg);
   });
 
   log.debug(`[Preload Relay] Finished relaying index ${index}`);
@@ -441,7 +438,7 @@ export function initRelay(): void {
       const bootName = (meta.name as string) || reqName;
       log.debug(`[Relay] Bootstrapping downstream for ${bootName} (${receivedCount}/${meta.total || '?'})`);
 
-      conn.send({
+      safeSend(conn, {
         ...meta,
         type: MSG.FILE_START,
         name: bootName,
@@ -460,7 +457,7 @@ export function initRelay(): void {
       }
     } else {
       log.debug('[Relay] No matching data yet for', reqName || 'current');
-      conn.send({ type: MSG.FILE_WAIT, message: 'Relay source not ready yet' });
+      safeSend(conn, { type: MSG.FILE_WAIT, message: 'Relay source not ready yet' });
     }
   }) as (...args: unknown[]) => void);
 

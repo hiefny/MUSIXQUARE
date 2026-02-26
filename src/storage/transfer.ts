@@ -15,6 +15,7 @@ import { validateSessionId, nextSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import { safeSend, sendToHost } from '../network/peer.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
@@ -139,10 +140,7 @@ function handleFilePrepare(data: Record<string, unknown>): void {
           bus.emit('ui:show-loader', false);
           setState('transfer.skipIncomingFile', false);
 
-          const hostConn = getState<DataConnection | null>('network.hostConn');
-          if (hostConn && hostConn.open) {
-            hostConn.send({ type: MSG.REQUEST_CURRENT_FILE, name: data.name, index: data.index });
-          }
+          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name, index: data.index });
         }
       }, 10000);
 
@@ -239,7 +237,7 @@ function handleFileStart(data: Record<string, unknown>): void {
 
     // Relay header downstream
     const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+    downstreamPeers.forEach(p => { safeSend(p, data); });
 
     return;
   }
@@ -304,7 +302,7 @@ function handleFileStart(data: Record<string, unknown>): void {
 
   // Relay header downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+  downstreamPeers.forEach(p => { safeSend(p, data); });
 
   bus.emit('ui:show-loader', true, `수신 중... 0%`);
 }
@@ -336,7 +334,7 @@ function handleFileResume(data: Record<string, unknown>): void {
   startChunkWatchdog();
 
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+  downstreamPeers.forEach(p => { safeSend(p, data); });
 }
 
 function handleFileChunk(data: Record<string, unknown>): void {
@@ -471,11 +469,14 @@ function handleFileChunk(data: Record<string, unknown>): void {
     setState('transfer.state', TRANSFER_STATE.PROCESSING);
     setState('recovery.retryCount', 0);
 
-    // Notify Host that we have this file
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    // Notify Host that we have this file (dedup via preload.ackSent)
     const processingIndex = currentMeta.index as number;
-    if (hostConn && hostConn.open && processingIndex !== undefined) {
-      hostConn.send({ type: MSG.PRELOAD_ACK, index: processingIndex });
+    if (processingIndex !== undefined) {
+      const ackSent = getState<Set<number>>('preload.ackSent');
+      if (!ackSent.has(processingIndex)) {
+        ackSent.add(processingIndex);
+        sendToHost({ type: MSG.PRELOAD_ACK, index: processingIndex });
+      }
     }
 
     // Finalize in OPFS
@@ -496,7 +497,7 @@ function handleFileEnd(data: Record<string, unknown>): void {
 
   // Relay to downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+  downstreamPeers.forEach(p => { safeSend(p, data); });
 
   log.debug(`[file-end] Received end signal for: ${data.name}`);
 }
@@ -544,7 +545,7 @@ function handleFileWait(): void {
         }
 
         log.debug(`[file-wait timeout] Requesting from Host: ${pendingFileName} index: ${recoveryIndex}`);
-        hostConn.send({
+        sendToHost({
           type: MSG.REQUEST_DATA_RECOVERY,
           nextChunk: 0,
           fileName: pendingFileName,

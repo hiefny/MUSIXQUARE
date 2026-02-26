@@ -84,6 +84,8 @@ export interface PlaylistItem {
   file?: File;
   name: string;
   title?: string;
+  artist?: string;
+  thumbnail?: string;
   videoId?: string | null;
   playlistId?: string | null;
   isExpanded?: boolean;
@@ -119,42 +121,12 @@ export interface WorkerResponse {
   command?: string;
 }
 
-// ─── Audio Settings ────────────────────────────────────────────────
-export interface AudioSettings {
-  masterVolume: number;
-  preMuteVolume: number;
-  reverbMix: number;
-  reverbDecay: number;
-  reverbPreDelay: number;
-  reverbLowCut: number;
-  reverbHighCut: number;
-  reverbType: string;
-  eqValues: number[];
-  stereoWidth: number;
-  virtualBass: number;
-  subFreq: number;
-  userPreampGain: number;
-}
-
 // ─── Device List ───────────────────────────────────────────────────
 export interface DeviceInfo {
   id: string;
   label: string;
   isOp: boolean;
   isHost: boolean;
-}
-
-// ─── Dialog ────────────────────────────────────────────────────────
-export interface DialogOptions {
-  title: string;
-  message: string;
-  buttonText?: string;
-  dismissible?: boolean;
-  cancelText?: string;
-}
-
-export interface DialogResult {
-  action: 'ok' | 'cancel' | 'dismiss';
 }
 
 // ─── EventBus typed events ─────────────────────────────────────────
@@ -180,13 +152,8 @@ export interface EventMap {
   'audio:channel-changed': [mode: ChannelMode];
 
   // ── Player ────────────────────────────────────────────────────────
-  'player:play': [offset: number];
-  'player:pause': [position: number];
-  'player:stop': [];
   'player:ended': [];
-  'player:track-changed': [index: number];
   'player:state-changed': [state: AppStateValue, prev?: AppStateValue];
-  'player:position': [position: number, duration: number];
   'player:toggle-play': [];
   'player:seek': [time: number];
   'player:seek-to-time': [time: number];
@@ -220,14 +187,9 @@ export interface EventMap {
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
   'ui:toggle-chat-drawer': [];
-  'ui:theme-changed': [theme: string];
-  'ui:tab-changed': [tabId: string];
-  'ui:volume-changed': [volume: number];
+  'chat:system-message': [text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
-  'youtube:play': [videoId: string];
-  'youtube:stop': [];
-  'youtube:state-changed': [state: number];
   'youtube:load': [videoId: string | null, playlistId: string | null, isSync?: boolean, startTime?: number];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];
@@ -263,14 +225,11 @@ export interface EventMap {
   'network:kicked-from-session': [];
 
   // ── Storage / OPFS ────────────────────────────────────────────────
-  'storage:opfs-ready': [];
-  'storage:file-ready': [filename: string, sessionId: number];
   'storage:transfer-progress': [progress: number, total: number];
   'storage:preload-ready': [index: number];
   'storage:request-recovery': [];
   'storage:clear-previous-track': [context: string];
   'storage:use-preloaded': [index: number, name: string];
-  'storage:play-preloaded': [index: number, name: string, data: unknown];
   'storage:preload-file-ready': [filename: string, sessionId: number];
   'opfs:file-ready': [filename: string, sessionId: number, isPreload: boolean];
   'opfs:read-complete': [data: unknown];

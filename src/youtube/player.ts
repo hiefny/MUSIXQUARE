@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { broadcast } from '../network/peer.ts';
+import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/playback.ts';
@@ -403,6 +403,12 @@ export function stopYouTubeMode(): void {
   const chatYtContainer = document.getElementById('chat-youtube-container');
   if (chatYtContainer) chatYtContainer.remove();
 
+  // Notify guests to stop YouTube (Host only)
+  const hostConn = getState<DataConnection | null>('network.hostConn');
+  if (!hostConn) {
+    broadcast({ type: MSG.YOUTUBE_STOP });
+  }
+
   bus.emit('ui:update-playlist');
   log.debug('[YouTube] Mode stopped');
 }
@@ -494,7 +500,7 @@ function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn?: 
 
   const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
   if (subMap[pid]) {
-    conn.send({
+    safeSend(conn, {
       type: MSG.YOUTUBE_PLAYLIST_INFO,
       playlistId: pid,
       ids: subMap[pid].ids || [],
@@ -847,7 +853,7 @@ export function initYouTube(): void {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (hostConn) {
       if (!currentSubMap[playlistId] || !currentSubMap[playlistId].ids || currentSubMap[playlistId].ids.length === 0) {
-        hostConn.send({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
+        sendToHost({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
       }
     }
 

@@ -161,8 +161,8 @@ export function updatePlaylistUI(): void {
 
     const artistEl = document.getElementById('track-artist');
     if (artistEl) {
-      if (currentItem && (currentItem as unknown as Record<string, unknown>).artist) {
-        artistEl.innerText = (currentItem as unknown as Record<string, unknown>).artist as string;
+      if (currentItem?.artist) {
+        artistEl.innerText = currentItem.artist;
       } else {
         artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? 'YouTube Video' : `Track ${currentTrackIndex + 1}`;
       }

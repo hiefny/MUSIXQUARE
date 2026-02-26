@@ -19,7 +19,7 @@ import { showDialog } from './dialog.ts';
 import { fmtTime, getTrackPosition, togglePlay, play, skipTime } from '../player/playback.ts';
 import { playNextTrack, playPrevTrack, toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
-import { broadcast } from '../network/peer.ts';
+import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
@@ -103,17 +103,17 @@ export function updateRoleBadge(): void {
   const isConnecting = getState<boolean>('network.isConnecting');
   if (isConnecting) {
     text.innerText = '연결 중...';
+    syncChatRoleBadge(badge);
     return;
   }
 
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (hostConn) {
-    const lastLatencyMs = getState<number>('sync.lastLatencyMs');
-    const latencyTxt = (lastLatencyMs && Number.isFinite(lastLatencyMs)) ? ` (${Math.round(lastLatencyMs)}ms)` : '';
     const myDeviceLabel = getState<string>('network.myDeviceLabel') || '';
     const label = myDeviceLabel.trim() || 'Peer';
-    text.innerText = `${label}${latencyTxt}`;
+    text.innerText = label;
     badge.classList.add('connected');
+    syncChatRoleBadge(badge);
     return;
   }
 
@@ -121,15 +121,29 @@ export function updateRoleBadge(): void {
   if (appRole === 'host') {
     text.innerText = 'Host';
     badge.classList.add('connected');
+    syncChatRoleBadge(badge);
     return;
   }
 
   if (appRole === 'guest') {
     text.innerText = 'Guest';
+    syncChatRoleBadge(badge);
     return;
   }
 
   text.innerText = 'SETUP';
+  syncChatRoleBadge(badge);
+}
+
+/** Mirror the primary role-badge state to the chat drawer header clone. */
+function syncChatRoleBadge(sourceBadge: HTMLElement): void {
+  const chatBadge = document.getElementById('chat-role-badge');
+  const chatText = document.getElementById('chat-role-text');
+  const sourceText = document.getElementById('role-text');
+  if (!chatBadge || !chatText || !sourceText) return;
+
+  chatText.innerText = sourceText.innerText;
+  chatBadge.classList.toggle('connected', sourceBadge.classList.contains('connected'));
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────
@@ -371,7 +385,7 @@ function initSeekBar(): void {
 
     // OP: request Host to seek
     if (hostConn && isOperator) {
-      hostConn.send({ type: MSG.REQUEST_SEEK, time: t });
+      sendToHost({ type: MSG.REQUEST_SEEK, time: t });
       return;
     }
 
@@ -663,6 +677,11 @@ export function initPlayerControls(): void {
     }, 250);
   }) as (...args: unknown[]) => void);
 
+  // Clean up UI loop when playback stops entirely (session leave, etc.)
+  bus.on('player:stop-all-media', ((..._args: unknown[]) => {
+    if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
+  }) as (...args: unknown[]) => void);
+
   // Player actions
   bus.on('player:toggle-play', ((..._args: unknown[]) => {
     togglePlay();
@@ -684,7 +703,7 @@ export function initPlayerControls(): void {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     const isOperator = getState<boolean>('network.isOperator');
     if (hostConn && isOperator) {
-      hostConn.send({ type: MSG.REQUEST_SEEK, time });
+      sendToHost({ type: MSG.REQUEST_SEEK, time });
     } else if (!hostConn) {
       const currentState = getState<string>('appState');
       const currentTrackIndex = getState<number>('playlist.currentTrackIndex');

@@ -22,7 +22,7 @@ import {
   setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
 } from '../audio/effects.ts';
 import { postWorkerCommand } from '../storage/opfs.ts';
-import { broadcast } from '../network/peer.ts';
+import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
@@ -40,7 +40,7 @@ export function toggleRepeat(): void {
   if (!hostConn) {
     broadcast({ type: MSG.REPEAT_MODE, value: nextMode });
   } else if (isOperator) {
-    hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'repeat-mode', value: nextMode });
+    sendToHost({ type: MSG.REQUEST_SETTING, settingType: 'repeat-mode', value: nextMode });
   }
 }
 
@@ -72,7 +72,7 @@ export function toggleShuffle(): void {
   if (!hostConn) {
     broadcast({ type: MSG.SHUFFLE_MODE, value: nextShuffle });
   } else if (isOperator) {
-    hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'shuffle-mode', value: nextShuffle });
+    sendToHost({ type: MSG.REQUEST_SETTING, settingType: 'shuffle-mode', value: nextShuffle });
   }
 }
 
@@ -230,7 +230,7 @@ export function playNextTrack(): void {
   }
 
   if (hostConn && isOperator) {
-    hostConn.send({ type: MSG.REQUEST_NEXT_TRACK });
+    sendToHost({ type: MSG.REQUEST_NEXT_TRACK });
     return;
   }
 
@@ -295,7 +295,7 @@ export function playPrevTrack(): void {
   }
 
   if (hostConn && isOperator) {
-    hostConn.send({ type: MSG.REQUEST_PREV_TRACK });
+    sendToHost({ type: MSG.REQUEST_PREV_TRACK });
     return;
   }
 
@@ -605,6 +605,9 @@ function handleFilesSelected(files: FileList | null): void {
   const currentState = getState<string>('appState');
   if (currentState === APP_STATE.IDLE) {
     playTrack(playlist.length - addedCount);
+  } else {
+    // Already playing — preload next track for guests (covers end-of-playlist + file add case)
+    schedulePreload(1000);
   }
 }
 
@@ -669,14 +672,6 @@ export function initPlaylist(): void {
   bus.on('playlist:play-track', ((...args: unknown[]) => {
     const index = Number(args[0]);
     if (Number.isFinite(index) && index >= 0) playTrack(index);
-  }) as (...args: unknown[]) => void);
-
-  // Play preloaded track (from storage/preload after successful preload)
-  bus.on('storage:play-preloaded', ((...args: unknown[]) => {
-    const index = Number(args[0]);
-    if (Number.isFinite(index) && index >= 0) {
-      playTrack(index);
-    }
   }) as (...args: unknown[]) => void);
 
   // Host: Send playlist state to newly connected peer (late-join bootstrap)

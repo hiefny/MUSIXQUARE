@@ -63,6 +63,13 @@
         display: none !important;
     }
 
+    /* Desktop: show role badge in chat drawer header */
+    .chat-role-badge {
+        display: flex !important;
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+
     /* ---------------------------------------------------
        3. Shared Panel Styles
        --------------------------------------------------- */
@@ -482,8 +489,9 @@
     /* --- Actions bar pinned to bottom of right column --- */
     #setup-overlay .setup-mobile-view .ob-actions {
         background: var(--surface-1) !important;
-        padding-left: 40px !important;
-        padding-right: 40px !important;
+        padding-left: 44px !important;
+        padding-right: 36px !important;
+        /* 44 left + 36 right + 8 scrollbar-gutter = symmetric 44px visual gap each side */
         padding-bottom: 40px !important;
         padding-top: 16px !important;
         border-top: none;
@@ -506,9 +514,10 @@
     }
 
     /* --- Content padding inside right panel --- */
+    /* Compensate scrollbar-gutter (8px right): 44 left + 36 right = symmetric 44px visual gap */
     .setup-mobile-view>div:not(.ob-actions, .setup-header-pill) {
-        padding-left: 40px !important;
-        padding-right: 40px !important;
+        padding-left: 44px !important;
+        padding-right: 36px !important;
     }
 
     /* Map media/youtube overlays into the main Play grid area instead of full-screen popups */
@@ -798,6 +807,12 @@
         scrollbar-gutter: stable;
         padding-left: 24px !important;
         /* 기본 여백 16px + 우측 투명 스크롤바 대칭용 물리적 여백 8px 추가 */
+    }
+
+    /* System messages: extend full-bleed accounting for asymmetric desktop padding (left 24px, right 16px) */
+    .chat-group.system .chat-row {
+        width: calc(100% + 40px) !important;
+        margin: 0 -16px 0 -24px !important;
     }
 
     .chat-drawer-messages::-webkit-scrollbar {

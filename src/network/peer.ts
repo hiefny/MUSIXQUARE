@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE } from '../core/constants.ts';
+import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
@@ -530,12 +530,12 @@ export function leaveSession(): void {
   for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
 
   // ── 5. Clear transfer state ──
-  const fileReorderBuffer = getState<Map<unknown, unknown>>('transfer.fileReorderBuffer');
-  const preloadReorderBuffer = getState<Map<unknown, unknown>>('transfer.preloadReorderBuffer');
-  const preloadSessionState = getState<Map<unknown, unknown>>('transfer.preloadSessionState');
-  if (fileReorderBuffer) fileReorderBuffer.clear();
-  if (preloadReorderBuffer) preloadReorderBuffer.clear();
+  // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
+  // Clear the state-managed preload session state (correct key: preload.sessionState)
+  const preloadSessionState = getState<Map<unknown, unknown>>('preload.sessionState');
   if (preloadSessionState) preloadSessionState.clear();
+  const ackSent = getState<Set<number>>('preload.ackSent');
+  if (ackSent) ackSent.clear();
 
   // ── 6. Revoke blob URLs ──
   bus.emit('blob:revoke-all');
@@ -561,7 +561,7 @@ export function leaveSession(): void {
     'preload.nextTrackIndex': -1,
     // Transfer
     'transfer.meta': null,
-    'transfer.state': 'IDLE',
+    'transfer.state': TRANSFER_STATE.IDLE,
     'transfer.receivedCount': 0,
     'transfer.localSessionId': 0,
     // Files
@@ -658,15 +658,22 @@ export function broadcastDeviceList(): void {
 /**
  * Send a message to the host (guest-only helper).
  */
-export function sendToHost(msg: unknown): boolean {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (!hostConn || !hostConn.open) return false;
+/**
+ * Send a message to any DataConnection safely (try/catch + open check).
+ */
+export function safeSend(conn: DataConnection | null | undefined, msg: unknown): boolean {
+  if (!conn || !conn.open) return false;
   try {
-    hostConn.send(msg);
+    conn.send(msg);
     return true;
   } catch {
     return false;
   }
+}
+
+export function sendToHost(msg: unknown): boolean {
+  const hostConn = getState<DataConnection | null>('network.hostConn');
+  return safeSend(hostConn, msg);
 }
 
 /**

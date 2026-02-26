@@ -50,7 +50,7 @@ function syncReset(): void {
 
   bus.emit('sync:display-update');
   const ts = Date.now();
-  hostConn.send({ type: MSG.GET_SYNC_TIME, ts });
+  try { hostConn.send({ type: MSG.GET_SYNC_TIME, ts }); } catch { /* connection closed */ }
 }
 
 // ─── Delayed Global Resync (Host-only) ──────────────────────────────
@@ -136,7 +136,7 @@ function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): 
 
   // Reply to the sender
   if (conn && conn.open) {
-    conn.send({ type: MSG.HEARTBEAT_ACK });
+    try { conn.send({ type: MSG.HEARTBEAT_ACK }); } catch { /* connection closed */ }
   }
 }
 
@@ -147,7 +147,7 @@ function handleHeartbeatAck(): void {
 function handlePingLatency(data: Record<string, unknown>, conn: DataConnection): void {
   if (typeof data.timestamp !== 'number') return;
   if (conn && conn.open) {
-    conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp });
+    try { conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp }); } catch { /* connection closed */ }
   }
 }
 
@@ -181,13 +181,13 @@ function handleSyncResponse(data: Record<string, unknown>): void {
     }
   }
 
-  // Latency compensation
-  let oneWayLatencySeconds = 0;
-  const usePingCompensation = getState<boolean>('sync.usePingCompensation');
-  if (usePingCompensation) {
-    const lastLatencyMs = getState<number>('sync.lastLatencyMs');
-    oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
-  }
+  // Latency compensation — disabled for Toss mini-app (local network only, causes drift)
+  // const usePingCompensation = getState<boolean>('sync.usePingCompensation');
+  // if (usePingCompensation) {
+  //   const lastLatencyMs = getState<number>('sync.lastLatencyMs');
+  //   oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
+  // }
+  const oneWayLatencySeconds = 0;
 
   setState('sync.autoSyncOffset', oneWayLatencySeconds);
   bus.emit('sync:display-update');

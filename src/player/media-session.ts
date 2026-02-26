@@ -35,9 +35,9 @@ export function updateMediaSessionMetadata(item: PlaylistItem | null): void {
       }
     }
 
-    const thumb = (item as unknown as Record<string, unknown>).thumbnail;
+    const thumb = item.thumbnail;
     if (thumb) {
-      artwork = [{ src: thumb as string, sizes: '480x360', type: 'image/jpeg' }];
+      artwork = [{ src: thumb, sizes: '480x360', type: 'image/jpeg' }];
     }
   } else {
     artwork = [{ src: 'favicon.svg', sizes: '512x512', type: 'image/svg+xml' }];

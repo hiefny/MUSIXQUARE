@@ -11,6 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
 import { showToast } from './toast.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
@@ -202,7 +203,7 @@ export function sendChatMessage(): void {
   if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
-    if (hostConn.open) hostConn.send(chatMsg);
+    sendToHost(chatMsg);
   }
 
   input.value = '';
@@ -264,6 +265,47 @@ export function addChatMessage(sender: string, text: string, isMine: boolean): v
   if (!isMine) {
     incrementUnread();
   }
+}
+
+// ─── System Message (no preview update, no unread increment) ────
+
+export function addSystemChatMessage(text: string): void {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+
+  const empty = container.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const now = new Date();
+  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+  const group = document.createElement('div');
+  group.className = 'chat-group others system';
+
+  const senderNode = document.createElement('div');
+  senderNode.className = 'chat-sender';
+  senderNode.innerText = 'System';
+  group.appendChild(senderNode);
+
+  const row = document.createElement('div');
+  row.className = 'chat-row';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble others system';
+  const chatTextDiv = document.createElement('div');
+  chatTextDiv.className = 'chat-text';
+  chatTextDiv.textContent = text;
+  bubble.appendChild(chatTextDiv);
+
+  const timeNode = document.createElement('div');
+  timeNode.className = 'chat-time';
+  timeNode.innerText = timeStr;
+
+  row.appendChild(bubble);
+  row.appendChild(timeNode);
+  group.appendChild(row);
+  container.appendChild(group);
+  container.scrollTop = container.scrollHeight;
 }
 
 // ─── Handler for Incoming Chat ───────────────────────────────────
@@ -347,7 +389,11 @@ export function initChat(): void {
   if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer);
 
   const previewBtn = document.getElementById('chat-preview-btn');
-  if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer);
+  if (previewBtn) previewBtn.addEventListener('click', (e) => {
+    // Don't toggle chat if click was on the role badge
+    if ((e.target as HTMLElement)?.closest?.('#role-badge')) return;
+    toggleChatDrawer();
+  });
 
   // Chat input: send on Enter
   const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
@@ -368,6 +414,11 @@ export function initChat(): void {
   // Close chat drawer (used by YouTube load-from-chat)
   bus.on('ui:close-chat-drawer', ((..._args: unknown[]) => {
     if (_isChatDrawerOpen) toggleChatDrawer();
+  }) as (...args: unknown[]) => void);
+
+  // System messages from loader (avoids circular import with toast.ts)
+  bus.on('chat:system-message', ((...args: unknown[]) => {
+    addSystemChatMessage(args[0] as string);
   }) as (...args: unknown[]) => void);
 
   log.info('[Chat] Initialized');

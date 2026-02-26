@@ -14,13 +14,15 @@ import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import type { DataConnection, PreloadSessionEntry } from '../types/index.ts';
+import { safeSend, sendToHost } from '../network/peer.ts';
+import type { DataConnection, PreloadSessionEntry, PlaylistItem } from '../types/index.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
+let _activePlayPreloadedIndex: number | undefined;
 
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
@@ -164,9 +166,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
   targets.forEach(p => {
     const conn = p.conn as DataConnection;
     const needsChunks = targetsWhoNeedChunks.includes(p);
-    if (conn.open) {
-      conn.send({ ...header, skipped: !needsChunks });
-    }
+    safeSend(conn, { ...header, skipped: !needsChunks });
   });
 
   // Send chunks
@@ -195,7 +195,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
     targetsWhoNeedChunks.forEach(p => {
       const conn = p.conn as DataConnection;
-      if (conn.open) conn.send(chunkMsg);
+      safeSend(conn, chunkMsg);
     });
   }
 
@@ -203,7 +203,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     const endMsg = { type: MSG.PRELOAD_END, name: file.name, index, sessionId };
     targets.forEach(p => {
       const conn = p.conn as DataConnection;
-      if (conn.open) conn.send(endMsg);
+      safeSend(conn, endMsg);
     });
     log.debug('[Preload] Complete for index:', index);
   }
@@ -223,7 +223,7 @@ export async function unicastPreload(
   const total = Math.ceil(file.size / CHUNK);
   const fileName = 'name' in file ? file.name : 'Track';
 
-  conn.send({
+  safeSend(conn, {
     type: MSG.PRELOAD_START,
     name: fileName,
     mime: file.type,
@@ -242,12 +242,10 @@ export async function unicastPreload(
     if (!conn.open) return;
     const start = i * CHUNK;
     const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
-    conn.send({ type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId });
+    safeSend(conn, { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId });
   }
 
-  if (conn.open) {
-    conn.send({ type: MSG.PRELOAD_END, name: fileName, index, sessionId });
-  }
+  safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
 }
 
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
@@ -297,6 +295,12 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   log.debug(`[Preload] Start: ${data.name} (index: ${data.index}, total: ${data.total})`);
 
+  // Show loader only if main transfer is not in progress
+  const transferState = getState<string>('transfer.state');
+  if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
+    bus.emit('ui:show-loader', true, `다음 곡 준비 중... (${data.name})`);
+  }
+
   // Initialize session state
   const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
   sessionState.set(sid, {
@@ -337,7 +341,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Relay downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+  downstreamPeers.forEach(p => { safeSend(p, data); });
 
   // Watchdog: unconditionally clear preload loader after 30s
   clearManagedTimer('preloadWatchdog');
@@ -384,7 +388,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     if (downstreamPeers.length > 0) {
       const relayCopy = new Uint8Array(chunk);
       const relayMsg = { type: MSG.PRELOAD_CHUNK, chunk: relayCopy, index: nextChunkPtr, sessionId };
-      downstreamPeers.forEach(p => { if (p.open) p.send(relayMsg); });
+      downstreamPeers.forEach(p => { safeSend(p, relayMsg); });
     }
 
     postWorkerCommand({
@@ -402,6 +406,16 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 
   session.nextExpectedChunk = nextChunkPtr;
   session.progress = nextChunkPtr;
+
+  // Update preload progress UI (only if main transfer is not active)
+  if (session.total > 0) {
+    const pct = Math.round((session.progress / session.total) * 100);
+    const transferState = getState<string>('transfer.state');
+    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
+      bus.emit('ui:show-loader', true, `다음 곡 준비 중... ${pct}%`);
+      bus.emit('ui:update-loader', pct);
+    }
+  }
 
   // Tick watchdog on progress
   const preloadMeta = getState<Record<string, unknown> | null>('preload.meta');
@@ -503,19 +517,12 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
 
   log.debug(`[Preload] End: ${session.name} (${session.progress}/${session.total} chunks)`);
 
-  // Notify host
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (hostConn && hostConn.open && data.index !== undefined) {
-    const ackSent = getState<Set<number>>('preload.ackSent');
-    if (!ackSent.has(data.index as number)) {
-      ackSent.add(data.index as number);
-      hostConn.send({ type: MSG.PRELOAD_ACK, index: data.index });
-    }
-  }
+  // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after OPFS confirms file)
+  // Previously it was sent here (before OPFS confirmed), causing timing issues.
 
   // Relay downstream
   const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { if (p.open) p.send(data); });
+  downstreamPeers.forEach(p => { safeSend(p, data); });
 
   bus.emit('storage:preload-ready', data.index as number);
 }
@@ -537,13 +544,118 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
 
 function handlePlayPreloaded(data: Record<string, unknown>): void {
   const index = data.index as number;
-  log.debug('[Guest] Command: Play Preloaded Track, index:', index);
+  const name = (data.name as string) || '';
+  const retryAttempt = (data.retryAttempt as number) || 0;
 
-  if (data.index !== undefined) {
-    setState('playlist.currentTrackIndex', index);
+  log.debug(`[Guest] Command: Play Preloaded Track, index: ${index}, name: ${name}, retry: ${retryAttempt}`);
+
+  // Dedup: ignore duplicate commands for same track (unless retry)
+  if (_activePlayPreloadedIndex === index && retryAttempt === 0) {
+    log.debug(`[PlayPreloaded] Already processing track ${index}, ignoring duplicate`);
+    return;
   }
 
-  bus.emit('storage:play-preloaded', index, data.name as string, data);
+  // First attempt: stop current media and update state
+  if (retryAttempt === 0) {
+    _activePlayPreloadedIndex = index;
+    bus.emit('player:stop-all-media');
+
+    if (data.index !== undefined) {
+      setState('playlist.currentTrackIndex', index);
+    }
+    bus.emit('ui:update-playlist');
+
+    // Update metadata for UI title display
+    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    if (playlist[index]) {
+      bus.emit('player:metadata-update', playlist[index]);
+    }
+  }
+
+  // Check if preloaded blob matches requested track
+  const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
+  const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+  const isMatch = nextFileBlob && nextMeta &&
+    ((nextMeta.index as number) === index || (nextMeta.name as string) === name);
+
+  if (isMatch) {
+    // Preloaded file available — activate it directly via playback module
+    log.debug('[Guest] Using preloaded file for track', index);
+    setState('recovery.pendingFileIndex', index);
+    bus.emit('storage:use-preloaded', index, name);
+    _activePlayPreloadedIndex = undefined;
+
+    // Relay downstream
+    const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+    downstreamPeers.forEach(p => {
+      safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
+    });
+    return;
+  }
+
+  // Check if preload download is still in progress for this track
+  const sessionState = getState<Map<number, PreloadSessionEntry>>('preload.sessionState');
+  let isDownloadingSame = false;
+  for (const [, session] of sessionState) {
+    if (!session.skipped && !session.finalized &&
+      (session.index === index || session.name === name)) {
+      isDownloadingSame = true;
+      break;
+    }
+  }
+
+  if (isDownloadingSame && retryAttempt < 4) {
+    // Preload in progress — retry after delay (up to 4 attempts = 2s total)
+    log.debug(`[PlayPreloaded] Preload in progress. Retrying... (${retryAttempt + 1}/4)`);
+    if (retryAttempt === 0) {
+      bus.emit('ui:show-loader', true, '다운로드 마무리 중...');
+    }
+    setTimeout(() => {
+      handlePlayPreloaded({ ...data, retryAttempt: retryAttempt + 1 });
+    }, 500);
+    return;
+  }
+
+  // Fallback: no preloaded file available — request from host
+  log.warn('[Guest] No preloaded file for track', index, '— requesting from Host');
+  _activePlayPreloadedIndex = undefined;
+
+  setState('recovery.pendingFileIndex', index);
+  setState('recovery.pendingFileName', name);
+  bus.emit('ui:show-loader', true, '파일 요청 중...');
+
+  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const trackName = name || playlist[index]?.name || '';
+
+  if (hostConn?.open) {
+    const jitter = Math.random() * 1000 + 200;
+    setTimeout(() => {
+      // Double-check: did preload arrive during wait?
+      const nowBlob = getState<Blob | null>('preload.nextFileBlob');
+      const nowMeta = getState<Record<string, unknown> | null>('preload.meta');
+      if (nowBlob && nowMeta &&
+        ((nowMeta.index as number) === index || (nowMeta.name as string) === trackName)) {
+        log.debug('[Guest] Preload arrived during jitter wait! Using it.');
+        bus.emit('storage:use-preloaded', index, trackName);
+        return;
+      }
+      if (sendToHost({
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: 0,
+          fileName: trackName,
+          index,
+        })) {
+        log.debug('[Guest] Requested file recovery from Host for:', trackName);
+      }
+    }, jitter);
+  }
+
+  // Relay downstream regardless
+  const downstreamPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+  downstreamPeers.forEach(p => {
+    safeSend(p, { type: MSG.PLAY_PRELOADED, index, name: trackName });
+  });
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -582,14 +694,27 @@ export function initPreload(): void {
     const nextTrackIndex = (session?.index ?? (preloadMeta?.index as number)) ?? -1;
     setState('preload.nextTrackIndex', nextTrackIndex);
 
+    // Send PRELOAD_ACK to host now that OPFS file is confirmed ready
+    if (nextTrackIndex >= 0) {
+      const ackSent = getState<Set<number>>('preload.ackSent');
+      if (!ackSent.has(nextTrackIndex)) {
+        ackSent.add(nextTrackIndex);
+        if (sendToHost({ type: MSG.PRELOAD_ACK, index: nextTrackIndex })) {
+          log.debug(`[Guest] Sent PRELOAD_ACK for index ${nextTrackIndex}`);
+        }
+      }
+    }
+
+    // Hide preload loader (background preload complete)
+    bus.emit('ui:show-loader', false);
+
     // If guest was waiting for this preloaded file, trigger playback
     const waitingForPreload = getState<boolean>('transfer.waitingForPreload');
     const pendingFileIndex = getState<number | undefined>('recovery.pendingFileIndex');
     if (waitingForPreload && pendingFileIndex === nextTrackIndex) {
       log.debug('[Preload] Guest was waiting for this track. Playing now.');
       setState('transfer.waitingForPreload', false);
-      bus.emit('ui:show-loader', false);
-      bus.emit('storage:play-preloaded', nextTrackIndex, filename, {});
+      bus.emit('storage:use-preloaded', nextTrackIndex, filename);
     }
   }) as (...args: unknown[]) => void);
 

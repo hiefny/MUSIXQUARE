@@ -17,6 +17,17 @@ let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 120;
 let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ─── (Frame throttle removed — runs at display's native refresh rate) ───
+
+// ─── Cached values (avoid per-frame DOM reads) ──────────────────
+let _cachedIsLight = false;
+let _themeCheckCounter = 0;
+
+function refreshThemeCache(): void {
+  const theme = document.documentElement.getAttribute('data-theme');
+  _cachedIsLight = (theme === 'light');
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function getAnalyser(): unknown {
@@ -53,7 +64,7 @@ export function startVisualizer(): void {
   // Check type: Tone.js analyser has .getValue(), native has .getByteFrequencyData()
   const isToneAnalyser = typeof (analyser as Record<string, unknown>).getValue === 'function';
   const bufferLength = isToneAnalyser
-    ? ((analyser as Record<string, number>).size || 1024)
+    ? ((analyser as Record<string, number>).size || 256)
     : (analyser as unknown as AnalyserNode).frequencyBinCount;
 
   let smoothedBass = 0;
@@ -72,6 +83,21 @@ export function startVisualizer(): void {
     ctx.scale(dpr, dpr);
   }
 
+  // Pre-compute constants outside draw loop
+  const centerX = logicalSize / 2;
+  const centerY = logicalSize / 2;
+  const scale = logicalSize / 240;
+  const twoPi = 2 * Math.PI;
+  const highStart = Math.floor(bufferLength * 0.7);
+  const highEnd = bufferLength;
+  let highCountVal = highEnd - highStart;
+  if (highCountVal < 1) highCountVal = 1;
+  let bassCount = 12;
+  if (bassCount > bufferLength) bassCount = bufferLength;
+
+  // Cache theme on start
+  refreshThemeCache();
+
   function draw(): void {
     const currentState = getState<string>('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
@@ -80,16 +106,17 @@ export function startVisualizer(): void {
 
     const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
 
-    const theme = document.documentElement.getAttribute('data-theme');
-    const isLight = (theme === 'light');
+    // Refresh theme cache every ~60 frames (~2s at 30fps) instead of every frame
+    if (++_themeCheckCounter >= 60) {
+      _themeCheckCounter = 0;
+      refreshThemeCache();
+    }
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, logicalSize, logicalSize);
 
     // Bass: 0~260Hz (12 bins)
     let bassSum = 0;
-    let bassCount = 12;
-    if (bassCount > bufferLength) bassCount = bufferLength;
     for (let i = 0; i < bassCount; i++) {
       let val = (dbData[i] + 100) * 2.5;
       if (val < 0) val = 0;
@@ -103,11 +130,6 @@ export function startVisualizer(): void {
 
     // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
     let highSum = 0;
-    const highStart = Math.floor(bufferLength * 0.7);
-    const highEnd = bufferLength;
-    let highCountVal = highEnd - highStart;
-    if (highCountVal < 1) highCountVal = 1;
-
     for (let i = highStart; i < highEnd; i++) {
       let val = (dbData[i] + 100) * 2.5;
       if (val < 0) val = 0;
@@ -117,31 +139,27 @@ export function startVisualizer(): void {
     const highAverage = highSum / highCountVal;
     const highPunch = highAverage / 255;
 
-    ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
+    ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
     ctx.shadowBlur = 0;
-
-    const centerX = logicalSize / 2;
-    const centerY = logicalSize / 2;
-    const scale = logicalSize / 240;
 
     // Circle 1: Bass
     const bassRadius = (55 + (bassPunch * 200)) * scale;
     const bassLightness = 20 + (bassPunch * 60);
-    ctx.fillStyle = isLight
+    ctx.fillStyle = _cachedIsLight
       ? 'rgba(59, 130, 246, 0.6)'
       : `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
+    ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
     ctx.fill();
 
     // Circle 2: High
     const highRadius = (40 + (highPunch * 130)) * scale;
     const highLightness = 40 + (highPunch * 60);
-    ctx.fillStyle = isLight
+    ctx.fillStyle = _cachedIsLight
       ? 'rgba(96, 165, 250, 0.6)'
       : `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
+    ctx.arc(centerX, centerY, highRadius, 0, twoPi);
     ctx.fill();
   }
 

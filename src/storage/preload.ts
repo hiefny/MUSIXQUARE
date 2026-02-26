@@ -620,6 +620,9 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   log.warn('[Guest] No preloaded file for track', index, '— requesting from Host');
   _activePlayPreloadedIndex = undefined;
 
+  // Ensure incoming file transfer is not skipped
+  setState('transfer.skipIncomingFile', false);
+  setState('transfer.waitingForPreload', false);
   setState('recovery.pendingFileIndex', index);
   setState('recovery.pendingFileName', name);
   bus.emit('ui:show-loader', true, '파일 요청 중...');
@@ -629,7 +632,8 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   const trackName = name || playlist[index]?.name || '';
 
   if (hostConn?.open) {
-    const jitter = Math.random() * 1000 + 200;
+    // Short jitter to avoid thundering herd, but not too long to cause stale track
+    const jitter = Math.random() * 300 + 50;
     setTimeout(() => {
       // Double-check: did preload arrive during wait?
       const nowBlob = getState<Blob | null>('preload.nextFileBlob');
@@ -640,6 +644,15 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
         bus.emit('storage:use-preloaded', index, trackName);
         return;
       }
+
+      // Check if host already moved past this track — don't request stale file
+      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      if (currentTrackIndex !== index) {
+        log.debug(`[Guest] Track already changed (${currentTrackIndex} != ${index}), skipping recovery request`);
+        bus.emit('ui:show-loader', false);
+        return;
+      }
+
       if (sendToHost({
           type: MSG.REQUEST_DATA_RECOVERY,
           nextChunk: 0,

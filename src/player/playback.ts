@@ -1252,13 +1252,13 @@ export function initPlayback(): void {
       setState('player.pausedAt', compensatedTime);
     }
 
-    const usePingCompensation = getState<boolean>('sync.usePingCompensation');
-    const lastLatencyMs = getState<number>('sync.lastLatencyMs') || 0;
-    if (usePingCompensation) {
-      bus.emit('ui:show-toast', `자동 싱크 보정 완료, +${Math.round(lastLatencyMs / 2)}ms`);
-    } else {
-      bus.emit('ui:show-toast', '직접 동기화 완료 (로컬 네트워크)');
-    }
+    // RTT 보정 비활성화 — 로컬 네트워크 전용이라 보정 시 오히려 어긋남
+    // const usePingCompensation = getState<boolean>('sync.usePingCompensation');
+    // const lastLatencyMs = getState<number>('sync.lastLatencyMs') || 0;
+    // if (usePingCompensation) {
+    //   bus.emit('ui:show-toast', `자동 싱크 보정 완료, +${Math.round(lastLatencyMs / 2)}ms`);
+    // }
+    bus.emit('ui:show-toast', '직접 동기화 완료 (로컬 네트워크)');
   }) as (...args: unknown[]) => void);
 
   // Sync: apply nudge offset by re-seeking

@@ -59,17 +59,59 @@ function setChannel(mode: number): void {
   bus.emit('audio:set-channel-mode', mode);
 }
 
+// ─── Value Display Helpers ────────────────────────────────────────
+
+function _setDisp(id: string, text: string): void {
+  const el = document.getElementById(id);
+  if (el) el.innerText = text;
+}
+
+function formatReverbValDisp(param: string, v: number): void {
+  switch (param) {
+    case 'mix':
+      _setDisp('val-reverb', v + '%');
+      break;
+    case 'decay':
+      _setDisp('val-rvb-decay', v + 's');
+      break;
+    case 'predelay':
+      _setDisp('val-rvb-predelay', v + 's');
+      break;
+    case 'lowcut': {
+      const lFreq = 20 * Math.pow(50, v / 100);
+      _setDisp('val-rvb-lowcut', lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz');
+      break;
+    }
+    case 'highcut': {
+      const hFreq = 20000 * Math.pow(0.05, v / 100);
+      _setDisp('val-rvb-highcut', hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
+      break;
+    }
+  }
+}
+
 // ─── Audio Effects Helpers ────────────────────────────────────────
 
 function updateAudioEffect(type: string, param: string, value: unknown, isPreview = false): void {
+  const v = Number(value);
+  // Update value display
+  if (type === 'reverb') formatReverbValDisp(param, v);
+  else if (type === 'cutoff') _setDisp('val-cutoff', v + ' Hz');
+  else if (type === 'stereo') _setDisp('val-width', v + '%');
+  else if (type === 'vbass') _setDisp('val-vbass', v + '%');
+
   bus.emit('audio:update-effect', type, param, value, isPreview);
 }
 
 function setPreamp(value: unknown, isPreview = false): void {
+  const db = Number(value);
+  _setDisp('val-preamp', (db > 0 ? '+' : '') + db + 'dB');
   bus.emit('audio:set-preamp', value, isPreview);
 }
 
 function setEQ(band: number, value: unknown, isPreview = false): void {
+  const v = Number(value);
+  _setDisp(`eq-val-${band}`, v > 0 ? `+${v}` : String(v));
   bus.emit('audio:set-eq', band, value, isPreview);
 }
 
@@ -87,6 +129,12 @@ function resetReverb(): void {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (el) el.value = String(val);
   }
+  // Reset value displays
+  _setDisp('val-reverb', '0%');
+  _setDisp('val-rvb-decay', '5.0s');
+  _setDisp('val-rvb-predelay', '0.1s');
+  _setDisp('val-rvb-lowcut', '20Hz');
+  _setDisp('val-rvb-highcut', '20.0kHz');
 }
 
 function resetEQ(): void {
@@ -94,9 +142,11 @@ function resetEQ(): void {
   // Reset slider UI
   const preamp = document.getElementById('preamp-slider') as HTMLInputElement | null;
   if (preamp) preamp.value = '0';
+  _setDisp('val-preamp', '0dB');
   for (let i = 0; i < 5; i++) {
     const eq = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
     if (eq) eq.value = '0';
+    _setDisp(`eq-val-${i}`, '0');
   }
 }
 
@@ -104,12 +154,14 @@ function resetStereo(): void {
   bus.emit('audio:reset-stereo');
   const el = document.getElementById('width-slider') as HTMLInputElement | null;
   if (el) el.value = '100';
+  _setDisp('val-width', '100%');
 }
 
 function resetVBass(): void {
   bus.emit('audio:reset-vbass');
   const el = document.getElementById('vbass-slider') as HTMLInputElement | null;
   if (el) el.value = '0';
+  _setDisp('val-vbass', '0%');
 }
 
 // ─── Device List ─────────────────────────────────────────────────
@@ -236,9 +288,9 @@ export function initSettings(): void {
   });
 
   // Subwoofer cutoff
-  $on('cutoff-slider', 'input', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', Number(this.value), true); });
-  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', Number(this.value)); });
-  $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { bus.emit('audio:update-effect', 'cutoff', 'value', 120); this.value = '120'; });
+  $on('cutoff-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', Number(this.value), true); });
+  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', Number(this.value)); });
+  $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', 120); this.value = '120'; });
 
   // Reverb
   $on('btn-reset-reverb', 'click', () => resetReverb());

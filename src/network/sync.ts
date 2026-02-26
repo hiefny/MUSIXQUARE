@@ -181,13 +181,13 @@ function handleSyncResponse(data: Record<string, unknown>): void {
     }
   }
 
-  // Latency compensation
-  let oneWayLatencySeconds = 0;
-  const usePingCompensation = getState<boolean>('sync.usePingCompensation');
-  if (usePingCompensation) {
-    const lastLatencyMs = getState<number>('sync.lastLatencyMs');
-    oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
-  }
+  // Latency compensation — 비활성화 (로컬 네트워크에서 RTT 보정 시 오히려 어긋남)
+  const oneWayLatencySeconds = 0;
+  // const usePingCompensation = getState<boolean>('sync.usePingCompensation');
+  // if (usePingCompensation) {
+  //   const lastLatencyMs = getState<number>('sync.lastLatencyMs');
+  //   oneWayLatencySeconds = (lastLatencyMs / 2) / 1000;
+  // }
 
   setState('sync.autoSyncOffset', oneWayLatencySeconds);
   bus.emit('sync:display-update');

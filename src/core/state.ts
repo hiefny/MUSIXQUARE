@@ -206,7 +206,7 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       autoSyncOffset: 0,
-      usePingCompensation: true,
+      usePingCompensation: false, // 로컬 네트워크 전용 — RTT 보정 비활성화
       lastLatencyMs: 0,
       latencyHistory: [],
       resyncTimer: null,

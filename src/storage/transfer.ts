@@ -76,6 +76,7 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   if (isMismatch) {
     log.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`);
     setState('transfer.waitingForPreload', false);
+    setState('transfer.skipIncomingFile', false);
     clearManagedTimer('preloadWatchdog');
     // Clear stale preload state
     setState('preload.nextFileBlob', null);

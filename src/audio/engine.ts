@@ -266,9 +266,9 @@ async function _doInitAudio(): Promise<void> {
   vbPostFilter.connect(vbGain);
   vbGain.connect(masterGain);
 
-  // Visualizer
-  analyser = new Tone.Analyser('fft', 2048) as ToneAnalyserNode;
-  analyser.smoothing = 0.3;
+  // Visualizer — 256 bins is enough (only bass 0~12 and high 70%~100% are used)
+  analyser = new Tone.Analyser('fft', 256) as ToneAnalyserNode;
+  analyser.smoothing = 0.4;
   masterGain.connect(analyser);
   masterGain.toDestination();
 

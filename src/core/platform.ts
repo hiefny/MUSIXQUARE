@@ -117,9 +117,9 @@ function updateAppHeightNow(): void {
     _lastSoftKeyHeight = 0;
   }
 
-  // iOS: JS height signals (innerHeight, visualViewport) can exclude safe-area-inset
+  // iOS Safari (non-PWA): JS height signals can exclude safe-area-inset
   // under viewport-fit=cover. Measure actual CSS viewport via a fixed-position probe.
-  if (IS_IOS && !isLandscape) {
+  if (IS_IOS && !isLandscape && !isStandalone) {
     try {
       const probe = document.createElement('div');
       probe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
@@ -130,8 +130,15 @@ function updateAppHeightNow(): void {
     } catch { /* ignore */ }
   }
 
-  // Apply CSS variables
-  if (h > 0) {
+  // iOS PWA portrait: Do NOT set --app-height.
+  // JS height signals (innerHeight, visualViewport) frequently exclude
+  // safe-area-inset-bottom, and the viewport-safe <style> in index.html
+  // clamps body with !important. Removing --app-height lets the CSS
+  // fallback (100dvh) handle it correctly — dvh includes safe areas
+  // under viewport-fit=cover in standalone mode.
+  if (IS_IOS && isStandalone && !isLandscape) {
+    try { root.style.removeProperty('--app-height'); } catch { /* ignore */ }
+  } else if (h > 0) {
     try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
   }
 
@@ -148,7 +155,7 @@ function updateAppHeightNow(): void {
       const safeB = getComputedStyle(root).getPropertyValue('--safe-bottom');
       const safeT = getComputedStyle(root).getPropertyValue('--safe-top');
       const bodyH = getComputedStyle(document.body).height;
-      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:${h} body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
+      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:UNSET(dvh) body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
     } catch { /* ignore */ }
   }
 

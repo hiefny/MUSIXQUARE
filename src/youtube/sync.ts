@@ -92,6 +92,19 @@ export function broadcastYouTubeSync(): void {
   }
 }
 
+// ─── Host Ad Detection (Guest-side) ──────────────────────────────
+
+let _lastHostSyncTime: number | null = null;
+let _hostTimeStaleCount = 0;
+let _hostAdPauseActive = false;
+const _HOST_AD_STALE_THRESHOLD = 2; // 2 consecutive stale frames ≈ 6s
+
+export function resetAdDetection(): void {
+  _lastHostSyncTime = null;
+  _hostTimeStaleCount = 0;
+  _hostAdPauseActive = false;
+}
+
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
 function handleYouTubeSync(data: Record<string, unknown>): void {
@@ -103,6 +116,39 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const hostTime = Number(data.time) || 0;
     const hostState = Number(data.state);
     const hostSubIndex = data.subIndex as number | undefined;
+
+    // ── Host ad detection ──
+    if (hostState === 1) {
+      if (_lastHostSyncTime !== null && Math.abs(hostTime - _lastHostSyncTime) < 0.5) {
+        _hostTimeStaleCount++;
+        if (_hostTimeStaleCount >= _HOST_AD_STALE_THRESHOLD) {
+          if (!_hostAdPauseActive) {
+            _hostAdPauseActive = true;
+            if (player.pauseVideo) player.pauseVideo();
+            bus.emit('ui:show-toast', '호스트가 광고를 보고 있는 것 같아요');
+            log.debug('[YouTube Sync] Host ad detected — pausing guest');
+          }
+          _lastHostSyncTime = hostTime;
+          return; // Skip drift correction while ad is playing
+        }
+      } else {
+        // Host time is moving again
+        if (_hostAdPauseActive) {
+          _hostAdPauseActive = false;
+          if (player.playVideo) player.playVideo();
+          log.debug('[YouTube Sync] Host ad ended — resuming guest');
+        }
+        _hostTimeStaleCount = 0;
+      }
+      _lastHostSyncTime = hostTime;
+    } else {
+      // Host explicitly paused — reset ad detection
+      _hostTimeStaleCount = 0;
+      _lastHostSyncTime = null;
+      if (_hostAdPauseActive) {
+        _hostAdPauseActive = false;
+      }
+    }
 
     // Sub-index change
     const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
@@ -153,6 +199,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
   const currentState = getState<string>('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+
+  // Skip state sync while host is likely watching an ad
+  if (_hostAdPauseActive) return;
 
   try {
     const state = Number(data.state);
@@ -236,6 +285,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
 function handleYouTubeStop(): void {
   log.debug('[Guest] Received youtube-stop, switching to local mode');
+  resetAdDetection();
   const currentState = getState<string>('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-mode');

@@ -314,6 +314,7 @@ const I18N_EN: Record<string, string> = {
   "현재 세션과 연결이 끊어져요.": "You will be disconnected from the current session.",
   "현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.": "This session has reached the device limit (3 excluding the host).",
   "호스트 연결 없음. 로컬 초기화 완료.": "No host connection. Local reset complete.",
+  "호스트가 광고를 보고 있는 것 같아요": "The host seems to be watching an ad",
   "호스트가 미디어를 재생하면": "When the host starts playback,",
   "호스트만 조작할 수 있어요": "Only the host can control this",
   "호스트만 파일을 추가할 수 있어요": "Only the host can add files",

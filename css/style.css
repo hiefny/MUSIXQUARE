@@ -2,8 +2,8 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     /* Fill the full viewport (including safe areas with viewport-fit=cover).
-       100% works on most platforms but on iOS PWA it excludes the top
-       safe-area-inset from the calculation, so we override below. */
+       On iOS PWA, CSS units (100%, 100dvh) both exclude safe-area-inset-top,
+       so platform.ts sets root.style.height via JS (window.innerHeight). */
     height: 100%;
     overflow: hidden;
     background-color: var(--bg);
@@ -11,14 +11,6 @@
     /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
        The *forced* scheme is controlled by html[data-theme]. */
     color-scheme: light dark;
-}
-
-/* iOS PWA: html { height:100% } resolves to viewport MINUS safe-area-inset-top,
-   which clips body content at the bottom (overflow:hidden). Use 100dvh which
-   correctly spans the full viewport including safe areas. */
-html.ios-standalone {
-    height: 100vh;
-    height: 100dvh;
 }
 
 html.standalone body {

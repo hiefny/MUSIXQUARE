@@ -131,9 +131,8 @@ function updateAppHeightNow(): void {
   }
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
-  // on iOS standalone (812px instead of 874px). Use window.innerHeight which
-  // correctly reports the full viewport including safe areas.
-  // Also set html element height directly (CSS can't reach the correct value).
+  // on iOS standalone. Use window.innerHeight which correctly reports the full
+  // viewport including safe areas, and set html element height directly.
   if (IS_IOS && isStandalone && !isLandscape) {
     const fullH = Math.max(window.innerHeight, vv?.height || 0);
     if (fullH > 0) {
@@ -142,26 +141,12 @@ function updateAppHeightNow(): void {
         root.style.setProperty('--app-height', `${fullH}px`);
       } catch { /* ignore */ }
     }
-  } else if (h > 0) {
-    try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
-  }
-
-  // DEBUG: show viewport diagnostics on iOS standalone (remove after fixing)
-  if (IS_IOS && isStandalone) {
-    try {
-      let dbg = document.getElementById('__dbg');
-      if (!dbg) {
-        dbg = document.createElement('div');
-        dbg.id = '__dbg';
-        dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:red;color:white;font:11px/1.4 monospace;padding:4px 8px;pointer-events:none;white-space:pre';
-        document.body.appendChild(dbg);
-      }
-      const safeB = getComputedStyle(root).getPropertyValue('--safe-bottom');
-      const safeT = getComputedStyle(root).getPropertyValue('--safe-top');
-      const bodyH = getComputedStyle(document.body).height;
-      const fullH = Math.max(window.innerHeight, vv?.height || 0);
-      dbg.textContent = `ih:${window.innerHeight} vv:${Math.round(vv?.height||0)} root:${root.clientHeight} scr:${window.screen.height}\n--app-h:${fullH} body:${bodyH} safeT:${safeT} safeB:${safeB}\ncls: ${root.className}`;
-    } catch { /* ignore */ }
+  } else {
+    // Clear any iOS standalone inline height override (e.g. after rotation)
+    try { root.style.removeProperty('height'); } catch { /* ignore */ }
+    if (h > 0) {
+      try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
+    }
   }
 
   const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;

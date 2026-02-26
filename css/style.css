@@ -2,11 +2,11 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     /* Fill the full viewport (including safe areas with viewport-fit=cover).
-       Using 100% is more reliable than dvh/svh on iOS PWA where dynamic
-       viewport units may exclude the home indicator region. */
+       On iOS PWA, CSS units (100%, 100dvh) both exclude safe-area-inset-top,
+       so platform.ts sets root.style.height via JS (window.innerHeight). */
     height: 100%;
     overflow: hidden;
-    background-color: var(--surface-1);
+    background-color: var(--bg);
 
     /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
        The *forced* scheme is controlled by html[data-theme]. */
@@ -233,6 +233,8 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* iOS PWA: JS --app-height excludes safe-area-inset-bottom in standalone mode.
+   Compensate by adding it back via CSS env(). */
 /* --------------------------------------------------------------------------
    Portrait Lock (Mobile)
    - Some browsers/PWA containers may still allow rotation even with manifest
@@ -580,13 +582,9 @@ header.loading .header-loading-text {
     padding-top: var(--header-height);
 }
 
-/* Mobile/Tablet: reserve space for the fixed bottom nav so the scroll container
-   itself ends above the nav (prevents overlay scroll indicators reaching under it). */
-@media (max-width: 1279.98px) {
-    .tab-content {
-        padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
-    }
-}
+/* Mobile/Tablet: no padding on .tab-content — the scroll container (.tab-body)
+   extends to the viewport bottom so the scrollbar track reaches the safe area.
+   Bottom-nav clearance is handled by .tab-body padding-bottom instead. */
 
 .tab-content.active {
     display: flex;
@@ -605,9 +603,17 @@ header.loading .header-loading-text {
     /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
-    /* Small breathing room at the bottom of scroll content.
-       The fixed bottom nav spacing is handled by .tab-content padding-bottom. */
-    padding-bottom: 24px;
+    /* Bottom-nav clearance + breathing room inside the scroll container.
+       This lets the scrollbar track extend to the viewport bottom (including
+       the iOS safe area) while content ends above the floating nav. */
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 24px);
+}
+
+/* Desktop: no bottom nav, just breathing room */
+@media (min-width: 1280px) {
+    .tab-body {
+        padding-bottom: 24px;
+    }
 }
 
 /* Structural Fix: Targeted Persistence Hack.
@@ -760,7 +766,7 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 }
 
 #tab-play .tab-body {
-    padding-bottom: 0;
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
 }
 
 .vinyl-wrapper {
@@ -4409,10 +4415,13 @@ input:checked+.slider:before {
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
     /* Slightly stronger shadow for depth */
     transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                visibility 0s 0.3s;
     z-index: 1000;
     display: flex;
     flex-direction: column;
+    /* Prevent sub-pixel "peek" in iOS safe-area (viewport-fit=cover) */
+    visibility: hidden;
 }
 
 [data-theme="light"] .chat-drawer {
@@ -4422,6 +4431,9 @@ input:checked+.slider:before {
 
 .chat-drawer.open {
     transform: translateY(0);
+    visibility: visible;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                visibility 0s 0s;
 }
 
 .chat-drawer-header {

@@ -117,15 +117,36 @@ function updateAppHeightNow(): void {
     _lastSoftKeyHeight = 0;
   }
 
-  // iOS standalone fix
-  if (IS_IOS && isStandalone && !isLandscape && window.screen &&
-      Number.isFinite(window.screen.height) && window.screen.height > 0) {
-    h = Math.max(h, Math.round(window.screen.height));
+  // iOS Safari (non-PWA): JS height signals can exclude safe-area-inset
+  // under viewport-fit=cover. Measure actual CSS viewport via a fixed-position probe.
+  if (IS_IOS && !isLandscape && !isStandalone) {
+    try {
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
+      document.body.appendChild(probe);
+      const cssVh = probe.offsetHeight;
+      document.body.removeChild(probe);
+      if (cssVh > 0) h = Math.max(h, cssVh);
+    } catch { /* ignore */ }
   }
 
-  // Apply CSS variables
-  if (h > 0) {
-    try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
+  // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
+  // on iOS standalone. Use window.innerHeight which correctly reports the full
+  // viewport including safe areas, and set html element height directly.
+  if (IS_IOS && isStandalone && !isLandscape) {
+    const fullH = Math.max(window.innerHeight, vv?.height || 0);
+    if (fullH > 0) {
+      try {
+        root.style.height = `${fullH}px`;
+        root.style.setProperty('--app-height', `${fullH}px`);
+      } catch { /* ignore */ }
+    }
+  } else {
+    // Clear any iOS standalone inline height override (e.g. after rotation)
+    try { root.style.removeProperty('height'); } catch { /* ignore */ }
+    if (h > 0) {
+      try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
+    }
   }
 
   const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;

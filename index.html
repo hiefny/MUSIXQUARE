@@ -94,9 +94,11 @@
         })();
     </script>
 
-    <!-- Setup overlay: cap to the *visible* viewport height (no clipping on Android tablets) -->
+    <!-- Setup overlay: cap to the *visible* viewport height (no clipping on Android tablets).
+         iOS standalone (PWA) is excluded from the body clamp because CSS units (100%, 100dvh)
+         exclude safe-area-inset-top — platform.ts handles it via JS instead. -->
     <style id="viewport-safe">
-        body {
+        html:not(.ios-standalone) body {
             max-height: var(--app-height, 100dvh) !important;
         }
 

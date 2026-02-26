@@ -131,12 +131,16 @@ function updateAppHeightNow(): void {
   }
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
-  // on iOS standalone. Use window.innerHeight which correctly reports the full
-  // viewport including safe areas, and set html element height directly.
+  // on iOS standalone. Use the largest available height signal and set html
+  // element height directly. screen.height (hardware constant) is included as
+  // a stable fallback — innerHeight / visualViewport.height can report shorter
+  // values during cold-start before the viewport fully stabilises.
   if (IS_IOS && isStandalone && !isLandscape) {
     const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
     const vvH = (vv && Number.isFinite(vv.height)) ? Math.round(vv.height) : 0;
-    const fullH = Math.max(ih, vvH);
+    const scrH = (window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0)
+      ? Math.round(window.screen.height) : 0;
+    const fullH = Math.max(ih, vvH, scrH);
     if (fullH > 0) {
       try {
         root.style.height = `${fullH}px`;
@@ -203,8 +207,15 @@ export function initPlatform(): void {
       setTimeout(scheduleAppHeightUpdate, 1500);
       // Remove boot guard after last Android height update settles
       setTimeout(endBootingPhase, 1800);
+    } else if (IS_IOS && isStandaloneDisplayMode()) {
+      // iOS PWA cold-start: viewport dimensions may not stabilise for
+      // several hundred milliseconds. Re-measure at staggered intervals
+      // and keep the boot guard until the last measurement lands.
+      setTimeout(scheduleAppHeightUpdate, 300);
+      setTimeout(scheduleAppHeightUpdate, 600);
+      setTimeout(endBootingPhase, 800);
     } else {
-      // Non-Android: remove boot guard after a short stabilization window
+      // Non-Android, non-iOS-standalone: short stabilization window
       setTimeout(endBootingPhase, 300);
     }
   };

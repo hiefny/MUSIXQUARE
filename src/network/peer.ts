@@ -456,15 +456,20 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     return;
   }
 
-  // Timeout if host is unreachable
+  // Own flag — don't trust conn.open (PeerJS can set it true before 'open' event fires)
+  let dataChannelOpened = false;
+
+  // Timeout if host is unreachable (15s to allow TURN relay negotiation)
   const timeoutId = setTimeout(() => {
-    if (!conn || conn.open || getState<DataConnection | null>('network.hostConn')) return;
+    if (dataChannelOpened || getState<DataConnection | null>('network.hostConn')) return;
+    log.warn('[Join] Connection timeout — data channel did not open in 15s');
     try { conn.close(); } catch { /* noop */ }
     setState('network.isConnecting', false);
     bus.emit('network:error', new Error('HOST_UNREACHABLE'));
-  }, 10000);
+  }, 15000);
 
   conn.on('open', () => {
+    dataChannelOpened = true;
     clearTimeout(timeoutId);
     log.info('[Join] Connected to host:', hostId);
 

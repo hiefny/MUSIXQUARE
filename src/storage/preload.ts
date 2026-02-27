@@ -251,6 +251,13 @@ export async function unicastPreload(
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
 
 function handlePreloadStart(data: Record<string, unknown>): void {
+  // Remote guests: skip preload to prevent TURN relay file transfer
+  const connType = getState<string>('network.connectionType');
+  if (connType === 'remote' || connType === 'unknown') {
+    log.info(`[Preload] Skipped — connectionType: ${connType}`);
+    return;
+  }
+
   const sid = data.sessionId as number;
   if (!sid) {
     log.warn('[Preload] Start message missing sessionId. Ignoring.');
@@ -449,6 +456,10 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 }
 
 function handlePreloadChunk(data: Record<string, unknown>): void {
+  // Remote guests: drop preload chunks
+  const connType = getState<string>('network.connectionType');
+  if (connType === 'remote' || connType === 'unknown') return;
+
   // Require explicit sessionId — fallback to latestPreloadSessionId
   let sid = data.sessionId as number;
   if (!sid && latestPreloadSessionId !== 0) {

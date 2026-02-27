@@ -194,7 +194,16 @@ export async function play(offset: number): Promise<void> {
     await _internalPlay(offset);
   } finally {
     clearTimeout(lockWatchdog);
-    setTimeout(() => { _isPlayLocked = false; }, 10);
+    setTimeout(() => {
+      _isPlayLocked = false;
+      // Consume queued play request (e.g. sync correction that arrived during lock)
+      if (_pendingPlayTime !== undefined) {
+        const queued = _pendingPlayTime;
+        _pendingPlayTime = undefined;
+        log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s`);
+        play(queued);
+      }
+    }, 10);
   }
 }
 
@@ -750,7 +759,7 @@ export async function loadPreloadedTrack(
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (hostConn?.open) {
       setTimeout(() => {
-        sendToHost({ type: MSG.GET_SYNC_TIME });
+        sendToHost({ type: MSG.GET_SYNC_TIME, ts: Date.now() });
       }, 500);
     }
 
@@ -1294,13 +1303,8 @@ export function initPlayback(): void {
       setState('player.pausedAt', compensatedTime);
     }
 
-    // RTT 보정 비활성화 — 로컬 네트워크 전용이라 보정 시 오히려 어긋남
-    // const usePingCompensation = getState<boolean>('sync.usePingCompensation');
-    // const lastLatencyMs = getState<number>('sync.lastLatencyMs') || 0;
-    // if (usePingCompensation) {
-    //   bus.emit('ui:show-toast', `자동 싱크 보정 완료, +${Math.round(lastLatencyMs / 2)}ms`);
-    // }
-    bus.emit('ui:show-toast', '직접 동기화 완료 (로컬 네트워크)');
+    const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms 보정)` : '';
+    bus.emit('ui:show-toast', `동기화 완료${rttLabel}`);
   }) as (...args: unknown[]) => void);
 
   // Sync: apply nudge offset by re-seeking

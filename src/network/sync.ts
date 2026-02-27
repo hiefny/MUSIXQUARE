@@ -142,9 +142,9 @@ function applyBestSample(): void {
 
   log.debug(`[Sync] Best sample: RTT=${best.rtt}ms, hostTime=${best.hostTime.toFixed(2)}s, elapsed=${elapsed.toFixed(3)}s`);
 
-  // Latency compensation — remote only
+  // Latency compensation — remote + unknown (ICE 판정 전에도 보정 적용)
   let oneWayLatencySeconds = 0;
-  if (getState<string>('network.connectionType') === 'remote') {
+  if (getState<string>('network.connectionType') !== 'local') {
     if (best.rtt > 0 && best.rtt < Infinity) {
       oneWayLatencySeconds = (best.rtt / 2) / 1000;
     }
@@ -282,7 +282,7 @@ function handleSyncResponse(data: Record<string, unknown>): void {
 
   // Fallback: single-shot sync (e.g. post-download auto-sync from playback.ts)
   let oneWayLatencySeconds = 0;
-  if (getState<string>('network.connectionType') === 'remote') {
+  if (getState<string>('network.connectionType') !== 'local') {
     const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
     const rtt = reqTs ? Date.now() - reqTs : 0;
     if (rtt > 0) oneWayLatencySeconds = (rtt / 2) / 1000;

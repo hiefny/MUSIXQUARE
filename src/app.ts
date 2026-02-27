@@ -152,25 +152,14 @@ async function requestWakeLock(): Promise<void> {
   }
 }
 
-function ensureSilentAudioLoop(): void {
-  const el = document.getElementById('silent-trigger') as HTMLAudioElement | null;
-  if (el && el.paused) {
-    el.play().catch(e => log.debug('[App] Silent audio play failed', e));
-  }
-}
-
 function initWakeLock(): void {
   // Request wake lock initially
   requestWakeLock();
 
-  // iOS fallback: keep silent audio loop alive to prevent screen sleep
-  ensureSilentAudioLoop();
-
   // Re-request wake lock when app becomes visible (e.g. after tab switch)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      if (_wakeLock === null) requestWakeLock();
-      ensureSilentAudioLoop();
+    if (_wakeLock === null && document.visibilityState === 'visible') {
+      requestWakeLock();
     }
   });
 
@@ -283,10 +272,6 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   initKeyboardShortcuts();
   initWakeLock();
-
-  // Re-trigger silent audio on setup complete (user gesture context)
-  bus.on('setup:hide-overlay', () => ensureSilentAudioLoop());
-
   initBeforeUnload();
 
   // 12. System compatibility check (deferred to not block bootstrap)

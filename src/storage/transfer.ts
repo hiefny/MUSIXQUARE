@@ -719,6 +719,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
   const eligiblePeers = connectedPeers.filter(p =>
     p.status === 'connected' && (p.conn as DataConnection)?.open && p.isDataTarget !== false
+    && p.connectionType !== 'remote' && p.connectionType !== 'unknown'
   );
 
   if (eligiblePeers.length === 0) return;
@@ -774,6 +775,14 @@ export async function unicastFile(
 ): Promise<void> {
   if (!conn || !conn.open) {
     log.error('[Unicast] Connection is not open');
+    return;
+  }
+
+  // Block file send to remote peers (prevent TURN billing)
+  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const peerObj = connectedPeers.find(p => p.conn === conn);
+  if (peerObj && (peerObj.connectionType === 'remote' || peerObj.connectionType === 'unknown')) {
+    log.info('[Unicast] Skipped — remote/unknown peer');
     return;
   }
 

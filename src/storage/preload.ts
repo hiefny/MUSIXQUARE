@@ -153,6 +153,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
   const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
   const targets = connectedPeers.filter(p =>
     p.status === 'connected' && (p.conn as DataConnection)?.open && p.isDataTarget !== false
+    && p.connectionType !== 'remote' && p.connectionType !== 'unknown'
   );
 
   if (targets.length === 0) return;

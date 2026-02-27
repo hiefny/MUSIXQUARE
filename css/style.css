@@ -2483,7 +2483,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateX(-50%) translateY(20px);
+    transform: translateY(20px);
 }
 
 /* :has() fallback for older browsers / WebViews */
@@ -2495,7 +2495,7 @@ body.overlay-open .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateX(-50%) translateY(20px);
+    transform: translateY(20px);
 }
 
 /* Base styles for the new split layout of setup overlay */

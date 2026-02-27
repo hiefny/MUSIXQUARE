@@ -37,7 +37,9 @@ export function registerServiceWorker(): void {
         window.location.reload();
       });
 
-      // Update flow
+      // Update flow — show dialog only once per page load
+      let _updateDialogShown = false;
+
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
@@ -45,6 +47,14 @@ export function registerServiceWorker(): void {
         newWorker.addEventListener('statechange', async () => {
           // "installed" with an existing controller means: update is ready
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // Prevent duplicate dialogs within same session
+            if (_updateDialogShown) {
+              // Silently activate the waiting worker
+              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+              return;
+            }
+            _updateDialogShown = true;
+
             try {
               const result = await showDialog({
                 title: '업데이트',
@@ -53,21 +63,16 @@ export function registerServiceWorker(): void {
                 dismissible: true,
               });
 
-              // Only proceed if user clicked OK
-              if (!result || result.action !== 'ok') return;
+              // Activate the waiting worker regardless of user choice
+              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
 
-              _swWantsReload = true;
-              if (reg.waiting) {
-                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-              } else {
-                // Fallback: reload directly
-                if (!_swReloading) {
-                  _swReloading = true;
-                  window.location.reload();
-                }
+              // Only reload if user clicked OK
+              if (result && result.action === 'ok') {
+                _swWantsReload = true;
               }
             } catch {
-              // If dialog fails, do nothing
+              // If dialog fails, still activate the waiting worker
+              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
           }
         });

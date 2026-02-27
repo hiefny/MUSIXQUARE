@@ -1284,7 +1284,9 @@ export function initPlayback(): void {
     const oneWayLatency = Number(args[2]) || 0;
 
     const localOffset = getState<number>('sync.localOffset') || 0;
-    const compensatedTime = hostTime + oneWayLatency + localOffset;
+    // oneWayLatency는 extrapolatedTime 계산에 이미 반영됨 (elapsed에서 rtt/2 차감)
+    // 여기서 또 더하면 이중 보정 → 게스트가 호스트보다 앞서감
+    const compensatedTime = hostTime + localOffset;
 
     if (isPlaying) {
       if (_currentAudioBuffer || getVideoElement()?.src) {

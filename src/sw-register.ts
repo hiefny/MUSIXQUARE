@@ -8,7 +8,9 @@
 import { log } from './core/log.ts';
 import { showDialog } from './ui/dialog.ts';
 
-let _swWantsReload = false;
+const SW_UPDATE_KEY = 'sw-updated-at';
+const SW_COOLDOWN_MS = 30_000; // suppress update dialog for 30s after a SW reload
+
 let _swReloading = false;
 
 export function registerServiceWorker(): void {
@@ -23,37 +25,36 @@ export function registerServiceWorker(): void {
   }
 
   const doRegister = async () => {
-    // Relative URL resolved against current location (works under subpath deployments)
     const swUrl = new URL('service-worker.js', window.location.href);
 
     try {
       const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
       log.info('[SW] Registered:', reg.scope);
 
-      // Listen for controller changes — reload only when we explicitly want to
+      // Listen for controller changes — reload only once
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!_swWantsReload || _swReloading) return;
+        if (_swReloading) return;
         _swReloading = true;
+        sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
         window.location.reload();
       });
 
-      // Update flow — show dialog only once per page load
-      let _updateDialogShown = false;
+      // Check if we just reloaded from a SW update — skip dialog during cooldown
+      const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
+      const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
 
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
 
         newWorker.addEventListener('statechange', async () => {
-          // "installed" with an existing controller means: update is ready
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // Prevent duplicate dialogs within same session
-            if (_updateDialogShown) {
-              // Silently activate the waiting worker
+            // During cooldown: silently activate, no dialog
+            if (inCooldown) {
+              log.debug('[SW] Update found during cooldown — silently activating');
               if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
               return;
             }
-            _updateDialogShown = true;
 
             try {
               const result = await showDialog({
@@ -63,15 +64,18 @@ export function registerServiceWorker(): void {
                 dismissible: true,
               });
 
-              // Activate the waiting worker regardless of user choice
+              // Activate waiting worker regardless
               if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
 
-              // Only reload if user clicked OK
+              // Reload only if user clicked OK
               if (result && result.action === 'ok') {
-                _swWantsReload = true;
+                if (!_swReloading) {
+                  _swReloading = true;
+                  sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+                  window.location.reload();
+                }
               }
             } catch {
-              // If dialog fails, still activate the waiting worker
               if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
           }
@@ -89,7 +93,6 @@ export function registerServiceWorker(): void {
     }
   };
 
-  // Handle case where 'load' already fired (readyState complete)
   if (document.readyState === 'complete') {
     doRegister();
   } else {

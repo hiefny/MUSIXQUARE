@@ -36,8 +36,19 @@ async function detectConnectionType(conn: DataConnection): Promise<'local' | 're
     for (const report of stats.values()) {
       if (report.type === 'candidate-pair' && report.state === 'succeeded') {
         const localCandidate = stats.get(report.localCandidateId);
-        if (localCandidate?.candidateType === 'host') return 'local';
-        return 'remote'; // srflx or relay
+        const remoteCandidate = stats.get(report.remoteCandidateId);
+
+        const localType = localCandidate?.candidateType;
+        const remoteType = remoteCandidate?.candidateType;
+
+        log.info(`[Peer] ICE: local=${localType}, remote=${remoteType}`);
+
+        // If either side uses relay (TURN), it's remote
+        if (localType === 'relay' || remoteType === 'relay') return 'remote';
+        // Both sides host = same LAN
+        if (localType === 'host' && remoteType === 'host') return 'local';
+        // srflx (STUN) = different networks
+        return 'remote';
       }
     }
   } catch {

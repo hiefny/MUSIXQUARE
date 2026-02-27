@@ -818,7 +818,19 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       return;
     }
 
-    // No preload — request file from host
+    // No preload — request file from host (but not for remote guests)
+    const connType = getState<string>('network.connectionType');
+    if (connType === 'remote' || connType === 'unknown') {
+      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+      const name = playlist[incomingIndex]?.name || '';
+      bus.emit('player:metadata-update', {
+        title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+        name,
+      });
+      bus.emit('ui:show-loader', false);
+      log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
+      return;
+    }
     const playlist = getState<PlaylistItem[]>('playlist.items') || [];
     const name = playlist[incomingIndex]?.name || '';
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
@@ -839,6 +851,18 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   if (_currentAudioBuffer || getVideoElement()?.src) {
     play(time);
   } else {
+    // Remote guest: no file will arrive, show guide instead of waiting forever
+    const connType = getState<string>('network.connectionType');
+    if (connType === 'remote' || connType === 'unknown') {
+      const playlist2 = getState<PlaylistItem[]>('playlist.items') || [];
+      bus.emit('player:metadata-update', {
+        title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+        name: playlist2[currentTrackIndex]?.name || '',
+      });
+      bus.emit('ui:show-loader', false);
+      log.info('[Guest] Remote guest — no file will arrive, showing guide');
+      return;
+    }
     _pendingPlayTime = time;
     log.debug(`[Guest] Storing pending play time: ${time}`);
   }
@@ -1009,6 +1033,16 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
       const meta = getState<Record<string, unknown>>('transfer.meta');
       const isWrongBlob = hasBlob && meta && (meta.name as string) !== item.name;
       if (!hasBlob || isWrongBlob) {
+        // Remote guests: don't attempt file recovery (TURN billing)
+        const connType = getState<string>('network.connectionType');
+        if (connType === 'remote' || connType === 'unknown') {
+          bus.emit('player:metadata-update', {
+            title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+            name: item.name,
+          });
+          bus.emit('ui:show-loader', false);
+          return;
+        }
         log.debug('[StatusSync] Current track missing, requesting from host:', item.name);
         bus.emit('ui:show-loader', true, `파일 동기화 중: ${item.name}`);
 
@@ -1038,9 +1072,11 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
         }
       }
     } else if (item && item.type === 'youtube') {
-      if (currentState !== APP_STATE.PLAYING_YOUTUBE && item.videoId) {
+      // Use fresh state — stopAllMedia() above may have destroyed the YouTube player
+      const freshState = getState<string>('appState');
+      if (freshState !== APP_STATE.PLAYING_YOUTUBE && (item.videoId || item.playlistId)) {
         log.debug('[StatusSync] Switching to YouTube mode for late-joiner sync');
-        bus.emit('youtube:load', item.videoId, item.playlistId || null, true, 0);
+        bus.emit('youtube:load', item.videoId || null, item.playlistId || null, true, 0);
       }
     }
   }

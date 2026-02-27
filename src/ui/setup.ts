@@ -741,7 +741,7 @@ export function initSetup(): void {
             if (input) { input.value = lastCode; input.focus(); }
           }
         } else {
-          initSetupOverlay();
+          window.location.reload();
         }
       });
     } else {

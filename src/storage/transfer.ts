@@ -91,6 +91,44 @@ async function fetchDemoFromServer(index: number): Promise<void> {
   }
 }
 
+function blockFileTransferForRemote(data: Record<string, unknown>): void {
+  setState('transfer.skipIncomingFile', true);
+  if (data.index !== undefined) {
+    setState('playlist.currentTrackIndex', data.index as number);
+    bus.emit('ui:update-playlist');
+  }
+  bus.emit('player:metadata-update', {
+    title: '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',
+    name: data.name,
+  });
+  bus.emit('ui:show-loader', false);
+  log.info('[Transfer] Remote guest — file transfer skipped');
+}
+
+function waitForConnectionType(timeout: number): Promise<'local' | 'remote'> {
+  return new Promise(resolve => {
+    const check = () => getState<string>('network.connectionType');
+    // Already resolved
+    if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
+    const interval = setInterval(() => {
+      if (check() !== 'unknown') {
+        clearInterval(interval);
+        resolve(check() as 'local' | 'remote');
+      }
+    }, 100);
+    setTimeout(() => {
+      clearInterval(interval);
+      // Timed out — assume remote for safety (prevent TURN billing)
+      if (check() === 'unknown') {
+        log.warn('[Transfer] connectionType still unknown after timeout — assuming remote');
+        resolve('remote');
+      } else {
+        resolve(check() as 'local' | 'remote');
+      }
+    }, timeout);
+  });
+}
+
 function handleFilePrepare(data: Record<string, unknown>): void {
   // Demo track: fetch directly from server instead of P2P transfer
   if (data.name === DEMO_FILE_NAME) {
@@ -105,20 +143,24 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   }
 
   // Remote guests: block file transfer, show guide message instead of track title
-  // Also block 'unknown' — connectionType may not be resolved yet (ICE detection delay)
   const connType = getState<string>('network.connectionType');
-  if (connType === 'remote' || connType === 'unknown') {
-    setState('transfer.skipIncomingFile', true);
-    if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', data.index as number);
-      bus.emit('ui:update-playlist');
-    }
-    bus.emit('player:metadata-update', {
-      title: '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',
-      name: data.name,
+  if (connType === 'remote') {
+    blockFileTransferForRemote(data);
+    return;
+  }
+  // ICE detection not yet resolved — wait for it, then decide
+  if (connType === 'unknown') {
+    log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
+    bus.emit('ui:show-loader', true, '연결 유형 확인 중...');
+    waitForConnectionType(3000).then(resolved => {
+      if (resolved === 'remote') {
+        blockFileTransferForRemote(data);
+      } else {
+        log.info(`[Transfer] connectionType resolved: ${resolved} — proceeding`);
+        bus.emit('ui:show-loader', false);
+        handleFilePrepare(data);
+      }
     });
-    bus.emit('ui:show-loader', false);
-    log.info('[Transfer] Remote guest — file transfer skipped');
     return;
   }
 

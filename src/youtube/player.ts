@@ -354,9 +354,13 @@ function refreshYouTubeDisplay(): void {
 export function stopYouTubeMode(): void {
   _cachedYtDuration = 0; // Reset duration cache
 
-  // Always transition to IDLE — state may already have been changed (e.g. by ENDED handler)
+  // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
+  // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
+  //  which would kill the guest's YouTube player right after YOUTUBE_PLAY)
   const currentState = getState<string>('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
+
+  if (wasInYouTube) {
     setState('appState', APP_STATE.IDLE);
     bus.emit('player:state-changed', APP_STATE.IDLE);
   }
@@ -397,10 +401,12 @@ export function stopYouTubeMode(): void {
     fsBtn.style.display = '';
   }
 
-  // Notify guests to stop YouTube (Host only)
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  if (!hostConn) {
-    broadcast({ type: MSG.YOUTUBE_STOP });
+  // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
+  if (wasInYouTube) {
+    const hostConn = getState<DataConnection | null>('network.hostConn');
+    if (!hostConn) {
+      broadcast({ type: MSG.YOUTUBE_STOP });
+    }
   }
 
   bus.emit('ui:update-playlist');

@@ -80,6 +80,7 @@ async function fetchDemoFromServer(index: number): Promise<void> {
     // Use the preload path for seamless playback
     setState('preload.nextFileBlob', file);
     setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_TITLE, index, size: file.size, mime: 'audio/mpeg' });
+    bus.emit('ui:show-loader', false);
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
@@ -98,10 +99,11 @@ function blockFileTransferForRemote(data: Record<string, unknown>): void {
     bus.emit('ui:update-playlist');
   }
   bus.emit('player:metadata-update', {
-    title: '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',
+    title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
     name: data.name,
   });
   bus.emit('ui:show-loader', false);
+  bus.emit('ui:show-toast', '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!');
   log.info('[Transfer] Remote guest — file transfer skipped');
 }
 

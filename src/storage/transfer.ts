@@ -15,7 +15,7 @@ import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { safeSend, sendToHost } from '../network/peer.ts';
+import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
@@ -92,7 +92,7 @@ async function fetchDemoFromServer(index: number): Promise<void> {
   }
 }
 
-function blockFileTransferForRemote(data: Record<string, unknown>): void {
+function showRemoteGuideUI(data: Record<string, unknown>): void {
   setState('transfer.skipIncomingFile', true);
   if (data.index !== undefined) {
     setState('playlist.currentTrackIndex', data.index as number);
@@ -107,31 +107,7 @@ function blockFileTransferForRemote(data: Record<string, unknown>): void {
   log.info('[Transfer] Remote guest — file transfer skipped');
 }
 
-function waitForConnectionType(timeout: number): Promise<'local' | 'remote'> {
-  return new Promise(resolve => {
-    const check = () => getState<string>('network.connectionType');
-    // Already resolved
-    if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
-    const interval = setInterval(() => {
-      if (check() !== 'unknown') {
-        clearInterval(interval);
-        resolve(check() as 'local' | 'remote');
-      }
-    }, 100);
-    setTimeout(() => {
-      clearInterval(interval);
-      // Timed out — assume remote for safety (prevent TURN billing)
-      if (check() === 'unknown') {
-        log.warn('[Transfer] connectionType still unknown after timeout — assuming remote');
-        resolve('remote');
-      } else {
-        resolve(check() as 'local' | 'remote');
-      }
-    }, timeout);
-  });
-}
-
-function handleFilePrepare(data: Record<string, unknown>): void {
+async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
   // Demo track: fetch directly from server instead of P2P transfer
   if (data.name === DEMO_FILE_NAME) {
     setState('transfer.skipIncomingFile', true);
@@ -144,26 +120,25 @@ function handleFilePrepare(data: Record<string, unknown>): void {
     return;
   }
 
-  // Remote guests: block file transfer, show guide message instead of track title
-  const connType = getState<string>('network.connectionType');
-  if (connType === 'remote') {
-    blockFileTransferForRemote(data);
-    return;
-  }
-  // ICE detection not yet resolved — wait for it, then decide
-  if (connType === 'unknown') {
-    log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
-    bus.emit('ui:show-loader', true, '연결 유형 확인 중...');
-    waitForConnectionType(3000).then(resolved => {
-      if (resolved === 'remote') {
-        blockFileTransferForRemote(data);
-      } else {
-        log.info(`[Transfer] connectionType resolved: ${resolved} — proceeding`);
+  // Remote guests: block file transfer (single guard)
+  if (isRemoteGuest()) {
+    const connType = getState<string>('network.connectionType');
+    if (connType === 'unknown') {
+      log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
+      bus.emit('ui:show-loader', true, '연결 유형 확인 중...');
+      const resolved = await waitForGuestConnectionType(3000);
+      if (resolved === 'local') {
+        log.info(`[Transfer] connectionType resolved: local — proceeding`);
         bus.emit('ui:show-loader', false);
-        handleFilePrepare(data);
+        // Fall through to normal handling below
+      } else {
+        showRemoteGuideUI(data);
+        return;
       }
-    });
-    return;
+    } else {
+      showRemoteGuideUI(data);
+      return;
+    }
   }
 
   // Always clear stuck preload waiting state on new file-prepare
@@ -718,11 +693,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     sessionId,
   };
 
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const eligiblePeers = connectedPeers.filter(p =>
-    p.status === 'connected' && (p.conn as DataConnection)?.open && p.isDataTarget !== false
-    && p.connectionType !== 'remote' && p.connectionType !== 'unknown'
-  );
+  const eligiblePeers = filterEligiblePeers();
 
   if (eligiblePeers.length === 0) return;
 
@@ -780,10 +751,8 @@ export async function unicastFile(
     return;
   }
 
-  // Block file send to remote peers (prevent TURN billing)
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const peerObj = connectedPeers.find(p => p.conn === conn);
-  if (peerObj && (peerObj.connectionType === 'remote' || peerObj.connectionType === 'unknown')) {
+  // Transport guard: block remote/unknown peers
+  if (!(await canSendFileTo(conn))) {
     log.info('[Unicast] Skipped — remote/unknown peer');
     return;
   }

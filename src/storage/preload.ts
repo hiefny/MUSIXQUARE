@@ -14,7 +14,7 @@ import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { safeSend, sendToHost } from '../network/peer.ts';
+import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest } from '../network/peer.ts';
 import type { DataConnection, PreloadSessionEntry, PlaylistItem } from '../types/index.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
@@ -150,11 +150,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     sessionId,
   };
 
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const targets = connectedPeers.filter(p =>
-    p.status === 'connected' && (p.conn as DataConnection)?.open && p.isDataTarget !== false
-    && p.connectionType !== 'remote' && p.connectionType !== 'unknown'
-  );
+  const targets = filterEligiblePeers();
 
   if (targets.length === 0) return;
 
@@ -220,6 +216,13 @@ export async function unicastPreload(
   sessionId: number
 ): Promise<void> {
   if (!conn || !conn.open || !file) return;
+
+  // Transport guard: block remote/unknown peers
+  if (!(await canSendFileTo(conn))) {
+    log.info('[Preload Unicast] Skipped — remote/unknown peer');
+    return;
+  }
+
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
   const fileName = 'name' in file ? file.name : 'Track';
@@ -252,10 +255,9 @@ export async function unicastPreload(
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
 
 function handlePreloadStart(data: Record<string, unknown>): void {
-  // Remote guests: skip preload to prevent TURN relay file transfer
-  const connType = getState<string>('network.connectionType');
-  if (connType === 'remote' || connType === 'unknown') {
-    log.info(`[Preload] Skipped — connectionType: ${connType}`);
+  // Remote guests: skip preload (transport guard)
+  if (isRemoteGuest()) {
+    log.info('[Preload] Skipped — remote/unknown guest');
     return;
   }
 
@@ -457,9 +459,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 }
 
 function handlePreloadChunk(data: Record<string, unknown>): void {
-  // Remote guests: drop preload chunks
-  const connType = getState<string>('network.connectionType');
-  if (connType === 'remote' || connType === 'unknown') return;
+  // Remote guests: drop preload chunks (transport guard)
+  if (isRemoteGuest()) return;
 
   // Require explicit sessionId — fallback to latestPreloadSessionId
   let sid = data.sessionId as number;

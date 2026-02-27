@@ -782,6 +782,100 @@ export function sendPauseState(conn: DataConnection, time: number): void {
   } catch { /* noop */ }
 }
 
+// ─── Transport Guard (Remote File Transfer Blocking) ────────────
+
+/**
+ * Wait for a host-side peer's connectionType to resolve from 'unknown'.
+ * Returns the resolved type, or 'remote' on timeout (safety default).
+ */
+function waitForPeerConnectionType(
+  peerObj: Record<string, unknown>,
+  timeout: number,
+): Promise<string> {
+  return new Promise(resolve => {
+    const check = () => peerObj.connectionType as string | undefined;
+    const current = check();
+    if (current && current !== 'unknown') return resolve(current);
+
+    const interval = setInterval(() => {
+      const val = check();
+      if (val && val !== 'unknown') {
+        clearInterval(interval);
+        resolve(val);
+      }
+    }, 100);
+    setTimeout(() => {
+      clearInterval(interval);
+      const final = check();
+      resolve(!final || final === 'unknown' ? 'remote' : final);
+    }, timeout);
+  });
+}
+
+/**
+ * Host-side transport guard: can we send file data to this peer?
+ * Blocks remote/unknown peers. Waits up to 3s for ICE detection if unknown.
+ */
+export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
+  if (!conn || !conn.open) return false;
+  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const peerObj = connectedPeers.find(p => p.conn === conn);
+  if (!peerObj) return false;
+
+  const type = peerObj.connectionType as string | undefined;
+  if (type === 'local') return true;
+  if (type === 'remote') return false;
+
+  // unknown or undefined — wait for ICE detection
+  const resolved = await waitForPeerConnectionType(peerObj, 3000);
+  return resolved === 'local';
+}
+
+/**
+ * Host-side: filter connectedPeers to only those eligible for file data.
+ * Synchronous — only allows 'local' peers (safe for broadcast scenarios
+ * which happen well after the 1.5s ICE detection window).
+ */
+export function filterEligiblePeers(): Array<Record<string, unknown>> {
+  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  return connectedPeers.filter(p =>
+    p.status === 'connected' &&
+    (p.conn as DataConnection)?.open &&
+    p.isDataTarget !== false &&
+    p.connectionType === 'local',
+  );
+}
+
+/**
+ * Guest-side: am I a remote guest? (remote or unknown = true)
+ */
+export function isRemoteGuest(): boolean {
+  const connType = getState<string>('network.connectionType');
+  return connType === 'remote' || connType === 'unknown';
+}
+
+/**
+ * Guest-side: wait for own connectionType to resolve from 'unknown'.
+ * Returns 'remote' on timeout (safety default).
+ */
+export function waitForGuestConnectionType(timeout: number): Promise<'local' | 'remote'> {
+  return new Promise(resolve => {
+    const check = () => getState<string>('network.connectionType');
+    if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
+
+    const interval = setInterval(() => {
+      if (check() !== 'unknown') {
+        clearInterval(interval);
+        resolve(check() as 'local' | 'remote');
+      }
+    }, 100);
+    setTimeout(() => {
+      clearInterval(interval);
+      resolve(check() === 'unknown' ? 'remote' : check() as 'local' | 'remote');
+    }, timeout);
+  });
+}
+
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 bus.on('network:broadcast', ((...args: unknown[]) => {

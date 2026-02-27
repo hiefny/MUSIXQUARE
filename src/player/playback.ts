@@ -17,7 +17,7 @@ import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './
 import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../storage/opfs.ts';
 import { broadcastFile, unicastFile } from '../storage/transfer.ts';
 import { schedulePreload, unicastPreload } from '../storage/preload.ts';
-import { broadcast, sendToHost } from '../network/peer.ts';
+import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
@@ -818,9 +818,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       return;
     }
 
-    // No preload — request file from host (but not for remote guests)
-    const connType = getState<string>('network.connectionType');
-    if (connType === 'remote' || connType === 'unknown') {
+    // No preload — request file from host (transport guard)
+    if (isRemoteGuest()) {
       const playlist = getState<PlaylistItem[]>('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || '';
       bus.emit('player:metadata-update', {
@@ -851,9 +850,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   if (_currentAudioBuffer || getVideoElement()?.src) {
     play(time);
   } else {
-    // Remote guest: no file will arrive, show guide instead of waiting forever
-    const connType = getState<string>('network.connectionType');
-    if (connType === 'remote' || connType === 'unknown') {
+    // Remote guest: no file will arrive, show guide (transport guard)
+    if (isRemoteGuest()) {
       const playlist2 = getState<PlaylistItem[]>('playlist.items') || [];
       bus.emit('player:metadata-update', {
         title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
@@ -1033,9 +1031,8 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
       const meta = getState<Record<string, unknown>>('transfer.meta');
       const isWrongBlob = hasBlob && meta && (meta.name as string) !== item.name;
       if (!hasBlob || isWrongBlob) {
-        // Remote guests: don't attempt file recovery (TURN billing)
-        const connType = getState<string>('network.connectionType');
-        if (connType === 'remote' || connType === 'unknown') {
+        // Remote guests: don't attempt file recovery (transport guard)
+        if (isRemoteGuest()) {
           bus.emit('player:metadata-update', {
             title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
             name: item.name,

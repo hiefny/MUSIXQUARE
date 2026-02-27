@@ -8,6 +8,8 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { getState, setState } from '../core/state.ts';
+import { TRANSFER_STATE } from '../core/constants.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
 
@@ -162,10 +164,22 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'SESSION_MISMATCH': {
       const isPreload = !!data.isPreload;
-      log.warn(`[OPFS] Session Mismatch: ${data.filename} (${isPreload ? 'preload' : 'current'})`);
+      log.warn(`[OPFS] Session Mismatch: ${data.filename} cmd=${data.command} (${isPreload ? 'preload' : 'current'})`);
       // Preload mismatches are non-fatal
       if (!isPreload) {
         bus.emit('opfs:session-mismatch', data);
+
+        // Safety net: if OPFS_END was dropped while state is PROCESSING,
+        // the transfer is stuck forever (no watchdog, no OPFS_FILE_READY).
+        // Reset state so the UI doesn't stay on "수신 중... 100%".
+        if (data.command === 'OPFS_END') {
+          const transferState = getState<string>('transfer.state');
+          if (transferState === TRANSFER_STATE.PROCESSING) {
+            log.warn('[OPFS] OPFS_END dropped — resetting stuck PROCESSING state');
+            setState('transfer.state', TRANSFER_STATE.READY);
+            bus.emit('ui:show-loader', false);
+          }
+        }
       }
       break;
     }

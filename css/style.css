@@ -234,8 +234,6 @@ body {
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* iOS PWA: JS --app-height excludes safe-area-inset-bottom in standalone mode.
-   Compensate by adding it back via CSS env(). */
 /* --------------------------------------------------------------------------
    Portrait Lock (Mobile)
    - Some browsers/PWA containers may still allow rotation even with manifest
@@ -2126,8 +2124,12 @@ input[type=range].eq-slider:active::-moz-range-thumb {
         0px 40px 200px 0px rgba(25, 31, 41, 0.247);
     border: none;
 
-    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Give the pill its own View Transition group so it is NOT part of the
+       root cross-fade (which causes a transparency flicker on tab switch).
+       A named group with identical old/new state produces a no-op transition. */
+    view-transition-name: bottom-nav;
 }
 
 /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
@@ -2512,7 +2514,7 @@ body:has(#youtube-url-overlay.active) .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateY(20px);
+    transform: translateX(-50%) translateY(20px);
 }
 
 /* :has() fallback for older browsers / WebViews */
@@ -2524,7 +2526,7 @@ body.overlay-open .bottom-nav {
     opacity: 0 !important;
     pointer-events: none !important;
     z-index: 1 !important;
-    transform: translateY(20px);
+    transform: translateX(-50%) translateY(20px);
 }
 
 /* Base styles for the new split layout of setup overlay */

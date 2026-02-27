@@ -131,10 +131,16 @@ function updateAppHeightNow(): void {
   }
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
-  // on iOS standalone. Use window.innerHeight which correctly reports the full
-  // viewport including safe areas, and set html element height directly.
+  // on iOS standalone. Use the largest available height signal and set html
+  // element height directly. screen.height (hardware constant) is included as
+  // a stable fallback — innerHeight / visualViewport.height can report shorter
+  // values during cold-start before the viewport fully stabilises.
   if (IS_IOS && isStandalone && !isLandscape) {
-    const fullH = Math.max(window.innerHeight, vv?.height || 0);
+    const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
+    const vvH = (vv && Number.isFinite(vv.height)) ? Math.round(vv.height) : 0;
+    const scrH = (window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0)
+      ? Math.round(window.screen.height) : 0;
+    const fullH = Math.max(ih, vvH, scrH);
     if (fullH > 0) {
       try {
         root.style.height = `${fullH}px`;

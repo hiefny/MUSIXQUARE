@@ -319,7 +319,8 @@ async function handleLogoReturnToMain(): Promise<void> {
       if (res.action !== 'ok') return;
     }
 
-    bus.emit('app:return-to-main');
+    // Hard reload — clears all in-memory blobs, audio buffers, and stale state
+    window.location.reload();
   } finally {
     _logoNavBusy = false;
   }

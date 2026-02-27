@@ -2101,6 +2101,9 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     border: none;
 
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Prevent transparency flicker during View Transition tab switches */
+    view-transition-name: bottom-nav;
 }
 
 /* Blur halo (Removed since nav is now a solid edge-to-edge block) */

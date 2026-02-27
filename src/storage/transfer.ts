@@ -105,7 +105,9 @@ function handleFilePrepare(data: Record<string, unknown>): void {
   }
 
   // Remote guests: block file transfer, show guide message instead of track title
-  if (getState<string>('network.connectionType') === 'remote') {
+  // Also block 'unknown' — connectionType may not be resolved yet (ICE detection delay)
+  const connType = getState<string>('network.connectionType');
+  if (connType === 'remote' || connType === 'unknown') {
     setState('transfer.skipIncomingFile', true);
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);

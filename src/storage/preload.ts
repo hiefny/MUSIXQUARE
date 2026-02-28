@@ -696,10 +696,7 @@ export function initPreload(): void {
   });
 
   // Handle preload file ready from OPFS (bridged from opfs:file-ready via playback.ts)
-  bus.on('storage:preload-file-ready', (async (...args: unknown[]) => {
-    const filename = args[0] as string;
-    const sessionId = args[1] as number;
-
+  bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
     log.debug(`[Preload] OPFS preload ready: ${filename} (SID: ${sessionId})`);
 
     const file = await readFileFromOpfs(filename, true);
@@ -742,15 +739,14 @@ export function initPreload(): void {
       setState('transfer.waitingForPreload', false);
       bus.emit('storage:use-preloaded', nextTrackIndex, filename);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Handle preload-ready notification (emitted after PRELOAD_END)
-  bus.on('storage:preload-ready', ((...args: unknown[]) => {
-    const index = args[0] as number;
+  bus.on('storage:preload-ready', (index: number) => {
     log.debug(`[Preload] Preload ready for index: ${index}`);
     // This signals the preload chain is complete.
     // The actual file finalization is handled by opfs:file-ready → storage:preload-file-ready
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Preload] Handlers registered');
 }

@@ -652,27 +652,26 @@ export function initSetup(): void {
   }
 
   // PeerJS ready (peer ID assigned)
-  bus.on('network:peer-ready', ((...args: unknown[]) => {
-    const peerId = args[0] as string;
+  bus.on('network:peer-ready', (peerId) => {
     const myIdEl = document.getElementById('my-id');
     if (myIdEl && peerId) myIdEl.innerText = peerId;
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Session started (backward compat with legacy hosts)
-  bus.on('setup:hide-overlay', ((..._args: unknown[]) => {
+  bus.on('setup:hide-overlay', () => {
     hideSetupOverlay();
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Guest join success/failure events
-  bus.on('setup:guest-join-success', ((..._args: unknown[]) => {
+  bus.on('setup:guest-join-success', () => {
     setState('network.isConnecting', false);
     updateRoleBadge();
     hideSetupOverlay();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('setup:guest-join-failure', ((..._args: unknown[]) => {
+  bus.on('setup:guest-join-failure', (_error) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
     showToast('참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.');
@@ -688,17 +687,17 @@ export function initSetup(): void {
       input.focus();
     }
     setupSetGuestJoinBusy(false);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Return to main event
-  bus.on('app:return-to-main', ((..._args: unknown[]) => {
+  bus.on('app:return-to-main', () => {
     leaveSession();
     initSetupOverlay();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Network error handling (connection failures, timeouts, etc.)
-  bus.on('network:error', ((...args: unknown[]) => {
-    const err = args[0] as Record<string, unknown> | null;
+  bus.on('network:error', (error) => {
+    const err = error as Record<string, unknown> | null;
     const msg = (err as Error | null)?.message || '';
     const peerType = (err && typeof err === 'object') ? String(err.type || '') : '';
     let userMsg = '네트워크 오류가 발생했어요';
@@ -747,20 +746,20 @@ export function initSetup(): void {
     } else {
       showToast(userMsg);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Session full (guest rejected by full host)
-  bus.on('network:session-full', ((...args: unknown[]) => {
-    const msg = args[0] as string || '세션이 가득 찼어요';
-    showDialog({ title: '참가할 수 없어요', message: String(msg) });
+  bus.on('network:session-full', (msg) => {
+    const message = (msg as string) || '세션이 가득 찼어요';
+    showDialog({ title: '참가할 수 없어요', message: String(message) });
     startGuestFlow();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Kicked from session (guest removed from host device list)
-  bus.on('network:kicked-from-session', ((..._args: unknown[]) => {
+  bus.on('network:kicked-from-session', () => {
     showToast('호스트에서 연결이 종료되었습니다');
     bus.emit('app:return-to-main');
-  }) as (...args: unknown[]) => void);
+  });
 
   // Initial overlay
   initSetupOverlay();

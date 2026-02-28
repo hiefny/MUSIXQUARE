@@ -173,10 +173,10 @@ export async function playTrack(index: number): Promise<void> {
       const isFirstTrackLoad = getState<boolean>('player.isFirstTrackLoad');
       if (isFirstTrackLoad) {
         setState('player.isFirstTrackLoad', false);
-        bus.emit('youtube:load', item.videoId, item.playlistId, false);
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
         bus.emit('ui:show-toast', 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.');
       } else {
-        bus.emit('youtube:load', item.videoId, item.playlistId, false);
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
         bus.emit('ui:show-toast', '3초 후 YouTube 재생...');
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
@@ -647,36 +647,31 @@ export function initPlaylist(): void {
   bus.on('playlist:next-track', () => playNextTrack());
 
   // Silent mode setters (for handleStatusSync — no toast, no broadcast)
-  bus.on('playlist:set-repeat-mode', ((...args: unknown[]) => {
-    const mode = Number(args[0]) || 0;
-    const notify = args[1] !== false;
-    setRepeatMode(mode, notify);
-  }) as (...args: unknown[]) => void);
+  bus.on('playlist:set-repeat-mode', (mode, notify) => {
+    setRepeatMode(mode, notify !== false);
+  });
 
-  bus.on('playlist:set-shuffle', ((...args: unknown[]) => {
-    const notify = args[1] !== false;
-    setShuffle(!!args[0], notify);
-  }) as (...args: unknown[]) => void);
+  bus.on('playlist:set-shuffle', (enabled, notify) => {
+    setShuffle(enabled, notify !== false);
+  });
 
   // Demo media loading
-  bus.on('app:load-demo', ((..._args: unknown[]) => {
+  bus.on('app:load-demo', () => {
     loadDemoMedia();
-  }) as (...args: unknown[]) => void);
+  });
 
   // File selection
-  bus.on('app:files-selected', ((...args: unknown[]) => {
-    handleFilesSelected(args[0] as FileList | null);
-  }) as (...args: unknown[]) => void);
+  bus.on('app:files-selected', (files) => {
+    handleFilesSelected(files);
+  });
 
   // Play specific track from playlist view click
-  bus.on('playlist:play-track', ((...args: unknown[]) => {
-    const index = Number(args[0]);
+  bus.on('playlist:play-track', (index) => {
     if (Number.isFinite(index) && index >= 0) playTrack(index);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Host: Send playlist state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection | null;
+  bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
@@ -707,7 +702,7 @@ export function initPlaylist(): void {
     } catch (e) {
       log.warn('[Playlist] Bootstrap send failed:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Playlist] Initialized');
 }

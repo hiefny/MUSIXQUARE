@@ -21,7 +21,7 @@ import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -513,27 +513,26 @@ export function initPlayerControls(): void {
   installAndroidRangeScrollFix();
 
   // Volume sync
-  bus.on('audio:volume-changed', ((..._args: unknown[]) => {
+  bus.on('audio:volume-changed', () => {
     syncVolumeSlider();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Role badge update events
-  bus.on('network:role-badge-update', ((..._args: unknown[]) => {
+  bus.on('network:role-badge-update', () => {
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Latency update → refresh role badge to show latency value
-  bus.on('sync:latency-update', ((..._args: unknown[]) => {
+  bus.on('sync:latency-update', () => {
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Peer disconnected: update UI
-  bus.on('network:peer-disconnected', ((...args: unknown[]) => {
-    const peerId = args[0] as string;
+  bus.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
     updateRoleBadge();
     updateInviteCodeUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Invite code container click delegation
   document.addEventListener('click', (e) => {
@@ -545,9 +544,9 @@ export function initPlayerControls(): void {
   });
 
   // Invite code update events
-  bus.on('ui:settings-tab-opened', ((..._args: unknown[]) => {
+  bus.on('ui:settings-tab-opened', () => {
     updateInviteCodeUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   // File input handler
   const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
@@ -560,54 +559,50 @@ export function initPlayerControls(): void {
   }
 
   // OPFS error handler (prevent silent error swallowing)
-  bus.on('opfs:error', ((...args: unknown[]) => {
-    const filename = args[0] as string;
-    const error = args[1] as string;
+  bus.on('opfs:error', (error, filename) => {
     log.error(`[OPFS] Error for ${filename}:`, error);
     showToast(`파일 저장 오류: ${filename || 'unknown'}`);
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('opfs:read-error', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    log.error('[OPFS] Read error:', data?.filename, data?.error);
-    showToast(`파일 읽기 오류: ${data?.filename || 'unknown'}`);
-  }) as (...args: unknown[]) => void);
+  bus.on('opfs:read-error', (data) => {
+    const d = data as Record<string, unknown>;
+    log.error('[OPFS] Read error:', d?.filename, d?.error);
+    showToast(`파일 읽기 오류: ${d?.filename || 'unknown'}`);
+  });
 
-  bus.on('opfs:session-mismatch', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    log.warn('[OPFS] Session mismatch:', data?.filename);
+  bus.on('opfs:session-mismatch', (data) => {
+    const d = data as Record<string, unknown>;
+    log.warn('[OPFS] Session mismatch:', d?.filename);
     showToast('세션 불일치 감지 — 파일 전송이 재시도됩니다.');
-  }) as (...args: unknown[]) => void);
+  });
 
   // ── Bus Event Bridge ──────────────────────────────────────────
 
   // Toast
-  bus.on('ui:show-toast', ((...args: unknown[]) => {
-    showToast(args[0] as string);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:show-toast', (message) => {
+    showToast(message);
+  });
 
   // Loader
-  bus.on('ui:show-loader', ((...args: unknown[]) => {
-    showLoader(args[0] as boolean, args[1] as string | undefined);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:show-loader', (visible, label) => {
+    showLoader(visible, label);
+  });
 
-  bus.on('ui:update-loader', ((...args: unknown[]) => {
-    updateLoader(args[0] as number);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:update-loader', (percent) => {
+    updateLoader(percent);
+  });
 
   // Play button state (enabled/disabled)
-  bus.on('ui:play-btn-state', ((...args: unknown[]) => {
-    const enabled = args[0] as boolean;
+  bus.on('ui:play-btn-state', (enabled) => {
     const btn = document.getElementById('play-btn');
     if (btn) {
       (btn as HTMLButtonElement).disabled = !enabled;
       btn.style.opacity = enabled ? '1' : '0.4';
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Play/Pause visual state
-  bus.on('ui:update-play-state', ((...args: unknown[]) => {
-    const playing = args[0] as boolean;
+  bus.on('ui:update-play-state', (playing) => {
     const btn = document.getElementById('play-btn');
     if (btn) btn.classList.toggle('playing', playing);
     const icon = btn?.querySelector('path');
@@ -616,29 +611,28 @@ export function initPlayerControls(): void {
         ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z'  // pause icon
         : 'M8 5v14l11-7z');                    // play icon
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Duration update
-  bus.on('ui:duration-update', ((...args: unknown[]) => {
-    const dur = args[0] as number;
+  bus.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
-    if (slider) { slider.max = String(dur); }
-    if (tTotal) tTotal.innerText = fmtTime(dur);
-  }) as (...args: unknown[]) => void);
+    if (slider) { slider.max = String(duration); }
+    if (tTotal) tTotal.innerText = fmtTime(duration);
+  });
 
   // Seek reset
-  bus.on('ui:seek-reset', ((..._args: unknown[]) => {
+  bus.on('ui:seek-reset', () => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) { slider.value = '0'; }
     if (tc) tc.innerText = '0:00';
-  }) as (...args: unknown[]) => void);
+  });
 
   // UI loop (seek bar + time update during playback)
   let _loopInterval: ReturnType<typeof setInterval> | null = null;
   let _endedCheckCounter = 0;
-  bus.on('ui:loop-start', ((..._args: unknown[]) => {
+  bus.on('ui:loop-start', () => {
     if (_loopInterval) clearInterval(_loopInterval);
     _endedCheckCounter = 0;
     _loopInterval = setInterval(() => {
@@ -663,20 +657,19 @@ export function initPlayerControls(): void {
         bus.emit('player:check-ended');
       }
     }, 250);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Clean up UI loop when playback stops entirely (session leave, etc.)
-  bus.on('player:stop-all-media', ((..._args: unknown[]) => {
+  bus.on('player:stop-all-media', () => {
     if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Player actions
-  bus.on('player:toggle-play', ((..._args: unknown[]) => {
+  bus.on('player:toggle-play', () => {
     togglePlay();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('player:seek', ((...args: unknown[]) => {
-    const time = args[0] as number;
+  bus.on('player:seek', (time) => {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (!hostConn) {
       play(time);
@@ -684,10 +677,9 @@ export function initPlayerControls(): void {
       broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
       requestGlobalResyncDelayed();
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('player:seek-to-time', ((...args: unknown[]) => {
-    const time = args[0] as number;
+  bus.on('player:seek-to-time', (time) => {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     const isOperator = getState<boolean>('network.isOperator');
     if (hostConn && isOperator) {
@@ -703,32 +695,26 @@ export function initPlayerControls(): void {
         setState('player.pausedAt', time);
       }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Playlist actions
-  bus.on('playlist:toggle-repeat', ((..._args: unknown[]) => {
+  bus.on('playlist:toggle-repeat', () => {
     toggleRepeat();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('playlist:toggle-shuffle', ((..._args: unknown[]) => {
+  bus.on('playlist:toggle-shuffle', () => {
     toggleShuffle();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Metadata update (track title in player UI)
-  bus.on('player:metadata-update', ((...args: unknown[]) => {
-    const item = args[0] as PlaylistItem;
+  bus.on('player:metadata-update', (item) => {
     if (!item) return;
     const title = item.title || item.name || 'Unknown';
     updateTitleWithMarquee(title);
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube time update (seek bar + time display)
-  bus.on('ui:time-update', ((...args: unknown[]) => {
-    const currFormatted = args[0] as string;
-    const totalFormatted = args[1] as string;
-    const currentTime = args[2] as number;
-    const duration = args[3] as number;
-
+  bus.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');
@@ -738,9 +724,9 @@ export function initPlayerControls(): void {
       slider.max = String(duration);
       if (!isSeeking) slider.value = String(currentTime);
     }
-    if (tc && !isSeeking) tc.innerText = currFormatted;
+    if (tc && !isSeeking) tc.innerText = currentFormatted;
     if (tt) tt.innerText = totalFormatted;
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[PlayerControls] Initialized');
 }

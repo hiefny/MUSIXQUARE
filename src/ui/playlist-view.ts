@@ -172,9 +172,9 @@ export function updatePlaylistUI(): void {
 
 export function initPlaylistView(): void {
   // Listen for playlist UI update events
-  bus.on('ui:update-playlist', ((..._args: unknown[]) => {
+  bus.on('ui:update-playlist', () => {
     updatePlaylistUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[PlaylistView] Initialized');
 }

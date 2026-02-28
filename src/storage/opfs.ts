@@ -141,7 +141,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_FILE_READY':
       log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
-      bus.emit('opfs:file-ready', data.filename, data.sessionId, data.isPreload || false);
+      bus.emit('opfs:file-ready', data.filename || '', data.sessionId || 0, data.isPreload || false);
       break;
 
     case 'OPFS_READ_COMPLETE':
@@ -159,7 +159,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_ERROR':
       log.error(`[OPFS] Worker error: ${data.error} (${data.filename})`);
-      bus.emit('opfs:error', data.error, data.filename);
+      bus.emit('opfs:error', data.error || '', data.filename || '');
       break;
 
     case 'SESSION_MISMATCH': {
@@ -231,9 +231,8 @@ export function ensureNamedFile(blob: Blob | File | null, fallbackName: string):
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Forward sync commands from bus to the sync worker */
-bus.on('worker:sync-command', ((...args: unknown[]) => {
-  const payload = args[0] as WorkerCommand;
+bus.on('worker:sync-command', (payload: { command: string; id: string; interval?: number }) => {
   if (payload && payload.command) {
     postWorkerCommand(payload);
   }
-}) as (...args: unknown[]) => void);
+});

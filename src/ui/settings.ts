@@ -89,26 +89,23 @@ function formatReverbValDisp(param: string, v: number): void {
 
 // ─── Audio Effects Helpers ────────────────────────────────────────
 
-function updateAudioEffect(type: string, param: string, value: unknown, isPreview = false): void {
-  const v = Number(value);
+function updateAudioEffect(type: string, param: string, value: number, isPreview = false): void {
   // Update value display
-  if (type === 'reverb') formatReverbValDisp(param, v);
-  else if (type === 'cutoff') _setDisp('val-cutoff', v + ' Hz');
-  else if (type === 'stereo') _setDisp('val-width', v + '%');
-  else if (type === 'vbass') _setDisp('val-vbass', v + '%');
+  if (type === 'reverb') formatReverbValDisp(param, value);
+  else if (type === 'cutoff') _setDisp('val-cutoff', value + ' Hz');
+  else if (type === 'stereo') _setDisp('val-width', value + '%');
+  else if (type === 'vbass') _setDisp('val-vbass', value + '%');
 
   bus.emit('audio:update-effect', type, param, value, isPreview);
 }
 
-function setPreamp(value: unknown, isPreview = false): void {
-  const db = Number(value);
-  _setDisp('val-preamp', (db > 0 ? '+' : '') + db + 'dB');
+function setPreamp(value: number, isPreview = false): void {
+  _setDisp('val-preamp', (value > 0 ? '+' : '') + value + 'dB');
   bus.emit('audio:set-preamp', value, isPreview);
 }
 
-function setEQ(band: number, value: unknown, isPreview = false): void {
-  const v = Number(value);
-  _setDisp(`eq-val-${band}`, v > 0 ? `+${v}` : String(v));
+function setEQ(band: number, value: number, isPreview = false): void {
+  _setDisp(`eq-val-${band}`, value > 0 ? `+${value}` : String(value));
   bus.emit('audio:set-eq', band, value, isPreview);
 }
 
@@ -336,10 +333,9 @@ export function initSettings(): void {
   $on('btn-sync-done', 'click', () => bus.emit('sync:close-manual'));
 
   // Device list events
-  bus.on('network:device-list-update', ((...args: unknown[]) => {
-    const list = args[0] as Array<Record<string, unknown>>;
-    if (Array.isArray(list)) renderDeviceList(list);
-  }) as (...args: unknown[]) => void);
+  bus.on('network:device-list-update', (list: unknown[]) => {
+    if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
+  });
 
   // Theme: listen for system change
   try {

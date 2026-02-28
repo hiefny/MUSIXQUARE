@@ -521,14 +521,13 @@ export function initYouTube(): void {
   });
 
   // Bus event handlers from other modules
-  bus.on('youtube:stop-mode', (() => stopYouTubeMode()) as (...args: unknown[]) => void);
+  bus.on('youtube:stop-mode', () => stopYouTubeMode());
 
-  bus.on('youtube:load', ((...args: unknown[]) => {
-    const [videoId, playlistId, autoplay] = args;
-    loadYouTubeVideo(videoId as string, playlistId as string | null, autoplay as boolean);
-  }) as (...args: unknown[]) => void);
+  bus.on('youtube:load', (videoId, playlistId, isSync) => {
+    loadYouTubeVideo(videoId as string, playlistId as string | null, isSync as boolean);
+  });
 
-  bus.on('youtube:toggle-play', (() => {
+  bus.on('youtube:toggle-play', () => {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     const isOperator = getState<boolean>('network.isOperator');
 
@@ -561,28 +560,27 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:auto-play', (() => {
+  bus.on('youtube:auto-play', () => {
     if (_youtubePlayer?.playVideo) {
       _youtubePlayer.playVideo();
       bus.emit('youtube:broadcast-sync');
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:get-position', ((...args: unknown[]) => {
-    const cb = args[0] as (pos: number) => void;
-    if (typeof cb === 'function') {
+  bus.on('youtube:get-position', (callback) => {
+    if (typeof callback === 'function') {
       try {
         const pos = _youtubePlayer?.getCurrentTime?.() ?? 0;
-        cb(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
+        callback(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
       } catch {
-        cb(0);
+        callback(0);
       }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:stop-playback', (() => {
+  bus.on('youtube:stop-playback', () => {
     if (!_youtubePlayer) return;
     try {
       _youtubePlayer.stopVideo();
@@ -591,15 +589,14 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:skip-time', ((...args: unknown[]) => {
-    const sec = Number(args[0]) || 0;
+  bus.on('youtube:skip-time', (seconds) => {
     if (!_youtubePlayer) return;
     try {
       const current = _youtubePlayer.getCurrentTime();
       const duration = _youtubePlayer.getDuration();
-      let target = current + sec;
+      let target = current + seconds;
       if (target < 0) target = 0;
       if (target > duration) target = duration;
       _youtubePlayer.seekTo(target, true);
@@ -607,77 +604,73 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube seek from seek bar
-  bus.on('youtube:seek-to', ((...args: unknown[]) => {
-    const time = Number(args[0]);
-    if (!_youtubePlayer?.seekTo || !Number.isFinite(time)) return;
+  bus.on('youtube:seek-to', (seconds) => {
+    if (!_youtubePlayer?.seekTo || !Number.isFinite(seconds)) return;
     try {
-      _youtubePlayer.seekTo(time, true);
+      _youtubePlayer.seekTo(seconds, true);
       const hostConn = getState<DataConnection | null>('network.hostConn');
       if (!hostConn) {
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: _youtubePlayer.getPlayerState?.() ?? 1,
-          time,
+          time: seconds,
         });
       }
     } catch (e) {
       log.error('[YouTube] Seek error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:try-next-internal', ((...args: unknown[]) => {
-    const cb = args[0] as (success: boolean) => void;
-    if (!_youtubePlayer?.getPlaylist || typeof cb !== 'function') { cb(false); return; }
+  bus.on('youtube:try-next-internal', (callback) => {
+    if (!_youtubePlayer?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
     try {
       const ids = _youtubePlayer.getPlaylist() || [];
       const idx = _youtubePlayer.getPlaylistIndex();
       if (ids.length > 0 && idx < ids.length - 1) {
         _youtubePlayer.nextVideo();
-        cb(true);
+        callback(true);
         return;
       }
     } catch { /* noop */ }
-    cb(false);
-  }) as (...args: unknown[]) => void);
+    callback(false);
+  });
 
-  bus.on('youtube:try-prev-internal', ((...args: unknown[]) => {
-    const cb = args[0] as (success: boolean) => void;
-    if (!_youtubePlayer || typeof cb !== 'function') { cb(false); return; }
+  bus.on('youtube:try-prev-internal', (callback) => {
+    if (!_youtubePlayer || typeof callback !== 'function') { callback(false); return; }
     try {
       const currentTime = _youtubePlayer.getCurrentTime();
       if (currentTime > 3) {
         _youtubePlayer.seekTo(0, true);
         broadcast({ type: MSG.YOUTUBE_STATE, state: _youtubePlayer.getPlayerState(), time: 0 });
-        cb(true);
+        callback(true);
         return;
       }
       const ids = _youtubePlayer.getPlaylist?.() || [];
       const idx = _youtubePlayer.getPlaylistIndex?.() ?? -1;
       if (ids.length > 0 && idx > 0) {
         _youtubePlayer.previousVideo();
-        cb(true);
+        callback(true);
         return;
       }
     } catch { /* noop */ }
-    cb(false);
-  }) as (...args: unknown[]) => void);
+    callback(false);
+  });
 
-  bus.on('youtube:broadcast-sync', (() => {
+  bus.on('youtube:broadcast-sync', () => {
     // Imported dynamically to avoid circular deps
     import('./sync.ts').then(mod => mod.broadcastYouTubeSync());
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube preview (from URL input)
-  bus.on('youtube:preview', ((...args: unknown[]) => {
-    const url = args[0] as string;
+  bus.on('youtube:preview', (url) => {
     fetchYouTubePreview(url || '');
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube load from input field
-  bus.on('youtube:load-from-input', (() => {
+  bus.on('youtube:load-from-input', () => {
     const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
     if (!input) return;
     const url = input.value.trim();
@@ -761,11 +754,10 @@ export function initYouTube(): void {
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Sync nudge for YouTube (adjust playback position by ms delta)
-  bus.on('sync:youtube-nudge', ((...args: unknown[]) => {
-    const ms = Number(args[0]);
+  bus.on('sync:youtube-nudge', (ms) => {
     if (!_youtubePlayer?.seekTo || !Number.isFinite(ms)) return;
     try {
       const current = _youtubePlayer.getCurrentTime();
@@ -773,27 +765,22 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Nudge error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube refresh display (from tab switch)
-  bus.on('youtube:refresh-display', (() => {
+  bus.on('youtube:refresh-display', () => {
     refreshYouTubeDisplay();
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube set volume (from audio engine)
-  bus.on('youtube:set-volume', ((...args: unknown[]) => {
-    const vol = Number(args[0]);
-    if (_youtubePlayer?.setVolume && Number.isFinite(vol)) {
-      _youtubePlayer.setVolume(vol);
+  bus.on('youtube:set-volume', (volumePercent) => {
+    if (_youtubePlayer?.setVolume && Number.isFinite(volumePercent)) {
+      _youtubePlayer.setVolume(volumePercent);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
-  bus.on('youtube:sub-seek', ((...args: unknown[]) => {
-    const playlistIdx = Number(args[0]);
-    const subIdx = Number(args[1]);
-    const isCurrent = args[2] as boolean;
-
+  bus.on('youtube:sub-seek', (playlistIdx, subIdx, isCurrent) => {
     if (!_youtubePlayer) return;
 
     if (isCurrent) {
@@ -812,11 +799,10 @@ export function initYouTube(): void {
       bus.emit('playlist:play-track', playlistIdx);
       // The sub-index will be picked up after loadYouTubeVideo
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Populate sub-items when expanding a YouTube playlist entry
-  bus.on('youtube:populate-sub-items', ((...args: unknown[]) => {
-    const playlistId = args[0] as string;
+  bus.on('youtube:populate-sub-items', (playlistId, _playlistIdx) => {
     if (!playlistId) return;
 
     let ids: string[] = [];
@@ -858,11 +844,10 @@ export function initYouTube(): void {
     }
 
     bus.emit('ui:update-playlist');
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube load from chat message link
-  bus.on('youtube:load-from-chat', ((...args: unknown[]) => {
-    const url = args[0] as string;
+  bus.on('youtube:load-from-chat', (url) => {
     if (!url) return;
 
     // Host-only guard
@@ -929,11 +914,10 @@ export function initYouTube(): void {
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection | null;
+  bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
@@ -985,7 +969,7 @@ export function initYouTube(): void {
     } catch (e) {
       log.warn('[YouTube] Bootstrap send failed:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[YouTube] Player initialized');
 }

@@ -395,19 +395,17 @@ export function initRelay(): void {
   });
 
   // Accept incoming relay connections routed from peer.ts
-  bus.on('relay:incoming-connection', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
+  bus.on('relay:incoming-connection', (conn: DataConnection) => {
     if (conn) handleRelayConnection(conn);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Relay: serve current file to downstream peer
-  bus.on('relay:serve-current-file', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
-    const msg = args[1] as Record<string, unknown>;
+  bus.on('relay:serve-current-file', (conn: DataConnection, msg: unknown) => {
+    const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
 
-    const reqName = msg.name ? String(msg.name) : '';
-    const reqIndex = msg.index !== undefined ? Number(msg.index) : undefined;
+    const reqName = m.name ? String(m.name) : '';
+    const reqIndex = m.index !== undefined ? Number(m.index) : undefined;
 
     const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
     const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
@@ -459,17 +457,16 @@ export function initRelay(): void {
       log.debug('[Relay] No matching data yet for', reqName || 'current');
       safeSend(conn, { type: MSG.FILE_WAIT, message: 'Relay source not ready yet' });
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Relay: serve recovery chunk to downstream peer
-  bus.on('relay:serve-recovery', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
-    const msg = args[1] as Record<string, unknown>;
+  bus.on('relay:serve-recovery', (conn: DataConnection, msg: unknown) => {
+    const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
 
-    const fileName = (msg.fileName || msg.name) as string || '';
-    const nextChunk = Number(msg.nextChunk) || 0;
-    const sessionId = msg.sessionId as number || getState<number>('transfer.localSessionId');
+    const fileName = (m.fileName || m.name) as string || '';
+    const nextChunk = Number(m.nextChunk) || 0;
+    const sessionId = m.sessionId as number || getState<number>('transfer.localSessionId');
 
     log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}`);
 
@@ -481,18 +478,18 @@ export function initRelay(): void {
       sessionId,
       requestId: `${conn.peer}|recovery`,
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump
-  bus.on('opfs:read-complete', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    if (!data) return;
+  bus.on('opfs:read-complete', (data: unknown) => {
+    const d = data as Record<string, unknown>;
+    if (!d) return;
 
-    const chunk = data.chunk as Uint8Array;
-    const index = data.index as number;
-    const filename = data.filename as string;
-    const requestId = data.requestId as string || '';
-    const sessionId = data.sessionId as number;
+    const chunk = d.chunk as Uint8Array;
+    const index = d.index as number;
+    const filename = d.filename as string;
+    const requestId = d.requestId as string || '';
+    const sessionId = d.sessionId as number;
 
     // Parse requestId format: "<peerId>|<tag>"
     const sepIdx = requestId.lastIndexOf('|');
@@ -528,7 +525,7 @@ export function initRelay(): void {
 
     // Advance the catch-up pump (sequential: wait for response before next read)
     onOpfsCatchupReadComplete(peerId, sessionId, tag);
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Relay] Handlers registered');
 }

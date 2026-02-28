@@ -335,33 +335,31 @@ export function initSync(): void {
   });
 
   // Bus event handlers for UI-triggered sync actions
-  bus.on('sync:nudge', ((...args: unknown[]) => {
-    const val = Number(args[0]);
-    if (!Number.isFinite(val)) return;
+  bus.on('sync:nudge', (ms) => {
+    if (!Number.isFinite(ms)) return;
     // Dynamic import to avoid circular dependency
-    import('../player/playback.ts').then(mod => mod.adjustSync(val / 1000));
-  }) as (...args: unknown[]) => void);
+    import('../player/playback.ts').then(mod => mod.adjustSync(ms / 1000));
+  });
 
-  bus.on('sync:auto-sync', (() => {
+  bus.on('sync:auto-sync', () => {
     handleMainSyncBtn();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('sync:close-manual', (() => {
+  bus.on('sync:close-manual', () => {
     const overlay = document.getElementById('manual-sync-overlay');
     if (overlay) overlay.classList.remove('show');
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('sync:display-update', (() => {
+  bus.on('sync:display-update', () => {
     const localOffset = getState<number>('sync.localOffset') || 0;
     const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
     const total = localOffset + autoSyncOffset;
     const el = document.getElementById('manual-sync-value');
     if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
-  }) as (...args: unknown[]) => void);
+  });
 
   // Worker tick handlers: Guest sends heartbeat/ping to host
-  bus.on('worker:timer-tick', ((...args: unknown[]) => {
-    const id = args[0] as string;
+  bus.on('worker:timer-tick', (id) => {
     const hostConn = getState<DataConnection | null>('network.hostConn');
     if (!hostConn || !hostConn.open) return;
 
@@ -370,7 +368,7 @@ export function initSync(): void {
     } else if (id === 'ping') {
       try { hostConn.send({ type: MSG.PING_LATENCY, timestamp: Date.now() }); } catch { /* noop */ }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Sync] Handlers registered');
 }

@@ -6,43 +6,51 @@
 
 import type { EventMap } from '../types/index.ts';
 
+// ── Type-level helpers ──────────────────────────────────────────
+
 type EventKey = keyof EventMap | (string & {});
-type Listener = (...args: unknown[]) => void;
+
+type EventArgs<K> = K extends keyof EventMap ? EventMap[K] : unknown[];
+
+type TypedListener<K> = (...args: EventArgs<K>) => void;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyListener = (...args: any[]) => void;
 
 class EventBusImpl {
-  private _listeners = new Map<string, Set<Listener>>();
+  private _listeners = new Map<string, Set<AnyListener>>();
 
   /**
    * Subscribe to an event. Returns an unsubscribe function.
    */
-  on<K extends EventKey>(event: K, fn: Listener): () => void {
+  on<K extends EventKey>(event: K, fn: TypedListener<K>): () => void {
     let set = this._listeners.get(event as string);
     if (!set) {
       set = new Set();
       this._listeners.set(event as string, set);
     }
-    set.add(fn);
+    set.add(fn as AnyListener);
     return () => this.off(event, fn);
   }
 
   /**
    * Subscribe once — auto-removes after first invocation.
    */
-  once<K extends EventKey>(event: K, fn: Listener): () => void {
-    const wrapper: Listener = (...args) => {
-      this.off(event, wrapper);
-      fn(...args);
+  once<K extends EventKey>(event: K, fn: TypedListener<K>): () => void {
+    const wrapper: AnyListener = (...args) => {
+      this.off(event, wrapper as TypedListener<K>);
+      (fn as AnyListener)(...args);
     };
-    return this.on(event, wrapper);
+    return this.on(event, wrapper as TypedListener<K>);
   }
 
   /**
    * Unsubscribe a specific listener.
    */
-  off<K extends EventKey>(event: K, fn: Listener): void {
+  off<K extends EventKey>(event: K, fn: TypedListener<K>): void {
     const set = this._listeners.get(event as string);
     if (set) {
-      set.delete(fn);
+      set.delete(fn as AnyListener);
       if (set.size === 0) this._listeners.delete(event as string);
     }
   }
@@ -50,7 +58,7 @@ class EventBusImpl {
   /**
    * Emit an event with payload.
    */
-  emit<K extends EventKey>(event: K, ...args: unknown[]): void {
+  emit<K extends EventKey>(event: K, ...args: EventArgs<K>): void {
     const set = this._listeners.get(event as string);
     if (!set) return;
     const snapshot = [...set];

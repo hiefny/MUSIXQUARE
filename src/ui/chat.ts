@@ -402,19 +402,19 @@ export function initChat(): void {
   }
 
   // Bus event for toggling drawer from other modules
-  bus.on('ui:toggle-chat-drawer', ((..._args: unknown[]) => {
+  bus.on('ui:toggle-chat-drawer', () => {
     toggleChatDrawer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Close chat drawer (used by YouTube load-from-chat)
-  bus.on('ui:close-chat-drawer', ((..._args: unknown[]) => {
+  bus.on('ui:close-chat-drawer', () => {
     if (_isChatDrawerOpen) toggleChatDrawer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // System messages from loader (avoids circular import with toast.ts)
-  bus.on('chat:system-message', ((...args: unknown[]) => {
-    addSystemChatMessage(args[0] as string);
-  }) as (...args: unknown[]) => void);
+  bus.on('chat:system-message', (text: string) => {
+    addSystemChatMessage(text);
+  });
 
   log.info('[Chat] Initialized');
 }

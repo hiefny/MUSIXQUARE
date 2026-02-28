@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import type { ChannelMode } from '../types/index.ts';
 import {
   getMasterGain,
   getToneMerge,
@@ -91,7 +92,7 @@ export function setChannelMode(mode: number): void {
   }
 
   applySettings();
-  bus.emit('audio:channel-changed', mode);
+  bus.emit('audio:channel-changed', mode as ChannelMode);
 }
 
 // ─── 7.1 Surround Mode ────────────────────────────────────────────
@@ -190,7 +191,7 @@ export function setSurroundChannel(idx: number): void {
     log.warn('[Surround] setSurroundChannel error:', e);
   }
 
-  bus.emit('audio:channel-changed', idx);
+  bus.emit('audio:channel-changed', idx as ChannelMode);
 }
 
 /**
@@ -203,17 +204,14 @@ export async function setChannel(mode: number): Promise<void> {
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
-bus.on('audio:set-channel-mode', ((...args: unknown[]) => {
-  const mode = Number(args[0]);
+bus.on('audio:set-channel-mode', (mode: number) => {
   if (Number.isFinite(mode)) setChannel(mode).catch(e => log.warn('[Channel] setChannel failed:', e));
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:toggle-surround', ((...args: unknown[]) => {
-  const enabled = !!args[0];
+bus.on('audio:toggle-surround', (enabled: boolean) => {
   toggleSurroundMode(enabled);
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:set-surround-channel', ((...args: unknown[]) => {
-  const idx = Number(args[0]);
+bus.on('audio:set-surround-channel', (idx: number) => {
   if (Number.isFinite(idx) && idx >= 0 && idx <= 7) setSurroundChannel(idx);
-}) as (...args: unknown[]) => void);
+});

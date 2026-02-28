@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import type { AppStateValue } from '../core/constants.ts';
 import { getCurrentAudioBuffer } from './playback.ts';
 
 // ─── Video Element ─────────────────────────────────────────────────
@@ -56,7 +57,7 @@ export function isMediaVideo(blob: Blob | File | null, metadata?: Record<string,
 export function setEngineMode(mode: string): void {
   log.debug(`[Engine] Switching mode to: ${mode}`);
 
-  let targetState: string;
+  let targetState: AppStateValue;
   switch (mode) {
     case 'video':
       targetState = APP_STATE.PLAYING_VIDEO;
@@ -72,11 +73,11 @@ export function setEngineMode(mode: string): void {
       targetState = APP_STATE.IDLE;
   }
 
-  const currentState = getState<string>('appState');
-  const newState = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
+  const currentState = getState<AppStateValue>('appState');
+  const newState: AppStateValue = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
 
   // For YouTube, always set the target state so body class is applied
-  const finalState = mode === 'youtube' ? targetState : newState;
+  const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
   setState('appState', finalState);
   bus.emit('player:state-changed', finalState);
 
@@ -165,25 +166,24 @@ export function initVideo(): void {
   }
 
   // Sync body mode class with app state changes
-  bus.on('player:state-changed', ((...args: unknown[]) => {
-    updateBodyModeClass(args[0] as string);
-  }) as (...args: unknown[]) => void);
+  bus.on('player:state-changed', (state: string) => {
+    updateBodyModeClass(state);
+  });
 
   // Sync video element volume with master volume
-  bus.on('player:sync-video-volume', ((...args: unknown[]) => {
-    const vol = Number(args[0]);
-    if (!_videoElement || !Number.isFinite(vol)) return;
+  bus.on('player:sync-video-volume', (volume: number) => {
+    if (!_videoElement || !Number.isFinite(volume)) return;
 
     // [Double Audio Fix] Mute video when playing via audio buffer decode mode
     if (getCurrentAudioBuffer()) {
       _videoElement.volume = 0;
       _videoElement.muted = true;
     } else {
-      try { _videoElement.volume = vol; } catch (e) {
+      try { _videoElement.volume = volume; } catch (e) {
         log.debug('[Video] Volume set failed:', e);
       }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Video] Initialized');
 }

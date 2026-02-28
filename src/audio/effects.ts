@@ -293,12 +293,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Central audio effect dispatcher from settings UI */
-bus.on('audio:update-effect', ((...args: unknown[]) => {
-  const type = args[0] as string;
-  const param = args[1] as string;
-  const value = Number(args[2]);
-  const isPreview = !!args[3]; // true = dragging (input), false = released (change)
-
+bus.on('audio:update-effect', (type, param, value, isPreview) => {
   if (!Number.isFinite(value)) return;
 
   switch (type) {
@@ -342,31 +337,26 @@ bus.on('audio:update-effect', ((...args: unknown[]) => {
     default:
       log.warn('[Effects] Unknown effect type:', type);
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Set preamp gain from dB value */
-bus.on('audio:set-preamp', ((...args: unknown[]) => {
-  const val = Number(args[0]);
-  const isPreview = !!args[1];
-  if (!Number.isFinite(val)) return;
-  setPreamp(val);
-  if (!isPreview) _broadcastOrRequestSetting(MSG.PREAMP, val);
-}) as (...args: unknown[]) => void);
+bus.on('audio:set-preamp', (value, isPreview) => {
+  if (!Number.isFinite(value)) return;
+  setPreamp(value);
+  if (!isPreview) _broadcastOrRequestSetting(MSG.PREAMP, value);
+});
 
 /** Set EQ band */
-bus.on('audio:set-eq', ((...args: unknown[]) => {
-  const band = Number(args[0]);
-  const val = Number(args[1]);
-  const isPreview = !!args[2];
-  if (!Number.isFinite(band) || !Number.isFinite(val)) return;
-  setEQ(band, val);
+bus.on('audio:set-eq', (band, value, isPreview) => {
+  if (!Number.isFinite(band) || !Number.isFinite(value)) return;
+  setEQ(band, value);
   if (!isPreview) {
-    _broadcastOrRequestSettingEQ(band, val);
+    _broadcastOrRequestSettingEQ(band, value);
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Reset handlers — with OP/Host routing */
-bus.on('audio:reset-reverb', (() => {
+bus.on('audio:reset-reverb', () => {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (!hostConn) {
     // Host: reset locally + broadcast
@@ -382,9 +372,9 @@ bus.on('audio:reset-reverb', (() => {
       hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-eq', (() => {
+bus.on('audio:reset-eq', () => {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (!hostConn) {
     // Host: reset locally + broadcast
@@ -396,9 +386,9 @@ bus.on('audio:reset-eq', (() => {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-stereo', (() => {
+bus.on('audio:reset-stereo', () => {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (!hostConn) {
     resetStereoWidth();
@@ -409,9 +399,9 @@ bus.on('audio:reset-stereo', (() => {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value: 100 });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-vbass', (() => {
+bus.on('audio:reset-vbass', () => {
   const hostConn = getState<DataConnection | null>('network.hostConn');
   if (!hostConn) {
     resetVirtualBass();
@@ -422,19 +412,18 @@ bus.on('audio:reset-vbass', (() => {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 0 });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Sync state defaults to Tone.js nodes after audio graph init */
-bus.on('audio:ready', (() => {
+bus.on('audio:ready', () => {
   log.info('[Effects] Audio ready — applying default settings');
   applySettings();
-}) as (...args: unknown[]) => void);
+});
 
 /**
  * Host: Send all current audio settings to a newly connected peer (late-join bootstrap).
  */
-bus.on('network:peer-connected', ((...args: unknown[]) => {
-  const conn = args[0] as DataConnection | null;
+bus.on('network:peer-connected', (conn) => {
   if (!conn?.open) return;
 
   // Only Host bootstraps guests
@@ -480,7 +469,7 @@ bus.on('network:peer-connected', ((...args: unknown[]) => {
   } catch (e) {
     log.warn('[Effects] Bootstrap send failed:', e);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // ─── Network Protocol Handlers (Host→Guest effect sync) ──────────
 

@@ -269,6 +269,10 @@ export interface EventMap {
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];
 
+  // ── Worker ──────────────────────────────────────────────────────────
+  'worker:sync-command': [payload: { command: string; id: string; interval?: number }];
+  'worker:timer-tick': [id: string];
+
   // ── Dynamic State ─────────────────────────────────────────────────
-  [key: `state:${string}`]: [value: unknown];
+  [key: `state:${string}`]: [value: unknown, path: string];
 }

@@ -111,9 +111,9 @@ export function initMediaSession(): void {
   }
 
   // Listen for metadata update events from playlist module
-  bus.on('player:metadata-update', ((...args: unknown[]) => {
-    updateMediaSessionMetadata(args[0] as PlaylistItem);
-  }) as (...args: unknown[]) => void);
+  bus.on('player:metadata-update', (item: PlaylistItem) => {
+    updateMediaSessionMetadata(item);
+  });
 
   log.info('[MediaSession] Initialized');
 }

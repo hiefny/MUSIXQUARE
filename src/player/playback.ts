@@ -832,6 +832,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       const playlist = getState<PlaylistItem[]>('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || '';
       bus.emit('player:metadata-update', {
+        type: 'file',
         title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
         name,
       });
@@ -863,6 +864,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     if (isRemoteGuest()) {
       const playlist2 = getState<PlaylistItem[]>('playlist.items') || [];
       bus.emit('player:metadata-update', {
+        type: 'file',
         title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
         name: playlist2[currentTrackIndex]?.name || '',
       });
@@ -1043,6 +1045,7 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
         // Remote guests: don't attempt file recovery (transport guard)
         if (isRemoteGuest()) {
           bus.emit('player:metadata-update', {
+            type: 'file',
             title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
             name: item.name,
           });
@@ -1260,29 +1263,24 @@ export function initPlayback(): void {
   });
 
   // Video sync timer tick
-  bus.on('worker:timer-tick', ((...args: unknown[]) => {
-    if (args[0] === 'video-sync') checkVideoSync();
-  }) as (...args: unknown[]) => void);
+  bus.on('worker:timer-tick', (id) => {
+    if (id === 'video-sync') checkVideoSync();
+  });
 
   // Stop all media (called from youtube player before loading)
-  bus.on('player:stop-all-media', (() => {
+  bus.on('player:stop-all-media', () => {
     stopAllMedia();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Sync: provide current track position via callback pattern
-  bus.on('sync:get-position', ((...args: unknown[]) => {
-    const callback = args[0] as ((pos: number) => void) | undefined;
+  bus.on('sync:get-position', (callback) => {
     if (typeof callback === 'function') {
       callback(getTrackPosition());
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Sync: handle sync response from host (apply time + play/pause)
-  bus.on('sync:response', ((...args: unknown[]) => {
-    const hostTime = Number(args[0]) || 0;
-    const isPlaying = args[1] as boolean;
-    const oneWayLatency = Number(args[2]) || 0;
-
+  bus.on('sync:response', (hostTime, isPlaying, oneWayLatency) => {
     const localOffset = getState<number>('sync.localOffset') || 0;
     // oneWayLatency는 extrapolatedTime 계산에 이미 반영됨 (elapsed에서 rtt/2 차감)
     // 여기서 또 더하면 이중 보정 → 게스트가 호스트보다 앞서감
@@ -1307,41 +1305,36 @@ export function initPlayback(): void {
 
     const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms 보정)` : '';
     bus.emit('ui:show-toast', `동기화 완료${rttLabel}`);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Sync: apply nudge offset by re-seeking
-  bus.on('sync:nudge-apply', ((..._args: unknown[]) => {
+  bus.on('sync:nudge-apply', (_ms) => {
     const currentState = getState<string>('appState');
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
       play(getTrackPosition());
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Surround mode toggled during playback: restart at current position
-  bus.on('audio:surround-toggled', (() => {
+  bus.on('audio:surround-toggled', () => {
     const currentState = getState<string>('appState');
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
       play(getTrackPosition());
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Safety polling: periodically check if track ended (called from UI loop)
-  bus.on('player:check-ended', (() => {
+  bus.on('player:check-ended', () => {
     handleEnded();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Clear previous track state (called from transfer module during track switch)
-  bus.on('storage:clear-previous-track', ((...args: unknown[]) => {
-    const reason = (args[0] as string) || '';
-    clearPreviousTrackState(reason);
-  }) as (...args: unknown[]) => void);
+  bus.on('storage:clear-previous-track', (context) => {
+    clearPreviousTrackState(context);
+  });
 
   // OPFS file ready: finalize guest download processing
-  bus.on('opfs:file-ready', (async (...args: unknown[]) => {
-    const filename = args[0] as string;
-    const _sessionId = args[1] as number;
-    const isPreload = args[2] as boolean;
-
+  bus.on('opfs:file-ready', async (filename, _sessionId, isPreload) => {
     if (isPreload) {
       // Preload files are handled by preload module via storage:preload-file-ready
       bus.emit('storage:preload-file-ready', filename, _sessionId);
@@ -1360,14 +1353,11 @@ export function initPlayback(): void {
     }
 
     await finalizeGuestFile(file);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Use preloaded track (skip download, decode from preload cache)
-  bus.on('storage:use-preloaded', ((...args: unknown[]) => {
-    const index = args[0] as number;
-    const _name = args[1] as string;
-
-    log.debug(`[Playback] Using preloaded track for index: ${index} (${_name})`);
+  bus.on('storage:use-preloaded', (index, name) => {
+    log.debug(`[Playback] Using preloaded track for index: ${index} (${name})`);
     setState('transfer.skipIncomingFile', true);
     setState('transfer.waitingForPreload', true);
 
@@ -1381,18 +1371,16 @@ export function initPlayback(): void {
       // Blob not ready yet — set watchdog, will be triggered by opfs:file-ready preload path
       log.debug('[Playback] Preload blob not ready yet, waiting...');
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Transfer progress (update loader UI)
-  bus.on('storage:transfer-progress', ((...args: unknown[]) => {
-    const percent = args[0] as number;
-    bus.emit('ui:show-loader', true, `수신 중... ${percent}%`);
-    bus.emit('ui:update-loader', percent);
-  }) as (...args: unknown[]) => void);
+  bus.on('storage:transfer-progress', (progress, _total) => {
+    bus.emit('ui:show-loader', true, `수신 중... ${progress}%`);
+    bus.emit('ui:update-loader', progress);
+  });
 
   // Host: Send playback state + current file to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection | null;
+  bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
@@ -1456,7 +1444,7 @@ export function initPlayback(): void {
     } catch (e) {
       log.warn('[Playback] Bootstrap send failed:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Playback] Engine initialized');
 }

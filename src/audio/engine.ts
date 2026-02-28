@@ -299,10 +299,9 @@ async function _doInitAudio(): Promise<void> {
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Set master volume (0-1) */
-bus.on('audio:set-volume', ((...args: unknown[]) => {
-  const vol = Number(args[0]);
-  if (!Number.isFinite(vol)) return;
-  const clamped = Math.max(0, Math.min(1, vol));
+bus.on('audio:set-volume', (volume) => {
+  if (!Number.isFinite(volume)) return;
+  const clamped = Math.max(0, Math.min(1, volume));
   setState('audio.masterVolume', clamped);
   if (masterGain) {
     masterGain.gain.rampTo(clamped, 0.1);
@@ -312,19 +311,17 @@ bus.on('audio:set-volume', ((...args: unknown[]) => {
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
   // Sync video element volume (native video playback)
   bus.emit('player:sync-video-volume', clamped);
-}) as (...args: unknown[]) => void);
+});
 
 /** Apply volume to YouTube player */
-bus.on('audio:apply-youtube-volume', (() => {
+bus.on('audio:apply-youtube-volume', () => {
   const vol = getState<number>('audio.masterVolume') ?? 1;
   // YouTube player volume is 0-100
   bus.emit('youtube:set-volume', Math.round(vol * 100));
-}) as (...args: unknown[]) => void);
+});
 
 /** Connect player node to surround routing */
-bus.on('audio:connect-surround', ((...args: unknown[]) => {
-  const playerNode = args[0] as ToneNode | null;
-  const channelIdx = args[1] as number;
+bus.on('audio:connect-surround', (playerNode, channelIdx) => {
   if (!playerNode) return;
 
   const { splitter, gain } = ensureSurroundNodes();
@@ -336,7 +333,7 @@ bus.on('audio:connect-surround', ((...args: unknown[]) => {
   } catch { /* expected */ }
   gain.connect(pre);
 
-  playerNode.connect(splitter);
+  (playerNode as ToneNode).connect(splitter);
 
   try {
     splitter.disconnect();
@@ -355,17 +352,17 @@ bus.on('audio:connect-surround', ((...args: unknown[]) => {
   }
 
   log.debug(`[Audio] Surround connected: channel ${channelIdx}`);
-}) as (...args: unknown[]) => void);
+});
 
 /** Activate audio engine (triggered from setup UI on user interaction) */
-bus.on('audio:activate', (async () => {
+bus.on('audio:activate', async () => {
   try {
     await initAudio();
     log.info('[Audio] Activated via user interaction');
   } catch (e) {
     log.warn('[Audio] Activation failed:', e);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // Re-export Tone types for downstream consumers
 export type {

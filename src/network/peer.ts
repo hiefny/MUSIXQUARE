@@ -878,20 +878,16 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
-bus.on('network:broadcast', ((...args: unknown[]) => {
-  const msg = args[0];
-  if (msg) broadcast(msg);
-}) as (...args: unknown[]) => void);
+bus.on('network:broadcast', (data) => {
+  if (data) broadcast(data);
+});
 
-bus.on('network:broadcast-except', ((...args: unknown[]) => {
-  const excludePeerId = args[0] as string;
-  const msg = args[1];
-  if (msg) broadcastExcept(excludePeerId, msg);
-}) as (...args: unknown[]) => void);
+bus.on('network:broadcast-except', (peerId, data) => {
+  if (data) broadcastExcept(peerId, data);
+});
 
 // Host: Toggle operator permission on a peer
-bus.on('network:toggle-operator', ((...args: unknown[]) => {
-  const peerId = args[0] as string;
+bus.on('network:toggle-operator', (peerId) => {
   if (!peerId) return;
 
   // Only Host can toggle operator
@@ -911,20 +907,19 @@ bus.on('network:toggle-operator', ((...args: unknown[]) => {
     broadcastDeviceList();
     bus.emit('ui:show-toast', `${p.label} 권한 ${p.isOp ? '부여됨' : '회수됨'}`);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // Expose toggleOperator globally for device-list UI buttons
 (window as unknown as Record<string, unknown>).toggleOperator = (peerId: string) => {
   bus.emit('network:toggle-operator', peerId);
 };
 
-bus.on('network:device-list', ((...args: unknown[]) => {
-  const list = args[0] as Array<Record<string, unknown>>;
+bus.on('network:device-list', (list) => {
   if (Array.isArray(list)) {
     setState('network.lastKnownDeviceList', list);
     bus.emit('network:device-list-update', list);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // ─── Guest Protocol Handlers ──────────────────────────────────────
 

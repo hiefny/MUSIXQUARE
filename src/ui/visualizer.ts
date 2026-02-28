@@ -236,23 +236,23 @@ export function initVisualizer(): void {
   });
 
   // Listen for check events from tab switch
-  bus.on('ui:visualizer-check', ((..._args: unknown[]) => {
+  bus.on('ui:visualizer-check', () => {
     const currentState = getState<string>('appState');
     if (isIdleOrPaused(currentState)) drawIdleVisualizer();
     else startVisualizer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Listen for playback state changes
-  bus.on('player:state-changed', ((..._args: unknown[]) => {
+  bus.on('player:state-changed', () => {
     const currentState = getState<string>('appState');
     if (isIdleOrPaused(currentState)) drawIdleVisualizer();
     else startVisualizer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Listen for visualizer start command from playback
-  bus.on('visualizer:start', ((..._args: unknown[]) => {
+  bus.on('visualizer:start', () => {
     startVisualizer();
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Visualizer] Initialized');
 }

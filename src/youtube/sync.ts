@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { getYouTubePlayer } from './player.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
@@ -35,9 +35,9 @@ export function broadcastYouTubeSync(): void {
       if (sIdx !== currentYouTubeSubIndex) {
         setState('youtube.currentSubIndex', sIdx);
 
-        const playlist = getState<unknown[]>('playlist.items') || [];
+        const playlist = getState<PlaylistItem[]>('playlist.items') || [];
         const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-        const currentItem = playlist[currentTrackIndex] as Record<string, unknown> | undefined;
+        const currentItem = playlist[currentTrackIndex];
 
         if (currentItem?.playlistId) {
           const pid = currentItem.playlistId as string;
@@ -164,7 +164,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
 
       bus.emit('ui:update-playlist');
-      const playlist = getState<unknown[]>('playlist.items') || [];
+      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
       const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
       bus.emit('player:metadata-update', playlist[currentTrackIndex]);
     }
@@ -247,9 +247,9 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
 
   bus.emit('ui:update-playlist');
 
-  const playlist = getState<unknown[]>('playlist.items') || [];
+  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
   const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const currentItem = playlist[currentTrackIndex] as Record<string, unknown> | undefined;
+  const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
     bus.emit('player:metadata-update', currentItem);

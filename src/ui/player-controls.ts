@@ -180,7 +180,7 @@ async function copyInviteCode(): Promise<void> {
     showToast(t('toast.invite_code_info', { count: cnt, code }));
     document.querySelectorAll('.invite-code-value').forEach(el => {
       el.classList.add('copied');
-      setTimeout(() => el.classList.remove('copied'), 1000);
+      setTimeout(() => el.classList.remove('copied'), 600);
     });
   } else {
     showToast(t('toast.copy_failed'));
@@ -606,7 +606,6 @@ export function initPlayerControls(): void {
   // Play/Pause visual state
   bus.on('ui:update-play-state', (playing) => {
     const btn = document.getElementById('play-btn');
-    if (btn) btn.classList.toggle('playing', playing);
     const icon = btn?.querySelector('path');
     if (icon) {
       icon.setAttribute('d', playing

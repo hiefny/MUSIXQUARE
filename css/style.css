@@ -568,6 +568,10 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     border-radius: var(--radius-s);
     transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+.invite-code-value.copied {
+    color: var(--accent);
+    text-shadow: 0 0 6px rgba(var(--accent-rgb, 99, 102, 241), 0.4);
+}
 
 .tab-action-btn {
     background: var(--surface-2);

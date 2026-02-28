@@ -98,7 +98,7 @@ export function setEngineMode(mode: string): void {
  */
 function updateBodyModeClass(appState: string): void {
   const body = document.body;
-  body.classList.remove('mode-video', 'mode-youtube', 'mode-audio');
+  body.classList.remove('mode-video', 'mode-youtube');
 
   const videoElement = _videoElement;
   const currentFileBlob = getState('files.currentFileBlob');
@@ -124,8 +124,6 @@ function updateBodyModeClass(appState: string): void {
 
   // mode-youtube is additional for YouTube-specific UI (settings lock)
   if (appState === APP_STATE.PLAYING_YOUTUBE) body.classList.add('mode-youtube');
-
-  if (appState === APP_STATE.PLAYING_AUDIO) body.classList.add('mode-audio');
 
   // ── YouTube container visibility ──
   const ytContainer = document.getElementById('youtube-player-container');

@@ -104,6 +104,14 @@
 - 실사용 불편 신고 0건
 - **결론**: 수정 불필요
 
+### C8. 테스트 커버리지 갭 — 브라우저 전용 API 모듈
+- `opfs.ts`: `navigator.storage.getDirectory()` (OPFS API)
+- `video.ts`: `HTMLVideoElement` DOM 조작
+- `media-session.ts`: `navigator.mediaSession` API
+- 셋 다 jsdom/vitest 환경에서 네이티브 mock 불가 또는 mock 복잡도 > 실제 코드
+- Playwright/Cypress 등 E2E 테스트로만 커버 가능
+- **결론**: E2E 도입 시 함께 처리
+
 ---
 
 ## D. 참고: 기존 vendor 경고 (Vite dev server)

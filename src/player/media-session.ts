@@ -12,7 +12,7 @@ import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './playback.ts';
 import { isIdleOrPaused } from './video.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Metadata Update ───────────────────────────────────────────────
 
@@ -24,9 +24,9 @@ export function updateMediaSessionMetadata(item: PlaylistItem | null): void {
   let artwork: MediaImage[] = [];
 
   if (item.type === 'youtube') {
-    const currentYouTubeSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+    const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (item.playlistId && currentYouTubeSubIndex !== -1) {
-      const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+      const subMap = getState('youtube.subItemsMap') || {};
       const subData = subMap[item.playlistId];
       if (subData?.titles && currentYouTubeSubIndex >= 0 && currentYouTubeSubIndex < subData.titles.length && subData.titles[currentYouTubeSubIndex]) {
         title = subData.titles[currentYouTubeSubIndex];
@@ -58,19 +58,19 @@ export function initMediaSession(): void {
   log.debug('[MediaSession] Initializing action handlers...');
 
   const isBlocked = (): boolean => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
     return !!(hostConn && !isOperator);
   };
 
   navigator.mediaSession.setActionHandler('play', () => {
     if (isBlocked()) return;
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
       togglePlay();
       return;
     }
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     if (currentTrackIndex >= 0 && currentState !== APP_STATE.IDLE) {
       togglePlay();
     }
@@ -78,7 +78,7 @@ export function initMediaSession(): void {
 
   navigator.mediaSession.setActionHandler('pause', () => {
     if (isBlocked()) return;
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (!isIdleOrPaused(currentState)) togglePlay();
   });
 
@@ -111,9 +111,9 @@ export function initMediaSession(): void {
   }
 
   // Listen for metadata update events from playlist module
-  bus.on('player:metadata-update', ((...args: unknown[]) => {
-    updateMediaSessionMetadata(args[0] as PlaylistItem);
-  }) as (...args: unknown[]) => void);
+  bus.on('player:metadata-update', (item: PlaylistItem) => {
+    updateMediaSessionMetadata(item);
+  });
 
   log.info('[MediaSession] Initialized');
 }

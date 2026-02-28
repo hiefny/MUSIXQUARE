@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import type { ChannelMode } from '../types/index.ts';
 import {
   getMasterGain,
   getToneMerge,
@@ -42,7 +43,7 @@ export function setChannelMode(mode: number): void {
   if (!gL || !gR || !merge) return;
 
   const lowPass = getGlobalLowPass();
-  const subFreq = getState<number>('audio.subFreq');
+  const subFreq = getState('audio.subFreq');
   const ramp = 0.05;
 
   // Reset LowPass to full range
@@ -91,7 +92,7 @@ export function setChannelMode(mode: number): void {
   }
 
   applySettings();
-  bus.emit('audio:channel-changed', mode);
+  bus.emit('audio:channel-changed', mode as ChannelMode);
 }
 
 // ─── 7.1 Surround Mode ────────────────────────────────────────────
@@ -104,16 +105,16 @@ export function toggleSurroundMode(enabled: boolean): void {
 
   if (enabled) {
     ensureSurroundNodes();
-    const idx = getState<number>('audio.surroundChannelIndex');
+    const idx = getState('audio.surroundChannelIndex');
     if (idx === -1) setSurroundChannel(2); // Default to Center
     else setSurroundChannel(idx);
   } else {
     // Restore standard channel mode
-    setChannelMode(getState<number>('audio.channelMode'));
+    setChannelMode(getState('audio.channelMode'));
   }
 
   // Instant refresh: restart playback at current position if currently playing
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     bus.emit('audio:surround-toggled');
   }
@@ -132,7 +133,7 @@ export function setSurroundChannel(idx: number): void {
   const sGain = getSurroundGain();
   if (!splitter || !sGain) return;
 
-  const isSurround = getState<boolean>('audio.isSurroundMode');
+  const isSurround = getState('audio.isSurroundMode');
   if (!isSurround) return;
 
   const gL = getGainL();
@@ -142,7 +143,7 @@ export function setSurroundChannel(idx: number): void {
   if (!gL || !gR || !merge || !preampNode) return;
 
   const lowPass = getGlobalLowPass();
-  const subFreq = getState<number>('audio.subFreq');
+  const subFreq = getState('audio.subFreq');
 
   try {
     sGain.disconnect();
@@ -190,7 +191,7 @@ export function setSurroundChannel(idx: number): void {
     log.warn('[Surround] setSurroundChannel error:', e);
   }
 
-  bus.emit('audio:channel-changed', idx);
+  bus.emit('audio:channel-changed', idx as ChannelMode);
 }
 
 /**
@@ -203,17 +204,14 @@ export async function setChannel(mode: number): Promise<void> {
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
-bus.on('audio:set-channel-mode', ((...args: unknown[]) => {
-  const mode = Number(args[0]);
+bus.on('audio:set-channel-mode', (mode: number) => {
   if (Number.isFinite(mode)) setChannel(mode).catch(e => log.warn('[Channel] setChannel failed:', e));
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:toggle-surround', ((...args: unknown[]) => {
-  const enabled = !!args[0];
+bus.on('audio:toggle-surround', (enabled: boolean) => {
   toggleSurroundMode(enabled);
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:set-surround-channel', ((...args: unknown[]) => {
-  const idx = Number(args[0]);
+bus.on('audio:set-surround-channel', (idx: number) => {
   if (Number.isFinite(idx) && idx >= 0 && idx <= 7) setSurroundChannel(idx);
-}) as (...args: unknown[]) => void);
+});

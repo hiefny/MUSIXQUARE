@@ -11,6 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
+import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 import { showLoader, updateLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
@@ -21,27 +22,26 @@ import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
-const STANDARD_ROLE_MAP: Record<string, { label: string; placementToast: string }> = {
-  '0': { label: 'Original', placementToast: '기기를 중앙에 놓아주세요' },
-  '-1': { label: 'Left', placementToast: '기기를 왼쪽에 놓아주세요' },
-  '1': { label: 'Right', placementToast: '기기를 오른쪽에 놓아주세요' },
-  '2': { label: 'Woofer', placementToast: '기기를 중앙에 놓아주세요' },
+const STANDARD_ROLE_MAP: Record<string, { label: string; placementToastKey: string }> = {
+  '0': { label: 'Original', placementToastKey: 'role.center_placement' },
+  '-1': { label: 'Left', placementToastKey: 'role.left_placement' },
+  '1': { label: 'Right', placementToastKey: 'role.right_placement' },
+  '2': { label: 'Woofer', placementToastKey: 'role.center_placement' },
 };
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return (STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).label;
 }
 
-export function getStandardRolePreset(mode: number): { label: string; placementToast: string } {
+export function getStandardRolePreset(mode: number): { label: string; placementToastKey: string } {
   return STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0'];
 }
 
 export function showPlacementToastForChannel(mode: number): void {
-  showToast(getStandardRolePreset(mode).placementToast);
+  showToast(t(getStandardRolePreset(mode).placementToastKey));
 }
 
 // ─── Volume ──────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ function updateVolumeIcon(): void {
   const path = icon.querySelector('path');
   if (!path) return;
 
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+  const vol = getState('audio.masterVolume') ?? 1;
   if (vol === 0) {
     path.setAttribute('d', 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z');
   } else {
@@ -67,7 +67,7 @@ function onVolInput(val: number): void {
 }
 
 function onVolChange(val: number): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', { type: MSG.VOLUME, value: val / 100 });
     showToast(`Volume: ${Math.round(val)}%`);
@@ -75,18 +75,18 @@ function onVolChange(val: number): void {
 }
 
 function toggleMute(): void {
-  const masterVolume = getState<number>('audio.masterVolume') ?? 1;
+  const masterVolume = getState('audio.masterVolume') ?? 1;
   if (masterVolume > 0) {
     _preMuteVolume = masterVolume;
     bus.emit('audio:set-volume', 0);
     showToast('Muted');
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: 0 });
   } else {
     bus.emit('audio:set-volume', _preMuteVolume || 0.5);
     const newVol = _preMuteVolume || 0.5;
     showToast(`Volume: ${Math.round(newVol * 100)}%`);
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: newVol });
   }
 }
@@ -100,26 +100,26 @@ export function updateRoleBadge(): void {
 
   badge.classList.remove('connected', 'remote');
 
-  const isConnecting = getState<boolean>('network.isConnecting');
+  const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
-    text.innerText = '연결 중...';
+    text.innerText = t('network.connecting');
     return;
   }
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    const myDeviceLabel = getState<string>('network.myDeviceLabel') || '';
+    const myDeviceLabel = getState('network.myDeviceLabel') || '';
     const label = myDeviceLabel.trim() || 'Peer';
-    const latency = getState<number>('sync.lastLatencyMs') || 0;
+    const latency = getState('sync.lastLatencyMs') || 0;
     text.innerText = latency > 0 ? `${label} ${latency}ms` : label;
     badge.classList.add('connected');
-    if (getState<string>('network.connectionType') === 'remote') {
+    if (getState('network.connectionType') === 'remote') {
       badge.classList.add('remote');
     }
     return;
   }
 
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole === 'host') {
     text.innerText = 'Host';
     badge.classList.add('connected');
@@ -137,8 +137,8 @@ export function updateRoleBadge(): void {
 // ─── Invite Code ─────────────────────────────────────────────────
 
 export function getInviteCode(): string {
-  const sessionCode = getState<string>('network.sessionCode') || '';
-  const lastJoinCode = getState<string>('network.lastJoinCode') || '';
+  const sessionCode = getState('network.sessionCode') || '';
+  const lastJoinCode = getState('network.lastJoinCode') || '';
   if (sessionCode && /^\d{6}$/.test(sessionCode)) return sessionCode;
   if (lastJoinCode && /^\d{6}$/.test(lastJoinCode)) return lastJoinCode;
   return '------';
@@ -154,14 +154,14 @@ export function updateInviteCodeUI(): void {
 }
 
 function getConnectedDeviceCount(): number {
-  const lastKnownDeviceList = getState<Array<Record<string, unknown>>>('network.lastKnownDeviceList');
+  const lastKnownDeviceList = getState('network.lastKnownDeviceList');
   if (Array.isArray(lastKnownDeviceList) && lastKnownDeviceList.length) {
     return lastKnownDeviceList.filter(d => d && d.status === 'connected').length;
   }
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const appRole = getState<string>('network.appRole');
-  const sessionStarted = getState<boolean>('setup.sessionStarted');
+  const connectedPeers = getState('network.connectedPeers');
+  const hostConn = getState('network.hostConn');
+  const appRole = getState('network.appRole');
+  const sessionStarted = getState('setup.sessionStarted');
   const peerConnected = Array.isArray(connectedPeers) ? connectedPeers.filter(p => p && p.status === 'connected').length : 0;
   if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0)) {
     return 1 + peerConnected;
@@ -177,22 +177,22 @@ async function copyInviteCode(): Promise<void> {
   const ok = await copyTextToClipboard(code);
   if (ok) {
     const cnt = getConnectedDeviceCount();
-    showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
+    showToast(t('toast.invite_code_info', { count: cnt, code }));
     document.querySelectorAll('.invite-code-value').forEach(el => {
       el.classList.add('copied');
       setTimeout(() => el.classList.remove('copied'), 1000);
     });
   } else {
-    showToast('복사하지 못했어요');
+    showToast(t('toast.copy_failed'));
   }
 }
 
 // ─── Media Source Popup ──────────────────────────────────────────
 
 function openMediaSourcePopup(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('방장만 미디어를 추가할 수 있어요.');
+    showToast(t('toast.host_only_media'));
     return;
   }
   animateTransition(() => {
@@ -215,9 +215,9 @@ function closeMediaSourcePopup(): void {
 }
 
 function openYouTubePopup(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+    showToast(t('toast.host_only_youtube'));
     return;
   }
   animateTransition(() => {
@@ -244,15 +244,15 @@ function closeYouTubePopup(): void {
 // ─── File Selector ───────────────────────────────────────────────
 
 function openFileSelector(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('Host만 실행할 수 있습니다.');
+    showToast(t('toast.host_only'));
     return;
   }
   const input = document.getElementById('file-input') as HTMLInputElement | null;
   if (!input) {
     log.warn('[UI] #file-input not found');
-    showToast('파일을 선택할 수 없어요');
+    showToast(t('toast.cant_select_file'));
     return;
   }
   input.click();
@@ -261,15 +261,15 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    showToast('YouTube 모드에서는 정밀 동기화를 지원하지 않아요');
+    showToast(t('youtube.no_precision_sync'));
     return;
   }
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    showToast('모든 기기 재동기화 요청...');
+    showToast(t('toast.resync_all'));
     bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });
   } else {
     bus.emit('sync:auto-sync');
@@ -292,15 +292,15 @@ async function handleLogoReturnToMain(): Promise<void> {
       return;
     }
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const appRole = getState<string>('network.appRole');
+    const hostConn = getState('network.hostConn');
+    const appRole = getState('network.appRole');
     const hasSession = !!(hostConn || appRole === 'host');
     if (hasSession) {
       const res = await showDialog({
-        title: '초기 화면',
-        message: '초기 화면으로 돌아갈까요?\n현재 세션과 연결이 끊어져요.',
-        buttonText: '확인',
-        secondaryText: '남아있기',
+        title: t('dialog.return_home_title'),
+        message: t('dialog.return_home_msg') + '\n' + t('dialog.return_home_detail'),
+        buttonText: t('common.ok'),
+        secondaryText: t('common.stay'),
         defaultFocus: 'secondary',
       });
       if (res.action !== 'ok') return;
@@ -354,7 +354,7 @@ function initSeekBar(): void {
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
   slider.addEventListener('touchstart', () => setState('player.isSeeking', true));
   slider.addEventListener('input', () => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = fmtTime(parseFloat(slider.value));
@@ -362,12 +362,12 @@ function initSeekBar(): void {
 
   slider.addEventListener('change', () => {
     setState('player.isSeeking', false);
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const t = parseFloat(slider.value);
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
 
     // Guest (non-OP): blocked
     if (hostConn && !isOperator) return;
@@ -401,7 +401,7 @@ function initSeekBar(): void {
 // ─── Volume Sync ─────────────────────────────────────────────────
 
 function syncVolumeSlider(): void {
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+  const vol = getState('audio.masterVolume') ?? 1;
   const vSlider = document.getElementById('volume-slider') as HTMLInputElement | null;
   if (vSlider) vSlider.value = String(vol * 100);
   updateVolumeIcon();
@@ -444,15 +444,15 @@ export function initPlayerControls(): void {
       try { e?.preventDefault?.(); e?.stopPropagation?.(); } catch { /* ignore */ }
       const code = getInviteCode();
       if (!code || code === '------') {
-        showToast('초대 코드가 아직 없어요');
+        showToast(t('toast.no_invite_code'));
         return;
       }
       const ok = await copyTextToClipboard(code);
       if (ok) {
         const cnt = getConnectedDeviceCount();
-        showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
+        showToast(t('toast.invite_code_info', { count: cnt, code }));
       } else {
-        showToast(`초대 코드: ${code}`);
+        showToast(t('toast.invite_code', { code }));
       }
     };
     roleBadge.addEventListener('click', onShowCode);
@@ -513,27 +513,26 @@ export function initPlayerControls(): void {
   installAndroidRangeScrollFix();
 
   // Volume sync
-  bus.on('audio:volume-changed', ((..._args: unknown[]) => {
+  bus.on('audio:volume-changed', () => {
     syncVolumeSlider();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Role badge update events
-  bus.on('network:role-badge-update', ((..._args: unknown[]) => {
+  bus.on('network:role-badge-update', () => {
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Latency update → refresh role badge to show latency value
-  bus.on('sync:latency-update', ((..._args: unknown[]) => {
+  bus.on('sync:latency-update', () => {
     updateRoleBadge();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Peer disconnected: update UI
-  bus.on('network:peer-disconnected', ((...args: unknown[]) => {
-    const peerId = args[0] as string;
+  bus.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
     updateRoleBadge();
     updateInviteCodeUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Invite code container click delegation
   document.addEventListener('click', (e) => {
@@ -545,9 +544,9 @@ export function initPlayerControls(): void {
   });
 
   // Invite code update events
-  bus.on('ui:settings-tab-opened', ((..._args: unknown[]) => {
+  bus.on('ui:settings-tab-opened', () => {
     updateInviteCodeUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   // File input handler
   const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
@@ -560,54 +559,50 @@ export function initPlayerControls(): void {
   }
 
   // OPFS error handler (prevent silent error swallowing)
-  bus.on('opfs:error', ((...args: unknown[]) => {
-    const filename = args[0] as string;
-    const error = args[1] as string;
+  bus.on('opfs:error', (error, filename) => {
     log.error(`[OPFS] Error for ${filename}:`, error);
-    showToast(`파일 저장 오류: ${filename || 'unknown'}`);
-  }) as (...args: unknown[]) => void);
+    showToast(t('toast.file_save_error', { name: filename || 'unknown' }));
+  });
 
-  bus.on('opfs:read-error', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    log.error('[OPFS] Read error:', data?.filename, data?.error);
-    showToast(`파일 읽기 오류: ${data?.filename || 'unknown'}`);
-  }) as (...args: unknown[]) => void);
+  bus.on('opfs:read-error', (data) => {
+    const d = data as Record<string, unknown>;
+    log.error('[OPFS] Read error:', d?.filename, d?.error);
+    showToast(t('toast.file_read_error', { name: String(d?.filename || 'unknown') }));
+  });
 
-  bus.on('opfs:session-mismatch', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    log.warn('[OPFS] Session mismatch:', data?.filename);
-    showToast('세션 불일치 감지 — 파일 전송이 재시도됩니다.');
-  }) as (...args: unknown[]) => void);
+  bus.on('opfs:session-mismatch', (data) => {
+    const d = data as Record<string, unknown>;
+    log.warn('[OPFS] Session mismatch:', d?.filename);
+    showToast(t('toast.session_mismatch'));
+  });
 
   // ── Bus Event Bridge ──────────────────────────────────────────
 
   // Toast
-  bus.on('ui:show-toast', ((...args: unknown[]) => {
-    showToast(args[0] as string);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:show-toast', (message) => {
+    showToast(message);
+  });
 
   // Loader
-  bus.on('ui:show-loader', ((...args: unknown[]) => {
-    showLoader(args[0] as boolean, args[1] as string | undefined);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:show-loader', (visible, label) => {
+    showLoader(visible, label);
+  });
 
-  bus.on('ui:update-loader', ((...args: unknown[]) => {
-    updateLoader(args[0] as number);
-  }) as (...args: unknown[]) => void);
+  bus.on('ui:update-loader', (percent) => {
+    updateLoader(percent);
+  });
 
   // Play button state (enabled/disabled)
-  bus.on('ui:play-btn-state', ((...args: unknown[]) => {
-    const enabled = args[0] as boolean;
+  bus.on('ui:play-btn-state', (enabled) => {
     const btn = document.getElementById('play-btn');
     if (btn) {
       (btn as HTMLButtonElement).disabled = !enabled;
       btn.style.opacity = enabled ? '1' : '0.4';
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Play/Pause visual state
-  bus.on('ui:update-play-state', ((...args: unknown[]) => {
-    const playing = args[0] as boolean;
+  bus.on('ui:update-play-state', (playing) => {
     const btn = document.getElementById('play-btn');
     if (btn) btn.classList.toggle('playing', playing);
     const icon = btn?.querySelector('path');
@@ -616,33 +611,32 @@ export function initPlayerControls(): void {
         ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z'  // pause icon
         : 'M8 5v14l11-7z');                    // play icon
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Duration update
-  bus.on('ui:duration-update', ((...args: unknown[]) => {
-    const dur = args[0] as number;
+  bus.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
-    if (slider) { slider.max = String(dur); }
-    if (tTotal) tTotal.innerText = fmtTime(dur);
-  }) as (...args: unknown[]) => void);
+    if (slider) { slider.max = String(duration); }
+    if (tTotal) tTotal.innerText = fmtTime(duration);
+  });
 
   // Seek reset
-  bus.on('ui:seek-reset', ((..._args: unknown[]) => {
+  bus.on('ui:seek-reset', () => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) { slider.value = '0'; }
     if (tc) tc.innerText = '0:00';
-  }) as (...args: unknown[]) => void);
+  });
 
   // UI loop (seek bar + time update during playback)
   let _loopInterval: ReturnType<typeof setInterval> | null = null;
   let _endedCheckCounter = 0;
-  bus.on('ui:loop-start', ((..._args: unknown[]) => {
+  bus.on('ui:loop-start', () => {
     if (_loopInterval) clearInterval(_loopInterval);
     _endedCheckCounter = 0;
     _loopInterval = setInterval(() => {
-      const currentState = getState<string>('appState');
+      const currentState = getState('appState');
       if (isIdleOrPaused(currentState)) {
         if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
         return;
@@ -650,7 +644,7 @@ export function initPlayerControls(): void {
       const pos = getTrackPosition();
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
-      const isSeeking = getState<boolean>('player.isSeeking');
+      const isSeeking = getState('player.isSeeking');
       if (slider && !isSeeking) {
         slider.value = String(pos);
       }
@@ -663,38 +657,36 @@ export function initPlayerControls(): void {
         bus.emit('player:check-ended');
       }
     }, 250);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Clean up UI loop when playback stops entirely (session leave, etc.)
-  bus.on('player:stop-all-media', ((..._args: unknown[]) => {
+  bus.on('player:stop-all-media', () => {
     if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Player actions
-  bus.on('player:toggle-play', ((..._args: unknown[]) => {
+  bus.on('player:toggle-play', () => {
     togglePlay();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('player:seek', ((...args: unknown[]) => {
-    const time = args[0] as number;
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+  bus.on('player:seek', (time) => {
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       play(time);
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
       broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
       requestGlobalResyncDelayed();
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('player:seek-to-time', ((...args: unknown[]) => {
-    const time = args[0] as number;
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+  bus.on('player:seek-to-time', (time) => {
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
     if (hostConn && isOperator) {
       sendToHost({ type: MSG.REQUEST_SEEK, time });
     } else if (!hostConn) {
-      const currentState = getState<string>('appState');
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const currentState = getState('appState');
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
       if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         play(time);
         broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
@@ -703,44 +695,38 @@ export function initPlayerControls(): void {
         setState('player.pausedAt', time);
       }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Playlist actions
-  bus.on('playlist:toggle-repeat', ((..._args: unknown[]) => {
+  bus.on('playlist:toggle-repeat', () => {
     toggleRepeat();
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('playlist:toggle-shuffle', ((..._args: unknown[]) => {
+  bus.on('playlist:toggle-shuffle', () => {
     toggleShuffle();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Metadata update (track title in player UI)
-  bus.on('player:metadata-update', ((...args: unknown[]) => {
-    const item = args[0] as PlaylistItem;
+  bus.on('player:metadata-update', (item) => {
     if (!item) return;
     const title = item.title || item.name || 'Unknown';
     updateTitleWithMarquee(title);
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube time update (seek bar + time display)
-  bus.on('ui:time-update', ((...args: unknown[]) => {
-    const currFormatted = args[0] as string;
-    const totalFormatted = args[1] as string;
-    const currentTime = args[2] as number;
-    const duration = args[3] as number;
-
+  bus.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');
-    const isSeeking = getState<boolean>('player.isSeeking');
+    const isSeeking = getState('player.isSeeking');
 
     if (slider && duration > 0) {
       slider.max = String(duration);
       if (!isSeeking) slider.value = String(currentTime);
     }
-    if (tc && !isSeeking) tc.innerText = currFormatted;
+    if (tc && !isSeeking) tc.innerText = currentFormatted;
     if (tt) tt.innerText = totalFormatted;
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[PlayerControls] Initialized');
 }

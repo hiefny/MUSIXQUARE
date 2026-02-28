@@ -133,8 +133,6 @@
             overflow-y: auto;
         }
     </style>
-    <script src="vendor/Tone.js" defer></script>
-    <script src="vendor/peerjs.min.js" defer></script>
 </head>
 
 <body>
@@ -156,7 +154,7 @@
 
         <div class="header-content-wrapper">
             <div class="app-logo header-default-content" id="app-logo" role="button" tabindex="0"
-                aria-label="메인 화면으로 이동">MUSI<span class="logo-fade">XQUARE</span></div>
+                aria-label="" data-i18n-aria-label="nav.go_home">MUSI<span class="logo-fade">XQUARE</span></div>
             <div class="header-loading-text" id="header-loading-text">Loading...</div>
         </div>
 
@@ -170,7 +168,7 @@
 
     <div id="tab-play" class="tab-content active">
         <div class="tab-header play-header-desktop">
-            <span class="tab-title">메인</span>
+            <span class="tab-title" data-i18n="nav.home"></span>
         </div>
         <div class="tab-body">
             <div class="vinyl-wrapper">
@@ -180,7 +178,7 @@
 
             <div class="video-wrapper">
                 <video id="main-video" class="video-screen" playsinline webkit-playsinline></video>
-                <button class="fullscreen-btn" id="btn-fullscreen" aria-label="전체화면 전환">
+                <button class="fullscreen-btn" id="btn-fullscreen" aria-label="" data-i18n-aria-label="player.fullscreen">
                     <svg viewBox="0 0 24 24">
                         <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
                     </svg>
@@ -189,14 +187,14 @@
 
             <div class="track-box">
                 <div class="track-title-wrapper">
-                    <div class="track-title" id="track-title">미디어 없음</div>
+                    <div class="track-title" id="track-title" data-i18n="player.no_media"></div>
                 </div>
-                <div class="track-artist" id="track-artist">파일을 선택하거나 플레이리스트를 확인하세요</div>
+                <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint"></div>
             </div>
 
             <div class="controls-area">
                 <div class="progress-bar">
-                    <input type="range" id="seek-slider" min="0" max="100" value="0" step="0.1" aria-label="재생 위치 조절">
+                    <input type="range" id="seek-slider" min="0" max="100" value="0" step="0.1" aria-label="" data-i18n-aria-label="player.seek">
                     <div class="time-info">
                         <span id="time-curr">0:00</span>
                         <span id="time-dur">0:00</span>
@@ -205,12 +203,12 @@
 
                 <div class="play-controls-left">
                     <div class="play-btn-group">
-                        <button class="ctrl-btn" id="btn-prev" aria-label="이전 트랙">
+                        <button class="ctrl-btn" id="btn-prev" aria-label="" data-i18n-aria-label="player.prev_track">
                             <svg viewBox="0 0 24 24">
                                 <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
                             </svg>
                         </button>
-                        <button class="play-fab" id="play-btn" aria-label="재생/일시정지" disabled>
+                        <button class="play-fab" id="play-btn" aria-label="" data-i18n-aria-label="player.play_pause" disabled>
                             <svg id="icon-play" viewBox="0 0 24 24">
                                 <path d="M8 5v14l11-7z" />
                             </svg>
@@ -218,7 +216,7 @@
                                 <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                             </svg>
                         </button>
-                        <button class="ctrl-btn" id="btn-next" aria-label="다음 트랙">
+                        <button class="ctrl-btn" id="btn-next" aria-label="" data-i18n-aria-label="player.next_track">
                             <svg viewBox="0 0 24 24">
                                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
                             </svg>
@@ -230,18 +228,18 @@
                             <path
                                 d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
                         </svg>
-                        <input type="range" id="volume-slider" min="0" max="100" value="100" aria-label="볼륨 조절">
+                        <input type="range" id="volume-slider" min="0" max="100" value="100" aria-label="" data-i18n-aria-label="player.volume">
                     </div>
                 </div>
 
                 <!-- Chat Preview Button -->
-                <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label="채팅 열기">
+                <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label="" data-i18n-aria-label="chat.open">
                     <div class="chat-preview-left">
                         <svg viewBox="0 0 24 24" class="chat-preview-icon">
                             <path
                                 d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
                         </svg>
-                        <span class="chat-preview-text" id="chat-preview-text">채팅을 시작하세요</span>
+                        <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start"></span>
                     </div>
                     <span class="chat-preview-badge" id="chat-preview-badge"></span>
                 </button>
@@ -253,18 +251,18 @@
                             <path
                                 d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
                         </svg>
-                        <span>동기화</span>
+                        <span data-i18n="common.sync"></span>
                     </button>
                     <button class="file-select-btn file-select-btn-large" id="btn-media-source" style="flex:1;">
                         <svg viewBox="0 0 24 24">
                             <path
                                 d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8l7 4-7 4V8z" />
                         </svg>
-                        <span>미디어 재생</span>
+                        <span data-i18n="player.play_media"></span>
                     </button>
                 </div>
 
-                <input type="file" id="file-input" multiple aria-label="로컬 파일 선택"
+                <input type="file" id="file-input" multiple aria-label="" data-i18n-aria-label="help.local_file"
                     accept=".mp3, .wav, .ogg, .m4a, .mp4, .webm, .mkv, audio/*, video/*" style="display:none">
             </div>
         </div>
@@ -272,20 +270,20 @@
 
     <div id="tab-playlist" class="tab-content">
         <div class="tab-header">
-            <span class="tab-title">재생목록</span>
+            <span class="tab-title" data-i18n="nav.playlist"></span>
             <div class="playlist-title-area">
-                <button class="tab-action-btn" id="btn-repeat" aria-label="반복 모드 변경">
+                <button class="tab-action-btn" id="btn-repeat" aria-label="" data-i18n-aria-label="player.repeat_mode">
                     <svg viewBox="0 0 24 24">
                         <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
                     </svg>
                 </button>
-                <button class="tab-action-btn" id="btn-shuffle" aria-label="셔플 모드 변경">
+                <button class="tab-action-btn" id="btn-shuffle" aria-label="" data-i18n-aria-label="player.shuffle_mode">
                     <svg viewBox="0 0 24 24">
                         <path
                             d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
                     </svg>
                 </button>
-                <button class="tab-action-btn" id="btn-add-media" aria-label="미디어 추가">
+                <button class="tab-action-btn" id="btn-add-media" aria-label="" data-i18n-aria-label="player.add_media">
                     <svg viewBox="0 0 24 24">
                         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
                     </svg>
@@ -294,7 +292,7 @@
         </div>
         <div class="tab-body">
             <ul class="playlist-ul" id="playlist-ui">
-                <li class="list-empty-state">미디어를 추가해주세요.</li>
+                <li class="list-empty-state" data-i18n="playlist.empty_hint"></li>
             </ul>
         </div>
     </div>
@@ -302,8 +300,8 @@
     <div id="tab-guide" class="tab-content">
         <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="tab-title">도움말</span>
-                <button id="btn-close-guide" type="button" aria-label="도움말 닫기"
+                <span class="tab-title" data-i18n="nav.help"></span>
+                <button id="btn-close-guide" type="button" aria-label="" data-i18n-aria-label="common.close"
                     style="display:none; background:transparent; border:none; color:var(--text-main); cursor:pointer;"><svg
                         viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
                         <path
@@ -312,10 +310,10 @@
             </div>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
-                title="클릭하여 초대코드 복사">
+                title="" data-i18n-title="toast.click_copy_invite">
                 <div
-                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
-                    초대 코드</div>
+                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                    data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
             </div>
@@ -329,15 +327,9 @@
                         <path
                             d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
                     </svg>
-                    로컬 네트워크 권장
+                    <span data-i18n="help.local_recommended"></span>
                 </div>
-                <div class="help-desc">
-                    동일한 네트워크에 연결하면 모든 기능을 이용할 수 있어요.
-                    <ul class="help-list">
-                        <li>모든 기기를 <strong>동일한 Wi‑Fi</strong>에 연결해주세요.</li>
-                        <li>VPN/사내 보안망이 켜져 있으면 연결이 안 될 수 있어요.</li>
-                        <li>연결이 안 되면 호스트의 핫스팟에 연결 후 앱을 새로고침해주세요.</li>
-                    </ul>
+                <div class="help-desc" data-i18n-html="help.local_recommended_html">
                 </div>
             </div>
 
@@ -347,15 +339,9 @@
                         <path
                             d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
                     </svg>
-                    이렇게 연결해요
+                    <span data-i18n="setup.how_to_connect"></span>
                 </div>
-                <div class="help-desc">
-                    방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.
-                    <ul class="help-list">
-                        <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
-                        <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
-                        <li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li>
-                    </ul>
+                <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
                 </div>
             </div>
 
@@ -365,17 +351,9 @@
                         <path
                             d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                     </svg>
-                    스피커로 재생하기
+                    <span data-i18n="player.play_speakers"></span>
                 </div>
-                <div class="help-desc">
-                    참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
-                    <ul class="help-list">
-                        <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
-                        <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
-                        <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
-                        <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
-                    </ul>
-                    필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
+                <div class="help-desc" data-i18n-html="player.play_speakers_html">
                 </div>
             </div>
 
@@ -384,22 +362,16 @@
                     <svg viewBox="0 0 24 24">
                         <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                     </svg>
-                    미디어 재생하기
+                    <span data-i18n="player.play_media_action"></span>
                 </div>
-                <div class="help-desc">
-                    방장에게는 3가지 선택지가 나와요.
-                    <ul class="help-list">
-                        <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
-                        <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
-                        <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
-                    </ul>
+                <div class="help-desc" data-i18n-html="player.play_media_action_html">
                     <button class="demo-btn" id="btn-demo-guide"
                         style="width:100%; margin-top:12px; justify-content:center;">
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                             <path
                                 d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
                         </svg>
-                        앱 체험하기 (데모)
+                        <span data-i18n="setup.demo_button"></span>
                     </button>
                 </div>
             </div>
@@ -410,15 +382,9 @@
                         <path
                             d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
                     </svg>
-                    도움이 필요할 때
+                    <span data-i18n="help.need_help"></span>
                 </div>
-                <div class="help-desc">
-                    <ul class="help-list">
-                        <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li>
-                        <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
-                        <li><strong>데모 트랙 정보:</strong> Sean Pitaro - Passport [NCS Release]</li>
-                        <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
-                    </ul>
+                <div class="help-desc" data-i18n-html="help.need_help_html">
                 </div>
             </div> <!-- Ends help-block -->
         </div> <!-- Ends tab-body -->
@@ -426,13 +392,13 @@
 
     <div id="tab-settings" class="tab-content">
         <div class="tab-header" style="justify-content: space-between; align-items: center; padding-bottom: 0px;">
-            <span class="tab-title">설정</span>
+            <span class="tab-title" data-i18n="nav.settings"></span>
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
-                title="클릭하여 초대코드 복사">
+                title="" data-i18n-title="toast.click_copy_invite">
                 <div
-                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;">
-                    초대 코드</div>
+                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                    data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
             </div>
@@ -441,29 +407,28 @@
         <div class="tab-body">
             <div class="section-group">
                 <div class="section-header-row">
-                    <span class="section-title">언어 · Language</span>
+                    <span class="section-title" data-i18n="settings.language"></span>
                 </div>
                 <div class="lang-selector">
                     <div class="lang-opt" id="lang-ko">한국어</div>
                     <div class="lang-opt" id="lang-en">English</div>
-                    <div class="lang-opt" id="lang-system">시스템</div>
+                    <div class="lang-opt" id="lang-system" data-i18n="settings.system"></div>
                 </div>
             </div>
 
             <div class="section-group" id="theme-section">
                 <div class="section-header-row">
-                    <span class="section-title">테마</span>
+                    <span class="section-title" data-i18n="settings.theme"></span>
                 </div>
                 <div class="theme-selector">
-                    <div class="theme-opt" id="theme-light">라이트</div>
-                    <div class="theme-opt" id="theme-dark">다크</div>
-                    <div class="theme-opt" id="theme-system">시스템</div>
+                    <div class="theme-opt" id="theme-light" data-i18n="settings.light"></div>
+                    <div class="theme-opt" id="theme-dark" data-i18n="settings.dark"></div>
+                    <div class="theme-opt" id="theme-system" data-i18n="settings.system"></div>
                 </div>
             </div>
 
             <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
-            <div class="youtube-settings-note" id="youtube-settings-note" role="note">
-                YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.
+            <div class="youtube-settings-note" id="youtube-settings-note" role="note" data-i18n="help.youtube_no_effects">
             </div>
 
             <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
@@ -472,7 +437,7 @@
                 <!-- 1. Speaker Role -->
                 <div class="section-group">
                     <div class="section-header-row">
-                        <span class="section-title">이 기기 역할 설정하기</span>
+                        <span class="section-title" data-i18n="setup.set_role"></span>
                     </div>
 
                     <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
@@ -480,118 +445,113 @@
                         <div class="ch-opt" data-ch="-1">
                             <svg viewBox="0 0 24 24">
                                 <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-                            </svg>왼쪽 스피커
+                            </svg><span data-i18n="role.left"></span>
                         </div>
                         <div class="ch-opt" data-ch="1">
                             <svg viewBox="0 0 24 24">
                                 <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                            </svg>오른쪽 스피커
+                            </svg><span data-i18n="role.right"></span>
                         </div>
                         <div class="ch-opt" data-ch="2">
                             <svg viewBox="0 0 24 24">
                                 <path
                                     d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                                 <circle cx="12" cy="12" r="3" />
-                            </svg>서브우퍼
+                            </svg><span data-i18n="role.subwoofer"></span>
                         </div>
                         <div class="ch-opt" data-ch="0">
                             <svg viewBox="0 0 24 24">
                                 <path
                                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                            </svg>중앙 스피커
+                            </svg><span data-i18n="role.center"></span>
                         </div>
                     </div>
                     <!-- Woofer Control -->
                     <div class="slider-wrap" id="woofer-cutoff-control">
                         <div class="slider-header">
-                            <span>서브우퍼 조절하기</span>
+                            <span data-i18n="settings.subwoofer_adjust"></span>
                             <span class="val-disp" id="val-cutoff">120 Hz</span>
                         </div>
-                        <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="서브우퍼 컷오프 주파수">
+                        <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="" data-i18n-aria-label="settings.subwoofer_cutoff">
                     </div>
                 </div>
 
                 <!-- 2. Reverb -->
                 <div class="section-group">
                     <div class="section-header-row">
-                        <span class="section-title">리버브(방장 제어)</span>
+                        <span class="section-title" data-i18n="settings.reverb_host_ctrl"></span>
                         <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
-                            id="btn-reset-reverb">초기화</button>
+                            id="btn-reset-reverb" data-i18n="common.reset"></button>
                     </div>
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>믹스 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
-                                    0%</span></span>
+                            <span><span data-i18n="common.mix"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_0pct"></span></span>
                             <span class="val-disp" id="val-reverb">0%</span>
                         </div>
-                        <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="리버브 믹스">
+                        <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="" data-i18n-aria-label="settings.reverb_mix">
                     </div>
 
                     <!-- Decay Slider -->
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>반사 시간 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
-                                    5.0s</span></span>
+                            <span><span data-i18n="settings.decay_time"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_5s"></span></span>
                             <span class="val-disp" id="val-rvb-decay">5.0s</span>
                         </div>
                         <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
-                            aria-label="리버브 반사 시간">
+                            aria-label="" data-i18n-aria-label="settings.reverb_decay">
                     </div>
 
                     <!-- Pre-Delay Slider -->
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>반사 지연 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
-                                    0.1s</span></span>
+                            <span><span data-i18n="settings.predelay"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_01s"></span></span>
                             <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                         </div>
                         <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
-                            aria-label="리버브 프리딜레이">
+                            aria-label="" data-i18n-aria-label="settings.reverb_predelay">
                     </div>
 
                     <!-- Low Cut Slider (New) -->
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>하이패스 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
-                                    20Hz</span></span>
+                            <span><span data-i18n="settings.highpass"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_20hz"></span></span>
                             <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                         </div>
                         <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
-                            aria-label="리버브 로우컷">
+                            aria-label="" data-i18n-aria-label="settings.reverb_lowcut">
                     </div>
 
                     <!-- High Cut Slider (New) -->
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>로우패스 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">기본값
-                                    20.0kHz</span></span>
+                            <span><span data-i18n="settings.lowpass"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_20khz"></span></span>
                             <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                         </div>
                         <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
-                            aria-label="리버브 하이컷">
+                            aria-label="" data-i18n-aria-label="settings.reverb_highcut">
                     </div>
                 </div>
 
                 <!-- 3. Equalizer -->
                 <div class="section-group">
                     <div class="section-header-row">
-                        <span class="section-title">이퀄라이저 (방장 제어)</span>
+                        <span class="section-title" data-i18n="settings.eq_host_ctrl"></span>
                         <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
-                            id="btn-reset-eq">초기화</button>
+                            id="btn-reset-eq" data-i18n="common.reset"></button>
                     </div>
 
                     <!-- Preamp -->
                     <div class="slider-wrap" id="preamp-control">
                         <div class="slider-header">
-                            <span style="font-size:11px; font-weight:700; color:var(--text-sub);">프리앰프</span>
+                            <span style="font-size:11px; font-weight:700; color:var(--text-sub);" data-i18n="settings.preamp"></span>
                             <span class="val-disp" id="val-preamp" style="font-size:11px;">0dB</span>
                         </div>
-                        <input type="range" id="preamp-slider" min="-12" max="12" value="0" aria-label="프리앰프 게인">
+                        <input type="range" id="preamp-slider" min="-12" max="12" value="0" aria-label="" data-i18n-aria-label="settings.preamp_gain">
                     </div>
                     <div class="eq-container">
                         <div class="eq-band">
@@ -630,38 +590,36 @@
                 <!-- 4. Virtual Surround -->
                 <div class="section-group">
                     <div class="section-header-row">
-                        <span class="section-title">가상 서라운드(방장 제어)</span>
+                        <span class="section-title" data-i18n="settings.surround_host_ctrl"></span>
                         <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
-                            id="btn-reset-stereo">초기화</button>
+                            id="btn-reset-stereo" data-i18n="common.reset"></button>
                     </div>
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>너비 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">
-                                    기본값
-                                    100, 줄이면 모노, 늘리면 서라운드</span></span>
+                            <span><span data-i18n="common.width"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                    data-i18n="settings.default_100_surround"></span></span>
                             <span class="val-disp" id="val-width">100%</span>
                         </div>
-                        <input type="range" id="width-slider" min="0" max="200" value="100" aria-label="가상 서라운드 너비 조절">
+                        <input type="range" id="width-slider" min="0" max="200" value="100" aria-label="" data-i18n-aria-label="settings.surround_width">
                     </div>
                 </div>
 
                 <!-- 5. Virtual Bass -->
                 <div class="section-group" id="last-setting-section">
                     <div class="section-header-row">
-                        <span class="section-title">가상 베이스(방장 제어)</span>
+                        <span class="section-title" data-i18n="settings.bass_host_ctrl"></span>
                         <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
-                            id="btn-reset-vbass">초기화</button>
+                            id="btn-reset-vbass" data-i18n="common.reset"></button>
                     </div>
                     <div class="slider-wrap">
                         <div class="slider-header">
-                            <span>강도 <span
-                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;">
-                                    기본값 0,
-                                    늘리면 가상 베이스(왜곡 증가)</span></span>
+                            <span><span data-i18n="common.intensity"></span> <span
+                                    style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                    data-i18n="settings.default_0_distortion"></span></span>
                             <span class="val-disp" id="val-vbass">0%</span>
                         </div>
-                        <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="가상 베이스 강도">
+                        <input type="range" id="vbass-slider" min="0" max="100" value="0" aria-label="" data-i18n-aria-label="settings.bass_intensity">
                     </div>
                 </div>
 
@@ -675,15 +633,9 @@
                             <path
                                 d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
                         </svg>
-                        로컬 네트워크 권장
+                        <span data-i18n="help.local_recommended"></span>
                     </div>
-                    <div class="help-desc">
-                        동일한 네트워크에 연결하면 모든 기능을 이용할 수 있어요.
-                        <ul class="help-list">
-                            <li>모든 기기를 <strong>동일한 Wi‑Fi</strong>에 연결해주세요.</li>
-                            <li>VPN/사내 보안망이 켜져 있으면 연결이 안 될 수 있어요.</li>
-                            <li>연결이 안 되면 호스트의 핫스팟에 연결 후 앱을 새로고침해주세요.</li>
-                        </ul>
+                    <div class="help-desc" data-i18n-html="help.local_recommended_html">
                     </div>
                 </div>
 
@@ -693,15 +645,9 @@
                             <path
                                 d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
                         </svg>
-                        이렇게 연결해요
+                        <span data-i18n="setup.how_to_connect"></span>
                     </div>
-                    <div class="help-desc">
-                        <strong>QR이나 링크 없이</strong>, 방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.
-                        <ul class="help-list">
-                            <li><strong>방장:</strong> “제가 방장할래요” → 코드 확인 → “시작할래요!”</li>
-                            <li><strong>참가자:</strong> “모임에 참여할래요” → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li>
-                            <li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li>
-                        </ul>
+                    <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
                     </div>
                 </div>
 
@@ -711,17 +657,9 @@
                             <path
                                 d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                         </svg>
-                        스피커로 재생하기
+                        <span data-i18n="player.play_speakers"></span>
                     </div>
-                    <div class="help-desc">
-                        참가자가 <strong>역할(출력 채널)</strong>을 선택해요.
-                        <ul class="help-list">
-                            <li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li>
-                            <li><strong>왼쪽 스피커:</strong> L 채널 출력</li>
-                            <li><strong>오른쪽 스피커:</strong> R 채널 출력</li>
-                            <li><strong>서브우퍼:</strong> 저역 믹스 출력</li>
-                        </ul>
-                        필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.
+                    <div class="help-desc" data-i18n-html="player.play_speakers_html">
                     </div>
                 </div>
 
@@ -730,25 +668,9 @@
                         <svg viewBox="0 0 24 24">
                             <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                         </svg>
-                        미디어 재생하기
+                        <span data-i18n="player.play_media_action"></span>
                     </div>
-                    <div class="help-desc">
-                        방장에게는 3가지 선택지가 나와요.
-                        <ul class="help-list">
-                            <li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li>
-                            <li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li>
-                            <li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li>
-                        </ul>
-                        <!-- 데모 버튼 임시 숨김 처리 (요청)
-                        <button class="demo-btn" id="btn-demo-guide"
-                            style="width:100%; margin-top:12px; justify-content:center;">
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                                <path
-                                    d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
-                            </svg>
-                            앱 체험하기 (데모)
-                        </button>
-                        -->
+                    <div class="help-desc" data-i18n-html="player.play_media_action_html">
                     </div>
                 </div>
 
@@ -758,15 +680,9 @@
                             <path
                                 d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
                         </svg>
-                        도움이 필요할 때
+                        <span data-i18n="help.need_help"></span>
                     </div>
-                    <div class="help-desc">
-                        <ul class="help-list">
-                            <li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li>
-                            <li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li>
-                            <li><strong>데모 트랙 정보:</strong> Sean Pitaro - Passport [NCS Release]</li>
-                            <li><strong>기타 문의:</strong> musixentre@gmail.com</li>
-                        </ul>
+                    <div class="help-desc" data-i18n-html="help.need_help_html">
                     </div>
                 </div> <!-- Ends help-block -->
             </div> <!-- Ends desktop-help-section -->
@@ -777,8 +693,8 @@
     <!-- Slide-up Chat Drawer -->
     <div class="chat-drawer" id="chat-drawer">
         <div class="chat-drawer-header">
-            <span class="chat-drawer-title">채팅</span>
-            <button class="chat-drawer-close" id="btn-chat-close" aria-label="채팅 닫기">
+            <span class="chat-drawer-title" data-i18n="chat.title"></span>
+            <button class="chat-drawer-close" id="btn-chat-close" aria-label="" data-i18n-aria-label="chat.close">
                 <svg viewBox="0 0 24 24">
                     <path
                         d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -786,13 +702,13 @@
             </button>
         </div>
         <div class="chat-drawer-messages" id="chat-messages">
-            <div class="chat-empty">아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!</div>
+            <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">
-                <input type="text" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="200"
-                    aria-label="채팅 메시지 입력">
-                <button class="chat-send-btn" id="btn-chat-send" aria-label="메시지 보내기">
+                <input type="text" class="chat-input" id="chat-input" placeholder="" maxlength="200"
+                    aria-label="" data-i18n-placeholder="chat.placeholder" data-i18n-aria-label="chat.input_label">
+                <button class="chat-send-btn" id="btn-chat-send" aria-label="" data-i18n-aria-label="chat.send">
                     <svg viewBox="0 0 24 24">
                         <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
                     </svg>
@@ -810,29 +726,29 @@
                 <path
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
             </svg>
-            <span>메인</span>
+            <span data-i18n="nav.home"></span>
         </button>
         <button class="nav-item" data-tab="playlist">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
             </svg>
-            <span>재생목록</span>
+            <span data-i18n="nav.playlist"></span>
         </button>
         <button class="nav-item" data-tab="settings">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
             </svg>
-            <span class="nav-text-mobile">설정</span>
-            <span class="nav-text-desktop">설정 · 도움말</span>
+            <span class="nav-text-mobile" data-i18n="nav.settings"></span>
+            <span class="nav-text-desktop" data-i18n="nav.settings_help"></span>
         </button>
         <button class="nav-item" data-tab="guide">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
             </svg>
-            <span>도움말</span>
+            <span data-i18n="nav.help"></span>
         </button>
     </nav>
 
@@ -845,7 +761,7 @@
             <div id="setup-desktop-brand" class="setup-desktop-brand">
                 <div class="brand-content">
                     <h1 class="brand-logo">MUSIXQUARE</h1>
-                    <p class="brand-tagline">언제 어디서나 함께 듣는<br>완벽한 사운드 경험</p>
+                    <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html"></p>
                 </div>
                 <!-- Desktop: dynamic step header (mirrored from right panel via JS) -->
                 <div id="desktop-step-header" class="desktop-step-header"></div>
@@ -863,7 +779,7 @@
                 <div id="setup-welcome-area" style="width: 100%; display: flex; flex-direction: column; flex: 1;">
                     <div id="setup-welcome-header" class="setup-header-text">
                         <h2>MUSIXQUARE</h2>
-                        <p>안녕하세요! 본인의 역할을 선택해주세요.</p>
+                        <p data-i18n="setup.hello_select_role"></p>
                     </div>
 
                     <div id="ob-slider-area" style="display:block; width:100%; position: relative; flex: 1;">
@@ -877,11 +793,8 @@
                                                 d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
                                         </svg>
                                     </div>
-                                    <div class="ob-title">초대와 공유</div>
-                                    <div class="ob-desc">여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 숫자 코드로
-                                        연결할
-                                        수
-                                        있어요.
+                                    <div class="ob-title" data-i18n="settings.invite_share"></div>
+                                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html">
                                     </div>
                                 </div>
                                 <!-- Slide 2: Sync -->
@@ -892,9 +805,8 @@
                                                 d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
                                         </svg>
                                     </div>
-                                    <div class="ob-title">동시에 재생</div>
-                                    <div class="ob-desc">호스트가 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>동기화 버튼을 눌러서 싱크를
-                                        맞춰보세요.
+                                    <div class="ob-title" data-i18n="player.play_together"></div>
+                                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html">
                                     </div>
                                 </div>
                                 <!-- Slide 3: Surround -->
@@ -906,10 +818,8 @@
                                             <circle cx="12" cy="12" r="3" />
                                         </svg>
                                     </div>
-                                    <div class="ob-title">입체 음향</div>
-                                    <div class="ob-desc">각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한
-                                        저음을
-                                        느껴보세요.
+                                    <div class="ob-title" data-i18n="settings.spatial_audio"></div>
+                                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html">
                                     </div>
                                 </div>
                                 <!-- Slide 4: Advanced Audio -->
@@ -919,17 +829,15 @@
                                             <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
                                         </svg>
                                     </div>
-                                    <div class="ob-title">고급 음향</div>
-                                    <div class="ob-desc">호스트의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할
-                                        수
-                                        있어요.
+                                    <div class="ob-title" data-i18n="settings.advanced_audio"></div>
+                                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html">
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="ob-nav-row">
-                            <button class="ob-nav-arrow ob-nav-prev" id="ob-prev" aria-label="이전 설명">
+                            <button class="ob-nav-arrow ob-nav-prev" id="ob-prev" aria-label="" data-i18n-aria-label="common.previous">
                                 <svg viewBox="0 0 12 12" width="10" height="10">
                                     <path d="M8 1L3 6l5 5" fill="none" stroke="currentColor" stroke-width="1.8"
                                         stroke-linecap="round" stroke-linejoin="round" />
@@ -941,7 +849,7 @@
                                 <div class="ob-dot" data-idx="2"></div>
                                 <div class="ob-dot" data-idx="3"></div>
                             </div>
-                            <button class="ob-nav-arrow ob-nav-next" id="ob-next" aria-label="다음 설명">
+                            <button class="ob-nav-arrow ob-nav-next" id="ob-next" aria-label="" data-i18n-aria-label="common.next_desc">
                                 <svg viewBox="0 0 12 12" width="10" height="10">
                                     <path d="M4 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"
                                         stroke-linecap="round" stroke-linejoin="round" />
@@ -954,8 +862,8 @@
                 <!-- Host: Connection Guide + Short Code -->
                 <div id="setup-code-area" class="setup-code-area" style="display:none;">
                     <div class="setup-header-text">
-                        <h2>마지막이에요!</h2>
-                        <p>이제 다른 기기들과 연결해주세요.</p>
+                        <h2 data-i18n="setup.last_step"></h2>
+                        <p data-i18n="setup.connect_devices"></p>
                     </div>
                     <div class="setup-guide-unified">
                         <!-- Method 1: WiFi -->
@@ -980,7 +888,7 @@
                                 <rect x="112" y="50" width="16" height="20" rx="3" class="graphic-device" />
                                 <rect x="152" y="50" width="16" height="20" rx="3" class="graphic-device" />
                             </svg>
-                            <div class="setup-inner-desc">모든 기기를 동일한 Wi-Fi에 연결해주세요</div>
+                            <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
                         </div>
 
                         <!-- Method 2: Hotspot -->
@@ -998,12 +906,12 @@
                                     <rect x="120" y="57" width="16" height="26" rx="3" class="graphic-device" />
                                 </g>
                             </svg>
-                            <div class="setup-inner-desc">Wi-Fi가 없다면 호스트의 핫스팟에 연결해주세요</div>
+                            <div class="setup-inner-desc" data-i18n="help.wifi_hotspot"></div>
                         </div>
                     </div>
 
                     <div class="setup-code-area-bottom">
-                        <div class="setup-code-label">이 코드를 다른 기기에 입력해주세요</div>
+                        <div class="setup-code-label" data-i18n="setup.enter_code_connect"></div>
                         <input type="text" class="setup-join-input" id="setup-code" value="------" readonly
                             style="border-bottom: 2px solid transparent; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
                     </div>
@@ -1012,8 +920,8 @@
                 <!-- Guest: Connection Guide + Input -->
                 <div id="setup-join-area" style="display:none; width:100%;">
                     <div class="setup-header-text">
-                        <h2>마지막이에요!</h2>
-                        <p>호스트의 코드를 입력해주세요.</p>
+                        <h2 data-i18n="setup.last_step"></h2>
+                        <p data-i18n="setup.enter_host_code_alt"></p>
                     </div>
                     <div class="setup-guide-unified">
                         <!-- Method 1: WiFi -->
@@ -1029,7 +937,7 @@
                                 <rect x="127" y="50" width="16" height="20" rx="3" class="graphic-device"
                                     style="stroke:var(--primary); stroke-width:2;" />
                             </svg>
-                            <div class="setup-inner-desc">모든 기기를 동일한 Wi-Fi에 연결해주세요</div>
+                            <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
                         </div>
 
                         <!-- Method 2: Hotspot -->
@@ -1045,16 +953,16 @@
                                         style="font-size: 10px;">GUEST</text>
                                 </g>
                             </svg>
-                            <div class="setup-inner-desc">Wi-Fi가 없다면 호스트의 핫스팟에 연결해주세요</div>
+                            <div class="setup-inner-desc" data-i18n="help.wifi_hotspot"></div>
                         </div>
                     </div>
 
                     <div class="setup-code-area-bottom">
-                        <div class="setup-code-label">방장이 알려준 6자리 코드를 입력해주세요</div>
+                        <div class="setup-code-label" data-i18n="setup.enter_host_code"></div>
                         <input type="text" class="setup-join-input" id="setup-join-code" placeholder="000000"
                             inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"
                             enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false"
-                            aria-label="연결 코드 6자리 입력">
+                            aria-label="" data-i18n-aria-label="setup.enter_code">
                     </div>
                 </div>
 
@@ -1062,8 +970,8 @@
                 <div id="setup-role-area" style="display:none; width:100%; position: relative;">
 
                     <div class="setup-header-text">
-                        <h2>이 기기로 어떤 소리를 낼까요?</h2>
-                        <p>나중에 설정에서 바꿀 수 있어요.</p>
+                        <h2 data-i18n="setup.what_sound"></h2>
+                        <p data-i18n="setup.change_later"></p>
                     </div>
 
                     <div class="setup-graphic-container"
@@ -1164,13 +1072,13 @@
                             <svg viewBox="0 0 24 24">
                                 <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                             </svg>
-                            왼쪽 스피커
+                            <span data-i18n="role.left"></span>
                         </div>
                         <div class="ch-opt" data-join-ch="1">
                             <svg viewBox="0 0 24 24">
                                 <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                             </svg>
-                            오른쪽 스피커
+                            <span data-i18n="role.right"></span>
                         </div>
                         <div class="ch-opt" data-join-ch="2">
                             <svg viewBox="0 0 24 24">
@@ -1178,14 +1086,14 @@
                                     d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
                                 <circle cx="12" cy="12" r="3" />
                             </svg>
-                            서브우퍼
+                            <span data-i18n="role.subwoofer"></span>
                         </div>
                         <div class="ch-opt" data-join-ch="0">
                             <svg viewBox="0 0 24 24">
                                 <path
                                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
                             </svg>
-                            중앙 스피커
+                            <span data-i18n="role.center"></span>
                         </div>
                     </div>
                 </div>
@@ -1203,8 +1111,8 @@
         <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"
             aria-describedby="dialog-message">
             <div class="dialog-header">
-                <span class="dialog-title" id="dialog-title">안내</span>
-                <button type="button" class="dialog-close" id="btn-dialog-close" aria-label="닫기">
+                <span class="dialog-title" id="dialog-title" data-i18n="common.info"></span>
+                <button type="button" class="dialog-close" id="btn-dialog-close" aria-label="" data-i18n-aria-label="common.close">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
                             d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -1214,19 +1122,19 @@
             <div class="dialog-message" id="dialog-message"></div>
             <div class="dialog-actions">
                 <button type="button" class="dialog-secondary" id="btn-dialog-secondary"
-                    style="display:none">취소</button>
-                <button type="button" class="dialog-primary" id="btn-dialog-ok">확인</button>
+                    style="display:none" data-i18n="common.cancel"></button>
+                <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok"></button>
             </div>
         </div>
     </div>
 
-    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg">메시지</span>
+    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg" data-i18n="common.message"></span>
     </div>
 
     <!-- Manual Sync Overlay (Bug #1: was missing from HTML) -->
     <div class="manual-sync-overlay" id="manual-sync-overlay">
         <div class="sync-glass-panel">
-            <div class="sync-card-title">수동 싱크 조절</div>
+            <div class="sync-card-title" data-i18n="player.manual_sync_title"></div>
             <div class="sync-status-text" id="manual-sync-value">0</div>
             <div style="display:flex; gap:8px; justify-content:center; margin:16px 0;">
                 <button class="btn-action" id="btn-nudge-minus10" style="flex:1;">-10ms</button>
@@ -1235,8 +1143,8 @@
                 <button class="btn-action" id="btn-nudge-plus10" style="flex:1;">+10ms</button>
             </div>
             <div style="display:flex; gap:8px; margin-top:12px;">
-                <button class="btn-action" id="btn-auto-sync" style="flex:1;">초기화</button>
-                <button class="btn-ob-primary" id="btn-sync-done" style="flex:1;">완료</button>
+                <button class="btn-action" id="btn-auto-sync" style="flex:1;" data-i18n="common.reset"></button>
+                <button class="btn-ob-primary" id="btn-sync-done" style="flex:1;" data-i18n="common.done"></button>
             </div>
         </div>
     </div>
@@ -1245,8 +1153,8 @@
         <div class="onboarding-card setup-card full-screen">
 
             <div class="setup-header-text">
-                <h2>재생할 미디어를 선택해주세요</h2>
-                <p>연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.</p>
+                <h2 data-i18n="player.select_media"></h2>
+                <p data-i18n="help.media_synced_detail"></p>
             </div>
 
             <div class="setup-slot-list">
@@ -1256,7 +1164,7 @@
                             <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                         </svg>
                     </div>
-                    <span>로컬파일 불러오기</span>
+                    <span data-i18n="help.load_local"></span>
                 </button>
                 <button class="file-select-btn" id="btn-youtube-source">
                     <div class="btn-icon-bg youtube">
@@ -1265,7 +1173,7 @@
                                 d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
                         </svg>
                     </div>
-                    <span>유튜브 (호환 모드)</span>
+                    <span data-i18n="help.youtube_compat"></span>
                 </button>
                 <button class="file-select-btn" id="btn-demo-media">
                     <div class="btn-icon-bg">
@@ -1274,12 +1182,12 @@
                                 d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
                         </svg>
                     </div>
-                    <span>앱 체험하기 (데모)</span>
+                    <span data-i18n="setup.demo_button"></span>
                 </button>
             </div>
 
             <div class="ob-actions">
-                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;">닫기</button>
+                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;" data-i18n="common.close"></button>
             </div>
         </div>
     </div>
@@ -1289,18 +1197,18 @@
 
 
             <div class="setup-header-text">
-                <h2>YouTube 함께보기</h2>
-                <p>YouTube 비디오 또는 플레이리스트 링크를 입력하세요.<br>공개된 링크만 함께 들을 수 있어요.</p>
+                <h2 data-i18n="youtube.watch_together"></h2>
+                <p data-i18n-html="youtube.enter_link_desc_html"></p>
             </div>
 
             <div class="setup-join-area" style="margin-top: 0;">
                 <input type="text" id="youtube-url-input" class="setup-join-input" placeholder="https://youtube.com/..."
-                    aria-label="YouTube 링크 입력"
+                    aria-label="" data-i18n-aria-label="youtube.enter_link"
                     style="font-size: 15px; font-weight: 500; letter-spacing: normal; padding: 12px 0;">
 
                 <div id="youtube-preview"
                     style="display:none; background:var(--surface-2); border-radius:16px; padding:12px; gap:12px;">
-                    <img id="youtube-preview-thumb" src="" alt="YouTube 미리보기 썸네일"
+                    <img id="youtube-preview-thumb" src="" alt="" data-i18n-alt="youtube.thumbnail"
                         style="width:100%; border-radius:10px; aspect-ratio:16/9; object-fit:cover; background:#000;">
                     <div style="margin-top:8px;">
                         <p id="youtube-preview-title"
@@ -1312,15 +1220,14 @@
                 </div>
 
                 <p id="youtube-preview-status"
-                    style="font-size:11px; color:var(--text-sub); text-align:center; margin:4px 0 0 0; font-weight: 600;">
-                    동영상 또는 플레이리스트 링크를 입력하세요
+                    style="font-size:11px; color:var(--text-sub); text-align:center; margin:4px 0 0 0; font-weight: 600;"
+                    data-i18n="youtube.enter_link_prompt">
                 </p>
             </div>
 
             <div class="ob-actions" style="margin-top: 8px; display: flex; gap: 10px;">
-                <button class="btn-ob-secondary" id="btn-yt-cancel" style="flex: 1;">취소</button>
-                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;">재생
-                    시작</button>
+                <button class="btn-ob-secondary" id="btn-yt-cancel" style="flex: 1;" data-i18n="common.cancel"></button>
+                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;" data-i18n="player.play_start"></button>
             </div>
         </div>
     </div>

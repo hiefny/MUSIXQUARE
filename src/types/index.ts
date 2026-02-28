@@ -5,7 +5,7 @@
 // NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
 //       Removed duplicate const enums that were never imported.
 
-import type { AppStateValue } from '../core/constants.ts';
+import type { AppStateValue, MsgType } from '../core/constants.ts';
 
 // ─── Channel Modes ─────────────────────────────────────────────────
 /** -1 = Left, 0 = Stereo/Original, 1 = Right, 2 = Sub/LFE */
@@ -58,6 +58,7 @@ export interface PeerInstance {
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {
   name: string;
+  title?: string;
   type: string;
   index: number;
   size: number;
@@ -127,7 +128,120 @@ export interface DeviceInfo {
   label: string;
   isOp: boolean;
   isHost: boolean;
+  status: string;
 }
+
+// ─── P2P Protocol Messages ────────────────────────────────────────
+
+/**
+ * Maps each MsgType string literal to its payload shape (excluding the `type` field).
+ * Used by ProtocolMsg<T> to build the full message type.
+ */
+export interface ProtocolMap {
+  // ── Handshake / Session ──────────────────────────────────────────
+  'welcome': { lockChannel: boolean; label: string };
+  'session-full': { message: string };
+  'session-start': {};
+  'force-close-duplicate': {};
+
+  // ── Audio Control ────────────────────────────────────────────────
+  'volume': { value: number };
+  'eq-update': { band: number; value: number };
+  'eq-reset': {};
+  'preamp': { value: number };
+  'reverb': { value: number };
+  'reverb-type': { value: number };
+  'reverb-decay': { value: number };
+  'reverb-predelay': { value: number };
+  'reverb-lowcut': { value: number };
+  'reverb-highcut': { value: number };
+  'stereo-width': { value: number };
+  'vbass': { value: number };
+
+  // ── Playback ─────────────────────────────────────────────────────
+  'play': { time: number; index: number; name?: string | null; state?: string; timestamp?: number };
+  'pause': { time: number; index?: number; state?: string; timestamp?: number };
+  'play-preloaded': { index: number; name: string; mime?: string; retryAttempt?: number };
+  'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number };
+  'force-sync-play': { time: number; index?: number };
+  'status-sync': {
+    playlistMeta: Array<Record<string, unknown>>;
+    currentTrackIndex: number;
+    repeatMode?: number;
+    isShuffle?: boolean;
+  };
+
+  // ── Playlist ─────────────────────────────────────────────────────
+  'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
+  'playlist': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
+  'repeat-mode': { value: number };
+  'shuffle-mode': { value: boolean };
+
+  // ── File Transfer ────────────────────────────────────────────────
+  'file-start': { name: string; mime?: string; total?: number; size?: number; index?: number; sessionId: number };
+  'file-chunk': { chunk: Uint8Array; index: number; sessionId: number; total?: number; name?: string; size?: number; mime?: string };
+  'file-end': { name: string; mime: string; sessionId: number };
+  'file-wait': { message: string };
+  'file-resume': { name: string; mime?: string; total: number; size: number; startChunk: number; sessionId: number; index?: number };
+
+  // ── Preload ──────────────────────────────────────────────────────
+  'preload-start': { name: string; mime?: string; total: number; size: number; index: number; sessionId: number; skipped?: boolean };
+  'preload-chunk': { chunk: Uint8Array; index: number; sessionId: number };
+  'preload-end': { name: string; index: number; sessionId: number };
+  'preload-ack': { index: number };
+
+  // ── Sync / Timing ────────────────────────────────────────────────
+  'heartbeat': {};
+  'heartbeat-ack': {};
+  'ping-latency': { timestamp: number };
+  'pong-latency': { timestamp: number };
+  'sync-response': { time: number; isPlaying: boolean; reqTs: number };
+  'get-sync-time': { ts: number };
+  'global-resync-request': {};
+
+  // ── Network / Relay ──────────────────────────────────────────────
+  'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string }> };
+  'assign-data-source': { targetId?: string | null };
+  'data-relay': {};
+  'sys-toast': { message: string };
+  'operator-grant': {};
+  'operator-revoke': {};
+
+  // ── Guest Requests ───────────────────────────────────────────────
+  'request-play': { time?: number };
+  'request-pause': {};
+  'request-seek': { time: number };
+  'request-skip-time': { sec: number };
+  'request-next-track': {};
+  'request-prev-track': {};
+  'request-track-change': { index: number };
+  'request-setting': { settingType: string; value?: unknown; band?: number };
+  'request-eq-reset': {};
+  'request-reverb-reset': {};
+  'request-current-file': { name?: string; index?: number; reason?: string };
+  'request-data-recovery': { nextChunk: number; fileName: string; index: number; sessionId?: number };
+  'request-youtube-play': {};
+  'request-youtube-pause': {};
+  'request-youtube-sub-seek': { subIdx: number; playlistId?: string };
+  'request-youtube-playlist-info': { playlistId: string };
+
+  // ── YouTube ──────────────────────────────────────────────────────
+  'youtube-play': { videoId?: string | null; playlistId?: string | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
+  'youtube-stop': {};
+  'youtube-state': { state: number; time: number; subIndex?: number };
+  'youtube-sync': { time: number; state: number; subIndex?: number };
+  'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
+  'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
+
+  // ── Chat ─────────────────────────────────────────────────────────
+  'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number };
+}
+
+/** Full protocol message = { type: T } & payload */
+export type ProtocolMsg<T extends MsgType> = { type: T } & ProtocolMap[T];
+
+/** Union of all possible protocol messages */
+export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 
 // ─── EventBus typed events ─────────────────────────────────────────
 export interface EventMap {
@@ -269,6 +383,10 @@ export interface EventMap {
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];
 
+  // ── Worker ──────────────────────────────────────────────────────────
+  'worker:sync-command': [payload: { command: string; id: string; interval?: number }];
+  'worker:timer-tick': [id: string];
+
   // ── Dynamic State ─────────────────────────────────────────────────
-  [key: `state:${string}`]: [value: unknown];
+  [key: `state:${string}`]: [value: unknown, path: string];
 }

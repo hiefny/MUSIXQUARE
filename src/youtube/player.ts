@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -52,7 +53,7 @@ export function loadYouTubeVideo(
   bus.emit('player:stop-all-media');
   setEngineMode('youtube');
 
-  bus.emit('ui:show-toast', 'YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다');
+  bus.emit('ui:show-toast', t('youtube.effects_disabled'));
 
   const wrapper = document.querySelector('.video-wrapper');
   if (!wrapper) {
@@ -82,7 +83,7 @@ export function loadYouTubeVideo(
       tag.onerror = () => {
         log.error('[YouTube] Failed to load API script');
         _ytScriptLoading = false;
-        bus.emit('ui:show-toast', 'YouTube API 로드 실패. 인터넷 연결 확인!');
+        bus.emit('ui:show-toast', t('youtube.load_fail'));
       };
       document.head.appendChild(tag);
     }
@@ -100,7 +101,7 @@ export function loadYouTubeVideo(
     if (_currentYouTubeSessionId === currentSessionId && !_youtubePlayer) {
       log.warn('[YouTube] Load timeout triggered.');
       bus.emit('ui:show-loader', false);
-      bus.emit('ui:show-toast', 'YouTube 로드 시간 초과. 다시 시도해주세요.');
+      bus.emit('ui:show-toast', t('youtube.load_timeout'));
     }
   }, 15000);
 
@@ -121,7 +122,7 @@ function initYouTubePlayer(
   autoplay = true,
   subIndex = 0,
 ): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
     return;
@@ -181,7 +182,7 @@ function initYouTubePlayer(
 function onYouTubePlayerReady(): void {
   log.debug('[YouTube] Player ready');
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
@@ -193,7 +194,7 @@ function onYouTubePlayerReady(): void {
 
   // Only Host runs sync loop
   clearManagedTimer('youtubeSyncLoop');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     setManagedTimer('youtubeSyncLoop', () => {
       bus.emit('youtube:broadcast-sync');
@@ -205,7 +206,7 @@ function onYouTubePlayerReady(): void {
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   const state = event.data;
@@ -220,7 +221,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     bus.emit('player:state-changed', APP_STATE.IDLE);
     clearManagedTimer('youtubeUILoop');
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
@@ -228,7 +229,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   }
 
   // Host broadcasts state to guests
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn && _youtubePlayer?.getCurrentTime) {
     broadcast({
       type: MSG.YOUTUBE_STATE,
@@ -250,7 +251,7 @@ let _cachedYtDuration = 0;
 let _cachedYtPlaylistIdx = -1;
 
 function updateYouTubeUI(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!_youtubePlayer || currentState !== APP_STATE.PLAYING_YOUTUBE || !_youtubePlayer.getCurrentTime) return;
 
   try {
@@ -330,7 +331,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
 
 function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   log.debug('[YouTube] Refreshing display to prevent black screen...');
@@ -357,7 +358,7 @@ export function stopYouTubeMode(): void {
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
   //  which would kill the guest's YouTube player right after YOUTUBE_PLAY)
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
 
   if (wasInYouTube) {
@@ -403,7 +404,7 @@ export function stopYouTubeMode(): void {
 
   // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
   if (wasInYouTube) {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       broadcast({ type: MSG.YOUTUBE_STOP });
     }
@@ -435,7 +436,7 @@ function handleYouTubePlay(data: Record<string, unknown>): void {
 }
 
 function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host
 
   if (!verifyOperator(conn)) {
@@ -454,7 +455,7 @@ function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConn
 }
 
 function handleRequestYouTubePause(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -473,7 +474,7 @@ function handleRequestYouTubePause(_data: Record<string, unknown>, conn: DataCon
 }
 
 function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -492,13 +493,13 @@ function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataCo
  * Sends cached IDs and titles from subItemsMap.
  */
 function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host handles this
 
   const pid = data.playlistId as string;
   if (!pid || !conn) return;
 
-  const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+  const subMap = getState('youtube.subItemsMap') || {};
   if (subMap[pid]) {
     safeSend(conn, {
       type: MSG.YOUTUBE_PLAYLIST_INFO,
@@ -521,16 +522,15 @@ export function initYouTube(): void {
   });
 
   // Bus event handlers from other modules
-  bus.on('youtube:stop-mode', (() => stopYouTubeMode()) as (...args: unknown[]) => void);
+  bus.on('youtube:stop-mode', () => stopYouTubeMode());
 
-  bus.on('youtube:load', ((...args: unknown[]) => {
-    const [videoId, playlistId, autoplay] = args;
-    loadYouTubeVideo(videoId as string, playlistId as string | null, autoplay as boolean);
-  }) as (...args: unknown[]) => void);
+  bus.on('youtube:load', (videoId, playlistId, isSync) => {
+    loadYouTubeVideo(videoId as string, playlistId as string | null, isSync as boolean);
+  });
 
-  bus.on('youtube:toggle-play', (() => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+  bus.on('youtube:toggle-play', () => {
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
 
     if (hostConn && isOperator) {
       // OP requests
@@ -561,28 +561,27 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:auto-play', (() => {
+  bus.on('youtube:auto-play', () => {
     if (_youtubePlayer?.playVideo) {
       _youtubePlayer.playVideo();
       bus.emit('youtube:broadcast-sync');
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:get-position', ((...args: unknown[]) => {
-    const cb = args[0] as (pos: number) => void;
-    if (typeof cb === 'function') {
+  bus.on('youtube:get-position', (callback) => {
+    if (typeof callback === 'function') {
       try {
         const pos = _youtubePlayer?.getCurrentTime?.() ?? 0;
-        cb(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
+        callback(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
       } catch {
-        cb(0);
+        callback(0);
       }
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:stop-playback', (() => {
+  bus.on('youtube:stop-playback', () => {
     if (!_youtubePlayer) return;
     try {
       _youtubePlayer.stopVideo();
@@ -591,15 +590,14 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:skip-time', ((...args: unknown[]) => {
-    const sec = Number(args[0]) || 0;
+  bus.on('youtube:skip-time', (seconds) => {
     if (!_youtubePlayer) return;
     try {
       const current = _youtubePlayer.getCurrentTime();
       const duration = _youtubePlayer.getDuration();
-      let target = current + sec;
+      let target = current + seconds;
       if (target < 0) target = 0;
       if (target > duration) target = duration;
       _youtubePlayer.seekTo(target, true);
@@ -607,82 +605,78 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube seek from seek bar
-  bus.on('youtube:seek-to', ((...args: unknown[]) => {
-    const time = Number(args[0]);
-    if (!_youtubePlayer?.seekTo || !Number.isFinite(time)) return;
+  bus.on('youtube:seek-to', (seconds) => {
+    if (!_youtubePlayer?.seekTo || !Number.isFinite(seconds)) return;
     try {
-      _youtubePlayer.seekTo(time, true);
-      const hostConn = getState<DataConnection | null>('network.hostConn');
+      _youtubePlayer.seekTo(seconds, true);
+      const hostConn = getState('network.hostConn');
       if (!hostConn) {
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: _youtubePlayer.getPlayerState?.() ?? 1,
-          time,
+          time: seconds,
         });
       }
     } catch (e) {
       log.error('[YouTube] Seek error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
-  bus.on('youtube:try-next-internal', ((...args: unknown[]) => {
-    const cb = args[0] as (success: boolean) => void;
-    if (!_youtubePlayer?.getPlaylist || typeof cb !== 'function') { cb(false); return; }
+  bus.on('youtube:try-next-internal', (callback) => {
+    if (!_youtubePlayer?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
     try {
       const ids = _youtubePlayer.getPlaylist() || [];
       const idx = _youtubePlayer.getPlaylistIndex();
       if (ids.length > 0 && idx < ids.length - 1) {
         _youtubePlayer.nextVideo();
-        cb(true);
+        callback(true);
         return;
       }
     } catch { /* noop */ }
-    cb(false);
-  }) as (...args: unknown[]) => void);
+    callback(false);
+  });
 
-  bus.on('youtube:try-prev-internal', ((...args: unknown[]) => {
-    const cb = args[0] as (success: boolean) => void;
-    if (!_youtubePlayer || typeof cb !== 'function') { cb(false); return; }
+  bus.on('youtube:try-prev-internal', (callback) => {
+    if (!_youtubePlayer || typeof callback !== 'function') { callback(false); return; }
     try {
       const currentTime = _youtubePlayer.getCurrentTime();
       if (currentTime > 3) {
         _youtubePlayer.seekTo(0, true);
         broadcast({ type: MSG.YOUTUBE_STATE, state: _youtubePlayer.getPlayerState(), time: 0 });
-        cb(true);
+        callback(true);
         return;
       }
       const ids = _youtubePlayer.getPlaylist?.() || [];
       const idx = _youtubePlayer.getPlaylistIndex?.() ?? -1;
       if (ids.length > 0 && idx > 0) {
         _youtubePlayer.previousVideo();
-        cb(true);
+        callback(true);
         return;
       }
     } catch { /* noop */ }
-    cb(false);
-  }) as (...args: unknown[]) => void);
+    callback(false);
+  });
 
-  bus.on('youtube:broadcast-sync', (() => {
+  bus.on('youtube:broadcast-sync', () => {
     // Imported dynamically to avoid circular deps
     import('./sync.ts').then(mod => mod.broadcastYouTubeSync());
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube preview (from URL input)
-  bus.on('youtube:preview', ((...args: unknown[]) => {
-    const url = args[0] as string;
+  bus.on('youtube:preview', (url) => {
     fetchYouTubePreview(url || '');
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube load from input field
-  bus.on('youtube:load-from-input', (() => {
+  bus.on('youtube:load-from-input', () => {
     const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
     if (!input) return;
     const url = input.value.trim();
     if (!url) {
-      bus.emit('ui:show-toast', 'YouTube 링크를 입력하세요');
+      bus.emit('ui:show-toast', t('youtube.enter_link_toast'));
       return;
     }
 
@@ -690,7 +684,7 @@ export function initYouTube(): void {
     const playlistId = extractYouTubePlaylistId(url);
 
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', '유효한 YouTube 링크가 아닙니다');
+      bus.emit('ui:show-toast', t('youtube.not_valid_link'));
       return;
     }
 
@@ -701,12 +695,12 @@ export function initYouTube(): void {
     const previewEl = document.getElementById('youtube-preview');
     if (previewEl) previewEl.style.display = 'none';
     const statusEl = document.getElementById('youtube-preview-status');
-    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '링크를 입력하면 미리보기가 표시됩니다'; }
+    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = t('youtube.enter_link_prompt'); }
     const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = true;
 
     // Add YouTube entry to playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = getState('playlist.items') || [];
 
     // Get title from preview UI or use URL
     const previewTitle = document.getElementById('youtube-preview-title');
@@ -728,7 +722,7 @@ export function initYouTube(): void {
     bus.emit('player:metadata-update', newTrack);
 
     // Broadcast playlist update + YouTube command to peers
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       const metaList = playlist.map(item => ({
         type: item.type,
@@ -752,7 +746,7 @@ export function initYouTube(): void {
     // Fetch title in background and update
     fetchOEmbedTitle(url).then(title => {
       if (!title) return;
-      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      const currentPlaylist = getState('playlist.items') || [];
       if (currentPlaylist[newIndex]) {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: title, title: title };
@@ -761,11 +755,10 @@ export function initYouTube(): void {
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Sync nudge for YouTube (adjust playback position by ms delta)
-  bus.on('sync:youtube-nudge', ((...args: unknown[]) => {
-    const ms = Number(args[0]);
+  bus.on('sync:youtube-nudge', (ms) => {
     if (!_youtubePlayer?.seekTo || !Number.isFinite(ms)) return;
     try {
       const current = _youtubePlayer.getCurrentTime();
@@ -773,27 +766,22 @@ export function initYouTube(): void {
     } catch (e) {
       log.error('[YouTube] Nudge error:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube refresh display (from tab switch)
-  bus.on('youtube:refresh-display', (() => {
+  bus.on('youtube:refresh-display', () => {
     refreshYouTubeDisplay();
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube set volume (from audio engine)
-  bus.on('youtube:set-volume', ((...args: unknown[]) => {
-    const vol = Number(args[0]);
-    if (_youtubePlayer?.setVolume && Number.isFinite(vol)) {
-      _youtubePlayer.setVolume(vol);
+  bus.on('youtube:set-volume', (volumePercent) => {
+    if (_youtubePlayer?.setVolume && Number.isFinite(volumePercent)) {
+      _youtubePlayer.setVolume(volumePercent);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
-  bus.on('youtube:sub-seek', ((...args: unknown[]) => {
-    const playlistIdx = Number(args[0]);
-    const subIdx = Number(args[1]);
-    const isCurrent = args[2] as boolean;
-
+  bus.on('youtube:sub-seek', (playlistIdx, subIdx, isCurrent) => {
     if (!_youtubePlayer) return;
 
     if (isCurrent) {
@@ -812,18 +800,17 @@ export function initYouTube(): void {
       bus.emit('playlist:play-track', playlistIdx);
       // The sub-index will be picked up after loadYouTubeVideo
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Populate sub-items when expanding a YouTube playlist entry
-  bus.on('youtube:populate-sub-items', ((...args: unknown[]) => {
-    const playlistId = args[0] as string;
+  bus.on('youtube:populate-sub-items', (playlistId, _playlistIdx) => {
     if (!playlistId) return;
 
     let ids: string[] = [];
 
     // 1. Try to get IDs from current player if it matches the requested playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     const currentItem = playlist[currentTrackIndex];
 
     if (_youtubePlayer?.getPlaylist && currentItem?.playlistId === playlistId) {
@@ -833,7 +820,7 @@ export function initYouTube(): void {
     }
 
     // 2. Initial map setup
-    const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+    const subMap = getState('youtube.subItemsMap') || {};
     if (ids.length > 0) {
       if (!subMap[playlistId]) {
         subMap[playlistId] = { ids, titles: [] };
@@ -844,13 +831,13 @@ export function initYouTube(): void {
     }
 
     // 3. Trigger background title fetcher (All roles)
-    const currentSubMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+    const currentSubMap = getState('youtube.subItemsMap') || {};
     if (currentSubMap[playlistId]?.ids?.length > 0) {
       fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids);
     }
 
     // 4. Guest: Request info from Host if sub-item data is missing
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) {
       if (!currentSubMap[playlistId] || !currentSubMap[playlistId].ids || currentSubMap[playlistId].ids.length === 0) {
         sendToHost({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
@@ -858,24 +845,23 @@ export function initYouTube(): void {
     }
 
     bus.emit('ui:update-playlist');
-  }) as (...args: unknown[]) => void);
+  });
 
   // YouTube load from chat message link
-  bus.on('youtube:load-from-chat', ((...args: unknown[]) => {
-    const url = args[0] as string;
+  bus.on('youtube:load-from-chat', (url) => {
     if (!url) return;
 
     // Host-only guard
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) {
-      bus.emit('ui:show-toast', '방장만 유튜브 링크를 추가할 수 있어요.');
+      bus.emit('ui:show-toast', t('toast.host_only_youtube'));
       return;
     }
 
     const videoId = extractYouTubeVideoId(url);
     const playlistId = extractYouTubePlaylistId(url);
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', '유효하지 않은 YouTube 링크');
+      bus.emit('ui:show-toast', t('youtube.invalid_link'));
       return;
     }
 
@@ -883,7 +869,7 @@ export function initYouTube(): void {
     bus.emit('ui:close-chat-drawer');
 
     // Add YouTube entry to playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = getState('playlist.items') || [];
     const newTrack: PlaylistItem = {
       type: 'youtube',
       name: url,
@@ -920,7 +906,7 @@ export function initYouTube(): void {
     // Fetch title in background
     fetchOEmbedTitle(url).then(title => {
       if (!title) return;
-      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      const currentPlaylist = getState('playlist.items') || [];
       if (currentPlaylist[newIndex]) {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: title, title: title };
@@ -929,22 +915,21 @@ export function initYouTube(): void {
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection | null;
+  bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     const item = playlist[currentTrackIndex];
 
     if (!item || item.type !== 'youtube') return;
@@ -959,7 +944,7 @@ export function initYouTube(): void {
       } catch { /* best-effort */ }
 
       const autoplay = (ytState === 1);
-      const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+      const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       const subIdx = (currentSubIndex >= 0) ? currentSubIndex : 0;
 
       // Send YouTube play command so guest enters YouTube mode
@@ -985,7 +970,7 @@ export function initYouTube(): void {
     } catch (e) {
       log.warn('[YouTube] Bootstrap send failed:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[YouTube] Player initialized');
 }

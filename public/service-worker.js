@@ -44,10 +44,6 @@ const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./vendor/Tone.js",
-  "./vendor/Tone.js.LICENSE.txt",
-  "./vendor/peerjs.min.js",
-  "./vendor/peerjs.LICENSE.txt",
   "./dummy_audio.mp3",
   "./icons/icon-512.png"
 ];

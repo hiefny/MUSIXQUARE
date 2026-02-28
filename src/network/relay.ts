@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
@@ -107,7 +108,7 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   }
 
   // Session guard: stop if app advanced to newer session
-  const localSid = getState<number>('transfer.localSessionId');
+  const localSid = getState('transfer.localSessionId');
   if (pump.sessionId && pump.sessionId < localSid) {
     stopOpfsCatchupStream(pump.peerId, 'session advanced');
     return;
@@ -186,7 +187,7 @@ export function connectToRelay(targetId: string): void {
   if (!peer) return;
 
   // Close existing relay connection
-  const upstreamDataConn = getState<DataConnection | null>('relay.upstreamDataConn');
+  const upstreamDataConn = getState('relay.upstreamDataConn');
   if (upstreamDataConn) {
     log.debug(`[Relay] Closing existing relay connection for new assignment`);
     upstreamDataConn.close();
@@ -196,7 +197,7 @@ export function connectToRelay(targetId: string): void {
   // Cancel previous relay connection timeout
   if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
 
-  const myId = getState<string | null>('network.myId');
+  const myId = getState('network.myId');
   const conn = peer.connect(targetId, {
     metadata: { type: MSG.DATA_RELAY, label: myId },
   });
@@ -205,14 +206,14 @@ export function connectToRelay(targetId: string): void {
   _relayConnTimer = setTimeout(() => {
     if (!conn.open) {
       log.warn('[Relay] Connect Timeout');
-      bus.emit('ui:show-toast', 'Relay 연결 시간초과');
+      bus.emit('ui:show-toast', t('network.relay_timeout'));
       conn.close();
       setState('relay.upstreamDataConn', null);
 
       // Fallback: request recovery from host
-      const meta = getState<Record<string, unknown>>('transfer.meta');
-      const receivedCount = getState<number>('transfer.receivedCount');
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const meta = getState('transfer.meta');
+      const receivedCount = getState('transfer.receivedCount');
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
 
       sendToHost({
         type: MSG.REQUEST_DATA_RECOVERY,
@@ -227,7 +228,7 @@ export function connectToRelay(targetId: string): void {
     if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
     setState('relay.upstreamDataConn', conn);
     log.info('[Relay] Connected to upstream relay');
-    bus.emit('ui:show-toast', 'Relay 연결됨');
+    bus.emit('ui:show-toast', t('network.relay_connected'));
 
     conn.on('data', (data: unknown) => {
       bus.emit('network:data', data, conn);
@@ -241,25 +242,25 @@ export function connectToRelay(targetId: string): void {
     log.warn('[Relay] Connection error:', err);
     if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
     try { conn.close(); } catch { /* noop */ }
-    const currentUpstream = getState<DataConnection | null>('relay.upstreamDataConn');
+    const currentUpstream = getState('relay.upstreamDataConn');
     if (currentUpstream === conn) {
       setState('relay.upstreamDataConn', null);
     }
   });
 
   conn.on('close', () => {
-    const currentUpstream = getState<DataConnection | null>('relay.upstreamDataConn');
+    const currentUpstream = getState('relay.upstreamDataConn');
     if (currentUpstream && currentUpstream !== conn) return;
 
     setState('relay.upstreamDataConn', null);
-    bus.emit('ui:show-toast', 'Relay 연결 해제');
+    bus.emit('ui:show-toast', t('network.relay_disconnected'));
 
-    const meta = getState<Record<string, unknown>>('transfer.meta');
-    const receivedCount = getState<number>('transfer.receivedCount');
+    const meta = getState('transfer.meta');
+    const receivedCount = getState('transfer.receivedCount');
     const total = (meta?.total as number) || 0;
 
     if (receivedCount < total) {
-      const hostConn = getState<DataConnection | null>('network.hostConn');
+      const hostConn = getState('network.hostConn');
       if (hostConn && hostConn.open) {
         bus.emit('storage:request-recovery');
       }
@@ -276,7 +277,7 @@ export function handleRelayConnection(conn: DataConnection): void {
   conn.on('open', () => {
     log.debug('[Relay] Accepted downstream connection from', conn.peer);
 
-    const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+    const downstreamDataPeers = getState('relay.downstreamDataPeers');
     if (!downstreamDataPeers.find(p => p.peer === conn.peer)) {
       downstreamDataPeers.push(conn);
       setState('relay.downstreamDataPeers', downstreamDataPeers);
@@ -295,7 +296,7 @@ export function handleRelayConnection(conn: DataConnection): void {
 
   conn.on('close', () => {
     stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
-    const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+    const downstreamDataPeers = getState('relay.downstreamDataPeers');
     setState(
       'relay.downstreamDataPeers',
       downstreamDataPeers.filter(p => p.peer !== conn.peer)
@@ -319,7 +320,7 @@ export async function relayPreloadFromCache(
     return;
   }
 
-  const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+  const downstreamDataPeers = getState('relay.downstreamDataPeers');
   if (downstreamDataPeers.length === 0) return;
 
   const CHUNK = CHUNK_SIZE;
@@ -369,7 +370,7 @@ export async function relayPreloadFromCache(
 
 function handleAssignDataSource(data: Record<string, unknown>): void {
   const targetId = data.targetId as string | null;
-  const myId = getState<string | null>('network.myId');
+  const myId = getState('network.myId');
 
   if (targetId && targetId !== myId) {
     connectToRelay(targetId);
@@ -378,7 +379,7 @@ function handleAssignDataSource(data: Record<string, unknown>): void {
   } else if (targetId === null) {
     // Fallback to Host Direct
     log.debug('[Relay] Fallback to Host requested.');
-    const upstreamDataConn = getState<DataConnection | null>('relay.upstreamDataConn');
+    const upstreamDataConn = getState('relay.upstreamDataConn');
     if (upstreamDataConn) {
       upstreamDataConn.close();
       setState('relay.upstreamDataConn', null);
@@ -391,29 +392,27 @@ function handleAssignDataSource(data: Record<string, unknown>): void {
 
 export function initRelay(): void {
   registerHandlers({
-    [MSG.ASSIGN_DATA_SOURCE]: handleAssignDataSource as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.ASSIGN_DATA_SOURCE]: handleAssignDataSource,
   });
 
   // Accept incoming relay connections routed from peer.ts
-  bus.on('relay:incoming-connection', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
+  bus.on('relay:incoming-connection', (conn: DataConnection) => {
     if (conn) handleRelayConnection(conn);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Relay: serve current file to downstream peer
-  bus.on('relay:serve-current-file', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
-    const msg = args[1] as Record<string, unknown>;
+  bus.on('relay:serve-current-file', (conn: DataConnection, msg: unknown) => {
+    const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
 
-    const reqName = msg.name ? String(msg.name) : '';
-    const reqIndex = msg.index !== undefined ? Number(msg.index) : undefined;
+    const reqName = m.name ? String(m.name) : '';
+    const reqIndex = m.index !== undefined ? Number(m.index) : undefined;
 
-    const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
-    const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-    const meta = getState<Record<string, unknown>>('transfer.meta');
-    const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const currentFileBlob = getState('files.currentFileBlob');
+    const nextFileBlob = getState('preload.nextFileBlob');
+    const meta = getState('transfer.meta');
+    const nextMeta = getState('preload.meta');
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
 
     // Try to match current file
     const isMatchCurrent = currentFileBlob && (!reqName || (meta && meta.name === reqName));
@@ -434,22 +433,25 @@ export function initRelay(): void {
       if (file) unicastFile(conn, file, 0).catch(e => log.error('[Relay] unicast preload failed:', e));
     } else if (meta?.name) {
       // Mid-download relay: send header + trigger OPFS catch-up
-      const receivedCount = getState<number>('transfer.receivedCount');
+      const receivedCount = getState('transfer.receivedCount');
       const bootName = (meta.name as string) || reqName;
       log.debug(`[Relay] Bootstrapping downstream for ${bootName} (${receivedCount}/${meta.total || '?'})`);
 
       safeSend(conn, {
-        ...meta,
         type: MSG.FILE_START,
         name: bootName,
-        sessionId: meta.sessionId || getState<number>('transfer.localSessionId'),
+        mime: (meta.mime as string) || '',
+        total: (meta.total as number) || 0,
+        size: (meta.size as number) || 0,
+        index: (meta.index as number) || 0,
+        sessionId: (meta.sessionId as number) || getState('transfer.localSessionId'),
       });
 
       // OPFS catch-up: sequential pump with back-pressure
       if (receivedCount > 0) {
         startOpfsCatchupStream(conn, {
           filename: bootName,
-          sessionId: meta.sessionId as number || getState<number>('transfer.localSessionId'),
+          sessionId: meta.sessionId as number || getState('transfer.localSessionId'),
           startIndex: 0,
           endIndexExclusive: receivedCount,
           isPreload: false,
@@ -459,17 +461,16 @@ export function initRelay(): void {
       log.debug('[Relay] No matching data yet for', reqName || 'current');
       safeSend(conn, { type: MSG.FILE_WAIT, message: 'Relay source not ready yet' });
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   // Relay: serve recovery chunk to downstream peer
-  bus.on('relay:serve-recovery', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection;
-    const msg = args[1] as Record<string, unknown>;
+  bus.on('relay:serve-recovery', (conn: DataConnection, msg: unknown) => {
+    const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
 
-    const fileName = (msg.fileName || msg.name) as string || '';
-    const nextChunk = Number(msg.nextChunk) || 0;
-    const sessionId = msg.sessionId as number || getState<number>('transfer.localSessionId');
+    const fileName = (m.fileName || m.name) as string || '';
+    const nextChunk = Number(m.nextChunk) || 0;
+    const sessionId = m.sessionId as number || getState('transfer.localSessionId');
 
     log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}`);
 
@@ -481,18 +482,18 @@ export function initRelay(): void {
       sessionId,
       requestId: `${conn.peer}|recovery`,
     });
-  }) as (...args: unknown[]) => void);
+  });
 
   // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump
-  bus.on('opfs:read-complete', ((...args: unknown[]) => {
-    const data = args[0] as Record<string, unknown>;
-    if (!data) return;
+  bus.on('opfs:read-complete', (data: unknown) => {
+    const d = data as Record<string, unknown>;
+    if (!d) return;
 
-    const chunk = data.chunk as Uint8Array;
-    const index = data.index as number;
-    const filename = data.filename as string;
-    const requestId = data.requestId as string || '';
-    const sessionId = data.sessionId as number;
+    const chunk = d.chunk as Uint8Array;
+    const index = d.index as number;
+    const filename = d.filename as string;
+    const requestId = d.requestId as string || '';
+    const sessionId = d.sessionId as number;
 
     // Parse requestId format: "<peerId>|<tag>"
     const sepIdx = requestId.lastIndexOf('|');
@@ -502,16 +503,16 @@ export function initRelay(): void {
     if (!peerId || !chunk) return;
 
     // Session guard: discard stale chunks
-    const localSid = getState<number>('transfer.localSessionId');
+    const localSid = getState('transfer.localSessionId');
     if (sessionId && sessionId < localSid) {
       log.warn(`[OPFS_READ] Stale session chunk discarded (got ${sessionId}, current ${localSid})`);
       return;
     }
 
-    const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+    const downstreamDataPeers = getState('relay.downstreamDataPeers');
     const dConn = downstreamDataPeers.find(p => p.peer === peerId);
     if (dConn && dConn.open) {
-      const meta = getState<Record<string, unknown>>('transfer.meta');
+      const meta = getState('transfer.meta');
       try {
         dConn.send({
           type: MSG.FILE_CHUNK,
@@ -528,7 +529,7 @@ export function initRelay(): void {
 
     // Advance the catch-up pump (sequential: wait for response before next read)
     onOpfsCatchupReadComplete(peerId, sessionId, tag);
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Relay] Handlers registered');
 }

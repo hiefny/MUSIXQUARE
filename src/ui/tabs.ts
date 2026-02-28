@@ -29,7 +29,7 @@ export function switchTab(tabId: string): void {
 
     if (tabId === 'play') {
       setTimeout(() => {
-        const currentState = getState<string>('appState');
+        const currentState = getState('appState');
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
           bus.emit('youtube:refresh-display');
         }
@@ -58,10 +58,9 @@ export function initTabs(): void {
   });
 
   // Listen for programmatic tab switch
-  bus.on('ui:switch-tab', ((...args: unknown[]) => {
-    const tabId = args[0] as string;
+  bus.on('ui:switch-tab', (tabId: string) => {
     if (tabId) switchTab(tabId);
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Tabs] Initialized');
 }

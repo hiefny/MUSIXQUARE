@@ -13,23 +13,12 @@ import { EQ_FREQUENCIES } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 
-// ─── Tone.js global declaration ────────────────────────────────────
-declare const Tone: {
-  start(): Promise<void>;
-  now(): number;
-  context: AudioContext & { state: string };
-  Split: new (channels?: number) => ToneNode;
-  Merge: new (channels?: number) => ToneNode;
-  Gain: new (gain?: number) => ToneGainNode;
-  Filter: new (freq?: number | Record<string, unknown>, type?: string, rolloff?: number) => ToneFilterNode;
-  Reverb: new (options?: Record<string, unknown>) => ToneReverbNode;
-  CrossFade: new (fade?: number) => ToneCrossFadeNode;
-  StereoWidener: new (width?: number) => ToneWidenerNode;
-  Chebyshev: new (order?: number) => ToneNode;
-  Analyser: new (type?: string, size?: number) => ToneAnalyserNode;
-  BufferSource: new (buffer?: unknown) => ToneBufferSourceNode;
-  Buffer: new (url?: string | ArrayBuffer) => { duration: number };
-};
+// Tone.js — imported as `any` to keep our lightweight custom type stubs.
+// Real Tone.js types are far richer; a full type migration can happen later.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import * as _Tone from 'tone';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Tone = _Tone as any;
 
 // ─── Tone.js node type stubs ───────────────────────────────────────
 interface ToneNode {
@@ -135,10 +124,10 @@ export function isAudioReady(): boolean { return masterGain !== null; }
 // For surround mode setup
 export function ensureSurroundNodes(): { splitter: ToneNode; gain: ToneGainNode } {
   if (!surroundSplitter || !surroundGain) {
-    surroundSplitter = new Tone.Split(8);
-    surroundGain = new Tone.Gain(1);
+    surroundSplitter = new Tone.Split(8) as ToneNode;
+    surroundGain = new Tone.Gain(1) as ToneGainNode;
   }
-  return { splitter: surroundSplitter, gain: surroundGain };
+  return { splitter: surroundSplitter!, gain: surroundGain! };
 }
 
 // ─── Initialization ────────────────────────────────────────────────
@@ -179,20 +168,20 @@ async function _doInitAudio(): Promise<void> {
   if (masterGain) return; // Another call may have finished while awaiting
 
   // ── Channel & Stereo Processing ──
-  toneSplit = new Tone.Split();
-  toneMerge = new Tone.Merge();
-  gainL = new Tone.Gain(1);
-  gainR = new Tone.Gain(1);
+  toneSplit = new Tone.Split() as ToneNode;
+  toneMerge = new Tone.Merge() as ToneNode;
+  gainL = new Tone.Gain(1) as ToneGainNode;
+  gainR = new Tone.Gain(1) as ToneGainNode;
 
-  toneSplit.connect(gainL, 0);  // L -> gainL
-  toneSplit.connect(gainR, 1);  // R -> gainR
+  toneSplit!.connect(gainL!, 0);  // L -> gainL
+  toneSplit!.connect(gainR!, 1);  // R -> gainR
 
   // Default Routing: Stereo (L→0, R→1 of merge)
-  gainL.connect(toneMerge, 0, 0);
-  gainR.connect(toneMerge, 0, 1);
+  gainL!.connect(toneMerge!, 0, 0);
+  gainR!.connect(toneMerge!, 0, 1);
 
   // ── Effects Chain ──
-  masterGain = new Tone.Gain(1);
+  masterGain = new Tone.Gain(1) as ToneGainNode;
 
   // EQ (5-Band Peaking Filters)
   eqNodes = EQ_FREQUENCIES.map(f =>
@@ -200,8 +189,8 @@ async function _doInitAudio(): Promise<void> {
   );
 
   // Preamplifier + Stereo Widener
-  preamp = new Tone.Gain(1);
-  widener = new Tone.StereoWidener(1);
+  preamp = new Tone.Gain(1) as ToneGainNode;
+  widener = new Tone.StereoWidener(1) as ToneWidenerNode;
 
   // Reverb
   reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 }) as ToneReverbNode;
@@ -228,22 +217,22 @@ async function _doInitAudio(): Promise<void> {
 
   // ── Virtual Bass Chain ──
   vbFilter = new Tone.Filter(120, 'lowpass', -12) as ToneFilterNode;
-  vbCheby = new Tone.Chebyshev(50);
+  vbCheby = new Tone.Chebyshev(50) as ToneNode;
   vbPostFilter = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
-  vbGain = new Tone.Gain(0);
+  vbGain = new Tone.Gain(0) as ToneGainNode;
 
   // ── Connections ──
   // Player → Widener → Preamp → Split → (Channel Logic) → Merge → EQ → Reverb → Master
 
   // 1. Pre-Processing
-  widener.connect(preamp);
+  widener!.connect(preamp!);
 
   // 2. Channel Splitting
-  preamp.connect(toneSplit);
+  preamp!.connect(toneSplit!);
 
   // 3. Post-Processing: Merge → GlobalLowPass → EQ → Reverb → Master
   globalLowPass = new Tone.Filter(20000, 'lowpass') as ToneFilterNode;
-  toneMerge.connect(globalLowPass);
+  toneMerge!.connect(globalLowPass);
 
   let eqIn: ToneNode = globalLowPass;
   for (const fx of eqNodes) {
@@ -257,20 +246,20 @@ async function _doInitAudio(): Promise<void> {
   reverb.connect(rvbLowCut);
   rvbLowCut.connect(rvbHighCut);
   rvbHighCut.connect(rvbCrossFade.b);
-  rvbCrossFade.connect(masterGain);            // Output
+  rvbCrossFade!.connect(masterGain!);            // Output
 
   // Virtual Bass (parallel tap after EQ)
-  eqIn.connect(vbFilter);
-  vbFilter.connect(vbCheby);
-  vbCheby.connect(vbPostFilter);
-  vbPostFilter.connect(vbGain);
-  vbGain.connect(masterGain);
+  eqIn.connect(vbFilter!);
+  vbFilter!.connect(vbCheby!);
+  vbCheby!.connect(vbPostFilter!);
+  vbPostFilter!.connect(vbGain!);
+  vbGain!.connect(masterGain!);
 
   // Visualizer — 256 bins is enough (only bass 0~12 and high 70%~100% are used)
   analyser = new Tone.Analyser('fft', 256) as ToneAnalyserNode;
   analyser.smoothing = 0;
-  masterGain.connect(analyser);
-  masterGain.toDestination();
+  masterGain!.connect(analyser);
+  masterGain!.toDestination();
 
   // Store analyser reference in state for visualizer access
   setState('audio.analyser', analyser);
@@ -299,10 +288,9 @@ async function _doInitAudio(): Promise<void> {
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Set master volume (0-1) */
-bus.on('audio:set-volume', ((...args: unknown[]) => {
-  const vol = Number(args[0]);
-  if (!Number.isFinite(vol)) return;
-  const clamped = Math.max(0, Math.min(1, vol));
+bus.on('audio:set-volume', (volume) => {
+  if (!Number.isFinite(volume)) return;
+  const clamped = Math.max(0, Math.min(1, volume));
   setState('audio.masterVolume', clamped);
   if (masterGain) {
     masterGain.gain.rampTo(clamped, 0.1);
@@ -312,19 +300,17 @@ bus.on('audio:set-volume', ((...args: unknown[]) => {
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
   // Sync video element volume (native video playback)
   bus.emit('player:sync-video-volume', clamped);
-}) as (...args: unknown[]) => void);
+});
 
 /** Apply volume to YouTube player */
-bus.on('audio:apply-youtube-volume', (() => {
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+bus.on('audio:apply-youtube-volume', () => {
+  const vol = getState('audio.masterVolume') ?? 1;
   // YouTube player volume is 0-100
   bus.emit('youtube:set-volume', Math.round(vol * 100));
-}) as (...args: unknown[]) => void);
+});
 
 /** Connect player node to surround routing */
-bus.on('audio:connect-surround', ((...args: unknown[]) => {
-  const playerNode = args[0] as ToneNode | null;
-  const channelIdx = args[1] as number;
+bus.on('audio:connect-surround', (playerNode, channelIdx) => {
   if (!playerNode) return;
 
   const { splitter, gain } = ensureSurroundNodes();
@@ -336,7 +322,7 @@ bus.on('audio:connect-surround', ((...args: unknown[]) => {
   } catch { /* expected */ }
   gain.connect(pre);
 
-  playerNode.connect(splitter);
+  (playerNode as ToneNode).connect(splitter);
 
   try {
     splitter.disconnect();
@@ -355,17 +341,17 @@ bus.on('audio:connect-surround', ((...args: unknown[]) => {
   }
 
   log.debug(`[Audio] Surround connected: channel ${channelIdx}`);
-}) as (...args: unknown[]) => void);
+});
 
 /** Activate audio engine (triggered from setup UI on user interaction) */
-bus.on('audio:activate', (async () => {
+bus.on('audio:activate', async () => {
   try {
     await initAudio();
     log.info('[Audio] Activated via user interaction');
   } catch (e) {
     log.warn('[Audio] Activation failed:', e);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // Re-export Tone types for downstream consumers
 export type {

@@ -25,5 +25,9 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0",
     "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "tone": "^15.1.22"
   }
 }

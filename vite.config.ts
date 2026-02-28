@@ -15,6 +15,12 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: resolve(__dirname, 'index.html'),
+      output: {
+        manualChunks: {
+          tone: ['tone'],
+          peerjs: ['peerjs'],
+        },
+      },
     },
   },
   server: {

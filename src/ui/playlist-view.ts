@@ -12,12 +12,12 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { escapeHtml } from './dom.ts';
 import { updateTitleWithMarquee } from './dom.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import { t } from '../i18n/index.ts';
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
 function toggleExpansion(idx: number): void {
-  const playlist = getState<PlaylistItem[]>('playlist.items');
+  const playlist = getState('playlist.items');
   if (!playlist[idx]) return;
   playlist[idx].isExpanded = !playlist[idx].isExpanded;
 
@@ -35,7 +35,7 @@ export function updatePlaylistUI(): void {
   const ul = document.getElementById('playlist-ui');
   if (!ul) return;
 
-  const playlist = getState<PlaylistItem[]>('playlist.items');
+  const playlist = getState('playlist.items');
 
   if (!Array.isArray(playlist)) {
     log.warn('[Playlist] playlist is not an array. Resetting.');
@@ -45,13 +45,13 @@ export function updatePlaylistUI(): void {
 
   ul.innerHTML = '';
   if (playlist.length === 0) {
-    ul.innerHTML = '<li class="list-empty-state">미디어를 추가해주세요.</li>';
+    ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t('playlist.empty_hint'))}</li>`;
     return;
   }
 
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const currentYouTubeSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
-  const subItemsMap = getState<Record<string, { ids?: string[]; titles?: string[] }>>('youtube.subItemsMap') || {};
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
+  const subItemsMap = getState('youtube.subItemsMap') || {};
 
   playlist.forEach((item, idx) => {
     const isCurrent = (idx === currentTrackIndex);
@@ -61,7 +61,7 @@ export function updatePlaylistUI(): void {
     let expandBtn = '';
     if (item.playlistId) {
       expandBtn = `
-        <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="플레이리스트 펼치기/접기">
+        <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="${escapeHtml(t('playlist.toggle'))}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
         </button>
       `;
@@ -73,8 +73,8 @@ export function updatePlaylistUI(): void {
 
     const displayName = item.name || item.title || 'Unknown';
     li.onclick = () => {
-      const hc = getState<DataConnection | null>('network.hostConn');
-      const op = getState<boolean>('network.isOperator');
+      const hc = getState('network.hostConn');
+      const op = getState('network.isOperator');
       if (!hc) bus.emit('playlist:play-track', idx);
       else if (op) hc.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
     };
@@ -126,8 +126,8 @@ export function updatePlaylistUI(): void {
 
           sli.onclick = (e) => {
             e.stopPropagation();
-            const hc = getState<DataConnection | null>('network.hostConn');
-            const op = getState<boolean>('network.isOperator');
+            const hc = getState('network.hostConn');
+            const op = getState('network.isOperator');
             if (hc && !op) return;
             if (!hc) {
               bus.emit('youtube:sub-seek', idx, sIdx, isCurrent);
@@ -138,14 +138,14 @@ export function updatePlaylistUI(): void {
           subUl.appendChild(sli);
         });
       } else {
-        subUl.innerHTML = '<li class="sub-track-item loading">재생 정보 대기 중...</li>';
+        subUl.innerHTML = `<li class="sub-track-item loading">${escapeHtml(t('playlist.loading_info'))}</li>`;
       }
       ul.appendChild(subUl);
     }
   });
 
   // Update title/artist display
-  const meta = getState<Record<string, unknown>>('transfer.meta');
+  const meta = getState('transfer.meta');
   if (currentTrackIndex !== -1) {
     const currentItem = playlist[currentTrackIndex];
     let displayTitle = 'Unknown';
@@ -172,9 +172,9 @@ export function updatePlaylistUI(): void {
 
 export function initPlaylistView(): void {
   // Listen for playlist UI update events
-  bus.on('ui:update-playlist', ((..._args: unknown[]) => {
+  bus.on('ui:update-playlist', () => {
     updatePlaylistUI();
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[PlaylistView] Initialized');
 }

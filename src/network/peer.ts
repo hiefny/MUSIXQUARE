@@ -7,16 +7,20 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
-import type { DataConnection, PeerInstance } from '../types/index.ts';
+import type { DataConnection, PeerInstance, DeviceInfo, AnyProtocolMsg } from '../types/index.ts';
 
-// ─── PeerJS global declaration ──────────────────────────────────────
-declare const Peer: new (id?: string, opts?: Record<string, unknown>) => PeerInstance;
+// PeerJS — imported as `any` to keep our custom PeerInstance/DataConnection stubs.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import { Peer as _Peer } from 'peerjs';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Peer: any = _Peer;
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -64,7 +68,7 @@ function getPeerLabelBySlot(slot: number): string {
 }
 
 function getAvailablePeerSlot(preferredSlot: number | null, peerId: string | null): number | null {
-  const peerSlots = getState<(string | null)[]>('network.peerSlots');
+  const peerSlots = getState('network.peerSlots');
   const pref = Number(preferredSlot);
   if (Number.isInteger(pref) && pref >= 1 && pref <= MAX_GUEST_SLOTS) {
     const occupant = peerSlots[pref];
@@ -80,19 +84,19 @@ function assignPeerSlot(peerId: string, slot: number): void {
   if (!peerId) return;
   const s = Number(slot);
   if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
-  const peerSlots = getState<(string | null)[]>('network.peerSlots');
+  const peerSlots = getState('network.peerSlots');
   peerSlots[s] = peerId;
   setState('network.peerSlots', peerSlots);
-  const map = getState<Map<string, number>>('network.peerSlotByPeerId');
+  const map = getState('network.peerSlotByPeerId');
   map.set(peerId, s);
 }
 
 function releasePeerSlot(peerId: string): void {
   if (!peerId) return;
-  const map = getState<Map<string, number>>('network.peerSlotByPeerId');
+  const map = getState('network.peerSlotByPeerId');
   const slot = map.get(peerId);
   if (slot) {
-    const peerSlots = getState<(string | null)[]>('network.peerSlots');
+    const peerSlots = getState('network.peerSlots');
     if (peerSlots[slot] === peerId) peerSlots[slot] = null;
   }
   map.delete(peerId);
@@ -223,8 +227,8 @@ function setupPeerEvents(): void {
 
   peer.on('error', (err: unknown) => {
     log.error('[PeerJS] Error:', err);
-    const appRole = getState<string>('network.appRole');
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const appRole = getState('network.appRole');
+    const hostConn = getState('network.hostConn');
 
     if (appRole === 'host' && !hostConn) {
       if (err && typeof err === 'object' && (err as Record<string, unknown>).type === 'id-taken') {
@@ -247,7 +251,7 @@ function setupPeerEvents(): void {
       return;
     }
 
-    const appRole = getState<string>('network.appRole');
+    const appRole = getState('network.appRole');
     if (appRole !== 'host') {
       try { conn.close(); } catch { /* noop */ }
       return;
@@ -260,8 +264,8 @@ function setupPeerEvents(): void {
 
 function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const activeHostConnByPeerId = getState<Map<string, DataConnection>>('network.activeHostConnByPeerId');
+  const connectedPeers = getState('network.connectedPeers');
+  const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
 
   // Duplicate connection handling
   const existingActiveConn = activeHostConnByPeerId.get(peerId);
@@ -285,7 +289,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       try {
         conn.send({
           type: MSG.SESSION_FULL,
-          message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.',
+          message: t('network.session_full_detail'),
         });
       } catch { /* noop */ }
       setTimeout(() => { try { conn.close(); } catch { /* noop */ } }, 500);
@@ -296,12 +300,12 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   }
 
   // Allocate slot
-  const peerSlotByPeerId = getState<Map<string, number>>('network.peerSlotByPeerId');
+  const peerSlotByPeerId = getState('network.peerSlotByPeerId');
   const preferredSlot = peerSlotByPeerId.get(peerId) || null;
   const slot = getAvailablePeerSlot(preferredSlot, peerId);
   if (!slot) {
     const sendFullAndClose = () => {
-      try { conn.send({ type: MSG.SESSION_FULL, message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.' }); } catch { /* noop */ }
+      try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
       try { conn.close(); } catch { /* noop */ }
     };
     if (conn.open) sendFullAndClose();
@@ -312,7 +316,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   const deviceName = getPeerLabelBySlot(slot);
 
   // Track label
-  const peerLabels = getState<Record<string, string>>('network.peerLabels');
+  const peerLabels = getState('network.peerLabels');
   peerLabels[peerId] = deviceName;
 
   // New connection becomes active
@@ -322,7 +326,6 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     id: peerId,
     slot,
     label: deviceName,
-    role: 'guest' as const,
     status: 'connecting' as string,
     conn,
     isOp: false,
@@ -330,11 +333,11 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     joinOrder: slot,
     lastHeartbeat: Date.now(),
     preloadedIndexes: new Set<number>(),
-    currentFileId: null as string | null,
+    connectionType: 'unknown' as 'local' | 'remote' | 'unknown',
   };
 
-  const updatedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  updatedPeers.push(peerObj as unknown as Record<string, unknown>);
+  const updatedPeers = getState('network.connectedPeers');
+  updatedPeers.push(peerObj);
   setState('network.connectedPeers', updatedPeers);
 
   conn.on('open', () => {
@@ -350,7 +353,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       });
     } catch { /* noop */ }
 
-    bus.emit('ui:show-toast', `${deviceName}가 연결됐어요`);
+    bus.emit('ui:show-toast', t('toast.device_connected', { name: deviceName }));
 
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
@@ -358,7 +361,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     // Detect local vs remote for this guest after ICE stabilizes
     setTimeout(async () => {
       const type = await detectConnectionType(conn);
-      (peerObj as Record<string, unknown>).connectionType = type;
+      peerObj.connectionType = type;
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
     }, 1500);
@@ -383,20 +386,20 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     activeHostConnByPeerId.delete(peerId);
     releasePeerSlot(peerId);
 
-    const peerLabelsOnClose = getState<Record<string, string>>('network.peerLabels');
+    const peerLabelsOnClose = getState('network.peerLabels');
     if (peerLabelsOnClose) {
       delete peerLabelsOnClose[peerId];
     }
 
-    const peers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+    const peers = getState('network.connectedPeers');
     setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
 
-    const sessionStarted = getState<boolean>('setup.sessionStarted');
+    const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', `${deviceName} 연결이 끊겼어요`);
+      bus.emit('ui:show-toast', t('toast.device_disconnected', { name: deviceName }));
     }
     log.info(`[Host] ${deviceName} disconnected`);
   });
@@ -412,20 +415,20 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     activeHostConnByPeerId.delete(peerId);
     releasePeerSlot(peerId);
 
-    const peerLabelsOnError = getState<Record<string, string>>('network.peerLabels');
+    const peerLabelsOnError = getState('network.peerLabels');
     if (peerLabelsOnError) {
       delete peerLabelsOnError[peerId];
     }
 
-    const peers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+    const peers = getState('network.connectedPeers');
     setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
 
-    const sessionStarted = getState<boolean>('setup.sessionStarted');
+    const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', `${deviceName} 연결 오류`);
+      bus.emit('ui:show-toast', t('toast.device_conn_error', { name: deviceName }));
     }
     try { conn.close(); } catch { /* noop */ }
   });
@@ -437,7 +440,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
  * Connect to a host session as a guest.
  */
 export function joinSession(hostId: string, retryAttempt = 0): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     if (hostConn.open) {
       log.warn('[Join] Already connected to host.');
@@ -482,7 +485,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   let conn: DataConnection;
   try {
-    const channelMode = getState<number>('audio.channelMode');
+    const channelMode = getState('audio.channelMode');
     conn = peer.connect(hostId, {
       reliable: true,
       metadata: { label: `mode-${channelMode}` },
@@ -499,7 +502,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   // Timeout if host is unreachable (15s to allow TURN relay negotiation)
   const timeoutId = setTimeout(() => {
-    if (dataChannelOpened || getState<DataConnection | null>('network.hostConn')) return;
+    if (dataChannelOpened || getState('network.hostConn')) return;
     log.warn('[Join] Connection timeout — data channel did not open in 15s');
     try { conn.close(); } catch { /* noop */ }
     setState('network.isConnecting', false);
@@ -532,7 +535,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       }
       (conn as unknown as Record<string, unknown>)._errorHandled = true;
 
-      const isIntentional = getState<boolean>('network.isIntentionalDisconnect');
+      const isIntentional = getState('network.isIntentionalDisconnect');
       if (!isIntentional) {
         bus.emit('network:error', new Error('HOST_DISCONNECTED'));
       }
@@ -585,12 +588,12 @@ export function leaveSession(): void {
   bus.emit('player:stop-all-media');
 
   // ── 3. Close network connections ──
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     try { hostConn.close(); } catch { /* noop */ }
   }
 
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
       const conn = p.conn as DataConnection | null;
@@ -599,7 +602,7 @@ export function leaveSession(): void {
   });
 
   // Close downstream relay connections
-  const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+  const downstreamDataPeers = getState('relay.downstreamDataPeers');
   downstreamDataPeers.forEach(p => {
     try { p.close(); } catch { /* noop */ }
   });
@@ -611,19 +614,19 @@ export function leaveSession(): void {
   }
 
   // ── 4. Clear peer slots and maps ──
-  const activeHostConnByPeerId = getState<Map<string, DataConnection>>('network.activeHostConnByPeerId');
-  const peerSlotByPeerId = getState<Map<string, number>>('network.peerSlotByPeerId');
+  const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
+  const peerSlotByPeerId = getState('network.peerSlotByPeerId');
   activeHostConnByPeerId.clear();
   peerSlotByPeerId.clear();
-  const peerSlots = getState<(string | null)[]>('network.peerSlots');
+  const peerSlots = getState('network.peerSlots');
   for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
 
   // ── 5. Clear transfer state ──
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
   // Clear the state-managed preload session state (correct key: preload.sessionState)
-  const preloadSessionState = getState<Map<unknown, unknown>>('preload.sessionState');
+  const preloadSessionState = getState('preload.sessionState');
   if (preloadSessionState) preloadSessionState.clear();
-  const ackSent = getState<Set<number>>('preload.ackSent');
+  const ackSent = getState('preload.ackSent');
   if (ackSent) ackSent.clear();
 
   // ── 6. Revoke blob URLs ──
@@ -679,8 +682,8 @@ export function leaveSession(): void {
 /**
  * Broadcast a message to all connected peers.
  */
-export function broadcast(msg: unknown, isDataOnly = false): void {
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
+  const connectedPeers = getState('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
       if (p.status === 'connected' && p.conn) {
@@ -700,8 +703,8 @@ export function broadcast(msg: unknown, isDataOnly = false): void {
 /**
  * Broadcast to all peers except one (used for chat relays).
  */
-export function broadcastExcept(excludePeerId: string, msg: unknown, isDataOnly = false): void {
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+export function broadcastExcept(excludePeerId: string, msg: AnyProtocolMsg, isDataOnly = false): void {
+  const connectedPeers = getState('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
       if (p.status === 'connected' && p.conn) {
@@ -723,8 +726,8 @@ export function broadcastExcept(excludePeerId: string, msg: unknown, isDataOnly 
  * Build and broadcast device list to all peers.
  */
 export function broadcastDeviceList(): void {
-  const myId = getState<string | null>('network.myId');
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const myId = getState('network.myId');
+  const connectedPeers = getState('network.connectedPeers');
 
   const list = [
     { id: myId, label: 'HOST', status: 'connected', isHost: true },
@@ -751,7 +754,7 @@ export function broadcastDeviceList(): void {
 /**
  * Send a message to any DataConnection safely (try/catch + open check).
  */
-export function safeSend(conn: DataConnection | null | undefined, msg: unknown): boolean {
+export function safeSend(conn: DataConnection | null | undefined, msg: AnyProtocolMsg): boolean {
   if (!conn || !conn.open) return false;
   try {
     conn.send(msg);
@@ -761,8 +764,8 @@ export function safeSend(conn: DataConnection | null | undefined, msg: unknown):
   }
 }
 
-export function sendToHost(msg: unknown): boolean {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+export function sendToHost(msg: AnyProtocolMsg): boolean {
+  const hostConn = getState('network.hostConn');
   return safeSend(hostConn, msg);
 }
 
@@ -775,8 +778,8 @@ export function sendPauseState(conn: DataConnection, time: number): void {
     conn.send({
       type: MSG.PAUSE,
       time,
-      index: getState<number>('playlist.currentTrackIndex'),
-      state: getState<string>('appState'),
+      index: getState('playlist.currentTrackIndex'),
+      state: getState('appState'),
       timestamp: Date.now(),
     });
   } catch { /* noop */ }
@@ -818,7 +821,7 @@ function waitForPeerConnectionType(
  */
 export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   if (!conn || !conn.open) return false;
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   const peerObj = connectedPeers.find(p => p.conn === conn);
   if (!peerObj) return false;
 
@@ -837,7 +840,7 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
  * which happen well after the 1.5s ICE detection window).
  */
 export function filterEligiblePeers(): Array<Record<string, unknown>> {
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   return connectedPeers.filter(p =>
     p.status === 'connected' &&
     (p.conn as DataConnection)?.open &&
@@ -850,7 +853,7 @@ export function filterEligiblePeers(): Array<Record<string, unknown>> {
  * Guest-side: am I a remote guest? (remote or unknown = true)
  */
 export function isRemoteGuest(): boolean {
-  const connType = getState<string>('network.connectionType');
+  const connType = getState('network.connectionType');
   return connType === 'remote' || connType === 'unknown';
 }
 
@@ -860,7 +863,7 @@ export function isRemoteGuest(): boolean {
  */
 export function waitForGuestConnectionType(timeout: number): Promise<'local' | 'remote'> {
   return new Promise(resolve => {
-    const check = () => getState<string>('network.connectionType');
+    const check = () => getState('network.connectionType');
     if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
 
     const interval = setInterval(() => {
@@ -878,27 +881,23 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
-bus.on('network:broadcast', ((...args: unknown[]) => {
-  const msg = args[0];
-  if (msg) broadcast(msg);
-}) as (...args: unknown[]) => void);
+bus.on('network:broadcast', (data) => {
+  if (data) broadcast(data as AnyProtocolMsg);
+});
 
-bus.on('network:broadcast-except', ((...args: unknown[]) => {
-  const excludePeerId = args[0] as string;
-  const msg = args[1];
-  if (msg) broadcastExcept(excludePeerId, msg);
-}) as (...args: unknown[]) => void);
+bus.on('network:broadcast-except', (peerId, data) => {
+  if (data) broadcastExcept(peerId, data as AnyProtocolMsg);
+});
 
 // Host: Toggle operator permission on a peer
-bus.on('network:toggle-operator', ((...args: unknown[]) => {
-  const peerId = args[0] as string;
+bus.on('network:toggle-operator', (peerId) => {
   if (!peerId) return;
 
   // Only Host can toggle operator
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   const p = connectedPeers.find(x => x.id === peerId);
   if (p) {
     p.isOp = !p.isOp;
@@ -909,22 +908,21 @@ bus.on('network:toggle-operator', ((...args: unknown[]) => {
       log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
     }
     broadcastDeviceList();
-    bus.emit('ui:show-toast', `${p.label} 권한 ${p.isOp ? '부여됨' : '회수됨'}`);
+    bus.emit('ui:show-toast', t('toast.op_status', { label: p.label, status: p.isOp ? t('common.granted') : t('common.revoked') }));
   }
-}) as (...args: unknown[]) => void);
+});
 
 // Expose toggleOperator globally for device-list UI buttons
 (window as unknown as Record<string, unknown>).toggleOperator = (peerId: string) => {
   bus.emit('network:toggle-operator', peerId);
 };
 
-bus.on('network:device-list', ((...args: unknown[]) => {
-  const list = args[0] as Array<Record<string, unknown>>;
+bus.on('network:device-list', (list) => {
   if (Array.isArray(list)) {
-    setState('network.lastKnownDeviceList', list);
+    setState('network.lastKnownDeviceList', list as DeviceInfo[]);
     bus.emit('network:device-list-update', list);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // ─── Guest Protocol Handlers ──────────────────────────────────────
 
@@ -936,11 +934,11 @@ function handleWelcome(data: Record<string, unknown>): void {
 }
 
 function handleSessionFull(data: Record<string, unknown>): void {
-  const msg = data.message ? String(data.message) : '세션이 가득 찼어요';
+  const msg = data.message ? String(data.message) : t('network.session_full');
 
   setState('network.isIntentionalDisconnect', true);
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     try { hostConn.close(); } catch { /* noop */ }
     setState('network.hostConn', null);
@@ -951,11 +949,11 @@ function handleSessionFull(data: Record<string, unknown>): void {
 }
 
 function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
-  const list = Array.isArray(data.list) ? data.list as Array<Record<string, unknown>> : [];
+  const list = Array.isArray(data.list) ? data.list as DeviceInfo[] : [];
   setState('network.lastKnownDeviceList', list);
 
-  const myId = getState<string | null>('network.myId');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const myId = getState('network.myId');
+  const hostConn = getState('network.hostConn');
 
   if (hostConn && myId) {
     const amIStillConnected = list.find(p => p && p.id === myId);
@@ -987,14 +985,14 @@ function handleSysToast(data: Record<string, unknown>): void {
 
 function handleOperatorGrant(): void {
   setState('network.isOperator', true);
-  bus.emit('ui:show-toast', 'Operator 권한이 부여되었습니다.');
+  bus.emit('ui:show-toast', t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
 
 function handleOperatorRevoke(): void {
   setState('network.isOperator', false);
-  bus.emit('ui:show-toast', 'Operator 권한이 해제되었습니다.');
+  bus.emit('ui:show-toast', t('network.op_revoked'));
   bus.emit('network:role-badge-update');
 }
 
@@ -1011,12 +1009,12 @@ export function initPeerHandlers(): void {
   registerHandlers({
     [MSG.WELCOME]: handleWelcome,
     [MSG.SESSION_FULL]: handleSessionFull,
-    [MSG.SESSION_START]: handleSessionStart as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.SESSION_START]: handleSessionStart,
     [MSG.DEVICE_LIST_UPDATE]: handleDeviceListUpdateMsg,
-    [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate,
     [MSG.SYS_TOAST]: handleSysToast,
-    [MSG.OPERATOR_GRANT]: handleOperatorGrant as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.OPERATOR_REVOKE]: handleOperatorRevoke as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.OPERATOR_GRANT]: handleOperatorGrant,
+    [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
   });
 
   log.info('[Peer] Protocol handlers registered');

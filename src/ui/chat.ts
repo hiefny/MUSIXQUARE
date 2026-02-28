@@ -13,6 +13,7 @@ import { MSG } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
+import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -29,13 +30,13 @@ let _isChatDrawerOpen = false;
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function _getChatLabelBase(): string {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) return 'Host';
 
-  const myDeviceLabel = getState<string>('network.myDeviceLabel') || '';
+  const myDeviceLabel = getState('network.myDeviceLabel') || '';
   const label = myDeviceLabel.trim();
 
-  if (!label || label === 'HOST' || label === 'Guest' || label === '참가자') return PEER_NAME_PREFIX;
+  if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest')) return PEER_NAME_PREFIX;
 
   const role0 = getRoleLabelByChannelMode(0);
   const roleL = getRoleLabelByChannelMode(-1);
@@ -86,7 +87,7 @@ function parseMessageContent(text: string): string {
       const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
       result += `
-        <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="YouTube 링크 열기" aria-describedby="${uniqueId}">
+        <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="${escapeAttr(t('youtube.open_link'))}" aria-describedby="${uniqueId}">
           <div class="chat-yt-play-row">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
             YouTube
@@ -181,13 +182,13 @@ export function sendChatMessage(): void {
   if (!text) return;
 
   const senderLabel = _getChatLabelBase();
-  const channelMode = getState<number>('audio.channelMode') ?? 0;
+  const channelMode = getState('audio.channelMode') ?? 0;
   const senderRole = getRoleLabelByChannelMode(channelMode);
   const displayName = _formatChatDisplayName(senderLabel);
 
   addChatMessage(displayName, text, true);
 
-  const myId = getState<string>('network.myId') || '';
+  const myId = getState('network.myId') || '';
   const chatMsg = {
     type: MSG.CHAT,
     senderId: myId,
@@ -198,7 +199,7 @@ export function sendChatMessage(): void {
     ts: Date.now(),
   };
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
@@ -310,7 +311,7 @@ export function addSystemChatMessage(text: string): void {
 // ─── Handler for Incoming Chat ───────────────────────────────────
 
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
-  const myId = getState<string>('network.myId') || '';
+  const myId = getState('network.myId') || '';
   const senderId = data.senderId as string || '';
   const isMine = senderId === myId;
 
@@ -321,7 +322,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   addChatMessage(displayName, text, isMine);
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const senderPeerId = conn?.peer || (senderId as string) || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
@@ -402,19 +403,19 @@ export function initChat(): void {
   }
 
   // Bus event for toggling drawer from other modules
-  bus.on('ui:toggle-chat-drawer', ((..._args: unknown[]) => {
+  bus.on('ui:toggle-chat-drawer', () => {
     toggleChatDrawer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // Close chat drawer (used by YouTube load-from-chat)
-  bus.on('ui:close-chat-drawer', ((..._args: unknown[]) => {
+  bus.on('ui:close-chat-drawer', () => {
     if (_isChatDrawerOpen) toggleChatDrawer();
-  }) as (...args: unknown[]) => void);
+  });
 
   // System messages from loader (avoids circular import with toast.ts)
-  bus.on('chat:system-message', ((...args: unknown[]) => {
-    addSystemChatMessage(args[0] as string);
-  }) as (...args: unknown[]) => void);
+  bus.on('chat:system-message', (text: string) => {
+    addSystemChatMessage(text);
+  });
 
   log.info('[Chat] Initialized');
 }

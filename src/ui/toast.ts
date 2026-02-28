@@ -6,7 +6,6 @@
  */
 
 import { log } from '../core/log.ts';
-import { i18nTranslate } from './i18n.ts';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
@@ -27,7 +26,7 @@ export function showLoader(show: boolean, txt?: string): void {
   if (show) {
     if (_loaderResetTimer) { clearTimeout(_loaderResetTimer); _loaderResetTimer = null; }
     header?.classList.add('loading');
-    if (txt && loadingText) loadingText.innerText = i18nTranslate(txt) ?? '';
+    if (txt && loadingText) loadingText.innerText = txt;
     if (progressBg && (progressBg.style.width === '0px' || progressBg.style.width === '')) {
       progressBg.style.width = '0%';
     }
@@ -55,7 +54,7 @@ export function showToast(msg: unknown): void {
       return;
     }
 
-    msgEl.innerText = i18nTranslate(text) ?? '';
+    msgEl.innerText = text;
     t.classList.add('show');
 
     if (_toastTimer) clearTimeout(_toastTimer);

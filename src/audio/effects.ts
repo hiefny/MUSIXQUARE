@@ -8,11 +8,12 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import {
   getMasterGain,
   getReverb,
@@ -37,19 +38,19 @@ import {
 export function applySettings(): void {
   if (!getMasterGain()) return;
 
-  const reverbMix = getState<number>('audio.reverbMix');
-  const reverbDecay = getState<number>('audio.reverbDecay');
-  const reverbPreDelay = getState<number>('audio.reverbPreDelay');
-  const reverbLowCut = getState<number>('audio.reverbLowCut');
-  const reverbHighCut = getState<number>('audio.reverbHighCut');
-  const stereoWidth = getState<number>('audio.stereoWidth');
-  const virtualBass = getState<number>('audio.virtualBass');
-  const eqValues = getState<number[]>('audio.eqValues');
-  const userPreampGain = getState<number>('audio.userPreampGain');
-  const channelMode = getState<number>('audio.channelMode');
-  const isSurroundMode = getState<boolean>('audio.isSurroundMode');
-  const surroundChannelIndex = getState<number>('audio.surroundChannelIndex');
-  const subFreq = getState<number>('audio.subFreq');
+  const reverbMix = getState('audio.reverbMix');
+  const reverbDecay = getState('audio.reverbDecay');
+  const reverbPreDelay = getState('audio.reverbPreDelay');
+  const reverbLowCut = getState('audio.reverbLowCut');
+  const reverbHighCut = getState('audio.reverbHighCut');
+  const stereoWidth = getState('audio.stereoWidth');
+  const virtualBass = getState('audio.virtualBass');
+  const eqValues = getState('audio.eqValues');
+  const userPreampGain = getState('audio.userPreampGain');
+  const channelMode = getState('audio.channelMode');
+  const isSurroundMode = getState('audio.isSurroundMode');
+  const surroundChannelIndex = getState('audio.surroundChannelIndex');
+  const subFreq = getState('audio.subFreq');
 
   // Reverb Mix (CrossFade)
   const crossFade = getRvbCrossFade();
@@ -170,7 +171,7 @@ export function setEQ(idx: number, val: number): void {
   const bandIdx = Number(idx);
   const bandVal = Number(val);
 
-  const eqValues = getState<number[]>('audio.eqValues');
+  const eqValues = getState('audio.eqValues');
   if (!eqValues || bandIdx < 0 || bandIdx >= eqValues.length) return;
 
   const newValues = [...eqValues];
@@ -241,9 +242,9 @@ export function updateSubFreq(val: number): void {
   const vbf = getVbFilter();
   if (vbf) vbf.frequency.rampTo(freq, 0.1);
 
-  const channelMode = getState<number>('audio.channelMode');
-  const isSurroundMode = getState<boolean>('audio.isSurroundMode');
-  const surroundChannelIndex = getState<number>('audio.surroundChannelIndex');
+  const channelMode = getState('audio.channelMode');
+  const isSurroundMode = getState('audio.isSurroundMode');
+  const surroundChannelIndex = getState('audio.surroundChannelIndex');
   const isSubMode = channelMode === 2 && !isSurroundMode;
   const isLFE = isSurroundMode && surroundChannelIndex === 3;
 
@@ -265,13 +266,13 @@ export function updateSubFreq(val: number): void {
  * Called only on 'change' event (slider release), not during 'input' (dragging).
  */
 function _broadcastOrRequestSetting(msgType: string, value: number): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: broadcast to all peers
-    broadcast({ type: msgType, value });
+    broadcast({ type: msgType, value } as AnyProtocolMsg);
   } else {
     // Guest (OP): request Host to apply + broadcast
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
     }
@@ -279,11 +280,11 @@ function _broadcastOrRequestSetting(msgType: string, value: number): void {
 }
 
 function _broadcastOrRequestSettingEQ(band: number, value: number): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     broadcast({ type: MSG.EQ_UPDATE, band, value });
   } else {
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     }
@@ -293,12 +294,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Central audio effect dispatcher from settings UI */
-bus.on('audio:update-effect', ((...args: unknown[]) => {
-  const type = args[0] as string;
-  const param = args[1] as string;
-  const value = Number(args[2]);
-  const isPreview = !!args[3]; // true = dragging (input), false = released (change)
-
+bus.on('audio:update-effect', (type, param, value, isPreview) => {
   if (!Number.isFinite(value)) return;
 
   switch (type) {
@@ -318,11 +314,11 @@ bus.on('audio:update-effect', ((...args: unknown[]) => {
       if (param === 'mix') {
         setStereoWidth(value);
         if (!isPreview) {
-          const hostConn = getState<DataConnection | null>('network.hostConn');
+          const hostConn = getState('network.hostConn');
           if (!hostConn) {
             broadcast({ type: MSG.STEREO_WIDTH, value });
           } else {
-            const isOperator = getState<boolean>('network.isOperator');
+            const isOperator = getState('network.isOperator');
             if (isOperator) {
               hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
             }
@@ -342,32 +338,27 @@ bus.on('audio:update-effect', ((...args: unknown[]) => {
     default:
       log.warn('[Effects] Unknown effect type:', type);
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Set preamp gain from dB value */
-bus.on('audio:set-preamp', ((...args: unknown[]) => {
-  const val = Number(args[0]);
-  const isPreview = !!args[1];
-  if (!Number.isFinite(val)) return;
-  setPreamp(val);
-  if (!isPreview) _broadcastOrRequestSetting(MSG.PREAMP, val);
-}) as (...args: unknown[]) => void);
+bus.on('audio:set-preamp', (value, isPreview) => {
+  if (!Number.isFinite(value)) return;
+  setPreamp(value);
+  if (!isPreview) _broadcastOrRequestSetting(MSG.PREAMP, value);
+});
 
 /** Set EQ band */
-bus.on('audio:set-eq', ((...args: unknown[]) => {
-  const band = Number(args[0]);
-  const val = Number(args[1]);
-  const isPreview = !!args[2];
-  if (!Number.isFinite(band) || !Number.isFinite(val)) return;
-  setEQ(band, val);
+bus.on('audio:set-eq', (band, value, isPreview) => {
+  if (!Number.isFinite(band) || !Number.isFinite(value)) return;
+  setEQ(band, value);
   if (!isPreview) {
-    _broadcastOrRequestSettingEQ(band, val);
+    _broadcastOrRequestSettingEQ(band, value);
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Reset handlers — with OP/Host routing */
-bus.on('audio:reset-reverb', (() => {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+bus.on('audio:reset-reverb', () => {
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: reset locally + broadcast
     resetReverb();
@@ -377,110 +368,109 @@ bus.on('audio:reset-reverb', (() => {
     broadcast({ type: MSG.REVERB_LOWCUT, value: 0 });
     broadcast({ type: MSG.REVERB_HIGHCUT, value: 0 });
   } else {
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-eq', (() => {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+bus.on('audio:reset-eq', () => {
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: reset locally + broadcast
     resetEQ();
     broadcast({ type: MSG.EQ_RESET });
   } else {
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-stereo', (() => {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+bus.on('audio:reset-stereo', () => {
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     resetStereoWidth();
     broadcast({ type: MSG.STEREO_WIDTH, value: 100 });
   } else {
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value: 100 });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
-bus.on('audio:reset-vbass', (() => {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+bus.on('audio:reset-vbass', () => {
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     resetVirtualBass();
     broadcast({ type: MSG.VBASS, value: 0 });
   } else {
-    const isOperator = getState<boolean>('network.isOperator');
+    const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 0 });
     }
   }
-}) as (...args: unknown[]) => void);
+});
 
 /** Sync state defaults to Tone.js nodes after audio graph init */
-bus.on('audio:ready', (() => {
+bus.on('audio:ready', () => {
   log.info('[Effects] Audio ready — applying default settings');
   applySettings();
-}) as (...args: unknown[]) => void);
+});
 
 /**
  * Host: Send all current audio settings to a newly connected peer (late-join bootstrap).
  */
-bus.on('network:peer-connected', ((...args: unknown[]) => {
-  const conn = args[0] as DataConnection | null;
+bus.on('network:peer-connected', (conn) => {
   if (!conn?.open) return;
 
   // Only Host bootstraps guests
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   try {
-    const masterVolume = getState<number>('audio.masterVolume');
+    const masterVolume = getState('audio.masterVolume');
     conn.send({ type: MSG.VOLUME, value: masterVolume });
 
-    const reverbMix = getState<number>('audio.reverbMix');
+    const reverbMix = getState('audio.reverbMix');
     conn.send({ type: MSG.REVERB, value: reverbMix * 100 });
 
-    const reverbDecay = getState<number>('audio.reverbDecay');
+    const reverbDecay = getState('audio.reverbDecay');
     conn.send({ type: MSG.REVERB_DECAY, value: reverbDecay });
 
-    const reverbPreDelay = getState<number>('audio.reverbPreDelay');
+    const reverbPreDelay = getState('audio.reverbPreDelay');
     conn.send({ type: MSG.REVERB_PREDELAY, value: reverbPreDelay });
 
-    const reverbLowCut = getState<number>('audio.reverbLowCut');
+    const reverbLowCut = getState('audio.reverbLowCut');
     conn.send({ type: MSG.REVERB_LOWCUT, value: reverbLowCut });
 
-    const reverbHighCut = getState<number>('audio.reverbHighCut');
+    const reverbHighCut = getState('audio.reverbHighCut');
     conn.send({ type: MSG.REVERB_HIGHCUT, value: reverbHighCut });
 
-    const eqValues = getState<number[]>('audio.eqValues');
+    const eqValues = getState('audio.eqValues');
     if (eqValues) {
       eqValues.forEach((val, i) => {
         conn.send({ type: MSG.EQ_UPDATE, band: i, value: val });
       });
     }
 
-    const userPreampGain = getState<number>('audio.userPreampGain');
+    const userPreampGain = getState('audio.userPreampGain');
     conn.send({ type: MSG.PREAMP, value: Math.round(20 * Math.log10(Math.max(userPreampGain, 1e-6))) });
 
-    const stereoWidth = getState<number>('audio.stereoWidth');
+    const stereoWidth = getState('audio.stereoWidth');
     conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100 });
 
-    const virtualBass = getState<number>('audio.virtualBass');
+    const virtualBass = getState('audio.virtualBass');
     conn.send({ type: MSG.VBASS, value: virtualBass * 100 });
 
     log.debug('[Effects] Bootstrap: sent audio settings to new peer');
   } catch (e) {
     log.warn('[Effects] Bootstrap send failed:', e);
   }
-}) as (...args: unknown[]) => void);
+});
 
 // ─── Network Protocol Handlers (Host→Guest effect sync) ──────────
 
@@ -530,7 +520,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       return;
   }
   applySettings();
-  bus.emit('ui:show-toast', `리버브 타입: ${type}`);
+  bus.emit('ui:show-toast', t('toast.reverb_type', { type }));
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>): void {
@@ -566,7 +556,7 @@ function handleVBassMsg(data: Record<string, unknown>): void {
 // ─── Operator Request Handlers (Host-side) ──────────────────────
 
 function handleRequestEQReset(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host
 
   if (!verifyOperator(conn)) {
@@ -579,7 +569,7 @@ function handleRequestEQReset(_data: Record<string, unknown>, conn: DataConnecti
 }
 
 function handleRequestReverbReset(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -599,22 +589,19 @@ function handleRequestReverbReset(_data: Record<string, unknown>, conn: DataConn
 // ─── Init Effects Protocol Handlers ──────────────────────────────
 
 export function initEffectsHandlers(): void {
-  const castHandler = (fn: (d: Record<string, unknown>) => void) =>
-    fn as unknown as (d: Record<string, unknown>, c: DataConnection) => void;
-
   registerHandlers({
-    [MSG.VOLUME]: castHandler(handleVolume),
-    [MSG.EQ_UPDATE]: castHandler(handleEQUpdateMsg),
-    [MSG.PREAMP]: castHandler(handlePreampMsg),
-    [MSG.EQ_RESET]: castHandler(handleEQResetMsg as unknown as (d: Record<string, unknown>) => void),
-    [MSG.REVERB]: castHandler(handleReverbMsg),
-    [MSG.REVERB_TYPE]: castHandler(handleReverbTypeMsg),
-    [MSG.REVERB_DECAY]: castHandler(handleReverbDecayMsg),
-    [MSG.REVERB_PREDELAY]: castHandler(handleReverbPreDelayMsg),
-    [MSG.REVERB_LOWCUT]: castHandler(handleReverbLowCutMsg),
-    [MSG.REVERB_HIGHCUT]: castHandler(handleReverbHighCutMsg),
-    [MSG.STEREO_WIDTH]: castHandler(handleStereoWidthMsg),
-    [MSG.VBASS]: castHandler(handleVBassMsg),
+    [MSG.VOLUME]: handleVolume,
+    [MSG.EQ_UPDATE]: handleEQUpdateMsg,
+    [MSG.PREAMP]: handlePreampMsg,
+    [MSG.EQ_RESET]: handleEQResetMsg,
+    [MSG.REVERB]: handleReverbMsg,
+    [MSG.REVERB_TYPE]: handleReverbTypeMsg,
+    [MSG.REVERB_DECAY]: handleReverbDecayMsg,
+    [MSG.REVERB_PREDELAY]: handleReverbPreDelayMsg,
+    [MSG.REVERB_LOWCUT]: handleReverbLowCutMsg,
+    [MSG.REVERB_HIGHCUT]: handleReverbHighCutMsg,
+    [MSG.STEREO_WIDTH]: handleStereoWidthMsg,
+    [MSG.VBASS]: handleVBassMsg,
     [MSG.REQUEST_EQ_RESET]: handleRequestEQReset,
     [MSG.REQUEST_REVERB_RESET]: handleRequestReverbReset,
   });

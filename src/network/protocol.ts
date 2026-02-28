@@ -10,8 +10,9 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import type { MsgType } from '../core/constants.ts';
 import { sendToHost } from './peer.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, ProtocolMsg, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ export function validateMessage(data: unknown, requiredFields: string[] = []): d
 // ─── Relayable Commands ─────────────────────────────────────────────
 
 /** Commands that should be automatically relayed through the chain */
-export const RELAYABLE_COMMANDS: string[] = [
+export const RELAYABLE_COMMANDS: MsgType[] = [
   MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
   MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
   MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
@@ -50,33 +51,35 @@ export const RELAYABLE_COMMANDS: string[] = [
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
-type MessageHandler = (data: Record<string, unknown>, conn: DataConnection) => void | Promise<void>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MessageHandler = (data: ProtocolMsg<any>, conn: DataConnection) => void | Promise<void>;
 const _handlers = new Map<string, MessageHandler>();
 
 /**
  * Register a handler for a specific message type.
  * Can be called from any module during initialization.
  */
-export function registerHandler(type: string, handler: MessageHandler): void {
+export function registerHandler<T extends MsgType>(type: T, handler: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>): void {
   if (_handlers.has(type)) {
     log.warn(`[Protocol] Overwriting handler for: ${type}`);
   }
-  _handlers.set(type, handler);
+  _handlers.set(type, handler as MessageHandler);
 }
 
 /**
  * Register multiple handlers at once.
+ * Each handler receives a typed payload matching its message type key.
  */
-export function registerHandlers(handlers: Record<string, MessageHandler>): void {
+export function registerHandlers(handlers: { [T in MsgType]?: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void> }): void {
   for (const [type, handler] of Object.entries(handlers)) {
-    registerHandler(type, handler);
+    if (handler) registerHandler(type as MsgType, handler as MessageHandler);
   }
 }
 
 /**
  * Check if a handler is registered for a given message type.
  */
-export function hasHandler(type: string): boolean {
+export function hasHandler(type: MsgType): boolean {
   return _handlers.has(type);
 }
 
@@ -91,25 +94,26 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   if (!validateMessage(data, [])) return;
 
   const msg = data as Record<string, unknown>;
-  const msgType = msg.type as string;
+  const msgType = msg.type as MsgType;
 
   // Dispatch to registered handler
   const handler = _handlers.get(msgType);
   if (handler) {
     try {
-      await handler(msg, conn);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(msg as ProtocolMsg<any>, conn);
     } catch (e) {
       log.error(`Error handling ${msgType}:`, e);
     }
   }
 
   // Relay Architecture (only applies to guests with a host connection)
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) return;
 
   // 1. RELAY DOWNSTREAM (Control commands from Upstream → Downstream)
-  const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.includes(msgType)) {
+  const downstreamDataPeers = getState('relay.downstreamDataPeers');
+  if (downstreamDataPeers.length > 0 && (RELAYABLE_COMMANDS as string[]).includes(msgType)) {
     downstreamDataPeers.forEach(p => {
       // Prevent infinite loop: do not relay back to sender
       if (p.open && p !== conn) {
@@ -122,7 +126,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   if (conn && conn !== hostConn) {
     if (msgType.startsWith('request-')) {
       log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType}`);
-      sendToHost(data);
+      sendToHost(data as AnyProtocolMsg);
     }
   }
 }
@@ -135,7 +139,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
  */
 export function verifyOperator(conn: DataConnection): boolean {
   if (!conn?.peer) return false;
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   const peer = connectedPeers.find(p => p.id === conn.peer);
   return !!(peer && peer.isOp);
 }

@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
@@ -30,10 +31,10 @@ import type { DataConnection, PlaylistItem } from '../types/index.ts';
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
 export function toggleRepeat(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
   if (hostConn && !isOperator) return;
-  const repeatMode = getState<number>('playlist.repeatMode') || 0;
+  const repeatMode = getState('playlist.repeatMode') || 0;
   const nextMode = (repeatMode + 1) % 3;
   setRepeatMode(nextMode);
 
@@ -52,20 +53,20 @@ export function setRepeatMode(mode: number, notify = true): void {
   btn.classList.remove('active', 'active-one');
   if (mode === 1) {
     btn.classList.add('active');
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 전체');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_all'));
   } else if (mode === 2) {
     btn.classList.add('active-one');
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 한 곡');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_one'));
   } else {
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 끔');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_off'));
   }
 }
 
 export function toggleShuffle(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
   if (hostConn && !isOperator) return;
-  const isShuffle = getState<boolean>('playlist.isShuffle');
+  const isShuffle = getState('playlist.isShuffle');
   const nextShuffle = !isShuffle;
   setShuffle(nextShuffle);
 
@@ -80,14 +81,14 @@ export function setShuffle(enabled: boolean, notify = true): void {
   setState('playlist.isShuffle', enabled);
   const btn = document.getElementById('btn-shuffle');
   if (btn) btn.classList.toggle('active', enabled);
-  if (notify) bus.emit('ui:show-toast', enabled ? '셔플: 켜짐' : '셔플: 꺼짐');
+  if (notify) bus.emit('ui:show-toast', enabled ? t('playlist.shuffle_on') : t('playlist.shuffle_off'));
 }
 
 // ─── Clear Preload State ───────────────────────────────────────────
 
 export function clearPreloadState(): void {
-  const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const nextMeta = getState('preload.meta');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isNextTrackActive = nextMeta && (Number(nextMeta.index) === currentTrackIndex);
 
   setState('preload.nextTrackIndex', -1);
@@ -104,7 +105,7 @@ export function clearPreloadState(): void {
 // ─── Play Track ────────────────────────────────────────────────────
 
 export async function playTrack(index: number): Promise<void> {
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const playlist = getState('playlist.items') || [];
   if (index < 0 || index >= playlist.length) return;
 
   clearManagedTimer('autoPlayTimer');
@@ -112,7 +113,7 @@ export async function playTrack(index: number): Promise<void> {
   // Cancel in-flight preload
   setState('preload.isPreloading', false);
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
 
   // Auto-switch to Play tab (Host only)
   if (!hostConn) bus.emit('ui:switch-tab', 'play');
@@ -120,8 +121,8 @@ export async function playTrack(index: number): Promise<void> {
   const myLoadToken = incrementLoadToken();
 
   // Check if preloaded
-  const nextTrackIndex = getState<number>('preload.nextTrackIndex');
-  const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
+  const nextTrackIndex = getState('preload.nextTrackIndex');
+  const nextFileBlob = getState('preload.nextFileBlob');
 
   if (index === nextTrackIndex && nextFileBlob && !hostConn) {
     log.debug('[Host] Using Preloaded Track:', index);
@@ -130,7 +131,7 @@ export async function playTrack(index: number): Promise<void> {
     bus.emit('player:metadata-update', playlist[index]);
 
     // Advance session ID for recovery
-    const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+    const nextMeta = getState('preload.meta');
     if (nextMeta?.sessionId && Number.isFinite(Number(nextMeta.sessionId))) {
       setState('transfer.currentSessionId', Number(nextMeta.sessionId));
     } else {
@@ -170,14 +171,14 @@ export async function playTrack(index: number): Promise<void> {
         autoplay: false,
       });
 
-      const isFirstTrackLoad = getState<boolean>('player.isFirstTrackLoad');
+      const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       if (isFirstTrackLoad) {
         setState('player.isFirstTrackLoad', false);
-        bus.emit('youtube:load', item.videoId, item.playlistId, false);
-        bus.emit('ui:show-toast', 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.');
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
+        bus.emit('ui:show-toast', t('youtube.ready'));
       } else {
-        bus.emit('youtube:load', item.videoId, item.playlistId, false);
-        bus.emit('ui:show-toast', '3초 후 YouTube 재생...');
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
+        bus.emit('ui:show-toast', t('youtube.playing_in_3s'));
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
         }, 3000);
@@ -202,15 +203,15 @@ export async function playTrack(index: number): Promise<void> {
     broadcast({ type: MSG.FILE_PREPARE, name: file.name, index, sessionId, mime: file.type });
     await loadAndBroadcastFile(file, sessionId, false, myLoadToken);
 
-    const isFirstTrackLoad = getState<boolean>('player.isFirstTrackLoad');
+    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);
-      bus.emit('ui:show-toast', '파일이 준비됐어요! 재생 버튼을 눌러 보세요.');
+      bus.emit('ui:show-toast', t('toast.file_ready'));
     } else {
-      bus.emit('ui:show-toast', '3초 후 재생 시작...');
+      bus.emit('ui:show-toast', t('toast.playing_in_3s'));
       setManagedTimer('autoPlayTimer', () => {
         play(0);
-        const currentIdx = getState<number>('playlist.currentTrackIndex');
+        const currentIdx = getState('playlist.currentTrackIndex');
         broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
         requestGlobalResyncDelayed();
       }, 3000);
@@ -221,11 +222,11 @@ export async function playTrack(index: number): Promise<void> {
 // ─── Play Next Track ───────────────────────────────────────────────
 
 export function playNextTrack(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -235,18 +236,18 @@ export function playNextTrack(): void {
   }
 
   // Host: YouTube internal navigation
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     let handled = false;
     bus.emit('youtube:try-next-internal', (success: boolean) => { handled = success; });
     if (handled) return;
   }
 
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const repeatMode = getState<number>('playlist.repeatMode') || 0;
-  const isShuffle = getState<boolean>('playlist.isShuffle');
-  const nextTrackIndex = getState<number>('preload.nextTrackIndex');
+  const playlist = getState('playlist.items') || [];
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const repeatMode = getState('playlist.repeatMode') || 0;
+  const isShuffle = getState('playlist.isShuffle');
+  const nextTrackIndex = getState('preload.nextTrackIndex');
 
   if (playlist.length === 0) return;
 
@@ -286,11 +287,11 @@ export function playNextTrack(): void {
 // ─── Play Previous Track ───────────────────────────────────────────
 
 export function playPrevTrack(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -299,8 +300,8 @@ export function playPrevTrack(): void {
     return;
   }
 
-  const currentState = getState<string>('appState');
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentState = getState('appState');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube mode
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -347,7 +348,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
   setState('playlist.items', incoming);
 
   // Sync current track index from host (late-join bootstrap)
-  let idx = getState<number>('playlist.currentTrackIndex');
+  let idx = getState('playlist.currentTrackIndex');
   if (typeof data.currentTrackIndex === 'number') {
     idx = data.currentTrackIndex;
   } else if (typeof data.index === 'number') {
@@ -364,7 +365,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
 
 function handleTrackChange(data: Record<string, unknown>, conn: DataConnection): void {
   // Host handles OP request
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -373,7 +374,7 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
   }
 
   const index = Number(data.index);
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const playlist = getState('playlist.items') || [];
   if (!Number.isFinite(index) || index < 0 || index >= playlist.length) {
     log.warn(`[Playlist] Invalid track index: ${data.index}`);
     return;
@@ -382,7 +383,7 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
 }
 
 function handleRequestNextTrack(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -393,7 +394,7 @@ function handleRequestNextTrack(_data: Record<string, unknown>, conn: DataConnec
 }
 
 function handleRequestPrevTrack(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -404,7 +405,7 @@ function handleRequestPrevTrack(_data: Record<string, unknown>, conn: DataConnec
 }
 
 function handleRequestSetting(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -454,33 +455,38 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       break;
     }
     case MSG.REVERB: {
-      setReverbParam('mix', Number(val));
-      broadcast({ type: MSG.REVERB, value: val });
+      const v = Number(val);
+      setReverbParam('mix', v);
+      broadcast({ type: MSG.REVERB, value: v });
       break;
     }
     case MSG.REVERB_TYPE: {
       // Reverb type preset handled via protocol handler, just broadcast
-      broadcast({ type: MSG.REVERB_TYPE, value: val });
+      broadcast({ type: MSG.REVERB_TYPE, value: Number(val) });
       break;
     }
     case MSG.REVERB_DECAY: {
-      setReverbParam('decay', Number(val));
-      broadcast({ type: MSG.REVERB_DECAY, value: val });
+      const v = Number(val);
+      setReverbParam('decay', v);
+      broadcast({ type: MSG.REVERB_DECAY, value: v });
       break;
     }
     case MSG.REVERB_PREDELAY: {
-      setReverbParam('predelay', Number(val));
-      broadcast({ type: MSG.REVERB_PREDELAY, value: val });
+      const v = Number(val);
+      setReverbParam('predelay', v);
+      broadcast({ type: MSG.REVERB_PREDELAY, value: v });
       break;
     }
     case MSG.REVERB_LOWCUT: {
-      setReverbParam('lowcut', Number(val));
-      broadcast({ type: MSG.REVERB_LOWCUT, value: val });
+      const v = Number(val);
+      setReverbParam('lowcut', v);
+      broadcast({ type: MSG.REVERB_LOWCUT, value: v });
       break;
     }
     case MSG.REVERB_HIGHCUT: {
-      setReverbParam('highcut', Number(val));
-      broadcast({ type: MSG.REVERB_HIGHCUT, value: val });
+      const v = Number(val);
+      setReverbParam('highcut', v);
+      broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
       break;
     }
   }
@@ -489,14 +495,14 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 // ─── Load Demo Media ──────────────────────────────────────────────
 
 async function loadDemoMedia(): Promise<void> {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', 'Host만 실행할 수 있습니다.');
+    bus.emit('ui:show-toast', t('toast.host_only'));
     return;
   }
 
   try {
-    bus.emit('ui:show-loader', true, '데모 음원 로딩 중...');
+    bus.emit('ui:show-loader', true, t('transfer.demo_loading_short'));
     bus.emit('ui:update-loader', 0);
 
     const blob: Blob = await new Promise((resolve, reject) => {
@@ -532,7 +538,7 @@ async function loadDemoMedia(): Promise<void> {
       title: DEMO_TITLE,
     };
 
-    const playlist = [...(getState<PlaylistItem[]>('playlist.items') || [])];
+    const playlist = [...(getState('playlist.items') || [])];
     playlist.push(newTrack);
     setState('playlist.items', playlist);
     bus.emit('ui:update-playlist');
@@ -546,13 +552,13 @@ async function loadDemoMedia(): Promise<void> {
     }));
     broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-    bus.emit('ui:show-toast', '데모 음원 로드 완료. 재생을 시작합니다.');
+    bus.emit('ui:show-toast', t('transfer.demo_loaded'));
     bus.emit('ui:show-loader', false);
 
     playTrack(playlist.length - 1);
   } catch (e: unknown) {
     log.error('Demo load failed:', e);
-    bus.emit('ui:show-toast', `데모 로드 실패: ${(e as Error).message}`);
+    bus.emit('ui:show-toast', `${t('transfer.demo_load_fail')} ${(e as Error).message}`);
     bus.emit('ui:show-loader', false);
   }
 }
@@ -562,13 +568,13 @@ async function loadDemoMedia(): Promise<void> {
 function handleFilesSelected(files: FileList | null): void {
   if (!files || files.length === 0) return;
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', 'Host만 파일을 추가할 수 있습니다.');
+    bus.emit('ui:show-toast', t('toast.host_only_file'));
     return;
   }
 
-  const playlist = [...(getState<PlaylistItem[]>('playlist.items') || [])];
+  const playlist = [...(getState('playlist.items') || [])];
   let addedCount = 0;
 
   for (let i = 0; i < files.length; i++) {
@@ -599,10 +605,10 @@ function handleFilesSelected(files: FileList | null): void {
   }));
   broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-  bus.emit('ui:show-toast', `${addedCount}개 파일 추가됨`);
+  bus.emit('ui:show-toast', t('toast.added_tracks', { count: addedCount }));
 
   // Auto-play first added file if nothing is playing
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.IDLE) {
     playTrack(playlist.length - addedCount);
   } else {
@@ -627,11 +633,11 @@ export function initPlaylist(): void {
 
   // Handle track ended auto-advance
   bus.on('player:ended', () => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
 
-    const repeatMode = getState<number>('playlist.repeatMode') || 0;
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const repeatMode = getState('playlist.repeatMode') || 0;
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
@@ -647,53 +653,48 @@ export function initPlaylist(): void {
   bus.on('playlist:next-track', () => playNextTrack());
 
   // Silent mode setters (for handleStatusSync — no toast, no broadcast)
-  bus.on('playlist:set-repeat-mode', ((...args: unknown[]) => {
-    const mode = Number(args[0]) || 0;
-    const notify = args[1] !== false;
-    setRepeatMode(mode, notify);
-  }) as (...args: unknown[]) => void);
+  bus.on('playlist:set-repeat-mode', (mode, notify) => {
+    setRepeatMode(mode, notify !== false);
+  });
 
-  bus.on('playlist:set-shuffle', ((...args: unknown[]) => {
-    const notify = args[1] !== false;
-    setShuffle(!!args[0], notify);
-  }) as (...args: unknown[]) => void);
+  bus.on('playlist:set-shuffle', (enabled, notify) => {
+    setShuffle(enabled, notify !== false);
+  });
 
   // Demo media loading
-  bus.on('app:load-demo', ((..._args: unknown[]) => {
+  bus.on('app:load-demo', () => {
     loadDemoMedia();
-  }) as (...args: unknown[]) => void);
+  });
 
   // File selection
-  bus.on('app:files-selected', ((...args: unknown[]) => {
-    handleFilesSelected(args[0] as FileList | null);
-  }) as (...args: unknown[]) => void);
+  bus.on('app:files-selected', (files) => {
+    handleFilesSelected(files);
+  });
 
   // Play specific track from playlist view click
-  bus.on('playlist:play-track', ((...args: unknown[]) => {
-    const index = Number(args[0]);
+  bus.on('playlist:play-track', (index) => {
     if (Number.isFinite(index) && index >= 0) playTrack(index);
-  }) as (...args: unknown[]) => void);
+  });
 
   // Host: Send playlist state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', ((...args: unknown[]) => {
-    const conn = args[0] as DataConnection | null;
+  bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
     try {
       // Repeat mode
-      const repeatMode = getState<number>('playlist.repeatMode') || 0;
+      const repeatMode = getState('playlist.repeatMode') || 0;
       conn.send({ type: MSG.REPEAT_MODE, value: repeatMode });
 
       // Shuffle mode
-      const isShuffle = getState<boolean>('playlist.isShuffle');
+      const isShuffle = getState('playlist.isShuffle');
       conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle });
 
       // Full playlist metadata
-      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+      const playlist = getState('playlist.items') || [];
       const metaList = playlist.map(item => ({
         type: item.type,
         name: item.name,
@@ -707,7 +708,7 @@ export function initPlaylist(): void {
     } catch (e) {
       log.warn('[Playlist] Bootstrap send failed:', e);
     }
-  }) as (...args: unknown[]) => void);
+  });
 
   log.info('[Playlist] Initialized');
 }

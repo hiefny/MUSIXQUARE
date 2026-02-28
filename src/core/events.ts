@@ -4,6 +4,7 @@
  * Same-domain modules use direct imports; cross-domain uses this bus.
  */
 
+import { log } from './log.ts';
 import type { EventMap } from '../types/index.ts';
 
 // ── Type-level helpers ──────────────────────────────────────────
@@ -66,7 +67,7 @@ class EventBusImpl {
       try {
         fn(...args);
       } catch (e) {
-        console.error(`[EventBus] Error in handler for "${event as string}":`, e);
+        log.error(`[EventBus] Error in handler for "${event as string}":`, e);
       }
     }
   }

@@ -356,8 +356,10 @@ function initSeekBar(): void {
   slider.addEventListener('input', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
+    const formatted = fmtTime(parseFloat(slider.value));
     const tc = document.getElementById('time-curr');
-    if (tc) tc.innerText = fmtTime(parseFloat(slider.value));
+    if (tc) tc.innerText = formatted;
+    slider.setAttribute('aria-valuetext', formatted);
   });
 
   slider.addEventListener('change', () => {
@@ -647,6 +649,7 @@ export function initPlayerControls(): void {
       const isSeeking = getState('player.isSeeking');
       if (slider && !isSeeking) {
         slider.value = String(pos);
+        slider.setAttribute('aria-valuetext', fmtTime(pos));
       }
       if (tc && !isSeeking) tc.innerText = fmtTime(pos);
 
@@ -722,7 +725,10 @@ export function initPlayerControls(): void {
 
     if (slider && duration > 0) {
       slider.max = String(duration);
-      if (!isSeeking) slider.value = String(currentTime);
+      if (!isSeeking) {
+        slider.value = String(currentTime);
+        slider.setAttribute('aria-valuetext', currentFormatted);
+      }
     }
     if (tc && !isSeeking) tc.innerText = currentFormatted;
     if (tt) tt.innerText = totalFormatted;

@@ -166,13 +166,13 @@
         </div>
     </header>
 
-    <div id="tab-play" class="tab-content active">
+    <div id="tab-play" class="tab-content active" role="tabpanel">
         <div class="tab-header play-header-desktop">
             <span class="tab-title" data-i18n="nav.home">홈</span>
         </div>
         <div class="tab-body">
             <div class="vinyl-wrapper">
-                <canvas id="visualizerCanvas"></canvas>
+                <canvas id="visualizerCanvas" aria-label="" data-i18n-aria-label="player.visualizer"></canvas>
 
             </div>
 
@@ -268,7 +268,7 @@
         </div>
     </div>
 
-    <div id="tab-playlist" class="tab-content">
+    <div id="tab-playlist" class="tab-content" role="tabpanel">
         <div class="tab-header">
             <span class="tab-title" data-i18n="nav.playlist">플레이리스트</span>
             <div class="playlist-title-area">
@@ -297,7 +297,7 @@
         </div>
     </div>
 
-    <div id="tab-guide" class="tab-content">
+    <div id="tab-guide" class="tab-content" role="tabpanel">
         <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="tab-title" data-i18n="nav.help"></span>
@@ -390,7 +390,7 @@
         </div> <!-- Ends tab-body -->
     </div> <!-- Ends tab-guide -->
 
-    <div id="tab-settings" class="tab-content">
+    <div id="tab-settings" class="tab-content" role="tabpanel">
         <div class="tab-header" style="justify-content: space-between; align-items: center; padding-bottom: 0px;">
             <span class="tab-title" data-i18n="nav.settings"></span>
             <div class="settings-invite-wrapper invite-code-container"
@@ -701,7 +701,7 @@
                 </svg>
             </button>
         </div>
-        <div class="chat-drawer-messages" id="chat-messages">
+        <div class="chat-drawer-messages" id="chat-messages" role="log" aria-live="polite">
             <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
         </div>
         <div class="chat-drawer-input">
@@ -720,22 +720,22 @@
     <!-- Blur halo: blurs content around tab bar (mask-image, iOS-optimized) -->
     <div class="nav-blur-halo" aria-hidden="true"></div>
 
-    <nav class="bottom-nav">
-        <button class="nav-item active" data-tab="play">
+    <nav class="bottom-nav" role="tablist">
+        <button class="nav-item active" data-tab="play" role="tab" aria-selected="true" aria-controls="tab-play">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
             </svg>
             <span data-i18n="nav.home"></span>
         </button>
-        <button class="nav-item" data-tab="playlist">
+        <button class="nav-item" data-tab="playlist" role="tab" aria-selected="false" aria-controls="tab-playlist">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
             </svg>
             <span data-i18n="nav.playlist"></span>
         </button>
-        <button class="nav-item" data-tab="settings">
+        <button class="nav-item" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
@@ -743,7 +743,7 @@
             <span class="nav-text-mobile" data-i18n="nav.settings"></span>
             <span class="nav-text-desktop" data-i18n="nav.settings_help"></span>
         </button>
-        <button class="nav-item" data-tab="guide">
+        <button class="nav-item" data-tab="guide" role="tab" aria-selected="false" aria-controls="tab-guide">
             <svg viewBox="0 0 24 24">
                 <path
                     d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />

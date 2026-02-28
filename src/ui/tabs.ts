@@ -16,12 +16,19 @@ import { animateTransition } from './dom.ts';
 export function switchTab(tabId: string): void {
   animateTransition(() => {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.remove('active');
+      el.setAttribute('aria-selected', 'false');
+    });
     const tabEl = document.getElementById(`tab-${tabId}`);
     if (tabEl) tabEl.classList.add('active');
     const tabs = ['play', 'playlist', 'settings', 'guide'];
     const idx = tabs.indexOf(tabId);
-    if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
+    if (idx >= 0) {
+      const navItem = document.querySelectorAll('.nav-item')[idx];
+      navItem?.classList.add('active');
+      navItem?.setAttribute('aria-selected', 'true');
+    }
 
     if (tabId === 'settings') {
       bus.emit('ui:settings-tab-opened');

@@ -11,6 +11,9 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setLanguageMode } from '../i18n/index.ts';
 
+// ─── Cached Listeners (for cleanup on reinit) ────────────────────
+let _themeChangeHandler: (() => void) | null = null;
+
 // ─── Theme ───────────────────────────────────────────────────────
 
 export function setTheme(mode: string): void {
@@ -336,14 +339,17 @@ export function initSettings(): void {
     if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
   });
 
-  // Theme: listen for system change
+  // Theme: listen for system change (with cleanup for reinit safety)
   try {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    if (_themeChangeHandler) mql.removeEventListener('change', _themeChangeHandler);
+    _themeChangeHandler = () => {
       const themeSystem = document.getElementById('theme-system');
       if (themeSystem?.classList.contains('active')) {
         setTheme('system');
       }
-    });
+    };
+    mql.addEventListener('change', _themeChangeHandler);
   } catch { /* ignore */ }
 
   // Initial theme: restore from localStorage or default to system

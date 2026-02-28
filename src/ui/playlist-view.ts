@@ -170,10 +170,17 @@ export function updatePlaylistUI(): void {
 
 // ─── Init ────────────────────────────────────────────────────────
 
+let _pendingPlaylistUpdate = false;
+
 export function initPlaylistView(): void {
-  // Listen for playlist UI update events
+  // Listen for playlist UI update events (debounced via rAF to batch rapid updates)
   bus.on('ui:update-playlist', () => {
-    updatePlaylistUI();
+    if (_pendingPlaylistUpdate) return;
+    _pendingPlaylistUpdate = true;
+    requestAnimationFrame(() => {
+      _pendingPlaylistUpdate = false;
+      updatePlaylistUI();
+    });
   });
 
   log.info('[PlaylistView] Initialized');

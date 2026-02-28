@@ -13,6 +13,18 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 
+// ─── Fetch with Timeout ──────────────────────────────────────────
+
+async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // ─── URL Extraction ────────────────────────────────────────────────
 
 const VIDEO_PATTERNS = [
@@ -74,7 +86,7 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
   const p = (async (): Promise<string | null> => {
     try {
       const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
-      const response = await fetch(oEmbedUrl);
+      const response = await fetchWithTimeout(oEmbedUrl);
       if (!response.ok) return null;
       const data = await response.json();
       const title = (data && typeof data.title === 'string') ? data.title.trim() : '';
@@ -141,7 +153,7 @@ export function fetchYouTubePreview(url: string): void {
   _previewDebounce = setTimeout(async () => {
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-      const response = await fetch(oembedUrl);
+      const response = await fetchWithTimeout(oembedUrl);
       if (!response.ok) throw new Error('Video not found');
       const data = await response.json();
 
@@ -202,8 +214,8 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
 
       try {
         const videoId = ids[i];
-        const response = await fetch(
-          `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`
+        const response = await fetchWithTimeout(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`,
         );
         if (!response.ok) continue;
         const json = await response.json();

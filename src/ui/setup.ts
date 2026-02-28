@@ -33,6 +33,7 @@ let _setupOverlayEverShown = false;
 let _pendingSetupRole: number | null = null;
 let _pendingGuestRoleMode: number | null = null;
 let _hostCodeFlowId = 0;
+let _setupOverlayAbort: AbortController | null = null;
 
 // ─── Desktop Left Panel Sync ─────────────────────────────────────
 
@@ -536,6 +537,11 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
 // ─── Init ────────────────────────────────────────────────────────
 
 function initSetupOverlay(): void {
+  // Abort previous setup overlay listeners to prevent accumulation
+  if (_setupOverlayAbort) _setupOverlayAbort.abort();
+  _setupOverlayAbort = new AbortController();
+  const signal = _setupOverlayAbort.signal;
+
   ++_hostCodeFlowId;
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
@@ -585,20 +591,22 @@ function initSetupOverlay(): void {
     };
   });
 
-  // Swipe
+  // Swipe (addEventListener + passive for better scroll perf)
   const viewport = setupEl('ob-slider-viewport');
   if (viewport) {
     let startX = 0;
-    viewport.ontouchstart = (e) => { startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0; };
-    viewport.ontouchend = (e) => {
+    viewport.addEventListener('touchstart', (e: Event) => {
+      startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0;
+    }, { passive: true, signal });
+    viewport.addEventListener('touchend', (e: Event) => {
       const endX = (e as TouchEvent).changedTouches?.[0]?.clientX;
-      if (endX === undefined) return;
+      if (endX == null) return;
       const diff = startX - endX;
       if (Math.abs(diff) > 50) {
         if (diff > 0) nextObSlide(false);
         else prevObSlide();
       }
-    };
+    }, { signal });
   }
 }
 

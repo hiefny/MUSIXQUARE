@@ -175,32 +175,37 @@ function initBeforeUnload(): void {
 function bootstrap(): void {
   log.info(`[App] MUSIXQUARE 2.0 bootstrap (instance: ${INSTANCE_ID})`);
 
+  /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
+  function safeInit(name: string, fn: () => void): void {
+    try { fn(); } catch (e) { log.error(`[App] ${name} init failed:`, e); }
+  }
+
   // 1. Platform detection & viewport height
-  initPlatform();
+  safeInit('Platform', initPlatform);
 
   // 2. Core UI init (must run before other UI modules)
-  try { initOverlayOpenObserver(); } catch { /* ignore */ }
-  initToast();
-  initDialog();
-  initTabs();
-  initI18n();
+  safeInit('OverlayObserver', initOverlayOpenObserver);
+  safeInit('Toast', initToast);
+  safeInit('Dialog', initDialog);
+  safeInit('Tabs', initTabs);
+  safeInit('I18n', initI18n);
 
   // 3. Player & Media
-  initPlayback();
-  initPlaylist();
-  initVideo();
-  initMediaSession();
+  safeInit('Playback', initPlayback);
+  safeInit('Playlist', initPlaylist);
+  safeInit('Video', initVideo);
+  safeInit('MediaSession', initMediaSession);
 
   // 4. Audio engine (deferred init — actual Tone.js init on user interaction)
   // Engine, effects, channel register bus listeners at import time
-  initEffectsHandlers();
+  safeInit('EffectsHandlers', initEffectsHandlers);
 
   // 5. Network (registers bus listeners; PeerJS init deferred to host/guest flow)
   // initNetwork() is called from setup.ts via createHostSessionWithShortCode() or joinSession()
-  initProtocol();
-  initPeerHandlers();
-  initSync();
-  initRelay();
+  safeInit('Protocol', initProtocol);
+  safeInit('PeerHandlers', initPeerHandlers);
+  safeInit('Sync', initSync);
+  safeInit('Relay', initRelay);
 
   // 6. Workers & Storage
   try {
@@ -238,41 +243,43 @@ function bootstrap(): void {
   }
 
   // 7. YouTube
-  initYouTube();
-  initYouTubeSync();
+  safeInit('YouTube', initYouTube);
+  safeInit('YouTubeSync', initYouTubeSync);
 
   // 8. UI modules (binds DOM events)
-  initVisualizer();
-  initChat();
-  initPlaylistView();
-  initPlayerControls();
-  initSettings();
-  initSetup();
+  safeInit('Visualizer', initVisualizer);
+  safeInit('Chat', initChat);
+  safeInit('PlaylistView', initPlaylistView);
+  safeInit('PlayerControls', initPlayerControls);
+  safeInit('Settings', initSettings);
+  safeInit('Setup', initSetup);
 
   // 9. Service Worker
-  registerServiceWorker();
+  safeInit('ServiceWorker', registerServiceWorker);
 
   // 10. Blob URL cleanup on disconnect
   bus.on('blob:revoke-all', () => BlobURLManager.revokeAllNow('session-end'));
 
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
-  initKeyboardShortcuts();
-  initWakeLock();
-  initBeforeUnload();
+  safeInit('KeyboardShortcuts', initKeyboardShortcuts);
+  safeInit('WakeLock', initWakeLock);
+  safeInit('BeforeUnload', initBeforeUnload);
 
   // 12. System compatibility check (deferred to not block bootstrap)
   setTimeout(checkSystemCompatibility, 100);
 
-  // 13. Expose debug helpers on window
-  const debugObj = {
-    state: snapshot,
-    bus,
-    initAudio,
-    isAudioReady,
-    applySettings,
-    setChannelMode,
-  };
-  (window as unknown as Record<string, unknown>).__MXQR = debugObj;
+  // 13. Expose debug helpers on window (dev only)
+  if (import.meta.env?.DEV) {
+    const debugObj = {
+      state: snapshot,
+      bus,
+      initAudio,
+      isAudioReady,
+      applySettings,
+      setChannelMode,
+    };
+    (window as unknown as Record<string, unknown>).__MXQR = debugObj;
+  }
 
   log.info('[App] Bootstrap complete — all modules loaded');
 }

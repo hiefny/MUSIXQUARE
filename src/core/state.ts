@@ -324,7 +324,13 @@ export function getState<P extends StatePath>(path: P): StatePathValue<P> {
   const keys = path.split('.');
   let current: unknown = _state;
   for (const key of keys) {
-    if (current == null || typeof current !== 'object') return undefined as StatePathValue<P>;
+    if (current == null || typeof current !== 'object') {
+      if (import.meta.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug(`[State] path not found: "${path}" (failed at key "${key}")`);
+      }
+      return undefined as StatePathValue<P>;
+    }
     current = (current as Record<string, unknown>)[key];
   }
   return current as StatePathValue<P>;

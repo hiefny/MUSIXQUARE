@@ -17,8 +17,8 @@ export function isStandaloneDisplayMode(): boolean {
   try {
     if ((navigator as unknown as Record<string, unknown>).standalone) return true;
     if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
-  } catch {
-    /* ignore */
+  } catch (e) {
+    log.debug('[Platform] standalone detection failed:', e);
   }
   return false;
 }
@@ -48,8 +48,8 @@ function updateAppHeightNow(): void {
       if (IS_ANDROID) root.classList.add('android');
       if (IS_IOS && isStandaloneDisplayMode()) root.classList.add('ios-standalone');
       if (isStandaloneDisplayMode()) root.classList.add('standalone');
-    } catch {
-      /* ignore */
+    } catch (e) {
+      log.debug('[Platform] CSS class application failed:', e);
     }
     _platformClassesApplied = true;
   }
@@ -127,7 +127,7 @@ function updateAppHeightNow(): void {
       const cssVh = probe.offsetHeight;
       document.body.removeChild(probe);
       if (cssVh > 0) h = Math.max(h, cssVh);
-    } catch { /* ignore */ }
+    } catch (e) { log.debug('[Platform] iOS viewport probe failed:', e); }
   }
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
@@ -145,18 +145,18 @@ function updateAppHeightNow(): void {
       try {
         root.style.height = `${fullH}px`;
         root.style.setProperty('--app-height', `${fullH}px`);
-      } catch { /* ignore */ }
+      } catch (e) { log.debug('[Platform] iOS standalone height set failed:', e); }
     }
   } else {
     // Clear any iOS standalone inline height override (e.g. after rotation)
-    try { root.style.removeProperty('height'); } catch { /* ignore */ }
+    try { root.style.removeProperty('height'); } catch (e) { log.debug('[Platform] removeProperty failed:', e); }
     if (h > 0) {
-      try { root.style.setProperty('--app-height', `${h}px`); } catch { /* ignore */ }
+      try { root.style.setProperty('--app-height', `${h}px`); } catch (e) { log.debug('[Platform] --app-height set failed:', e); }
     }
   }
 
   const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
-  try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch { /* ignore */ }
+  try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch (e) { log.debug('[Platform] --safe-nav-bottom set failed:', e); }
 }
 
 function scheduleAppHeightUpdate(): void {
@@ -164,11 +164,12 @@ function scheduleAppHeightUpdate(): void {
   try {
     _appHeightRaf = requestAnimationFrame(() => {
       _appHeightRaf = 0;
-      try { updateAppHeightNow(); } catch { /* ignore */ }
+      try { updateAppHeightNow(); } catch (e) { log.debug('[Platform] updateAppHeightNow failed:', e); }
     });
-  } catch {
+  } catch (e) {
     _appHeightRaf = 0;
-    try { updateAppHeightNow(); } catch { /* ignore */ }
+    log.debug('[Platform] rAF scheduling failed:', e);
+    try { updateAppHeightNow(); } catch (e2) { log.debug('[Platform] updateAppHeightNow fallback failed:', e2); }
   }
 }
 
@@ -186,7 +187,7 @@ function endBootingPhase(): void {
         root.classList.remove('is-booting');
       });
     });
-  } catch { /* ignore */ }
+  } catch (e) { log.debug('[Platform] endBootingPhase failed:', e); }
 }
 
 /**
@@ -196,7 +197,7 @@ function endBootingPhase(): void {
 export function initPlatform(): void {
   // Suppress all transitions/animations during boot to prevent layout shaking.
   // CSS html.is-booting * { transition: none !important } handles the rest.
-  try { document.documentElement.classList.add('is-booting'); } catch { /* ignore */ }
+  try { document.documentElement.classList.add('is-booting'); } catch (e) { log.debug('[Platform] is-booting class failed:', e); }
 
   preventIOSPinchZoom();
 
@@ -233,7 +234,7 @@ export function initPlatform(): void {
       window.visualViewport.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
       window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    log.debug('[Platform] Event listener registration failed:', e);
   }
 }

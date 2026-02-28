@@ -29,13 +29,19 @@ import {
   getVbGain,
 } from './engine.ts';
 
+// ─── Constants ────────────────────────────────────────────────────
+const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
+
+// ─── Cached DOM Elements ──────────────────────────────────────────
+let _eqBandElements: Element[] = [];
+
 // ─── Apply All Settings ────────────────────────────────────────────
 
 /**
  * Synchronize all audio effect parameters to the Tone.js nodes.
  * Call after any setting change.
  */
-export function applySettings(): void {
+export async function applySettings(): Promise<void> {
   if (!getMasterGain()) return;
 
   const reverbMix = getState('audio.reverbMix');
@@ -54,7 +60,7 @@ export function applySettings(): void {
 
   // Reverb Mix (CrossFade)
   const crossFade = getRvbCrossFade();
-  if (crossFade) crossFade.fade.rampTo(reverbMix, 0.1);
+  if (crossFade) crossFade.fade.rampTo(reverbMix, RAMP_TIME);
 
   // Reverb Engine Sync (with retry on failure)
   const rev = getReverb();
@@ -69,7 +75,7 @@ export function applySettings(): void {
       needsGenerate = true;
     }
     if (needsGenerate) {
-      _generateReverbWithRetry(rev);
+      await _generateReverbWithRetry(rev);
     }
   }
 
@@ -77,12 +83,12 @@ export function applySettings(): void {
   const rlc = getRvbLowCut();
   if (rlc) {
     const lFreq = 20 * Math.pow(50, Math.max(0, Math.min(100, reverbLowCut)) / 100);
-    rlc.frequency.rampTo(lFreq, 0.1);
+    rlc.frequency.rampTo(lFreq, RAMP_TIME);
   }
   const rhc = getRvbHighCut();
   if (rhc) {
     const hFreq = 20000 * Math.pow(0.05, Math.max(0, Math.min(100, reverbHighCut)) / 100);
-    rhc.frequency.rampTo(hFreq, 0.1);
+    rhc.frequency.rampTo(hFreq, RAMP_TIME);
   }
 
   // EQ Sync (clamp to [-12, 12] dB for safety)
@@ -93,7 +99,7 @@ export function applySettings(): void {
       const raw = eqValues[i] ?? 0;
       const clamped = Math.max(-12, Math.min(12, raw));
       if (node.gain.value !== clamped) {
-        node.gain.rampTo(clamped, 0.1);
+        node.gain.rampTo(clamped, RAMP_TIME);
       }
     });
   }
@@ -102,8 +108,8 @@ export function applySettings(): void {
   let compensation = 1.0;
   const wid = getWidener();
   if (wid) {
-    wid.wet.rampTo(1, 0.1);
-    wid.width.rampTo(stereoWidth * 0.5, 0.1);
+    wid.wet.rampTo(1, RAMP_TIME);
+    wid.width.rampTo(stereoWidth * 0.5, RAMP_TIME);
     if (stereoWidth < 1.0) {
       compensation = 0.6 + 0.4 * stereoWidth;
     } else if (stereoWidth > 1.0) {
@@ -114,23 +120,37 @@ export function applySettings(): void {
 
   // Preamp
   const pre = getPreamp();
-  if (pre) pre.gain.rampTo(userPreampGain * compensation, 0.1);
+  if (pre) pre.gain.rampTo(userPreampGain * compensation, RAMP_TIME);
 
   // Virtual Bass
   const isWooferRole = channelMode === 2 || (isSurroundMode && surroundChannelIndex === 3);
   const vbf = getVbFilter();
-  if (vbf) vbf.frequency.rampTo(subFreq, 0.1);
+  if (vbf) vbf.frequency.rampTo(subFreq, RAMP_TIME);
   const vbpf = getVbPostFilter();
-  if (vbpf) {
-    vbpf.frequency.rampTo(isWooferRole ? subFreq : 20000, 0.1);
-  }
   const vbg = getVbGain();
-  if (vbg) vbg.gain.rampTo(virtualBass, 0.1);
+  if (vbpf) {
+    const targetPostFreq = isWooferRole ? subFreq : 20000;
+    const currentPostFreq = vbpf.frequency.value;
+    // Large frequency jump (e.g. woofer mode toggle): ramp gain down first to avoid click
+    if (Math.abs(currentPostFreq - targetPostFreq) > 5000 && vbg) {
+      const savedGain = virtualBass;
+      vbg.gain.rampTo(0, 0.05);
+      setTimeout(() => {
+        vbpf.frequency.rampTo(targetPostFreq, 0.05);
+        vbg.gain.rampTo(savedGain, RAMP_TIME);
+      }, 60);
+    } else {
+      vbpf.frequency.rampTo(targetPostFreq, RAMP_TIME);
+      if (vbg) vbg.gain.rampTo(virtualBass, RAMP_TIME);
+    }
+  } else if (vbg) {
+    vbg.gain.rampTo(virtualBass, RAMP_TIME);
+  }
 
   // Global LowPass
   const lp = getGlobalLowPass();
   if (lp) {
-    lp.frequency.rampTo(isWooferRole ? subFreq : 20000, 0.1);
+    lp.frequency.rampTo(isWooferRole ? subFreq : 20000, RAMP_TIME);
   }
 }
 
@@ -211,15 +231,17 @@ export function setEQ(idx: number, val: number): void {
 
   const nodes = getEqNodes();
   if (nodes?.[bandIdx]) {
-    nodes[bandIdx].gain.rampTo(bandVal, 0.1);
+    nodes[bandIdx].gain.rampTo(bandVal, RAMP_TIME);
   }
 
   // Update DOM label + slider (for sync from network)
   const label = document.getElementById(`eq-val-${bandIdx}`);
   if (label) label.innerText = bandVal > 0 ? `+${bandVal}` : String(bandVal);
-  const bands = document.querySelectorAll('.eq-band');
-  if (bands[bandIdx]) {
-    const slider = bands[bandIdx].querySelector('.eq-slider') as HTMLInputElement | null;
+  if (!_eqBandElements || _eqBandElements.length === 0) {
+    _eqBandElements = Array.from(document.querySelectorAll('.eq-band'));
+  }
+  if (_eqBandElements[bandIdx]) {
+    const slider = _eqBandElements[bandIdx].querySelector('.eq-slider') as HTMLInputElement | null;
     if (slider && parseFloat(slider.value) !== bandVal) slider.value = String(bandVal);
   }
 }
@@ -229,7 +251,7 @@ export function resetEQ(): void {
   const count = nodes ? nodes.length : 5;
   setState('audio.eqValues', Array(count).fill(0));
   setState('audio.userPreampGain', 1.0);
-  nodes?.forEach(node => node.gain.rampTo(0, 0.1));
+  nodes?.forEach(node => node.gain.rampTo(0, RAMP_TIME));
   applySettings();
 }
 
@@ -288,6 +310,8 @@ function _broadcastOrRequestSetting(msgType: string, value: number): void {
     const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
+    } else {
+      bus.emit('ui:show-toast', t('toast.operator_required'));
     }
   }
 }
@@ -300,6 +324,8 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
     const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
+    } else {
+      bus.emit('ui:show-toast', t('toast.operator_required'));
     }
   }
 }

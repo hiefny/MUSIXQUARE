@@ -40,12 +40,26 @@ export function getYouTubePlayer(): any {
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
+let _ytLoadInProgress = false;
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
+  // Guard: destroy previous player to prevent concurrent player instances
+  if (_ytLoadInProgress && _youtubePlayer) {
+    try {
+      _youtubePlayer.stopVideo?.();
+      if (typeof _youtubePlayer.destroy === 'function') _youtubePlayer.destroy();
+    } catch { /* best-effort cleanup */ }
+    _youtubePlayer = null;
+    const container = document.getElementById('youtube-player-container');
+    if (container) container.innerHTML = '<div id="youtube-player"></div>';
+  }
+  _ytLoadInProgress = true;
+
   _cachedYtDuration = 0; // Reset duration cache for new video
   _currentYouTubeSessionId++;
   const currentSessionId = _currentYouTubeSessionId;
@@ -75,7 +89,7 @@ export function loadYouTubeVideo(
 
   const w = window as unknown as Record<string, unknown>;
   if (!w.YT || !(w.YT as Record<string, unknown>).Player) {
-    if (!_ytScriptLoading) {
+    if (!_ytScriptLoading && !document.querySelector('script[src*="youtube.com/iframe_api"]')) {
       _ytScriptLoading = true;
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
@@ -175,11 +189,18 @@ function initYouTubePlayer(
   if (videoId) playerOptions.videoId = videoId;
 
   _youtubePlayer = new YT.Player('youtube-player', playerOptions);
+
+  // A11y: add title to iframe once YouTube API creates it
+  requestAnimationFrame(() => {
+    const iframe = document.querySelector('#youtube-player-container iframe') as HTMLIFrameElement | null;
+    if (iframe) iframe.title = 'YouTube video player';
+  });
 }
 
 // ─── Player Events ─────────────────────────────────────────────────
 
 function onYouTubePlayerReady(): void {
+  _ytLoadInProgress = false;
   log.debug('[YouTube] Player ready');
 
   const currentState = getState('appState');

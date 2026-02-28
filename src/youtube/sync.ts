@@ -97,7 +97,7 @@ export function broadcastYouTubeSync(): void {
 let _lastHostSyncTime: number | null = null;
 let _hostTimeStaleCount = 0;
 let _hostAdPauseActive = false;
-const _HOST_AD_STALE_THRESHOLD = 2; // 2 consecutive stale frames ≈ 6s
+const _HOST_AD_STALE_THRESHOLD = 3; // 3 consecutive stale frames ≈ 9s (reduces false positives from network jitter)
 
 export function resetAdDetection(): void {
   _lastHostSyncTime = null;
@@ -119,7 +119,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
     // ── Host ad detection ──
     if (hostState === 1) {
-      if (_lastHostSyncTime !== null && Math.abs(hostTime - _lastHostSyncTime) < 0.5) {
+      if (_lastHostSyncTime !== null && Math.abs(hostTime - _lastHostSyncTime) < 1.0) {
         _hostTimeStaleCount++;
         if (_hostTimeStaleCount >= _HOST_AD_STALE_THRESHOLD) {
           if (!_hostAdPauseActive) {

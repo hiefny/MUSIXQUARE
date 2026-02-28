@@ -216,8 +216,9 @@ async function _doInitAudio(): Promise<void> {
   rvbCrossFade = new Tone.CrossFade(0) as ToneCrossFadeNode; // Initially Dry
 
   // ── Virtual Bass Chain ──
+  const VB_CHEBYSHEV_ORDER = 50;
   vbFilter = new Tone.Filter(120, 'lowpass', -12) as ToneFilterNode;
-  vbCheby = new Tone.Chebyshev(50) as ToneNode;
+  vbCheby = new Tone.Chebyshev(VB_CHEBYSHEV_ORDER) as ToneNode;
   vbPostFilter = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
   vbGain = new Tone.Gain(0) as ToneGainNode;
 
@@ -261,8 +262,7 @@ async function _doInitAudio(): Promise<void> {
   masterGain!.connect(analyser);
   masterGain!.toDestination();
 
-  // Store analyser reference in state for visualizer access
-  setState('audio.analyser', analyser);
+  // Analyser is available via getAnalyser() export — no need to duplicate in state
 
   // iOS Silent Mode Bypass: Play the hidden <audio> element to unlock
   // programmatic playback on iOS (must happen during user gesture)

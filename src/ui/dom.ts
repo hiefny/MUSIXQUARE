@@ -160,6 +160,7 @@ export function toggleFullscreen(): void {
 // ─── Overlay Open Class ──────────────────────────────────────────
 
 const _OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overlay'];
+let _overlayObserver: MutationObserver | null = null;
 
 export function updateOverlayOpenClass(): void {
   try {
@@ -172,11 +173,17 @@ export function updateOverlayOpenClass(): void {
 }
 
 export function initOverlayOpenObserver(): void {
+  // Disconnect previous observer to prevent memory leak on reinit
+  if (_overlayObserver) {
+    _overlayObserver.disconnect();
+    _overlayObserver = null;
+  }
+
   try {
-    const obs = new MutationObserver(() => updateOverlayOpenClass());
+    _overlayObserver = new MutationObserver(() => updateOverlayOpenClass());
     _OVERLAY_IDS.forEach((id) => {
       const el = document.getElementById(id);
-      if (el) obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+      if (el) _overlayObserver!.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
   } catch { /* ignore */ }
 

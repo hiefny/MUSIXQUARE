@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { isIdleOrPaused } from '../player/video.ts';
+import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -21,17 +22,35 @@ let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Cached values (avoid per-frame DOM reads) ──────────────────
 let _cachedIsLight = false;
-let _themeCheckCounter = 0;
+let _themeListenersRegistered = false;
 
 function refreshThemeCache(): void {
   const theme = document.documentElement.getAttribute('data-theme');
   _cachedIsLight = (theme === 'light');
 }
 
+function _initThemeListeners(): void {
+  if (_themeListenersRegistered) return;
+  _themeListenersRegistered = true;
+
+  // Listen for OS-level prefers-color-scheme change
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshThemeCache);
+  } catch { /* ignore */ }
+
+  // Listen for data-theme attribute changes (app-level theme toggle)
+  try {
+    new MutationObserver(refreshThemeCache).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  } catch { /* ignore */ }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function getAnalyser(): unknown {
-  return getState('audio.analyser');
+  return getEngineAnalyser();
 }
 
 // ─── Start Active Visualizer ─────────────────────────────────────
@@ -107,12 +126,6 @@ export function startVisualizer(): void {
 
     const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
 
-    // Refresh theme cache every ~60 frames (~2s at 30fps) instead of every frame
-    if (++_themeCheckCounter >= 60) {
-      _themeCheckCounter = 0;
-      refreshThemeCache();
-    }
-
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, logicalSize, logicalSize);
 
@@ -120,6 +133,7 @@ export function startVisualizer(): void {
     let bassSum = 0;
     for (let i = 0; i < bassCount; i++) {
       let val = (dbData[i] + 100) * 2.5;
+      if (!isFinite(val)) val = 0;
       if (val < 0) val = 0;
       if (val > 255) val = 255;
       bassSum += val;
@@ -127,19 +141,22 @@ export function startVisualizer(): void {
     const bassAverage = bassSum / bassCount;
 
     smoothedBass = smoothedBass * 0.8 + bassAverage * 0.2;
-    const bassPunch = Math.pow(smoothedBass / 255, 2.5);
+    let bassPunch = Math.pow(smoothedBass / 255, 2.5);
+    if (!isFinite(bassPunch)) bassPunch = 0;
 
     // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
     let highSum = 0;
     for (let i = highStart; i < highEnd; i++) {
       let val = (dbData[i] + 100) * 2.5;
+      if (!isFinite(val)) val = 0;
       if (val < 0) val = 0;
       if (val > 255) val = 255;
       highSum += val;
     }
     const highAverage = highSum / highCountVal;
     smoothedHigh = smoothedHigh * 0.8 + highAverage * 0.2;
-    const highPunch = smoothedHigh / 255;
+    let highPunch = smoothedHigh / 255;
+    if (!isFinite(highPunch)) highPunch = 0;
 
     ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
     ctx.shadowBlur = 0;
@@ -219,6 +236,8 @@ export function drawIdleVisualizer(): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initVisualizer(): void {
+  refreshThemeCache();
+  _initThemeListeners();
   drawIdleVisualizer();
 
   window.addEventListener('resize', () => {

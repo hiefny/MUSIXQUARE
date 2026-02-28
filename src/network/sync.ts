@@ -265,9 +265,10 @@ function handlePongLatency(data: Record<string, unknown>): void {
   if (typeof data.timestamp !== 'number') return;
   const ms = Date.now() - data.timestamp;
   const latencyHistory = getState('sync.latencyHistory');
-  latencyHistory.push(ms);
-  if (latencyHistory.length > 10) latencyHistory.shift();
-  setState('sync.lastLatencyMs', Math.min(...latencyHistory));
+  const updated = [...latencyHistory, ms];
+  if (updated.length > 10) updated.shift();
+  setState('sync.latencyHistory', updated);
+  setState('sync.lastLatencyMs', Math.min(...updated));
   bus.emit('sync:latency-update', ms);
 }
 

@@ -659,7 +659,8 @@ export async function loadAndBroadcastFile(
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId) {
       bus.emit('ui:show-toast', t('transfer.file_sending'));
-      broadcastFile(file, sessionId);
+      broadcastFile(file, sessionId)
+        .catch(e => log.error('[Host] broadcastFile failed:', e));
     }
 
     if (!hostConn) {

@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
 import { getCurrentAudioBuffer } from './playback.ts';
+import { setVideoElement } from '../core/blob-manager.ts';
 
 // ─── Video Element ─────────────────────────────────────────────────
 
@@ -164,6 +165,7 @@ export function initVideo(): void {
   if (!_videoElement) {
     log.warn('[Video] #main-video element not found');
   }
+  setVideoElement(_videoElement);
 
   // Sync body mode class with app state changes
   bus.on('player:state-changed', (state: string) => {

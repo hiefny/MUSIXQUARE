@@ -86,7 +86,7 @@ function parseMessageContent(text: string): string {
     ytRegex.lastIndex = 0;
     if (ytRegex.test(matchedText)) {
       const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
-      const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
+      const uniqueId = 'yt-' + Math.random().toString(36).substring(2, 11);
 
       result += `
         <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="${escapeAttr(t('youtube.open_link'))}" aria-describedby="${uniqueId}">

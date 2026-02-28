@@ -706,47 +706,51 @@ export function initPreload(): void {
 
   // Handle preload file ready from OPFS (bridged from opfs:file-ready via playback.ts)
   bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
-    log.debug(`[Preload] OPFS preload ready: ${filename} (SID: ${sessionId})`);
+    try {
+      log.debug(`[Preload] OPFS preload ready: ${filename} (SID: ${sessionId})`);
 
-    const file = await readFileFromOpfs(filename, true);
-    if (!file) {
-      log.error('[Preload] Failed to read preload file from OPFS:', filename);
-      return;
-    }
+      const file = await readFileFromOpfs(filename, true);
+      if (!file) {
+        log.error('[Preload] Failed to read preload file from OPFS:', filename);
+        return;
+      }
 
-    // Store as preload blob
-    setState('preload.nextFileBlob', file);
+      // Store as preload blob
+      setState('preload.nextFileBlob', file);
 
-    const sessionState = getState('preload.sessionState');
-    const session = sessionState.get(sessionId);
-    const preloadMeta = getState('preload.meta');
+      const sessionState = getState('preload.sessionState');
+      const session = sessionState.get(sessionId);
+      const preloadMeta = getState('preload.meta');
 
-    setState('preload.meta', session || preloadMeta);
+      setState('preload.meta', session || preloadMeta);
 
-    const nextTrackIndex = (session?.index ?? (preloadMeta?.index as number)) ?? -1;
-    setState('preload.nextTrackIndex', nextTrackIndex);
+      const nextTrackIndex = (session?.index ?? (preloadMeta?.index as number)) ?? -1;
+      setState('preload.nextTrackIndex', nextTrackIndex);
 
-    // Send PRELOAD_ACK to host now that OPFS file is confirmed ready
-    if (nextTrackIndex >= 0) {
-      const ackSent = getState('preload.ackSent');
-      if (!ackSent.has(nextTrackIndex)) {
-        ackSent.add(nextTrackIndex);
-        if (sendToHost({ type: MSG.PRELOAD_ACK, index: nextTrackIndex })) {
-          log.debug(`[Guest] Sent PRELOAD_ACK for index ${nextTrackIndex}`);
+      // Send PRELOAD_ACK to host now that OPFS file is confirmed ready
+      if (nextTrackIndex >= 0) {
+        const ackSent = getState('preload.ackSent');
+        if (!ackSent.has(nextTrackIndex)) {
+          ackSent.add(nextTrackIndex);
+          if (sendToHost({ type: MSG.PRELOAD_ACK, index: nextTrackIndex })) {
+            log.debug(`[Guest] Sent PRELOAD_ACK for index ${nextTrackIndex}`);
+          }
         }
       }
-    }
 
-    // Hide preload loader (background preload complete)
-    bus.emit('ui:show-loader', false);
+      // Hide preload loader (background preload complete)
+      bus.emit('ui:show-loader', false);
 
-    // If guest was waiting for this preloaded file, trigger playback
-    const waitingForPreload = getState('transfer.waitingForPreload');
-    const pendingFileIndex = getState('recovery.pendingFileIndex');
-    if (waitingForPreload && pendingFileIndex === nextTrackIndex) {
-      log.debug('[Preload] Guest was waiting for this track. Playing now.');
-      setState('transfer.waitingForPreload', false);
-      bus.emit('storage:use-preloaded', nextTrackIndex, filename);
+      // If guest was waiting for this preloaded file, trigger playback
+      const waitingForPreload = getState('transfer.waitingForPreload');
+      const pendingFileIndex = getState('recovery.pendingFileIndex');
+      if (waitingForPreload && pendingFileIndex === nextTrackIndex) {
+        log.debug('[Preload] Guest was waiting for this track. Playing now.');
+        setState('transfer.waitingForPreload', false);
+        bus.emit('storage:use-preloaded', nextTrackIndex, filename);
+      }
+    } catch (e) {
+      log.error('[Preload] preload-file-ready handler failed:', e);
     }
   });
 

@@ -3725,6 +3725,7 @@ input:checked+.slider:before {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
 }
 

@@ -777,7 +777,7 @@ export function initYouTube(): void {
         bus.emit('ui:update-playlist');
         bus.emit('player:metadata-update', updated[newIndex]);
       }
-    });
+    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
   });
 
   // Sync nudge for YouTube (adjust playback position by ms delta)
@@ -937,7 +937,7 @@ export function initYouTube(): void {
         bus.emit('ui:update-playlist');
         bus.emit('player:metadata-update', updated[newIndex]);
       }
-    });
+    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
   });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)

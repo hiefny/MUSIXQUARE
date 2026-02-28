@@ -92,9 +92,24 @@ export function buildSafeOpfsName(filename: string, isPreload = false): string {
 
 /**
  * Cleanup OPFS file in worker.
+ * Fire-and-forget with a 10s watchdog — if the worker doesn't confirm
+ * cleanup in time, we log a warning and move on (non-blocking).
  */
 export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void {
   if (!filename) return;
+
+  const watchdog = setTimeout(() => {
+    log.warn(`[OPFS] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
+    unsub();
+  }, 10_000);
+
+  const unsub = bus.on('opfs:cleanup-complete', (cleanedFile: unknown) => {
+    if (cleanedFile === filename) {
+      clearTimeout(watchdog);
+      unsub();
+    }
+  });
+
   postWorkerCommand({
     command: 'OPFS_CLEANUP',
     filename,
@@ -194,6 +209,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_CLEANUP_COMPLETE':
       log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
+      bus.emit('opfs:cleanup-complete', data.filename || '');
       break;
 
     default:

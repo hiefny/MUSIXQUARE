@@ -27,7 +27,9 @@ try {
 
 export function setLogLevel(level: LogLevelValue): void {
   _logLevel = level;
-  console.info(`[Log] Level set to ${Object.keys(LOG_LEVEL).find(k => LOG_LEVEL[k as keyof typeof LOG_LEVEL] === level) ?? level}`);
+  if (level < LOG_LEVEL.SILENT) {
+    console.info(`[Log] Level set to ${Object.keys(LOG_LEVEL).find(k => LOG_LEVEL[k as keyof typeof LOG_LEVEL] === level) ?? level}`);
+  }
 }
 
 export function getLogLevel(): LogLevelValue {

@@ -7,7 +7,7 @@
  */
 
 import { bus } from './events.ts';
-import { APP_STATE, TRANSFER_STATE } from './constants.ts';
+import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES } from './constants.ts';
 import type { AppStateValue, TransferStateValue } from './constants.ts';
 import type { FileMeta, PlaylistItem, PreloadSessionEntry, DeviceInfo, DataConnection } from '../types/index.ts';
 
@@ -239,7 +239,7 @@ function createInitialState(): StateTree {
       reverbPreDelay: 0.1,
       reverbLowCut: 0,
       reverbHighCut: 0,
-      eqValues: [0, 0, 0, 0, 0],
+      eqValues: Array(EQ_FREQUENCIES.length).fill(0) as number[],
       stereoWidth: 1.0,
       virtualBass: 0,
       subFreq: 120,

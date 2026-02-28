@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
@@ -32,16 +33,42 @@ export function extractYouTubePlaylistId(url: string): string | null {
   return match ? match[1] : null;
 }
 
-// ─── oEmbed Title Cache ────────────────────────────────────────────
+// ─── oEmbed Title Cache (LRU + TTL) ───────────────────────────────
 
-const _oEmbedTitleCache = new Map<string, string>();
+const OEMBED_CACHE_MAX = 100;
+const OEMBED_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+const _oEmbedTitleCache = new Map<string, { title: string; ts: number }>();
 const _oEmbedInFlight = new Map<string, Promise<string | null>>();
+
+function _oEmbedCacheGet(key: string): string | null {
+  const entry = _oEmbedTitleCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > OEMBED_CACHE_TTL) {
+    _oEmbedTitleCache.delete(key);
+    return null;
+  }
+  // LRU: move to end
+  _oEmbedTitleCache.delete(key);
+  _oEmbedTitleCache.set(key, entry);
+  return entry.title;
+}
+
+function _oEmbedCacheSet(key: string, title: string): void {
+  // Evict oldest if at capacity
+  if (_oEmbedTitleCache.size >= OEMBED_CACHE_MAX) {
+    const oldest = _oEmbedTitleCache.keys().next().value;
+    if (oldest !== undefined) _oEmbedTitleCache.delete(oldest);
+  }
+  _oEmbedTitleCache.set(key, { title, ts: Date.now() });
+}
 
 export async function fetchOEmbedTitle(url: string): Promise<string | null> {
   const key = String(url || '');
   if (!key) return null;
 
-  if (_oEmbedTitleCache.has(key)) return _oEmbedTitleCache.get(key)!;
+  const cached = _oEmbedCacheGet(key);
+  if (cached) return cached;
   if (_oEmbedInFlight.has(key)) return _oEmbedInFlight.get(key)!;
 
   const p = (async (): Promise<string | null> => {
@@ -62,7 +89,7 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
 
   _oEmbedInFlight.set(key, p);
   const result = await p;
-  if (result) _oEmbedTitleCache.set(key, result);
+  if (result) _oEmbedCacheSet(key, result);
   return result;
 }
 
@@ -88,7 +115,7 @@ export function fetchYouTubePreview(url: string): void {
   if (!url || url.trim() === '') {
     previewContainer.style.display = 'none';
     statusText.style.display = 'block';
-    statusText.innerText = '동영상 또는 플레이리스트 링크를 입력하세요';
+    statusText.innerText = t('youtube.enter_link_placeholder');
     statusText.style.color = 'var(--text-sub)';
     setPlayBtnEnabled(false);
     return;
@@ -100,14 +127,14 @@ export function fetchYouTubePreview(url: string): void {
   if (!videoId && !playlistId) {
     previewContainer.style.display = 'none';
     statusText.style.display = 'block';
-    statusText.innerText = '유효한 YouTube 링크가 아닙니다';
+    statusText.innerText = t('youtube.invalid_link');
     statusText.style.color = '#ef4444';
     setPlayBtnEnabled(false);
     return;
   }
 
   statusText.style.display = 'block';
-  statusText.innerText = '영상 정보 불러오는 중...';
+  statusText.innerText = t('youtube.fetching_info');
   statusText.style.color = 'var(--text-sub)';
   setPlayBtnEnabled(false);
 
@@ -132,7 +159,7 @@ export function fetchYouTubePreview(url: string): void {
       log.error('[YouTube Preview] Error:', e);
       previewContainer.style.display = 'none';
       statusText.style.display = 'block';
-      statusText.innerText = '영상 정보를 불러올 수 없습니다';
+      statusText.innerText = t('youtube.fetch_failed');
       statusText.style.color = '#ef4444';
       setPlayBtnEnabled(false);
     }

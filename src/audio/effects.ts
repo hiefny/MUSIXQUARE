@@ -56,7 +56,7 @@ export function applySettings(): void {
   const crossFade = getRvbCrossFade();
   if (crossFade) crossFade.fade.rampTo(reverbMix, 0.1);
 
-  // Reverb Engine Sync
+  // Reverb Engine Sync (with retry on failure)
   const rev = getReverb();
   if (rev) {
     let needsGenerate = false;
@@ -69,7 +69,7 @@ export function applySettings(): void {
       needsGenerate = true;
     }
     if (needsGenerate) {
-      rev.generate().catch(e => log.warn('[Reverb] generate() failed:', e));
+      _generateReverbWithRetry(rev);
     }
   }
 
@@ -87,9 +87,11 @@ export function applySettings(): void {
 
   // EQ Sync (clamp to [-12, 12] dB for safety)
   const nodes = getEqNodes();
-  if (nodes && eqValues) {
+  if (nodes && nodes.length > 0 && eqValues) {
     nodes.forEach((node, i) => {
-      const clamped = Math.max(-12, Math.min(12, eqValues[i]));
+      if (!node?.gain) return;
+      const raw = eqValues[i] ?? 0;
+      const clamped = Math.max(-12, Math.min(12, raw));
       if (node.gain.value !== clamped) {
         node.gain.rampTo(clamped, 0.1);
       }
@@ -104,6 +106,9 @@ export function applySettings(): void {
     wid.width.rampTo(stereoWidth * 0.5, 0.1);
     if (stereoWidth < 1.0) {
       compensation = 0.6 + 0.4 * stereoWidth;
+    } else if (stereoWidth > 1.0) {
+      // Wide stereo: compensate to prevent volume boost
+      compensation = Math.max(0.5, 1.0 / (0.6 + 0.4 * stereoWidth));
     }
   }
 
@@ -127,6 +132,32 @@ export function applySettings(): void {
   if (lp) {
     lp.frequency.rampTo(isWooferRole ? subFreq : 20000, 0.1);
   }
+}
+
+// ─── Reverb Generate with Retry ────────────────────────────────────
+
+let _reverbGenerateInFlight = false;
+
+async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRetries = 2): Promise<void> {
+  if (_reverbGenerateInFlight) return;
+  _reverbGenerateInFlight = true;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await Promise.race([
+        rev!.generate(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+      ]);
+      _reverbGenerateInFlight = false;
+      return;
+    } catch (e) {
+      log.warn(`[Reverb] generate() attempt ${attempt + 1}/${maxRetries + 1} failed:`, e);
+      if (attempt === maxRetries) {
+        bus.emit('ui:show-toast', t('toast.reverb_init_fail'));
+      }
+    }
+  }
+  _reverbGenerateInFlight = false;
 }
 
 // ─── Reverb Controls ───────────────────────────────────────────────
@@ -238,25 +269,7 @@ export function resetVirtualBass(): void {
 export function updateSubFreq(val: number): void {
   const freq = Number(val);
   setState('audio.subFreq', freq);
-
-  const vbf = getVbFilter();
-  if (vbf) vbf.frequency.rampTo(freq, 0.1);
-
-  const channelMode = getState('audio.channelMode');
-  const isSurroundMode = getState('audio.isSurroundMode');
-  const surroundChannelIndex = getState('audio.surroundChannelIndex');
-  const isSubMode = channelMode === 2 && !isSurroundMode;
-  const isLFE = isSurroundMode && surroundChannelIndex === 3;
-
-  const vbpf = getVbPostFilter();
-  if (vbpf) {
-    vbpf.frequency.rampTo((isSubMode || isLFE) ? freq : 20000, 0.1);
-  }
-
-  const lp = getGlobalLowPass();
-  if (lp && (isSubMode || isLFE)) {
-    lp.frequency.rampTo(freq, 0.1);
-  }
+  applySettings();
 }
 
 // ─── Network Broadcast Helpers ───────────────────────────────────

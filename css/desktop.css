@@ -86,12 +86,11 @@
         left: 0 !important;
         width: 100% !important;
 
-        background: transparent !important;
+        background: transparent;
         border-radius: 0;
         border: none;
-        box-shadow: none !important;
-        /* Reset any shadows from mobile styles */
-        overflow: hidden !important;
+        box-shadow: none;
+        overflow: hidden;
         /* Parent NO LONGER scrolls */
     }
 
@@ -124,10 +123,9 @@
         padding: 32px 32px 16px !important;
         position: relative !important;
         /* No longer sticky */
-        background: transparent !important;
-        /* Masking box REMOVED */
+        background: transparent;
         z-index: 10;
-        border-bottom: none !important;
+        border-bottom: none;
         margin-bottom: 0;
     }
 
@@ -151,7 +149,7 @@
         justify-content: flex-start !important;
         align-items: center;
         padding: 0 0 0 8px !important;
-        border-right: 1px solid var(--divider) !important;
+        border-right: 1px solid var(--divider);
         min-width: 0 !important;
         min-height: 0 !important;
         max-width: 100% !important;
@@ -162,16 +160,15 @@
 
     #tab-playlist {
         padding: 0 0 0 8px !important;
-        border-right: 1px solid var(--divider) !important;
-        border-bottom: 1px solid var(--divider) !important;
+        border-right: 1px solid var(--divider);
+        border-bottom: 1px solid var(--divider);
     }
 
     .chat-drawer {
         padding: 0 !important;
-        /* 채팅창은 다른 패널과 달리 전체가 아닌 중간 영역(.chat-drawer-messages)만 스크롤되므로 껍데기 마진 0 */
-        border-right: 1px solid var(--divider) !important;
-        background: transparent !important;
-        box-shadow: none !important;
+        border-right: 1px solid var(--divider);
+        background: transparent;
+        box-shadow: none;
     }
 
     #tab-settings {
@@ -179,7 +176,7 @@
     }
 
     .play-header-desktop {
-        display: none !important;
+        display: none;
     }
 
     .play-action-buttons {
@@ -260,7 +257,7 @@
        8. Guide (도움말 화면)
        --------------------------------------------------- */
     #tab-guide {
-        display: none !important;
+        display: none;
     }
 
     /* ---------------------------------------------------
@@ -270,7 +267,7 @@
         position: fixed;
         inset: 0;
         z-index: 5000;
-        background: var(--bg) !important;
+        background: var(--bg);
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
     }
@@ -287,7 +284,7 @@
         border: none !important;
         outline: none !important;
         box-shadow: none;
-        background: transparent !important;
+        background: transparent;
         padding: 0 !important;
         transform: none;
         display: grid;
@@ -656,30 +653,30 @@
 
     /* Tab text switching (Desktop) */
     .nav-text-desktop {
-        display: inline !important;
+        display: inline;
     }
 
     .nav-text-mobile {
-        display: none !important;
+        display: none;
     }
 
     .desktop-help-section {
-        display: block !important;
+        display: block;
         margin-top: 32px !important;
     }
 
     button[data-tab="guide"] {
-        display: none !important;
+        display: none;
     }
 
     /* Completely Flatten Layout for Desktop (No boxes, no dividers) */
     .section-group {
-        background: transparent !important;
+        background: transparent;
         margin: 0 12px !important;
-        box-shadow: none !important;
-        border: none !important;
-        border-radius: 0 !important;
-        border-bottom: 1px dotted var(--divider) !important;
+        box-shadow: none;
+        border: none;
+        border-radius: 0;
+        border-bottom: 1px dotted var(--divider);
     }
 
     #tab-settings .channel-grid {
@@ -746,13 +743,11 @@
     }
 
     .help-block {
-        background: transparent !important;
+        background: transparent;
         margin: 0 16px 16px !important;
-        /* Match section-group width */
         padding: 16px !important;
-        /* Aligns nicely with settings items */
-        border: none !important;
-        box-shadow: none !important;
+        border: none;
+        box-shadow: none;
     }
 
     .playlist-ul {
@@ -859,11 +854,11 @@
     }
 
     .track-item {
-        border-bottom: none !important;
+        border-bottom: none;
     }
 
     .chat-drawer-input {
-        background: transparent !important;
+        background: transparent;
     }
 
     /* Keep the action buttons consistently sized on all desktop viewports rather than full-width */

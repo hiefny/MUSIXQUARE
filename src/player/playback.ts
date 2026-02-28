@@ -37,6 +37,7 @@ let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _pendingPlayTime: number | undefined;
+let _pendingPlayDepth = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
 
@@ -102,7 +103,16 @@ export function getTrackPosition(): number {
 
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0;
   if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
-    pos = (Tone.now() - startedAt) + localOffset + autoSyncOffset;
+    const combinedOffset = localOffset + autoSyncOffset;
+    // Guard: reset offsets if combined drift exceeds 5 seconds
+    if (Math.abs(combinedOffset) > 5) {
+      log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}, auto=${autoSyncOffset.toFixed(3)}, combined=${combinedOffset.toFixed(3)}s — resetting`);
+      setState('sync.localOffset', 0);
+      setState('sync.autoSyncOffset', 0);
+      pos = Tone.now() - startedAt;
+    } else {
+      pos = (Tone.now() - startedAt) + combinedOffset;
+    }
   } else if (videoElement?.src && videoElement.readyState >= 1) {
     pos = videoElement.currentTime;
   }
@@ -187,10 +197,11 @@ export async function play(offset: number): Promise<void> {
 
   const lockWatchdog = setTimeout(() => {
     if (_isPlayLocked) {
-      log.warn('[Play] Lock Timeout: Forcing unlock after 5s');
+      log.warn('[Play] Lock Timeout: Forcing unlock after 3s');
       _isPlayLocked = false;
+      stopPlayerNode();
     }
-  }, 5000);
+  }, 3000);
 
   try {
     await _internalPlay(offset);
@@ -199,11 +210,15 @@ export async function play(offset: number): Promise<void> {
     setTimeout(() => {
       _isPlayLocked = false;
       // Consume queued play request (e.g. sync correction that arrived during lock)
-      if (_pendingPlayTime !== undefined) {
+      if (_pendingPlayTime !== undefined && _pendingPlayDepth < 2) {
         const queued = _pendingPlayTime;
         _pendingPlayTime = undefined;
-        log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s`);
-        play(queued);
+        _pendingPlayDepth++;
+        log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s (depth: ${_pendingPlayDepth})`);
+        play(queued).finally(() => { _pendingPlayDepth = 0; });
+      } else {
+        _pendingPlayTime = undefined;
+        _pendingPlayDepth = 0;
       }
     }, 10);
   }
@@ -376,7 +391,7 @@ function handleEnded(): void {
     return;
   }
 
-  if (curr >= duration - 0.2) {
+  if (curr >= duration - 0.05) {
     log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
     stopAllMedia();
     setState('player.pausedAt', 0);

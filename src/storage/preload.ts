@@ -28,6 +28,8 @@ let _activePlayPreloadedIndex: number | undefined;
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
  */
+const PRELOAD_SESSION_MAX = 20;
+
 function cleanupStalePreloadSessions(keepSessionId: number): void {
   // Clean up reorder buffers for old sessions
   for (const sid of preloadReorderBuffer.keys()) {
@@ -41,6 +43,12 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
     if (sid !== keepSessionId && (entry.finalized || entry.skipped)) {
       sessionState.delete(sid);
     }
+  }
+  // Hard cap: if still too many, evict oldest entries beyond the active one
+  if (sessionState.size > PRELOAD_SESSION_MAX) {
+    const sids = [...sessionState.keys()];
+    const toRemove = sids.filter(s => s !== keepSessionId).slice(0, sessionState.size - PRELOAD_SESSION_MAX);
+    for (const sid of toRemove) sessionState.delete(sid);
   }
 }
 

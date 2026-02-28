@@ -2142,10 +2142,9 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     padding: 0;
     margin: 0;
     flex: 1;
-    height: 42px;
+    min-height: 44px;
     cursor: pointer;
     transition: color 0.2s;
-    /* Inactive icon: adaptive.grey400 */
     color: #B0B8C1;
 }
 

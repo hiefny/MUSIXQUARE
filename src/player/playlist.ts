@@ -106,7 +106,10 @@ export function clearPreloadState(): void {
 
 export async function playTrack(index: number): Promise<void> {
   const playlist = getState('playlist.items') || [];
-  if (index < 0 || index >= playlist.length) return;
+  if (index < 0 || index >= playlist.length) {
+    if (playlist.length === 0) bus.emit('ui:show-toast', t('toast.no_tracks'));
+    return;
+  }
 
   clearManagedTimer('autoPlayTimer');
 

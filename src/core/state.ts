@@ -34,7 +34,7 @@ export interface StateTree {
   transfer: {
     state: TransferStateValue;
     receivedCount: number;
-    meta: Partial<FileMeta>;
+    meta: Partial<FileMeta> | null;
     localSessionId: number;
     currentSessionId: number;
     activeBroadcastSession: number | null;
@@ -99,6 +99,10 @@ export interface StateTree {
       isOp: boolean;
       preloadedIndexes: Set<number>;
       status: string;
+      isDataTarget: boolean;
+      joinOrder: number;
+      connectionType: 'local' | 'remote' | 'unknown';
+      lastHeartbeat: number;
     }>;
     isOperator: boolean;
     isConnecting: boolean;
@@ -146,6 +150,45 @@ export interface StateTree {
   };
 
 }
+
+// ─── Type-safe Path Utilities ─────────────────────────────────────
+
+/**
+ * Leaf type check — stops path recursion at primitive/collection types.
+ * Without this, `Array`, `Map`, `Set`, `Blob`, etc. would be recursed into.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type IsLeaf<T> = T extends
+  | string | number | boolean | null | undefined
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | Array<any> | Map<any, any> | Set<any>
+  | Blob | DataConnection | ReturnType<typeof setTimeout>
+  ? true : false;
+
+/**
+ * Union of all valid dot-separated state paths, auto-derived from StateTree.
+ * Top-level leaf keys (e.g. 'appState') and nested keys (e.g. 'audio.masterVolume').
+ */
+export type StatePath = {
+  [K in keyof StateTree & string]: IsLeaf<StateTree[K]> extends true
+    ? K
+    : `${K}.${keyof StateTree[K] & string}`
+}[keyof StateTree & string];
+
+/**
+ * Maps a StatePath to its value type.
+ * e.g. StatePathValue<'audio.masterVolume'> = number
+ */
+export type StatePathValue<P extends string> =
+  P extends keyof StateTree
+    ? StateTree[P]
+    : P extends `${infer D}.${infer K}`
+      ? D extends keyof StateTree
+        ? K extends keyof StateTree[D]
+          ? StateTree[D][K]
+          : never
+        : never
+      : never;
 
 // ─── Initial State ─────────────────────────────────────────────────
 
@@ -277,21 +320,21 @@ let _batchedPaths: string[] = [];
  * @example getState('audio.masterVolume') // 1.0
  * @example getState('playlist.items')     // PlaylistItem[]
  */
-export function getState<T = unknown>(path: string): T {
+export function getState<P extends StatePath>(path: P): StatePathValue<P> {
   const keys = path.split('.');
   let current: unknown = _state;
   for (const key of keys) {
-    if (current == null || typeof current !== 'object') return undefined as T;
+    if (current == null || typeof current !== 'object') return undefined as StatePathValue<P>;
     current = (current as Record<string, unknown>)[key];
   }
-  return current as T;
+  return current as StatePathValue<P>;
 }
 
 /**
  * Set a state value by dot-separated path.
  * Emits a `state:<path>` event on change (skipped during batching).
  */
-export function setState(path: string, value: unknown): void {
+export function setState<P extends StatePath>(path: P, value: StatePathValue<P>): void {
   const keys = path.split('.');
   let current: Record<string, unknown> = _state as unknown as Record<string, unknown>;
 
@@ -310,7 +353,7 @@ export function setState(path: string, value: unknown): void {
   current[lastKey] = value;
 
   if (!_isBatching) {
-    bus.emit(`state:${path}`, value, path);
+    bus.emit(`state:${path}` as `state:${string}`, value as unknown, path as string);
   }
 }
 
@@ -319,7 +362,7 @@ export function setState(path: string, value: unknown): void {
  * During the batch, setState applies values but skips event emission.
  * After all mutations, deduplicated events are emitted.
  */
-export function batchSetState(updates: Record<string, unknown>): void {
+export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValue<P> }>): void {
   _isBatching = true;
   _batchedPaths = [];
 
@@ -352,7 +395,7 @@ export function batchSetState(updates: Record<string, unknown>): void {
   for (const path of _batchedPaths) {
     if (!seen.has(path)) {
       seen.add(path);
-      bus.emit(`state:${path}`, getState(path), path);
+      bus.emit(`state:${path}` as `state:${string}`, getState(path as StatePath) as unknown, path as string);
     }
   }
   _batchedPaths = [];

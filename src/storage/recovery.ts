@@ -24,13 +24,13 @@ import type { DataConnection } from '../types/index.ts';
  * Targets relay or host depending on what's available.
  */
 export function sendRecoveryRequest(forceChunk: number | null = null): void {
-  const pending = getState<boolean>('recovery.pending');
+  const pending = getState('recovery.pending');
   if (pending) {
     log.debug('[Recovery] Request already pending, skipping');
     return;
   }
 
-  const retryCount = getState<number>('recovery.retryCount');
+  const retryCount = getState('recovery.retryCount');
   if (retryCount >= MAX_RECOVERY_RETRIES) {
     log.error(`[Recovery] Max retries (${MAX_RECOVERY_RETRIES}) exceeded. Giving up.`);
     clearManagedTimer('chunkWatchdog');
@@ -42,8 +42,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   }
 
   // Find best connection
-  const upstreamDataConn = getState<DataConnection | null>('relay.upstreamDataConn');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const upstreamDataConn = getState('relay.upstreamDataConn');
+  const hostConn = getState('network.hostConn');
   const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
 
   if (!targetConn || !targetConn.open) {
@@ -51,13 +51,13 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     return;
   }
 
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const pendingFileName = getState<string>('recovery.pendingFileName');
-  const pendingFileIndex = getState<number | undefined>('recovery.pendingFileIndex');
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const receivedCount = getState<number>('transfer.receivedCount');
-  const localSid = getState<number>('transfer.localSessionId');
-  const currentTransferSid = getState<number>('transfer.currentSessionId');
+  const meta = getState('transfer.meta');
+  const pendingFileName = getState('recovery.pendingFileName');
+  const pendingFileIndex = getState('recovery.pendingFileIndex');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const receivedCount = getState('transfer.receivedCount');
+  const localSid = getState('transfer.localSessionId');
+  const currentTransferSid = getState('transfer.currentSessionId');
 
   const fileName = (meta?.name as string) || pendingFileName || '';
   const index = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
@@ -86,8 +86,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     }
 
     // Check if track changed during backoff
-    const latestMeta = getState<Record<string, unknown>>('transfer.meta');
-    const latestName = (latestMeta?.name as string) || getState<string>('recovery.pendingFileName') || '';
+    const latestMeta = getState('transfer.meta');
+    const latestName = (latestMeta?.name as string) || getState('recovery.pendingFileName') || '';
     if (latestName && fileName && latestName !== fileName) {
       log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
       setState('recovery.retryCount', 0);
@@ -112,12 +112,12 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
 async function handleRequestCurrentFile(data: Record<string, unknown>, conn: DataConnection): Promise<void> {
   // Only Host serves files directly
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guest ignores
   if (!conn || !conn.open) return;
 
   // If Host is in YouTube mode, no local file to serve
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     try { conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' }); } catch { /* noop */ }
     return;
@@ -141,7 +141,7 @@ async function handleRequestCurrentFile(data: Record<string, unknown>, conn: Dat
 
 async function handleRequestDataRecovery(data: Record<string, unknown>, conn: DataConnection): Promise<void> {
   // Only Host serves recovery directly
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
   if (!conn || !conn.open) return;
 
@@ -178,10 +178,10 @@ async function handleRequestDataRecovery(data: Record<string, unknown>, conn: Da
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob | null {
-  const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-  const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+  const currentFileBlob = getState('files.currentFileBlob');
+  const meta = getState('transfer.meta');
+  const nextFileBlob = getState('preload.nextFileBlob');
+  const nextMeta = getState('preload.meta');
 
   let blob: Blob | null = null;
 
@@ -202,8 +202,8 @@ function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob |
 }
 
 function ensureValidSessionId(): number {
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const currentTransferSessionId = getState<number>('transfer.currentSessionId');
+  const meta = getState('transfer.meta');
+  const currentTransferSessionId = getState('transfer.currentSessionId');
   let sid = (meta?.sessionId as number) || currentTransferSessionId;
   if (!sid || sid < 1) {
     sid = nextSessionId();
@@ -213,10 +213,10 @@ function ensureValidSessionId(): number {
 }
 
 function getBlobFallbackName(blob: Blob, reqName: string): string {
-  const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-  const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+  const currentFileBlob = getState('files.currentFileBlob');
+  const meta = getState('transfer.meta');
+  const nextFileBlob = getState('preload.nextFileBlob');
+  const nextMeta = getState('preload.meta');
 
   if (blob === currentFileBlob && meta?.name) return meta.name as string;
   if (blob === nextFileBlob && nextMeta?.name) return nextMeta.name as string;

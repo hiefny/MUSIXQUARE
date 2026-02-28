@@ -29,10 +29,10 @@ let _isChatDrawerOpen = false;
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function _getChatLabelBase(): string {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) return 'Host';
 
-  const myDeviceLabel = getState<string>('network.myDeviceLabel') || '';
+  const myDeviceLabel = getState('network.myDeviceLabel') || '';
   const label = myDeviceLabel.trim();
 
   if (!label || label === 'HOST' || label === 'Guest' || label === '참가자') return PEER_NAME_PREFIX;
@@ -181,13 +181,13 @@ export function sendChatMessage(): void {
   if (!text) return;
 
   const senderLabel = _getChatLabelBase();
-  const channelMode = getState<number>('audio.channelMode') ?? 0;
+  const channelMode = getState('audio.channelMode') ?? 0;
   const senderRole = getRoleLabelByChannelMode(channelMode);
   const displayName = _formatChatDisplayName(senderLabel);
 
   addChatMessage(displayName, text, true);
 
-  const myId = getState<string>('network.myId') || '';
+  const myId = getState('network.myId') || '';
   const chatMsg = {
     type: MSG.CHAT,
     senderId: myId,
@@ -198,7 +198,7 @@ export function sendChatMessage(): void {
     ts: Date.now(),
   };
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
@@ -310,7 +310,7 @@ export function addSystemChatMessage(text: string): void {
 // ─── Handler for Incoming Chat ───────────────────────────────────
 
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
-  const myId = getState<string>('network.myId') || '';
+  const myId = getState('network.myId') || '';
   const senderId = data.senderId as string || '';
   const isMine = senderId === myId;
 
@@ -321,7 +321,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   addChatMessage(displayName, text, isMine);
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const senderPeerId = conn?.peer || (senderId as string) || '';
     bus.emit('network:broadcast-except', senderPeerId, data);

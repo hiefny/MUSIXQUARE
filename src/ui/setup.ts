@@ -308,7 +308,7 @@ function showRoleSelectionButtons(): void {
 // ─── Handle Role Preview ─────────────────────────────────────────
 
 function handleSetupRolePreview(mode: number): void {
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole !== 'guest' && appRole !== 'host') return;
   _pendingSetupRole = mode;
   setupHighlightJoinRole(mode);
@@ -357,7 +357,7 @@ function startHostFlow(): void {
 }
 
 async function proceedToHostCode(mode: number): Promise<void> {
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole !== 'host') return;
 
   const flowId = ++_hostCodeFlowId;
@@ -412,7 +412,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
 }
 
 function startSessionFromHost(): void {
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole !== 'host') return;
 
   setState('setup.sessionStarted', true);
@@ -496,7 +496,7 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
     return;
   }
 
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole !== 'guest') return;
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -718,7 +718,7 @@ export function initSetup(): void {
     else if (peerType === 'unavailable-id') userMsg = '세션 ID를 사용할 수 없어요. 다시 시도해 주세요.';
     else if (peerType === 'webrtc') userMsg = 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.';
 
-    const isConnecting = getState<boolean>('network.isConnecting');
+    const isConnecting = getState('network.isConnecting');
     if (isConnecting) {
       // Still trying to join — emit failure for UI reset
       showToast(userMsg);
@@ -733,7 +733,7 @@ export function initSetup(): void {
       }).then(res => {
         if (res.action === 'ok') {
           // Pre-fill the join code and re-enable join flow
-          const lastCode = getState<string>('network.lastJoinCode') || '';
+          const lastCode = getState('network.lastJoinCode') || '';
           startGuestFlow();
           if (lastCode) {
             const input = setupEl('setup-join-code') as HTMLInputElement | null;

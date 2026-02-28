@@ -304,7 +304,7 @@ bus.on('audio:set-volume', (volume) => {
 
 /** Apply volume to YouTube player */
 bus.on('audio:apply-youtube-volume', () => {
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+  const vol = getState('audio.masterVolume') ?? 1;
   // YouTube player volume is 0-100
   bus.emit('youtube:set-volume', Math.round(vol * 100));
 });

@@ -11,7 +11,6 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
-import type { DataConnection } from '../types/index.ts';
 
 // ─── URL Extraction ────────────────────────────────────────────────
 
@@ -155,7 +154,7 @@ let _uiTimer: ReturnType<typeof setTimeout> | null = null;
 export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
 
-  const subMap = getState<Record<string, { ids: string[]; titles: string[]; }>>('youtube.subItemsMap') || {};
+  const subMap = getState('youtube.subItemsMap') || {};
   const data = subMap[playlistId];
   if (!data) return;
 
@@ -167,7 +166,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
   try {
     for (let i = 0; i < ids.length; i++) {
       // Re-read state in case it was updated externally
-      const currentMap = getState<Record<string, { ids: string[]; titles: string[]; }>>('youtube.subItemsMap') || {};
+      const currentMap = getState('youtube.subItemsMap') || {};
       const currentData = currentMap[playlistId];
       if (!currentData) break;
 
@@ -184,7 +183,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
 
         if (json && json.title) {
           // Update state
-          const freshMap = getState<Record<string, { ids: string[]; titles: string[]; }>>('youtube.subItemsMap') || {};
+          const freshMap = getState('youtube.subItemsMap') || {};
           if (!freshMap[playlistId]) freshMap[playlistId] = { ids: [], titles: [] };
           freshMap[playlistId].titles[i] = json.title;
           setState('youtube.subItemsMap', { ...freshMap });
@@ -196,7 +195,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
           _uiTimer = setTimeout(() => bus.emit('ui:update-playlist'), 200);
 
           // Only Host broadcasts to peers
-          const hostConn = getState<DataConnection | null>('network.hostConn');
+          const hostConn = getState('network.hostConn');
           if (!hostConn) {
             broadcast({
               type: MSG.YOUTUBE_SUB_TITLE_UPDATE,

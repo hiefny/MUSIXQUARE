@@ -58,6 +58,7 @@ export interface PeerInstance {
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {
   name: string;
+  title?: string;
   type: string;
   index: number;
   size: number;
@@ -127,6 +128,7 @@ export interface DeviceInfo {
   label: string;
   isOp: boolean;
   isHost: boolean;
+  status: string;
 }
 
 // ─── EventBus typed events ─────────────────────────────────────────

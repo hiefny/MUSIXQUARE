@@ -21,7 +21,6 @@ import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
-import type { DataConnection } from '../types/index.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -54,7 +53,7 @@ function updateVolumeIcon(): void {
   const path = icon.querySelector('path');
   if (!path) return;
 
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+  const vol = getState('audio.masterVolume') ?? 1;
   if (vol === 0) {
     path.setAttribute('d', 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z');
   } else {
@@ -67,7 +66,7 @@ function onVolInput(val: number): void {
 }
 
 function onVolChange(val: number): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', { type: MSG.VOLUME, value: val / 100 });
     showToast(`Volume: ${Math.round(val)}%`);
@@ -75,18 +74,18 @@ function onVolChange(val: number): void {
 }
 
 function toggleMute(): void {
-  const masterVolume = getState<number>('audio.masterVolume') ?? 1;
+  const masterVolume = getState('audio.masterVolume') ?? 1;
   if (masterVolume > 0) {
     _preMuteVolume = masterVolume;
     bus.emit('audio:set-volume', 0);
     showToast('Muted');
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: 0 });
   } else {
     bus.emit('audio:set-volume', _preMuteVolume || 0.5);
     const newVol = _preMuteVolume || 0.5;
     showToast(`Volume: ${Math.round(newVol * 100)}%`);
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: newVol });
   }
 }
@@ -100,26 +99,26 @@ export function updateRoleBadge(): void {
 
   badge.classList.remove('connected', 'remote');
 
-  const isConnecting = getState<boolean>('network.isConnecting');
+  const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
     text.innerText = '연결 중...';
     return;
   }
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
-    const myDeviceLabel = getState<string>('network.myDeviceLabel') || '';
+    const myDeviceLabel = getState('network.myDeviceLabel') || '';
     const label = myDeviceLabel.trim() || 'Peer';
-    const latency = getState<number>('sync.lastLatencyMs') || 0;
+    const latency = getState('sync.lastLatencyMs') || 0;
     text.innerText = latency > 0 ? `${label} ${latency}ms` : label;
     badge.classList.add('connected');
-    if (getState<string>('network.connectionType') === 'remote') {
+    if (getState('network.connectionType') === 'remote') {
       badge.classList.add('remote');
     }
     return;
   }
 
-  const appRole = getState<string>('network.appRole');
+  const appRole = getState('network.appRole');
   if (appRole === 'host') {
     text.innerText = 'Host';
     badge.classList.add('connected');
@@ -137,8 +136,8 @@ export function updateRoleBadge(): void {
 // ─── Invite Code ─────────────────────────────────────────────────
 
 export function getInviteCode(): string {
-  const sessionCode = getState<string>('network.sessionCode') || '';
-  const lastJoinCode = getState<string>('network.lastJoinCode') || '';
+  const sessionCode = getState('network.sessionCode') || '';
+  const lastJoinCode = getState('network.lastJoinCode') || '';
   if (sessionCode && /^\d{6}$/.test(sessionCode)) return sessionCode;
   if (lastJoinCode && /^\d{6}$/.test(lastJoinCode)) return lastJoinCode;
   return '------';
@@ -154,14 +153,14 @@ export function updateInviteCodeUI(): void {
 }
 
 function getConnectedDeviceCount(): number {
-  const lastKnownDeviceList = getState<Array<Record<string, unknown>>>('network.lastKnownDeviceList');
+  const lastKnownDeviceList = getState('network.lastKnownDeviceList');
   if (Array.isArray(lastKnownDeviceList) && lastKnownDeviceList.length) {
     return lastKnownDeviceList.filter(d => d && d.status === 'connected').length;
   }
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const appRole = getState<string>('network.appRole');
-  const sessionStarted = getState<boolean>('setup.sessionStarted');
+  const connectedPeers = getState('network.connectedPeers');
+  const hostConn = getState('network.hostConn');
+  const appRole = getState('network.appRole');
+  const sessionStarted = getState('setup.sessionStarted');
   const peerConnected = Array.isArray(connectedPeers) ? connectedPeers.filter(p => p && p.status === 'connected').length : 0;
   if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0)) {
     return 1 + peerConnected;
@@ -190,7 +189,7 @@ async function copyInviteCode(): Promise<void> {
 // ─── Media Source Popup ──────────────────────────────────────────
 
 function openMediaSourcePopup(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     showToast('방장만 미디어를 추가할 수 있어요.');
     return;
@@ -215,7 +214,7 @@ function closeMediaSourcePopup(): void {
 }
 
 function openYouTubePopup(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     showToast('방장만 유튜브 링크를 추가할 수 있어요.');
     return;
@@ -244,7 +243,7 @@ function closeYouTubePopup(): void {
 // ─── File Selector ───────────────────────────────────────────────
 
 function openFileSelector(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) {
     showToast('Host만 실행할 수 있습니다.');
     return;
@@ -261,13 +260,13 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     showToast('YouTube 모드에서는 정밀 동기화를 지원하지 않아요');
     return;
   }
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     showToast('모든 기기 재동기화 요청...');
     bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });
@@ -292,8 +291,8 @@ async function handleLogoReturnToMain(): Promise<void> {
       return;
     }
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const appRole = getState<string>('network.appRole');
+    const hostConn = getState('network.hostConn');
+    const appRole = getState('network.appRole');
     const hasSession = !!(hostConn || appRole === 'host');
     if (hasSession) {
       const res = await showDialog({
@@ -354,7 +353,7 @@ function initSeekBar(): void {
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
   slider.addEventListener('touchstart', () => setState('player.isSeeking', true));
   slider.addEventListener('input', () => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = fmtTime(parseFloat(slider.value));
@@ -362,12 +361,12 @@ function initSeekBar(): void {
 
   slider.addEventListener('change', () => {
     setState('player.isSeeking', false);
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const t = parseFloat(slider.value);
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
 
     // Guest (non-OP): blocked
     if (hostConn && !isOperator) return;
@@ -401,7 +400,7 @@ function initSeekBar(): void {
 // ─── Volume Sync ─────────────────────────────────────────────────
 
 function syncVolumeSlider(): void {
-  const vol = getState<number>('audio.masterVolume') ?? 1;
+  const vol = getState('audio.masterVolume') ?? 1;
   const vSlider = document.getElementById('volume-slider') as HTMLInputElement | null;
   if (vSlider) vSlider.value = String(vol * 100);
   updateVolumeIcon();
@@ -636,7 +635,7 @@ export function initPlayerControls(): void {
     if (_loopInterval) clearInterval(_loopInterval);
     _endedCheckCounter = 0;
     _loopInterval = setInterval(() => {
-      const currentState = getState<string>('appState');
+      const currentState = getState('appState');
       if (isIdleOrPaused(currentState)) {
         if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
         return;
@@ -644,7 +643,7 @@ export function initPlayerControls(): void {
       const pos = getTrackPosition();
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
-      const isSeeking = getState<boolean>('player.isSeeking');
+      const isSeeking = getState('player.isSeeking');
       if (slider && !isSeeking) {
         slider.value = String(pos);
       }
@@ -670,23 +669,23 @@ export function initPlayerControls(): void {
   });
 
   bus.on('player:seek', (time) => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       play(time);
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
       broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
       requestGlobalResyncDelayed();
     }
   });
 
   bus.on('player:seek-to-time', (time) => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
     if (hostConn && isOperator) {
       sendToHost({ type: MSG.REQUEST_SEEK, time });
     } else if (!hostConn) {
-      const currentState = getState<string>('appState');
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const currentState = getState('appState');
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
       if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         play(time);
         broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
@@ -718,7 +717,7 @@ export function initPlayerControls(): void {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');
-    const isSeeking = getState<boolean>('player.isSeeking');
+    const isSeeking = getState('player.isSeeking');
 
     if (slider && duration > 0) {
       slider.max = String(duration);

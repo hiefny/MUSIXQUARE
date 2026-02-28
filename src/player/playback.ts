@@ -77,8 +77,8 @@ export function fmtTime(s: number): string {
 // ─── Track Position ────────────────────────────────────────────────
 
 export function getTrackPosition(): number {
-  const currentState = getState<string>('appState');
-  const pausedAt = getState<number>('player.pausedAt') || 0;
+  const currentState = getState('appState');
+  const pausedAt = getState('player.pausedAt') || 0;
 
   if (isIdleOrPaused(currentState)) return pausedAt;
 
@@ -95,9 +95,9 @@ export function getTrackPosition(): number {
     : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
 
   let pos = 0;
-  const startedAt = getState<number>('player.startedAt') || 0;
-  const localOffset = getState<number>('sync.localOffset') || 0;
-  const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+  const startedAt = getState('player.startedAt') || 0;
+  const localOffset = getState('sync.localOffset') || 0;
+  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
 
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0;
   if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
@@ -211,7 +211,7 @@ export async function play(offset: number): Promise<void> {
 async function _internalPlay(offset: number): Promise<void> {
   _pendingPlayTime = undefined;
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[Audio] Blocked play() call while in YouTube mode');
     return;
@@ -260,8 +260,8 @@ async function _internalPlay(offset: number): Promise<void> {
     stopPlayerNode();
     _playerNode = new Tone.BufferSource(_currentAudioBuffer);
 
-    const isSurroundMode = getState<boolean>('audio.isSurroundMode');
-    const surroundChannelIndex = getState<number>('audio.surroundChannelIndex');
+    const isSurroundMode = getState('audio.isSurroundMode');
+    const surroundChannelIndex = getState('audio.surroundChannelIndex');
 
     if (isSurroundMode) {
       bus.emit('audio:connect-surround', _playerNode, surroundChannelIndex);
@@ -275,7 +275,7 @@ async function _internalPlay(offset: number): Promise<void> {
     const endedToken = _currentLoadToken;
     _playerNode.onended = () => {
       if (endedToken !== _currentLoadToken) return;
-      const state = getState<string>('appState');
+      const state = getState('appState');
       if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
         handleEnded();
       }
@@ -293,8 +293,8 @@ async function _internalPlay(offset: number): Promise<void> {
   }
 
   // Update timing
-  const localOffset = getState<number>('sync.localOffset') || 0;
-  const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+  const localOffset = getState('sync.localOffset') || 0;
+  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
   const startedAt = Tone.now() - (safeOffset - (localOffset + autoSyncOffset));
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
@@ -302,8 +302,8 @@ async function _internalPlay(offset: number): Promise<void> {
 
   updatePlayState(true);
 
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
+  const meta = getState('transfer.meta');
+  const currentFileBlob = getState('files.currentFileBlob');
   const isVideo = isMediaVideo(currentFileBlob, meta);
   const newState = isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO;
   setState('appState', newState);
@@ -319,7 +319,7 @@ async function _internalPlay(offset: number): Promise<void> {
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (isIdleOrPaused(currentState)) return;
 
   let pausePos: number;
@@ -348,10 +348,10 @@ export function pause(forcedTime?: number): void {
 // ─── Handle Track Ended ────────────────────────────────────────────
 
 function handleEnded(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   const videoElement = getVideoElement();
 
   const hasBufferDuration = !!(_currentAudioBuffer &&
@@ -369,7 +369,7 @@ function handleEnded(): void {
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
   const curr = getTrackPosition();
-  const isSeeking = getState<boolean>('player.isSeeking');
+  const isSeeking = getState('player.isSeeking');
   if (isSeeking) {
     log.debug('[handleEnded] Ignoring end signal while seeking');
     return;
@@ -389,14 +389,14 @@ function handleEnded(): void {
 // ─── Toggle Play ───────────────────────────────────────────────────
 
 export function togglePlay(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
   if (hostConn && !isOperator) {
     bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
     return;
   }
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
 
   // YouTube mode
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -405,8 +405,8 @@ export function togglePlay(): void {
   }
 
   const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
-  const pausedAt = getState<number>('player.pausedAt') || 0;
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const pausedAt = getState('player.pausedAt') || 0;
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // Cancel pending auto-play (with user feedback)
   if (!hostConn && getManagedTimer('autoPlayTimer')) {
@@ -417,7 +417,7 @@ export function togglePlay(): void {
   if (isActuallyPlaying) {
     if (!hostConn) {
       pause();
-      broadcast({ type: MSG.PAUSE, time: getState<number>('player.pausedAt') });
+      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_PAUSE });
     }
@@ -435,8 +435,8 @@ export function togglePlay(): void {
 // ─── Stop Playback ─────────────────────────────────────────────────
 
 export function stopPlayback(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
     bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
@@ -450,7 +450,7 @@ export function stopPlayback(): void {
     return;
   }
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-playback');
     setState('player.pausedAt', 0);
@@ -468,8 +468,8 @@ export function stopPlayback(): void {
 // ─── Skip Time ─────────────────────────────────────────────────────
 
 export function skipTime(sec: number): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
-  const isOperator = getState<boolean>('network.isOperator');
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
     bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
@@ -481,7 +481,7 @@ export function skipTime(sec: number): void {
     return;
   }
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:skip-time', sec);
     return;
@@ -496,7 +496,7 @@ export function skipTime(sec: number): void {
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.001);
 
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
 
   if (isPlaying) {
@@ -512,15 +512,15 @@ export function skipTime(sec: number): void {
 // ─── Adjust Sync ───────────────────────────────────────────────────
 
 export function adjustSync(val: number): void {
-  const localOffset = getState<number>('sync.localOffset') || 0;
+  const localOffset = getState('sync.localOffset') || 0;
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!isIdleOrPaused(currentState)) {
     play(getTrackPosition());
   } else {
-    const pausedAt = getState<number>('player.pausedAt') || 0;
+    const pausedAt = getState('player.pausedAt') || 0;
     setState('player.pausedAt', pausedAt + val);
   }
 }
@@ -528,7 +528,7 @@ export function adjustSync(val: number): void {
 // ─── Check Video Sync ──────────────────────────────────────────────
 
 export function checkVideoSync(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (isIdleOrPaused(currentState) || currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
   const videoElement = getVideoElement();
@@ -615,7 +615,7 @@ export async function loadAndBroadcastFile(
       videoElement.muted = true;
     }
 
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
 
     bus.emit('ui:update-playlist');
@@ -635,12 +635,12 @@ export async function loadAndBroadcastFile(
     }
 
     // Enable play button
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
 
     // Broadcast file to peers
-    const connectedPeers = getState<unknown[]>('network.connectedPeers') || [];
+    const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId) {
       bus.emit('ui:show-toast', '파일을 보내고 있어요…');
       broadcastFile(file, sessionId);
@@ -659,8 +659,8 @@ export async function loadAndBroadcastFile(
       updatePlayState(false);
     }
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !hostConn || isOperator);
   }
 }
@@ -671,11 +671,11 @@ export async function loadPreloadedTrack(
   expectedIndex?: number,
   loadToken?: number,
 ): Promise<void> {
-  const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const nextMeta = getState('preload.meta');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;
   const myToken = loadToken ?? _currentLoadToken;
-  const localBlob = getState<Blob | null>('preload.nextFileBlob');
+  const localBlob = getState('preload.nextFileBlob');
   const localMeta = nextMeta ? { ...nextMeta } : null;
 
   if (!localBlob) {
@@ -711,12 +711,12 @@ export async function loadPreloadedTrack(
       return;
     }
     if (expectedIndex !== undefined && currentTrackIndex !== -1 &&
-        getState<number>('playlist.currentTrackIndex') !== targetIndex) {
+        getState('playlist.currentTrackIndex') !== targetIndex) {
       log.warn('[Preload] Track changed during decode. Discarding.');
       return;
     }
 
-    const activeMeta = localMeta || getState<Record<string, unknown>>('transfer.meta');
+    const activeMeta = localMeta || getState('transfer.meta');
 
     // Update global state
     setState('files.currentFileBlob', localBlob);
@@ -757,7 +757,7 @@ export async function loadPreloadedTrack(
     clearManagedTimer('preloadWatchdog');
 
     // Request sync from host after settle
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
       setTimeout(() => {
         sendToHost({ type: MSG.GET_SYNC_TIME, ts: Date.now() });
@@ -767,8 +767,8 @@ export async function loadPreloadedTrack(
     _playPreloadedInProgress = false;
 
     // Consume pending play time
-    const localOffset = getState<number>('sync.localOffset') || 0;
-    const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+    const localOffset = getState('sync.localOffset') || 0;
+    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
     if (hostConn && _pendingPlayTime !== undefined) {
       const target = _pendingPlayTime + localOffset + autoSyncOffset;
       log.debug(`[Preload] Found pending play time, starting at ${target.toFixed(2)}s`);
@@ -789,10 +789,10 @@ export async function loadPreloadedTrack(
     clearManagedTimer('preloadWatchdog');
 
     // Request recovery from host
-    const playlist = getState<unknown[]>('playlist.items') || [];
-    const meta = getState<Record<string, unknown>>('transfer.meta');
-    const idx = getState<number>('playlist.currentTrackIndex');
-    const name = (playlist[idx] as Record<string, string>)?.name || (meta?.name as string) || '';
+    const playlist = getState('playlist.items') || [];
+    const meta = getState('transfer.meta');
+    const idx = getState('playlist.currentTrackIndex');
+    const name = (playlist[idx] as unknown as Record<string, string>)?.name || (meta?.name as string) || '';
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: idx, reason: 'preload_activation_failed' });
   }
 }
@@ -811,7 +811,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   }
 
   // Index-mismatch recovery: Host sent PLAY for a different track
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (incomingIndex !== undefined && incomingIndex !== currentTrackIndex) {
     log.warn(`[Guest] Index mismatch: current=${currentTrackIndex}, play=${incomingIndex}`);
     _pendingPlayTime = time;
@@ -819,8 +819,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     bus.emit('ui:update-playlist');
 
     // Check if preloaded track matches
-    const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-    const nextTrackIndex = getState<number>('preload.nextTrackIndex');
+    const nextFileBlob = getState('preload.nextFileBlob');
+    const nextTrackIndex = getState('preload.nextTrackIndex');
     if (nextFileBlob && nextTrackIndex === incomingIndex) {
       log.debug(`[Guest] Found preloaded track for index ${incomingIndex}`);
       _currentLoadToken++;
@@ -830,7 +830,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
 
     // No preload — request file from host (transport guard)
     if (isRemoteGuest()) {
-      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+      const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || '';
       bus.emit('player:metadata-update', {
         type: 'file',
@@ -841,15 +841,15 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
       return;
     }
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = getState('playlist.items') || [];
     const name = playlist[incomingIndex]?.name || '';
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
     return;
   }
 
   // Stale audio guard: verify loaded file matches expected name
-  const meta = getState<Record<string, unknown>>('transfer.meta');
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const meta = getState('transfer.meta');
+  const playlist = getState('playlist.items') || [];
   const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
   const loadedName = (meta?.name as string) || '';
   if (expectedName && loadedName && expectedName !== loadedName) {
@@ -863,7 +863,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   } else {
     // Remote guest: no file will arrive, show guide (transport guard)
     if (isRemoteGuest()) {
-      const playlist2 = getState<PlaylistItem[]>('playlist.items') || [];
+      const playlist2 = getState('playlist.items') || [];
       bus.emit('player:metadata-update', {
         type: 'file',
         title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
@@ -885,7 +885,7 @@ function handlePauseMsg(data: Record<string, unknown>): void {
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {
   // Host handles OP's request to play
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host executes
 
   if (!verifyOperator(conn)) {
@@ -894,9 +894,9 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   }
 
   clearManagedTimer('autoPlayTimer');
-  const pausedAt = getState<number>('player.pausedAt') || 0;
+  const pausedAt = getState('player.pausedAt') || 0;
   const time = Number(data.time) || pausedAt;
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   play(time);
   broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
@@ -904,7 +904,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
 }
 
 function handleRequestPause(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -914,11 +914,11 @@ function handleRequestPause(_data: Record<string, unknown>, conn: DataConnection
 
   clearManagedTimer('autoPlayTimer');
   pause();
-  broadcast({ type: MSG.PAUSE, time: getState<number>('player.pausedAt') });
+  broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
 }
 
 function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -927,8 +927,8 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   }
 
   const time = Number(data.time) || 0;
-  const currentState = getState<string>('appState');
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentState = getState('appState');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube seek
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -949,7 +949,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
 }
 
 function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -974,8 +974,8 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
 
   const playlistMeta = data.playlistMeta as Array<Record<string, unknown>>;
   const hostTrackIndex = Number(data.currentTrackIndex);
-  const currentState = getState<string>('appState');
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+  const currentState = getState('appState');
+  const playlist = getState('playlist.items') || [];
 
   // Empty playlist — clear local state
   if (!playlistMeta || playlistMeta.length === 0) {
@@ -990,13 +990,13 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
 
   // Sync repeat/shuffle modes (silent = no toast)
   if (data.repeatMode !== undefined) {
-    const current = getState<number>('playlist.repeatMode') || 0;
+    const current = getState('playlist.repeatMode') || 0;
     if (Number(data.repeatMode) !== current) {
       bus.emit('playlist:set-repeat-mode', Number(data.repeatMode), false);
     }
   }
   if (data.isShuffle !== undefined) {
-    const current = getState<boolean>('playlist.isShuffle');
+    const current = getState('playlist.isShuffle');
     if (!!data.isShuffle !== current) {
       bus.emit('playlist:set-shuffle', !!data.isShuffle, false);
     }
@@ -1012,7 +1012,7 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
   }
 
   // Sync track index — trigger recovery if needed
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (hostTrackIndex !== -1 && hostTrackIndex !== currentTrackIndex) {
     log.debug(`[StatusSync] Index mismatch: Host(${hostTrackIndex}) vs Me(${currentTrackIndex}). Correcting...`);
 
@@ -1020,14 +1020,14 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
     setState('playlist.currentTrackIndex', hostTrackIndex);
     bus.emit('ui:update-playlist');
 
-    const updatedPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+    const updatedPlaylist = getState('playlist.items') || [];
     const item = updatedPlaylist[hostTrackIndex];
 
     if (item && item.type !== 'youtube') {
-      const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
+      const currentFileBlob = getState('files.currentFileBlob');
       const hasBlob = !!(currentFileBlob && currentFileBlob.size > 0);
-      const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-      const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+      const nextFileBlob = getState('preload.nextFileBlob');
+      const nextMeta = getState('preload.meta');
       const isPreloaded = !!(nextFileBlob && nextMeta &&
         ((nextMeta.index as number) === hostTrackIndex || (nextMeta.name as string) === item.name));
 
@@ -1040,7 +1040,7 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
       }
 
       // Track missing — request recovery from host
-      const meta = getState<Record<string, unknown>>('transfer.meta');
+      const meta = getState('transfer.meta');
       const isWrongBlob = hasBlob && meta && (meta.name as string) !== item.name;
       if (!hasBlob || isWrongBlob) {
         // Remote guests: don't attempt file recovery (transport guard)
@@ -1060,13 +1060,13 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
           bus.emit('youtube:stop-mode');
         }
 
-        const hostConn = getState<DataConnection | null>('network.hostConn');
+        const hostConn = getState('network.hostConn');
         if (hostConn?.open) {
           const jitter = Math.random() * 1000 + 200;
           setTimeout(() => {
-            const alreadyGotIt = getState<Blob | null>('files.currentFileBlob') ||
-              getState<Blob | null>('preload.nextFileBlob');
-            const idx = getState<number>('playlist.currentTrackIndex');
+            const alreadyGotIt = getState('files.currentFileBlob') ||
+              getState('preload.nextFileBlob');
+            const idx = getState('playlist.currentTrackIndex');
             if (idx === hostTrackIndex && !alreadyGotIt) {
               sendToHost({
                 type: MSG.REQUEST_DATA_RECOVERY,
@@ -1083,7 +1083,7 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
       }
     } else if (item && item.type === 'youtube') {
       // Use fresh state — stopAllMedia() above may have destroyed the YouTube player
-      const freshState = getState<string>('appState');
+      const freshState = getState('appState');
       if (freshState !== APP_STATE.PLAYING_YOUTUBE && (item.videoId || item.playlistId)) {
         log.debug('[StatusSync] Switching to YouTube mode for late-joiner sync');
         bus.emit('youtube:load', item.videoId || null, item.playlistId || null, true, 0);
@@ -1098,9 +1098,9 @@ function clearPreviousTrackState(reason = ''): void {
   log.debug(`[State Clear] Clearing previous track state. Reason: ${reason}`);
 
   // Edge Case: skip redundant clears for same track
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const meta = getState<Record<string, unknown>>('transfer.meta');
+  const playlist = getState('playlist.items') || [];
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const meta = getState('transfer.meta');
   const trackName = playlist[currentTrackIndex]?.name || (meta?.name as string) || '';
   if (reason === 'redundant-sync' && trackName && _lastClearedTrackName === trackName) {
     log.debug(`[State Clear] Skipping redundant clear for: ${trackName}`);
@@ -1129,14 +1129,14 @@ function clearPreviousTrackState(reason = ''): void {
   _pendingPlayTime = undefined;
 
   // Reset state to IDLE
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PAUSED) {
     setState('appState', APP_STATE.IDLE);
     bus.emit('player:state-changed', APP_STATE.IDLE);
   }
 
   // Clear preload ack tracking
-  const ackSent = getState<Set<number>>('preload.ackSent');
+  const ackSent = getState('preload.ackSent');
   if (ackSent) ackSent.clear();
 
   BlobURLManager.revoke();
@@ -1150,9 +1150,9 @@ function clearPreviousTrackState(reason = ''): void {
   try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch { /* noop */ }
 
   // Physically delete OLD current file from OPFS
-  const opfsFilename = getState<{ name: string | null }>('files.currentFileOpfs');
+  const opfsFilename = getState('files.currentFileOpfs');
   if (opfsFilename.name) {
-    const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
+    const nextMeta = getState('preload.meta');
     const isActuallyChanging = opfsFilename.name !== nextMeta?.name;
     if (isActuallyChanging) {
       postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
@@ -1180,7 +1180,7 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
     _currentAudioBuffer = audioBuffer;
 
-    const meta = getState<Record<string, unknown>>('transfer.meta');
+    const meta = getState('transfer.meta');
     const isVideo = isMediaVideo(file, meta);
     setEngineMode(isVideo ? 'video' : 'buffer');
 
@@ -1217,10 +1217,10 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     // Consume pending play time (stale from PLAY message received before transfer).
     // Start playback immediately at the saved position, then auto-sync with the
     // host 1 second later to correct for time elapsed during the file transfer.
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn && _pendingPlayTime !== undefined) {
-      const localOffset = getState<number>('sync.localOffset') || 0;
-      const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+      const localOffset = getState('sync.localOffset') || 0;
+      const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
       const target = _pendingPlayTime + localOffset + autoSyncOffset;
       log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
       play(target);
@@ -1240,8 +1240,8 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     log.error('[Guest] Decoding failed', err);
     bus.emit('ui:show-toast', '오디오 디코딩 실패! 다시 요청합니다.');
 
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
     const name = playlist[currentTrackIndex]?.name || '';
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: currentTrackIndex, reason: 'decoding_failed' });
   } finally {
@@ -1282,7 +1282,7 @@ export function initPlayback(): void {
 
   // Sync: handle sync response from host (apply time + play/pause)
   bus.on('sync:response', (hostTime, isPlaying, oneWayLatency) => {
-    const localOffset = getState<number>('sync.localOffset') || 0;
+    const localOffset = getState('sync.localOffset') || 0;
     // oneWayLatency는 extrapolatedTime 계산에 이미 반영됨 (elapsed에서 rtt/2 차감)
     // 여기서 또 더하면 이중 보정 → 게스트가 호스트보다 앞서감
     const compensatedTime = hostTime + localOffset;
@@ -1310,7 +1310,7 @@ export function initPlayback(): void {
 
   // Sync: apply nudge offset by re-seeking
   bus.on('sync:nudge-apply', (_ms) => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
       play(getTrackPosition());
     }
@@ -1318,7 +1318,7 @@ export function initPlayback(): void {
 
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
       play(getTrackPosition());
     }
@@ -1343,7 +1343,7 @@ export function initPlayback(): void {
     }
 
     // Only guest processes OPFS files (Host loads directly)
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) return;
 
     const file = await readFileFromOpfs(filename, false);
@@ -1363,7 +1363,7 @@ export function initPlayback(): void {
     setState('transfer.waitingForPreload', true);
 
     // Try to activate immediately if blob is already available
-    const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
+    const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
       setState('transfer.waitingForPreload', false);
       _currentLoadToken++;
@@ -1385,28 +1385,28 @@ export function initPlayback(): void {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState<string>('appState');
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-    const playlist = getState<unknown[]>('playlist.items') || [];
+    const currentState = getState('appState');
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
 
     // Send current file to late-joining guest (if local file is loaded)
     if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-      const item = playlist[currentTrackIndex] as Record<string, unknown>;
+      const item = playlist[currentTrackIndex] as unknown as Record<string, unknown>;
       if (item.type !== 'youtube') {
-        const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
-        const currentSessionId = getState<number>('transfer.currentSessionId');
+        const currentFileBlob = getState('files.currentFileBlob');
+        const currentSessionId = getState('transfer.currentSessionId');
         if (currentFileBlob) {
           unicastFile(conn, currentFileBlob, 0, currentSessionId)
             .catch((e: unknown) => log.error('[Host] unicastFile for late joiner failed', e));
         }
 
         // Also send preloaded next track
-        const nextFileBlob = getState<Blob | null>('preload.nextFileBlob');
-        const nextMeta = getState<Record<string, unknown> | null>('preload.meta');
-        const nextTrackIndex = getState<number>('preload.nextTrackIndex');
+        const nextFileBlob = getState('preload.nextFileBlob');
+        const nextMeta = getState('preload.meta');
+        const nextTrackIndex = getState('preload.nextTrackIndex');
         if (nextFileBlob && nextMeta && nextTrackIndex >= 0) {
           const preloadSid = (nextMeta.sessionId as number) || 0;
           unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid)
@@ -1420,7 +1420,7 @@ export function initPlayback(): void {
       const nowPos = getTrackPosition();
 
       if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-        const item = (playlist[currentTrackIndex] as Record<string, unknown>) || {};
+        const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as string | null;
         conn.send({
           type: MSG.PLAY,

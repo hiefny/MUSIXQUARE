@@ -12,12 +12,11 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { escapeHtml } from './dom.ts';
 import { updateTitleWithMarquee } from './dom.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
 function toggleExpansion(idx: number): void {
-  const playlist = getState<PlaylistItem[]>('playlist.items');
+  const playlist = getState('playlist.items');
   if (!playlist[idx]) return;
   playlist[idx].isExpanded = !playlist[idx].isExpanded;
 
@@ -35,7 +34,7 @@ export function updatePlaylistUI(): void {
   const ul = document.getElementById('playlist-ui');
   if (!ul) return;
 
-  const playlist = getState<PlaylistItem[]>('playlist.items');
+  const playlist = getState('playlist.items');
 
   if (!Array.isArray(playlist)) {
     log.warn('[Playlist] playlist is not an array. Resetting.');
@@ -49,9 +48,9 @@ export function updatePlaylistUI(): void {
     return;
   }
 
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
-  const currentYouTubeSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
-  const subItemsMap = getState<Record<string, { ids?: string[]; titles?: string[] }>>('youtube.subItemsMap') || {};
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
+  const subItemsMap = getState('youtube.subItemsMap') || {};
 
   playlist.forEach((item, idx) => {
     const isCurrent = (idx === currentTrackIndex);
@@ -73,8 +72,8 @@ export function updatePlaylistUI(): void {
 
     const displayName = item.name || item.title || 'Unknown';
     li.onclick = () => {
-      const hc = getState<DataConnection | null>('network.hostConn');
-      const op = getState<boolean>('network.isOperator');
+      const hc = getState('network.hostConn');
+      const op = getState('network.isOperator');
       if (!hc) bus.emit('playlist:play-track', idx);
       else if (op) hc.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
     };
@@ -126,8 +125,8 @@ export function updatePlaylistUI(): void {
 
           sli.onclick = (e) => {
             e.stopPropagation();
-            const hc = getState<DataConnection | null>('network.hostConn');
-            const op = getState<boolean>('network.isOperator');
+            const hc = getState('network.hostConn');
+            const op = getState('network.isOperator');
             if (hc && !op) return;
             if (!hc) {
               bus.emit('youtube:sub-seek', idx, sIdx, isCurrent);
@@ -145,7 +144,7 @@ export function updatePlaylistUI(): void {
   });
 
   // Update title/artist display
-  const meta = getState<Record<string, unknown>>('transfer.meta');
+  const meta = getState('transfer.meta');
   if (currentTrackIndex !== -1) {
     const currentItem = playlist[currentTrackIndex];
     let displayTitle = 'Unknown';

@@ -39,10 +39,10 @@ let _syncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
  * Host: broadcasts global resync. Guest: resets offset and requests sync time.
  */
 export function handleMainSyncBtn(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: Broadcast resync request to all guests
     broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
@@ -64,7 +64,7 @@ export function handleMainSyncBtn(): void {
  * collects RTT for each response, then picks the sample with the lowest RTT.
  */
 function startMultiSampleSync(): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn || !hostConn.open) return;
 
   // Cancel any in-progress multi-sample sequence
@@ -144,7 +144,7 @@ function applyBestSample(): void {
 
   // Latency compensation — remote + unknown (ICE 판정 전에도 보정 적용)
   let oneWayLatencySeconds = 0;
-  if (getState<string>('network.connectionType') !== 'local') {
+  if (getState('network.connectionType') !== 'local') {
     if (best.rtt > 0 && best.rtt < Infinity) {
       oneWayLatencySeconds = (best.rtt / 2) / 1000;
     }
@@ -169,15 +169,15 @@ function applyBestSample(): void {
  * Ensures host-side playback state change has settled across the network.
  */
 export function requestGlobalResyncDelayed(delay = 1000): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Host only
 
-  const resyncTimer = getState<ReturnType<typeof setTimeout> | null>('sync.resyncTimer');
+  const resyncTimer = getState('sync.resyncTimer');
   if (resyncTimer) clearTimeout(resyncTimer);
 
   const timer = setTimeout(() => {
     setState('sync.resyncTimer', null);
-    const hc = getState<DataConnection | null>('network.hostConn');
+    const hc = getState('network.hostConn');
     if (!hc) {
       broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
       log.debug(`[Sync] Automatic global resync requested (delay: ${delay}ms)`);
@@ -193,11 +193,11 @@ export function requestGlobalResyncDelayed(delay = 1000): void {
  * Nudge the sync offset by a given number of milliseconds.
  */
 export function nudgeSync(ms: number): void {
-  const localOffset = getState<number>('sync.localOffset');
+  const localOffset = getState('sync.localOffset');
   setState('sync.localOffset', localOffset + (ms / 1000));
   bus.emit('sync:display-update');
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('sync:youtube-nudge', ms);
     return;
@@ -206,7 +206,7 @@ export function nudgeSync(ms: number): void {
   // Debounce hard sync application
   clearManagedTimer('syncDebounce');
   setManagedTimer('syncDebounce', () => {
-    const state = getState<string>('appState');
+    const state = getState('appState');
     if (state !== APP_STATE.IDLE && state !== APP_STATE.PAUSED) {
       bus.emit('sync:nudge-apply', ms);
     }
@@ -217,8 +217,8 @@ export function nudgeSync(ms: number): void {
  * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
  */
 export function getTotalSyncOffsetMs(): number {
-  const localOffset = getState<number>('sync.localOffset');
-  const autoSyncOffset = getState<number>('sync.autoSyncOffset');
+  const localOffset = getState('sync.localOffset');
+  const autoSyncOffset = getState('sync.autoSyncOffset');
   return Math.round((localOffset + autoSyncOffset) * 1000);
 }
 
@@ -237,7 +237,7 @@ function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): 
   // Update liveness timestamp
   try {
     if (conn && conn.peer) {
-      const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+      const connectedPeers = getState('network.connectedPeers');
       const p = connectedPeers.find(x => x.id === conn.peer);
       if (p) p.lastHeartbeat = Date.now();
     }
@@ -263,7 +263,7 @@ function handlePingLatency(data: Record<string, unknown>, conn: DataConnection):
 function handlePongLatency(data: Record<string, unknown>): void {
   if (typeof data.timestamp !== 'number') return;
   const ms = Date.now() - data.timestamp;
-  const latencyHistory = getState<number[]>('sync.latencyHistory');
+  const latencyHistory = getState('sync.latencyHistory');
   latencyHistory.push(ms);
   if (latencyHistory.length > 10) latencyHistory.shift();
   setState('sync.lastLatencyMs', Math.min(...latencyHistory));
@@ -271,7 +271,7 @@ function handlePongLatency(data: Record<string, unknown>): void {
 }
 
 function handleSyncResponse(data: Record<string, unknown>): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
   // If multi-sample sync is active, collect this sample
@@ -282,7 +282,7 @@ function handleSyncResponse(data: Record<string, unknown>): void {
 
   // Fallback: single-shot sync (e.g. post-download auto-sync from playback.ts)
   let oneWayLatencySeconds = 0;
-  if (getState<string>('network.connectionType') !== 'local') {
+  if (getState('network.connectionType') !== 'local') {
     const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
     const rtt = reqTs ? Date.now() - reqTs : 0;
     if (rtt > 0) oneWayLatencySeconds = (rtt / 2) / 1000;
@@ -301,12 +301,12 @@ function handleGlobalResyncRequest(): void {
 }
 
 function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guest ignores
 
   if (conn && conn.open) {
     bus.emit('sync:get-position', (position: number) => {
-      const currentState = getState<string>('appState');
+      const currentState = getState('appState');
       const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
                         currentState === APP_STATE.PLAYING_VIDEO ||
                         currentState === APP_STATE.PLAYING_YOUTUBE;
@@ -351,8 +351,8 @@ export function initSync(): void {
   });
 
   bus.on('sync:display-update', () => {
-    const localOffset = getState<number>('sync.localOffset') || 0;
-    const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+    const localOffset = getState('sync.localOffset') || 0;
+    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
     const total = localOffset + autoSyncOffset;
     const el = document.getElementById('manual-sync-value');
     if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
@@ -360,7 +360,7 @@ export function initSync(): void {
 
   // Worker tick handlers: Guest sends heartbeat/ping to host
   bus.on('worker:timer-tick', (id) => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn || !hostConn.open) return;
 
     if (id === 'heartbeat') {

@@ -31,7 +31,7 @@ describe('State Store', () => {
     });
 
     it('returns undefined for nonexistent paths', () => {
-      expect(getState('nonexistent.deep.path')).toBeUndefined();
+      expect(getState('nonexistent.deep.path' as any)).toBeUndefined();
     });
 
     it('emits state:<path> on change', () => {

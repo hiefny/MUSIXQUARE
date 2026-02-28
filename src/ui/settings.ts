@@ -10,7 +10,6 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setLanguageMode } from './i18n.ts';
-import type { DataConnection } from '../types/index.ts';
 
 // ─── Theme ───────────────────────────────────────────────────────
 
@@ -197,7 +196,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
 
     row.appendChild(name);
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) {
       row.appendChild(status);
     } else {
@@ -253,7 +252,7 @@ export function initSettings(): void {
 
   // Surround toggle
   $on('btn-surround-toggle', 'click', () => {
-    const current = getState<boolean>('audio.isSurroundMode');
+    const current = getState('audio.isSurroundMode');
     bus.emit('audio:toggle-surround', !current);
 
     // Toggle UI grid visibility

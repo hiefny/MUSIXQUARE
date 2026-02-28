@@ -31,7 +31,7 @@ function refreshThemeCache(): void {
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function getAnalyser(): unknown {
-  return getState<unknown>('audio.analyser');
+  return getState('audio.analyser');
 }
 
 // ─── Start Active Visualizer ─────────────────────────────────────
@@ -100,7 +100,7 @@ export function startVisualizer(): void {
   refreshThemeCache();
 
   function draw(): void {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
     if (!isToneAnalyser) { _animationId = null; return; }
     _animationId = requestAnimationFrame(draw);
@@ -226,7 +226,7 @@ export function initVisualizer(): void {
     _vizResizeTimer = setTimeout(() => {
       const wrapper = document.querySelector('.vinyl-wrapper');
       if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
-      const currentState = getState<string>('appState');
+      const currentState = getState('appState');
       if (isIdleOrPaused(currentState)) {
         drawIdleVisualizer();
       } else {
@@ -237,14 +237,14 @@ export function initVisualizer(): void {
 
   // Listen for check events from tab switch
   bus.on('ui:visualizer-check', () => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) drawIdleVisualizer();
     else startVisualizer();
   });
 
   // Listen for playback state changes
   bus.on('player:state-changed', () => {
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) drawIdleVisualizer();
     else startVisualizer();
   });

@@ -104,11 +104,11 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   }
 
   // Relay Architecture (only applies to guests with a host connection)
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) return;
 
   // 1. RELAY DOWNSTREAM (Control commands from Upstream → Downstream)
-  const downstreamDataPeers = getState<DataConnection[]>('relay.downstreamDataPeers');
+  const downstreamDataPeers = getState('relay.downstreamDataPeers');
   if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.includes(msgType)) {
     downstreamDataPeers.forEach(p => {
       // Prevent infinite loop: do not relay back to sender
@@ -135,7 +135,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
  */
 export function verifyOperator(conn: DataConnection): boolean {
   if (!conn?.peer) return false;
-  const connectedPeers = getState<Array<Record<string, unknown>>>('network.connectedPeers');
+  const connectedPeers = getState('network.connectedPeers');
   const peer = connectedPeers.find(p => p.id === conn.peer);
   return !!(peer && peer.isOp);
 }

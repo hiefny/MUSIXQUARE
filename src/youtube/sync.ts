@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 import { getYouTubePlayer } from './player.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
@@ -20,7 +20,7 @@ import { fetchPlaylistSubTitles } from './search.ts';
 
 export function broadcastYouTubeSync(): void {
   const player = getYouTubePlayer();
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
 
   try {
@@ -30,13 +30,13 @@ export function broadcastYouTubeSync(): void {
     // Sub-index tracking for playlists
     if (player.getPlaylistIndex) {
       const sIdx = player.getPlaylistIndex();
-      const currentYouTubeSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+      const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
 
       if (sIdx !== currentYouTubeSubIndex) {
         setState('youtube.currentSubIndex', sIdx);
 
-        const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-        const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+        const playlist = getState('playlist.items') || [];
+        const currentTrackIndex = getState('playlist.currentTrackIndex');
         const currentItem = playlist[currentTrackIndex];
 
         if (currentItem?.playlistId) {
@@ -47,7 +47,7 @@ export function broadcastYouTubeSync(): void {
             try {
               const ids = player.getPlaylist();
               if (ids?.length > 0) {
-                const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+                const subMap = getState('youtube.subItemsMap') || {};
                 if (!subMap[pid] || !subMap[pid].ids?.length) {
                   subMap[pid] = { ids, titles: subMap[pid]?.titles || [] };
                   setState('youtube.subItemsMap', { ...subMap });
@@ -60,7 +60,7 @@ export function broadcastYouTubeSync(): void {
           if (player.getVideoData) {
             const vData = player.getVideoData();
             if (vData?.title) {
-              const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+              const subMap = getState('youtube.subItemsMap') || {};
               if (!subMap[pid]) subMap[pid] = { ids: [], titles: [] };
               if (subMap[pid].titles[sIdx] !== vData.title) {
                 subMap[pid].titles[sIdx] = vData.title;
@@ -85,7 +85,7 @@ export function broadcastYouTubeSync(): void {
       type: MSG.YOUTUBE_SYNC,
       time: currentTime,
       state,
-      subIndex: getState<number>('youtube.currentSubIndex') ?? -1,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
     });
   } catch {
     // Player not ready
@@ -109,7 +109,7 @@ export function resetAdDetection(): void {
 
 function handleYouTubeSync(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
   try {
@@ -151,7 +151,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     }
 
     // Sub-index change
-    const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+    const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
       setState('youtube.currentSubIndex', hostSubIndex);
@@ -164,14 +164,14 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
 
       bus.emit('ui:update-playlist');
-      const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-      const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+      const playlist = getState('playlist.items') || [];
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
       bus.emit('player:metadata-update', playlist[currentTrackIndex]);
     }
 
     // Drift correction
-    const localOffset = getState<number>('sync.localOffset') || 0;
-    const autoSyncOffset = getState<number>('sync.autoSyncOffset') || 0;
+    const localOffset = getState('sync.localOffset') || 0;
+    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
     const compensatedTime = hostTime + autoSyncOffset + localOffset;
 
     const currentTime = player.getCurrentTime();
@@ -197,7 +197,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
 function handleYouTubeState(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   // Skip state sync while host is likely watching an ad
@@ -240,17 +240,17 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
 
   if (!playlistId || subIdx === undefined || !title) return;
 
-  const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+  const subMap = getState('youtube.subItemsMap') || {};
   if (!subMap[playlistId]) subMap[playlistId] = { ids: [], titles: [] };
   subMap[playlistId].titles[subIdx] = title;
   setState('youtube.subItemsMap', { ...subMap });
 
   bus.emit('ui:update-playlist');
 
-  const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-  const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+  const playlist = getState('playlist.items') || [];
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const currentItem = playlist[currentTrackIndex];
-  const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+  const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
     bus.emit('player:metadata-update', currentItem);
   }
@@ -270,7 +270,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   if (!playlistId) return;
 
-  const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+  const subMap = getState('youtube.subItemsMap') || {};
   subMap[playlistId] = { ids: ids || [], titles: titles || [] };
   setState('youtube.subItemsMap', { ...subMap });
   bus.emit('ui:update-playlist');
@@ -286,7 +286,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 function handleYouTubeStop(): void {
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-mode');
   }

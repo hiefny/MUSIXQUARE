@@ -100,7 +100,7 @@ function initKeyboardShortcuts(): void {
     );
     if ((e.key === ' ' || e.code === 'Space') && interactive) return;
 
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
                       currentState === APP_STATE.PLAYING_VIDEO ||
                       currentState === APP_STATE.PLAYING_YOUTUBE;

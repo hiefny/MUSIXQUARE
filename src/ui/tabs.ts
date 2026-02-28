@@ -29,7 +29,7 @@ export function switchTab(tabId: string): void {
 
     if (tabId === 'play') {
       setTimeout(() => {
-        const currentState = getState<string>('appState');
+        const currentState = getState('appState');
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
           bus.emit('youtube:refresh-display');
         }

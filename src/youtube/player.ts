@@ -121,7 +121,7 @@ function initYouTubePlayer(
   autoplay = true,
   subIndex = 0,
 ): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
     return;
@@ -181,7 +181,7 @@ function initYouTubePlayer(
 function onYouTubePlayerReady(): void {
   log.debug('[YouTube] Player ready');
 
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
@@ -193,7 +193,7 @@ function onYouTubePlayerReady(): void {
 
   // Only Host runs sync loop
   clearManagedTimer('youtubeSyncLoop');
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     setManagedTimer('youtubeSyncLoop', () => {
       bus.emit('youtube:broadcast-sync');
@@ -205,7 +205,7 @@ function onYouTubePlayerReady(): void {
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   const state = event.data;
@@ -220,7 +220,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     bus.emit('player:state-changed', APP_STATE.IDLE);
     clearManagedTimer('youtubeUILoop');
 
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
@@ -228,7 +228,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   }
 
   // Host broadcasts state to guests
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (!hostConn && _youtubePlayer?.getCurrentTime) {
     broadcast({
       type: MSG.YOUTUBE_STATE,
@@ -250,7 +250,7 @@ let _cachedYtDuration = 0;
 let _cachedYtPlaylistIdx = -1;
 
 function updateYouTubeUI(): void {
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!_youtubePlayer || currentState !== APP_STATE.PLAYING_YOUTUBE || !_youtubePlayer.getCurrentTime) return;
 
   try {
@@ -330,7 +330,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
 
 function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   log.debug('[YouTube] Refreshing display to prevent black screen...');
@@ -357,7 +357,7 @@ export function stopYouTubeMode(): void {
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
   //  which would kill the guest's YouTube player right after YOUTUBE_PLAY)
-  const currentState = getState<string>('appState');
+  const currentState = getState('appState');
   const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
 
   if (wasInYouTube) {
@@ -403,7 +403,7 @@ export function stopYouTubeMode(): void {
 
   // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
   if (wasInYouTube) {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       broadcast({ type: MSG.YOUTUBE_STOP });
     }
@@ -435,7 +435,7 @@ function handleYouTubePlay(data: Record<string, unknown>): void {
 }
 
 function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host
 
   if (!verifyOperator(conn)) {
@@ -454,7 +454,7 @@ function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConn
 }
 
 function handleRequestYouTubePause(_data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -473,7 +473,7 @@ function handleRequestYouTubePause(_data: Record<string, unknown>, conn: DataCon
 }
 
 function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
   if (!verifyOperator(conn)) {
@@ -492,13 +492,13 @@ function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataCo
  * Sends cached IDs and titles from subItemsMap.
  */
 function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
-  const hostConn = getState<DataConnection | null>('network.hostConn');
+  const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host handles this
 
   const pid = data.playlistId as string;
   if (!pid || !conn) return;
 
-  const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+  const subMap = getState('youtube.subItemsMap') || {};
   if (subMap[pid]) {
     safeSend(conn, {
       type: MSG.YOUTUBE_PLAYLIST_INFO,
@@ -528,8 +528,8 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:toggle-play', () => {
-    const hostConn = getState<DataConnection | null>('network.hostConn');
-    const isOperator = getState<boolean>('network.isOperator');
+    const hostConn = getState('network.hostConn');
+    const isOperator = getState('network.isOperator');
 
     if (hostConn && isOperator) {
       // OP requests
@@ -611,7 +611,7 @@ export function initYouTube(): void {
     if (!_youtubePlayer?.seekTo || !Number.isFinite(seconds)) return;
     try {
       _youtubePlayer.seekTo(seconds, true);
-      const hostConn = getState<DataConnection | null>('network.hostConn');
+      const hostConn = getState('network.hostConn');
       if (!hostConn) {
         broadcast({
           type: MSG.YOUTUBE_STATE,
@@ -699,7 +699,7 @@ export function initYouTube(): void {
     if (playBtn) playBtn.disabled = true;
 
     // Add YouTube entry to playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = getState('playlist.items') || [];
 
     // Get title from preview UI or use URL
     const previewTitle = document.getElementById('youtube-preview-title');
@@ -721,7 +721,7 @@ export function initYouTube(): void {
     bus.emit('player:metadata-update', newTrack);
 
     // Broadcast playlist update + YouTube command to peers
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (!hostConn) {
       const metaList = playlist.map(item => ({
         type: item.type,
@@ -745,7 +745,7 @@ export function initYouTube(): void {
     // Fetch title in background and update
     fetchOEmbedTitle(url).then(title => {
       if (!title) return;
-      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      const currentPlaylist = getState('playlist.items') || [];
       if (currentPlaylist[newIndex]) {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: title, title: title };
@@ -808,8 +808,8 @@ export function initYouTube(): void {
     let ids: string[] = [];
 
     // 1. Try to get IDs from current player if it matches the requested playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     const currentItem = playlist[currentTrackIndex];
 
     if (_youtubePlayer?.getPlaylist && currentItem?.playlistId === playlistId) {
@@ -819,7 +819,7 @@ export function initYouTube(): void {
     }
 
     // 2. Initial map setup
-    const subMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+    const subMap = getState('youtube.subItemsMap') || {};
     if (ids.length > 0) {
       if (!subMap[playlistId]) {
         subMap[playlistId] = { ids, titles: [] };
@@ -830,13 +830,13 @@ export function initYouTube(): void {
     }
 
     // 3. Trigger background title fetcher (All roles)
-    const currentSubMap = getState<Record<string, { ids: string[]; titles: string[] }>>('youtube.subItemsMap') || {};
+    const currentSubMap = getState('youtube.subItemsMap') || {};
     if (currentSubMap[playlistId]?.ids?.length > 0) {
       fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids);
     }
 
     // 4. Guest: Request info from Host if sub-item data is missing
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) {
       if (!currentSubMap[playlistId] || !currentSubMap[playlistId].ids || currentSubMap[playlistId].ids.length === 0) {
         sendToHost({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
@@ -851,7 +851,7 @@ export function initYouTube(): void {
     if (!url) return;
 
     // Host-only guard
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) {
       bus.emit('ui:show-toast', '방장만 유튜브 링크를 추가할 수 있어요.');
       return;
@@ -868,7 +868,7 @@ export function initYouTube(): void {
     bus.emit('ui:close-chat-drawer');
 
     // Add YouTube entry to playlist
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
+    const playlist = getState('playlist.items') || [];
     const newTrack: PlaylistItem = {
       type: 'youtube',
       name: url,
@@ -905,7 +905,7 @@ export function initYouTube(): void {
     // Fetch title in background
     fetchOEmbedTitle(url).then(title => {
       if (!title) return;
-      const currentPlaylist = getState<PlaylistItem[]>('playlist.items') || [];
+      const currentPlaylist = getState('playlist.items') || [];
       if (currentPlaylist[newIndex]) {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: title, title: title };
@@ -921,14 +921,14 @@ export function initYouTube(): void {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
-    const hostConn = getState<DataConnection | null>('network.hostConn');
+    const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState<string>('appState');
+    const currentState = getState('appState');
     if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-    const playlist = getState<PlaylistItem[]>('playlist.items') || [];
-    const currentTrackIndex = getState<number>('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
     const item = playlist[currentTrackIndex];
 
     if (!item || item.type !== 'youtube') return;
@@ -943,7 +943,7 @@ export function initYouTube(): void {
       } catch { /* best-effort */ }
 
       const autoplay = (ytState === 1);
-      const currentSubIndex = getState<number>('youtube.currentSubIndex') ?? -1;
+      const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       const subIdx = (currentSubIndex >= 0) ? currentSubIndex : 0;
 
       // Send YouTube play command so guest enters YouTube mode

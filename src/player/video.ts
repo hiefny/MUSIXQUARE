@@ -73,7 +73,7 @@ export function setEngineMode(mode: string): void {
       targetState = APP_STATE.IDLE;
   }
 
-  const currentState = getState<AppStateValue>('appState');
+  const currentState = getState('appState');
   const newState: AppStateValue = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
 
   // For YouTube, always set the target state so body class is applied
@@ -100,8 +100,8 @@ function updateBodyModeClass(appState: string): void {
   body.classList.remove('mode-video', 'mode-youtube', 'mode-audio');
 
   const videoElement = _videoElement;
-  const currentFileBlob = getState<Blob | null>('files.currentFileBlob');
-  const meta = getState<Record<string, unknown>>('transfer.meta');
+  const currentFileBlob = getState('files.currentFileBlob');
+  const meta = getState('transfer.meta');
 
   // UX: When a local *video* is paused we still want to keep the paused frame
   // visible (instead of collapsing back to the visualizer).

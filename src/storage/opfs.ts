@@ -173,7 +173,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         // the transfer is stuck forever (no watchdog, no OPFS_FILE_READY).
         // Reset state so the UI doesn't stay on "수신 중... 100%".
         if (data.command === 'OPFS_END') {
-          const transferState = getState<string>('transfer.state');
+          const transferState = getState('transfer.state');
           if (transferState === TRANSFER_STATE.PROCESSING) {
             log.warn('[OPFS] OPFS_END dropped — resetting stuck PROCESSING state');
             setState('transfer.state', TRANSFER_STATE.READY);

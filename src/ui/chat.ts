@@ -13,6 +13,7 @@ import { MSG } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
+import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -35,7 +36,7 @@ function _getChatLabelBase(): string {
   const myDeviceLabel = getState('network.myDeviceLabel') || '';
   const label = myDeviceLabel.trim();
 
-  if (!label || label === 'HOST' || label === 'Guest' || label === '참가자') return PEER_NAME_PREFIX;
+  if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest')) return PEER_NAME_PREFIX;
 
   const role0 = getRoleLabelByChannelMode(0);
   const roleL = getRoleLabelByChannelMode(-1);
@@ -86,7 +87,7 @@ function parseMessageContent(text: string): string {
       const uniqueId = 'yt-' + Math.random().toString(36).substr(2, 9);
 
       result += `
-        <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="YouTube 링크 열기" aria-describedby="${uniqueId}">
+        <button type="button" class="chat-youtube-btn" data-youtube-url="${escapeAttr(cleanUrl)}" aria-label="${escapeAttr(t('youtube.open_link'))}" aria-describedby="${uniqueId}">
           <div class="chat-yt-play-row">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
             YouTube

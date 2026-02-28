@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { escapeHtml } from './dom.ts';
 import { updateTitleWithMarquee } from './dom.ts';
+import { t } from '../i18n/index.ts';
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ export function updatePlaylistUI(): void {
 
   ul.innerHTML = '';
   if (playlist.length === 0) {
-    ul.innerHTML = '<li class="list-empty-state">미디어를 추가해주세요.</li>';
+    ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t('playlist.empty_hint'))}</li>`;
     return;
   }
 
@@ -60,7 +61,7 @@ export function updatePlaylistUI(): void {
     let expandBtn = '';
     if (item.playlistId) {
       expandBtn = `
-        <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="플레이리스트 펼치기/접기">
+        <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="${escapeHtml(t('playlist.toggle'))}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
         </button>
       `;
@@ -137,7 +138,7 @@ export function updatePlaylistUI(): void {
           subUl.appendChild(sli);
         });
       } else {
-        subUl.innerHTML = '<li class="sub-track-item loading">재생 정보 대기 중...</li>';
+        subUl.innerHTML = `<li class="sub-track-item loading">${escapeHtml(t('playlist.loading_info'))}</li>`;
       }
       ul.appendChild(subUl);
     }

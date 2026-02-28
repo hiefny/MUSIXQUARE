@@ -7,7 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { showToast } from './toast.ts';
-import { i18nTranslate } from './i18n.ts';
+import { t } from '../i18n/index.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -81,16 +81,16 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const closeBtn = document.getElementById('btn-dialog-close') as HTMLButtonElement | null;
 
   if (!overlay || !titleEl || !msgEl || !okBtn || !closeBtn) {
-    showToast(typeof opts === 'string' ? opts : (opts?.message || '안내'));
+    showToast(typeof opts === 'string' ? opts : (opts?.message || t('common.info')));
     resolve({ action: 'fallback' });
     setTimeout(drainDialogQueue, 0);
     return;
   }
 
   const o = (typeof opts === 'object' && opts) ? opts : { message: String(opts ?? '') };
-  const title = (typeof opts === 'string') ? '안내' : (o.title || '안내');
+  const title = (typeof opts === 'string') ? t('common.info') : (o.title || t('common.info'));
   const message = (typeof opts === 'string') ? String(opts ?? '') : String(o.message || '');
-  const buttonText = o.buttonText ? String(o.buttonText) : '확인';
+  const buttonText = o.buttonText ? String(o.buttonText) : t('common.ok');
   const secondaryTextRaw = (o.secondaryText !== undefined && o.secondaryText !== null)
     ? o.secondaryText
     : ((o.cancelText !== undefined && o.cancelText !== null) ? o.cancelText : '');
@@ -101,13 +101,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     ? String(o.defaultFocus)
     : (hasSecondary ? 'secondary' : 'primary');
 
-  titleEl.textContent = i18nTranslate(title) ?? '';
-  msgEl.textContent = i18nTranslate(message) ?? '';
-  okBtn.textContent = i18nTranslate(buttonText) ?? '';
+  titleEl.textContent = title;
+  msgEl.textContent = message;
+  okBtn.textContent = buttonText;
 
   if (secondaryBtn) {
     if (hasSecondary) {
-      secondaryBtn.textContent = i18nTranslate(secondaryText) ?? '';
+      secondaryBtn.textContent = secondaryText;
       secondaryBtn.style.display = '';
     } else {
       secondaryBtn.style.display = 'none';

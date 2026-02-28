@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -46,13 +47,13 @@ export function handleMainSyncBtn(): void {
   if (!hostConn) {
     // Host: Broadcast resync request to all guests
     broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-    bus.emit('ui:show-toast', '모든 기기 재동기화 요청...');
+    bus.emit('ui:show-toast', t('toast.resync_all'));
   } else {
     // Guest: Perform multi-sample auto-sync
     setState('sync.localOffset', 0);
     setState('sync.autoSyncOffset', 0);
     bus.emit('sync:display-update');
-    bus.emit('ui:show-toast', '최적 싱크 보정 적용 중...');
+    bus.emit('ui:show-toast', t('toast.optimal_sync'));
     startMultiSampleSync();
   }
 }
@@ -294,7 +295,7 @@ function handleSyncResponse(data: Record<string, unknown>): void {
 }
 
 function handleGlobalResyncRequest(): void {
-  bus.emit('ui:show-toast', 'Host 요청: 싱크 초기화 및 재설정...');
+  bus.emit('ui:show-toast', t('toast.host_reset_sync'));
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
   setTimeout(() => startMultiSampleSync(), 500 + Math.random() * 500);

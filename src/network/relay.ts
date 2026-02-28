@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
@@ -205,7 +206,7 @@ export function connectToRelay(targetId: string): void {
   _relayConnTimer = setTimeout(() => {
     if (!conn.open) {
       log.warn('[Relay] Connect Timeout');
-      bus.emit('ui:show-toast', 'Relay 연결 시간초과');
+      bus.emit('ui:show-toast', t('network.relay_timeout'));
       conn.close();
       setState('relay.upstreamDataConn', null);
 
@@ -227,7 +228,7 @@ export function connectToRelay(targetId: string): void {
     if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
     setState('relay.upstreamDataConn', conn);
     log.info('[Relay] Connected to upstream relay');
-    bus.emit('ui:show-toast', 'Relay 연결됨');
+    bus.emit('ui:show-toast', t('network.relay_connected'));
 
     conn.on('data', (data: unknown) => {
       bus.emit('network:data', data, conn);
@@ -252,7 +253,7 @@ export function connectToRelay(targetId: string): void {
     if (currentUpstream && currentUpstream !== conn) return;
 
     setState('relay.upstreamDataConn', null);
-    bus.emit('ui:show-toast', 'Relay 연결 해제');
+    bus.emit('ui:show-toast', t('network.relay_disconnected'));
 
     const meta = getState('transfer.meta');
     const receivedCount = getState('transfer.receivedCount');

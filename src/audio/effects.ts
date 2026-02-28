@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
@@ -519,7 +520,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       return;
   }
   applySettings();
-  bus.emit('ui:show-toast', `리버브 타입: ${type}`);
+  bus.emit('ui:show-toast', t('toast.reverb_type', { type }));
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>): void {

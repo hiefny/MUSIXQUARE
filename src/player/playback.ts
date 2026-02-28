@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
@@ -219,7 +220,7 @@ async function _internalPlay(offset: number): Promise<void> {
 
   if (typeof Tone === 'undefined' || !Tone?.context) {
     log.error('[Audio] Tone.js not loaded');
-    bus.emit('ui:show-toast', '오디오 엔진이 아직 준비되지 않았어요.');
+    bus.emit('ui:show-toast', t('error.audio_engine_not_ready'));
     return;
   }
 
@@ -240,7 +241,7 @@ async function _internalPlay(offset: number): Promise<void> {
     await initAudio();
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
-    bus.emit('ui:show-toast', '오디오 엔진을 준비하지 못했어요');
+    bus.emit('ui:show-toast', t('error.audio_engine_prepare'));
     return;
   }
 
@@ -341,7 +342,7 @@ export function pause(forcedTime?: number): void {
   setState('player.pausedAt', pausePos);
   bus.emit('player:state-changed', APP_STATE.PAUSED);
   updatePlayState(false);
-  bus.emit('ui:show-toast', '일시정지');
+  bus.emit('ui:show-toast', t('common.pause'));
   bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
 }
 
@@ -392,7 +393,7 @@ export function togglePlay(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -411,7 +412,7 @@ export function togglePlay(): void {
   // Cancel pending auto-play (with user feedback)
   if (!hostConn && getManagedTimer('autoPlayTimer')) {
     clearManagedTimer('autoPlayTimer');
-    bus.emit('ui:show-toast', '자동 재생을 취소했어요');
+    bus.emit('ui:show-toast', t('toast.auto_play_canceled'));
   }
 
   if (isActuallyPlaying) {
@@ -439,14 +440,14 @@ export function stopPlayback(): void {
   const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
   if (hostConn && isOperator) {
     try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch { /* noop */ }
     try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch { /* noop */ }
-    bus.emit('ui:show-toast', '정지 요청을 보냈어요');
+    bus.emit('ui:show-toast', t('toast.stop_sent'));
     return;
   }
 
@@ -462,7 +463,7 @@ export function stopPlayback(): void {
   bus.emit('ui:seek-reset');
 
   if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0 });
-  bus.emit('ui:show-toast', '정지');
+  bus.emit('ui:show-toast', t('common.stop'));
 }
 
 // ─── Skip Time ─────────────────────────────────────────────────────
@@ -472,7 +473,7 @@ export function skipTime(sec: number): void {
   const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -563,7 +564,7 @@ export async function loadAndBroadcastFile(
   const myLoadId = _activeLoadSessionId;
   const myToken = loadToken ?? _currentLoadToken;
 
-  bus.emit('ui:show-loader', true, `준비 중: ${file.name}`);
+  bus.emit('ui:show-loader', true, t('toast.preparing', { name: file.name }));
   stopAllMedia();
 
   try {
@@ -574,7 +575,7 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', file);
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
-    bus.emit('ui:show-toast', '고정밀 동기화: 오디오를 준비하고 있어요…');
+    bus.emit('ui:show-toast', t('toast.hprecision_sync'));
 
     // Decode audio
     const arrayBuffer = await file.arrayBuffer();
@@ -642,7 +643,7 @@ export async function loadAndBroadcastFile(
     // Broadcast file to peers
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId) {
-      bus.emit('ui:show-toast', '파일을 보내고 있어요…');
+      bus.emit('ui:show-toast', t('transfer.file_sending'));
       broadcastFile(file, sessionId);
     }
 
@@ -700,7 +701,7 @@ export async function loadPreloadedTrack(
     }
 
     log.debug('[Preload] Decoding audio for Buffer Mode...');
-    bus.emit('ui:show-toast', '오디오 디코딩 중...');
+    bus.emit('ui:show-toast', t('error.audio_decoding'));
 
     const arrayBuffer = await localBlob.arrayBuffer();
     const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
@@ -779,7 +780,7 @@ export async function loadPreloadedTrack(
   } catch (e: unknown) {
     _playPreloadedInProgress = false;
     log.error('[Preload] Activation failed:', e);
-    bus.emit('ui:show-toast', '프리로드 재생 실패 - 다시 로드합니다');
+    bus.emit('ui:show-toast', t('transfer.preload_fail'));
 
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -834,7 +835,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       const name = playlist[incomingIndex]?.name || '';
       bus.emit('player:metadata-update', {
         type: 'file',
-        title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+        title: t('toast.same_wifi_file_title'),
         name,
       });
       bus.emit('ui:show-loader', false);
@@ -866,7 +867,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       const playlist2 = getState('playlist.items') || [];
       bus.emit('player:metadata-update', {
         type: 'file',
-        title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+        title: t('toast.same_wifi_file_title'),
         name: playlist2[currentTrackIndex]?.name || '',
       });
       bus.emit('ui:show-loader', false);
@@ -962,9 +963,9 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 }
 
 function handleForceSyncPlay(data: Record<string, unknown>): void {
-  const t = Number(data.time) || 0;
-  bus.emit('ui:show-toast', `Host 강제 동기화: ${fmtTime(t)}`);
-  play(t);
+  const syncTime = Number(data.time) || 0;
+  bus.emit('ui:show-toast', t('toast.host_force_sync', { time: fmtTime(syncTime) }));
+  play(syncTime);
 }
 
 // ─── Status Sync (Late Joiner / Reconnect Full State Sync) ─────────
@@ -1047,14 +1048,14 @@ async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
         if (isRemoteGuest()) {
           bus.emit('player:metadata-update', {
             type: 'file',
-            title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+            title: t('toast.same_wifi_file_title'),
             name: item.name,
           });
           bus.emit('ui:show-loader', false);
           return;
         }
         log.debug('[StatusSync] Current track missing, requesting from host:', item.name);
-        bus.emit('ui:show-loader', true, `파일 동기화 중: ${item.name}`);
+        bus.emit('ui:show-loader', true, t('toast.syncing_file', { name: item.name }));
 
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
           bus.emit('youtube:stop-mode');
@@ -1166,7 +1167,7 @@ function clearPreviousTrackState(reason = ''): void {
 
 async function finalizeGuestFile(file: File | Blob): Promise<void> {
   log.debug('[Guest] Finalizing with Buffer Mode...');
-  bus.emit('ui:show-loader', true, '오디오 메모리 로드 중...');
+  bus.emit('ui:show-loader', true, t('error.audio_memory'));
 
   try {
     await initAudio();
@@ -1238,7 +1239,7 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Guest] Decoding failed', err);
-    bus.emit('ui:show-toast', '오디오 디코딩 실패! 다시 요청합니다.');
+    bus.emit('ui:show-toast', t('error.audio_decode_fail'));
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
@@ -1304,8 +1305,8 @@ export function initPlayback(): void {
       setState('player.pausedAt', compensatedTime);
     }
 
-    const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms 보정)` : '';
-    bus.emit('ui:show-toast', `동기화 완료${rttLabel}`);
+    const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
+    bus.emit('ui:show-toast', `${t('toast.sync_done')}${rttLabel}`);
   });
 
   // Sync: apply nudge offset by re-seeking
@@ -1376,7 +1377,7 @@ export function initPlayback(): void {
 
   // Transfer progress (update loader UI)
   bus.on('storage:transfer-progress', (progress, _total) => {
-    bus.emit('ui:show-loader', true, `수신 중... ${progress}%`);
+    bus.emit('ui:show-loader', true, t('toast.receiving_pct', { pct: String(progress) }));
     bus.emit('ui:update-loader', progress);
   });
 

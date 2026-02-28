@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -52,7 +53,7 @@ export function loadYouTubeVideo(
   bus.emit('player:stop-all-media');
   setEngineMode('youtube');
 
-  bus.emit('ui:show-toast', 'YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다');
+  bus.emit('ui:show-toast', t('youtube.effects_disabled'));
 
   const wrapper = document.querySelector('.video-wrapper');
   if (!wrapper) {
@@ -82,7 +83,7 @@ export function loadYouTubeVideo(
       tag.onerror = () => {
         log.error('[YouTube] Failed to load API script');
         _ytScriptLoading = false;
-        bus.emit('ui:show-toast', 'YouTube API 로드 실패. 인터넷 연결 확인!');
+        bus.emit('ui:show-toast', t('youtube.load_fail'));
       };
       document.head.appendChild(tag);
     }
@@ -100,7 +101,7 @@ export function loadYouTubeVideo(
     if (_currentYouTubeSessionId === currentSessionId && !_youtubePlayer) {
       log.warn('[YouTube] Load timeout triggered.');
       bus.emit('ui:show-loader', false);
-      bus.emit('ui:show-toast', 'YouTube 로드 시간 초과. 다시 시도해주세요.');
+      bus.emit('ui:show-toast', t('youtube.load_timeout'));
     }
   }, 15000);
 
@@ -675,7 +676,7 @@ export function initYouTube(): void {
     if (!input) return;
     const url = input.value.trim();
     if (!url) {
-      bus.emit('ui:show-toast', 'YouTube 링크를 입력하세요');
+      bus.emit('ui:show-toast', t('youtube.enter_link_toast'));
       return;
     }
 
@@ -683,7 +684,7 @@ export function initYouTube(): void {
     const playlistId = extractYouTubePlaylistId(url);
 
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', '유효한 YouTube 링크가 아닙니다');
+      bus.emit('ui:show-toast', t('youtube.not_valid_link'));
       return;
     }
 
@@ -694,7 +695,7 @@ export function initYouTube(): void {
     const previewEl = document.getElementById('youtube-preview');
     if (previewEl) previewEl.style.display = 'none';
     const statusEl = document.getElementById('youtube-preview-status');
-    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '링크를 입력하면 미리보기가 표시됩니다'; }
+    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = t('youtube.enter_link_prompt'); }
     const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtn) playBtn.disabled = true;
 
@@ -853,14 +854,14 @@ export function initYouTube(): void {
     // Host-only guard
     const hostConn = getState('network.hostConn');
     if (hostConn) {
-      bus.emit('ui:show-toast', '방장만 유튜브 링크를 추가할 수 있어요.');
+      bus.emit('ui:show-toast', t('toast.host_only_youtube'));
       return;
     }
 
     const videoId = extractYouTubeVideoId(url);
     const playlistId = extractYouTubePlaylistId(url);
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', '유효하지 않은 YouTube 링크');
+      bus.emit('ui:show-toast', t('youtube.invalid_link'));
       return;
     }
 

@@ -11,6 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
+import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 import { showLoader, updateLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
@@ -24,23 +25,23 @@ import { requestGlobalResyncDelayed } from '../network/sync.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
-const STANDARD_ROLE_MAP: Record<string, { label: string; placementToast: string }> = {
-  '0': { label: 'Original', placementToast: '기기를 중앙에 놓아주세요' },
-  '-1': { label: 'Left', placementToast: '기기를 왼쪽에 놓아주세요' },
-  '1': { label: 'Right', placementToast: '기기를 오른쪽에 놓아주세요' },
-  '2': { label: 'Woofer', placementToast: '기기를 중앙에 놓아주세요' },
+const STANDARD_ROLE_MAP: Record<string, { label: string; placementToastKey: string }> = {
+  '0': { label: 'Original', placementToastKey: 'role.center_placement' },
+  '-1': { label: 'Left', placementToastKey: 'role.left_placement' },
+  '1': { label: 'Right', placementToastKey: 'role.right_placement' },
+  '2': { label: 'Woofer', placementToastKey: 'role.center_placement' },
 };
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return (STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).label;
 }
 
-export function getStandardRolePreset(mode: number): { label: string; placementToast: string } {
+export function getStandardRolePreset(mode: number): { label: string; placementToastKey: string } {
   return STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0'];
 }
 
 export function showPlacementToastForChannel(mode: number): void {
-  showToast(getStandardRolePreset(mode).placementToast);
+  showToast(t(getStandardRolePreset(mode).placementToastKey));
 }
 
 // ─── Volume ──────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ export function updateRoleBadge(): void {
 
   const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
-    text.innerText = '연결 중...';
+    text.innerText = t('network.connecting');
     return;
   }
 
@@ -176,13 +177,13 @@ async function copyInviteCode(): Promise<void> {
   const ok = await copyTextToClipboard(code);
   if (ok) {
     const cnt = getConnectedDeviceCount();
-    showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
+    showToast(t('toast.invite_code_info', { count: cnt, code }));
     document.querySelectorAll('.invite-code-value').forEach(el => {
       el.classList.add('copied');
       setTimeout(() => el.classList.remove('copied'), 1000);
     });
   } else {
-    showToast('복사하지 못했어요');
+    showToast(t('toast.copy_failed'));
   }
 }
 
@@ -191,7 +192,7 @@ async function copyInviteCode(): Promise<void> {
 function openMediaSourcePopup(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('방장만 미디어를 추가할 수 있어요.');
+    showToast(t('toast.host_only_media'));
     return;
   }
   animateTransition(() => {
@@ -216,7 +217,7 @@ function closeMediaSourcePopup(): void {
 function openYouTubePopup(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('방장만 유튜브 링크를 추가할 수 있어요.');
+    showToast(t('toast.host_only_youtube'));
     return;
   }
   animateTransition(() => {
@@ -245,13 +246,13 @@ function closeYouTubePopup(): void {
 function openFileSelector(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    showToast('Host만 실행할 수 있습니다.');
+    showToast(t('toast.host_only'));
     return;
   }
   const input = document.getElementById('file-input') as HTMLInputElement | null;
   if (!input) {
     log.warn('[UI] #file-input not found');
-    showToast('파일을 선택할 수 없어요');
+    showToast(t('toast.cant_select_file'));
     return;
   }
   input.click();
@@ -262,13 +263,13 @@ function openFileSelector(): void {
 function handleMainSyncBtn(): void {
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    showToast('YouTube 모드에서는 정밀 동기화를 지원하지 않아요');
+    showToast(t('youtube.no_precision_sync'));
     return;
   }
 
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    showToast('모든 기기 재동기화 요청...');
+    showToast(t('toast.resync_all'));
     bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });
   } else {
     bus.emit('sync:auto-sync');
@@ -296,10 +297,10 @@ async function handleLogoReturnToMain(): Promise<void> {
     const hasSession = !!(hostConn || appRole === 'host');
     if (hasSession) {
       const res = await showDialog({
-        title: '초기 화면',
-        message: '초기 화면으로 돌아갈까요?\n현재 세션과 연결이 끊어져요.',
-        buttonText: '확인',
-        secondaryText: '남아있기',
+        title: t('dialog.return_home_title'),
+        message: t('dialog.return_home_msg') + '\n' + t('dialog.return_home_detail'),
+        buttonText: t('common.ok'),
+        secondaryText: t('common.stay'),
         defaultFocus: 'secondary',
       });
       if (res.action !== 'ok') return;
@@ -443,15 +444,15 @@ export function initPlayerControls(): void {
       try { e?.preventDefault?.(); e?.stopPropagation?.(); } catch { /* ignore */ }
       const code = getInviteCode();
       if (!code || code === '------') {
-        showToast('초대 코드가 아직 없어요');
+        showToast(t('toast.no_invite_code'));
         return;
       }
       const ok = await copyTextToClipboard(code);
       if (ok) {
         const cnt = getConnectedDeviceCount();
-        showToast(`연결된 기기 ${cnt}대 | 초대 코드 ${code}`);
+        showToast(t('toast.invite_code_info', { count: cnt, code }));
       } else {
-        showToast(`초대 코드: ${code}`);
+        showToast(t('toast.invite_code', { code }));
       }
     };
     roleBadge.addEventListener('click', onShowCode);
@@ -560,19 +561,19 @@ export function initPlayerControls(): void {
   // OPFS error handler (prevent silent error swallowing)
   bus.on('opfs:error', (error, filename) => {
     log.error(`[OPFS] Error for ${filename}:`, error);
-    showToast(`파일 저장 오류: ${filename || 'unknown'}`);
+    showToast(t('toast.file_save_error', { name: filename || 'unknown' }));
   });
 
   bus.on('opfs:read-error', (data) => {
     const d = data as Record<string, unknown>;
     log.error('[OPFS] Read error:', d?.filename, d?.error);
-    showToast(`파일 읽기 오류: ${d?.filename || 'unknown'}`);
+    showToast(t('toast.file_read_error', { name: String(d?.filename || 'unknown') }));
   });
 
   bus.on('opfs:session-mismatch', (data) => {
     const d = data as Record<string, unknown>;
     log.warn('[OPFS] Session mismatch:', d?.filename);
-    showToast('세션 불일치 감지 — 파일 전송이 재시도됩니다.');
+    showToast(t('toast.session_mismatch'));
   });
 
   // ── Bus Event Bridge ──────────────────────────────────────────

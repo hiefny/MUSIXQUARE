@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -300,8 +301,8 @@ function prevObSlide(): void {
 
 function showRoleSelectionButtons(): void {
   setupRenderActions([
-    { id: 'btn-setup-host', text: '제가 방장할래요', kind: 'primary', onClick: startHostFlow },
-    { id: 'btn-setup-guest', text: '모임에 참여할래요', kind: 'secondary', onClick: startGuestFlow },
+    { id: 'btn-setup-host', text: t('setup.host_button'), kind: 'primary', onClick: startHostFlow },
+    { id: 'btn-setup-guest', text: t('setup.guest_button'), kind: 'secondary', onClick: startGuestFlow },
   ], 'vertical');
 }
 
@@ -347,10 +348,10 @@ function startHostFlow(): void {
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => initSetupOverlay() },
     {
-      id: 'btn-setup-next', text: '다음으로', kind: 'primary',
+      id: 'btn-setup-next', text: t('common.next'), kind: 'primary',
       onClick: () => {
         if (_pendingSetupRole !== null) proceedToHostCode(_pendingSetupRole);
-        else showToast('역할을 선택해주세요');
+        else showToast(t('setup.select_role'));
       },
     },
   ], 'horizontal-with-back');
@@ -378,7 +379,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-    { id: 'btn-setup-confirm', text: '잠시만요...', kind: 'secondary', disabled: true },
+    { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
   ], 'horizontal-with-back');
 
   try {
@@ -399,14 +400,14 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-      { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => startSessionFromHost() },
+      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => startSessionFromHost() },
     ], 'horizontal-with-back');
   } catch (e) {
     // User navigated away — ignore the error silently
     if (flowId !== _hostCodeFlowId) return;
 
     log.error('[Setup] Host session init failed', e);
-    showToast('세션을 만들지 못했어요');
+    showToast(t('error.session_create_fail'));
     startHostFlow();
   }
 }
@@ -417,7 +418,7 @@ function startSessionFromHost(): void {
 
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
-  showToast('초대 코드는 설정과 도움말에서 확인할 수 있어요');
+  showToast(t('toast.invite_code_settings'));
   updateRoleBadge();
 
   setTimeout(() => {
@@ -459,15 +460,15 @@ function startGuestFlow(): void {
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => initSetupOverlay() },
     {
-      id: 'btn-setup-next', text: '다음으로', kind: 'primary',
+      id: 'btn-setup-next', text: t('common.next'), kind: 'primary',
       onClick: () => {
         if (_pendingSetupRole !== null) proceedToGuestCode(_pendingSetupRole);
-        else showToast('역할을 선택해주세요');
+        else showToast(t('setup.select_role'));
       },
     },
   ], 'horizontal-with-back');
 
-  setState('network.myDeviceLabel', '참가자');
+  setState('network.myDeviceLabel', t('common.guest'));
   updateRoleBadge();
 }
 
@@ -480,7 +481,7 @@ function proceedToGuestCode(mode: number): void {
 
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
+    { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
   ], 'horizontal-with-back');
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -492,7 +493,7 @@ function proceedToGuestCode(mode: number): void {
 
 async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
   if (mode === null || mode === undefined) {
-    showToast('역할을 선택해 주세요');
+    showToast(t('setup.select_role_alt'));
     return;
   }
 
@@ -504,7 +505,7 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
   const code = codeRaw.replace(/\s+/g, '');
 
   if (!/^\d{6}$/.test(code)) {
-    showToast('6자리 코드를 입력해 주세요');
+    showToast(t('setup.six_digit_enter'));
     if (input) input.focus();
     return;
   }
@@ -526,7 +527,7 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
 
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: '참가하는 중...', kind: 'primary', disabled: true },
+    { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
   ], 'horizontal-with-back');
 
   joinSession(code);
@@ -674,11 +675,11 @@ export function initSetup(): void {
   bus.on('setup:guest-join-failure', (_error) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
-    showToast('참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.');
+    showToast(t('network.cant_join_wifi'));
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-      { id: 'btn-setup-confirm', text: '시작하기', kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
+      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
     ], 'horizontal-with-back');
 
     const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -700,23 +701,23 @@ export function initSetup(): void {
     const err = error as Record<string, unknown> | null;
     const msg = (err as Error | null)?.message || '';
     const peerType = (err && typeof err === 'object') ? String(err.type || '') : '';
-    let userMsg = '네트워크 오류가 발생했어요';
+    let userMsg = t('error.network_generic');
 
     // Our custom error messages
-    if (msg === 'HOST_UNREACHABLE') userMsg = '호스트에 연결할 수 없어요. 같은 Wi‑Fi에 있는지 확인해 보세요.';
-    else if (msg === 'HOST_DISCONNECTED') userMsg = '호스트와 연결이 끊어졌어요';
-    else if (msg === 'HOST_CONNECTION_ERROR') userMsg = '호스트 연결 중 오류가 발생했어요';
-    else if (msg === 'CONNECT_FAILED') userMsg = '연결에 실패했어요';
-    else if (msg === 'PEER_NOT_READY') userMsg = '피어 연결이 아직 준비되지 않았어요';
-    else if (msg === 'NETWORK_INIT_FAILED') userMsg = '네트워크 초기화에 실패했어요';
-    else if (msg === 'NO_HOST_ID') userMsg = '호스트 ID가 없어요';
+    if (msg === 'HOST_UNREACHABLE') userMsg = t('error.host_unreachable');
+    else if (msg === 'HOST_DISCONNECTED') userMsg = t('error.host_disconnected');
+    else if (msg === 'HOST_CONNECTION_ERROR') userMsg = t('error.host_conn_error');
+    else if (msg === 'CONNECT_FAILED') userMsg = t('error.connect_failed');
+    else if (msg === 'PEER_NOT_READY') userMsg = t('error.peer_not_ready');
+    else if (msg === 'NETWORK_INIT_FAILED') userMsg = t('error.network_init_failed');
+    else if (msg === 'NO_HOST_ID') userMsg = t('error.no_host_id');
     // PeerJS native error types
-    else if (peerType === 'peer-unavailable') userMsg = '상대방을 찾을 수 없어요. 코드를 다시 확인해 주세요.';
-    else if (peerType === 'network') userMsg = '네트워크 연결에 문제가 있어요. 인터넷 연결을 확인해 주세요.';
-    else if (peerType === 'server-error') userMsg = '시그널링 서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.';
-    else if (peerType === 'socket-error' || peerType === 'socket-closed') userMsg = '서버와의 연결이 끊어졌어요.';
-    else if (peerType === 'unavailable-id') userMsg = '세션 ID를 사용할 수 없어요. 다시 시도해 주세요.';
-    else if (peerType === 'webrtc') userMsg = 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.';
+    else if (peerType === 'peer-unavailable') userMsg = t('error.peer_unavailable');
+    else if (peerType === 'network') userMsg = t('error.network_issue');
+    else if (peerType === 'server-error') userMsg = t('error.signal_server_fail');
+    else if (peerType === 'socket-error' || peerType === 'socket-closed') userMsg = t('error.server_disconnected');
+    else if (peerType === 'unavailable-id') userMsg = t('error.session_id_unavailable');
+    else if (peerType === 'webrtc') userMsg = t('error.webrtc_failed');
 
     const isConnecting = getState('network.isConnecting');
     if (isConnecting) {
@@ -726,10 +727,10 @@ export function initSetup(): void {
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // Post-connection disconnect: show dialog + re-enable join
       showDialog({
-        title: '연결이 끊어졌어요',
-        message: `${userMsg}\n다시 연결하시겠어요?`,
-        buttonText: '다시 연결',
-        secondaryText: '돌아가기',
+        title: t('network.disconnected'),
+        message: `${userMsg}\n${t('dialog.reconnect_ask')}`,
+        buttonText: t('dialog.reconnect'),
+        secondaryText: t('dialog.go_back'),
       }).then(res => {
         if (res.action === 'ok') {
           // Pre-fill the join code and re-enable join flow
@@ -750,14 +751,14 @@ export function initSetup(): void {
 
   // Session full (guest rejected by full host)
   bus.on('network:session-full', (msg) => {
-    const message = (msg as string) || '세션이 가득 찼어요';
-    showDialog({ title: '참가할 수 없어요', message: String(message) });
+    const message = (msg as string) || t('network.session_full');
+    showDialog({ title: t('network.cant_join'), message: String(message) });
     startGuestFlow();
   });
 
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
-    showToast('호스트에서 연결이 종료되었습니다');
+    showToast(t('toast.host_ended_connection'));
     bus.emit('app:return-to-main');
   });
 

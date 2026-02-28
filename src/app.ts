@@ -54,7 +54,8 @@ import { initOverlayOpenObserver } from './ui/dom.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog } from './ui/dialog.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initI18n } from './ui/i18n.ts';
+import { initI18n } from './i18n/index.ts';
+import { t } from './i18n/index.ts';
 import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
@@ -70,13 +71,13 @@ import { registerServiceWorker } from './sw-register.ts';
 function checkSystemCompatibility(): void {
   // HTTPS check
   if (!window.isSecureContext) {
-    bus.emit('ui:show-toast', 'HTTPS 필수: 보안 연결에서만 작동합니다.');
+    bus.emit('ui:show-toast', t('error.https_required'));
     log.warn('[App] Not a secure context');
   }
 
   // OPFS support check
   if (!(navigator.storage && navigator.storage.getDirectory)) {
-    bus.emit('ui:show-toast', '브라우저를 업데이트해 주세요 (iOS 15.2+, Chrome 86+)');
+    bus.emit('ui:show-toast', t('error.browser_update'));
     log.warn('[App] OPFS not supported');
   }
 

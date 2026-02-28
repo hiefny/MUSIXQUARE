@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
@@ -308,7 +309,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   // Show loader only if main transfer is not in progress
   const transferState = getState('transfer.state');
   if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
-    bus.emit('ui:show-loader', true, `다음 곡 준비 중... (${data.name})`);
+    bus.emit('ui:show-loader', true, t('toast.preparing_next', { name: data.name as string }));
   }
 
   // Initialize session state
@@ -422,7 +423,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     const pct = Math.round((session.progress / session.total) * 100);
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
-      bus.emit('ui:show-loader', true, `다음 곡 준비 중... ${pct}%`);
+      bus.emit('ui:show-loader', true, t('toast.preparing_next_pct', { pct }));
       bus.emit('ui:update-loader', pct);
     }
   }
@@ -621,7 +622,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     // Preload in progress — retry after delay (up to 4 attempts = 2s total)
     log.debug(`[PlayPreloaded] Preload in progress. Retrying... (${retryAttempt + 1}/4)`);
     if (retryAttempt === 0) {
-      bus.emit('ui:show-loader', true, '다운로드 마무리 중...');
+      bus.emit('ui:show-loader', true, t('transfer.download_finishing'));
     }
     setTimeout(() => {
       handlePlayPreloaded({ ...data, retryAttempt: retryAttempt + 1 });
@@ -638,7 +639,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   setState('transfer.waitingForPreload', false);
   setState('recovery.pendingFileIndex', index);
   setState('recovery.pendingFileName', name);
-  bus.emit('ui:show-loader', true, '파일 요청 중...');
+  bus.emit('ui:show-loader', true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');
   const playlist = getState('playlist.items') || [];

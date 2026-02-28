@@ -14,6 +14,7 @@ import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DE
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
+import { t } from '../i18n/index.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
 import type { DataConnection, FileMeta, AnyProtocolMsg } from '../types/index.ts';
@@ -53,7 +54,7 @@ function startChunkWatchdog(): void {
 // ─── File Receive Handlers ──────────────────────────────────────────
 
 async function fetchDemoFromServer(index: number): Promise<void> {
-  bus.emit('ui:show-loader', true, '서버에서 데모 음원 로딩 중...');
+  bus.emit('ui:show-loader', true, t('transfer.demo_loading'));
   bus.emit('ui:update-loader', 0);
 
   try {
@@ -84,7 +85,7 @@ async function fetchDemoFromServer(index: number): Promise<void> {
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
-    bus.emit('ui:show-toast', '데모 로드 실패');
+    bus.emit('ui:show-toast', t('transfer.demo_load_fail'));
     bus.emit('ui:show-loader', false);
     // Fallback: allow normal P2P transfer
     setState('transfer.skipIncomingFile', false);
@@ -100,11 +101,11 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
   }
   bus.emit('player:metadata-update', {
     type: 'file',
-    title: '동일 Wi-Fi에서만 파일 재생이 가능해요',
+    title: t('toast.same_wifi_file_title'),
     name: (data.name as string) || '',
   });
   bus.emit('ui:show-loader', false);
-  bus.emit('ui:show-toast', '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!');
+  bus.emit('ui:show-toast', t('toast.same_wifi_only'));
   log.info('[Transfer] Remote guest — file transfer skipped');
 }
 
@@ -126,7 +127,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
-      bus.emit('ui:show-loader', true, '연결 유형 확인 중...');
+      bus.emit('ui:show-loader', true, t('transfer.check_conn_type'));
       const resolved = await waitForGuestConnectionType(3000);
       if (resolved === 'local') {
         log.info(`[Transfer] connectionType resolved: local — proceeding`);
@@ -180,7 +181,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
 
   if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
-    bus.emit('ui:show-toast', '프리로드된 파일 사용!');
+    bus.emit('ui:show-toast', t('transfer.preload_done'));
 
     // Stop old media right before loading preloaded track (minimizes audio gap)
     bus.emit('player:stop-all-media');
@@ -215,7 +216,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
       // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
-      bus.emit('ui:show-loader', true, `프리로드 완료 대기 중: ${data.name}`);
+      bus.emit('ui:show-loader', true, t('transfer.preload_pending', { name: data.name as string }));
 
       setState('recovery.pendingFileName', data.name as string || '');
       setState('recovery.pendingFileIndex', data.index as number);
@@ -261,7 +262,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
-    bus.emit('ui:show-loader', true, `복구 대기 중: ${data.name}`);
+    bus.emit('ui:show-loader', true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
@@ -285,7 +286,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
       bus.emit('youtube:stop-mode');
     }
 
-    bus.emit('ui:show-loader', true, `준비 중: ${data.name}`);
+    bus.emit('ui:show-loader', true, t('transfer.preparing_name', { name: data.name as string }));
   }
 
   // Prepare watchdog with jitter recovery
@@ -295,7 +296,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
     const rc = getState('transfer.receivedCount');
     if (transferState === TRANSFER_STATE.IDLE || rc === 0) {
       log.warn('[Prepare Watchdog] Timeout waiting for data start!');
-      bus.emit('ui:show-toast', '준비 지연 중... Host 복구 요청');
+      bus.emit('ui:show-toast', t('transfer.preparation_delayed'));
 
       const hostConn = getState('network.hostConn');
       if (hostConn && hostConn.open) {
@@ -400,7 +401,7 @@ function handleFileStart(data: Record<string, unknown>): void {
   const downstreamPeers = getState('relay.downstreamDataPeers');
   downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
-  bus.emit('ui:show-loader', true, `수신 중... 0%`);
+  bus.emit('ui:show-loader', true, t('transfer.receiving_0pct'));
 }
 
 function handleFileResume(data: Record<string, unknown>): void {
@@ -608,14 +609,14 @@ function handleFileEnd(data: Record<string, unknown>): void {
 
 function handleFileWait(): void {
   log.debug('[Guest] Relay has no data yet, waiting for forwarded data...');
-  bus.emit('ui:show-toast', '릴레이 대기 중... 잠시만 기다려주세요');
+  bus.emit('ui:show-toast', t('transfer.relay_wait'));
 
   clearManagedTimer('relayWaitTimeout');
   setManagedTimer('relayWaitTimeout', () => {
     const receivedCount = getState('transfer.receivedCount');
     if (receivedCount === 0) {
       log.debug('[Guest] Relay wait timeout - falling back to Host');
-      bus.emit('ui:show-toast', '릴레이 응답 없음. Host에서 직접 수신...');
+      bus.emit('ui:show-toast', t('transfer.relay_no_response'));
 
       // Disconnect from relay upstream
       const upstreamDataConn = getState('relay.upstreamDataConn');
@@ -644,7 +645,7 @@ function handleFileWait(): void {
         const preloadMeta = getState('preload.meta');
         if (preloadMeta && preloadMeta.index === recoveryIndex) {
           log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
-          bus.emit('ui:show-toast', '프리로드 완료 대기 중...');
+          bus.emit('ui:show-toast', t('transfer.preload_waiting'));
           return;
         }
 

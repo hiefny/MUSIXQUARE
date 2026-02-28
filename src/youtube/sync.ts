@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
@@ -124,7 +125,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           if (!_hostAdPauseActive) {
             _hostAdPauseActive = true;
             if (player.pauseVideo) player.pauseVideo();
-            bus.emit('ui:show-toast', '호스트가 광고를 보고 있는 것 같아요');
+            bus.emit('ui:show-toast', t('toast.host_ad'));
             log.debug('[YouTube Sync] Host ad detected — pausing guest');
           }
           _lastHostSyncTime = hostTime;

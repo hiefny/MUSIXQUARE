@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { setLanguageMode } from './i18n.ts';
+import { setLanguageMode } from '../i18n/index.ts';
 
 // ─── Theme ───────────────────────────────────────────────────────
 

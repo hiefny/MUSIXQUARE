@@ -6,6 +6,7 @@
  */
 
 import { log } from './core/log.ts';
+import { t } from './i18n/index.ts';
 import { showDialog } from './ui/dialog.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
@@ -58,9 +59,9 @@ export function registerServiceWorker(): void {
 
             try {
               const result = await showDialog({
-                title: '업데이트',
-                message: '새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.',
-                buttonText: '새로고침',
+                title: t('dialog.sw_update_title'),
+                message: t('dialog.sw_update_msg'),
+                buttonText: t('common.refresh'),
                 dismissible: true,
               });
 

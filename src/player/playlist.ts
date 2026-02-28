@@ -8,6 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
@@ -52,12 +53,12 @@ export function setRepeatMode(mode: number, notify = true): void {
   btn.classList.remove('active', 'active-one');
   if (mode === 1) {
     btn.classList.add('active');
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 전체');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_all'));
   } else if (mode === 2) {
     btn.classList.add('active-one');
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 한 곡');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_one'));
   } else {
-    if (notify) bus.emit('ui:show-toast', '반복 재생: 끔');
+    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_off'));
   }
 }
 
@@ -80,7 +81,7 @@ export function setShuffle(enabled: boolean, notify = true): void {
   setState('playlist.isShuffle', enabled);
   const btn = document.getElementById('btn-shuffle');
   if (btn) btn.classList.toggle('active', enabled);
-  if (notify) bus.emit('ui:show-toast', enabled ? '셔플: 켜짐' : '셔플: 꺼짐');
+  if (notify) bus.emit('ui:show-toast', enabled ? t('playlist.shuffle_on') : t('playlist.shuffle_off'));
 }
 
 // ─── Clear Preload State ───────────────────────────────────────────
@@ -174,10 +175,10 @@ export async function playTrack(index: number): Promise<void> {
       if (isFirstTrackLoad) {
         setState('player.isFirstTrackLoad', false);
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
-        bus.emit('ui:show-toast', 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.');
+        bus.emit('ui:show-toast', t('youtube.ready'));
       } else {
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
-        bus.emit('ui:show-toast', '3초 후 YouTube 재생...');
+        bus.emit('ui:show-toast', t('youtube.playing_in_3s'));
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
         }, 3000);
@@ -205,9 +206,9 @@ export async function playTrack(index: number): Promise<void> {
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);
-      bus.emit('ui:show-toast', '파일이 준비됐어요! 재생 버튼을 눌러 보세요.');
+      bus.emit('ui:show-toast', t('toast.file_ready'));
     } else {
-      bus.emit('ui:show-toast', '3초 후 재생 시작...');
+      bus.emit('ui:show-toast', t('toast.playing_in_3s'));
       setManagedTimer('autoPlayTimer', () => {
         play(0);
         const currentIdx = getState('playlist.currentTrackIndex');
@@ -225,7 +226,7 @@ export function playNextTrack(): void {
   const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -290,7 +291,7 @@ export function playPrevTrack(): void {
   const isOperator = getState('network.isOperator');
 
   if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', '호스트만 조작할 수 있어요');
+    bus.emit('ui:show-toast', t('toast.host_only_control'));
     return;
   }
 
@@ -496,12 +497,12 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 async function loadDemoMedia(): Promise<void> {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', 'Host만 실행할 수 있습니다.');
+    bus.emit('ui:show-toast', t('toast.host_only'));
     return;
   }
 
   try {
-    bus.emit('ui:show-loader', true, '데모 음원 로딩 중...');
+    bus.emit('ui:show-loader', true, t('transfer.demo_loading_short'));
     bus.emit('ui:update-loader', 0);
 
     const blob: Blob = await new Promise((resolve, reject) => {
@@ -551,13 +552,13 @@ async function loadDemoMedia(): Promise<void> {
     }));
     broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-    bus.emit('ui:show-toast', '데모 음원 로드 완료. 재생을 시작합니다.');
+    bus.emit('ui:show-toast', t('transfer.demo_loaded'));
     bus.emit('ui:show-loader', false);
 
     playTrack(playlist.length - 1);
   } catch (e: unknown) {
     log.error('Demo load failed:', e);
-    bus.emit('ui:show-toast', `데모 로드 실패: ${(e as Error).message}`);
+    bus.emit('ui:show-toast', `${t('transfer.demo_load_fail')} ${(e as Error).message}`);
     bus.emit('ui:show-loader', false);
   }
 }
@@ -569,7 +570,7 @@ function handleFilesSelected(files: FileList | null): void {
 
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', 'Host만 파일을 추가할 수 있습니다.');
+    bus.emit('ui:show-toast', t('toast.host_only_file'));
     return;
   }
 
@@ -604,7 +605,7 @@ function handleFilesSelected(files: FileList | null): void {
   }));
   broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-  bus.emit('ui:show-toast', `${addedCount}개 파일 추가됨`);
+  bus.emit('ui:show-toast', t('toast.added_tracks', { count: addedCount }));
 
   // Auto-play first added file if nothing is playing
   const currentState = getState('appState');

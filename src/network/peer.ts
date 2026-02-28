@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
@@ -288,7 +289,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       try {
         conn.send({
           type: MSG.SESSION_FULL,
-          message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.',
+          message: t('network.session_full_detail'),
         });
       } catch { /* noop */ }
       setTimeout(() => { try { conn.close(); } catch { /* noop */ } }, 500);
@@ -304,7 +305,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   const slot = getAvailablePeerSlot(preferredSlot, peerId);
   if (!slot) {
     const sendFullAndClose = () => {
-      try { conn.send({ type: MSG.SESSION_FULL, message: '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.' }); } catch { /* noop */ }
+      try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
       try { conn.close(); } catch { /* noop */ }
     };
     if (conn.open) sendFullAndClose();
@@ -352,7 +353,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       });
     } catch { /* noop */ }
 
-    bus.emit('ui:show-toast', `${deviceName}가 연결됐어요`);
+    bus.emit('ui:show-toast', t('toast.device_connected', { name: deviceName }));
 
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
@@ -398,7 +399,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', `${deviceName} 연결이 끊겼어요`);
+      bus.emit('ui:show-toast', t('toast.device_disconnected', { name: deviceName }));
     }
     log.info(`[Host] ${deviceName} disconnected`);
   });
@@ -427,7 +428,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', `${deviceName} 연결 오류`);
+      bus.emit('ui:show-toast', t('toast.device_conn_error', { name: deviceName }));
     }
     try { conn.close(); } catch { /* noop */ }
   });
@@ -907,7 +908,7 @@ bus.on('network:toggle-operator', (peerId) => {
       log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
     }
     broadcastDeviceList();
-    bus.emit('ui:show-toast', `${p.label} 권한 ${p.isOp ? '부여됨' : '회수됨'}`);
+    bus.emit('ui:show-toast', t('toast.op_status', { label: p.label, status: p.isOp ? t('common.granted') : t('common.revoked') }));
   }
 });
 
@@ -933,7 +934,7 @@ function handleWelcome(data: Record<string, unknown>): void {
 }
 
 function handleSessionFull(data: Record<string, unknown>): void {
-  const msg = data.message ? String(data.message) : '세션이 가득 찼어요';
+  const msg = data.message ? String(data.message) : t('network.session_full');
 
   setState('network.isIntentionalDisconnect', true);
 
@@ -984,14 +985,14 @@ function handleSysToast(data: Record<string, unknown>): void {
 
 function handleOperatorGrant(): void {
   setState('network.isOperator', true);
-  bus.emit('ui:show-toast', 'Operator 권한이 부여되었습니다.');
+  bus.emit('ui:show-toast', t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
 
 function handleOperatorRevoke(): void {
   setState('network.isOperator', false);
-  bus.emit('ui:show-toast', 'Operator 권한이 해제되었습니다.');
+  bus.emit('ui:show-toast', t('network.op_revoked'));
   bus.emit('network:role-badge-update');
 }
 

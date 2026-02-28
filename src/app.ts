@@ -80,22 +80,7 @@ function checkSystemCompatibility(): void {
     log.warn('[App] OPFS not supported');
   }
 
-  // Vendor library check
-  const errors: string[] = [];
-
-  if (typeof (window as unknown as Record<string, unknown>).Tone === 'undefined') {
-    errors.push('Tone.js (오디오 엔진)');
-  }
-  if (typeof (window as unknown as Record<string, unknown>).Peer === 'undefined') {
-    errors.push('PeerJS (P2P 연결)');
-  }
-
-  if (errors.length > 0) {
-    log.error('[App] Missing dependencies:', errors.join(', '));
-    bus.emit('ui:show-toast', `필수 라이브러리를 불러오지 못했어요: ${errors.join(', ')}. 네트워크를 확인해 주세요.`);
-  } else {
-    log.info('[App] System compatibility check passed');
-  }
+  log.info('[App] System compatibility check passed');
 }
 
 // ── Keyboard Shortcuts ──

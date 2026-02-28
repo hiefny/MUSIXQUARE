@@ -15,8 +15,11 @@ import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, PeerInstance } from '../types/index.ts';
 
-// ─── PeerJS global declaration ──────────────────────────────────────
-declare const Peer: new (id?: string, opts?: Record<string, unknown>) => PeerInstance;
+// PeerJS — imported as `any` to keep our custom PeerInstance/DataConnection stubs.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import { Peer as _Peer } from 'peerjs';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Peer: any = _Peer;
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;

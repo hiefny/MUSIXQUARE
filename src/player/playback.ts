@@ -22,9 +22,10 @@ import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
- 
-declare const Tone: any;
- 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import * as _Tone from 'tone';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Tone = _Tone as any;
 
 // ─── Module-local State ────────────────────────────────────────────
 

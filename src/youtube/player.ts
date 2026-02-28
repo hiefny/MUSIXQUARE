@@ -97,6 +97,7 @@ export function loadYouTubeVideo(
       tag.onerror = () => {
         log.error('[YouTube] Failed to load API script');
         _ytScriptLoading = false;
+        _ytLoadInProgress = false;
         bus.emit('ui:show-toast', t('youtube.load_fail'));
       };
       document.head.appendChild(tag);
@@ -114,6 +115,7 @@ export function loadYouTubeVideo(
   _ytLoadTimeout = setTimeout(() => {
     if (_currentYouTubeSessionId === currentSessionId && !_youtubePlayer) {
       log.warn('[YouTube] Load timeout triggered.');
+      _ytLoadInProgress = false;
       bus.emit('ui:show-loader', false);
       bus.emit('ui:show-toast', t('youtube.load_timeout'));
     }
@@ -545,8 +547,8 @@ export function initYouTube(): void {
   // Bus event handlers from other modules
   bus.on('youtube:stop-mode', () => stopYouTubeMode());
 
-  bus.on('youtube:load', (videoId, playlistId, isSync) => {
-    loadYouTubeVideo(videoId as string, playlistId as string | null, isSync as boolean);
+  bus.on('youtube:load', (videoId, playlistId, isSync, subIndex) => {
+    loadYouTubeVideo(videoId as string, playlistId as string | null, isSync as boolean, subIndex ?? 0);
   });
 
   bus.on('youtube:toggle-play', () => {
@@ -735,9 +737,9 @@ export function initYouTube(): void {
       playlistId: playlistId || undefined,
     };
 
-    playlist.push(newTrack);
-    setState('playlist.items', playlist);
-    const newIndex = playlist.length - 1;
+    const updatedPlaylist = [...playlist, newTrack];
+    setState('playlist.items', updatedPlaylist);
+    const newIndex = updatedPlaylist.length - 1;
     setState('playlist.currentTrackIndex', newIndex);
     bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
@@ -745,7 +747,7 @@ export function initYouTube(): void {
     // Broadcast playlist update + YouTube command to peers
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      const metaList = playlist.map(item => ({
+      const metaList = updatedPlaylist.map(item => ({
         type: item.type,
         name: item.name,
         title: item.title || item.name,
@@ -898,15 +900,15 @@ export function initYouTube(): void {
       videoId: videoId || undefined,
       playlistId: playlistId || undefined,
     };
-    playlist.push(newTrack);
-    setState('playlist.items', playlist);
-    const newIndex = playlist.length - 1;
+    const updatedPlaylist = [...playlist, newTrack];
+    setState('playlist.items', updatedPlaylist);
+    const newIndex = updatedPlaylist.length - 1;
     setState('playlist.currentTrackIndex', newIndex);
     bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
 
     // hostConn is already confirmed null from guard above — we are Host
-    const metaList = playlist.map(item => ({
+    const metaList = updatedPlaylist.map(item => ({
       type: item.type,
       name: item.name,
       title: item.title || item.name,

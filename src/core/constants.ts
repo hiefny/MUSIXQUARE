@@ -48,7 +48,6 @@ export const DELAY = {
 
 // ─── Network ───────────────────────────────────────────────────────
 export const MAX_GUEST_SLOTS = 3;
-export const MAX_DIRECT_DATA_PEERS = 2;
 export const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
@@ -130,13 +129,6 @@ export type MsgType = (typeof MSG)[keyof typeof MSG];
 
 // ─── Audio ──────────────────────────────────────────────────────────
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
-export const DEFAULT_SUB_FREQ = 120;
-export const DEFAULT_REVERB_DECAY = 5.0;
-export const DEFAULT_REVERB_PREDELAY = 0.1;
-
-// ─── Relay ──────────────────────────────────────────────────────────
-export const MAX_PEER_RELAY_QUEUE = 500;
-export const MAX_EARLY_PRELOAD_CHUNKS = 128;
 
 // ─── Misc ──────────────────────────────────────────────────────────
 export const DEMO_FILE_NAME = 'demo_track.mp3';

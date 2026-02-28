@@ -84,7 +84,7 @@ function assignPeerSlot(peerId: string, slot: number): void {
   if (!peerId) return;
   const s = Number(slot);
   if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
-  const peerSlots = getState('network.peerSlots');
+  const peerSlots = [...getState('network.peerSlots')];
   peerSlots[s] = peerId;
   setState('network.peerSlots', peerSlots);
   const map = getState('network.peerSlotByPeerId');
@@ -96,8 +96,11 @@ function releasePeerSlot(peerId: string): void {
   const map = getState('network.peerSlotByPeerId');
   const slot = map.get(peerId);
   if (slot) {
-    const peerSlots = getState('network.peerSlots');
-    if (peerSlots[slot] === peerId) peerSlots[slot] = null;
+    const peerSlots = [...getState('network.peerSlots')];
+    if (peerSlots[slot] === peerId) {
+      peerSlots[slot] = null;
+      setState('network.peerSlots', peerSlots);
+    }
   }
   map.delete(peerId);
 }
@@ -336,9 +339,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     connectionType: 'unknown' as 'local' | 'remote' | 'unknown',
   };
 
-  const updatedPeers = getState('network.connectedPeers');
-  updatedPeers.push(peerObj);
-  setState('network.connectedPeers', updatedPeers);
+  setState('network.connectedPeers', [...getState('network.connectedPeers'), peerObj]);
 
   conn.on('open', () => {
     peerObj.status = 'connected';
@@ -901,17 +902,20 @@ bus.on('network:toggle-operator', (peerId) => {
   if (hostConn) return;
 
   const connectedPeers = getState('network.connectedPeers');
-  const p = connectedPeers.find(x => x.id === peerId);
-  if (p) {
-    p.isOp = !p.isOp;
+  const idx = connectedPeers.findIndex(x => x.id === peerId);
+  if (idx !== -1) {
+    const p = connectedPeers[idx];
+    const newOp = !p.isOp;
+    const updated = connectedPeers.map((peer, i) => i === idx ? { ...peer, isOp: newOp } : peer);
+    setState('network.connectedPeers', updated);
     const conn = p.conn as DataConnection;
     if (conn && conn.open) {
-      conn.send({ type: p.isOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
+      conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
     } else {
       log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
     }
     broadcastDeviceList();
-    bus.emit('ui:show-toast', t('toast.op_status', { label: p.label, status: p.isOp ? t('common.granted') : t('common.revoked') }));
+    bus.emit('ui:show-toast', t('toast.op_status', { label: p.label, status: newOp ? t('common.granted') : t('common.revoked') }));
   }
 });
 

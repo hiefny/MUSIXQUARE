@@ -191,10 +191,10 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
       setState('audio.reverbMix', v / 100);
       break;
     case 'decay':
-      setState('audio.reverbDecay', v);
+      setState('audio.reverbDecay', Math.max(0.1, Math.min(30, v)));
       break;
     case 'predelay':
-      setState('audio.reverbPreDelay', v);
+      setState('audio.reverbPreDelay', Math.max(0, Math.min(1, v)));
       break;
     case 'lowcut':
       setState('audio.reverbLowCut', v);
@@ -225,24 +225,25 @@ export function setEQ(idx: number, val: number): void {
   const eqValues = getState('audio.eqValues');
   if (!eqValues || bandIdx < 0 || bandIdx >= eqValues.length) return;
 
+  const clamped = Math.max(-12, Math.min(12, bandVal));
   const newValues = [...eqValues];
-  newValues[bandIdx] = bandVal;
+  newValues[bandIdx] = clamped;
   setState('audio.eqValues', newValues);
 
   const nodes = getEqNodes();
   if (nodes?.[bandIdx]) {
-    nodes[bandIdx].gain.rampTo(bandVal, RAMP_TIME);
+    nodes[bandIdx].gain.rampTo(clamped, RAMP_TIME);
   }
 
   // Update DOM label + slider (for sync from network)
   const label = document.getElementById(`eq-val-${bandIdx}`);
-  if (label) label.innerText = bandVal > 0 ? `+${bandVal}` : String(bandVal);
+  if (label) label.innerText = clamped > 0 ? `+${clamped}` : String(clamped);
   if (!_eqBandElements || _eqBandElements.length === 0) {
     _eqBandElements = Array.from(document.querySelectorAll('.eq-band'));
   }
   if (_eqBandElements[bandIdx]) {
     const slider = _eqBandElements[bandIdx].querySelector('.eq-slider') as HTMLInputElement | null;
-    if (slider && parseFloat(slider.value) !== bandVal) slider.value = String(bandVal);
+    if (slider && parseFloat(slider.value) !== clamped) slider.value = String(clamped);
   }
 }
 
@@ -258,7 +259,7 @@ export function resetEQ(): void {
 // ─── Preamp ────────────────────────────────────────────────────────
 
 export function setPreamp(valDb: number): void {
-  const db = Number(valDb);
+  const db = Math.max(-48, Math.min(12, Number(valDb)));
   const linear = Math.pow(10, db / 20);
   setState('audio.userPreampGain', linear);
   applySettings();

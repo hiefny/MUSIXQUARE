@@ -347,6 +347,10 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
     if (current[key] == null || typeof current[key] !== 'object') {
+      if (import.meta.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn(`[State] setState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`);
+      }
       current[key] = {};
     }
     current = current[key] as Record<string, unknown>;
@@ -380,6 +384,10 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
       for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
         if (current[key] == null || typeof current[key] !== 'object') {
+          if (import.meta.env?.DEV) {
+            // eslint-disable-next-line no-console
+            console.warn(`[State] batchSetState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`);
+          }
           current[key] = {};
         }
         current = current[key] as Record<string, unknown>;

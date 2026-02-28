@@ -166,10 +166,11 @@ export function setSurroundChannel(idx: number): void {
       splitter.connect(sGain, idx, 0);
     }
 
-    // LowPass for LFE channel
+    // LowPass for LFE channel (rampTo avoids click on active signal path)
     if (lowPass) {
-      (lowPass as { frequency: { value: number } }).frequency.value =
-        idx === 3 ? subFreq : 20000;
+      (lowPass as { frequency: { rampTo: (v: number, t: number) => void } }).frequency.rampTo(
+        idx === 3 ? subFreq : 20000, 0.02,
+      );
     }
 
     // Force output to Dual Mono

@@ -70,7 +70,7 @@ export function getPendingPlayTime(): number | undefined {
 // ─── Format Helpers ────────────────────────────────────────────────
 
 export function fmtTime(s: number): string {
-  if (isNaN(s)) return '0:00';
+  if (!Number.isFinite(s)) return '0:00';
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec < 10 ? '0' : ''}${sec}`;

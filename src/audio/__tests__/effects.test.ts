@@ -25,9 +25,10 @@ describe('setPreamp', () => {
     expect(getState('audio.userPreampGain')).toBeCloseTo(0.5012, 3);
   });
 
-  it('20 dB → gain 10.0', () => {
+  it('20 dB → clamped to 12 dB → gain ≈ 3.98', () => {
     setPreamp(20);
-    expect(getState('audio.userPreampGain')).toBeCloseTo(10.0);
+    // Clamped to max +12 dB: Math.pow(10, 12/20) ≈ 3.981
+    expect(getState('audio.userPreampGain')).toBeCloseTo(3.981, 2);
   });
 });
 

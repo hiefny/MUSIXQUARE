@@ -297,6 +297,36 @@ async function _doInitAudio(): Promise<void> {
   bus.emit('audio:ready');
 }
 
+/**
+ * Dispose all Tone.js audio nodes and reset module state.
+ * Useful for testing cleanup or future app-reset feature.
+ */
+export function disposeAudioGraph(): void {
+  const nodes: (ToneNode | null)[] = [
+    toneSplit, toneMerge, gainL, gainR, masterGain,
+    reverb, rvbLowCut, rvbHighCut, rvbCrossFade,
+    preamp, widener, globalLowPass, analyser,
+    vbFilter, vbCheby, vbPostFilter, vbGain,
+    surroundSplitter, surroundGain,
+  ];
+  for (const n of nodes) {
+    try { if (n) n.dispose(); } catch { /* best-effort */ }
+  }
+  for (const n of eqNodes) {
+    try { n.dispose(); } catch { /* best-effort */ }
+  }
+
+  toneSplit = toneMerge = gainL = gainR = masterGain = null;
+  reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
+  eqNodes = [];
+  preamp = widener = globalLowPass = analyser = null;
+  vbFilter = null; vbCheby = null; vbPostFilter = null; vbGain = null;
+  surroundSplitter = surroundGain = null;
+  _initAudioPromise = null;
+
+  log.info('[Audio] Graph disposed');
+}
+
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 /** Set master volume (0-1) */

@@ -34,7 +34,6 @@ html.standalone body {
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
     --text-main: #ffffff;
-    --text: var(--text-main);
     --text-sub: #a1a1aa;
     --text-muted: #52525b;
 
@@ -237,123 +236,6 @@ body {
     overflow: hidden;
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-
-/* --------------------------------------------------------------------------
-   Portrait Lock (Mobile)
-   - Some browsers/PWA containers may still allow rotation even with manifest
-     orientation. We show a lightweight blocker overlay only on mobile when
-     rotated to landscape.
-   -------------------------------------------------------------------------- */
-.rotate-lock-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 3200;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
-    background: var(--bg);
-    text-align: center;
-}
-
-.rotate-lock-card {
-    width: min(420px, 92vw);
-    background: var(--surface-1);
-    border-radius: 24px;
-    padding: 22px 20px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-}
-
-.rotate-lock-title {
-    font-size: 18px;
-    font-weight: 800;
-    color: var(--text-main);
-    letter-spacing: -0.02em;
-}
-
-.rotate-lock-desc {
-    margin-top: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-sub);
-    line-height: 1.5;
-    word-break: keep-all;
-}
-
-html.force-portrait .rotate-lock-overlay {
-    display: flex;
-}
-
-/* Boot Splash: thin splash shown briefly before the Setup overlay mounts */
-.boot-splash {
-    position: fixed;
-    inset: 0;
-    z-index: 2500;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg);
-    padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 220ms ease, visibility 0s linear 220ms;
-}
-
-.boot-splash.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transition: opacity 220ms ease;
-}
-
-.boot-splash-inner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-}
-
-.boot-splash-logo {
-    font-weight: 800;
-    font-size: 22px;
-    letter-spacing: -0.5px;
-    color: var(--text-main);
-    display: flex;
-    align-items: center;
-}
-
-.boot-splash-text {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-sub);
-}
-
-.boot-splash-spinner {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 2px solid rgba(128, 128, 128, 0.25);
-    border-top-color: var(--primary);
-    animation: bootSpin 1s linear infinite;
-}
-
-@keyframes bootSpin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .boot-splash-spinner {
-        animation: none;
-    }
-}
-
 
 @keyframes fadeIn {
     from {
@@ -1136,21 +1018,6 @@ input[type=range]:active::-moz-range-thumb {
     width: 28px;
     height: 28px;
     fill: currentColor;
-}
-
-/* Right: Volume */
-.vol-group {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100px;
-    justify-content: flex-end;
-}
-
-.vol-group svg {
-    width: 18px;
-    height: 18px;
-    fill: var(--text-sub);
 }
 
 /* Mini slider for right side */
@@ -4792,11 +4659,11 @@ input:checked+.slider:before {
 
 /* Tab text switching (Mobile) */
 .nav-text-desktop {
-    display: none !important;
+    display: none;
 }
 
 .nav-text-mobile {
-    display: block !important;
+    display: block;
 }
 
 .desktop-help-section {

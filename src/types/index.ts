@@ -12,15 +12,6 @@ import type { AppStateValue, MsgType } from '../core/constants.ts';
 export type ChannelMode = -1 | 0 | 1 | 2;
 
 // ─── Peer / Network ────────────────────────────────────────────────
-export interface PeerSlot {
-  id: string;
-  slot: number;
-  label: string;
-  conn: DataConnection | null;
-  isOp: boolean;
-  preloadedIndexes: Set<number>;
-  status: 'connecting' | 'connected' | 'disconnected';
-}
 
  
 
@@ -266,7 +257,7 @@ export interface EventMap {
 
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];
-  'player:state-changed': [state: AppStateValue, prev?: AppStateValue];
+  'player:state-changed': [state: AppStateValue];
   'player:toggle-play': [];
   'player:seek': [time: number];
   'player:seek-to-time': [time: number];
@@ -303,7 +294,7 @@ export interface EventMap {
   'chat:system-message': [text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
-  'youtube:load': [videoId: string | null, playlistId: string | null, isSync?: boolean, startTime?: number];
+  'youtube:load': [videoId: string | null, playlistId: string | null, isSync?: boolean, subIndex?: number];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];
   'youtube:get-position': [callback: (pos: number) => void];
@@ -349,6 +340,7 @@ export interface EventMap {
   'opfs:read-error': [data: unknown];
   'opfs:error': [error: string, filename: string];
   'opfs:session-mismatch': [data: unknown];
+  'opfs:cleanup-complete': [filename: string];
 
   // ── Blob ──────────────────────────────────────────────────────────
   'blob:revoke-all': [];

@@ -18,6 +18,8 @@ import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';
 
+const MAX_CHAT_MESSAGES = 200;
+
 // ─── Constants ───────────────────────────────────────────────────
 
 const PEER_NAME_PREFIX = 'Peer';
@@ -99,7 +101,7 @@ function parseMessageContent(text: string): string {
       setTimeout(() => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
     } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
       const seconds = parseTimestamp(matchedText);
-      result += `<span class="chat-timestamp" role="button" tabindex="0" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
+      result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="Seek to ${escapeAttr(matchedText)}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
     } else {
       result += escapeHtml(matchedText);
     }
@@ -209,6 +211,12 @@ export function sendChatMessage(): void {
   input.value = '';
 }
 
+function pruneOldMessages(container: HTMLElement): void {
+  while (container.children.length > MAX_CHAT_MESSAGES) {
+    container.removeChild(container.children[0]);
+  }
+}
+
 export function addChatMessage(sender: string, text: string, isMine: boolean): void {
   const container = document.getElementById('chat-messages');
 
@@ -257,6 +265,7 @@ export function addChatMessage(sender: string, text: string, isMine: boolean): v
 
     group.appendChild(row);
     container.appendChild(group);
+    pruneOldMessages(container);
     container.scrollTop = container.scrollHeight;
   }
 
@@ -305,6 +314,7 @@ export function addSystemChatMessage(text: string): void {
   row.appendChild(timeNode);
   group.appendChild(row);
   container.appendChild(group);
+  pruneOldMessages(container);
   container.scrollTop = container.scrollHeight;
 }
 

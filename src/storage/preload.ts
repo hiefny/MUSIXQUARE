@@ -15,7 +15,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest } from '../network/peer.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -351,7 +351,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data); });
+  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
   // Watchdog: unconditionally clear preload loader after 30s
   clearManagedTimer('preloadWatchdog');
@@ -535,7 +535,7 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data); });
+  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
   bus.emit('storage:preload-ready', data.index as number);
 }
@@ -688,11 +688,11 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
 
 export function initPreload(): void {
   registerHandlers({
-    [MSG.PRELOAD_START]: handlePreloadStart as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.PRELOAD_CHUNK]: handlePreloadChunk as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.PRELOAD_END]: handlePreloadEnd as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.PRELOAD_START]: handlePreloadStart,
+    [MSG.PRELOAD_CHUNK]: handlePreloadChunk,
+    [MSG.PRELOAD_END]: handlePreloadEnd,
     [MSG.PRELOAD_ACK]: handlePreloadAck,
-    [MSG.PLAY_PRELOADED]: handlePlayPreloaded as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
 
   // Handle preload file ready from OPFS (bridged from opfs:file-ready via playback.ts)

@@ -12,7 +12,6 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import type { DataConnection } from '../types/index.ts';
 import { getYouTubePlayer } from './player.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
@@ -301,7 +300,7 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_STATE]: handleYouTubeState,
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
-    [MSG.YOUTUBE_STOP]: handleYouTubeStop as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.YOUTUBE_STOP]: handleYouTubeStop,
   });
 
   log.info('[YouTube Sync] Initialized');

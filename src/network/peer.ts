@@ -13,7 +13,7 @@ import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } fro
 import { clearAllManagedTimers } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
-import type { DataConnection, PeerInstance, DeviceInfo } from '../types/index.ts';
+import type { DataConnection, PeerInstance, DeviceInfo, AnyProtocolMsg } from '../types/index.ts';
 
 // PeerJS — imported as `any` to keep our custom PeerInstance/DataConnection stubs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -681,7 +681,7 @@ export function leaveSession(): void {
 /**
  * Broadcast a message to all connected peers.
  */
-export function broadcast(msg: unknown, isDataOnly = false): void {
+export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
   const connectedPeers = getState('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
@@ -702,7 +702,7 @@ export function broadcast(msg: unknown, isDataOnly = false): void {
 /**
  * Broadcast to all peers except one (used for chat relays).
  */
-export function broadcastExcept(excludePeerId: string, msg: unknown, isDataOnly = false): void {
+export function broadcastExcept(excludePeerId: string, msg: AnyProtocolMsg, isDataOnly = false): void {
   const connectedPeers = getState('network.connectedPeers');
   connectedPeers.forEach(p => {
     try {
@@ -753,7 +753,7 @@ export function broadcastDeviceList(): void {
 /**
  * Send a message to any DataConnection safely (try/catch + open check).
  */
-export function safeSend(conn: DataConnection | null | undefined, msg: unknown): boolean {
+export function safeSend(conn: DataConnection | null | undefined, msg: AnyProtocolMsg): boolean {
   if (!conn || !conn.open) return false;
   try {
     conn.send(msg);
@@ -763,7 +763,7 @@ export function safeSend(conn: DataConnection | null | undefined, msg: unknown):
   }
 }
 
-export function sendToHost(msg: unknown): boolean {
+export function sendToHost(msg: AnyProtocolMsg): boolean {
   const hostConn = getState('network.hostConn');
   return safeSend(hostConn, msg);
 }
@@ -881,11 +881,11 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 bus.on('network:broadcast', (data) => {
-  if (data) broadcast(data);
+  if (data) broadcast(data as AnyProtocolMsg);
 });
 
 bus.on('network:broadcast-except', (peerId, data) => {
-  if (data) broadcastExcept(peerId, data);
+  if (data) broadcastExcept(peerId, data as AnyProtocolMsg);
 });
 
 // Host: Toggle operator permission on a peer
@@ -1008,12 +1008,12 @@ export function initPeerHandlers(): void {
   registerHandlers({
     [MSG.WELCOME]: handleWelcome,
     [MSG.SESSION_FULL]: handleSessionFull,
-    [MSG.SESSION_START]: handleSessionStart as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.SESSION_START]: handleSessionStart,
     [MSG.DEVICE_LIST_UPDATE]: handleDeviceListUpdateMsg,
-    [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate,
     [MSG.SYS_TOAST]: handleSysToast,
-    [MSG.OPERATOR_GRANT]: handleOperatorGrant as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.OPERATOR_REVOKE]: handleOperatorRevoke as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.OPERATOR_GRANT]: handleOperatorGrant,
+    [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
   });
 
   log.info('[Peer] Protocol handlers registered');

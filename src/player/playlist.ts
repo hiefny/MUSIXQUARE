@@ -454,33 +454,38 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       break;
     }
     case MSG.REVERB: {
-      setReverbParam('mix', Number(val));
-      broadcast({ type: MSG.REVERB, value: val });
+      const v = Number(val);
+      setReverbParam('mix', v);
+      broadcast({ type: MSG.REVERB, value: v });
       break;
     }
     case MSG.REVERB_TYPE: {
       // Reverb type preset handled via protocol handler, just broadcast
-      broadcast({ type: MSG.REVERB_TYPE, value: val });
+      broadcast({ type: MSG.REVERB_TYPE, value: Number(val) });
       break;
     }
     case MSG.REVERB_DECAY: {
-      setReverbParam('decay', Number(val));
-      broadcast({ type: MSG.REVERB_DECAY, value: val });
+      const v = Number(val);
+      setReverbParam('decay', v);
+      broadcast({ type: MSG.REVERB_DECAY, value: v });
       break;
     }
     case MSG.REVERB_PREDELAY: {
-      setReverbParam('predelay', Number(val));
-      broadcast({ type: MSG.REVERB_PREDELAY, value: val });
+      const v = Number(val);
+      setReverbParam('predelay', v);
+      broadcast({ type: MSG.REVERB_PREDELAY, value: v });
       break;
     }
     case MSG.REVERB_LOWCUT: {
-      setReverbParam('lowcut', Number(val));
-      broadcast({ type: MSG.REVERB_LOWCUT, value: val });
+      const v = Number(val);
+      setReverbParam('lowcut', v);
+      broadcast({ type: MSG.REVERB_LOWCUT, value: v });
       break;
     }
     case MSG.REVERB_HIGHCUT: {
-      setReverbParam('highcut', Number(val));
-      broadcast({ type: MSG.REVERB_HIGHCUT, value: val });
+      const v = Number(val);
+      setReverbParam('highcut', v);
+      broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
       break;
     }
   }

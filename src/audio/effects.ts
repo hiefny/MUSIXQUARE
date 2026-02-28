@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import {
   getMasterGain,
   getReverb,
@@ -268,7 +268,7 @@ function _broadcastOrRequestSetting(msgType: string, value: number): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: broadcast to all peers
-    broadcast({ type: msgType, value });
+    broadcast({ type: msgType, value } as AnyProtocolMsg);
   } else {
     // Guest (OP): request Host to apply + broadcast
     const isOperator = getState('network.isOperator');
@@ -588,22 +588,19 @@ function handleRequestReverbReset(_data: Record<string, unknown>, conn: DataConn
 // ─── Init Effects Protocol Handlers ──────────────────────────────
 
 export function initEffectsHandlers(): void {
-  const castHandler = (fn: (d: Record<string, unknown>) => void) =>
-    fn as unknown as (d: Record<string, unknown>, c: DataConnection) => void;
-
   registerHandlers({
-    [MSG.VOLUME]: castHandler(handleVolume),
-    [MSG.EQ_UPDATE]: castHandler(handleEQUpdateMsg),
-    [MSG.PREAMP]: castHandler(handlePreampMsg),
-    [MSG.EQ_RESET]: castHandler(handleEQResetMsg as unknown as (d: Record<string, unknown>) => void),
-    [MSG.REVERB]: castHandler(handleReverbMsg),
-    [MSG.REVERB_TYPE]: castHandler(handleReverbTypeMsg),
-    [MSG.REVERB_DECAY]: castHandler(handleReverbDecayMsg),
-    [MSG.REVERB_PREDELAY]: castHandler(handleReverbPreDelayMsg),
-    [MSG.REVERB_LOWCUT]: castHandler(handleReverbLowCutMsg),
-    [MSG.REVERB_HIGHCUT]: castHandler(handleReverbHighCutMsg),
-    [MSG.STEREO_WIDTH]: castHandler(handleStereoWidthMsg),
-    [MSG.VBASS]: castHandler(handleVBassMsg),
+    [MSG.VOLUME]: handleVolume,
+    [MSG.EQ_UPDATE]: handleEQUpdateMsg,
+    [MSG.PREAMP]: handlePreampMsg,
+    [MSG.EQ_RESET]: handleEQResetMsg,
+    [MSG.REVERB]: handleReverbMsg,
+    [MSG.REVERB_TYPE]: handleReverbTypeMsg,
+    [MSG.REVERB_DECAY]: handleReverbDecayMsg,
+    [MSG.REVERB_PREDELAY]: handleReverbPreDelayMsg,
+    [MSG.REVERB_LOWCUT]: handleReverbLowCutMsg,
+    [MSG.REVERB_HIGHCUT]: handleReverbHighCutMsg,
+    [MSG.STEREO_WIDTH]: handleStereoWidthMsg,
+    [MSG.VBASS]: handleVBassMsg,
     [MSG.REQUEST_EQ_RESET]: handleRequestEQReset,
     [MSG.REQUEST_REVERB_RESET]: handleRequestReverbReset,
   });

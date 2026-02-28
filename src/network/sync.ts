@@ -326,11 +326,11 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
 export function initSync(): void {
   registerHandlers({
     [MSG.HEARTBEAT]: handleHeartbeat,
-    [MSG.HEARTBEAT_ACK]: handleHeartbeatAck as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.HEARTBEAT_ACK]: handleHeartbeatAck,
     [MSG.PING_LATENCY]: handlePingLatency,
-    [MSG.PONG_LATENCY]: handlePongLatency as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.SYNC_RESPONSE]: handleSyncResponse as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.GLOBAL_RESYNC_REQUEST]: handleGlobalResyncRequest as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.PONG_LATENCY]: handlePongLatency,
+    [MSG.SYNC_RESPONSE]: handleSyncResponse,
+    [MSG.GLOBAL_RESYNC_REQUEST]: handleGlobalResyncRequest,
     [MSG.GET_SYNC_TIME]: handleGetSyncTime,
   });
 

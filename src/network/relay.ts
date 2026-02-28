@@ -391,7 +391,7 @@ function handleAssignDataSource(data: Record<string, unknown>): void {
 
 export function initRelay(): void {
   registerHandlers({
-    [MSG.ASSIGN_DATA_SOURCE]: handleAssignDataSource as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.ASSIGN_DATA_SOURCE]: handleAssignDataSource,
   });
 
   // Accept incoming relay connections routed from peer.ts
@@ -437,10 +437,13 @@ export function initRelay(): void {
       log.debug(`[Relay] Bootstrapping downstream for ${bootName} (${receivedCount}/${meta.total || '?'})`);
 
       safeSend(conn, {
-        ...meta,
         type: MSG.FILE_START,
         name: bootName,
-        sessionId: meta.sessionId || getState('transfer.localSessionId'),
+        mime: (meta.mime as string) || '',
+        total: (meta.total as number) || 0,
+        size: (meta.size as number) || 0,
+        index: (meta.index as number) || 0,
+        sessionId: (meta.sessionId as number) || getState('transfer.localSessionId'),
       });
 
       // OPFS catch-up: sequential pump with back-pressure

@@ -16,7 +16,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
-import type { DataConnection, FileMeta } from '../types/index.ts';
+import type { DataConnection, FileMeta, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
@@ -235,7 +235,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
           bus.emit('ui:show-loader', false);
           setState('transfer.skipIncomingFile', false);
 
-          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name, index: data.index });
+          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name as string | undefined, index: data.index as number | undefined });
         }
       }, 10000);
 
@@ -333,7 +333,7 @@ function handleFileStart(data: Record<string, unknown>): void {
 
     // Relay header downstream
     const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => { safeSend(p, data); });
+    downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
     return;
   }
@@ -398,7 +398,7 @@ function handleFileStart(data: Record<string, unknown>): void {
 
   // Relay header downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data); });
+  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
   bus.emit('ui:show-loader', true, `수신 중... 0%`);
 }
@@ -430,7 +430,7 @@ function handleFileResume(data: Record<string, unknown>): void {
   startChunkWatchdog();
 
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data); });
+  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 }
 
 function handleFileChunk(data: Record<string, unknown>): void {
@@ -601,7 +601,7 @@ function handleFileEnd(data: Record<string, unknown>): void {
 
   // Relay to downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data); });
+  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
   log.debug(`[file-end] Received end signal for: ${data.name}`);
 }
@@ -827,12 +827,12 @@ export async function unicastFile(
 
 export function initTransfer(): void {
   registerHandlers({
-    [MSG.FILE_PREPARE]: handleFilePrepare as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.FILE_START]: handleFileStart as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.FILE_RESUME]: handleFileResume as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.FILE_CHUNK]: handleFileChunk as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.FILE_END]: handleFileEnd as (d: Record<string, unknown>, c: DataConnection) => void,
-    [MSG.FILE_WAIT]: handleFileWait as unknown as (d: Record<string, unknown>, c: DataConnection) => void,
+    [MSG.FILE_PREPARE]: handleFilePrepare,
+    [MSG.FILE_START]: handleFileStart,
+    [MSG.FILE_RESUME]: handleFileResume,
+    [MSG.FILE_CHUNK]: handleFileChunk,
+    [MSG.FILE_END]: handleFileEnd,
+    [MSG.FILE_WAIT]: handleFileWait,
   });
 
   log.info('[Transfer] Handlers registered');

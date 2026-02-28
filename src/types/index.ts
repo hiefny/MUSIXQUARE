@@ -263,7 +263,6 @@ export interface EventMap {
   'audio:reset-stereo': [];
   'audio:reset-vbass': [];
   'audio:surround-toggled': [];
-  'audio:channel-changed': [mode: ChannelMode];
 
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];

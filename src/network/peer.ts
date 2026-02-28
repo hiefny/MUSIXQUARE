@@ -354,6 +354,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     } catch { /* noop */ }
 
     bus.emit('ui:show-toast', t('toast.device_connected', { name: deviceName }));
+    bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
 
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
@@ -400,6 +401,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       bus.emit('ui:show-toast', t('toast.device_disconnected', { name: deviceName }));
+      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
     }
     log.info(`[Host] ${deviceName} disconnected`);
   });
@@ -429,6 +431,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       bus.emit('ui:show-toast', t('toast.device_conn_error', { name: deviceName }));
+      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
     }
     try { conn.close(); } catch { /* noop */ }
   });

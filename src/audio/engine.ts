@@ -130,6 +130,18 @@ export function ensureSurroundNodes(): { splitter: ToneNode; gain: ToneGainNode 
   return { splitter: surroundSplitter!, gain: surroundGain! };
 }
 
+/**
+ * Safely disconnect a Tone.js node (no-op if already disconnected).
+ */
+export function safeDisconnect(node: ToneNode | null): void {
+  if (!node) return;
+  try {
+    node.disconnect();
+  } catch {
+    // Tone.js throws when node has no active connections — expected
+  }
+}
+
 // ─── Initialization ────────────────────────────────────────────────
 
 /**

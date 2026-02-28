@@ -23,6 +23,7 @@ let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── Cached values (avoid per-frame DOM reads) ──────────────────
 let _cachedIsLight = false;
 let _themeListenersRegistered = false;
+let _themeObserver: MutationObserver | null = null;
 
 function refreshThemeCache(): void {
   const theme = document.documentElement.getAttribute('data-theme');
@@ -40,7 +41,8 @@ function _initThemeListeners(): void {
 
   // Listen for data-theme attribute changes (app-level theme toggle)
   try {
-    new MutationObserver(refreshThemeCache).observe(document.documentElement, {
+    _themeObserver = new MutationObserver(refreshThemeCache);
+    _themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
     });
@@ -121,7 +123,11 @@ export function startVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
-    if (!isToneAnalyser) { _animationId = null; return; }
+    if (!isToneAnalyser) {
+      log.warn('[Visualizer] Non-Tone analyser not supported');
+      _animationId = null;
+      return;
+    }
     _animationId = requestAnimationFrame(draw);
 
     const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;

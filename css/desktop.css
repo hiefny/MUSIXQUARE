@@ -4,6 +4,7 @@
    Layout: [ Play (Main) ] | [ Chat ] | [ Playlist ] | [ Settings ]
    ========================================================================== */
 
+@layer desktop {
 @media (min-width: 1280px) {
 
     /* ---------------------------------------------------
@@ -38,12 +39,12 @@
         width: 100vw;
         margin-left: -24px;
         /* Offset the body's padding-left */
-        padding-left: 24px !important;
-        padding-right: 24px !important;
+        padding-left: 24px;
+        padding-right: 24px;
         box-sizing: border-box;
         box-shadow: none;
         background: var(--glass-bg);
-        border-bottom: none !important;
+        border-bottom: none;
         /* Seamless header */
         margin-bottom: 0;
         /* Stopped underlap */
@@ -55,12 +56,12 @@
     .bottom-nav,
     .nav-blur-halo,
     .bottom-nav::before {
-        display: none !important;
+        display: none;
     }
 
     #btn-chat-close,
     #chat-preview-btn {
-        display: none !important;
+        display: none;
     }
 
     /* ---------------------------------------------------
@@ -71,20 +72,20 @@
     #tab-playlist,
     #tab-settings,
     #tab-guide {
-        padding-top: 0 !important;
+        padding-top: 0;
         /* Panels have internal headers now */
-        display: flex !important;
-        flex-direction: column !important;
+        display: flex;
+        flex-direction: column;
         /* Vertical column layout */
-        opacity: 1 !important;
-        visibility: visible !important;
-        pointer-events: auto !important;
-        position: relative !important;
-        transform: none !important;
-        height: 100% !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100% !important;
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        position: relative;
+        transform: none;
+        height: 100%;
+        top: 0;
+        left: 0;
+        width: 100%;
 
         background: transparent;
         border-radius: 0;
@@ -97,15 +98,15 @@
     /* New Scrolling Architecture: Bodies handle the scroll */
     .tab-body,
     .chat-drawer-messages {
-        flex: 1 !important;
-        overflow-y: auto !important;
-        padding-bottom: 40px !important;
+        flex: 1;
+        overflow-y: auto;
+        padding-bottom: 40px;
         scrollbar-gutter: stable;
         /* Prevent layout shift */
     }
 
     #tab-play .tab-body {
-        padding-bottom: 0 !important;
+        padding-bottom: 0;
     }
 
     /* Push controls to the bottom, matching the overlay's .ob-actions structure:
@@ -119,9 +120,9 @@
     /* Panel Headers: Fixed at the top, No Background Mask needed anymore! */
     .tab-header,
     .chat-drawer-header {
-        flex: none !important;
-        padding: 32px 32px 16px !important;
-        position: relative !important;
+        flex: none;
+        padding: 32px 32px 16px;
+        position: relative;
         /* No longer sticky */
         background: transparent;
         z-index: 10;
@@ -133,11 +134,11 @@
     .tab-title,
     .chat-drawer-title,
     .track-title {
-        font-size: 24px !important;
+        font-size: 24px;
         /* Beautifully unified and properly proportioned */
-        font-weight: 800 !important;
-        letter-spacing: -0.02em !important;
-        color: var(--text-main) !important;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--text-main);
     }
 
     /* ---------------------------------------------------
@@ -146,33 +147,33 @@
     #tab-play {
         grid-area: tab-play;
         flex-direction: column;
-        justify-content: flex-start !important;
+        justify-content: flex-start;
         align-items: center;
-        padding: 0 0 0 8px !important;
+        padding: 0 0 0 8px;
         border-right: 1px solid var(--divider);
-        min-width: 0 !important;
-        min-height: 0 !important;
-        max-width: 100% !important;
+        min-width: 0;
+        min-height: 0;
+        max-width: 100%;
         gap: 16px;
-        overflow-y: auto !important;
+        overflow-y: auto;
         overflow-x: hidden;
     }
 
     #tab-playlist {
-        padding: 0 0 0 8px !important;
+        padding: 0 0 0 8px;
         border-right: 1px solid var(--divider);
         border-bottom: 1px solid var(--divider);
     }
 
     .chat-drawer {
-        padding: 0 !important;
+        padding: 0;
         border-right: 1px solid var(--divider);
         background: transparent;
         box-shadow: none;
     }
 
     #tab-settings {
-        padding: 0 0 0 8px !important;
+        padding: 0 0 0 8px;
     }
 
     .play-header-desktop {
@@ -180,15 +181,15 @@
     }
 
     .play-action-buttons {
-        position: relative !important;
+        position: relative;
         bottom: auto;
         left: auto;
         right: auto;
-        width: 100% !important;
+        width: 100%;
         max-width: calc(100% - 80px);
         margin-left: auto;
         margin-right: auto;
-        gap: 12px !important;
+        gap: 12px;
         margin-top: auto;
         /* Pushes to bottom of flex column naturally */
         padding-bottom: 0px;
@@ -197,8 +198,8 @@
     }
 
     .play-action-buttons .file-select-btn-large {
-        padding: 24px 20px !important;
-        font-size: 16px !important;
+        padding: 24px 20px;
+        font-size: 16px;
     }
 
     .vinyl-wrapper {
@@ -275,17 +276,17 @@
     #setup-overlay .setup-card.full-screen {
         position: fixed;
         inset: 0;
-        width: 100vw !important;
-        max-width: none !important;
+        width: 100vw;
+        max-width: none;
         /* Same rationale as body: cap to the *visible* viewport height. */
-        height: var(--app-height, 100vh) !important;
-        max-height: var(--app-height, 100vh) !important;
+        height: var(--app-height, 100vh);
+        max-height: var(--app-height, 100vh);
         border-radius: 0;
-        border: none !important;
-        outline: none !important;
+        border: none;
+        outline: none;
         box-shadow: none;
         background: transparent;
-        padding: 0 !important;
+        padding: 0;
         transform: none;
         display: grid;
         grid-template-columns: 1fr 480px;
@@ -295,9 +296,9 @@
 
     /* --- Left Column: Diagram area + step header --- */
     #setup-desktop-brand {
-        display: flex !important;
+        display: flex;
         flex: 1;
-        background: var(--bg) !important;
+        background: var(--bg);
         flex-direction: column;
         justify-content: flex-start;
         align-items: flex-start;
@@ -310,19 +311,19 @@
 
     /* Hide the static brand logo/tagline — replaced by dynamic step headers */
     #setup-desktop-brand .brand-content {
-        display: none !important;
+        display: none;
     }
 
     /* --- Desktop step header (mirrored into left panel by JS) --- */
     .desktop-step-header {
-        display: block !important;
+        display: block;
         padding: clamp(48px, 7vh, 80px) clamp(48px, 5vw, 80px) 0;
         width: 100%;
         z-index: 2;
     }
 
     .desktop-step-header h2 {
-        font-size: clamp(22px, 2.4vw, 32px) !important;
+        font-size: clamp(22px, 2.4vw, 32px);
         font-weight: 800;
         letter-spacing: -0.03em;
         color: var(--text-main);
@@ -331,7 +332,7 @@
     }
 
     .desktop-step-header p {
-        font-size: clamp(13px, 1.1vw, 16px) !important;
+        font-size: clamp(13px, 1.1vw, 16px);
         color: var(--text-sub);
         opacity: 0.55;
         line-height: 1.5;
@@ -339,7 +340,7 @@
 
     /* --- Desktop diagram area (elements moved here by JS) --- */
     .desktop-diagram-area {
-        display: flex !important;
+        display: flex;
         flex: 1;
         width: 100%;
         align-items: center;
@@ -351,7 +352,7 @@
 
     /* --- Hide headers from the right panel (they're now mirrored to the left) --- */
     #setup-overlay .setup-mobile-view .setup-header-text {
-        display: none !important;
+        display: none;
     }
 
     /* --- Right Column: Interactive panel (vertically centered content) --- */
@@ -361,11 +362,11 @@
         background: var(--surface-1);
         height: 100%;
         box-shadow: none;
-        padding: 0 !important;
-        overflow-y: auto !important;
+        padding: 0;
+        overflow-y: auto;
         scrollbar-gutter: stable;
         -ms-overflow-style: auto;
-        display: flex !important;
+        display: flex;
         flex-direction: column;
         justify-content: center;
     }
@@ -398,8 +399,8 @@
 
     /* --- Onboarding slider: enlarged when inside left panel --- */
     .desktop-diagram-area #ob-slider-area {
-        width: 100% !important;
-        display: flex !important;
+        width: 100%;
+        display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -440,36 +441,36 @@
 
     /* --- Role SVG diagram: enlarged in left panel --- */
     .desktop-diagram-area .setup-graphic-container {
-        width: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        height: auto !important;
-        min-height: 0 !important;
-        margin: 0 !important;
-        display: flex !important;
+        width: 100%;
+        max-width: none;
+        max-height: none;
+        height: auto;
+        min-height: 0;
+        margin: 0;
+        display: flex;
         align-items: center;
         justify-content: center;
     }
 
     .desktop-diagram-area .setup-graphic-svg {
-        max-width: clamp(480px, 60vw, 780px) !important;
-        width: 100% !important;
-        height: auto !important;
+        max-width: clamp(480px, 60vw, 780px);
+        width: 100%;
+        height: auto;
     }
 
     /* --- Network guide diagrams: enlarged in left panel --- */
     .desktop-diagram-area .setup-guide-unified {
-        width: 100% !important;
-        display: flex !important;
+        width: 100%;
+        display: flex;
         flex-direction: column;
         align-items: center;
         gap: clamp(40px, 6vh, 72px);
-        margin: 0 !important;
+        margin: 0;
     }
 
     .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-        max-width: clamp(420px, 55vw, 680px) !important;
-        height: clamp(100px, 16vh, 200px) !important;
+        max-width: clamp(420px, 55vw, 680px);
+        height: clamp(100px, 16vh, 200px);
     }
 
     .desktop-diagram-area .setup-unified-item .setup-inner-desc {
@@ -478,12 +479,12 @@
 
     /* --- Actions bar pinned to bottom of right column --- */
     #setup-overlay .setup-mobile-view .ob-actions {
-        background: var(--surface-1) !important;
-        padding-left: 44px !important;
-        padding-right: 36px !important;
+        background: var(--surface-1);
+        padding-left: 44px;
+        padding-right: 36px;
         /* 44 left + 36 right + 8 scrollbar-gutter = symmetric 44px visual gap each side */
-        padding-bottom: 40px !important;
-        padding-top: 16px !important;
+        padding-bottom: 40px;
+        padding-top: 16px;
         border-top: none;
         margin-top: auto;
         flex-shrink: 0;
@@ -491,7 +492,7 @@
 
     /* --- Right panel content areas: center vertically when visible --- */
     /* NOTE: These areas use inline style display:none/flex toggled by JS.
-       We must NOT use display:flex !important here or it overrides JS hiding.
+       We must NOT use display:flex here or it overrides JS hiding.
        Use flex properties only - they'll apply when JS sets display:flex. */
     #setup-overlay #setup-welcome-area,
     #setup-overlay #setup-code-area,
@@ -506,40 +507,40 @@
     /* --- Content padding inside right panel --- */
     /* Compensate scrollbar-gutter (8px right): 44 left + 36 right = symmetric 44px visual gap */
     .setup-mobile-view>div:not(.ob-actions, .setup-header-pill) {
-        padding-left: 44px !important;
-        padding-right: 36px !important;
+        padding-left: 44px;
+        padding-right: 36px;
     }
 
     /* Map media/youtube overlays into the main Play grid area instead of full-screen popups */
     #media-source-overlay,
     #youtube-url-overlay {
-        position: relative !important;
+        position: relative;
         grid-area: tab-play;
         z-index: 5000;
-        background: var(--bg) !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
+        background: var(--bg);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
         border-right: 1px solid var(--divider);
-        padding: 0 !important;
+        padding: 0;
         border-radius: 0;
-        overflow-x: hidden !important;
-        overflow-y: scroll !important;
+        overflow-x: hidden;
+        overflow-y: scroll;
         scrollbar-gutter: stable;
         -ms-overflow-style: auto;
-        display: none !important;
-        height: 100% !important;
-        max-height: 100% !important;
-        min-height: 0 !important;
-        min-width: 0 !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-        inset: auto !important;
+        display: none;
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        inset: auto;
     }
 
     #media-source-overlay.active,
     #youtube-url-overlay.active {
-        display: flex !important;
+        display: flex;
         flex-direction: column;
     }
 
@@ -576,28 +577,28 @@
 
     #media-source-overlay .setup-card.full-screen,
     #youtube-url-overlay .setup-card.full-screen {
-        position: relative !important;
-        top: 0 !important;
-        left: 0 !important;
-        transform: none !important;
-        width: 100% !important;
-        height: auto !important;
-        min-height: 100% !important;
-        max-height: none !important;
-        border-radius: 0 !important;
-        border: none !important;
-        box-shadow: none !important;
-        background: transparent !important;
-        padding: 0 !important;
+        position: relative;
+        top: 0;
+        left: 0;
+        transform: none;
+        width: 100%;
+        height: auto;
+        min-height: 100%;
+        max-height: none;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        padding: 0;
         display: flex;
         flex-direction: column;
     }
 
     /* Prevent horizontal overflow from mobile inline CSS hacks */
     #setup-role-area .setup-graphic-container {
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        width: 100% !important;
+        margin-left: 0;
+        margin-right: 0;
+        width: 100%;
     }
 
     /* Wrap contents nicely and prevent them from shrinking weirdly */
@@ -608,24 +609,24 @@
     /* Padding for inner content (media/youtube overlays) */
     #media-source-overlay .setup-card.full-screen>div:not(.ob-actions),
     #youtube-url-overlay .setup-card.full-screen>div:not(.ob-actions) {
-        padding-left: 40px !important;
-        padding-right: 40px !important;
+        padding-left: 40px;
+        padding-right: 40px;
     }
 
     /* Override the mobile-specific padding dynamically but keep top/bottom */
     #media-source-overlay .setup-card.full-screen .ob-actions,
     #youtube-url-overlay .setup-card.full-screen .ob-actions {
-        background: transparent !important;
-        padding-left: 40px !important;
-        padding-right: 40px !important;
-        padding-bottom: 40px !important;
+        background: transparent;
+        padding-left: 40px;
+        padding-right: 40px;
+        padding-bottom: 40px;
     }
 
     /* YouTube URL overlay: keep buttons always visible, let middle content scroll */
     #youtube-url-overlay .setup-card.full-screen {
-        height: 100% !important;
-        max-height: 100% !important;
-        overflow: hidden !important;
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
     }
 
     #youtube-url-overlay .setup-card.full-screen .setup-join-area {
@@ -662,7 +663,7 @@
 
     .desktop-help-section {
         display: block;
-        margin-top: 32px !important;
+        margin-top: 32px;
     }
 
     button[data-tab="guide"] {
@@ -672,7 +673,7 @@
     /* Completely Flatten Layout for Desktop (No boxes, no dividers) */
     .section-group {
         background: transparent;
-        margin: 0 12px !important;
+        margin: 0 12px;
         box-shadow: none;
         border: none;
         border-radius: 0;
@@ -680,84 +681,84 @@
     }
 
     #tab-settings .channel-grid {
-        padding: 12px 20px 12px !important;
+        padding: 12px 20px 12px;
         /* Standardized for desktop */
     }
 
     .section-header-row {
-        border-bottom: none !important;
-        padding: 44px 20px 16px !important;
+        border-bottom: none;
+        padding: 44px 20px 16px;
         /* Symmetric 44px top start and 28px gap to content */
     }
 
     /* Role Selection: Match the default 44px top padding of other sections */
     #youtube-settings-disabled-wrap .section-group:first-of-type .section-header-row {
-        padding-top: 44px !important;
+        padding-top: 44px;
     }
 
     .section-title {
-        font-size: 17px !important;
-        font-weight: 700 !important;
-        color: var(--text-main) !important;
-        text-transform: none !important;
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text-main);
+        text-transform: none;
         /* Remove uppercase if it was applied */
-        letter-spacing: normal !important;
+        letter-spacing: normal;
     }
 
     .slider-wrap {
-        padding: 6px 20px !important;
+        padding: 6px 20px;
     }
 
     /* Enforce 44px bottom gap on desktop too */
     .section-group>*:last-child {
-        padding-bottom: 44px !important;
+        padding-bottom: 44px;
     }
 
     /* Align theme pill with section title on desktop */
     .theme-selector {
-        margin-left: 20px !important;
-        margin-right: 20px !important;
+        margin-left: 20px;
+        margin-right: 20px;
     }
 
     /* Align language pill with section title on desktop */
     .lang-selector {
-        margin-left: 20px !important;
-        margin-right: 20px !important;
+        margin-left: 20px;
+        margin-right: 20px;
     }
 
     /* Soften the settings text so title stands out */
     .slider-header {
-        font-weight: 500 !important;
-        color: var(--text-sub) !important;
-        margin-bottom: 8px !important;
+        font-weight: 500;
+        color: var(--text-sub);
+        margin-bottom: 8px;
         /* Bring text closer to its own slider line */
     }
 
     .slider-header>span {
-        color: var(--text-sub) !important;
+        color: var(--text-sub);
     }
 
     .slider-header .val-disp {
-        font-weight: 700 !important;
-        color: var(--primary) !important;
+        font-weight: 700;
+        color: var(--primary);
     }
 
     .help-block {
         background: transparent;
-        margin: 0 16px 16px !important;
-        padding: 16px !important;
+        margin: 0 16px 16px;
+        padding: 16px;
         border: none;
         box-shadow: none;
     }
 
     .playlist-ul {
-        margin: 0 16px !important;
+        margin: 0 16px;
     }
 
     /* Restore scrollbars for desktop bodies */
     .tab-body {
-        -ms-overflow-style: auto !important;
-        overflow-y: scroll !important;
+        -ms-overflow-style: auto;
+        overflow-y: scroll;
         scrollbar-gutter: stable;
     }
 
@@ -790,17 +791,17 @@
 
     /* Apply the exact same floaty scrollbar and layout-shift prevention to the Chat panel on Desktop, but without the 86px track margin because its header is outside the scroll area */
     .chat-drawer-messages {
-        -ms-overflow-style: auto !important;
-        overflow-y: scroll !important;
+        -ms-overflow-style: auto;
+        overflow-y: scroll;
         scrollbar-gutter: stable;
-        padding-left: 24px !important;
+        padding-left: 24px;
         /* 기본 여백 16px + 우측 투명 스크롤바 대칭용 물리적 여백 8px 추가 */
     }
 
     /* System messages: extend full-bleed accounting for asymmetric desktop padding (left 24px, right 16px) */
     .chat-group.system .chat-row {
-        width: calc(100% + 40px) !important;
-        margin: 0 -16px 0 -24px !important;
+        width: calc(100% + 40px);
+        margin: 0 -16px 0 -24px;
     }
 
     .chat-drawer-messages::-webkit-scrollbar {
@@ -868,11 +869,11 @@
 
     .play-action-buttons .file-select-btn {
         height: 60px;
-        width: 160px !important;
-        min-width: 160px !important;
+        width: 160px;
+        min-width: 160px;
         padding: 0 16px;
         border-radius: 20px;
-        flex: none !important;
+        flex: none;
         /* Defeat inline style flex:1 from html */
         justify-content: center;
         align-items: center;
@@ -880,7 +881,7 @@
 
     /* Bring back the text and align it nicely next to the icon */
     .play-action-buttons span {
-        display: block !important;
+        display: block;
         font-size: 14px;
         font-weight: 700;
     }
@@ -894,3 +895,4 @@
         fill: var(--text-main);
     }
 }
+} /* end @layer desktop */

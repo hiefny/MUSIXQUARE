@@ -113,6 +113,8 @@ function initKeyboardShortcuts(): void {
       if (!isPlaying) bus.emit('player:toggle-play');
     } else if (e.key === 's' || e.key === 'S') {
       if (isPlaying) bus.emit('player:toggle-play');
+    } else if (e.key === 'c' || e.key === 'C') {
+      bus.emit('ui:toggle-chat-drawer');
     }
   });
 

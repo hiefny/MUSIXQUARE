@@ -439,6 +439,8 @@ const en: Record<I18nKey, string> = {
   'player.play_speakers_html': 'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center speaker:</strong> Stereo (default) output</li><li><strong>Left speaker:</strong> L channel output</li><li><strong>Right speaker:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html': 'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music/video from your device</li><li><strong>YouTube (no channel split):</strong> Paste a link to add to the playlist</li><li><strong>Try the app:</strong> Test with a demo track</li></ul>',
   'help.need_help_html': '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Demo track info:</strong> Sean Pitaro - Passport [NCS Release]</li><li><strong>Other inquiries:</strong> musixentre@gmail.com</li></ul>',
+  'chat.peer_connected': '{{name}} joined',
+  'chat.peer_disconnected': '{{name}} left',
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'setup.brand_tagline_html': 'Listen together, anywhere<br>The perfect sound experience',
   'setup.invite_share_desc_html': 'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit code to connect.',

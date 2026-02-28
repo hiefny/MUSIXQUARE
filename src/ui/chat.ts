@@ -359,19 +359,6 @@ function initChatEventDelegation(): void {
   });
 }
 
-// ─── Emoji Insertion ─────────────────────────────────────────────
-
-function insertEmoji(emoji: string): void {
-  const input = document.getElementById('chat-input') as HTMLInputElement | null;
-  if (input) {
-    input.value += emoji;
-    input.focus();
-  }
-}
-
-// Expose globally for emoji picker buttons in HTML
-(window as unknown as Record<string, unknown>).insertEmoji = insertEmoji;
-
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initChat(): void {

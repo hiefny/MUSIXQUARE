@@ -1,4 +1,8 @@
-﻿html {
+﻿@layer base, desktop;
+
+@layer base {
+
+html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     /* Fill the full viewport (including safe areas with viewport-fit=cover).
@@ -1525,7 +1529,7 @@ input[type=range]:active::-moz-range-thumb {
 }
 
 .section-header-row {
-    padding: 44px 0 16px !important;
+    padding: 44px 0 16px;
     /* 44px Top gap | 16+12=28px Gap to first content */
     border-bottom: none;
     display: flex;
@@ -1539,7 +1543,7 @@ input[type=range]:active::-moz-range-thumb {
 }
 
 #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
-    padding-top: 56px !important;
+    padding-top: 56px;
     /* Increased gap from the divider above to avoid "sticking" feel */
 }
 
@@ -1565,7 +1569,7 @@ input[type=range]:active::-moz-range-thumb {
 
 /* Uniformly enforce 44px bottom gap for the visible end of every section */
 .section-group>*:last-child {
-    padding-bottom: 44px !important;
+    padding-bottom: 44px;
 }
 
 .section-row:last-child {
@@ -1880,12 +1884,12 @@ input[type=range].eq-slider:active::-moz-range-thumb {
    Sliders use tighter 6px padding (12px total gap) for a professional layout.
 */
 .slider-wrap {
-    padding: 6px 0 !important;
+    padding: 6px 0;
 }
 
 .eq-container,
 #tab-settings .channel-grid {
-    padding: 12px 0 !important;
+    padding: 12px 0;
 }
 
 /* Global Grid System: Used in both Settings and Setup/Onboarding */
@@ -2605,7 +2609,7 @@ body.overlay-open .bottom-nav {
 
 
 .setup-card {
-    padding: 32px 28px 24px !important;
+    padding: 32px 28px 24px;
     /* Slightly more balanced padding for fixed height */
 }
 
@@ -4802,3 +4806,17 @@ input:checked+.slider:before {
 .play-header-desktop {
     display: none;
 }
+
+/* ─── Accessibility: Reduced Motion ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+} /* end @layer base */

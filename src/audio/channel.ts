@@ -10,7 +10,6 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
-import type { ChannelMode } from '../types/index.ts';
 import {
   getMasterGain,
   getToneMerge,
@@ -22,6 +21,7 @@ import {
   getSurroundSplitter,
   getSurroundGain,
   initAudio,
+  safeDisconnect,
 } from './engine.ts';
 import { applySettings } from './effects.ts';
 
@@ -50,8 +50,8 @@ export function setChannelMode(mode: number): void {
   if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = 20000;
 
   // Reset routing
-  try { gL.disconnect(); } catch { /* expected */ }
-  try { gR.disconnect(); } catch { /* expected */ }
+  safeDisconnect(gL);
+  safeDisconnect(gR);
 
   // Reset gains
   gL.gain.value = 1;
@@ -92,7 +92,6 @@ export function setChannelMode(mode: number): void {
   }
 
   applySettings();
-  bus.emit('audio:channel-changed', mode as ChannelMode);
 }
 
 // ─── 7.1 Surround Mode ────────────────────────────────────────────
@@ -174,8 +173,8 @@ export function setSurroundChannel(idx: number): void {
     }
 
     // Force output to Dual Mono
-    try { gL.disconnect(); } catch { /* */ }
-    try { gR.disconnect(); } catch { /* */ }
+    safeDisconnect(gL);
+    safeDisconnect(gR);
     gL.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
     gL.gain.rampTo(1, 0.1);
@@ -191,7 +190,6 @@ export function setSurroundChannel(idx: number): void {
     log.warn('[Surround] setSurroundChannel error:', e);
   }
 
-  bus.emit('audio:channel-changed', idx as ChannelMode);
 }
 
 /**

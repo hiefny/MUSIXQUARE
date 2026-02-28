@@ -4,6 +4,10 @@
  *
  * Manages: Upstream relay connection, downstream data peers,
  * relay file serving, preload relay, OPFS catch-up streaming.
+ *
+ * NOTE: 현재 MAX_GUEST_SLOTS=3 직결 구조로 운영 중이며 릴레이는 비활성 상태.
+ * 호스트가 ASSIGN_DATA_SOURCE 메시지를 보내지 않으므로 이 모듈은 실행되지 않음.
+ * 추후 안정성 확보 후 4인 이상 지원 시 릴레이 시스템 검토 예정.
  */
 
 import { log } from '../core/log.ts';

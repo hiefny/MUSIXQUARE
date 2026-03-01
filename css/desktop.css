@@ -400,7 +400,7 @@
     /* --- Onboarding slider: enlarged when inside left panel --- */
     .desktop-diagram-area #ob-slider-area {
         width: 100%;
-        display: flex;
+        display: flex !important; /* override inline style="display:block" */
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -441,12 +441,12 @@
 
     /* --- Role SVG diagram: enlarged in left panel --- */
     .desktop-diagram-area .setup-graphic-container {
-        width: 100%;
-        max-width: none;
-        max-height: none;
-        height: auto;
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        height: auto !important;
         min-height: 0;
-        margin: 0;
+        margin: 0 !important;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -460,17 +460,17 @@
 
     /* --- Network guide diagrams: enlarged in left panel --- */
     .desktop-diagram-area .setup-guide-unified {
-        width: 100%;
-        display: flex;
+        width: 100% !important;
+        display: flex !important;
         flex-direction: column;
         align-items: center;
         gap: clamp(40px, 6vh, 72px);
-        margin: 0;
+        margin: 0 !important;
     }
 
     .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-        max-width: clamp(420px, 55vw, 680px);
-        height: clamp(100px, 16vh, 200px);
+        max-width: clamp(420px, 55vw, 680px) !important;
+        height: clamp(100px, 16vh, 200px) !important;
     }
 
     .desktop-diagram-area .setup-unified-item .setup-inner-desc {

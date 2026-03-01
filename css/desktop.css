@@ -653,11 +653,11 @@
     }
 
     /* Tab text switching (Desktop) */
-    .nav-text-desktop {
+    .nav-item .nav-text-desktop {
         display: inline;
     }
 
-    .nav-text-mobile {
+    .nav-item .nav-text-mobile {
         display: none;
     }
 

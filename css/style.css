@@ -4663,11 +4663,11 @@ input:checked+.slider:before {
 }
 
 /* Tab text switching (Mobile) */
-.nav-text-desktop {
+.nav-item .nav-text-desktop {
     display: none;
 }
 
-.nav-text-mobile {
+.nav-item .nav-text-mobile {
     display: block;
 }
 

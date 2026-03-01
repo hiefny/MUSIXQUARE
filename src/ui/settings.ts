@@ -158,8 +158,8 @@ function resetReverb(): void {
 // ─── Reverb Preset Chips ───────────────────────────────────────
 
 const REVERB_PRESETS: Record<string, { mix: number; decay: number; predelay: number }> = {
-  hall:  { mix: 50, decay: 3.5, predelay: 0.1 },
-  space: { mix: 50, decay: 7.0, predelay: 0.2 },
+  studio:  { mix: 30, decay: 1.0, predelay: 0.02 },
+  arena: { mix: 40, decay: 5.0, predelay: 0.12 },
 };
 
 function clearReverbChipActive(): void {

@@ -555,15 +555,15 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       bus.emit('ui:sync-reverb-preset', 'off');
       bus.emit('ui:show-toast', t('toast.reverb_type', { type: 'Off' }));
       return;
-    case 'hall':
-      setState('audio.reverbMix', 0.5);
-      setState('audio.reverbDecay', 3.5);
-      setState('audio.reverbPreDelay', 0.1);
+    case 'studio':
+      setState('audio.reverbMix', 0.3);
+      setState('audio.reverbDecay', 1.0);
+      setState('audio.reverbPreDelay', 0.02);
       break;
-    case 'space':
-      setState('audio.reverbMix', 0.5);
-      setState('audio.reverbDecay', 7.0);
-      setState('audio.reverbPreDelay', 0.2);
+    case 'arena':
+      setState('audio.reverbMix', 0.4);
+      setState('audio.reverbDecay', 5.0);
+      setState('audio.reverbPreDelay', 0.12);
       break;
     default:
       return;

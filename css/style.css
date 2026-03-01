@@ -1639,8 +1639,7 @@ input[type="range"] {
 .eq-container {
     display: flex;
     justify-content: space-between;
-    padding: 20px 0 30px;
-    /* Aligned with the 32px section margin */
+    padding: 0 0 30px;
     height: 200px;
 }
 
@@ -1770,7 +1769,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     padding: 6px 0;
 }
 
-.eq-container,
 #tab-settings .channel-grid {
     padding-top: 12px;
     padding-left: 0;

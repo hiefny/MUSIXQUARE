@@ -9,7 +9,8 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { setLanguageMode } from '../i18n/index.ts';
+import { setLanguageMode, t } from '../i18n/index.ts';
+import { getStandardRolePreset } from './player-controls.ts';
 
 // ─── Cached Listeners (for cleanup on reinit) ────────────────────
 let _themeChangeHandler: (() => void) | null = null;
@@ -67,6 +68,9 @@ function setChannel(mode: number): void {
   selectStandardChannelButton(mode);
   bus.emit('audio:set-channel-mode', mode);
 
+  const preset = getStandardRolePreset(mode);
+  bus.emit('ui:show-toast', t(preset.placementToastKey));
+
   // Show woofer cutoff slider only when subwoofer (mode 2) is selected
   const wooferCtrl = document.getElementById('woofer-cutoff-control');
   if (wooferCtrl) {
@@ -117,11 +121,6 @@ function updateAudioEffect(type: string, param: string, value: number, isPreview
   else if (type === 'cutoff') _setDisp('val-cutoff', value + ' Hz');
 
   bus.emit('audio:update-effect', type, param, value, isPreview);
-}
-
-function setPreamp(value: number, isPreview = false): void {
-  _setDisp('val-preamp', (value > 0 ? '+' : '') + value + 'dB');
-  bus.emit('audio:set-preamp', value, isPreview);
 }
 
 function setEQ(band: number, value: number, isPreview = false): void {
@@ -217,14 +216,65 @@ function syncReverbSlidersToPreset(type: string): void {
 function resetEQ(): void {
   bus.emit('audio:reset-eq');
   // Reset slider UI
-  const preamp = document.getElementById('preamp-slider') as HTMLInputElement | null;
-  if (preamp) preamp.value = '0';
-  _setDisp('val-preamp', '0dB');
   for (let i = 0; i < 5; i++) {
     const eq = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
     if (eq) eq.value = '0';
     _setDisp(`eq-val-${i}`, '0');
   }
+  clearEqChipActive();
+  document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
+  setEqSlidersVisible(false);
+}
+
+// ─── EQ Preset Chips ───────────────────────────────────────────
+
+const EQ_PRESETS: Record<string, number[]> = {
+  bright: [0, -2, 0, 4, 6],
+  warm:   [5, 3, 0, -2, -3],
+};
+
+function clearEqChipActive(): void {
+  document.querySelectorAll('#grid-eq .ch-opt').forEach(el => el.classList.remove('active'));
+}
+
+function setEqSlidersVisible(visible: boolean): void {
+  const area = document.getElementById('eq-sliders-area');
+  if (!area) return;
+  if (visible) {
+    area.classList.remove('collapsed');
+  } else {
+    area.classList.add('collapsed');
+  }
+}
+
+function syncEqSlidersToPreset(type: string): void {
+  clearEqChipActive();
+
+  if (type === 'off') {
+    document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
+    setEqSlidersVisible(false);
+    return;
+  }
+
+  if (type === 'advanced') {
+    document.querySelector('#grid-eq .ch-opt[data-eq-type="advanced"]')?.classList.add('active');
+    setEqSlidersVisible(true);
+    return;
+  }
+
+  const preset = EQ_PRESETS[type];
+  if (!preset) return;
+
+  // Update slider positions (for when user switches to Advanced later)
+  for (let i = 0; i < 5; i++) {
+    const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
+    if (slider) slider.value = String(preset[i]);
+    const v = preset[i];
+    _setDisp(`eq-val-${i}`, v > 0 ? `+${v}` : String(v));
+  }
+
+  document.querySelector(`#grid-eq .ch-opt[data-eq-type="${type}"]`)?.classList.add('active');
+  setEqSlidersVisible(false);
 }
 
 function setSurroundOn(on: boolean): void {
@@ -239,6 +289,7 @@ function setVBassOn(on: boolean): void {
   document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 20%, OFF: 0%
   bus.emit('audio:update-effect', 'vbass', 'mix', on ? 20 : 0, false);
+  if (on) bus.emit('ui:show-toast', t('toast.vbass_warning'));
 }
 
 // ─── Device List ─────────────────────────────────────────────────
@@ -401,11 +452,28 @@ export function initSettings(): void {
     syncReverbSlidersToPreset(type);
   });
 
-  // EQ
-  $on('btn-reset-eq', 'click', () => resetEQ());
-  $on('preamp-slider', 'input', function (this: HTMLInputElement) { setPreamp(Number(this.value), true); });
-  $on('preamp-slider', 'change', function (this: HTMLInputElement) { setPreamp(Number(this.value)); });
-  $on('preamp-slider', 'dblclick', () => { setPreamp(0); const el = document.getElementById('preamp-slider') as HTMLInputElement; if (el) el.value = '0'; });
+  // EQ preset grid
+  document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const type = opt.dataset.eqType!;
+      syncEqSlidersToPreset(type);
+      if (type === 'off') {
+        resetEQ();
+      } else if (type !== 'advanced') {
+        const preset = EQ_PRESETS[type];
+        if (preset) {
+          for (let i = 0; i < 5; i++) setEQ(i, preset[i]);
+        }
+      }
+    });
+  });
+
+  // Guest UI sync: when host changes EQ preset
+  bus.on('ui:sync-eq-preset', (type: string) => {
+    syncEqSlidersToPreset(type);
+  });
+
+  // EQ sliders
   for (let i = 0; i < 5; i++) {
     $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { setEQ(i, Number(this.value), true); });
     $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { setEQ(i, Number(this.value)); });

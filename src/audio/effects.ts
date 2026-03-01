@@ -553,7 +553,6 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
     case 'off':
       resetReverb();
       bus.emit('ui:sync-reverb-preset', 'off');
-      bus.emit('ui:show-toast', t('toast.reverb_type', { type: 'Off' }));
       return;
     case 'studio':
       setState('audio.reverbMix', 0.3);
@@ -570,7 +569,6 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
   }
   applySettings();
   bus.emit('ui:sync-reverb-preset', type);
-  bus.emit('ui:show-toast', t('toast.reverb_type', { type }));
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>): void {

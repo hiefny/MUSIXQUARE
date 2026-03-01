@@ -565,18 +565,30 @@
                 <div class="section-group">
                     <div class="section-header-row">
                         <span class="section-title" data-i18n="settings.eq_host_ctrl"></span>
-                        <button class="btn-action" style="padding:4px 12px; height:28px; font-size:11px;"
-                            id="btn-reset-eq" data-i18n="common.reset"></button>
                     </div>
-
-                    <!-- Preamp -->
-                    <div class="slider-wrap" id="preamp-control">
-                        <div class="slider-header">
-                            <span style="font-size:11px; font-weight:700; color:var(--text-sub);" data-i18n="settings.preamp"></span>
-                            <span class="val-disp" id="val-preamp" style="font-size:11px;">0dB</span>
+                    <div class="channel-grid" id="grid-eq">
+                        <div class="ch-opt" data-eq-type="bright">
+                            <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                <path d="M640-160v-440h160v440H640Zm0-480v-160h160v160H640Zm-240 480v-320h160v320H400Zm0-360v-160h160v160H400Zm-240 360v-200h160v200H160Zm0-240v-160h160v160H160Z" />
+                            </svg><span data-i18n="settings.eq_bright">Bright</span>
                         </div>
-                        <input type="range" id="preamp-slider" min="-12" max="12" value="0" aria-label="" data-i18n-aria-label="settings.preamp_gain">
+                        <div class="ch-opt" data-eq-type="warm">
+                            <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                <path d="M160-160v-440h160v440H160Zm0-480v-160h160v160H160Zm240 480v-320h160v320H400Zm0-360v-160h160v160H400Zm240 360v-200h160v200H640Zm0-240v-160h160v160H640Z" />
+                            </svg><span data-i18n="settings.eq_warm">Warm</span>
+                        </div>
+                        <div class="ch-opt" data-eq-type="advanced">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+                            </svg><span data-i18n="settings.eq_advanced">Advanced</span>
+                        </div>
+                        <div class="ch-opt active" data-eq-type="off">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
+                            </svg><span data-i18n="settings.eq_off">Off</span>
+                        </div>
                     </div>
+                    <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
                     <div class="eq-container">
                         <div class="eq-band">
                             <span class="eq-val" id="eq-val-0">0</span>
@@ -608,6 +620,7 @@
                                 aria-label="EQ 14kHz">
                             <span class="eq-label">14k</span>
                         </div>
+                    </div>
                     </div>
                 </div>
 

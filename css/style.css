@@ -1402,7 +1402,7 @@ input[type=range]:active::-moz-range-thumb {
 .section-group:last-of-type,
 #last-setting-section {
     border-bottom: none;
-    padding-bottom: 0;
+    padding-bottom: 44px;
 }
 
 /* Ensure children respect the rounded corners */
@@ -1450,6 +1450,16 @@ input[type=range]:active::-moz-range-thumb {
     text-transform: none;
     /* No uppercase for a more modern, minimal feel */
     letter-spacing: -0.5px;
+}
+
+.badge-host-ctrl {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-sub);
+    background: var(--surface-2);
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: -0.2px;
 }
 
 .section-row {
@@ -1609,10 +1619,19 @@ input[type="range"] {
                 opacity 0.25s ease;
 }
 
+.reverb-sliders-area {
+    padding-top: 24px;
+}
+
+.collapsible-slider.slider-wrap {
+    padding-top: 24px;
+}
+
 .reverb-sliders-area.collapsed,
 .collapsible-slider.collapsed {
     max-height: 0;
     opacity: 0;
+    padding-top: 0;
     pointer-events: none;
 }
 
@@ -1899,15 +1918,14 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 }
 
 /* Help Tab */
-.help-block {
-    background: transparent;
-    padding: 44px 0;
-    margin: 0 44px;
-    border-bottom: 1px dotted var(--surface-3);
+#tab-guide > .tab-header {
+    padding-bottom: 0;
 }
 
-.help-block:last-child {
-    border-bottom: none;
+.help-block {
+    background: transparent;
+    padding: 24px 0;
+    margin: 0 44px;
 }
 
 .help-title {

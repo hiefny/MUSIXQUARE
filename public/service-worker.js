@@ -34,7 +34,8 @@
 // v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
 // v91: Adapt APP_SHELL for Vite build — CSS/fonts/icons are now hashed in /assets/
 // v92: Filled tab bar + SEO + wake lock rollback
-const CACHE_VERSION = "v92";
+// v93: EQ preset grid + host-ctrl badge + toast fixes + spacing cleanup
+const CACHE_VERSION = "v93";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

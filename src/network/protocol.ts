@@ -115,18 +115,21 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
   if (downstreamDataPeers.length > 0 && (RELAYABLE_COMMANDS as string[]).includes(msgType)) {
     downstreamDataPeers.forEach(p => {
-      // Prevent infinite loop: do not relay back to sender
-      if (p.open && p !== conn) {
+      // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)
+      if (p.open && p.peer !== conn?.peer) {
         try { p.send(data); } catch { /* peer might have closed */ }
       }
     });
   }
 
   // 2. RELAY UPSTREAM (Operator requests from Downstream → Upstream)
+  //    Attach _originPeer so the host can verify the actual sender, not the relay.
   if (conn && conn !== hostConn) {
     if (msgType.startsWith('request-')) {
-      log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType}`);
-      sendToHost(data as AnyProtocolMsg);
+      const raw = data as Record<string, unknown>;
+      const forwarded = { ...raw, _originPeer: raw._originPeer || conn.peer };
+      log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`);
+      sendToHost(forwarded as unknown as AnyProtocolMsg);
     }
   }
 }
@@ -136,11 +139,13 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 /**
  * Check whether the peer behind `conn` has been granted Operator privileges.
  * Called by Host-side `request-*` handlers before executing commands.
+ * When `data` contains `_originPeer` (relay-forwarded), verify the original sender.
  */
-export function verifyOperator(conn: DataConnection): boolean {
-  if (!conn?.peer) return false;
+export function verifyOperator(conn: DataConnection, data?: Record<string, unknown>): boolean {
+  const peerId = (typeof data?._originPeer === 'string' && data._originPeer) || conn?.peer;
+  if (!peerId) return false;
   const connectedPeers = getState('network.connectedPeers');
-  const peer = connectedPeers.find(p => p.id === conn.peer);
+  const peer = connectedPeers.find(p => p.id === peerId);
   return !!(peer && peer.isOp);
 }
 

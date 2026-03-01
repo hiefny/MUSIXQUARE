@@ -905,7 +905,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host executes
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playback] Rejected request-play from non-OP: ${conn?.peer}`);
     return;
   }
@@ -920,11 +920,11 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   requestGlobalResyncDelayed();
 }
 
-function handleRequestPause(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestPause(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playback] Rejected request-pause from non-OP: ${conn?.peer}`);
     return;
   }
@@ -938,7 +938,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playback] Rejected request-seek from non-OP: ${conn?.peer}`);
     return;
   }
@@ -969,7 +969,7 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playback] Rejected request-skip-time from non-OP: ${conn?.peer}`);
     return;
   }

@@ -116,14 +116,17 @@ function collectSyncSample(data: Record<string, unknown>): void {
   const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
   const rtt = reqTs ? Date.now() - reqTs : Infinity;
 
+  const hostTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
+  const isPlaying = !!data.isPlaying;
+
   _syncSamples.push({
     sentAt: reqTs,
     rtt,
-    hostTime: data.time as number,
-    isPlaying: data.isPlaying as boolean,
+    hostTime,
+    isPlaying,
   });
 
-  log.debug(`[Sync] Sample ${_syncSamples.length}/${_syncSampleExpected}: RTT=${rtt}ms, hostTime=${(data.time as number).toFixed(2)}s`);
+  log.debug(`[Sync] Sample ${_syncSamples.length}/${_syncSampleExpected}: RTT=${rtt}ms, hostTime=${hostTime.toFixed(2)}s`);
 
   if (_syncSamples.length >= _syncSampleExpected) {
     applyBestSample();
@@ -290,9 +293,10 @@ function handleSyncResponse(data: Record<string, unknown>): void {
     if (rtt > 0) oneWayLatencySeconds = (rtt / 2) / 1000;
   }
 
+  const syncTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
   setState('sync.autoSyncOffset', oneWayLatencySeconds);
   bus.emit('sync:display-update');
-  bus.emit('sync:response', data.time as number, data.isPlaying as boolean, oneWayLatencySeconds);
+  bus.emit('sync:response', syncTime, !!data.isPlaying, oneWayLatencySeconds);
 }
 
 function handleGlobalResyncRequest(): void {
@@ -306,21 +310,24 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guest ignores
 
-  if (conn && conn.open) {
-    bus.emit('sync:get-position', (position: number) => {
-      const currentState = getState('appState');
-      const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
-                        currentState === APP_STATE.PLAYING_VIDEO ||
-                        currentState === APP_STATE.PLAYING_YOUTUBE;
+  if (!conn || !conn.open) return;
 
+  bus.emit('sync:get-position', (position: number) => {
+    if (!conn.open) return; // guard against close during callback
+    const currentState = getState('appState');
+    const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
+                      currentState === APP_STATE.PLAYING_VIDEO ||
+                      currentState === APP_STATE.PLAYING_YOUTUBE;
+
+    try {
       conn.send({
         type: MSG.SYNC_RESPONSE,
         time: position,
         isPlaying,
         reqTs: (data.ts as number) || 0,
       });
-    });
-  }
+    } catch { /* connection closed */ }
+  });
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────

@@ -420,7 +420,7 @@ export function initRelay(): void {
 
     // Try to match current file
     const isMatchCurrent = currentFileBlob && (!reqName || (meta && meta.name === reqName));
-    // Try to match preloaded file
+    // Try to match preloaded file (index match → name match → implicit current-track match)
     const isMatchPreload = nextFileBlob && (
       (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
       (reqName && nextMeta?.name === reqName) ||
@@ -486,6 +486,16 @@ export function initRelay(): void {
       sessionId,
       requestId: `${conn.peer}|recovery`,
     });
+  });
+
+  // Handle OPFS read failure during recovery serving
+  bus.on('opfs:read-error', (data: unknown) => {
+    const d = data as Record<string, unknown>;
+    if (!d) return;
+    const requestId = (d.requestId as string) || '';
+    if (!requestId.endsWith('|recovery')) return;
+    const peerId = requestId.split('|')[0];
+    log.warn(`[Relay Recovery] OPFS read failed for ${peerId}: ${d.error || 'unknown'}`);
   });
 
   // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump

@@ -65,11 +65,9 @@ export function registerServiceWorker(): void {
                 dismissible: true,
               });
 
-              // Activate waiting worker regardless
-              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-
-              // Reload only if user clicked OK
+              // Activate + reload only if user clicked OK
               if (result && result.action === 'ok') {
+                if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                 if (!_swReloading) {
                   _swReloading = true;
                   sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));

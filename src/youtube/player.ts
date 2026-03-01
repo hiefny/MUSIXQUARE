@@ -458,11 +458,11 @@ function handleYouTubePlay(data: Record<string, unknown>): void {
   loadYouTubeVideo(videoId, playlistId, autoplay ?? false, subIndex ?? 0);
 }
 
-function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-play from non-OP: ${conn?.peer}`);
     return;
   }
@@ -477,11 +477,11 @@ function handleRequestYouTubePlay(_data: Record<string, unknown>, conn: DataConn
   }
 }
 
-function handleRequestYouTubePause(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-pause from non-OP: ${conn?.peer}`);
     return;
   }
@@ -500,7 +500,7 @@ function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataCo
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-sub-seek from non-OP: ${conn?.peer}`);
     return;
   }

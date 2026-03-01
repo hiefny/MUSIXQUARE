@@ -595,11 +595,11 @@ function handleVBassMsg(data: Record<string, unknown>): void {
 
 // ─── Operator Request Handlers (Host-side) ──────────────────────
 
-function handleRequestEQReset(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);
     return;
   }
@@ -608,11 +608,11 @@ function handleRequestEQReset(_data: Record<string, unknown>, conn: DataConnecti
   broadcast({ type: MSG.EQ_RESET });
 }
 
-function handleRequestReverbReset(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestReverbReset(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Effects] Rejected request-reverb-reset from non-OP: ${conn?.peer}`);
     return;
   }

@@ -371,7 +371,7 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-track-change from non-OP: ${conn?.peer}`);
     return;
   }
@@ -385,22 +385,22 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
   playTrack(index);
 }
 
-function handleRequestNextTrack(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-next-track from non-OP: ${conn?.peer}`);
     return;
   }
   playNextTrack();
 }
 
-function handleRequestPrevTrack(_data: Record<string, unknown>, conn: DataConnection): void {
+function handleRequestPrevTrack(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-prev-track from non-OP: ${conn?.peer}`);
     return;
   }
@@ -411,7 +411,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn)) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);
     return;
   }

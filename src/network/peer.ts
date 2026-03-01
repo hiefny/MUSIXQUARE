@@ -363,7 +363,12 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     // Detect local vs remote for this guest after ICE stabilizes
     setTimeout(async () => {
       const type = await detectConnectionType(conn);
-      peerObj.connectionType = type;
+      const peers = getState('network.connectedPeers');
+      const livePeer = peers.find(p => p.id === peerId);
+      if (livePeer) {
+        livePeer.connectionType = type;
+        setState('network.connectedPeers', [...peers]);
+      }
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
     }, 1500);

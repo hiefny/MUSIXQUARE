@@ -145,9 +145,9 @@ export function setSurroundChannel(idx: number): void {
   const subFreq = getState('audio.subFreq');
 
   try {
-    sGain.disconnect();
+    safeDisconnect(sGain);
     sGain.connect(preampNode);
-    splitter.disconnect();
+    safeDisconnect(splitter);
 
     // 5.1/7.1 compatibility routing
     if (idx === 6) {

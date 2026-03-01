@@ -332,9 +332,9 @@
     }
 
     .desktop-step-header p {
-        font-size: clamp(13px, 1.1vw, 16px);
+        font-size: clamp(14px, 1.1vw, 16px);
         color: var(--text-sub);
-        opacity: 0.55;
+        opacity: 0.75;
         line-height: 1.5;
     }
 
@@ -404,6 +404,20 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        transform: scale(1);
+        transform-origin: center center;
+    }
+
+    @media (min-height: 750px) {
+        .desktop-diagram-area #ob-slider-area {
+            transform: scale(1.1);
+        }
+    }
+
+    @media (min-height: 900px) {
+        .desktop-diagram-area #ob-slider-area {
+            transform: scale(1.2);
+        }
     }
 
     .desktop-diagram-area .ob-slider-viewport {

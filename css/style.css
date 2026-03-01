@@ -408,11 +408,10 @@ header.loading .header-loading-text {
 /* Update Header Right to be relative or fixed depending on need */
 /* In the HTML update, we moved .header-right inside header, so we adjust CSS */
 .header-right {
-    /* Reset fixed positioning since it's now inside flex header */
-    position: relative !important;
-    top: auto !important;
-    right: auto !important;
-    transform: none !important;
+    position: relative;
+    top: auto;
+    right: auto;
+    transform: none;
     z-index: 5;
 
     display: flex;
@@ -672,14 +671,14 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     justify-content: center;
     align-items: center;
     border-radius: 50%;
-    background: transparent !important;
+    background: transparent;
 }
 
 #visualizerCanvas {
     width: 100%;
     height: 100%;
     border-radius: 50%;
-    background: transparent !important;
+    background: transparent;
 }
 
 .video-wrapper {
@@ -742,7 +741,7 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 
 /* Mode Toggle */
 body.mode-video .vinyl-wrapper {
-    display: none !important;
+    display: none;
 }
 
 body.mode-video .video-wrapper {
@@ -1392,7 +1391,7 @@ input[type=range]:active::-moz-range-thumb {
     background: transparent;
     border-radius: 0;
     margin: 0 44px;
-    padding: 0 !important;
+    padding: 0;
     border-bottom: 1px dotted var(--surface-3);
 }
 
@@ -1463,8 +1462,9 @@ input[type=range]:active::-moz-range-thumb {
     font-weight: 500;
 }
 
-/* Uniformly enforce 44px bottom gap for the visible end of every section */
-.section-group>*:last-child {
+/* Uniformly enforce 44px bottom gap for the visible end of every section.
+   Pill selectors (.theme-selector, .lang-selector) use margin-bottom: 44px instead. */
+.section-group>*:last-child:not(.theme-selector):not(.lang-selector) {
     padding-bottom: 44px;
 }
 
@@ -1504,18 +1504,12 @@ input[type="range"] {
 }
 
 /* Theme Selector */
-.section-group>.theme-selector:last-child {
-    padding-bottom: 4px !important;
-}
-
-.theme-selector {
+.section-group .theme-selector {
     display: flex;
     background: var(--surface-2);
-    border-radius: 9999px !important;
-    padding: 4px !important;
-    /* overrides last-child 44px padding-bottom causing huge height */
+    border-radius: 9999px;
+    padding: 4px;
     margin: 12px 0 44px;
-    /* compensates for padding loss */
     gap: 4px;
     position: relative;
 }
@@ -1561,18 +1555,12 @@ input[type="range"] {
 
 
 /* Language Selector */
-.section-group>.lang-selector:last-child {
-    padding-bottom: 4px !important;
-}
-
-.lang-selector {
+.section-group .lang-selector {
     display: flex;
     background: var(--surface-2);
-    border-radius: 9999px !important;
-    padding: 4px !important;
-    /* overrides last-child 44px padding-bottom causing huge height */
+    border-radius: 9999px;
+    padding: 4px;
     margin: 12px 0 44px;
-    /* compensates for padding loss */
     gap: 4px;
     position: relative;
 }
@@ -1811,9 +1799,9 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 .ch-opt.active,
 .ch-opt.selected {
-    background: rgba(var(--primary-rgb), 0.08) !important;
-    border-color: var(--primary) !important;
-    border-width: 2px !important;
+    background: rgba(var(--primary-rgb), 0.08);
+    border-color: var(--primary);
+    border-width: 2px;
     color: var(--primary);
     box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);
 }
@@ -1994,7 +1982,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
 .nav-blur-halo {
-    display: none !important;
+    display: none;
 }
 
 /* Light Mode */
@@ -2365,9 +2353,9 @@ body:has(#youtube-url-overlay.active) header {
 body:has(#setup-overlay.active) .bottom-nav,
 body:has(#media-source-overlay.active) .bottom-nav,
 body:has(#youtube-url-overlay.active) .bottom-nav {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    z-index: 1 !important;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
     transform: translateY(20px);
 }
 
@@ -2377,9 +2365,9 @@ body.overlay-open header {
 }
 
 body.overlay-open .bottom-nav {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    z-index: 1 !important;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
     transform: translateY(20px);
 }
 
@@ -2451,7 +2439,7 @@ body.overlay-open .bottom-nav {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-top: 0 !important;
+    padding-top: 0;
     width: 100%;
     flex-direction: column;
 }
@@ -2762,7 +2750,7 @@ body.overlay-open .bottom-nav {
     margin-bottom: 56px;
     text-align: left;
     flex: none;
-    padding-top: 0 !important;
+    padding-top: 0;
 }
 
 .setup-header-text h2 {
@@ -2933,76 +2921,6 @@ body.overlay-open .bottom-nav {
     border-radius: 8px;
 }
 
-/* Mini Slider Arrows */
-.setup-inner-arrow {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%) !important;
-    width: 44px;
-    height: 44px;
-    background: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--primary);
-    cursor: pointer;
-    z-index: 50;
-
-    /* Aggressive Reset matching ob-arrow */
-    appearance: none;
-    -webkit-appearance: none;
-    border: none !important;
-    outline: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background-color: rgba(var(--primary-rgb, 0, 122, 255), 0.1);
-    background-clip: padding-box;
-    transition: background 0.2s, color 0.2s;
-}
-
-.setup-inner-arrow:hover {
-    background: var(--primary);
-    color: white;
-    transform: translateY(-50%) !important;
-}
-
-.setup-inner-arrow:active {
-    transform: translateY(-50%) scale(0.95) !important;
-}
-
-.setup-inner-arrow svg {
-    display: block;
-    width: 24px;
-    height: 24px;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    fill: none;
-    pointer-events: none;
-}
-
-.setup-inner-arrow.left {
-    left: 8px;
-    /* Move inside to prevent clipping */
-}
-
-.setup-inner-arrow.right {
-    right: 8px;
-    /* Move inside to prevent clipping */
-}
-
-/* Optical Centering Fix */
-.setup-inner-arrow.left svg {
-    margin-right: 2px;
-}
-
-.setup-inner-arrow.right svg {
-    margin-left: 2px;
-}
-
 /* Role Selection Grid Specifics (Setup Overlay) */
 #setup-role-grid.channel-grid {
     padding: 0 8px;
@@ -3152,8 +3070,8 @@ body.overlay-open .bottom-nav {
     font-family: inherit;
     font-variant-numeric: tabular-nums;
     transition: border-bottom-color 0.3s ease;
-    outline: none !important;
-    box-shadow: none !important;
+    outline: none;
+    box-shadow: none;
 }
 
 .setup-join-input::placeholder {
@@ -3163,8 +3081,8 @@ body.overlay-open .bottom-nav {
 
 .setup-join-input:focus {
     border-bottom-color: var(--primary);
-    outline: none !important;
-    box-shadow: none !important;
+    outline: none;
+    box-shadow: none;
 }
 
 .setup-code-box {
@@ -3991,14 +3909,14 @@ input:checked+.slider:before {
 
 /* Redesign: When bubble contains YouTube, strip its own background/padding */
 .chat-bubble:has(.chat-youtube-btn) {
-    background: transparent !important;
-    padding: 0 !important;
+    background: transparent;
+    padding: 0;
 }
 
 /* Fallback for browsers without :has() */
 .chat-bubble.has-youtube {
-    background: transparent !important;
-    padding: 0 !important;
+    background: transparent;
+    padding: 0;
 }
 
 .chat-sender {
@@ -4012,9 +3930,9 @@ input:checked+.slider:before {
 
 /* System messages — full-width notice style */
 .chat-group.system {
-    align-self: stretch !important;
-    max-width: 100% !important;
-    align-items: stretch !important;
+    align-self: stretch;
+    max-width: 100%;
+    align-items: stretch;
 }
 
 .chat-group.system .chat-sender {
@@ -4083,21 +4001,20 @@ input:checked+.slider:before {
 }
 
 .chat-input-wrapper:focus-within {
-    border-bottom-color: var(--primary) !important;
+    border-bottom-color: var(--primary);
 }
 
 .chat-input {
     flex: 1;
-    background: none !important;
-    border: none !important;
-    border-radius: 0 !important;
+    background: none;
+    border: none;
+    border-radius: 0;
     padding: 10px 4px;
-    /* Symmetrical padding for true center alignment */
     font-size: 16px;
     font-weight: 500;
     color: var(--text-main);
-    box-shadow: none !important;
-    outline: none !important;
+    box-shadow: none;
+    outline: none;
 }
 
 .chat-input::placeholder {
@@ -4575,9 +4492,9 @@ input:checked+.slider:before {
 /* Smaller Sync/Media Buttons for Main Screen (Match Chat Button) */
 #btn-sync,
 #btn-media-source {
-    height: 56px !important;
-    padding: 0 20px !important;
-    font-size: 14px !important;
+    height: 56px;
+    padding: 0 20px;
+    font-size: 14px;
     gap: 12px;
     display: flex;
     align-items: center;
@@ -4596,14 +4513,13 @@ input:checked+.slider:before {
     width: 20px;
     height: 20px;
     fill: currentColor;
-    margin: 0 !important;
-    /* Remove any default margins */
+    margin: 0;
 }
 
 #btn-sync span,
 #btn-media-source span {
-    font-size: 14px !important;
-    font-weight: 600 !important;
+    font-size: 14px;
+    font-weight: 600;
     color: currentColor;
 }
 
@@ -4670,7 +4586,7 @@ input:checked+.slider:before {
 
 .graphic-speaker.active .spk-driver {
     fill: var(--primary);
-    stroke: none !important;
+    stroke: none;
 }
 
 .desktop-help-section {

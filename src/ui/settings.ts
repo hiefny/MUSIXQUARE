@@ -51,11 +51,31 @@ export function selectStandardChannelButton(mode: number): void {
   all.forEach(e => e.classList.remove('active'));
   const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
   if (el) el.classList.add('active');
+
+  // Sync woofer cutoff slider visibility
+  const wooferCtrl = document.getElementById('woofer-cutoff-control');
+  if (wooferCtrl) {
+    if (mode === 2) {
+      wooferCtrl.classList.remove('collapsed');
+    } else {
+      wooferCtrl.classList.add('collapsed');
+    }
+  }
 }
 
 function setChannel(mode: number): void {
   selectStandardChannelButton(mode);
   bus.emit('audio:set-channel-mode', mode);
+
+  // Show woofer cutoff slider only when subwoofer (mode 2) is selected
+  const wooferCtrl = document.getElementById('woofer-cutoff-control');
+  if (wooferCtrl) {
+    if (mode === 2) {
+      wooferCtrl.classList.remove('collapsed');
+    } else {
+      wooferCtrl.classList.add('collapsed');
+    }
+  }
 }
 
 // ─── Value Display Helpers ────────────────────────────────────────
@@ -95,8 +115,6 @@ function updateAudioEffect(type: string, param: string, value: number, isPreview
   // Update value display
   if (type === 'reverb') formatReverbValDisp(param, value);
   else if (type === 'cutoff') _setDisp('val-cutoff', value + ' Hz');
-  else if (type === 'stereo') _setDisp('val-width', value + '%');
-  else if (type === 'vbass') _setDisp('val-vbass', value + '%');
 
   bus.emit('audio:update-effect', type, param, value, isPreview);
 }
@@ -131,6 +149,69 @@ function resetReverb(): void {
   _setDisp('val-rvb-predelay', '0.1s');
   _setDisp('val-rvb-lowcut', '20Hz');
   _setDisp('val-rvb-highcut', '20.0kHz');
+  // Clear chip active state + hide sliders, activate Off
+  clearReverbChipActive();
+  document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
+  setReverbSlidersVisible(false);
+}
+
+// ─── Reverb Preset Chips ───────────────────────────────────────
+
+const REVERB_PRESETS: Record<string, { mix: number; decay: number; predelay: number }> = {
+  hall:  { mix: 50, decay: 3.5, predelay: 0.1 },
+  space: { mix: 50, decay: 7.0, predelay: 0.2 },
+};
+
+function clearReverbChipActive(): void {
+  document.querySelectorAll('#grid-reverb .ch-opt').forEach(el => el.classList.remove('active'));
+}
+
+function setReverbSlidersVisible(visible: boolean): void {
+  const area = document.getElementById('reverb-sliders-area');
+  if (!area) return;
+  if (visible) {
+    area.classList.remove('collapsed');
+  } else {
+    area.classList.add('collapsed');
+  }
+}
+
+function syncReverbSlidersToPreset(type: string): void {
+  clearReverbChipActive();
+
+  if (type === 'off') {
+    // Off: reset reverb, hide sliders
+    document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
+    setReverbSlidersVisible(false);
+    return;
+  }
+
+  if (type === 'advanced') {
+    // Advanced: show sliders, mark chip active
+    document.querySelector('#grid-reverb .ch-opt[data-rvb-type="advanced"]')?.classList.add('active');
+    setReverbSlidersVisible(true);
+    return;
+  }
+
+  const preset = REVERB_PRESETS[type];
+  if (!preset) return;
+
+  // Update slider positions (for when user switches to Advanced later)
+  const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
+  const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
+  const predelaySlider = document.getElementById('reverb-predelay-slider') as HTMLInputElement | null;
+  if (mixSlider) mixSlider.value = String(preset.mix);
+  if (decaySlider) decaySlider.value = String(preset.decay);
+  if (predelaySlider) predelaySlider.value = String(preset.predelay);
+
+  // Update value displays
+  formatReverbValDisp('mix', preset.mix);
+  formatReverbValDisp('decay', preset.decay);
+  formatReverbValDisp('predelay', preset.predelay);
+
+  // Update chip active state + hide sliders
+  document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${type}"]`)?.classList.add('active');
+  setReverbSlidersVisible(false);
 }
 
 function resetEQ(): void {
@@ -146,18 +227,18 @@ function resetEQ(): void {
   }
 }
 
-function resetStereo(): void {
-  bus.emit('audio:reset-stereo');
-  const el = document.getElementById('width-slider') as HTMLInputElement | null;
-  if (el) el.value = '100';
-  _setDisp('val-width', '100%');
+function setSurroundOn(on: boolean): void {
+  document.querySelectorAll('#grid-surround .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  // ON: 150%, OFF: 100%
+  bus.emit('audio:update-effect', 'stereo', 'mix', on ? 150 : 100, false);
 }
 
-function resetVBass(): void {
-  bus.emit('audio:reset-vbass');
-  const el = document.getElementById('vbass-slider') as HTMLInputElement | null;
-  if (el) el.value = '0';
-  _setDisp('val-vbass', '0%');
+function setVBassOn(on: boolean): void {
+  document.querySelectorAll('#grid-vbass .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  // ON: 20%, OFF: 0%
+  bus.emit('audio:update-effect', 'vbass', 'mix', on ? 20 : 0, false);
 }
 
 // ─── Device List ─────────────────────────────────────────────────
@@ -288,8 +369,20 @@ export function initSettings(): void {
   $on('cutoff-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', Number(this.value)); });
   $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', 120); this.value = '120'; });
 
-  // Reverb
-  $on('btn-reset-reverb', 'click', () => resetReverb());
+  // Reverb preset grid
+  document.querySelectorAll<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type]').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const type = opt.dataset.rvbType!;
+      syncReverbSlidersToPreset(type);
+      // Off resets reverb; Hall/Space apply preset; Advanced is UI-only
+      if (type === 'off') {
+        bus.emit('audio:reverb-type-change', 'off');
+      } else if (type !== 'advanced') {
+        bus.emit('audio:reverb-type-change', type);
+      }
+    });
+  });
+
   const reverbSliders = [
     { id: 'reverb-slider', param: 'mix', resetVal: 0 },
     { id: 'reverb-decay-slider', param: 'decay', resetVal: 5.0 },
@@ -303,6 +396,11 @@ export function initSettings(): void {
     $on(id, 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, resetVal); this.value = String(resetVal); });
   });
 
+  // Guest UI sync: when host changes reverb preset
+  bus.on('ui:sync-reverb-preset', (type: string) => {
+    syncReverbSlidersToPreset(type);
+  });
+
   // EQ
   $on('btn-reset-eq', 'click', () => resetEQ());
   $on('preamp-slider', 'input', function (this: HTMLInputElement) { setPreamp(Number(this.value), true); });
@@ -314,17 +412,15 @@ export function initSettings(): void {
     $on(`eq-slider-${i}`, 'dblclick', () => { setEQ(i, 0); const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement; if (el) el.value = '0'; });
   }
 
-  // Stereo Width
-  $on('btn-reset-stereo', 'click', () => resetStereo());
-  $on('width-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', Number(this.value), true); });
-  $on('width-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('stereo', 'mix', Number(this.value)); });
-  $on('width-slider', 'dblclick', () => resetStereo());
+  // Virtual Surround ON/OFF grid
+  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-toggle]').forEach(opt => {
+    opt.addEventListener('click', () => setSurroundOn(opt.dataset.toggle === 'on'));
+  });
 
-  // Virtual Bass
-  $on('btn-reset-vbass', 'click', () => resetVBass());
-  $on('vbass-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', Number(this.value), true); });
-  $on('vbass-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('vbass', 'mix', Number(this.value)); });
-  $on('vbass-slider', 'dblclick', () => { updateAudioEffect('vbass', 'mix', 0); const el = document.getElementById('vbass-slider') as HTMLInputElement; if (el) el.value = '0'; });
+  // Virtual Bass ON/OFF grid
+  document.querySelectorAll<HTMLElement>('#grid-vbass .ch-opt[data-toggle]').forEach(opt => {
+    opt.addEventListener('click', () => setVBassOn(opt.dataset.toggle === 'on'));
+  });
 
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));

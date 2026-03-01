@@ -21,6 +21,27 @@ html.standalone body {
     overflow: hidden;
 }
 
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 16px;
+    z-index: 99999;
+    padding: 12px 24px;
+    background: var(--primary, #3b82f6);
+    color: #fff;
+    border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: top 0.2s ease;
+}
+
+.skip-link:focus {
+    top: 0;
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
 :root {
     /* Palette - Deep & Clean & Flat */
     --bg: #121212;
@@ -33,6 +54,8 @@ html.standalone body {
     --divider: var(--surface-2);
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
+    --accent: var(--primary);
+    --accent-rgb: var(--primary-rgb);
     --text-main: #ffffff;
     --text-sub: #a1a1aa;
     --text-muted: #52525b;
@@ -127,6 +150,8 @@ html[data-theme="light"] body {
     --divider: var(--surface-3);
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
+    --accent: var(--primary);
+    --accent-rgb: var(--primary-rgb);
     --text-main: #212529;
     /* Contrast dark text */
     --text-sub: #495057;
@@ -1408,9 +1433,9 @@ input[type=range]:active::-moz-range-thumb {
     align-items: center;
 }
 
-/* Target the very first section in Settings (Theme) to bring it closer to the top/invite area */
-#tab-settings .section-group:first-of-type .section-header-row {
-    padding-top: 24px !important;
+/* Target only the very first section (Language) directly inside .tab-body */
+#tab-settings > .tab-body > .section-group:first-of-type .section-header-row {
+    padding-top: 24px;
 }
 
 #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
@@ -1591,36 +1616,20 @@ input[type="range"] {
     color: var(--text-main);
 }
 
-/* Reverb Type Chips */
-.reverb-list {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 0 20px 20px;
-    scrollbar-width: none;
+.reverb-sliders-area,
+.collapsible-slider {
+    overflow: hidden;
+    max-height: 500px;
+    opacity: 1;
+    transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.25s ease;
 }
 
-.reverb-list::-webkit-scrollbar {
-    display: none;
-}
-
-.rvb-chip {
-    flex: 0 0 auto;
-    padding: 8px 16px;
-    border-radius: 100px;
-    background: var(--surface-2);
-    color: var(--text-sub);
-    font-size: 13px;
-    font-weight: 600;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.rvb-chip.active {
-    background: var(--surface-1);
-    color: var(--primary);
-    border-color: var(--primary);
+.reverb-sliders-area.collapsed,
+.collapsible-slider.collapsed {
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 /* Graphic EQ */
@@ -1760,7 +1769,9 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 .eq-container,
 #tab-settings .channel-grid {
-    padding: 12px 0;
+    padding-top: 12px;
+    padding-left: 0;
+    padding-right: 0;
 }
 
 /* Global Grid System: Used in both Settings and Setup/Onboarding */

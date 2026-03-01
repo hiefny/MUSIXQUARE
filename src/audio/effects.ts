@@ -396,6 +396,12 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
   }
 });
 
+/** Reverb preset type change from UI chip */
+bus.on('audio:reverb-type-change', (type: string) => {
+  handleReverbTypeMsg({ value: type });
+  _broadcastOrRequestSetting(MSG.REVERB_TYPE, type as unknown as number);
+});
+
 /** Reset handlers — with OP/Host routing */
 bus.on('audio:reset-reverb', () => {
   const hostConn = getState('network.hostConn');
@@ -544,15 +550,18 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
   if (!data.value) return;
   const type = String(data.value);
   switch (type) {
-    case 'room':
-      setState('audio.reverbDecay', 1.5);
-      setState('audio.reverbPreDelay', 0.05);
-      break;
+    case 'off':
+      resetReverb();
+      bus.emit('ui:sync-reverb-preset', 'off');
+      bus.emit('ui:show-toast', t('toast.reverb_type', { type: 'Off' }));
+      return;
     case 'hall':
+      setState('audio.reverbMix', 0.5);
       setState('audio.reverbDecay', 3.5);
       setState('audio.reverbPreDelay', 0.1);
       break;
     case 'space':
+      setState('audio.reverbMix', 0.5);
       setState('audio.reverbDecay', 7.0);
       setState('audio.reverbPreDelay', 0.2);
       break;
@@ -560,6 +569,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       return;
   }
   applySettings();
+  bus.emit('ui:sync-reverb-preset', type);
   bus.emit('ui:show-toast', t('toast.reverb_type', { type }));
 }
 

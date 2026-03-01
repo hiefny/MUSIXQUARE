@@ -249,6 +249,7 @@ export interface EventMap {
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
   'audio:set-preamp': [value: number, isPreview?: boolean];
   'audio:set-eq': [band: number, value: number, isPreview?: boolean];
+  'audio:reverb-type-change': [type: string];
   'audio:reset-reverb': [];
   'audio:reset-eq': [];
   'audio:reset-stereo': [];
@@ -276,6 +277,7 @@ export interface EventMap {
   'playlist:play-track': [index: number];
 
   // ── UI ────────────────────────────────────────────────────────────
+  'ui:sync-reverb-preset': [type: string];
   'ui:show-toast': [message: string];
   'ui:show-loader': [visible: boolean, label?: string];
   'ui:update-loader': [percent: number];

@@ -4662,15 +4662,6 @@ input:checked+.slider:before {
     stroke: none !important;
 }
 
-/* Tab text switching (Mobile) */
-.nav-item .nav-text-desktop {
-    display: none;
-}
-
-.nav-item .nav-text-mobile {
-    display: block;
-}
-
 .desktop-help-section {
     display: none;
 }

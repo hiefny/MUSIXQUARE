@@ -43,7 +43,6 @@ const en: Record<I18nKey, string> = {
   'nav.home': 'Home',
   'nav.playlist': 'Playlist',
   'nav.settings': 'Settings',
-  'nav.settings_help': 'Settings · Help',
   'nav.help': 'Help',
   'nav.go_home': 'Go to Home',
 

@@ -652,15 +652,6 @@
         object-fit: cover;
     }
 
-    /* Tab text switching (Desktop) */
-    .nav-item .nav-text-desktop {
-        display: inline;
-    }
-
-    .nav-item .nav-text-mobile {
-        display: none;
-    }
-
     .desktop-help-section {
         display: block;
         margin-top: 32px;

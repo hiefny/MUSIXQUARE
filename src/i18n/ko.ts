@@ -41,7 +41,6 @@ const ko = {
   'nav.home': '메인',
   'nav.playlist': '재생목록',
   'nav.settings': '설정',
-  'nav.settings_help': '설정 · 도움말',
   'nav.help': '도움말',
   'nav.go_home': '메인 화면으로 이동',
 

@@ -869,11 +869,11 @@
 
     .play-action-buttons .file-select-btn {
         height: 60px;
-        width: 160px;
-        min-width: 160px;
+        width: 160px !important;
+        min-width: 160px !important;
         padding: 0 16px;
         border-radius: 20px;
-        flex: none;
+        flex: none !important;
         /* Defeat inline style flex:1 from html */
         justify-content: center;
         align-items: center;

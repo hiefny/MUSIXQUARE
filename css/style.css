@@ -1391,7 +1391,7 @@ input[type=range]:active::-moz-range-thumb {
     background: transparent;
     border-radius: 0;
     margin: 0 44px;
-    padding: 0;
+    padding: 0 0 44px;
     border-bottom: 1px dotted var(--surface-3);
 }
 
@@ -1402,6 +1402,7 @@ input[type=range]:active::-moz-range-thumb {
 .section-group:last-of-type,
 #last-setting-section {
     border-bottom: none;
+    padding-bottom: 0;
 }
 
 /* Ensure children respect the rounded corners */
@@ -1462,11 +1463,6 @@ input[type=range]:active::-moz-range-thumb {
     font-weight: 500;
 }
 
-/* Uniformly enforce 44px bottom gap for the visible end of every section.
-   Pill selectors (.theme-selector, .lang-selector) use margin-bottom: 44px instead. */
-.section-group>*:last-child:not(.theme-selector):not(.lang-selector) {
-    padding-bottom: 44px;
-}
 
 .section-row:last-child {
     border-bottom: none;
@@ -1509,7 +1505,7 @@ input[type="range"] {
     background: var(--surface-2);
     border-radius: 9999px;
     padding: 4px;
-    margin: 12px 0 44px;
+    margin: 12px 0 0;
     gap: 4px;
     position: relative;
 }
@@ -1560,7 +1556,7 @@ input[type="range"] {
     background: var(--surface-2);
     border-radius: 9999px;
     padding: 4px;
-    margin: 12px 0 44px;
+    margin: 12px 0 0;
     gap: 4px;
     position: relative;
 }

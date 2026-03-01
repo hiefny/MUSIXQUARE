@@ -714,10 +714,6 @@
         padding: 6px 20px;
     }
 
-    /* Enforce 44px bottom gap on desktop too */
-    .section-group>*:last-child {
-        padding-bottom: 44px;
-    }
 
     /* Align theme pill with section title on desktop */
     .theme-selector {

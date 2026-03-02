@@ -122,14 +122,18 @@ function initKeyboardShortcuts(): void {
 }
 
 // ── Wake Lock (Screen) ──
+// Acquired during playback only — prevents screen dimming on iOS/Android.
+// Released on pause/stop to conserve battery when not playing.
 
 let _wakeLock: WakeLockSentinel | null = null;
+let _wakeLockPlaying = false;
 
 async function requestWakeLock(): Promise<void> {
+  if (_wakeLock) return; // already held
   try {
     if ('wakeLock' in navigator) {
       _wakeLock = await navigator.wakeLock.request('screen');
-      log.debug('[App] Screen Wake Lock active');
+      log.debug('[App] Screen Wake Lock acquired');
       _wakeLock.addEventListener('release', () => {
         log.debug('[App] Screen Wake Lock released');
         _wakeLock = null;
@@ -140,18 +144,35 @@ async function requestWakeLock(): Promise<void> {
   }
 }
 
-function initWakeLock(): void {
-  // Request wake lock initially
-  requestWakeLock();
+async function releaseWakeLock(): Promise<void> {
+  if (!_wakeLock) return;
+  try {
+    await _wakeLock.release();
+  } catch { /* already released */ }
+  _wakeLock = null;
+}
 
-  // Re-request wake lock when app becomes visible (e.g. after tab switch)
+function initWakeLock(): void {
+  // Acquire on play, release on pause/stop
+  bus.on('player:state-changed', (state) => {
+    const isPlaying = state === 'PLAYING_AUDIO' || state === 'PLAYING_VIDEO' || state === 'PLAYING_YOUTUBE';
+    if (isPlaying && !_wakeLockPlaying) {
+      _wakeLockPlaying = true;
+      requestWakeLock();
+    } else if (!isPlaying && _wakeLockPlaying) {
+      _wakeLockPlaying = false;
+      releaseWakeLock();
+    }
+  });
+
+  // Re-acquire when tab becomes visible (iOS releases on background)
   document.addEventListener('visibilitychange', () => {
-    if (_wakeLock === null && document.visibilityState === 'visible') {
+    if (_wakeLockPlaying && !_wakeLock && document.visibilityState === 'visible') {
       requestWakeLock();
     }
   });
 
-  log.info('[App] Wake Lock initialized');
+  log.info('[App] Wake Lock initialized (playback-gated)');
 }
 
 // ── Global Error Handlers ──

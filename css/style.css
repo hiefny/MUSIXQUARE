@@ -2148,8 +2148,20 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 .toast {
     position: fixed;
     bottom: 110px;
-    left: 50%;
-    transform: translateX(-50%) translateY(20px);
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    transform: translateY(20px);
+    background: none;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+        transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+    z-index: 7000;
+}
+
+.toast > span {
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -2158,19 +2170,14 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     border-radius: 100px;
     font-size: 14px;
     font-weight: 600;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1),
-        transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
-    z-index: 7000;
-    /* Highest priority - above all modals including help modal */
     white-space: nowrap;
 }
 
 .toast.show {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
-    transition: all 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
+    transform: translateY(0);
+    transition: opacity 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15),
+        transform 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
 }
 
 

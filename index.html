@@ -237,13 +237,15 @@
                 <!-- Chat Preview Button -->
                 <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label="" data-i18n-aria-label="chat.open">
                     <div class="chat-preview-left">
-                        <svg viewBox="0 0 24 24" class="chat-preview-icon">
-                            <path
-                                d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
-                        </svg>
+                        <div class="chat-icon-wrapper">
+                            <svg viewBox="0 0 24 24" class="chat-preview-icon">
+                                <path
+                                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
+                            </svg>
+                            <span class="chat-preview-badge" id="chat-preview-badge"></span>
+                        </div>
                         <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start"></span>
                     </div>
-                    <span class="chat-preview-badge" id="chat-preview-badge"></span>
                 </button>
 
                 <!-- Buttons Row: SYNC (left) + Media (right) -->

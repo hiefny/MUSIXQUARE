@@ -101,7 +101,7 @@ export function getTrackPosition(): number {
   const localOffset = getState('sync.localOffset') || 0;
   const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
 
-  const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0;
+  const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
     const combinedOffset = localOffset + autoSyncOffset;
     // Guard: reset offsets if combined drift exceeds 5 seconds

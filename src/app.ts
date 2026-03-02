@@ -127,6 +127,8 @@ function initKeyboardShortcuts(): void {
 // More reliable than navigator.wakeLock across iOS/Android WebViews.
 // Acquired during playback only, released on pause/stop to conserve battery.
 
+// Force video-based fallback — native Wake Lock API is unreliable in iOS/Toss WebViews
+delete (navigator as unknown as Record<string, unknown>).wakeLock;
 const _noSleep = new NoSleep();
 let _wakeLockPlaying = false;
 

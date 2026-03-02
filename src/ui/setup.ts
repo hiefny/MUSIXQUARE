@@ -741,12 +741,15 @@ export function initSetup(): void {
         secondaryText: t('dialog.go_back'),
       }).then(res => {
         if (res.action === 'ok') {
-          // Pre-fill the join code and re-enable join flow
+          // Auto-reconnect using the last join code
           const lastCode = getState('network.lastJoinCode') || '';
-          startGuestFlow();
           if (lastCode) {
-            const input = setupEl('setup-join-code') as HTMLInputElement | null;
-            if (input) { input.value = lastCode; input.focus(); }
+            log.info(`[Setup] Auto-reconnecting to ${lastCode}`);
+            bus.emit('ui:show-loader', true, t('setup.joining'));
+            setState('network.isConnecting', true);
+            joinSession(lastCode);
+          } else {
+            startGuestFlow();
           }
         } else {
           window.location.reload();

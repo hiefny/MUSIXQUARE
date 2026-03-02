@@ -440,7 +440,7 @@ const en: Record<I18nKey, string> = {
   'error.webrtc_failed': 'WebRTC connection failed. Check your browser settings.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
-  'dialog.return_home_title': 'Home screen',
+  'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',
   'dialog.sw_update_title': 'Update',

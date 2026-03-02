@@ -438,7 +438,7 @@ const ko = {
   'error.webrtc_failed': 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
-  'dialog.return_home_title': '초기 화면',
+  'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
   'dialog.sw_update_title': '업데이트',

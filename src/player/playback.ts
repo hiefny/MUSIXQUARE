@@ -773,11 +773,12 @@ export async function loadPreloadedTrack(
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
 
-    // Request sync from host after settle
+    // Request 3-sample sync from host after settle
     const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
       setTimeout(() => {
-        sendToHost({ type: MSG.GET_SYNC_TIME, ts: Date.now() });
+        log.debug('[Guest] Post-preload auto-sync: triggering 3-sample sync');
+        bus.emit('sync:auto-sync');
       }, 500);
     }
 
@@ -1243,14 +1244,11 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
       _pendingPlayTime = undefined;
     }
 
-    // Auto-sync after 1s to get accurate host position — always runs after
-    // transfer completes, regardless of whether a PLAY message arrived first.
+    // Auto-sync after 1s — triggers the same 3-sample sync as the sync button.
     if (hostConn?.open) {
       setTimeout(() => {
-        if (hostConn.open) {
-          log.debug('[Guest] Post-download auto-sync: requesting host position');
-          try { hostConn.send({ type: MSG.GET_SYNC_TIME, ts: Date.now() }); } catch { /* noop */ }
-        }
+        log.debug('[Guest] Post-download auto-sync: triggering 3-sample sync');
+        bus.emit('sync:auto-sync');
       }, 1000);
     }
 

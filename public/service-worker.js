@@ -35,7 +35,7 @@
 // v91: Adapt APP_SHELL for Vite build — CSS/fonts/icons are now hashed in /assets/
 // v92: Filled tab bar + SEO + wake lock rollback
 // v93: EQ preset grid + host-ctrl badge + toast fixes + spacing cleanup
-const CACHE_VERSION = "v94";
+const CACHE_VERSION = "v95";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

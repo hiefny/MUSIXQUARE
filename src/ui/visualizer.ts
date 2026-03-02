@@ -18,6 +18,10 @@ let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 120;
 let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
+const BASS_SMOOTH = 0.8;
+const HIGH_SMOOTH = 0.8;
+
 // ─── (Frame throttle removed — runs at display's native refresh rate) ───
 
 // ─── Cached values (avoid per-frame DOM reads) ──────────────────
@@ -146,7 +150,7 @@ export function startVisualizer(): void {
     }
     const bassAverage = bassSum / bassCount;
 
-    smoothedBass = smoothedBass * 0.8 + bassAverage * 0.2;
+    smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
     let bassPunch = Math.pow(smoothedBass / 255, 2.5);
     if (!isFinite(bassPunch)) bassPunch = 0;
 
@@ -160,7 +164,7 @@ export function startVisualizer(): void {
       highSum += val;
     }
     const highAverage = highSum / highCountVal;
-    smoothedHigh = smoothedHigh * 0.8 + highAverage * 0.2;
+    smoothedHigh = smoothedHigh * HIGH_SMOOTH + highAverage * (1 - HIGH_SMOOTH);
     let highPunch = smoothedHigh / 255;
     if (!isFinite(highPunch)) highPunch = 0;
 

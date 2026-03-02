@@ -2165,6 +2165,8 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     z-index: 7000;
     /* Highest priority - above all modals including help modal */
     white-space: nowrap;
+    /* Prevent View Transition from capturing toast into root snapshot */
+    view-transition-name: toast;
 }
 
 .toast.show {

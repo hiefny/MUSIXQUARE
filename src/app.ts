@@ -14,6 +14,7 @@
  */
 
 // ── Core ──
+import NoSleep from 'nosleep.js';
 import { log } from './core/log.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
@@ -121,58 +122,39 @@ function initKeyboardShortcuts(): void {
   log.info('[App] Keyboard shortcuts registered');
 }
 
-// ── Wake Lock (Screen) ──
-// Acquired during playback only — prevents screen dimming on iOS/Android.
-// Released on pause/stop to conserve battery when not playing.
+// ── Wake Lock (NoSleep.js) ──
+// Uses NoSleep.js (silent video trick) to prevent screen dimming.
+// More reliable than navigator.wakeLock across iOS/Android WebViews.
+// Acquired during playback only, released on pause/stop to conserve battery.
 
-let _wakeLock: WakeLockSentinel | null = null;
+const _noSleep = new NoSleep();
 let _wakeLockPlaying = false;
 
-async function requestWakeLock(): Promise<void> {
-  if (_wakeLock) return; // already held
-  try {
-    if ('wakeLock' in navigator) {
-      _wakeLock = await navigator.wakeLock.request('screen');
-      log.debug('[App] Screen Wake Lock acquired');
-      _wakeLock.addEventListener('release', () => {
-        log.debug('[App] Screen Wake Lock released');
-        _wakeLock = null;
-      });
-    }
-  } catch (err: unknown) {
-    log.warn(`[App] Wake Lock failed: ${(err as Error).name}, ${(err as Error).message}`);
-  }
-}
-
-async function releaseWakeLock(): Promise<void> {
-  if (!_wakeLock) return;
-  try {
-    await _wakeLock.release();
-  } catch { /* already released */ }
-  _wakeLock = null;
-}
-
 function initWakeLock(): void {
-  // Acquire on play, release on pause/stop
   bus.on('player:state-changed', (state) => {
     const isPlaying = state === 'PLAYING_AUDIO' || state === 'PLAYING_VIDEO' || state === 'PLAYING_YOUTUBE';
     if (isPlaying && !_wakeLockPlaying) {
       _wakeLockPlaying = true;
-      requestWakeLock();
+      _noSleep.enable().then(() => {
+        log.debug('[App] NoSleep enabled');
+      }).catch((err: unknown) => {
+        log.warn('[App] NoSleep enable failed:', err);
+      });
     } else if (!isPlaying && _wakeLockPlaying) {
       _wakeLockPlaying = false;
-      releaseWakeLock();
+      _noSleep.disable();
+      log.debug('[App] NoSleep disabled');
     }
   });
 
-  // Re-acquire when tab becomes visible (iOS releases on background)
+  // Re-enable when tab becomes visible
   document.addEventListener('visibilitychange', () => {
-    if (_wakeLockPlaying && !_wakeLock && document.visibilityState === 'visible') {
-      requestWakeLock();
+    if (_wakeLockPlaying && !_noSleep.isEnabled && document.visibilityState === 'visible') {
+      _noSleep.enable().catch(() => { /* ignore */ });
     }
   });
 
-  log.info('[App] Wake Lock initialized (playback-gated)');
+  log.info('[App] Wake Lock initialized (NoSleep.js)');
 }
 
 // ── Global Error Handlers ──

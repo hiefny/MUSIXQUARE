@@ -132,7 +132,7 @@ export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
 
 // ─── Misc ──────────────────────────────────────────────────────────
 export const DEMO_FILE_NAME = 'demo_track.mp3';
-export const DEMO_TITLE = 'Sean Pitaro - Passport (NCS Release)';
+export const DEMO_TITLE = 'AI Generated Music';
 
 /** Video file extensions */
 export const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'webm', 'mov'] as const;

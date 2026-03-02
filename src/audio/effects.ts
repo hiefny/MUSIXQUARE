@@ -519,9 +519,23 @@ function handlePreampMsg(data: Record<string, unknown>): void {
   setPreamp(Number(data.value));
 }
 
+// ─── Host-ctrl 변경 토스트 (게스트 전용, 디바운스) ────────────
+let _hostChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _notifyHostChanged(): void {
+  // 호스트 연결 중인 게스트만 표시
+  if (!getState('network.hostConn')) return;
+  if (_hostChangeTimer) clearTimeout(_hostChangeTimer);
+  _hostChangeTimer = setTimeout(() => {
+    bus.emit('ui:show-toast', t('toast.host_changed_setting'));
+    _hostChangeTimer = null;
+  }, 300);
+}
+
 function handleEQResetMsg(): void {
   resetEQ();
   bus.emit('ui:sync-eq-preset', 'off');
+  _notifyHostChanged();
 }
 
 function handleReverbMsg(data: Record<string, unknown>): void {
@@ -529,6 +543,7 @@ function handleReverbMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setReverbParam('mix', v);
   bus.emit('ui:sync-reverb-param', 'mix', v);
+  _notifyHostChanged();
 }
 
 function handleReverbTypeMsg(data: Record<string, unknown>): void {
@@ -538,6 +553,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
     case 'off':
       resetReverb();
       bus.emit('ui:sync-reverb-preset', 'off');
+      _notifyHostChanged();
       return;
     case 'studio':
       setState('audio.reverbMix', 0.3);
@@ -554,6 +570,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
   }
   applySettings();
   bus.emit('ui:sync-reverb-preset', type);
+  _notifyHostChanged();
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>): void {
@@ -561,6 +578,7 @@ function handleReverbDecayMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setReverbParam('decay', v);
   bus.emit('ui:sync-reverb-param', 'decay', v);
+  _notifyHostChanged();
 }
 
 function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
@@ -568,6 +586,7 @@ function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setReverbParam('predelay', v);
   bus.emit('ui:sync-reverb-param', 'predelay', v);
+  _notifyHostChanged();
 }
 
 function handleReverbLowCutMsg(data: Record<string, unknown>): void {
@@ -575,6 +594,7 @@ function handleReverbLowCutMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setReverbParam('lowcut', v);
   bus.emit('ui:sync-reverb-param', 'lowcut', v);
+  _notifyHostChanged();
 }
 
 function handleReverbHighCutMsg(data: Record<string, unknown>): void {
@@ -582,6 +602,7 @@ function handleReverbHighCutMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setReverbParam('highcut', v);
   bus.emit('ui:sync-reverb-param', 'highcut', v);
+  _notifyHostChanged();
 }
 
 function handleStereoWidthMsg(data: Record<string, unknown>): void {
@@ -590,6 +611,7 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
   setStereoWidth(v);
   // 150 = surround ON, 100 = OFF
   bus.emit('ui:sync-surround', v > 100);
+  _notifyHostChanged();
 }
 
 function handleVBassMsg(data: Record<string, unknown>): void {
@@ -597,6 +619,7 @@ function handleVBassMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   setVirtualBass(v);
   bus.emit('ui:sync-vbass', v > 0);
+  _notifyHostChanged();
 }
 
 // ─── Operator Request Handlers (Host-side) ──────────────────────

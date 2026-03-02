@@ -282,6 +282,12 @@ function updateObSlider(): void {
   dots.forEach((dot, idx) => {
     dot.classList.toggle('active', idx === _currentObSlide);
   });
+
+  // Fade in/out slide content
+  const slides = track.querySelectorAll('.ob-slide');
+  slides.forEach((slide, idx) => {
+    slide.classList.toggle('active', idx === _currentObSlide);
+  });
 }
 
 function nextObSlide(isAuto = false): void {

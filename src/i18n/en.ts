@@ -371,6 +371,7 @@ const en: Record<I18nKey, string> = {
   'toast.conn_error_file': 'Connection error: file transfer failed',
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.operator_required': 'Only the operator can change audio settings',
+  'toast.host_changed_setting': 'The host changed a setting',
   'toast.download_complete_play': 'Will play after download completes',
   'toast.session_mismatch': 'Session mismatch detected — file transfer will retry.',
   'toast.same_wifi_only': 'Connect via the same Wi-Fi to enjoy file sharing!',

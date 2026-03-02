@@ -369,6 +369,7 @@ const ko = {
   'toast.conn_error_file': '연결 오류: 파일 전송 실패',
   'toast.host_ad': '호스트가 광고를 보고 있는 것 같아요',
   'toast.operator_required': '오퍼레이터만 오디오 설정을 변경할 수 있어요',
+  'toast.host_changed_setting': '방장이 설정을 변경했어요',
   'toast.download_complete_play': '다운로드 완료 후 재생됩니다',
   'toast.session_mismatch': '세션 불일치 감지 — 파일 전송이 재시도됩니다.',
   'toast.same_wifi_only': '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',

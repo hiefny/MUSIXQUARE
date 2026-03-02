@@ -2160,7 +2160,8 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     font-weight: 600;
     opacity: 0;
     pointer-events: none;
-    transition: all 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+        transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
     z-index: 7000;
     /* Highest priority - above all modals including help modal */
     white-space: nowrap;
@@ -2169,6 +2170,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 .toast.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+    transition: all 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
 }
 
 
@@ -2503,6 +2505,20 @@ body.overlay-open .bottom-nav {
     width: 100%;
     text-align: center;
     /* Center titles */
+}
+
+.ob-slide .ob-title,
+.ob-slide .ob-desc,
+.ob-slide .ob-icon-circle {
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.ob-slide.active .ob-icon-circle,
+.ob-slide.active .ob-title,
+.ob-slide.active .ob-desc {
+    opacity: 1;
+    transition: opacity 0.6s cubic-bezier(0.08, 0.82, 0.17, 1) 0.1s;
 }
 
 .ob-slide .ob-title {
@@ -4059,10 +4075,11 @@ input:checked+.slider:before {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 18px 20px;
+    height: 56px;
+    padding: 0 20px;
     margin-top: 20px;
     background: var(--surface-2);
-    border-radius: 16px;
+    border-radius: 20px;
     cursor: pointer;
     transition: background 0.2s;
     position: relative;
@@ -4124,6 +4141,7 @@ input:checked+.slider:before {
     height: 20px;
     fill: var(--text-sub);
     flex-shrink: 0;
+    transform: translateY(2px);
 }
 
 .chat-icon-wrapper {
@@ -4134,6 +4152,7 @@ input:checked+.slider:before {
 .chat-preview-text {
     font-size: 14px;
     font-weight: 600;
+    line-height: 1;
     color: var(--text-sub);
     white-space: nowrap;
     overflow: hidden;
@@ -4180,8 +4199,8 @@ input:checked+.slider:before {
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
     /* Slightly stronger shadow for depth */
     transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                visibility 0s 0.3s;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+                visibility 0s 0.2s;
     z-index: 1000;
     display: flex;
     flex-direction: column;
@@ -4197,7 +4216,7 @@ input:checked+.slider:before {
 .chat-drawer.open {
     transform: translateY(0);
     visibility: visible;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transition: transform 0.6s cubic-bezier(0.08, 0.82, 0.17, 1),
                 visibility 0s 0s;
 }
 

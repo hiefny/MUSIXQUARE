@@ -18,6 +18,7 @@ import {
   updateRoleBadge, updateInviteCodeUI,
   showPlacementToastForChannel,
 } from './player-controls.ts';
+import { activateNoSleep } from '../app.ts';
 import { selectStandardChannelButton } from './settings.ts';
 import { createHostSessionWithShortCode, leaveSession } from '../network/peer.ts';
 import { joinSession } from '../network/peer.ts';
@@ -123,6 +124,7 @@ function showSetupOverlay(): void {
 }
 
 function hideSetupOverlay(): void {
+  activateNoSleep();
   animateTransition(() => {
     const overlay = setupEl('setup-overlay');
     if (overlay) overlay.classList.remove('active');

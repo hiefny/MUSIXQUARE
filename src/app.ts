@@ -123,35 +123,28 @@ function initKeyboardShortcuts(): void {
 }
 
 // ── Wake Lock (NoSleep.js) ──
-// Uses NoSleep.js (silent video trick) to prevent screen dimming.
-// More reliable than navigator.wakeLock across iOS/Android WebViews.
-// Acquired during playback only, released on pause/stop to conserve battery.
+// Always-on screen wake lock — enabled once when session starts (setup complete).
+// Never disabled; the app is meant to stay awake the entire session.
 
 // Force video-based fallback — native Wake Lock API is unreliable in iOS/Toss WebViews
 delete (navigator as unknown as Record<string, unknown>).wakeLock;
 const _noSleep = new NoSleep();
-let _wakeLockPlaying = false;
+let _noSleepActive = false;
+
+export function activateNoSleep(): void {
+  if (_noSleepActive) return;
+  _noSleepActive = true;
+  _noSleep.enable().then(() => {
+    log.debug('[App] NoSleep enabled (permanent)');
+  }).catch((err: unknown) => {
+    log.warn('[App] NoSleep enable failed:', err);
+  });
+}
 
 function initWakeLock(): void {
-  bus.on('player:state-changed', (state) => {
-    const isPlaying = state === 'PLAYING_AUDIO' || state === 'PLAYING_VIDEO' || state === 'PLAYING_YOUTUBE';
-    if (isPlaying && !_wakeLockPlaying) {
-      _wakeLockPlaying = true;
-      _noSleep.enable().then(() => {
-        log.debug('[App] NoSleep enabled');
-      }).catch((err: unknown) => {
-        log.warn('[App] NoSleep enable failed:', err);
-      });
-    } else if (!isPlaying && _wakeLockPlaying) {
-      _wakeLockPlaying = false;
-      _noSleep.disable();
-      log.debug('[App] NoSleep disabled');
-    }
-  });
-
-  // Re-enable when tab becomes visible
+  // Re-enable when tab becomes visible (OS may kill silent video on background)
   document.addEventListener('visibilitychange', () => {
-    if (_wakeLockPlaying && !_noSleep.isEnabled && document.visibilityState === 'visible') {
+    if (_noSleepActive && !_noSleep.isEnabled && document.visibilityState === 'visible') {
       _noSleep.enable().catch(() => { /* ignore */ });
     }
   });

@@ -4011,6 +4011,7 @@ input:checked+.slider:before {
     padding-bottom: 6px;
     /* Lift everything slightly above the underline together */
     transition: border-bottom-color 0.2s;
+    outline: none;
 }
 
 .chat-input-wrapper:focus-within {
@@ -4028,6 +4029,12 @@ input:checked+.slider:before {
     color: var(--text-main);
     box-shadow: none;
     outline: none;
+    -webkit-appearance: none;
+}
+
+.chat-input:focus {
+    outline: none;
+    box-shadow: none;
 }
 
 .chat-input::placeholder {

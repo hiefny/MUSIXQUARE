@@ -125,13 +125,12 @@ function initKeyboardShortcuts(): void {
 // Enabled once when session starts, never disabled.
 // Re-acquired automatically when tab becomes visible again.
 
-let _wakeLockSentinel: WakeLockSentinel | null = null;
 let _wakeLockActive = false;
 
 async function acquireWakeLock(): Promise<void> {
   if (!('wakeLock' in navigator)) return;
   try {
-    _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    await navigator.wakeLock.request('screen');
     log.debug('[App] Wake Lock acquired');
   } catch (err) {
     log.warn('[App] Wake Lock request failed:', err);

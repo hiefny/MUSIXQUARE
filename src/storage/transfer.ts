@@ -198,6 +198,19 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
     return;
   }
 
+  // Check if guest already has this file loaded (e.g. repeat-one mode)
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const isSameTrackByIndex = data.index !== undefined && data.index === currentTrackIndex;
+  const currentTransferMeta = getState('transfer.meta');
+  const isSameTrackByName = data.name && currentTransferMeta?.name === data.name;
+  if (isSameTrackByIndex || isSameTrackByName) {
+    log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
+    setState('transfer.skipIncomingFile', true);
+    bus.emit('ui:show-loader', false);
+    bus.emit('playback:replay-current');
+    return;
+  }
+
   // Not using preloaded track — stop current media
   bus.emit('player:stop-all-media');
 

@@ -1290,6 +1290,19 @@ export function initPlayback(): void {
     stopAllMedia();
   });
 
+  // Replay current track from start (repeat-one: guest already has file)
+  bus.on('playback:replay-current', () => {
+    if (_currentAudioBuffer || getVideoElement()?.src) {
+      log.debug('[Guest] Replaying current track from start');
+      play(0);
+      // Auto-sync 1s later to align with host
+      const hostConn = getState('network.hostConn');
+      if (hostConn?.open) {
+        setTimeout(() => bus.emit('sync:auto-sync'), 1000);
+      }
+    }
+  });
+
   // Sync: provide current track position via callback pattern
   bus.on('sync:get-position', (callback) => {
     if (typeof callback === 'function') {

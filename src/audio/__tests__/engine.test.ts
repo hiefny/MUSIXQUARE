@@ -18,8 +18,6 @@ import {
   getRvbCrossFade,
   getEqNodes,
   getGlobalLowPass,
-  getVbFilter,
-  getVbPostFilter,
   getVbGain,
   getSurroundSplitter,
   getSurroundGain,
@@ -98,14 +96,6 @@ describe('all getter functions return null before initAudio', () => {
 
   it('getGlobalLowPass returns null', () => {
     expect(getGlobalLowPass()).toBeNull();
-  });
-
-  it('getVbFilter returns null', () => {
-    expect(getVbFilter()).toBeNull();
-  });
-
-  it('getVbPostFilter returns null', () => {
-    expect(getVbPostFilter()).toBeNull();
   });
 
   it('getVbGain returns null', () => {

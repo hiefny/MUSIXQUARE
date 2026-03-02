@@ -24,8 +24,6 @@ import {
   getPreamp,
   getWidener,
   getGlobalLowPass,
-  getVbFilter,
-  getVbPostFilter,
   getVbGain,
 } from './engine.ts';
 
@@ -122,29 +120,13 @@ export async function applySettings(): Promise<void> {
   const pre = getPreamp();
   if (pre) pre.gain.rampTo(userPreampGain * compensation, RAMP_TIME);
 
-  // Virtual Bass
+  // Virtual Bass — dual-band chain has fixed crossover points, just control output gain
   const isWooferRole = channelMode === 2 || (isSurroundMode && surroundChannelIndex === 3);
-  const vbf = getVbFilter();
-  if (vbf) vbf.frequency.rampTo(subFreq, RAMP_TIME);
-  const vbpf = getVbPostFilter();
   const vbg = getVbGain();
-  if (vbpf) {
-    const targetPostFreq = isWooferRole ? subFreq : 20000;
-    const currentPostFreq = vbpf.frequency.value;
-    // Large frequency jump (e.g. woofer mode toggle): ramp gain down first to avoid click
-    if (Math.abs(currentPostFreq - targetPostFreq) > 5000 && vbg) {
-      const savedGain = virtualBass;
-      vbg.gain.rampTo(0, 0.05);
-      setTimeout(() => {
-        vbpf.frequency.rampTo(targetPostFreq, 0.05);
-        vbg.gain.rampTo(savedGain, RAMP_TIME);
-      }, 60);
-    } else {
-      vbpf.frequency.rampTo(targetPostFreq, RAMP_TIME);
-      if (vbg) vbg.gain.rampTo(virtualBass, RAMP_TIME);
-    }
-  } else if (vbg) {
-    vbg.gain.rampTo(virtualBass, RAMP_TIME);
+  if (vbg) {
+    // Mute VB in woofer/LFE mode (subwoofer doesn't need psychoacoustic bass)
+    const targetGain = isWooferRole ? 0 : virtualBass;
+    vbg.gain.rampTo(targetGain, RAMP_TIME);
   }
 
   // Global LowPass

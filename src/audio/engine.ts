@@ -90,9 +90,25 @@ let preamp: ToneGainNode | null = null;
 let widener: ToneWidenerNode | null = null;
 let globalLowPass: ToneFilterNode | null = null;
 let analyser: ToneAnalyserNode | null = null;
-let vbFilter: ToneFilterNode | null = null;
-let vbCheby: ToneNode | null = null;
-let vbPostFilter: ToneFilterNode | null = null;
+// Virtual Bass — Dual-Band Psychoacoustic Enhancement
+let vbSubLP: ToneFilterNode | null = null;
+let vbSubHP: ToneFilterNode | null = null;
+let vbSubComp: ToneNode | null = null;
+let vbSubTrim: ToneGainNode | null = null;
+let vbSubShaper: ToneNode | null = null;
+let vbSubPostHP: ToneFilterNode | null = null;
+let vbSubPostLP: ToneFilterNode | null = null;
+let vbSubMix: ToneGainNode | null = null;
+let vbMidLP: ToneFilterNode | null = null;
+let vbMidHP: ToneFilterNode | null = null;
+let vbMidComp: ToneNode | null = null;
+let vbMidTrim: ToneGainNode | null = null;
+let vbMidShaper: ToneNode | null = null;
+let vbMidPostHP: ToneFilterNode | null = null;
+let vbMidPostLP: ToneFilterNode | null = null;
+let vbMidMix: ToneGainNode | null = null;
+let vbSum: ToneGainNode | null = null;
+let vbLimiter: ToneNode | null = null;
 let vbGain: ToneGainNode | null = null;
 let surroundSplitter: ToneNode | null = null;
 let surroundGain: ToneGainNode | null = null;
@@ -114,8 +130,6 @@ export function getRvbHighCut(): ToneFilterNode | null { return rvbHighCut; }
 export function getRvbCrossFade(): ToneCrossFadeNode | null { return rvbCrossFade; }
 export function getEqNodes(): ToneFilterNode[] { return eqNodes; }
 export function getGlobalLowPass(): ToneFilterNode | null { return globalLowPass; }
-export function getVbFilter(): ToneFilterNode | null { return vbFilter; }
-export function getVbPostFilter(): ToneFilterNode | null { return vbPostFilter; }
 export function getVbGain(): ToneGainNode | null { return vbGain; }
 export function getSurroundSplitter(): ToneNode | null { return surroundSplitter; }
 export function getSurroundGain(): ToneGainNode | null { return surroundGain; }
@@ -227,11 +241,49 @@ async function _doInitAudio(): Promise<void> {
   rvbHighCut = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
   rvbCrossFade = new Tone.CrossFade(0) as ToneCrossFadeNode; // Initially Dry
 
-  // ── Virtual Bass Chain ──
-  const VB_CHEBYSHEV_ORDER = 50;
-  vbFilter = new Tone.Filter(120, 'lowpass', -12) as ToneFilterNode;
-  vbCheby = new Tone.Chebyshev(VB_CHEBYSHEV_ORDER) as ToneNode;
-  vbPostFilter = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
+  // ── Virtual Bass — Dual-Band Psychoacoustic Enhancement ──
+  // Custom waveshaper curves (8192 samples for smooth interpolation)
+  const VB_CURVE_LEN = 8192;
+
+  // Sub-bass: soft cubic saturation  f(x) = x - x³/3  (max ±0.667)
+  const subCurve = new Float32Array(VB_CURVE_LEN);
+  for (let i = 0; i < VB_CURVE_LEN; i++) {
+    const x = (i / (VB_CURVE_LEN - 1)) * 2 - 1;
+    subCurve[i] = x - (x * x * x) / 3;
+  }
+
+  // Mid-bass: soft quadratic saturation  f(x) = sign(x)·(2|x| - x²)  (max ±1.0)
+  const midCurve = new Float32Array(VB_CURVE_LEN);
+  for (let i = 0; i < VB_CURVE_LEN; i++) {
+    const x = (i / (VB_CURVE_LEN - 1)) * 2 - 1;
+    const ax = Math.abs(x);
+    const shaped = ax <= 1.0 ? (2 * ax - ax * ax) : 1.0;
+    midCurve[i] = x >= 0 ? shaped : -shaped;
+  }
+
+  // Sub-bass path (40-80 Hz)
+  vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
+  vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
+  vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 }) as ToneNode;
+  vbSubTrim = new Tone.Gain(0.5) as ToneGainNode;
+  vbSubShaper = new Tone.WaveShaper(subCurve) as ToneNode;
+  vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
+  vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
+  vbSubMix = new Tone.Gain(0.7) as ToneGainNode;
+
+  // Mid-bass path (80-160 Hz)
+  vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
+  vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
+  vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 }) as ToneNode;
+  vbMidTrim = new Tone.Gain(0.4) as ToneGainNode;
+  vbMidShaper = new Tone.WaveShaper(midCurve) as ToneNode;
+  vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
+  vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
+  vbMidMix = new Tone.Gain(0.5) as ToneGainNode;
+
+  // Output stage
+  vbSum = new Tone.Gain(1.0) as ToneGainNode;
+  vbLimiter = new Tone.Limiter(-3) as ToneNode;
   vbGain = new Tone.Gain(0) as ToneGainNode;
 
   // ── Connections ──
@@ -261,11 +313,30 @@ async function _doInitAudio(): Promise<void> {
   rvbHighCut.connect(rvbCrossFade.b);
   rvbCrossFade!.connect(masterGain!);            // Output
 
-  // Virtual Bass (parallel tap after EQ)
-  eqIn.connect(vbFilter!);
-  vbFilter!.connect(vbCheby!);
-  vbCheby!.connect(vbPostFilter!);
-  vbPostFilter!.connect(vbGain!);
+  // Virtual Bass — dual-band parallel tap after EQ
+  // Sub-bass path
+  eqIn.connect(vbSubLP!);
+  vbSubLP!.connect(vbSubHP!);
+  vbSubHP!.connect(vbSubComp!);
+  vbSubComp!.connect(vbSubTrim!);
+  vbSubTrim!.connect(vbSubShaper!);
+  vbSubShaper!.connect(vbSubPostHP!);
+  vbSubPostHP!.connect(vbSubPostLP!);
+  vbSubPostLP!.connect(vbSubMix!);
+  vbSubMix!.connect(vbSum!);
+  // Mid-bass path
+  eqIn.connect(vbMidLP!);
+  vbMidLP!.connect(vbMidHP!);
+  vbMidHP!.connect(vbMidComp!);
+  vbMidComp!.connect(vbMidTrim!);
+  vbMidTrim!.connect(vbMidShaper!);
+  vbMidShaper!.connect(vbMidPostHP!);
+  vbMidPostHP!.connect(vbMidPostLP!);
+  vbMidPostLP!.connect(vbMidMix!);
+  vbMidMix!.connect(vbSum!);
+  // Output stage
+  vbSum!.connect(vbLimiter!);
+  vbLimiter!.connect(vbGain!);
   vbGain!.connect(masterGain!);
 
   // Visualizer — 256 bins is enough (only bass 0~12 and high 70%~100% are used)
@@ -306,7 +377,11 @@ export function disposeAudioGraph(): void {
     toneSplit, toneMerge, gainL, gainR, masterGain,
     reverb, rvbLowCut, rvbHighCut, rvbCrossFade,
     preamp, widener, globalLowPass, analyser,
-    vbFilter, vbCheby, vbPostFilter, vbGain,
+    vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper,
+    vbSubPostHP, vbSubPostLP, vbSubMix,
+    vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper,
+    vbMidPostHP, vbMidPostLP, vbMidMix,
+    vbSum, vbLimiter, vbGain,
     surroundSplitter, surroundGain,
   ];
   for (const n of nodes) {
@@ -320,7 +395,11 @@ export function disposeAudioGraph(): void {
   reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
   eqNodes = [];
   preamp = widener = globalLowPass = analyser = null;
-  vbFilter = null; vbCheby = null; vbPostFilter = null; vbGain = null;
+  vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
+  vbSubPostHP = vbSubPostLP = vbSubMix = null;
+  vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
+  vbMidPostHP = vbMidPostLP = vbMidMix = null;
+  vbSum = vbLimiter = vbGain = null;
   surroundSplitter = surroundGain = null;
   _initAudioPromise = null;
 

@@ -333,7 +333,7 @@ const en: Record<I18nKey, string> = {
   'toast.auto_sync_done': 'Auto sync calibration done, +{{ms}}ms',
   'toast.reverb_type': 'Reverb type: {{type}}',
   'toast.reverb_init_fail': 'Reverb initialization failed',
-  'toast.vbass_warning': 'Audio quality may be distorted',
+  'toast.vbass_on': 'Virtual Bass enhanced',
   'toast.host_force_sync': 'Host force sync: {{time}}',
   'toast.relay_id_connected': 'Relay: {{id}} connected',
   'toast.seek_to': 'Seek to {{time}}',

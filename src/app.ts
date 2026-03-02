@@ -14,7 +14,6 @@
  */
 
 // ── Core ──
-import NoSleep from 'nosleep.js';
 import { log } from './core/log.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
@@ -122,34 +121,37 @@ function initKeyboardShortcuts(): void {
   log.info('[App] Keyboard shortcuts registered');
 }
 
-// ── Wake Lock (NoSleep.js) ──
-// Always-on screen wake lock — enabled once when session starts (setup complete).
-// Never disabled; the app is meant to stay awake the entire session.
+// ── Wake Lock (native API) ──
+// Enabled once when session starts, never disabled.
+// Re-acquired automatically when tab becomes visible again.
 
-// Force video-based fallback — native Wake Lock API is unreliable in iOS/Toss WebViews
-delete (navigator as unknown as Record<string, unknown>).wakeLock;
-const _noSleep = new NoSleep();
-let _noSleepActive = false;
+let _wakeLockSentinel: WakeLockSentinel | null = null;
+let _wakeLockActive = false;
+
+async function acquireWakeLock(): Promise<void> {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    log.debug('[App] Wake Lock acquired');
+  } catch (err) {
+    log.warn('[App] Wake Lock request failed:', err);
+  }
+}
 
 export function activateNoSleep(): void {
-  if (_noSleepActive) return;
-  _noSleepActive = true;
-  _noSleep.enable().then(() => {
-    log.debug('[App] NoSleep enabled (permanent)');
-  }).catch((err: unknown) => {
-    log.warn('[App] NoSleep enable failed:', err);
-  });
+  if (_wakeLockActive) return;
+  _wakeLockActive = true;
+  acquireWakeLock();
 }
 
 function initWakeLock(): void {
-  // Re-enable when tab becomes visible (OS may kill silent video on background)
   document.addEventListener('visibilitychange', () => {
-    if (_noSleepActive && !_noSleep.isEnabled && document.visibilityState === 'visible') {
-      _noSleep.enable().catch(() => { /* ignore */ });
+    if (_wakeLockActive && document.visibilityState === 'visible') {
+      acquireWakeLock();
     }
   });
 
-  log.info('[App] Wake Lock initialized (NoSleep.js)');
+  log.info('[App] Wake Lock initialized (native API)');
 }
 
 // ── Global Error Handlers ──

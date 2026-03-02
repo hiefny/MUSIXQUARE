@@ -469,12 +469,14 @@
                         </div>
                     </div>
                     <!-- Woofer Control -->
-                    <div class="slider-wrap collapsible-slider collapsed" id="woofer-cutoff-control">
-                        <div class="slider-header">
-                            <span data-i18n="settings.subwoofer_adjust"></span>
-                            <span class="val-disp" id="val-cutoff">120 Hz</span>
+                    <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
+                        <div class="slider-wrap">
+                            <div class="slider-header">
+                                <span data-i18n="settings.subwoofer_adjust"></span>
+                                <span class="val-disp" id="val-cutoff">120 Hz</span>
+                            </div>
+                            <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="" data-i18n-aria-label="settings.subwoofer_cutoff">
                         </div>
-                        <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="" data-i18n-aria-label="settings.subwoofer_cutoff">
                     </div>
                 </div>
 

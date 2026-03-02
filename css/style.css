@@ -333,7 +333,7 @@ header.loading .header-progress-bg {
 /* Default Content (Logo, Help, Badge) */
 /* We target .header-default-content for the up/down animation */
 .header-default-content {
-    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    transition: transform 1s cubic-bezier(0.08, 0.82, 0.17, 1), opacity 0.5s ease;
     transform: translateY(0);
     opacity: 1;
 }
@@ -387,7 +387,7 @@ header.loading .header-progress-bg {
     transform: translateY(100%);
     /* Start from below */
     opacity: 0;
-    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+    transition: transform 1s cubic-bezier(0.08, 0.82, 0.17, 1), opacity 0.5s ease;
     z-index: 6;
     pointer-events: none;
 }
@@ -1610,25 +1610,20 @@ input[type="range"] {
     color: var(--text-main);
 }
 
-.reverb-sliders-area,
-.collapsible-slider {
-    overflow: hidden;
-    max-height: 500px;
-    opacity: 1;
-    transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
-                opacity 0.25s ease;
-}
-
 .reverb-sliders-area {
+    overflow: hidden;
+    opacity: 1;
     padding-top: 24px;
+    transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.25s ease,
+                padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.collapsible-slider.slider-wrap {
-    padding-top: 24px;
-}
+#woofer-cutoff-control:not(.collapsed) { max-height: 100px; }
+#reverb-sliders-area:not(.collapsed) { max-height: 380px; }
+#eq-sliders-area:not(.collapsed) { max-height: 200px; }
 
-.reverb-sliders-area.collapsed,
-.collapsible-slider.collapsed {
+.reverb-sliders-area.collapsed {
     max-height: 0;
     opacity: 0;
     padding-top: 0;
@@ -1639,8 +1634,8 @@ input[type="range"] {
 .eq-container {
     display: flex;
     justify-content: space-between;
-    padding: 0 0 30px;
-    height: 200px;
+    padding: 0;
+    height: 160px;
 }
 
 
@@ -2144,29 +2139,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     max-width: 200px;
 }
 
-/* Spinner (Legacy) -> Progress Ring */
-.progress-ring__circle {
-    transition: stroke-dashoffset 0.1s linear;
-    transform: rotate(-90deg);
-    transform-origin: 50% 50%;
-    stroke-dasharray: 163.36;
-    /* 2 * PI * 26 */
-    stroke-dashoffset: 163.36;
-    /* Default: 0% filled */
-    stroke-linecap: round;
-}
-
-.progress-ring.indeterminate {
-    animation: spin 1s linear infinite;
-    transform-origin: center;
-}
-
-.progress-ring.indeterminate .progress-ring__circle {
-    stroke-dashoffset: 125 !important;
-    /* ~25% visible segment */
-    transition: none;
-}
-
 .toast {
     position: fixed;
     bottom: 110px;
@@ -2182,7 +2154,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     font-weight: 600;
     opacity: 0;
     pointer-events: none;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
     z-index: 7000;
     /* Highest priority - above all modals including help modal */
     white-space: nowrap;
@@ -2504,7 +2476,7 @@ body.overlay-open .bottom-nav {
 .ob-slider-track {
     display: flex;
     width: 100%;
-    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform 1s cubic-bezier(0.08, 0.82, 0.17, 1.0);
 }
 
 .ob-slide {
@@ -4369,16 +4341,6 @@ input:checked+.slider:before {
 
 .chat-timestamp:active {
     opacity: 0.7;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
 }
 
 /* Accessibility: visible focus ring */

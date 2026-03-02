@@ -287,8 +287,8 @@ function setSurroundOn(on: boolean): void {
 function setVBassOn(on: boolean): void {
   document.querySelectorAll('#grid-vbass .ch-opt').forEach(el => el.classList.remove('active'));
   document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
-  // ON: 25%, OFF: 0%
-  bus.emit('audio:update-effect', 'vbass', 'mix', on ? 25 : 0, false);
+  // ON: 60%, OFF: 0%
+  bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
   if (on) bus.emit('ui:show-toast', t('toast.vbass_on'));
 }
 

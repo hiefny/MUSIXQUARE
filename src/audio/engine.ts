@@ -265,21 +265,21 @@ async function _doInitAudio(): Promise<void> {
   vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
   vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
   vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 }) as ToneNode;
-  vbSubTrim = new Tone.Gain(0.5) as ToneGainNode;
+  vbSubTrim = new Tone.Gain(0.8) as ToneGainNode;
   vbSubShaper = new Tone.WaveShaper(subCurve) as ToneNode;
   vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
   vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbSubMix = new Tone.Gain(0.7) as ToneGainNode;
+  vbSubMix = new Tone.Gain(1.0) as ToneGainNode;
 
   // Mid-bass path (80-160 Hz)
   vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
   vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
   vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 }) as ToneNode;
-  vbMidTrim = new Tone.Gain(0.4) as ToneGainNode;
+  vbMidTrim = new Tone.Gain(0.7) as ToneGainNode;
   vbMidShaper = new Tone.WaveShaper(midCurve) as ToneNode;
   vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
   vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbMidMix = new Tone.Gain(0.5) as ToneGainNode;
+  vbMidMix = new Tone.Gain(0.8) as ToneGainNode;
 
   // Output stage
   vbSum = new Tone.Gain(1.0) as ToneGainNode;

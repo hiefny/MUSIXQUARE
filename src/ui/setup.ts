@@ -525,6 +525,7 @@ async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
 
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();
+  activateNoSleep();
 
   try {
     selectStandardChannelButton(mode);

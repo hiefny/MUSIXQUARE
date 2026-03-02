@@ -2311,7 +2311,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 
 /* Dark theme toast - dark semi-transparent background */
-[data-theme="dark"] .toast {
+[data-theme="dark"] .toast > span {
     background: rgba(30, 30, 30, 0.85);
     color: #fff;
 }

@@ -10,7 +10,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
 import { showDialog } from './dialog.ts';
@@ -744,8 +744,21 @@ export function initSetup(): void {
           // Auto-reconnect using the last join code
           const lastCode = getState('network.lastJoinCode') || '';
           if (lastCode) {
-            log.info(`[Setup] Auto-reconnecting to ${lastCode}`);
+            log.info(`[Setup] Auto-reconnecting to ${lastCode} — resetting stale state`);
+
+            // Reset stale state from previous session to prevent "frozen" reconnect
+            clearAllManagedTimers();
+            bus.emit('player:stop-all-media');
+            setState('transfer.state', 'IDLE');
+            setState('transfer.skipIncomingFile', false);
+            setState('transfer.waitingForPreload', false);
+            setState('transfer.receivedCount', 0);
+            setState('transfer.meta', {});
+            setState('preload.isPreloading', false);
+            setState('preload.nextFileBlob', null);
+            setState('preload.meta', null);
             bus.emit('ui:show-loader', true, t('setup.joining'));
+
             setState('network.isConnecting', true);
             joinSession(lastCode);
           } else {

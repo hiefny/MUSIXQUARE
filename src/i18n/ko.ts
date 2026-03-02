@@ -296,7 +296,7 @@ const ko = {
   'network.cant_join': '참가할 수 없어요',
   'network.cant_join_wifi': '참가하지 못했어요. 같은 Wi‑Fi에 연결되어 있는지 확인해 보세요.',
   'network.session_full': '세션이 가득 찼어요',
-  'network.session_full_detail': '현재 세션은 연결 가능한 기기 수(방장 제외 3대)에 도달했어요.',
+  'network.session_full_detail': '연결 가능한 기기 한도에 도달했어요.\n세션마다 방장 제외 3대까지 연결할 수 있어요.',
   'network.session_reset': '세션이 초기화되었습니다.',
   'network.host_disconnected': '호스트에서 연결이 종료되었습니다. 메인 화면으로 이동합니다.',
   'network.host_no_connection': '호스트 연결 없음. 로컬 초기화 완료.',

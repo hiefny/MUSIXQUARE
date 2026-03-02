@@ -298,7 +298,7 @@ const en: Record<I18nKey, string> = {
   'network.cant_join': "Can't join",
   'network.cant_join_wifi': "Couldn't join. Make sure you're connected to the same Wi\u2011Fi.",
   'network.session_full': 'Session is full',
-  'network.session_full_detail': 'This session has reached the device limit (3 excluding the host).',
+  'network.session_full_detail': 'You\'ve reached the device limit.\nUp to 3 devices can connect per session (excluding the host).',
   'network.session_reset': 'Session has been reset.',
   'network.host_disconnected': 'The host ended the connection. Returning to Home.',
   'network.host_no_connection': 'No host connection. Local reset complete.',

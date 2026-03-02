@@ -425,8 +425,12 @@ function startSessionFromHost(): void {
 
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
-  showToast(t('toast.invite_code_settings'));
   updateRoleBadge();
+
+  // Delay toast until View Transition completes to prevent transform conflict
+  setTimeout(() => {
+    showToast(t('toast.invite_code_settings'));
+  }, 350);
 
   setTimeout(() => {
     const btn = document.getElementById('btn-media-source');

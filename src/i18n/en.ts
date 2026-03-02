@@ -73,11 +73,11 @@ const en: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Expand/collapse playlist',
-  'playlist.repeat_all': 'Repeat: All',
-  'playlist.repeat_one': 'Repeat: One',
-  'playlist.repeat_off': 'Repeat: Off',
-  'playlist.shuffle_on': 'Shuffle: On',
-  'playlist.shuffle_off': 'Shuffle: Off',
+  'playlist.repeat_all': 'Repeat all tracks enabled',
+  'playlist.repeat_one': 'Repeat current track enabled',
+  'playlist.repeat_off': 'Repeat disabled',
+  'playlist.shuffle_on': 'Shuffle enabled',
+  'playlist.shuffle_off': 'Shuffle disabled',
   'playlist.added': 'added to playlist',
   'playlist.empty_hint': 'Please add media.',
   'playlist.added_to': 'Added "{{title}}" to playlist',

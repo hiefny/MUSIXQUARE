@@ -71,11 +71,11 @@ const ko = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': '플레이리스트 펼치기/접기',
-  'playlist.repeat_all': '반복 재생: 전체',
-  'playlist.repeat_one': '반복 재생: 한 곡',
-  'playlist.repeat_off': '반복 재생: 끔',
-  'playlist.shuffle_on': '셔플: 켜짐',
-  'playlist.shuffle_off': '셔플: 꺼짐',
+  'playlist.repeat_all': '전체 반복 재생이 켜졌어요',
+  'playlist.repeat_one': '한 곡 반복 재생이 켜졌어요',
+  'playlist.repeat_off': '반복 재생이 꺼졌어요',
+  'playlist.shuffle_on': '셔플 재생이 켜졌어요',
+  'playlist.shuffle_off': '셔플 재생이 꺼졌어요',
   'playlist.added': '플레이리스트에 추가됨',
   'playlist.empty_hint': '미디어를 추가해주세요.',
   'playlist.added_to': '"{{title}}" 플레이리스트에 추가됨',

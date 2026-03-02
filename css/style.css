@@ -1462,6 +1462,12 @@ input[type=range]:active::-moz-range-thumb {
     letter-spacing: -0.2px;
 }
 
+.host-ctrl-locked {
+    opacity: 0.4;
+    pointer-events: none;
+    user-select: none;
+}
+
 .section-row {
     padding: 10px 0;
     display: flex;

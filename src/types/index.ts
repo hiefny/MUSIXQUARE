@@ -279,6 +279,10 @@ export interface EventMap {
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];
+  'ui:sync-reverb-param': [param: string, value: number];
+  'ui:sync-eq-preset': [type: string];
+  'ui:sync-surround': [on: boolean];
+  'ui:sync-vbass': [on: boolean];
   'ui:show-toast': [message: string];
   'ui:show-loader': [visible: boolean, label?: string];
   'ui:update-loader': [percent: number];

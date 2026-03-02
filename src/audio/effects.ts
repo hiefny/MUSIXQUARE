@@ -521,11 +521,14 @@ function handlePreampMsg(data: Record<string, unknown>): void {
 
 function handleEQResetMsg(): void {
   resetEQ();
+  bus.emit('ui:sync-eq-preset', 'off');
 }
 
 function handleReverbMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setReverbParam('mix', Number(data.value));
+  const v = Number(data.value);
+  setReverbParam('mix', v);
+  bus.emit('ui:sync-reverb-param', 'mix', v);
 }
 
 function handleReverbTypeMsg(data: Record<string, unknown>): void {
@@ -555,32 +558,45 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
 
 function handleReverbDecayMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setReverbParam('decay', Number(data.value));
+  const v = Number(data.value);
+  setReverbParam('decay', v);
+  bus.emit('ui:sync-reverb-param', 'decay', v);
 }
 
 function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setReverbParam('predelay', Number(data.value));
+  const v = Number(data.value);
+  setReverbParam('predelay', v);
+  bus.emit('ui:sync-reverb-param', 'predelay', v);
 }
 
 function handleReverbLowCutMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setReverbParam('lowcut', Number(data.value));
+  const v = Number(data.value);
+  setReverbParam('lowcut', v);
+  bus.emit('ui:sync-reverb-param', 'lowcut', v);
 }
 
 function handleReverbHighCutMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setReverbParam('highcut', Number(data.value));
+  const v = Number(data.value);
+  setReverbParam('highcut', v);
+  bus.emit('ui:sync-reverb-param', 'highcut', v);
 }
 
 function handleStereoWidthMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setStereoWidth(Number(data.value));
+  const v = Number(data.value);
+  setStereoWidth(v);
+  // 150 = surround ON, 100 = OFF
+  bus.emit('ui:sync-surround', v > 100);
 }
 
 function handleVBassMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setVirtualBass(Number(data.value));
+  const v = Number(data.value);
+  setVirtualBass(v);
+  bus.emit('ui:sync-vbass', v > 0);
 }
 
 // ─── Operator Request Handlers (Host-side) ──────────────────────

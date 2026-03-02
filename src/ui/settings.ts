@@ -12,6 +12,34 @@ import { getState } from '../core/state.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 
+// ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
+
+/** Returns true if user is a non-OP guest (should be blocked from host-ctrl settings) */
+function _isGuestLocked(): boolean {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) return false; // Host — never locked
+  return !getState('network.isOperator');
+}
+
+/** Show toast + return true if guest is locked */
+function _guardHostCtrl(): boolean {
+  if (_isGuestLocked()) {
+    bus.emit('ui:show-toast', t('toast.operator_required'));
+    return true;
+  }
+  return false;
+}
+
+/** Apply or remove visual lock on host-ctrl sections */
+function _updateHostCtrlLockUI(): void {
+  const locked = _isGuestLocked();
+  const hostCtrlIds = ['grid-reverb', 'reverb-sliders-area', 'grid-eq', 'eq-sliders-area', 'grid-surround', 'grid-vbass'];
+  hostCtrlIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('host-ctrl-locked', locked);
+  });
+}
+
 // ─── Cached Listeners (for cleanup on reinit) ────────────────────
 let _themeChangeHandler: (() => void) | null = null;
 
@@ -423,6 +451,7 @@ export function initSettings(): void {
   // Reverb preset grid
   document.querySelectorAll<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type]').forEach(opt => {
     opt.addEventListener('click', () => {
+      if (_guardHostCtrl()) return;
       const type = opt.dataset.rvbType!;
       syncReverbSlidersToPreset(type);
       // Off resets reverb; Hall/Space apply preset; Advanced is UI-only
@@ -442,9 +471,9 @@ export function initSettings(): void {
     { id: 'reverb-highcut-slider', param: 'highcut', resetVal: 0 },
   ];
   reverbSliders.forEach(({ id, param, resetVal }) => {
-    $on(id, 'input', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, Number(this.value), true); });
-    $on(id, 'change', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, Number(this.value)); });
-    $on(id, 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('reverb', param, resetVal); this.value = String(resetVal); });
+    $on(id, 'input', function (this: HTMLInputElement) { if (_isGuestLocked()) return; updateAudioEffect('reverb', param, Number(this.value), true); });
+    $on(id, 'change', function (this: HTMLInputElement) { if (_isGuestLocked()) return; updateAudioEffect('reverb', param, Number(this.value)); });
+    $on(id, 'dblclick', function (this: HTMLInputElement) { if (_guardHostCtrl()) return; updateAudioEffect('reverb', param, resetVal); this.value = String(resetVal); });
   });
 
   // Guest UI sync: when host changes reverb preset
@@ -455,6 +484,7 @@ export function initSettings(): void {
   // EQ preset grid
   document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]').forEach(opt => {
     opt.addEventListener('click', () => {
+      if (_guardHostCtrl()) return;
       const type = opt.dataset.eqType!;
       syncEqSlidersToPreset(type);
       if (type === 'off') {
@@ -475,19 +505,19 @@ export function initSettings(): void {
 
   // EQ sliders
   for (let i = 0; i < 5; i++) {
-    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { setEQ(i, Number(this.value), true); });
-    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { setEQ(i, Number(this.value)); });
-    $on(`eq-slider-${i}`, 'dblclick', () => { setEQ(i, 0); const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement; if (el) el.value = '0'; });
+    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { if (_isGuestLocked()) return; setEQ(i, Number(this.value), true); });
+    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { if (_isGuestLocked()) return; setEQ(i, Number(this.value)); });
+    $on(`eq-slider-${i}`, 'dblclick', () => { if (_guardHostCtrl()) return; setEQ(i, 0); const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement; if (el) el.value = '0'; });
   }
 
   // Virtual Surround ON/OFF grid
   document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-toggle]').forEach(opt => {
-    opt.addEventListener('click', () => setSurroundOn(opt.dataset.toggle === 'on'));
+    opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setSurroundOn(opt.dataset.toggle === 'on'); });
   });
 
   // Virtual Bass ON/OFF grid
   document.querySelectorAll<HTMLElement>('#grid-vbass .ch-opt[data-toggle]').forEach(opt => {
-    opt.addEventListener('click', () => setVBassOn(opt.dataset.toggle === 'on'));
+    opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setVBassOn(opt.dataset.toggle === 'on'); });
   });
 
   // Manual sync popup
@@ -497,6 +527,39 @@ export function initSettings(): void {
   $on('btn-nudge-plus10', 'click', () => bus.emit('sync:nudge', 10));
   $on('btn-auto-sync', 'click', () => bus.emit('sync:auto-sync'));
   $on('btn-sync-done', 'click', () => bus.emit('sync:close-manual'));
+
+  // ─── Guest UI Sync: host broadcasts setting changes ──────────
+
+  // Reverb individual slider sync (from host broadcast)
+  bus.on('ui:sync-reverb-param', (param: string, value: number) => {
+    const sliderMap: Record<string, string> = {
+      mix: 'reverb-slider', decay: 'reverb-decay-slider', predelay: 'reverb-predelay-slider',
+      lowcut: 'reverb-lowcut-slider', highcut: 'reverb-highcut-slider',
+    };
+    const sliderId = sliderMap[param];
+    if (sliderId) {
+      const slider = document.getElementById(sliderId) as HTMLInputElement | null;
+      if (slider) slider.value = String(value);
+    }
+    formatReverbValDisp(param, value);
+  });
+
+  // Surround toggle sync (from host broadcast)
+  bus.on('ui:sync-surround', (on: boolean) => {
+    document.querySelectorAll('#grid-surround .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
+    document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  });
+
+  // Virtual Bass toggle sync (from host broadcast)
+  bus.on('ui:sync-vbass', (on: boolean) => {
+    document.querySelectorAll('#grid-vbass .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
+    document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  });
+
+  // ─── Host-Ctrl Lock UI update on role change ──────────────────
+
+  // Update lock state when connection/role changes (fires on connect, OP grant/revoke, session start)
+  bus.on('network:role-badge-update', () => _updateHostCtrlLockUI());
 
   // Device list events
   bus.on('network:device-list-update', (list: unknown[]) => {

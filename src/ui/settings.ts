@@ -308,8 +308,8 @@ function syncEqSlidersToPreset(type: string): void {
 function setSurroundOn(on: boolean): void {
   document.querySelectorAll('#grid-surround .ch-opt').forEach(el => el.classList.remove('active'));
   document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
-  // ON: 150%, OFF: 100%
-  bus.emit('audio:update-effect', 'stereo', 'mix', on ? 150 : 100, false);
+  // ON: 120%, OFF: 100%
+  bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
 }
 
 function setVBassOn(on: boolean): void {

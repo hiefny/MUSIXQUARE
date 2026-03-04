@@ -609,7 +609,7 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
   setStereoWidth(v);
-  // 150 = surround ON, 100 = OFF
+  // 120 = surround ON, 100 = OFF
   bus.emit('ui:sync-surround', v > 100);
   _notifyHostChanged();
 }

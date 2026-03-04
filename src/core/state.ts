@@ -70,7 +70,6 @@ export interface StateTree {
     virtualBass: number;
     subFreq: number;
     userPreampGain: number;
-    analyser: unknown | null;
   };
 
   // Sync
@@ -244,7 +243,6 @@ function createInitialState(): StateTree {
       virtualBass: 0,
       subFreq: 120,
       userPreampGain: 1.0,
-      analyser: null,
     },
 
     sync: {

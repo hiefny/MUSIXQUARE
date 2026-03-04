@@ -164,7 +164,6 @@ export interface ProtocolMap {
 
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
-  'playlist': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
   'repeat-mode': { value: number };
   'shuffle-mode': { value: boolean };
 

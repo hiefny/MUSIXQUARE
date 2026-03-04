@@ -72,7 +72,6 @@ export const MSG = {
   PAUSE: 'pause',
   PING_LATENCY: 'ping-latency',
   PLAY: 'play',
-  PLAYLIST: 'playlist',
   PLAYLIST_UPDATE: 'playlist-update',
   PLAY_PRELOADED: 'play-preloaded',
   PONG_LATENCY: 'pong-latency',

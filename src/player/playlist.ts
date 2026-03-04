@@ -628,7 +628,6 @@ export function initPlaylist(): void {
     [MSG.REPEAT_MODE]: handleRepeatMode,
     [MSG.SHUFFLE_MODE]: handleShuffleMode,
     [MSG.PLAYLIST_UPDATE]: handlePlaylistUpdate,
-    [MSG.PLAYLIST]: handlePlaylistUpdate, // Backward-compat alias
     [MSG.REQUEST_TRACK_CHANGE]: handleTrackChange,
     [MSG.REQUEST_NEXT_TRACK]: handleRequestNextTrack,
     [MSG.REQUEST_PREV_TRACK]: handleRequestPrevTrack,

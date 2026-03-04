@@ -362,13 +362,6 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
   }
 });
 
-/** Set preamp gain from dB value */
-bus.on('audio:set-preamp', (value, isPreview) => {
-  if (!Number.isFinite(value)) return;
-  setPreamp(value);
-  if (!isPreview) _broadcastOrRequestSetting(MSG.PREAMP, value);
-});
-
 /** Set EQ band */
 bus.on('audio:set-eq', (band, value, isPreview) => {
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
@@ -384,25 +377,6 @@ bus.on('audio:reverb-type-change', (type: string) => {
   _broadcastOrRequestSetting(MSG.REVERB_TYPE, type as unknown as number);
 });
 
-/** Reset handlers — with OP/Host routing */
-bus.on('audio:reset-reverb', () => {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    // Host: reset locally + broadcast
-    resetReverb();
-    broadcast({ type: MSG.REVERB, value: 0 });
-    broadcast({ type: MSG.REVERB_DECAY, value: 5.0 });
-    broadcast({ type: MSG.REVERB_PREDELAY, value: 0.1 });
-    broadcast({ type: MSG.REVERB_LOWCUT, value: 0 });
-    broadcast({ type: MSG.REVERB_HIGHCUT, value: 0 });
-  } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_REVERB_RESET });
-    }
-  }
-});
-
 bus.on('audio:reset-eq', () => {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
@@ -413,32 +387,6 @@ bus.on('audio:reset-eq', () => {
     const isOperator = getState('network.isOperator');
     if (isOperator) {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
-    }
-  }
-});
-
-bus.on('audio:reset-stereo', () => {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    resetStereoWidth();
-    broadcast({ type: MSG.STEREO_WIDTH, value: 100 });
-  } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value: 100 });
-    }
-  }
-});
-
-bus.on('audio:reset-vbass', () => {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    resetVirtualBass();
-    broadcast({ type: MSG.VBASS, value: 0 });
-  } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator) {
-      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 0 });
     }
   }
 });

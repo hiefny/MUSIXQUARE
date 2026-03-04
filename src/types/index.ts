@@ -246,13 +246,9 @@ export interface EventMap {
   'audio:toggle-surround': [enabled: boolean];
   'audio:set-surround-channel': [idx: number];
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
-  'audio:set-preamp': [value: number, isPreview?: boolean];
   'audio:set-eq': [band: number, value: number, isPreview?: boolean];
   'audio:reverb-type-change': [type: string];
-  'audio:reset-reverb': [];
   'audio:reset-eq': [];
-  'audio:reset-stereo': [];
-  'audio:reset-vbass': [];
   'audio:surround-toggled': [];
 
   // ── Player ────────────────────────────────────────────────────────

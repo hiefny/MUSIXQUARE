@@ -155,6 +155,7 @@ export async function playTrack(index: number): Promise<void> {
     return;
   }
 
+  clearPreloadState();
   setState('playlist.currentTrackIndex', index);
   bus.emit('ui:update-playlist');
 

@@ -366,38 +366,26 @@ function handleFileStart(data: Record<string, unknown>): void {
   }
   setState('files.currentFileOpfs', { name: data.name as string });
 
+  // Always fresh start — host resends from chunk 0 on recovery,
+  // so keepExisting is unnecessary and stale counters cause infinite loops.
   if (isRecoverySameFile && receivedCount > 0) {
-    // Recovery mode: keep existing chunks
-    log.debug(`[file-start] Same file detected! Keeping ${receivedCount}/${data.total} chunks`);
-
-    postWorkerCommand({
-      command: 'OPFS_START',
-      filename: data.name as string,
-      isPreload: false,
-      sessionId: validateSessionId(incomingSid),
-      size: CHUNK_SIZE,
-      keepExisting: true,
-    });
-
-    setState('transfer.meta', data as Partial<FileMeta>);
-    setState('transfer.state', TRANSFER_STATE.RECEIVING);
-  } else {
-    // New file: initialize fresh
-    postWorkerCommand({
-      command: 'OPFS_START',
-      filename: data.name as string,
-      isPreload: false,
-      sessionId: validateSessionId(incomingSid),
-      size: CHUNK_SIZE,
-    });
-
-    setState('transfer.receivedCount', 0);
-    setState('transfer.meta', data as Partial<FileMeta>);
-    setState('transfer.state', TRANSFER_STATE.RECEIVING);
-
-    fileReorderBuffer.clear();
-    nextExpectedChunk = 0;
+    log.debug(`[file-start] Same file re-sent (recovery). Resetting from scratch.`);
   }
+
+  postWorkerCommand({
+    command: 'OPFS_START',
+    filename: data.name as string,
+    isPreload: false,
+    sessionId: validateSessionId(incomingSid),
+    size: CHUNK_SIZE,
+  });
+
+  setState('transfer.receivedCount', 0);
+  setState('transfer.meta', data as Partial<FileMeta>);
+  setState('transfer.state', TRANSFER_STATE.RECEIVING);
+
+  fileReorderBuffer.clear();
+  nextExpectedChunk = 0;
 
   startChunkWatchdog();
 

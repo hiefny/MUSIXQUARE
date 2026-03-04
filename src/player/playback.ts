@@ -19,6 +19,7 @@ import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../sto
 import { broadcastFile, unicastFile } from '../storage/transfer.ts';
 import { schedulePreload, unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
+import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
@@ -1257,10 +1258,12 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
     log.error('[Guest] Decoding failed', err);
     bus.emit('ui:show-toast', t('error.audio_decode_fail'));
 
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const playlist = getState('playlist.items') || [];
-    const name = playlist[currentTrackIndex]?.name || '';
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: currentTrackIndex, reason: 'decoding_failed' });
+    // Reset transfer state so recovery can start fresh (prevents infinite loop)
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('transfer.receivedCount', 0);
+
+    // Use recovery with retry limit (3 attempts + backoff) instead of unlimited sendToHost
+    sendRecoveryRequest(0);
   } finally {
     bus.emit('ui:show-loader', false);
   }

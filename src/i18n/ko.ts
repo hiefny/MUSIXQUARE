@@ -331,7 +331,7 @@ const ko = {
   'toast.auto_sync_done': '자동 싱크 보정 완료, +{{ms}}ms',
   'toast.reverb_type': '리버브 타입: {{type}}',
   'toast.reverb_init_fail': '리버브 초기화에 실패했어요',
-  'toast.vbass_on': '왜곡이 심해질 수 있어요',
+  'toast.distortion_warn': '왜곡이 심해질 수 있어요',
   'toast.host_force_sync': 'Host 강제 동기화: {{time}}',
   'toast.relay_id_connected': 'Relay: {{id}} 연결됨',
   'toast.seek_to': '{{time}}로 이동',

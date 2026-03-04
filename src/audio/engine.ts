@@ -339,8 +339,8 @@ async function _doInitAudio(): Promise<void> {
   vbLimiter!.connect(vbGain!);
   vbGain!.connect(masterGain!);
 
-  // Visualizer — 256 bins is enough (only bass 0~12 and high 70%~100% are used)
-  analyser = new Tone.Analyser('fft', 256) as ToneAnalyserNode;
+  // Visualizer — 2048 bins for accurate frequency mapping (bass 0~260Hz, high 7.5k~20kHz)
+  analyser = new Tone.Analyser('fft', 2048) as ToneAnalyserNode;
   analyser.smoothing = 0.3;
   masterGain!.connect(analyser);
   masterGain!.toDestination();

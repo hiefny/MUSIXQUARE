@@ -310,6 +310,7 @@ function setSurroundOn(on: boolean): void {
   document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
+  if (on) bus.emit('ui:show-toast', t('toast.vbass_on'));
 }
 
 function setVBassOn(on: boolean): void {

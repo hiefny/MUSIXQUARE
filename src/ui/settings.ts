@@ -156,31 +156,6 @@ function setEQ(band: number, value: number, isPreview = false): void {
   bus.emit('audio:set-eq', band, value, isPreview);
 }
 
-function resetReverb(): void {
-  bus.emit('audio:reset-reverb');
-  // Reset slider UI
-  const defaults: Record<string, number> = {
-    'reverb-slider': 0,
-    'reverb-decay-slider': 5.0,
-    'reverb-predelay-slider': 0.1,
-    'reverb-lowcut-slider': 0,
-    'reverb-highcut-slider': 0,
-  };
-  for (const [id, val] of Object.entries(defaults)) {
-    const el = document.getElementById(id) as HTMLInputElement | null;
-    if (el) el.value = String(val);
-  }
-  // Reset value displays
-  _setDisp('val-reverb', '0%');
-  _setDisp('val-rvb-decay', '5.0s');
-  _setDisp('val-rvb-predelay', '0.1s');
-  _setDisp('val-rvb-lowcut', '20Hz');
-  _setDisp('val-rvb-highcut', '20.0kHz');
-  // Clear chip active state + hide sliders, activate Off
-  clearReverbChipActive();
-  document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
-  setReverbSlidersVisible(false);
-}
 
 // ─── Reverb Preset Chips ───────────────────────────────────────
 

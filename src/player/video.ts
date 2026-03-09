@@ -153,6 +153,10 @@ function updateBodyModeClass(appState: string): void {
   if (videoElement) {
     const showMainVideo = (appState === APP_STATE.PLAYING_VIDEO) || keepVideoVisibleOnIdle;
     videoElement.style.display = showMainVideo ? 'block' : 'none';
+    // Pause hidden video to save CPU (e.g. video→audio mode switch)
+    if (!showMainVideo && !videoElement.paused) {
+      videoElement.pause();
+    }
   }
 }
 
@@ -179,6 +183,7 @@ export function initVideo(): void {
       _videoElement.volume = 0;
       _videoElement.muted = true;
     } else {
+      _videoElement.muted = false;
       try { _videoElement.volume = volume; } catch (e) {
         log.debug('[Video] Volume set failed:', e);
       }

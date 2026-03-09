@@ -8,6 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { APP_STATE } from '../core/constants.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 
@@ -17,6 +18,7 @@ let _animationId: number | null = null;
 let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 120;
 let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
+let _resizeListenerAdded = false;
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
@@ -127,69 +129,78 @@ export function startVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
+    // YouTube mode: Tone.js analyser isn't connected, skip draw to avoid 60fps waste
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
     if (!isToneAnalyser) {
       log.warn('[Visualizer] Non-Tone analyser not supported');
       _animationId = null;
       return;
     }
-    _animationId = requestAnimationFrame(draw);
 
-    const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
+    try {
+      const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
 
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.clearRect(0, 0, logicalSize, logicalSize);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, logicalSize, logicalSize);
 
-    // Bass: 0~260Hz (12 bins)
-    let bassSum = 0;
-    for (let i = 0; i < bassCount; i++) {
-      let val = (dbData[i] + 100) * 2.5;
-      if (!isFinite(val)) val = 0;
-      if (val < 0) val = 0;
-      if (val > 255) val = 255;
-      bassSum += val;
+      // Bass: 0~260Hz (12 bins)
+      let bassSum = 0;
+      for (let i = 0; i < bassCount; i++) {
+        let val = (dbData[i] + 100) * 2.5;
+        if (!isFinite(val)) val = 0;
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        bassSum += val;
+      }
+      const bassAverage = bassSum / bassCount;
+
+      smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
+      let bassPunch = Math.pow(smoothedBass / 255, 2.5);
+      if (!isFinite(bassPunch)) bassPunch = 0;
+
+      // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
+      let highSum = 0;
+      for (let i = highStart; i < highEnd; i++) {
+        let val = (dbData[i] + 100) * 2.5;
+        if (!isFinite(val)) val = 0;
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        highSum += val;
+      }
+      const highAverage = highSum / highCountVal;
+      smoothedHigh = smoothedHigh * HIGH_SMOOTH + highAverage * (1 - HIGH_SMOOTH);
+      let highPunch = smoothedHigh / 255;
+      if (!isFinite(highPunch)) highPunch = 0;
+
+      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
+      ctx.shadowBlur = 0;
+
+      // Circle 1: Bass
+      const bassRadius = (55 + (bassPunch * 200)) * scale;
+      const bassLightness = 20 + (bassPunch * 60);
+      ctx.fillStyle = _cachedIsLight
+        ? 'rgba(59, 130, 246, 0.6)'
+        : `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
+      ctx.fill();
+
+      // Circle 2: High
+      const highRadius = (40 + (highPunch * 130)) * scale;
+      const highLightness = 40 + (highPunch * 60);
+      ctx.fillStyle = _cachedIsLight
+        ? 'rgba(96, 165, 250, 0.6)'
+        : `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, highRadius, 0, twoPi);
+      ctx.fill();
+
+      // Schedule next frame only after successful draw
+      _animationId = requestAnimationFrame(draw);
+    } catch (e) {
+      log.warn('[Visualizer] draw() error — stopping animation loop:', e);
+      _animationId = null;
     }
-    const bassAverage = bassSum / bassCount;
-
-    smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
-    let bassPunch = Math.pow(smoothedBass / 255, 2.5);
-    if (!isFinite(bassPunch)) bassPunch = 0;
-
-    // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
-    let highSum = 0;
-    for (let i = highStart; i < highEnd; i++) {
-      let val = (dbData[i] + 100) * 2.5;
-      if (!isFinite(val)) val = 0;
-      if (val < 0) val = 0;
-      if (val > 255) val = 255;
-      highSum += val;
-    }
-    const highAverage = highSum / highCountVal;
-    smoothedHigh = smoothedHigh * HIGH_SMOOTH + highAverage * (1 - HIGH_SMOOTH);
-    let highPunch = smoothedHigh / 255;
-    if (!isFinite(highPunch)) highPunch = 0;
-
-    ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
-    ctx.shadowBlur = 0;
-
-    // Circle 1: Bass
-    const bassRadius = (55 + (bassPunch * 200)) * scale;
-    const bassLightness = 20 + (bassPunch * 60);
-    ctx.fillStyle = _cachedIsLight
-      ? 'rgba(59, 130, 246, 0.6)'
-      : `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
-    ctx.fill();
-
-    // Circle 2: High
-    const highRadius = (40 + (highPunch * 130)) * scale;
-    const highLightness = 40 + (highPunch * 60);
-    ctx.fillStyle = _cachedIsLight
-      ? 'rgba(96, 165, 250, 0.6)'
-      : `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, highRadius, 0, twoPi);
-    ctx.fill();
   }
 
   draw();
@@ -250,19 +261,22 @@ export function initVisualizer(): void {
   _initThemeListeners();
   drawIdleVisualizer();
 
-  window.addEventListener('resize', () => {
-    if (_vizResizeTimer) clearTimeout(_vizResizeTimer);
-    _vizResizeTimer = setTimeout(() => {
-      const wrapper = document.querySelector('.vinyl-wrapper');
-      if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
-      const currentState = getState('appState');
-      if (isIdleOrPaused(currentState)) {
-        drawIdleVisualizer();
-      } else {
-        startVisualizer();
-      }
-    }, 250);
-  });
+  if (!_resizeListenerAdded) {
+    _resizeListenerAdded = true;
+    window.addEventListener('resize', () => {
+      if (_vizResizeTimer) clearTimeout(_vizResizeTimer);
+      _vizResizeTimer = setTimeout(() => {
+        const wrapper = document.querySelector('.vinyl-wrapper');
+        if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
+        const currentState = getState('appState');
+        if (isIdleOrPaused(currentState)) {
+          drawIdleVisualizer();
+        } else {
+          startVisualizer();
+        }
+      }, 250);
+    });
+  }
 
   // Listen for check events from tab switch
   bus.on('ui:visualizer-check', () => {

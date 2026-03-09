@@ -141,7 +141,7 @@ export interface ProtocolMap {
   'eq-reset': {};
   'preamp': { value: number };
   'reverb': { value: number };
-  'reverb-type': { value: number };
+  'reverb-type': { value: string };
   'reverb-decay': { value: number };
   'reverb-predelay': { value: number };
   'reverb-lowcut': { value: number };
@@ -350,13 +350,11 @@ export interface EventMap {
   // ── Sync ──────────────────────────────────────────────────────────
   'sync:display-update': [];
   'sync:nudge': [ms: number];
-  'sync:nudge-apply': [ms: number];
   'sync:auto-sync': [];
   'sync:close-manual': [];
   'sync:get-position': [callback: (pos: number) => void];
   'sync:response': [hostTime: number, isPlaying: boolean, oneWayLatencyMs: number];
   'sync:latency-update': [ms: number];
-  'sync:youtube-nudge': [ms: number];
 
   // ── Relay ─────────────────────────────────────────────────────────
   'relay:incoming-connection': [conn: DataConnection];
@@ -364,7 +362,6 @@ export interface EventMap {
   'relay:serve-recovery': [conn: DataConnection, msg: unknown];
 
   // ── Setup ─────────────────────────────────────────────────────────
-  'setup:hide-overlay': [];
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
 

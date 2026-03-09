@@ -14,7 +14,8 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
+import { MSG, DELAY } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { validateSessionId } from '../core/session.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
@@ -23,7 +24,7 @@ import { unicastFile } from '../storage/transfer.ts';
 import { ensureNamedFile, postWorkerCommand } from '../storage/opfs.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
-let _relayConnTimer: ReturnType<typeof setTimeout> | null = null;
+const RELAY_CONN_TIMER = 'relayConnTimeout';
 
 // ─── OPFS Catch-up Pump ──────────────────────────────────────────────
 
@@ -199,7 +200,7 @@ export function connectToRelay(targetId: string): void {
   }
 
   // Cancel previous relay connection timeout
-  if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
+  clearManagedTimer(RELAY_CONN_TIMER);
 
   const myId = getState('network.myId');
   const conn = peer.connect(targetId, {
@@ -207,7 +208,7 @@ export function connectToRelay(targetId: string): void {
   });
 
   const FAIL_TIMEOUT = 10000;
-  _relayConnTimer = setTimeout(() => {
+  setManagedTimer(RELAY_CONN_TIMER, () => {
     if (!conn.open) {
       log.warn('[Relay] Connect Timeout');
       bus.emit('ui:show-toast', t('network.relay_timeout'));
@@ -228,15 +229,16 @@ export function connectToRelay(targetId: string): void {
     }
   }, FAIL_TIMEOUT);
 
+  // Register data handler before open to avoid missing early messages
+  conn.on('data', (data: unknown) => {
+    bus.emit('network:data', data, conn);
+  });
+
   conn.on('open', () => {
-    if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
+    clearManagedTimer(RELAY_CONN_TIMER);
     setState('relay.upstreamDataConn', conn);
     log.info('[Relay] Connected to upstream relay');
     bus.emit('ui:show-toast', t('network.relay_connected'));
-
-    conn.on('data', (data: unknown) => {
-      bus.emit('network:data', data, conn);
-    });
 
     // Request current file from relay
     safeSend(conn, { type: MSG.REQUEST_CURRENT_FILE });
@@ -244,7 +246,7 @@ export function connectToRelay(targetId: string): void {
 
   conn.on('error', (err: unknown) => {
     log.warn('[Relay] Connection error:', err);
-    if (_relayConnTimer) { clearTimeout(_relayConnTimer); _relayConnTimer = null; }
+    clearManagedTimer(RELAY_CONN_TIMER);
     try { conn.close(); } catch { /* noop */ }
     const currentUpstream = getState('relay.upstreamDataConn');
     if (currentUpstream === conn) {
@@ -282,9 +284,16 @@ export function handleRelayConnection(conn: DataConnection): void {
     log.debug('[Relay] Accepted downstream connection from', conn.peer);
 
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
-    if (!downstreamDataPeers.find(p => p.peer === conn.peer)) {
-      downstreamDataPeers.push(conn);
-      setState('relay.downstreamDataPeers', downstreamDataPeers);
+    // Duplicate check: remove stale connection for same peer before adding new one
+    const existingIdx = downstreamDataPeers.findIndex(p => p.peer === conn.peer);
+    if (existingIdx !== -1) {
+      const stale = downstreamDataPeers[existingIdx];
+      try { stale.close(); } catch { /* noop */ }
+      const updated = downstreamDataPeers.filter(p => p.peer !== conn.peer);
+      updated.push(conn);
+      setState('relay.downstreamDataPeers', updated);
+    } else {
+      setState('relay.downstreamDataPeers', [...downstreamDataPeers, conn]);
     }
   });
 
@@ -306,68 +315,6 @@ export function handleRelayConnection(conn: DataConnection): void {
       downstreamDataPeers.filter(p => p.peer !== conn.peer)
     );
   });
-}
-
-// ─── Preload Relay ──────────────────────────────────────────────────
-
-/**
- * Relay a preloaded file from local cache to downstream peers.
- */
-export async function relayPreloadFromCache(
-  blob: Blob,
-  index: number,
-  sessionId: number,
-  fileName: string
-): Promise<void> {
-  if (!blob) {
-    log.warn('[Relay] Cannot relay null blob for index:', index);
-    return;
-  }
-
-  const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length === 0) return;
-
-  const CHUNK = CHUNK_SIZE;
-  const total = Math.ceil(blob.size / CHUNK);
-
-  log.debug(`[Preload Relay] Relaying ${fileName} (${total} chunks) to ${downstreamDataPeers.length} peers`);
-
-  // Send PRELOAD_START
-  const startMsg = {
-    type: MSG.PRELOAD_START,
-    name: fileName,
-    index,
-    sessionId,
-    total,
-    size: blob.size,
-  };
-  downstreamDataPeers.forEach(p => {
-    safeSend(p, startMsg);
-  });
-
-  // Send chunks
-  for (let i = 0; i < total; i++) {
-    const activeDownstream = downstreamDataPeers.filter(p => p.open);
-    if (activeDownstream.length === 0) break;
-
-    const start = i * CHUNK;
-    const end = Math.min(start + CHUNK, blob.size);
-    const chunk = new Uint8Array(await blob.slice(start, end).arrayBuffer());
-
-    const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId };
-    activeDownstream.forEach(p => safeSend(p, chunkMsg));
-
-    // Backpressure: yield every 10 chunks
-    if (i % 10 === 0) await new Promise(r => setTimeout(r, 40));
-  }
-
-  // Send PRELOAD_END
-  const endMsg = { type: MSG.PRELOAD_END, name: fileName, index, sessionId };
-  downstreamDataPeers.forEach(p => {
-    safeSend(p, endMsg);
-  });
-
-  log.debug(`[Preload Relay] Finished relaying index ${index}`);
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────

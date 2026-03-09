@@ -134,6 +134,9 @@ export function getVbGain(): ToneGainNode | null { return vbGain; }
 export function getSurroundSplitter(): ToneNode | null { return surroundSplitter; }
 export function getSurroundGain(): ToneGainNode | null { return surroundGain; }
 export function isAudioReady(): boolean { return masterGain !== null; }
+export function getAudioContext(): AudioContext | null {
+  try { return Tone?.getContext?.()?.rawContext ?? null; } catch { return null; }
+}
 
 // For surround mode setup
 export function ensureSurroundNodes(): { splitter: ToneNode; gain: ToneGainNode } {
@@ -193,6 +196,30 @@ async function _doInitAudio(): Promise<void> {
   }
   if (masterGain) return; // Another call may have finished while awaiting
 
+  // Guard: if a previous failed init left partial nodes, dispose them first
+  if (toneSplit || preamp || reverb || widener) {
+    const leftoverNodes: (ToneNode | null)[] = [
+      toneSplit, toneMerge, gainL, gainR, preamp, widener, reverb,
+      rvbLowCut, rvbHighCut, rvbCrossFade, globalLowPass, analyser,
+      vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper, vbSubPostHP, vbSubPostLP, vbSubMix,
+      vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper, vbMidPostHP, vbMidPostLP, vbMidMix,
+      vbSum, vbLimiter, vbGain,
+      surroundSplitter, surroundGain,
+    ];
+    for (const n of leftoverNodes) { try { if (n) n.dispose(); } catch { /* */ } }
+    for (const n of eqNodes) { try { n.dispose(); } catch { /* */ } }
+    toneSplit = toneMerge = gainL = gainR = preamp = widener = null;
+    reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
+    globalLowPass = analyser = null; eqNodes = [];
+    vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
+    vbSubPostHP = vbSubPostLP = vbSubMix = null;
+    vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
+    vbMidPostHP = vbMidPostLP = vbMidMix = null;
+    vbSum = vbLimiter = vbGain = null;
+    surroundSplitter = surroundGain = null;
+    log.warn('[Audio] Cleaned up leftover nodes from previous failed init');
+  }
+
   // ── Channel & Stereo Processing ──
   toneSplit = new Tone.Split() as ToneNode;
   toneMerge = new Tone.Merge() as ToneNode;
@@ -236,7 +263,9 @@ async function _doInitAudio(): Promise<void> {
     throw reverbErr;
   }
 
-  // Damping filters
+  // Damping filters — wrapped to prevent partial graph if any node throws
+  // (masterGain is already set at this point, so initAudio() would fast-path)
+  try {
   rvbLowCut = new Tone.Filter(20, 'highpass', -12) as ToneFilterNode;
   rvbHighCut = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
   rvbCrossFade = new Tone.CrossFade(0) as ToneCrossFadeNode; // Initially Dry
@@ -347,6 +376,31 @@ async function _doInitAudio(): Promise<void> {
 
   // Analyser is available via getAnalyser() export — no need to duplicate in state
 
+  } catch (postReverbErr) {
+    // Post-reverb node construction failed — dispose ALL nodes to prevent
+    // partial graph (masterGain already set would make initAudio() fast-path)
+    const allNodes: (ToneNode | null)[] = [
+      toneSplit, toneMerge, gainL, gainR, masterGain, preamp, widener, reverb,
+      rvbLowCut, rvbHighCut, rvbCrossFade, globalLowPass, analyser,
+      vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper, vbSubPostHP, vbSubPostLP, vbSubMix,
+      vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper, vbMidPostHP, vbMidPostLP, vbMidMix,
+      vbSum, vbLimiter, vbGain,
+      surroundSplitter, surroundGain,
+    ];
+    for (const n of allNodes) { try { if (n) n.dispose(); } catch { /* */ } }
+    for (const n of eqNodes) { try { n.dispose(); } catch { /* */ } }
+    toneSplit = toneMerge = gainL = gainR = masterGain = preamp = widener = null;
+    reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
+    globalLowPass = analyser = null; eqNodes = [];
+    vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
+    vbSubPostHP = vbSubPostLP = vbSubMix = null;
+    vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
+    vbMidPostHP = vbMidPostLP = vbMidMix = null;
+    vbSum = vbLimiter = vbGain = null;
+    surroundSplitter = surroundGain = null;
+    throw postReverbErr;
+  }
+
   // iOS Silent Mode Bypass: Play the hidden <audio> element to unlock
   // programmatic playback on iOS (must happen during user gesture)
   try {
@@ -366,44 +420,6 @@ async function _doInitAudio(): Promise<void> {
 
   log.info('[Audio] Tone.js graph initialized');
   bus.emit('audio:ready');
-}
-
-/**
- * Dispose all Tone.js audio nodes and reset module state.
- * Useful for testing cleanup or future app-reset feature.
- */
-export function disposeAudioGraph(): void {
-  const nodes: (ToneNode | null)[] = [
-    toneSplit, toneMerge, gainL, gainR, masterGain,
-    reverb, rvbLowCut, rvbHighCut, rvbCrossFade,
-    preamp, widener, globalLowPass, analyser,
-    vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper,
-    vbSubPostHP, vbSubPostLP, vbSubMix,
-    vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper,
-    vbMidPostHP, vbMidPostLP, vbMidMix,
-    vbSum, vbLimiter, vbGain,
-    surroundSplitter, surroundGain,
-  ];
-  for (const n of nodes) {
-    try { if (n) n.dispose(); } catch { /* best-effort */ }
-  }
-  for (const n of eqNodes) {
-    try { n.dispose(); } catch { /* best-effort */ }
-  }
-
-  toneSplit = toneMerge = gainL = gainR = masterGain = null;
-  reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
-  eqNodes = [];
-  preamp = widener = globalLowPass = analyser = null;
-  vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
-  vbSubPostHP = vbSubPostLP = vbSubMix = null;
-  vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
-  vbMidPostHP = vbMidPostLP = vbMidMix = null;
-  vbSum = vbLimiter = vbGain = null;
-  surroundSplitter = surroundGain = null;
-  _initAudioPromise = null;
-
-  log.info('[Audio] Graph disposed');
 }
 
 // ─── Bus Event Handlers ─────────────────────────────────────────

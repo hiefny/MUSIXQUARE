@@ -139,18 +139,36 @@ export async function applySettings(): Promise<void> {
 // ─── Reverb Generate with Retry ────────────────────────────────────
 
 let _reverbGenerateInFlight = false;
+let _reverbGeneratePending = false;
+let _reverbGenerationId = 0;
 
 async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRetries = 2): Promise<void> {
-  if (_reverbGenerateInFlight) return;
+  if (_reverbGenerateInFlight) {
+    _reverbGeneratePending = true;
+    return;
+  }
   _reverbGenerateInFlight = true;
+  _reverbGeneratePending = false;
+  const generationId = ++_reverbGenerationId;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Bail out if a newer generation was requested (prevents stale retries)
+    if (generationId !== _reverbGenerationId) {
+      _reverbGenerateInFlight = false;
+      return;
+    }
     try {
       await Promise.race([
         rev!.generate(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
       ]);
       _reverbGenerateInFlight = false;
+
+      // Re-generate if params changed while in-flight (last-write-wins)
+      if (_reverbGeneratePending && generationId === _reverbGenerationId) {
+        _reverbGeneratePending = false;
+        return _generateReverbWithRetry(rev, maxRetries);
+      }
       return;
     } catch (e) {
       log.warn(`[Reverb] generate() attempt ${attempt + 1}/${maxRetries + 1} failed:`, e);
@@ -160,6 +178,7 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
     }
   }
   _reverbGenerateInFlight = false;
+  _reverbGeneratePending = false;
 }
 
 // ─── Reverb Controls ───────────────────────────────────────────────
@@ -189,7 +208,7 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
   if (!skipApply) applySettings();
 }
 
-export function resetReverb(): void {
+function resetReverb(): void {
   setReverbParam('mix', 0, true);
   setReverbParam('decay', 5.0, true);
   setReverbParam('predelay', 0.1, true);
@@ -220,7 +239,7 @@ export function setEQ(idx: number, val: number): void {
   // Update DOM label + slider (for sync from network)
   const label = document.getElementById(`eq-val-${bandIdx}`);
   if (label) label.innerText = clamped > 0 ? `+${clamped}` : String(clamped);
-  if (!_eqBandElements || _eqBandElements.length === 0) {
+  if (!_eqBandElements.length || !_eqBandElements[0]?.isConnected) {
     _eqBandElements = Array.from(document.querySelectorAll('.eq-band'));
   }
   if (_eqBandElements[bandIdx]) {
@@ -271,7 +290,7 @@ export function resetVirtualBass(): void {
 
 // ─── Subwoofer Cutoff ──────────────────────────────────────────────
 
-export function updateSubFreq(val: number): void {
+function updateSubFreq(val: number): void {
   const freq = Number(val);
   setState('audio.subFreq', freq);
   applySettings();
@@ -283,7 +302,7 @@ export function updateSubFreq(val: number): void {
  * Broadcast an audio setting change (Host) or send REQUEST_SETTING (OP Guest).
  * Called only on 'change' event (slider release), not during 'input' (dragging).
  */
-function _broadcastOrRequestSetting(msgType: string, value: number): void {
+function _broadcastOrRequestSetting(msgType: string, value: number | string): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: broadcast to all peers
@@ -373,8 +392,21 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
 
 /** Reverb preset type change from UI chip */
 bus.on('audio:reverb-type-change', (type: string) => {
-  handleReverbTypeMsg({ value: type });
-  _broadcastOrRequestSetting(MSG.REVERB_TYPE, type as unknown as number);
+  const hostConn = getState('network.hostConn');
+  if (hostConn) {
+    // OP Guest: only send REQUEST to host — host will broadcast back
+    // (skip local apply to avoid double-application when broadcast arrives)
+    const isOperator = getState('network.isOperator');
+    if (isOperator) {
+      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_TYPE, value: type });
+    } else {
+      bus.emit('ui:show-toast', t('toast.operator_required'));
+    }
+  } else {
+    // Host: apply locally + broadcast
+    handleReverbTypeMsg({ value: type });
+    broadcast({ type: MSG.REVERB_TYPE, value: type } as AnyProtocolMsg);
+  }
 });
 
 bus.on('audio:reset-eq', () => {
@@ -507,11 +539,15 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       setState('audio.reverbMix', 0.3);
       setState('audio.reverbDecay', 1.0);
       setState('audio.reverbPreDelay', 0.02);
+      setState('audio.reverbLowCut', 0);
+      setState('audio.reverbHighCut', 0);
       break;
     case 'arena':
       setState('audio.reverbMix', 0.4);
       setState('audio.reverbDecay', 5.0);
       setState('audio.reverbPreDelay', 0.12);
+      setState('audio.reverbLowCut', 0);
+      setState('audio.reverbHighCut', 0);
       break;
     default:
       return;
@@ -585,24 +621,6 @@ function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnectio
   broadcast({ type: MSG.EQ_RESET });
 }
 
-function handleRequestReverbReset(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[Effects] Rejected request-reverb-reset from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  resetReverb();
-  // Broadcast each reverb param reset individually so guests sync
-  broadcast({ type: MSG.REVERB, value: 0 });
-  broadcast({ type: MSG.REVERB_DECAY, value: 5.0 });
-  broadcast({ type: MSG.REVERB_PREDELAY, value: 0.1 });
-  broadcast({ type: MSG.REVERB_LOWCUT, value: 0 });
-  broadcast({ type: MSG.REVERB_HIGHCUT, value: 0 });
-}
-
 // ─── Init Effects Protocol Handlers ──────────────────────────────
 
 export function initEffectsHandlers(): void {
@@ -620,7 +638,6 @@ export function initEffectsHandlers(): void {
     [MSG.STEREO_WIDTH]: handleStereoWidthMsg,
     [MSG.VBASS]: handleVBassMsg,
     [MSG.REQUEST_EQ_RESET]: handleRequestEQReset,
-    [MSG.REQUEST_REVERB_RESET]: handleRequestReverbReset,
   });
 
   log.info('[Effects] Protocol handlers registered');

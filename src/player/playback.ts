@@ -21,8 +21,8 @@ import { schedulePreload, unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
-import { registerHandlers, validateMessage, verifyOperator } from '../network/protocol.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import type { DataConnection } from '../types/index.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import * as _Tone from 'tone';
@@ -196,13 +196,14 @@ export async function play(offset: number): Promise<void> {
   }
   _isPlayLocked = true;
 
+  const lockStartTime = Date.now();
   const lockWatchdog = setTimeout(() => {
     if (_isPlayLocked) {
-      log.warn('[Play] Lock Timeout: Forcing unlock after 3s');
+      log.warn(`[Play] Lock Timeout: Forcing unlock after 5s (locked at ${new Date(lockStartTime).toISOString()})`);
       _isPlayLocked = false;
       stopPlayerNode();
     }
-  }, 3000);
+  }, 5000);
 
   try {
     await _internalPlay(offset);
@@ -227,6 +228,7 @@ export async function play(offset: number): Promise<void> {
 
 async function _internalPlay(offset: number): Promise<void> {
   _pendingPlayTime = undefined;
+  log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -240,6 +242,7 @@ async function _internalPlay(offset: number): Promise<void> {
     return;
   }
 
+  log.debug('[Play] Stage 2: Resuming AudioContext');
   if (Tone.context.state !== 'running') {
     try { await Tone.context.resume(); } catch (e) { log.warn('Resume failed:', e); }
   }
@@ -253,6 +256,7 @@ async function _internalPlay(offset: number): Promise<void> {
     return;
   }
 
+  log.debug('[Play] Stage 3: Initializing audio engine');
   try {
     await initAudio();
   } catch (e) {
@@ -649,6 +653,8 @@ export async function loadAndBroadcastFile(
       };
       videoElement.addEventListener('loadedmetadata', onMetaLoaded);
       videoElement.load();
+    } else {
+      BlobURLManager.confirm();
     }
 
     // Enable play button
@@ -698,6 +704,7 @@ export async function loadPreloadedTrack(
 
   if (!localBlob) {
     log.warn('[Preload] No preloaded blob found in cache!');
+    _pendingPlayTime = undefined;
     return;
   }
 
@@ -708,6 +715,7 @@ export async function loadPreloadedTrack(
 
     if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
       log.warn(`[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
+      _playPreloadedInProgress = false;
       _pendingPlayTime = undefined;
       return;
     }
@@ -726,11 +734,15 @@ export async function loadPreloadedTrack(
     // Re-verify after async decode
     if (loadToken !== undefined && _currentLoadToken !== myToken) {
       log.warn('[Preload] Token mismatch after decode. Discarding.');
+      _playPreloadedInProgress = false;
+      _pendingPlayTime = undefined;
       return;
     }
     if (expectedIndex !== undefined && currentTrackIndex !== -1 &&
         getState('playlist.currentTrackIndex') !== targetIndex) {
       log.warn('[Preload] Track changed during decode. Discarding.');
+      _playPreloadedInProgress = false;
+      _pendingPlayTime = undefined;
       return;
     }
 
@@ -797,6 +809,7 @@ export async function loadPreloadedTrack(
 
   } catch (e: unknown) {
     _playPreloadedInProgress = false;
+    _pendingPlayTime = undefined;
     log.error('[Preload] Activation failed:', e);
     bus.emit('ui:show-toast', t('transfer.preload_fail'));
 
@@ -980,137 +993,6 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
   skipTime(sec);
 }
 
-function handleForceSyncPlay(data: Record<string, unknown>): void {
-  const syncTime = Number(data.time) || 0;
-  bus.emit('ui:show-toast', t('toast.host_force_sync', { time: fmtTime(syncTime) }));
-  play(syncTime);
-}
-
-// ─── Status Sync (Late Joiner / Reconnect Full State Sync) ─────────
-
-async function handleStatusSync(data: Record<string, unknown>): Promise<void> {
-  if (!validateMessage(data, ['playlistMeta', 'currentTrackIndex'])) return;
-
-  const playlistMeta = data.playlistMeta as Array<Record<string, unknown>>;
-  const hostTrackIndex = Number(data.currentTrackIndex);
-  const currentState = getState('appState');
-  const playlist = getState('playlist.items') || [];
-
-  // Empty playlist — clear local state
-  if (!playlistMeta || playlistMeta.length === 0) {
-    if (playlist.length === 0 && currentState === APP_STATE.IDLE) return;
-    log.debug('[StatusSync] Received empty playlist, clearing local state');
-    setState('playlist.items', []);
-    setState('playlist.currentTrackIndex', -1);
-    bus.emit('ui:update-playlist');
-    stopAllMedia();
-    return;
-  }
-
-  // Sync repeat/shuffle modes (silent = no toast)
-  if (data.repeatMode !== undefined) {
-    const current = getState('playlist.repeatMode') || 0;
-    if (Number(data.repeatMode) !== current) {
-      bus.emit('playlist:set-repeat-mode', Number(data.repeatMode), false);
-    }
-  }
-  if (data.isShuffle !== undefined) {
-    const current = getState('playlist.isShuffle');
-    if (!!data.isShuffle !== current) {
-      bus.emit('playlist:set-shuffle', !!data.isShuffle, false);
-    }
-  }
-
-  // Sync playlist structure if different
-  const isPlaylistDifferent = playlist.length !== playlistMeta.length ||
-    playlist.some((it, i) => it.name !== (playlistMeta[i]?.name as string));
-  if (isPlaylistDifferent) {
-    log.debug('[StatusSync] Playlist out of sync, updating...');
-    setState('playlist.items', playlistMeta as unknown as PlaylistItem[]);
-    bus.emit('ui:update-playlist');
-  }
-
-  // Sync track index — trigger recovery if needed
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (hostTrackIndex !== -1 && hostTrackIndex !== currentTrackIndex) {
-    log.debug(`[StatusSync] Index mismatch: Host(${hostTrackIndex}) vs Me(${currentTrackIndex}). Correcting...`);
-
-    stopAllMedia();
-    setState('playlist.currentTrackIndex', hostTrackIndex);
-    bus.emit('ui:update-playlist');
-
-    const updatedPlaylist = getState('playlist.items') || [];
-    const item = updatedPlaylist[hostTrackIndex];
-
-    if (item && item.type !== 'youtube') {
-      const currentFileBlob = getState('files.currentFileBlob');
-      const hasBlob = !!(currentFileBlob && currentFileBlob.size > 0);
-      const nextFileBlob = getState('preload.nextFileBlob');
-      const nextMeta = getState('preload.meta');
-      const isPreloaded = !!(nextFileBlob && nextMeta &&
-        ((nextMeta.index as number) === hostTrackIndex || (nextMeta.name as string) === item.name));
-
-      // If preloaded, use immediately
-      if (!hasBlob && isPreloaded) {
-        log.debug('[StatusSync] Required track found in preload cache. Activating...');
-        _currentLoadToken++;
-        await loadPreloadedTrack(hostTrackIndex, _currentLoadToken);
-        return;
-      }
-
-      // Track missing — request recovery from host
-      const meta = getState('transfer.meta');
-      const isWrongBlob = hasBlob && meta && (meta.name as string) !== item.name;
-      if (!hasBlob || isWrongBlob) {
-        // Remote guests: don't attempt file recovery (transport guard)
-        if (isRemoteGuest()) {
-          bus.emit('player:metadata-update', {
-            type: 'file',
-            title: t('toast.same_wifi_file_title'),
-            name: item.name,
-          });
-          bus.emit('ui:show-loader', false);
-          return;
-        }
-        log.debug('[StatusSync] Current track missing, requesting from host:', item.name);
-        bus.emit('ui:show-loader', true, t('toast.syncing_file', { name: item.name }));
-
-        if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-          bus.emit('youtube:stop-mode');
-        }
-
-        const hostConn = getState('network.hostConn');
-        if (hostConn?.open) {
-          const jitter = Math.random() * 1000 + 200;
-          setTimeout(() => {
-            const alreadyGotIt = getState('files.currentFileBlob') ||
-              getState('preload.nextFileBlob');
-            const idx = getState('playlist.currentTrackIndex');
-            if (idx === hostTrackIndex && !alreadyGotIt) {
-              sendToHost({
-                type: MSG.REQUEST_DATA_RECOVERY,
-                nextChunk: 0,
-                fileName: item.name,
-                index: hostTrackIndex,
-              });
-            } else if (alreadyGotIt) {
-              log.debug('[StatusSync] Aborting recovery: file arrived during jitter');
-              bus.emit('ui:show-loader', false);
-            }
-          }, jitter);
-        }
-      }
-    } else if (item && item.type === 'youtube') {
-      // Use fresh state — stopAllMedia() above may have destroyed the YouTube player
-      const freshState = getState('appState');
-      if (freshState !== APP_STATE.PLAYING_YOUTUBE && (item.videoId || item.playlistId)) {
-        log.debug('[StatusSync] Switching to YouTube mode for late-joiner sync');
-        bus.emit('youtube:load', item.videoId || null, item.playlistId || null, true, 0);
-      }
-    }
-  }
-}
-
 // ─── Clear Previous Track State ────────────────────────────────────
 
 function clearPreviousTrackState(reason = ''): void {
@@ -1279,8 +1161,6 @@ export function initPlayback(): void {
     [MSG.REQUEST_PAUSE]: handleRequestPause,
     [MSG.REQUEST_SEEK]: handleRequestSeek,
     [MSG.REQUEST_SKIP_TIME]: handleRequestSkipTime,
-    [MSG.FORCE_SYNC_PLAY]: handleForceSyncPlay,
-    [MSG.STATUS_SYNC]: handleStatusSync,
   });
 
   // Video sync timer tick
@@ -1341,14 +1221,6 @@ export function initPlayback(): void {
     bus.emit('ui:show-toast', `${t('toast.sync_done')}${rttLabel}`);
   });
 
-  // Sync: apply nudge offset by re-seeking
-  bus.on('sync:nudge-apply', (_ms) => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-      play(getTrackPosition());
-    }
-  });
-
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
     const currentState = getState('appState');
@@ -1404,6 +1276,34 @@ export function initPlayback(): void {
     } else {
       // Blob not ready yet — set watchdog, will be triggered by opfs:file-ready preload path
       log.debug('[Playback] Preload blob not ready yet, waiting...');
+
+      const PRELOAD_WATCHDOG_MS = 10_000;
+      const watchdog = setTimeout(() => {
+        if (!getState('transfer.waitingForPreload')) return;
+        log.warn('[Preload] Preloaded blob not available within timeout');
+        setState('transfer.waitingForPreload', false);
+        setState('transfer.skipIncomingFile', false);
+        bus.emit('ui:show-loader', false);
+        // Fallback: request file from host
+        const hostConn = getState('network.hostConn');
+        if (hostConn?.open) {
+          bus.emit('ui:show-loader', true, t('transfer.file_requesting'));
+          sendToHost({
+            type: MSG.REQUEST_DATA_RECOVERY,
+            nextChunk: 0,
+            fileName: name,
+            index,
+          });
+        }
+      }, PRELOAD_WATCHDOG_MS);
+
+      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
+      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
+        if (val === false) {
+          clearTimeout(watchdog);
+          _unsubWatchdog();
+        }
+      });
     }
   });
 

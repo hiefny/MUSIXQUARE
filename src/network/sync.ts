@@ -11,7 +11,6 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast } from './peer.ts';
@@ -39,7 +38,7 @@ let _syncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
  * Handle the main sync button press.
  * Host: broadcasts global resync. Guest: resets offset and requests sync time.
  */
-export function handleMainSyncBtn(): void {
+function handleMainSyncBtn(): void {
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
@@ -191,32 +190,6 @@ export function requestGlobalResyncDelayed(delay = 1000): void {
   setState('sync.resyncTimer', timer);
 }
 
-// ─── Manual Sync (Nudge) ────────────────────────────────────────────
-
-/**
- * Nudge the sync offset by a given number of milliseconds.
- */
-export function nudgeSync(ms: number): void {
-  const localOffset = getState('sync.localOffset');
-  setState('sync.localOffset', localOffset + (ms / 1000));
-  bus.emit('sync:display-update');
-
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('sync:youtube-nudge', ms);
-    return;
-  }
-
-  // Debounce hard sync application
-  clearManagedTimer('syncDebounce');
-  setManagedTimer('syncDebounce', () => {
-    const state = getState('appState');
-    if (state !== APP_STATE.IDLE && state !== APP_STATE.PAUSED) {
-      bus.emit('sync:nudge-apply', ms);
-    }
-  }, 450);
-}
-
 /**
  * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
  */
@@ -300,6 +273,7 @@ function handleSyncResponse(data: Record<string, unknown>): void {
 }
 
 function handleGlobalResyncRequest(): void {
+  setState('sync.autoSyncOffset', 0);
   bus.emit('ui:show-toast', t('toast.host_reset_sync'));
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');

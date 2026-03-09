@@ -9,7 +9,7 @@ import { log } from './log.ts';
 
 export const IS_IOS: boolean =
   (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as Record<string, unknown>).MSStream) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  (((navigator as unknown as Record<string, { platform?: string }>).userAgentData?.platform ?? navigator.platform ?? '') === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
 
@@ -91,6 +91,11 @@ function updateAppHeightNow(): void {
     }
 
     // Strategy 3: Hardcoded 48dp fallback
+    // LIMITATION: Gesture-navigation devices (Android 10+) have 0dp navbar but
+    // this heuristic cannot reliably detect gesture vs 3-button navigation.
+    // CSS env(safe-area-inset-bottom) is preferred when available (handled in CSS).
+    // This fallback only applies when the viewport height closely matches the
+    // screen's shorter dimension, suggesting the viewport extends behind the navbar.
     if (softKeyHeight === 0) {
       const scrDimH = Math.min(scr.height || Infinity, scr.width || Infinity);
       if (Number.isFinite(scrDimH) && scrDimH > 100) {

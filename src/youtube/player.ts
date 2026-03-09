@@ -71,6 +71,7 @@ export function loadYouTubeVideo(
 
   const wrapper = document.querySelector('.video-wrapper');
   if (!wrapper) {
+    _ytLoadInProgress = false;
     log.warn('[YouTube] .video-wrapper not found');
     return;
   }
@@ -104,6 +105,12 @@ export function loadYouTubeVideo(
     }
     w.onYouTubeIframeAPIReady = () => {
       (w as Record<string, boolean>).isYouTubeAPIReady = true;
+      // Guard: skip if a timeout already cancelled this load session
+      if (_currentYouTubeSessionId !== currentSessionId) {
+        log.debug('[YouTube] onYouTubeIframeAPIReady skipped — session changed');
+        _ytLoadInProgress = false;
+        return;
+      }
       initYouTubePlayer(videoId, playlistId, autoplay, subIndex);
     };
   } else {
@@ -283,8 +290,9 @@ function updateYouTubeUI(): void {
     const playlistIdx = _youtubePlayer.getPlaylistIndex?.() ?? -1;
     const state = _youtubePlayer.getPlayerState?.() ?? -1;
 
-    // iOS watchdog
-    if (IS_IOS && (state === 5 || state === -1)) {
+    // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
+    // state=5 (CUED) is a normal pre-play state, not a playback failure
+    if (IS_IOS && state === -1) {
       if (!_ytIOSWatchdog) _ytIOSWatchdog = Date.now();
       if (Date.now() - _ytIOSWatchdog > 3000) {
         showYouTubeSyncOverlay(true);
@@ -376,7 +384,9 @@ function refreshYouTubeDisplay(): void {
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(): void {
+  _ytLoadInProgress = false;
   _cachedYtDuration = 0; // Reset duration cache
+  setState('youtube.currentSubIndex', -1);
 
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
@@ -552,6 +562,11 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:toggle-play', () => {
+    if (_ytLoadInProgress) {
+      log.debug('[YouTube] Load already in progress, ignoring toggle');
+      return;
+    }
+
     const hostConn = getState('network.hostConn');
     const isOperator = getState('network.isOperator');
 
@@ -778,17 +793,6 @@ export function initYouTube(): void {
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
-  });
-
-  // Sync nudge for YouTube (adjust playback position by ms delta)
-  bus.on('sync:youtube-nudge', (ms) => {
-    if (!_youtubePlayer?.seekTo || !Number.isFinite(ms)) return;
-    try {
-      const current = _youtubePlayer.getCurrentTime();
-      _youtubePlayer.seekTo(current + (ms / 1000), true);
-    } catch (e) {
-      log.error('[YouTube] Nudge error:', e);
-    }
   });
 
   // YouTube refresh display (from tab switch)

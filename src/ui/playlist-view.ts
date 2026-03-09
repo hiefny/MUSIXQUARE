@@ -19,11 +19,14 @@ import { t } from '../i18n/index.ts';
 function toggleExpansion(idx: number): void {
   const playlist = getState('playlist.items');
   if (!playlist[idx]) return;
-  playlist[idx].isExpanded = !playlist[idx].isExpanded;
+
+  const updated = [...playlist];
+  updated[idx] = { ...updated[idx], isExpanded: !updated[idx].isExpanded };
+  setState('playlist.items', updated);
 
   // When expanding a YouTube playlist, trigger sub-item population
-  if (playlist[idx].isExpanded && playlist[idx].playlistId) {
-    bus.emit('youtube:populate-sub-items', playlist[idx].playlistId, idx);
+  if (updated[idx].isExpanded && updated[idx].playlistId) {
+    bus.emit('youtube:populate-sub-items', updated[idx].playlistId, idx);
   }
 
   updatePlaylistUI();

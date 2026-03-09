@@ -156,13 +156,6 @@ function setupSetCode(code: string): void {
   setupShowCodeArea(!!code);
 }
 
-function setupShowInstruction(show: boolean, text = ''): void {
-  const el = setupEl('setup-instruction');
-  if (!el) return;
-  el.style.display = show ? 'block' : 'none';
-  el.textContent = text || '';
-}
-
 function setupShowJoinArea(show: boolean): void {
   animateTransition(() => {
     const el = setupEl('setup-join-area');
@@ -345,7 +338,7 @@ function startHostFlow(): void {
   setupShowCodeArea(false);
   setupShowWelcome(false);
   setupShowRoleArea(true);
-  setupShowInstruction(false);
+
   setupHighlightJoinRole(null);
 
   const sliderArea = setupEl('ob-slider-area');
@@ -405,7 +398,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
     updateInviteCodeUI();
     setState('network.myDeviceLabel', 'HOST');
     updateRoleBadge();
-    setupShowInstruction(false);
+  
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
@@ -460,7 +453,7 @@ function startGuestFlow(): void {
   setupShowJoinArea(false);
   setupShowWelcome(false);
   setupShowRoleArea(true);
-  setupShowInstruction(false);
+
   setupHighlightJoinRole(null);
   setupSetGuestJoinBusy(false);
 
@@ -490,11 +483,11 @@ function proceedToGuestCode(mode: number): void {
 
   setupShowRoleArea(false);
   setupShowJoinArea(true);
-  setupShowInstruction(false);
+
 
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
+    { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode ?? null) },
   ], 'horizontal-with-back');
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -563,7 +556,6 @@ function initSetupOverlay(): void {
   setupShowJoinArea(false);
   setupShowRoleArea(false);
   setupShowWelcome(true);
-  setupShowInstruction(false, '');
   setupSetGuestJoinBusy(false);
 
   setState('network.appRole', 'idle');
@@ -674,15 +666,7 @@ export function initSetup(): void {
   }
 
   // PeerJS ready (peer ID assigned)
-  bus.on('network:peer-ready', (peerId) => {
-    const myIdEl = document.getElementById('my-id');
-    if (myIdEl && peerId) myIdEl.innerText = peerId;
-    updateRoleBadge();
-  });
-
-  // Session started (backward compat with legacy hosts)
-  bus.on('setup:hide-overlay', () => {
-    hideSetupOverlay();
+  bus.on('network:peer-ready', () => {
     updateRoleBadge();
   });
 
@@ -700,7 +684,7 @@ export function initSetup(): void {
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode!) },
+      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode ?? null) },
     ], 'horizontal-with-back');
 
     const input = setupEl('setup-join-code') as HTMLInputElement | null;

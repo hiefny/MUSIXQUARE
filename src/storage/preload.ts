@@ -86,8 +86,6 @@ async function preloadNextTrack(): Promise<void> {
     do {
       nextIdx = Math.floor(Math.random() * playlist.length);
     } while (nextIdx === currentTrackIndex);
-  } else if (isShuffle && playlist.length === 1) {
-    nextIdx = 0;
   } else {
     nextIdx = currentTrackIndex + 1;
     if (nextIdx >= playlist.length) {
@@ -474,6 +472,7 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
   // Require explicit sessionId — fallback to latestPreloadSessionId
   let sid = data.sessionId as number;
   if (!sid && latestPreloadSessionId !== 0) {
+    log.warn('[Preload] Chunk missing sessionId — falling back to latest:', latestPreloadSessionId);
     sid = latestPreloadSessionId;
   }
   if (!sid) return;
@@ -486,6 +485,12 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
 
   // If session state is marked skipped/finalized, ignore
   if (session?.skipped || session?.finalized) return;
+
+  // Bounds check: drop chunks with index beyond expected total
+  if (session && session.total > 0 && (data.index as number) >= session.total) {
+    log.warn(`[Preload] Out-of-bounds chunk index ${data.index} (total: ${session.total})`);
+    return;
+  }
 
   // Buffer the chunk in the reorder map
   if (!preloadReorderBuffer.has(sid)) {
@@ -759,6 +764,15 @@ export function initPreload(): void {
     log.debug(`[Preload] Preload ready for index: ${index}`);
     // This signals the preload chain is complete.
     // The actual file finalization is handled by opfs:file-ready → storage:preload-file-ready
+  });
+
+  // Clean up module-local variables when the session is left
+  bus.on('state:network.sessionCode', (code: unknown) => {
+    if (code === '') {
+      latestPreloadSessionId = 0;
+      preloadReorderBuffer.clear();
+      _activePlayPreloadedIndex = undefined;
+    }
   });
 
   log.info('[Preload] Handlers registered');

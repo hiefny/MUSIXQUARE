@@ -15,13 +15,20 @@ import { broadcast } from '../network/peer.ts';
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
-async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs = 5000, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
+  // Forward external abort to our controller
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) { clearTimeout(id); controller.abort(); }
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     return await fetch(url, { signal: controller.signal });
   } finally {
     clearTimeout(id);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -109,6 +116,14 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
 
 let _previewDebounce: ReturnType<typeof setTimeout> | null = null;
 
+/** Clear any pending preview debounce timer (call on overlay close). */
+export function clearPreviewDebounce(): void {
+  if (_previewDebounce) {
+    clearTimeout(_previewDebounce);
+    _previewDebounce = null;
+  }
+}
+
 export function fetchYouTubePreview(url: string): void {
   const previewContainer = document.getElementById('youtube-preview');
   const statusText = document.getElementById('youtube-preview-status');
@@ -160,7 +175,15 @@ export function fetchYouTubePreview(url: string): void {
       const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
       const title = document.getElementById('youtube-preview-title');
       const chan = document.getElementById('youtube-preview-channel');
-      if (thumb) thumb.src = data.thumbnail_url;
+      if (thumb) {
+        if (data.thumbnail_url) {
+          thumb.src = data.thumbnail_url;
+          thumb.onerror = () => { thumb.style.display = 'none'; };
+          thumb.style.display = '';
+        } else {
+          thumb.style.display = 'none';
+        }
+      }
       if (title) title.innerText = data.title;
       if (chan) chan.innerText = data.author_name;
 
@@ -183,12 +206,16 @@ export function fetchYouTubePreview(url: string): void {
 /** Dedup flag per playlistId to avoid parallel fetches */
 const _isFetching = new Map<string, boolean>();
 let _uiTimer: ReturnType<typeof setTimeout> | null = null;
+let _subTitleAbort: AbortController | null = null;
 
 /**
  * Background oEmbed fetcher for YouTube playlist sub-item titles.
  * Sequentially fetches titles with 200ms delay between requests.
  * Updates state, UI, and broadcasts to peers as titles arrive.
  * Ported from original app.js fetchPlaylistSubTitles().
+ *
+ * When called again (e.g. playlist switch), the previous fetch loop
+ * is cancelled via AbortController to avoid unnecessary network + setState.
  */
 export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
@@ -197,13 +224,25 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
   const data = subMap[playlistId];
   if (!data) return;
 
-  if (_isFetching.get(playlistId)) return; // Dedupe
+  // Abort any previous fetch loop
+  if (_subTitleAbort) {
+    _subTitleAbort.abort();
+    _subTitleAbort = null;
+  }
+  // Clear dedup flags since the previous loop is aborted
+  _isFetching.clear();
+
   _isFetching.set(playlistId, true);
+  const abort = new AbortController();
+  _subTitleAbort = abort;
 
   log.debug(`[YouTube Feed] Starting title fetch for playlist: ${playlistId} (${ids.length} items)`);
 
   try {
     for (let i = 0; i < ids.length; i++) {
+      // Check cancellation before each fetch
+      if (abort.signal.aborted) return;
+
       // Re-read state in case it was updated externally
       const currentMap = getState('youtube.subItemsMap') || {};
       const currentData = currentMap[playlistId];
@@ -216,9 +255,14 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
         const videoId = ids[i];
         const response = await fetchWithTimeout(
           `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`,
+          5000,
+          abort.signal,
         );
+        if (abort.signal.aborted) return;
         if (!response.ok) continue;
         const json = await response.json();
+
+        if (abort.signal.aborted) return;
 
         if (json && json.title) {
           // Update state
@@ -245,6 +289,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
           }
         }
       } catch (e) {
+        if (abort.signal.aborted) return; // Silently return on cancellation
         log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
       }
 
@@ -253,5 +298,6 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
     }
   } finally {
     _isFetching.delete(playlistId);
+    if (_subTitleAbort === abort) _subTitleAbort = null;
   }
 }

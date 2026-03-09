@@ -3,7 +3,7 @@
  * Extracted from original app.js
  *
  * Manages: animateTransition, escapeHtml, updateTitleWithMarquee,
- * copyTextToClipboard, toggleFullscreen.
+ * copyTextToClipboard.
  */
 
 import { log } from '../core/log.ts';
@@ -140,20 +140,6 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
   } catch (e) {
     log.warn('[Clipboard] Copy failed:', e);
     return false;
-  }
-}
-
-// ─── Fullscreen ──────────────────────────────────────────────────
-
-export function toggleFullscreen(): void {
-  try {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
-  } catch (e) {
-    log.debug('[Fullscreen] Toggle failed:', e);
   }
 }
 

@@ -172,7 +172,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     // Drift correction
     const localOffset = getState('sync.localOffset') || 0;
     const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-    const compensatedTime = hostTime + autoSyncOffset + localOffset;
+    const rawCompensatedTime = hostTime + autoSyncOffset + localOffset;
+    // Clamp to valid range: never negative, never beyond video duration
+    const duration = (player.getDuration && player.getDuration()) || Infinity;
+    const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
 
     const currentTime = player.getCurrentTime();
     const drift = Math.abs(currentTime - compensatedTime);
@@ -289,8 +292,8 @@ function handleYouTubeStop(): void {
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-mode');
+    bus.emit('player:stop-all-media');
   }
-  bus.emit('player:stop-all-media');
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
@@ -302,7 +305,11 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
     [MSG.YOUTUBE_STOP]: handleYouTubeStop,
+    [MSG.SESSION_START]: () => resetAdDetection(),
   });
+
+  // Reset ad detection when guest reconnects (receives new YouTube session)
+  bus.on('youtube:load', () => resetAdDetection());
 
   log.info('[YouTube Sync] Initialized');
 }

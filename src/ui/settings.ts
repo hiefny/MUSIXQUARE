@@ -98,16 +98,6 @@ function setChannel(mode: number): void {
 
   const preset = getStandardRolePreset(mode);
   bus.emit('ui:show-toast', t(preset.placementToastKey));
-
-  // Show woofer cutoff slider only when subwoofer (mode 2) is selected
-  const wooferCtrl = document.getElementById('woofer-cutoff-control');
-  if (wooferCtrl) {
-    if (mode === 2) {
-      wooferCtrl.classList.remove('collapsed');
-    } else {
-      wooferCtrl.classList.add('collapsed');
-    }
-  }
 }
 
 // ─── Value Display Helpers ────────────────────────────────────────
@@ -386,36 +376,9 @@ export function initSettings(): void {
 
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
-    el.addEventListener('click', () => setChannel(parseInt(el.dataset.ch!, 10)));
-  });
-
-  // Surround toggle
-  $on('btn-surround-toggle', 'click', () => {
-    const current = getState('audio.isSurroundMode');
-    bus.emit('audio:toggle-surround', !current);
-
-    // Toggle UI grid visibility
-    const stdGrid = document.getElementById('grid-standard');
-    const surrGrid = document.getElementById('grid-surround');
-    if (stdGrid) stdGrid.style.display = !current ? 'none' : '';
-    if (surrGrid) surrGrid.style.display = !current ? '' : 'none';
-
-    // Toggle button active state
-    const btn = document.getElementById('btn-surround-toggle');
-    if (btn) btn.classList.toggle('active', !current);
-  });
-
-  // Surround channel grid buttons
-  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-surround-ch]').forEach(el => {
     el.addEventListener('click', () => {
-      const idx = parseInt(el.dataset.surroundCh!, 10);
-      bus.emit('audio:set-surround-channel', idx);
-
-      // Highlight active button
-      document.querySelectorAll('#grid-surround .ch-opt[data-surround-ch]').forEach(
-        e => e.classList.remove('active'),
-      );
-      el.classList.add('active');
+      if (_guardHostCtrl()) return;
+      setChannel(parseInt(el.dataset.ch!, 10));
     });
   });
 

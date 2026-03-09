@@ -414,10 +414,21 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
 }
 
 /**
- * Get a readonly snapshot of the entire state tree (for debugging).
+ * Get a readonly deep-cloned snapshot of the entire state tree (for debugging).
+ * Returns a structuredClone to prevent external mutation of internal state.
  */
 export function snapshot(): Readonly<StateTree> {
-  return _state;
+  try {
+    return structuredClone(_state);
+  } catch {
+    // Fallback for non-cloneable values (DataConnection, etc.)
+    return JSON.parse(JSON.stringify(_state, (_key, value) => {
+      if (value instanceof Set) return [...value];
+      if (value instanceof Map) return Object.fromEntries(value);
+      if (typeof value === 'object' && value !== null && typeof value.close === 'function') return '[Connection]';
+      return value;
+    }));
+  }
 }
 
 /**

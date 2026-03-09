@@ -22,6 +22,7 @@ import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
+import { clearPreviewDebounce } from '../youtube/search.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -232,6 +233,7 @@ function openYouTubePopup(): void {
 }
 
 function closeYouTubePopup(): void {
+  clearPreviewDebounce();
   animateTransition(() => {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
@@ -366,7 +368,7 @@ function initSeekBar(): void {
     setState('player.isSeeking', false);
     const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
-    const t = parseFloat(slider.value);
+    const seekTime = parseFloat(slider.value);
 
     const hostConn = getState('network.hostConn');
     const isOperator = getState('network.isOperator');
@@ -376,22 +378,22 @@ function initSeekBar(): void {
 
     // OP: request Host to seek
     if (hostConn && isOperator) {
-      sendToHost({ type: MSG.REQUEST_SEEK, time: t });
+      sendToHost({ type: MSG.REQUEST_SEEK, time: seekTime });
       return;
     }
 
     // YouTube mode: seek via YouTube API
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-      bus.emit('youtube:seek-to', t);
+      bus.emit('youtube:seek-to', seekTime);
       return;
     }
 
     // Host: execute directly (playing or paused)
     if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-      bus.emit('player:seek', t);
+      bus.emit('player:seek', seekTime);
     } else {
       // Paused state: just update position
-      bus.emit('player:seek-to-time', t);
+      bus.emit('player:seek-to-time', seekTime);
     }
   });
 
@@ -484,6 +486,11 @@ export function initPlayerControls(): void {
   $on('play-btn', 'click', () => bus.emit('player:toggle-play'));
   $on('btn-next', 'click', () => bus.emit('playlist:next-track'));
   $on('vol-icon-btn', 'click', () => toggleMute());
+  $on('vol-icon-btn', 'keydown', (e) => {
+    if ((e as KeyboardEvent).key !== 'Enter' && (e as KeyboardEvent).key !== ' ') return;
+    (e as KeyboardEvent).preventDefault();
+    toggleMute();
+  });
   $on('volume-slider', 'input', function (this: HTMLInputElement) { onVolInput(Number(this.value)); });
   $on('volume-slider', 'change', function (this: HTMLInputElement) { onVolChange(Number(this.value)); });
   $on('btn-sync', 'click', () => handleMainSyncBtn());

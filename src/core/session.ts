@@ -17,6 +17,9 @@ export const INSTANCE_ID: string =
 let _globalSessionCounter = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000);
 
 export function nextSessionId(): number {
+  if (_globalSessionCounter >= Number.MAX_SAFE_INTEGER - 100000) {
+    _globalSessionCounter = Math.floor(Date.now() / 1000);
+  }
   return ++_globalSessionCounter;
 }
 

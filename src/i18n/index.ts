@@ -40,6 +40,19 @@ export function t(key: string, params?: Record<string, string | number>): string
   return str;
 }
 
+/** Translate with HTML-safe interpolation (escapes param values for innerHTML contexts). */
+export function tHtml(key: string, params?: Record<string, string | number>): string {
+  let str: string = _dicts[_resolved][key] ?? key;
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      const escaped = String(v).replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+      str = str.replaceAll(`{{${k}}}`, escaped);
+    }
+  }
+  return str;
+}
+
 /** Current effective language (after system resolution). */
 export function getResolvedLanguage(): ResolvedLang {
   return _resolved;
@@ -81,9 +94,9 @@ function _translateElement(el: Element): void {
   const textKey = el.getAttribute('data-i18n');
   if (textKey) el.textContent = t(textKey);
 
-  // innerHTML (help blocks)
+  // innerHTML (help blocks) — use tHtml for safe interpolation
   const htmlKey = el.getAttribute('data-i18n-html');
-  if (htmlKey) el.innerHTML = t(htmlKey);
+  if (htmlKey) el.innerHTML = tHtml(htmlKey);
 
   // Attributes
   for (const attr of I18N_ATTRS) {

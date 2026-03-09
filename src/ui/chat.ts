@@ -177,11 +177,18 @@ export function toggleChatDrawer(): void {
 
 // ─── Send & Receive ──────────────────────────────────────────────
 
+const MAX_MSG_LENGTH = 500;
+
 export function sendChatMessage(): void {
   const input = document.getElementById('chat-input') as HTMLInputElement | null;
   if (!input) return;
-  const text = input.value.trim();
+  let text = input.value.trim();
   if (!text) return;
+
+  if (text.length > MAX_MSG_LENGTH) {
+    text = text.substring(0, MAX_MSG_LENGTH);
+    bus.emit('ui:show-toast', t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
+  }
 
   const senderLabel = _getChatLabelBase();
   const channelMode = getState('audio.channelMode') ?? 0;

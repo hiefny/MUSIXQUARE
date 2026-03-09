@@ -22,12 +22,12 @@ export function switchTab(tabId: string): void {
     });
     const tabEl = document.getElementById(`tab-${tabId}`);
     if (tabEl) tabEl.classList.add('active');
-    const tabs = ['play', 'playlist', 'settings', 'guide'];
-    const idx = tabs.indexOf(tabId);
-    if (idx >= 0) {
-      const navItem = document.querySelectorAll('.nav-item')[idx];
-      navItem?.classList.add('active');
-      navItem?.setAttribute('aria-selected', 'true');
+    // Select nav item by data-tab attribute instead of index to avoid
+    // DOM-order coupling with the hardcoded array.
+    const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+    if (navItem) {
+      navItem.classList.add('active');
+      navItem.setAttribute('aria-selected', 'true');
     }
 
     if (tabId === 'settings') {

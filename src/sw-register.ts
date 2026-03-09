@@ -40,16 +40,16 @@ export function registerServiceWorker(): void {
         window.location.reload();
       });
 
-      // Check if we just reloaded from a SW update — skip dialog during cooldown
-      const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
-      const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
-
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
 
         newWorker.addEventListener('statechange', async () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // Evaluate cooldown at event time (not registration time) to avoid stale closure
+            const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
+            const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
+
             // During cooldown: silently activate, no dialog
             if (inCooldown) {
               log.debug('[SW] Update found during cooldown — silently activating');

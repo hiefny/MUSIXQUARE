@@ -52,8 +52,7 @@ let instanceId = 'default';
 // ─── Queue ──────────────────────────────────────────────────────
 
 let isProcessing = false;
-const messageQueue: (Record<string, unknown> | null)[] = [];
-let queueIndex = 0;
+const messageQueue: Record<string, unknown>[] = [];
 
 self.onmessage = (e: MessageEvent) => {
   messageQueue.push(e.data);
@@ -65,10 +64,10 @@ async function processQueue(): Promise<void> {
   isProcessing = true;
 
   try {
-    while (queueIndex < messageQueue.length) {
-      const data = messageQueue[queueIndex++];
+    while (messageQueue.length > 0) {
+      const data = messageQueue.shift()!;
       try {
-        if (data) await handleMessage(data);
+        await handleMessage(data);
       } catch (err: unknown) {
         const e2 = err as Error;
         console.error('[TransferWorker] Message error:', e2);
@@ -80,17 +79,8 @@ async function processQueue(): Promise<void> {
           stack: e2?.stack,
         });
       }
-      messageQueue[queueIndex - 1] = null;
-      if (queueIndex >= 128) {
-        messageQueue.splice(0, queueIndex);
-        queueIndex = 0;
-      }
     }
   } finally {
-    if (queueIndex > 0) {
-      messageQueue.splice(0, queueIndex);
-      queueIndex = 0;
-    }
     isProcessing = false;
     if (messageQueue.length > 0) processQueue();
   }

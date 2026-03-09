@@ -118,8 +118,8 @@ export const BlobURLManager = {
       const oldest = this._pendingRevocations.keys().next().value;
       if (!oldest) return;
       if (this._isUrlAttached(oldest)) {
+        this._clearScheduled(oldest);
         this._deferredUntilDetached.add(oldest);
-        this._pendingRevocations.delete(oldest);
       } else {
         this._revokeNow(oldest, 'queue-overflow');
       }

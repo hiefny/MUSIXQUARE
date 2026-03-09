@@ -30,6 +30,11 @@ export function setManagedTimer(
 export function clearManagedTimer(name: string): void {
   const id = _timers.get(name);
   if (id != null) {
+    // Both clearTimeout and clearInterval are called because the managed timer
+    // system stores a single ID regardless of whether it was created with
+    // setTimeout or setInterval. Per the HTML spec, timer IDs share a single
+    // numbering pool and both clear functions accept either type, so calling
+    // both is safe and ensures the timer is cleared regardless of its origin.
     clearTimeout(id);
     clearInterval(id);
     _timers.delete(name);

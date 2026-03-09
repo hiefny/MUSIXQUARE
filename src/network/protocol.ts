@@ -45,8 +45,9 @@ export const RELAYABLE_COMMANDS: MsgType[] = [
   MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
   MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
   MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE,
-  MSG.SYS_TOAST, MSG.STATUS_SYNC, MSG.CHAT,
-  MSG.PLAYLIST_UPDATE,
+  MSG.CHAT, MSG.PLAYLIST_UPDATE,
+  MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
+  MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
 ];
 
 // ─── Handler Registry ───────────────────────────────────────────────
@@ -95,6 +96,23 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   const msg = data as Record<string, unknown>;
   const msgType = msg.type as MsgType;
+
+  // Security: validate _originPeer to prevent spoofing.
+  // If _originPeer is set and differs from conn.peer, the message must
+  // be arriving through a known relay node. Otherwise strip _originPeer
+  // so that verifyOperator uses the actual sender.
+  if (msg._originPeer && msg._originPeer !== conn?.peer) {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn) {
+      // Host side: verify the direct sender is a connected peer acting as relay
+      const connectedPeers = getState('network.connectedPeers');
+      const senderPeer = connectedPeers.find(p => p.id === conn?.peer);
+      if (!senderPeer) {
+        log.warn(`[Protocol] Stripping spoofed _originPeer from unknown sender: ${conn?.peer}`);
+        delete msg._originPeer;
+      }
+    }
+  }
 
   // Dispatch to registered handler
   const handler = _handlers.get(msgType);

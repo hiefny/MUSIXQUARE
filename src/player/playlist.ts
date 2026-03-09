@@ -164,6 +164,12 @@ export async function playTrack(index: number): Promise<void> {
 
   // YouTube
   if (item.type === 'youtube') {
+    // Force-clear any stale audio preload state to prevent incorrect
+    // preloaded file being used when switching back from YouTube to audio
+    setState('preload.nextFileBlob', null);
+    setState('preload.meta', null);
+    setState('preload.nextTrackIndex', -1);
+
     if (!hostConn) {
       stopAllMedia();
       broadcast({
@@ -320,14 +326,14 @@ export function playPrevTrack(): void {
 
   // Local mode: restart if > 3s, else previous track
   const pos = getTrackPosition();
-  if (pos > 3) {
+  if (pos > 3 || currentTrackIndex <= 0) {
+    // Restart current track from the beginning (avoids redundant full reload)
     play(0);
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
     return;
   }
 
-  if (currentTrackIndex > 0) playTrack(currentTrackIndex - 1);
-  else playTrack(0);
+  playTrack(currentTrackIndex - 1);
 }
 
 // ─── Network Handlers ──────────────────────────────────────────────
@@ -346,9 +352,25 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
     (Array.isArray(data.playlist) ? data.playlist : null);
   if (!incoming) {
     setState('playlist.items', []);
+    setState('playlist.currentTrackIndex', -1);
     bus.emit('ui:update-playlist');
     return;
   }
+
+  // Validate incoming array: reject oversized or malformed playlists
+  if (incoming.length > 1000) {
+    log.warn('[Playlist] Rejected oversized playlist update:', incoming.length);
+    return;
+  }
+  // Validate individual items have expected properties
+  const valid = incoming.every((item: unknown) =>
+    item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string',
+  );
+  if (!valid) {
+    log.warn('[Playlist] Rejected playlist with invalid items');
+    return;
+  }
+
   setState('playlist.items', incoming);
 
   // Sync current track index from host (late-join bootstrap)
@@ -465,8 +487,8 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       break;
     }
     case MSG.REVERB_TYPE: {
-      // Reverb type preset handled via protocol handler, just broadcast
-      broadcast({ type: MSG.REVERB_TYPE, value: Number(val) });
+      // val is a string preset ('studio'/'arena'/'off') — apply locally on host + broadcast
+      bus.emit('audio:reverb-type-change', String(val));
       break;
     }
     case MSG.REVERB_DECAY: {
@@ -530,6 +552,8 @@ async function loadDemoMedia(): Promise<void> {
       };
 
       xhr.onerror = () => reject(new Error('Network Error'));
+      xhr.timeout = 15000;
+      xhr.ontimeout = () => reject(new Error('Request Timeout'));
       xhr.send();
     });
 
@@ -705,7 +729,8 @@ export function initPlaylist(): void {
         videoId: item.videoId || null,
         playlistId: item.playlistId || null,
       }));
-      conn.send({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+      const currentTrackIndex = getState('playlist.currentTrackIndex');
+      conn.send({ type: MSG.PLAYLIST_UPDATE, list: metaList, currentTrackIndex });
 
       log.debug('[Playlist] Bootstrap: sent playlist state to new peer');
     } catch (e) {

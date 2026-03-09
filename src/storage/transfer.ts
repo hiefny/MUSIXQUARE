@@ -19,6 +19,13 @@ import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
 import type { DataConnection, FileMeta, AnyProtocolMsg } from '../types/index.ts';
 
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/** Cross-realm safe ArrayBuffer check (Worker/iframe boundary safe) */
+const isArrayBuffer = (v: unknown): v is ArrayBuffer =>
+  v instanceof ArrayBuffer ||
+  (v != null && typeof v === 'object' && Object.prototype.toString.call(v) === '[object ArrayBuffer]');
+
 // ─── Module State ───────────────────────────────────────────────────
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let nextExpectedChunk = 0;
@@ -73,6 +80,11 @@ async function fetchDemoFromServer(index: number): Promise<void> {
         else reject(new Error(`HTTP ${xhr.status}`));
       };
       xhr.onerror = () => reject(new Error('Network Error'));
+      xhr.timeout = 10000;
+      xhr.ontimeout = () => {
+        log.warn('[Transfer] Demo fetch timed out');
+        reject(new Error('Request Timeout'));
+      };
       xhr.send();
     });
 
@@ -414,6 +426,11 @@ function handleFileResume(data: Record<string, unknown>): void {
   if (!incomingSid || incomingSid < localSid) return;
   if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
 
+  // 12-1: Reset receive state for clean resume
+  fileReorderBuffer.clear();
+  setState('transfer.receivedCount', 0);
+  _pendingEarlyChunks.length = 0;
+
   clearManagedTimer('prepareWatchdog');
   setState('transfer.skipIncomingFile', false);
 
@@ -433,6 +450,15 @@ function handleFileResume(data: Record<string, unknown>): void {
 
   startChunkWatchdog();
 
+  // 12-28: Drain any early chunks that arrived before resume was processed
+  if (_pendingEarlyChunks.length > 0) {
+    const earlyChunks = _pendingEarlyChunks.splice(0);
+    log.debug(`[file-resume] Replaying ${earlyChunks.length} early chunks`);
+    for (const pending of earlyChunks) {
+      handleFileChunk(pending);
+    }
+  }
+
   const downstreamPeers = getState('relay.downstreamDataPeers');
   downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 }
@@ -440,6 +466,18 @@ function handleFileResume(data: Record<string, unknown>): void {
 function handleFileChunk(data: Record<string, unknown>): void {
   const incomingSid = data.sessionId as number;
   if (!incomingSid) return;
+
+  // 13-8: Guard against undefined/null chunk → would create 0-byte Uint8Array
+  if (data.chunk == null) {
+    log.warn('[Transfer] Received null/undefined chunk, skipping');
+    return;
+  }
+
+  // 12-23 + 13-10: Validate chunk data type (cross-realm safe ArrayBuffer check)
+  if (!(data.chunk instanceof Uint8Array) && !isArrayBuffer(data.chunk)) {
+    log.warn('[Transfer] Invalid chunk type received, ignoring');
+    return;
+  }
 
   // Skip if using preloaded file
   if (getState('transfer.skipIncomingFile')) {
@@ -485,6 +523,16 @@ function handleFileChunk(data: Record<string, unknown>): void {
   }
 
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
+
+  // 12-4 + 13-9: Guard against unbounded reorder buffer growth with recovery
+  const MAX_REORDER_BUFFER = 500;
+  if (sessionBuffer.size > MAX_REORDER_BUFFER) {
+    log.warn(`[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`);
+    sessionBuffer.clear();
+    nextExpectedChunk = (data.index as number);
+    bus.emit('storage:request-recovery');
+  }
+
   const chunkData = new Uint8Array(data.chunk as ArrayBuffer);
   sessionBuffer.set(data.index as number, chunkData);
 
@@ -536,20 +584,23 @@ function handleFileChunk(data: Record<string, unknown>): void {
 
     postWorkerCommand({
       command: 'OPFS_WRITE',
-      chunk: chunk instanceof ArrayBuffer ? chunk : (chunk as Uint8Array).buffer as ArrayBuffer,
+      chunk: isArrayBuffer(chunk) ? chunk : (chunk as Uint8Array).buffer as ArrayBuffer,
       index: nextExpectedChunk,
       isPreload: false,
       filename: opfsFilename.name || '',
       sessionId: validateSessionId(incomingSid),
     });
 
-    // Relay to downstream
+    // Relay to downstream (12-14: include total/name so downstream can recover meta)
     if (relayCopy && downstreamPeers.length > 0) {
+      const currentMetaForRelay = getState('transfer.meta');
       const chunkMsg = {
         type: MSG.FILE_CHUNK,
         chunk: relayCopy,
         index: nextExpectedChunk,
         sessionId: incomingSid,
+        total: currentMetaForRelay?.total ?? data.total,
+        name: currentMetaForRelay?.name ?? data.name,
       };
       downstreamPeers.forEach(p => {
         if (p.open) try { p.send(chunkMsg); } catch { /* noop */ }
@@ -576,6 +627,9 @@ function handleFileChunk(data: Record<string, unknown>): void {
   if (total > 0 && receivedCount >= total && getState('transfer.state') !== TRANSFER_STATE.PROCESSING) {
     setState('transfer.state', TRANSFER_STATE.PROCESSING);
     setState('recovery.retryCount', 0);
+
+    // Clean up reorder buffer for this session to prevent memory leak
+    fileReorderBuffer.delete(incomingSid);
 
     // Notify Host that we have this file (dedup via preload.ackSent)
     const processingIndex = currentMeta?.index as number;
@@ -700,7 +754,11 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
   const eligiblePeers = filterEligiblePeers();
 
-  if (eligiblePeers.length === 0) return;
+  // 12-13: Clean up activeBroadcastSession on early return to avoid resource leak
+  if (eligiblePeers.length === 0) {
+    setState('transfer.activeBroadcastSession', null);
+    return;
+  }
 
   // Send header
   eligiblePeers.forEach(p => {
@@ -720,10 +778,22 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     for (const p of eligiblePeers) {
       const conn = p.conn as DataConnection;
       if (conn?.open) {
-        // Backpressure check
+        // Backpressure check (12-24: with timeout to prevent infinite stall)
+        const BACKPRESSURE_TIMEOUT = 30_000;
+        const backpressureStart = Date.now();
+        let backpressureAbort = false;
         while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
+          if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
+            log.warn('[Transfer] Backpressure timeout — aborting broadcast');
+            backpressureAbort = true;
+            break;
+          }
           await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
           if (!conn.open) break;
+        }
+        if (backpressureAbort) {
+          setState('transfer.activeBroadcastSession', null);
+          return;
         }
         try { conn.send(chunkMsg); } catch { /* noop */ }
       }

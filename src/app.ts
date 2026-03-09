@@ -23,7 +23,7 @@ import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 
 // ── Audio ──
-import { initAudio, isAudioReady } from './audio/engine.ts';
+import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
 import { applySettings, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
 
@@ -69,19 +69,25 @@ import { registerServiceWorker } from './sw-register.ts';
 // ── System Compatibility Check ──
 
 function checkSystemCompatibility(): void {
+  let allPassed = true;
+
   // HTTPS check
   if (!window.isSecureContext) {
+    allPassed = false;
     bus.emit('ui:show-toast', t('error.https_required'));
     log.warn('[App] Not a secure context');
   }
 
   // OPFS support check
   if (!(navigator.storage && navigator.storage.getDirectory)) {
+    allPassed = false;
     bus.emit('ui:show-toast', t('error.browser_update'));
     log.warn('[App] OPFS not supported');
   }
 
-  log.info('[App] System compatibility check passed');
+  if (allPassed) {
+    log.info('[App] System compatibility check passed');
+  }
 }
 
 // ── Keyboard Shortcuts ──
@@ -145,8 +151,26 @@ export function activateNoSleep(): void {
 
 function initWakeLock(): void {
   document.addEventListener('visibilitychange', () => {
-    if (_wakeLockActive && document.visibilityState === 'visible') {
-      acquireWakeLock();
+    if (document.visibilityState !== 'visible') return;
+
+    // Re-acquire wake lock
+    if (_wakeLockActive) acquireWakeLock();
+
+    // iOS audio interruption recovery: resume suspended AudioContext
+    if (isAudioReady()) {
+      const ctx = getAudioContext();
+      if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
+        log.info(`[App] AudioContext ${ctx.state} — attempting resume`);
+        ctx.resume().then(() => {
+          log.info('[App] AudioContext resumed successfully');
+          const currentState = getState('appState');
+          if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+            applySettings();
+          }
+        }).catch(err => {
+          log.warn('[App] AudioContext resume failed:', err);
+        });
+      }
     }
   });
 

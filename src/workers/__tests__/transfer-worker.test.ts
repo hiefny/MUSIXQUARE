@@ -301,26 +301,24 @@ describe('Transfer Worker — Session Lock Logic', () => {
 });
 
 describe('Transfer Worker — Queue Management', () => {
-  it('queue cleanup at 128 items', () => {
-    // Simulate the queue cleanup logic
-    const queue: (unknown | null)[] = [];
-    let idx = 0;
+  it('queue stays compact via shift()', () => {
+    // Simulate the queue processing logic using shift()
+    const queue: unknown[] = [];
 
-    // Fill queue to 128+
+    // Enqueue 130 items
     for (let i = 0; i < 130; i++) {
       queue.push({ command: `CMD_${i}` });
-      idx++;
-
-      // Process (null out processed)
-      queue[idx - 1] = null;
-
-      if (idx >= 128) {
-        queue.splice(0, idx);
-        idx = 0;
-      }
     }
 
-    expect(queue.length).toBeLessThan(128);
+    // Process all via shift — no nulls accumulate
+    let processed = 0;
+    while (queue.length > 0) {
+      queue.shift();
+      processed++;
+    }
+
+    expect(processed).toBe(130);
+    expect(queue.length).toBe(0);
   });
 
   it('session mismatch deduplication', () => {

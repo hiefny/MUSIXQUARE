@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { getTotalSyncOffsetMs, nudgeSync, handleAutoSync } from '../sync.ts';
+import { getTotalSyncOffsetMs, handleAutoSync } from '../sync.ts';
 
 beforeEach(() => {
   resetState();
@@ -26,24 +26,6 @@ describe('getTotalSyncOffsetMs', () => {
     setState('sync.localOffset', -0.05);
     setState('sync.autoSyncOffset', 0);
     expect(getTotalSyncOffsetMs()).toBe(-50);
-  });
-});
-
-describe('nudgeSync', () => {
-  it('adds positive offset in seconds', () => {
-    nudgeSync(10);
-    expect(getState('sync.localOffset')).toBeCloseTo(0.01);
-  });
-
-  it('adds negative offset', () => {
-    nudgeSync(-5);
-    expect(getState('sync.localOffset')).toBeCloseTo(-0.005);
-  });
-
-  it('accumulates offsets', () => {
-    nudgeSync(10);
-    nudgeSync(10);
-    expect(getState('sync.localOffset')).toBeCloseTo(0.02);
   });
 });
 

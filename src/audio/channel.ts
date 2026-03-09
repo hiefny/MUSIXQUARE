@@ -75,14 +75,14 @@ export function setChannelMode(mode: number): void {
     gR.gain.rampTo(1, ramp);
   } else if (mode === 2) {
     // Sub: L+R summed to both, with lowpass
+    // Set gain BEFORE connecting to prevent +6dB spike
+    gL.gain.value = 0.5;
+    gR.gain.value = 0.5;
     if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = subFreq;
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
     gR.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    // Instant gain drop to prevent +6dB spike
-    gL.gain.value = 0.5;
-    gR.gain.value = 0.5;
   } else {
     // Fallback: stereo
     gL.connect(merge, 0, 0);
@@ -108,7 +108,13 @@ export function toggleSurroundMode(enabled: boolean): void {
     if (idx === -1) setSurroundChannel(2); // Default to Center
     else setSurroundChannel(idx);
   } else {
-    // Restore standard channel mode
+    // Disconnect surround nodes from the audio graph
+    const splitter = getSurroundSplitter();
+    const sGain = getSurroundGain();
+    if (splitter) safeDisconnect(splitter);
+    if (sGain) safeDisconnect(sGain);
+
+    // Restore standard channel mode (reconnects stereo path)
     setChannelMode(getState('audio.channelMode'));
   }
 
@@ -187,16 +193,18 @@ export function setSurroundChannel(idx: number): void {
       'Rear Left (Back)', 'Rear Right (Back)',
     ];
     log.info(`[Surround] Channel set: ${names[idx]}`);
+
+    // Sync VirtualBass / LowPass / Preamp compensation to surround routing
+    applySettings();
   } catch (e) {
     log.warn('[Surround] setSurroundChannel error:', e);
   }
-
 }
 
 /**
  * Set channel mode with audio init (called from UI).
  */
-export async function setChannel(mode: number): Promise<void> {
+async function setChannel(mode: number): Promise<void> {
   if (!getMasterGain()) await initAudio();
   setChannelMode(mode);
 }

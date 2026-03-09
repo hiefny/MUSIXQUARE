@@ -37,9 +37,6 @@ export function setSyncWorker(worker: Worker): void {
   worker.onerror = (e) => { log.error('[Worker] Unhandled error:', e); };
 }
 
-export function getTransferWorker(): Worker | null { return _transferWorker; }
-export function getSyncWorker(): Worker | null { return _syncWorker; }
-
 // ─── Command Dispatch ───────────────────────────────────────────────
 
 /**

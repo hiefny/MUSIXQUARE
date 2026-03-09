@@ -11,7 +11,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
-import { clearAllManagedTimers } from '../core/timers.ts';
+import { clearAllManagedTimers, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, PeerInstance, DeviceInfo, AnyProtocolMsg } from '../types/index.ts';
@@ -238,6 +238,10 @@ function setupPeerEvents(): void {
         return; // Handled by retry loop
       }
       bus.emit('network:error', err);
+    } else if (appRole === 'guest') {
+      // Surface peer-level errors for guests too (e.g. network-offline, server-error)
+      log.warn('[PeerJS] Guest peer error surfaced:', err);
+      bus.emit('network:error', err);
     }
   });
 
@@ -371,6 +375,24 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       }
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
+
+      // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
+      if (type === 'remote' && conn.open) {
+        setTimeout(async () => {
+          if (!conn.open) return;
+          const recheck = await detectConnectionType(conn);
+          if (recheck === 'local') {
+            const ps = getState('network.connectedPeers');
+            const p = ps.find(x => x.id === peerId);
+            if (p && p.connectionType !== 'local') {
+              p.connectionType = 'local';
+              setState('network.connectedPeers', [...ps]);
+              log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
+              broadcastDeviceList();
+            }
+          }
+        }, 8500);
+      }
     }, 1500);
 
     // Broadcast updated device list to all peers
@@ -539,7 +561,9 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       setState('network.isConnecting', false);
 
       if ((conn as unknown as Record<string, unknown>)._errorHandled) {
-        setState('network.isIntentionalDisconnect', false);
+        // Don't reset isIntentionalDisconnect — the error handler already
+        // determined intent. Resetting unconditionally here would mask
+        // intentional disconnects (e.g. leaveSession) that race with close.
         return;
       }
       (conn as unknown as Record<string, unknown>)._errorHandled = true;
@@ -572,6 +596,19 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       setState('network.connectionType', type);
       log.info(`[Peer] Connection type: ${type}`);
       bus.emit('network:role-badge-update');
+
+      // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
+      if (type === 'remote' && conn.open) {
+        setTimeout(async () => {
+          if (!conn.open) return;
+          const recheck = await detectConnectionType(conn);
+          if (recheck === 'local' && getState('network.connectionType') !== 'local') {
+            setState('network.connectionType', 'local');
+            log.info('[Peer] Reclassified as local on re-detection');
+            bus.emit('network:role-badge-update');
+          }
+        }, 8500);
+      }
     }, 1500);
 
     bus.emit('network:peer-connected', conn);
@@ -627,8 +664,7 @@ export function leaveSession(): void {
   const peerSlotByPeerId = getState('network.peerSlotByPeerId');
   activeHostConnByPeerId.clear();
   peerSlotByPeerId.clear();
-  const peerSlots = getState('network.peerSlots');
-  for (let i = 1; i <= MAX_GUEST_SLOTS; i++) peerSlots[i] = null;
+  setState('network.peerSlots', [null, null, null, null]);
 
   // ── 5. Clear transfer state ──
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
@@ -650,9 +686,12 @@ export function leaveSession(): void {
     'network.connectedPeers': [],
     'network.isOperator': false,
     'network.isConnecting': false,
+    'network.connectionType': 'unknown',
     'network.lastKnownDeviceList': null,
     'network.peerLabels': {},
     'network.isIntentionalDisconnect': false,
+    'network.sessionCode': '',
+    'network.peerSlots': [null, null, null, null],
     // Relay
     'relay.upstreamDataConn': null,
     'relay.downstreamDataPeers': [],
@@ -665,6 +704,15 @@ export function leaveSession(): void {
     'transfer.state': TRANSFER_STATE.IDLE,
     'transfer.receivedCount': 0,
     'transfer.localSessionId': 0,
+    'transfer.currentSessionId': 0,
+    'transfer.activeBroadcastSession': null,
+    'transfer.skipIncomingFile': false,
+    'transfer.waitingForPreload': false,
+    // Recovery
+    'recovery.pending': false,
+    'recovery.retryCount': 0,
+    'recovery.pendingFileName': '',
+    'recovery.pendingFileIndex': undefined,
     // Files
     'files.currentFileBlob': null,
     // Preload
@@ -778,46 +826,41 @@ export function sendToHost(msg: AnyProtocolMsg): boolean {
   return safeSend(hostConn, msg);
 }
 
-/**
- * Send pause state to a single connection.
- */
-export function sendPauseState(conn: DataConnection, time: number): void {
-  try {
-    if (!conn || !conn.open) return;
-    conn.send({
-      type: MSG.PAUSE,
-      time,
-      index: getState('playlist.currentTrackIndex'),
-      state: getState('appState'),
-      timestamp: Date.now(),
-    });
-  } catch { /* noop */ }
-}
-
 // ─── Transport Guard (Remote File Transfer Blocking) ────────────
 
 /**
  * Wait for a host-side peer's connectionType to resolve from 'unknown'.
  * Returns the resolved type, or 'remote' on timeout (safety default).
  */
+let _peerConnTypeCounter = 0;
 function waitForPeerConnectionType(
   peerObj: Record<string, unknown>,
   timeout: number,
 ): Promise<string> {
+  const id = ++_peerConnTypeCounter;
+  const intervalName = `peerConnType-interval-${id}`;
+  const timeoutName = `peerConnType-timeout-${id}`;
+
   return new Promise(resolve => {
     const check = () => peerObj.connectionType as string | undefined;
     const current = check();
     if (current && current !== 'unknown') return resolve(current);
 
-    const interval = setInterval(() => {
+    const cleanup = () => {
+      clearManagedTimer(intervalName);
+      clearManagedTimer(timeoutName);
+    };
+
+    setManagedTimer(intervalName, () => {
       const val = check();
       if (val && val !== 'unknown') {
-        clearInterval(interval);
+        cleanup();
         resolve(val);
       }
-    }, 100);
-    setTimeout(() => {
-      clearInterval(interval);
+    }, 100, { interval: true });
+
+    setManagedTimer(timeoutName, () => {
+      cleanup();
       const final = check();
       resolve(!final || final === 'unknown' ? 'remote' : final);
     }, timeout);
@@ -840,6 +883,8 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
 
   // unknown or undefined — wait for ICE detection
   const resolved = await waitForPeerConnectionType(peerObj, 3000);
+  // Re-check connection after wait — peer may have disconnected during ICE detection
+  if (!conn.open) return false;
   return resolved === 'local';
 }
 
@@ -870,19 +915,30 @@ export function isRemoteGuest(): boolean {
  * Guest-side: wait for own connectionType to resolve from 'unknown'.
  * Returns 'remote' on timeout (safety default).
  */
+let _guestConnTypeCounter = 0;
 export function waitForGuestConnectionType(timeout: number): Promise<'local' | 'remote'> {
+  const id = ++_guestConnTypeCounter;
+  const intervalName = `guestConnType-interval-${id}`;
+  const timeoutName = `guestConnType-timeout-${id}`;
+
   return new Promise(resolve => {
     const check = () => getState('network.connectionType');
     if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
 
-    const interval = setInterval(() => {
+    const cleanup = () => {
+      clearManagedTimer(intervalName);
+      clearManagedTimer(timeoutName);
+    };
+
+    setManagedTimer(intervalName, () => {
       if (check() !== 'unknown') {
-        clearInterval(interval);
+        cleanup();
         resolve(check() as 'local' | 'remote');
       }
-    }, 100);
-    setTimeout(() => {
-      clearInterval(interval);
+    }, 100, { interval: true });
+
+    setManagedTimer(timeoutName, () => {
+      cleanup();
       resolve(check() === 'unknown' ? 'remote' : check() as 'local' | 'remote');
     }, timeout);
   });
@@ -989,12 +1045,6 @@ function handleForceCloseDuplicate(): void {
   // No action needed; the connection close event handles cleanup
 }
 
-function handleSysToast(data: Record<string, unknown>): void {
-  if (data.message) {
-    bus.emit('ui:show-toast', String(data.message));
-  }
-}
-
 function handleOperatorGrant(): void {
   setState('network.isOperator', true);
   bus.emit('ui:show-toast', t('network.op_granted'));
@@ -1008,23 +1058,14 @@ function handleOperatorRevoke(): void {
   bus.emit('network:role-badge-update');
 }
 
-function handleSessionStart(): void {
-  setState('setup.sessionStarted', true);
-  bus.emit('setup:hide-overlay');
-  bus.emit('network:role-badge-update');
-  log.info('[Peer] Session started');
-}
-
 // ─── Init Peer Protocol Handlers ──────────────────────────────────
 
 export function initPeerHandlers(): void {
   registerHandlers({
     [MSG.WELCOME]: handleWelcome,
     [MSG.SESSION_FULL]: handleSessionFull,
-    [MSG.SESSION_START]: handleSessionStart,
     [MSG.DEVICE_LIST_UPDATE]: handleDeviceListUpdateMsg,
     [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate,
-    [MSG.SYS_TOAST]: handleSysToast,
     [MSG.OPERATOR_GRANT]: handleOperatorGrant,
     [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
   });

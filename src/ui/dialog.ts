@@ -173,7 +173,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           last.focus();
         }
       } else {
-        if (activeEl === last) {
+        if (activeEl === last || !overlay.contains(activeEl)) {
           ke.preventDefault();
           first.focus();
         }

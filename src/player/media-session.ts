@@ -71,7 +71,14 @@ export function initMediaSession(): void {
       return;
     }
     const currentTrackIndex = getState('playlist.currentTrackIndex');
-    if (currentTrackIndex >= 0 && currentState !== APP_STATE.IDLE) {
+    if (currentState === APP_STATE.IDLE) {
+      // Try to play from current playlist position instead of blocking
+      if (currentTrackIndex >= 0) {
+        bus.emit('playlist:play-track', currentTrackIndex);
+      }
+      return;
+    }
+    if (currentTrackIndex >= 0) {
       togglePlay();
     }
   });

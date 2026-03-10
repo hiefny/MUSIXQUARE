@@ -678,6 +678,8 @@ export function initSetup(): void {
     setState('network.isConnecting', false);
     updateRoleBadge();
     hideSetupOverlay();
+    // Clear pending join code — connection succeeded, no longer needed
+    try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
   });
 
   bus.on('setup:guest-join-failure', (_error) => {
@@ -797,15 +799,29 @@ export function initSetup(): void {
     bus.emit('app:return-to-main');
   });
 
-  // Check for ?join=CODE in URL — auto-join as guest
+  // Check for ?join=CODE in URL or sessionStorage (survives SW reload)
+  const JOIN_CODE_KEY = 'mxqr_pending_join';
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const joinCode = urlParams.get('join');
+    let joinCode = urlParams.get('join') || '';
+
+    // Fallback: recover code from sessionStorage (SW reload may have wiped the URL)
+    if (!joinCode || !/^\d{6}$/.test(joinCode)) {
+      joinCode = sessionStorage.getItem(JOIN_CODE_KEY) || '';
+    }
+
     if (joinCode && /^\d{6}$/.test(joinCode)) {
-      log.info(`[Setup] Auto-join code detected in URL: ${joinCode}`);
-      // Clean the URL to prevent re-joining on reload
-      const cleanUrl = window.location.pathname + window.location.hash;
-      window.history.replaceState({}, '', cleanUrl);
+      log.info(`[Setup] Auto-join code detected: ${joinCode}`);
+
+      // Persist code in sessionStorage so it survives SW-triggered reload
+      sessionStorage.setItem(JOIN_CODE_KEY, joinCode);
+
+      // Clean the URL to prevent re-joining on manual reload
+      if (urlParams.has('join')) {
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, '', cleanUrl);
+      }
+
       // Defer the auto-join to after setup overlay is initialized
       setTimeout(() => {
         startGuestFlow();

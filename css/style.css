@@ -4099,6 +4099,15 @@ body.overlay-open .bottom-nav {
     border-radius: var(--radius-s, 14px);
 }
 
+.qr-svg {
+    width: 200px;
+    height: 200px;
+}
+
+.qr-svg path {
+    fill: var(--text-main);
+}
+
 .qr-placeholder {
     font-size: 13px;
     color: var(--text-sub);

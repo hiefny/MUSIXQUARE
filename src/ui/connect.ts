@@ -49,18 +49,25 @@ async function generateQR(containerId: string): Promise<void> {
     const base = `${location.origin}${location.pathname}`;
     const url = `${base}?join=${sessionCode}`;
 
-    const canvas = document.createElement('canvas');
-    await QRCode.toCanvas(canvas, url, {
-      width: 200,
+    // Generate SVG string — transparent background, currentColor-friendly
+    const svgString = await QRCode.toString(url, {
+      type: 'svg',
       margin: 2,
       color: {
         dark: '#000000',
-        light: '#ffffff',
+        light: '#00000000',  // Fully transparent background
       },
     });
 
-    container.innerHTML = '';
-    container.appendChild(canvas);
+    container.innerHTML = svgString;
+
+    // Apply CSS class for theme-aware coloring
+    const svg = container.querySelector('svg');
+    if (svg) {
+      svg.classList.add('qr-svg');
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+    }
   } catch (e) {
     log.warn('[Connect] QR generation failed', e);
     container.innerHTML = `<p class="qr-placeholder">${t('connect.no_session')}</p>`;

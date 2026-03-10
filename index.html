@@ -170,7 +170,7 @@
 
     <div id="tab-play" class="tab-content active" role="tabpanel" aria-labelledby="nav-play">
         <div class="tab-header play-header-desktop">
-            <span class="tab-title" data-i18n="nav.home">홈</span>
+            <span class="tab-title" data-i18n="nav.home">메인</span>
         </div>
         <div class="tab-body">
             <div class="vinyl-wrapper">
@@ -191,7 +191,7 @@
                 <div class="track-title-wrapper">
                     <div class="track-title" id="track-title" data-i18n="player.no_media">미디어 없음</div>
                 </div>
-                <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">파일을 추가하거나 YouTube 링크를 입력하세요</div>
+                <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">파일을 선택하거나 플레이리스트를 확인하세요</div>
             </div>
 
             <div class="controls-area">
@@ -226,7 +226,7 @@
                     </div>
 
                     <div class="vol-group-playback">
-                        <svg id="vol-icon-btn" viewBox="0 0 24 24" style="cursor: pointer" role="button" aria-label="Toggle mute" data-i18n-aria-label="player.toggle_mute" tabindex="0">
+                        <svg id="vol-icon-btn" viewBox="0 0 24 24" style="cursor: pointer" role="button" aria-label="음소거 전환" data-i18n-aria-label="player.toggle_mute" tabindex="0">
                             <path
                                 d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
                         </svg>
@@ -274,7 +274,7 @@
 
     <div id="tab-playlist" class="tab-content" role="tabpanel" aria-labelledby="nav-playlist">
         <div class="tab-header">
-            <span class="tab-title" data-i18n="nav.playlist">플레이리스트</span>
+            <span class="tab-title" data-i18n="nav.playlist">재생목록</span>
             <div class="playlist-title-area">
                 <button class="tab-action-btn" id="btn-repeat" aria-label="" data-i18n-aria-label="player.repeat_mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -486,22 +486,22 @@
                         <div class="ch-opt" data-rvb-type="studio">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z" />
-                            </svg><span data-i18n="settings.rvb_studio">Studio</span>
+                            </svg><span data-i18n="settings.rvb_studio">스튜디오</span>
                         </div>
                         <div class="ch-opt" data-rvb-type="arena">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z" />
-                            </svg><span data-i18n="settings.rvb_arena">Arena</span>
+                            </svg><span data-i18n="settings.rvb_arena">공연장</span>
                         </div>
                         <div class="ch-opt" data-rvb-type="advanced">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                            </svg><span data-i18n="settings.rvb_advanced">Advanced</span>
+                            </svg><span data-i18n="settings.rvb_advanced">고급</span>
                         </div>
                         <div class="ch-opt active" data-rvb-type="off">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="settings.rvb_off">Off</span>
+                            </svg><span data-i18n="settings.rvb_off">끄기</span>
                         </div>
                     </div>
                     <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
@@ -570,22 +570,22 @@
                         <div class="ch-opt" data-eq-type="bright">
                             <svg viewBox="0 -960 960 960" aria-hidden="true">
                                 <path d="M640-160v-440h160v440H640ZM400-160v-320h160v320H400ZM160-160v-200h160v200H160Z" />
-                            </svg><span data-i18n="settings.eq_bright">Bright</span>
+                            </svg><span data-i18n="settings.eq_bright">선명함</span>
                         </div>
                         <div class="ch-opt" data-eq-type="warm">
                             <svg viewBox="0 -960 960 960" aria-hidden="true">
                                 <path d="M160-160v-440h160v440H160ZM400-160v-320h160v320H400ZM640-160v-200h160v200H640Z" />
-                            </svg><span data-i18n="settings.eq_warm">Warm</span>
+                            </svg><span data-i18n="settings.eq_warm">따뜻함</span>
                         </div>
                         <div class="ch-opt" data-eq-type="advanced">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                            </svg><span data-i18n="settings.eq_advanced">Advanced</span>
+                            </svg><span data-i18n="settings.eq_advanced">고급</span>
                         </div>
                         <div class="ch-opt active" data-eq-type="off">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="settings.eq_off">Off</span>
+                            </svg><span data-i18n="settings.eq_off">끄기</span>
                         </div>
                     </div>
                     <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
@@ -634,12 +634,12 @@
                         <div class="ch-opt" data-toggle="on">
                             <svg viewBox="0 -960 960 960" aria-hidden="true">
                                 <path d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z" />
-                            </svg><span data-i18n="common.on">On</span>
+                            </svg><span data-i18n="common.on">켜기</span>
                         </div>
                         <div class="ch-opt active" data-toggle="off">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="common.off">Off</span>
+                            </svg><span data-i18n="common.off">끄기</span>
                         </div>
                     </div>
                 </div>
@@ -654,12 +654,12 @@
                         <div class="ch-opt" data-toggle="on">
                             <svg viewBox="0 -960 960 960" aria-hidden="true">
                                 <path d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z" />
-                            </svg><span data-i18n="common.on">On</span>
+                            </svg><span data-i18n="common.on">켜기</span>
                         </div>
                         <div class="ch-opt active" data-toggle="off">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="common.off">Off</span>
+                            </svg><span data-i18n="common.off">끄기</span>
                         </div>
                     </div>
                 </div>
@@ -755,7 +755,7 @@
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">
-                <input type="text" class="chat-input" id="chat-input" placeholder="" maxlength="500"
+                <input type="text" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="500"
                     aria-label="" data-i18n-placeholder="chat.placeholder" data-i18n-aria-label="chat.input_label">
                 <button class="chat-send-btn" id="btn-chat-send" aria-label="" data-i18n-aria-label="chat.send">
                     <svg viewBox="0 0 24 24" aria-hidden="true">

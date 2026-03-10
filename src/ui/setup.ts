@@ -830,8 +830,9 @@ export function initSetup(): void {
       sessionStorage.setItem(JOIN_CODE_KEY, joinCode);
       _pendingAutoJoinCode = joinCode;
 
-      // Defer the auto-join to after setup overlay is initialized
+      // Show overlay first, then jump to guest role selection
       setTimeout(() => {
+        showSetupOverlay();
         startGuestFlow();
       }, 200);
     } else {

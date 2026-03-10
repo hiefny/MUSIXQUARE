@@ -32,6 +32,7 @@ import { initProtocol } from './network/protocol.ts';
 import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initRelay } from './network/relay.ts';
+import { initOrchestrator } from './network/orchestrator.ts';
 
 // ── Storage ──
 import { setSyncWorker, setTransferWorker } from './storage/opfs.ts';
@@ -61,6 +62,7 @@ import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
 import { initSettings } from './ui/settings.ts';
+import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
 
 // ── Service Worker ──
@@ -231,6 +233,7 @@ function bootstrap(): void {
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
   safeInit('Relay', initRelay);
+  safeInit('Orchestrator', initOrchestrator);
 
   // 6. Workers & Storage
   try {
@@ -277,6 +280,7 @@ function bootstrap(): void {
   safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);
   safeInit('Settings', initSettings);
+  safeInit('Connect', initConnect);
   safeInit('Setup', initSetup);
 
   // 9. Service Worker

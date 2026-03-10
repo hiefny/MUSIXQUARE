@@ -522,5 +522,28 @@ export function initSettings(): void {
   const savedTheme = localStorage.getItem('musixquare-theme');
   setTheme(savedTheme || 'system');
 
+  // ─── Desktop Settings Sub-Tab Navigation ──────────────────────
+  initSettingsSubtabs();
+
   log.info('[Settings] Initialized');
+}
+
+// ─── Settings Sub-Tab Switching (Desktop) ─────────────────────────
+
+function initSettingsSubtabs(): void {
+  document.querySelectorAll<HTMLElement>('.subtab-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const subtab = btn.dataset.subtab;
+      if (subtab) switchSettingsSubtab(subtab);
+    });
+  });
+}
+
+function switchSettingsSubtab(id: string): void {
+  document.querySelectorAll<HTMLElement>('.subtab-pill').forEach(p =>
+    p.classList.toggle('active', p.dataset.subtab === id),
+  );
+  document.querySelectorAll<HTMLElement>('.settings-subtab-panel').forEach(p =>
+    p.classList.toggle('active', p.dataset.panel === id),
+  );
 }

@@ -15,7 +15,7 @@ import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest } from '../network/peer.ts';
+import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
@@ -262,9 +262,9 @@ export async function unicastPreload(
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
 
 function handlePreloadStart(data: Record<string, unknown>): void {
-  // Remote guests: skip preload (transport guard)
-  if (isRemoteGuest()) {
-    log.info('[Preload] Skipped — remote/unknown guest');
+  // Remote guests: skip preload unless relay is active
+  if (isRemoteGuest() && !hasActiveRelay()) {
+    log.info('[Preload] Skipped — remote/unknown guest without relay');
     return;
   }
 
@@ -466,8 +466,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 }
 
 function handlePreloadChunk(data: Record<string, unknown>): void {
-  // Remote guests: drop preload chunks (transport guard)
-  if (isRemoteGuest()) return;
+  // Remote guests: drop preload chunks unless relay is active
+  if (isRemoteGuest() && !hasActiveRelay()) return;
 
   // Require explicit sessionId — fallback to latestPreloadSessionId
   let sid = data.sessionId as number;

@@ -36,6 +36,7 @@ const ko = {
   'nav.playlist': '재생목록',
   'nav.settings': '설정',
   'nav.help': '도움말',
+  'nav.connect': '연결',
   'nav.go_home': '메인 화면으로 이동',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -69,6 +70,10 @@ const ko = {
   'playlist.shuffle_off': '셔플 재생이 꺼졌어요',
   'playlist.empty_hint': '미디어를 추가해주세요.',
   'playlist.loading_info': '재생 정보 대기 중...',
+  'playlist.remove_title': '재생목록에서 삭제',
+  'playlist.remove_message': '이 미디어를 재생목록에서 지울까요?',
+  'playlist.remove_yes': '지우기',
+  'playlist.remove_no': '아니요',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': '중앙 스피커',
@@ -119,6 +124,27 @@ const ko = {
   'settings.invite_code': '초대 코드',
   'settings.devices_title': '연결된 기기',
   'settings.invite_share': '초대와 공유',
+  'settings.subtab.general': '일반',
+  'settings.subtab.audio': '오디오',
+  'settings.subtab.connect': '연결',
+  'settings.subtab.help': '도움말',
+
+  // ─── Connect ───────────────────────────────────────────────────
+  'connect.qr_title': 'QR 코드로 참가',
+  'connect.max_devices': '접속 가능한 기기 수',
+  'connect.device_list': '연결된 기기 {{count}}대',
+  'connect.device_list_one': '연결된 기기 {{count}}대',
+  'connect.status_connected': '연결됨',
+  'connect.status_disconnected': '연결 끊김',
+  'connect.no_session': '세션을 먼저 시작하세요',
+  'connect.generating_qr': 'QR 코드 생성 중...',
+  'connect.cannot_reduce': '이미 {{count}}대가 연결되어 있어요',
+  'connect.kick_title': '강제퇴장 시키기',
+  'connect.kick_message': '이 기기를 내보낼까요?',
+  'connect.kick_yes': '내보내기',
+  'connect.kick_no': '아니요',
+  'connect.kicked_title': '강제퇴장',
+  'connect.kicked_message': '호스트에 의해 세션에서 내보내졌습니다.',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',
@@ -196,6 +222,7 @@ const ko = {
   'toast.device_connected': '{{name}}가 연결됐어요',
   'toast.device_disconnected': '{{name}} 연결이 끊겼어요',
   'toast.device_conn_error': '{{name}} 연결 오류',
+  'toast.device_kicked': '{{name}}을(를) 내보냈어요',
   'toast.invite_code': '초대 코드: {{code}}',
   'toast.invite_code_info': '연결된 기기 {{count}}대 | 초대 코드 {{code}}',
   'toast.added_tracks': '{{count}}곡을 추가했어요',

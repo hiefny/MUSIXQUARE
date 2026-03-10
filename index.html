@@ -301,6 +301,52 @@
         </div>
     </div>
 
+    <div id="tab-connect" class="tab-content" role="tabpanel" aria-labelledby="nav-connect">
+        <div class="tab-header" style="justify-content: space-between; align-items: center; padding-bottom: 0px;">
+            <span class="tab-title" data-i18n="nav.connect">연결</span>
+            <div class="settings-invite-wrapper invite-code-container"
+                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
+                title="" data-i18n-title="toast.click_copy_invite">
+                <div
+                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                    data-i18n="settings.invite_code"></div>
+                <span class="invite-code-value"
+                    style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
+            </div>
+        </div>
+        <div class="tab-body">
+            <!-- QR Code -->
+            <div class="section-group">
+                <div class="section-header-row">
+                    <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
+                </div>
+                <div id="qr-container" class="qr-container">
+                    <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
+                </div>
+            </div>
+
+            <!-- Max Devices -->
+            <div class="section-group">
+                <div class="section-header-row">
+                    <span class="section-title" data-i18n="connect.max_devices">접속 가능한 기기 수</span>
+                </div>
+                <div class="number-stepper" id="max-device-stepper">
+                    <button class="stepper-btn" data-dir="-1" aria-label="Decrease"></button>
+                    <span class="stepper-value" id="max-device-value">3</span>
+                    <button class="stepper-btn" data-dir="1" aria-label="Increase"></button>
+                </div>
+            </div>
+
+            <!-- Connected Devices -->
+            <div class="section-group">
+                <div class="section-header-row">
+                    <span class="section-title" id="connect-device-title">연결된 기기 0대</span>
+                </div>
+                <div id="connect-device-list" class="device-list"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="tab-guide" class="tab-content" role="tabpanel" aria-labelledby="nav-guide">
         <div class="tab-header" style="justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -403,6 +449,16 @@
         </div>
 
         <div class="tab-body">
+            <!-- Desktop sub-tab pill navigation (hidden on mobile) -->
+            <div class="settings-subtab-nav">
+                <button class="subtab-pill active" data-subtab="general" data-i18n="settings.subtab.general">일반</button>
+                <button class="subtab-pill" data-subtab="audio" data-i18n="settings.subtab.audio">오디오</button>
+                <button class="subtab-pill" data-subtab="connect" data-i18n="settings.subtab.connect">연결</button>
+                <button class="subtab-pill" data-subtab="help" data-i18n="settings.subtab.help">도움말</button>
+            </div>
+
+            <!-- Sub-panel: General -->
+            <div class="settings-subtab-panel active" data-panel="general">
             <div class="section-group">
                 <div class="section-header-row">
                     <span class="section-title" data-i18n="settings.language"></span>
@@ -424,7 +480,10 @@
                     <div class="theme-opt" id="theme-system" data-i18n="settings.system"></div>
                 </div>
             </div>
+            </div>
 
+            <!-- Sub-panel: Audio -->
+            <div class="settings-subtab-panel" data-panel="audio">
             <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
             <div class="youtube-settings-note" id="youtube-settings-note" role="note" data-i18n="help.youtube_no_effects">
             </div>
@@ -664,8 +723,8 @@
                     </div>
                 </div>
 
-                <!-- 6. Connected Devices -->
-                <div class="section-group">
+                <!-- 6. Connected Devices (desktop only — mobile uses #tab-connect) -->
+                <div class="section-group settings-device-section">
                     <div class="section-header-row">
                         <span class="section-title" data-i18n="settings.devices_title"></span>
                     </div>
@@ -673,10 +732,48 @@
                 </div>
 
             </div> <!-- End of youtube-settings-disabled-wrap -->
+            </div> <!-- End of sub-panel: Audio -->
 
+            <!-- Sub-panel: Connect (desktop only, mirrors #tab-connect) -->
+            <div class="settings-subtab-panel" data-panel="connect">
+                <div id="desktop-connect-content">
+                    <!-- QR Code -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
+                        </div>
+                        <div id="desktop-qr-container" class="qr-container">
+                            <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
+                        </div>
+                    </div>
+
+                    <!-- Max Devices -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="connect.max_devices">접속 가능한 기기 수</span>
+                        </div>
+                        <div class="number-stepper" id="desktop-max-device-stepper">
+                            <button class="stepper-btn" data-dir="-1" aria-label="Decrease"></button>
+                            <span class="stepper-value" id="desktop-max-device-value">3</span>
+                            <button class="stepper-btn" data-dir="1" aria-label="Increase"></button>
+                        </div>
+                    </div>
+
+                    <!-- Connected Devices -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" id="desktop-device-title">연결된 기기 0대</span>
+                        </div>
+                        <div id="desktop-device-list" class="device-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sub-panel: Help -->
+            <div class="settings-subtab-panel" data-panel="help">
             <div class="desktop-help-section">
 
-                <div class="help-block" style="margin-top: 16px;">
+                <div class="help-block">
                     <div class="help-title">
                         <svg viewBox="0 0 24 24">
                             <path
@@ -735,6 +832,7 @@
                     </div>
                 </div> <!-- Ends help-block -->
             </div> <!-- Ends desktop-help-section -->
+            </div> <!-- Ends sub-panel: Help -->
         </div> <!-- Ends tab-body -->
     </div> <!-- Ends tab-settings -->
 
@@ -783,6 +881,12 @@
                     d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
             </svg>
             <span data-i18n="nav.playlist"></span>
+        </button>
+        <button class="nav-item" id="nav-connect" data-tab="connect" role="tab" aria-selected="false" aria-controls="tab-connect">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+            </svg>
+            <span data-i18n="nav.connect"></span>
         </button>
         <button class="nav-item" id="nav-settings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
             <svg viewBox="0 0 24 24" aria-hidden="true">

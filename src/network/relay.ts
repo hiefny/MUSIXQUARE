@@ -1,13 +1,20 @@
 /**
  * MUSIXQUARE 2.0 — Relay Chain Management
- * Extracted from original app.js lines 9225-9555
  *
  * Manages: Upstream relay connection, downstream data peers,
  * relay file serving, preload relay, OPFS catch-up streaming.
  *
- * NOTE: 현재 MAX_GUEST_SLOTS=3 직결 구조로 운영 중이며 릴레이는 비활성 상태.
- * 호스트가 ASSIGN_DATA_SOURCE 메시지를 보내지 않으므로 이 모듈은 실행되지 않음.
- * 추후 안정성 확보 후 4인 이상 지원 시 릴레이 시스템 검토 예정.
+ * Activated by orchestrator.ts which sends ASSIGN_DATA_SOURCE to remote peers,
+ * directing them to connect to a local peer for data relay.
+ *
+ * TURN cost policy:
+ *   Host never sends file data to remote peers directly (no TURN transfer).
+ *   Instead, a local (LAN) peer acts as relay: Host→LAN→LocalRelay→Remote.
+ *   The relay-to-remote link uses the relay peer's own PeerJS connection,
+ *   which may traverse TURN but the cost is on the relay leg only.
+ *   If no local relay is available, remote peers receive control messages
+ *   only (play/pause/chat/YouTube) — no file data.
+ *   TODO(pro): Pro tier could enable host-direct TURN file transfer.
  */
 
 import { log } from '../core/log.ts';
@@ -139,9 +146,8 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
 
   // Back-pressure: don't read faster than RTC can send
   const bufAmt = conn.dataChannel ? conn.dataChannel.bufferedAmount : 0;
-  const peerQueueLen = conn._relayQueue ? conn._relayQueue.length : 0;
 
-  if (peerQueueLen > 120 || bufAmt > 256 * 1024) {
+  if (bufAmt > 256 * 1024) {
     scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
     return;
   }
@@ -395,14 +401,14 @@ export function initRelay(): void {
         total: (meta.total as number) || 0,
         size: (meta.size as number) || 0,
         index: (meta.index as number) || 0,
-        sessionId: (meta.sessionId as number) || getState('transfer.localSessionId'),
+        sessionId: (meta.sessionId as number) ?? getState('transfer.localSessionId'),
       });
 
       // OPFS catch-up: sequential pump with back-pressure
       if (receivedCount > 0) {
         startOpfsCatchupStream(conn, {
           filename: bootName,
-          sessionId: meta.sessionId as number || getState('transfer.localSessionId'),
+          sessionId: (meta.sessionId as number) ?? getState('transfer.localSessionId'),
           startIndex: 0,
           endIndexExclusive: receivedCount,
           isPreload: false,
@@ -421,7 +427,7 @@ export function initRelay(): void {
 
     const fileName = (m.fileName || m.name) as string || '';
     const nextChunk = Number(m.nextChunk) || 0;
-    const sessionId = m.sessionId as number || getState('transfer.localSessionId');
+    const sessionId = (m.sessionId as number) ?? getState('transfer.localSessionId');
 
     log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}`);
 

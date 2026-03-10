@@ -7,7 +7,7 @@
  */
 
 import { bus } from './events.ts';
-import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES } from './constants.ts';
+import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } from './constants.ts';
 import type { AppStateValue, TransferStateValue } from './constants.ts';
 import type { FileMeta, PlaylistItem, PreloadSessionEntry, DeviceInfo, DataConnection } from '../types/index.ts';
 
@@ -108,6 +108,7 @@ export interface StateTree {
     isIntentionalDisconnect: boolean;
     lastKnownDeviceList: DeviceInfo[] | null;
     peerLabels: Record<string, string>;
+    maxGuestSlots: number;
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
@@ -263,11 +264,12 @@ function createInitialState(): StateTree {
       hostConn: null,
       connectedPeers: [],
       isOperator: false,
+      maxGuestSlots: DEFAULT_MAX_GUEST_SLOTS,
       isConnecting: false,
       isIntentionalDisconnect: false,
       lastKnownDeviceList: null,
       peerLabels: {},
-      peerSlots: [null, null, null, null], // index 0 unused, 1-3 for guests
+      peerSlots: Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[], // index 0 unused, 1-N for guests
       peerSlotByPeerId: new Map(),
       activeHostConnByPeerId: new Map(),
       connectionType: 'unknown' as const,

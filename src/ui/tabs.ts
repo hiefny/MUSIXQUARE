@@ -34,6 +34,10 @@ export function switchTab(tabId: string): void {
       bus.emit('ui:settings-tab-opened');
     }
 
+    if (tabId === 'connect') {
+      bus.emit('ui:connect-tab-opened');
+    }
+
     if (tabId === 'play') {
       setTimeout(() => {
         const currentState = getState('appState');

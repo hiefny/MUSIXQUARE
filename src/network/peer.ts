@@ -10,7 +10,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { MSG, MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, DEFAULT_MAX_GUEST_SLOTS, PEER_NAME_PREFIX, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
@@ -64,12 +64,13 @@ function getPeerLabelBySlot(slot: number): string {
 
 function getAvailablePeerSlot(preferredSlot: number | null, peerId: string | null): number | null {
   const peerSlots = getState('network.peerSlots');
+  const maxSlots = getState('network.maxGuestSlots');
   const pref = Number(preferredSlot);
-  if (Number.isInteger(pref) && pref >= 1 && pref <= MAX_GUEST_SLOTS) {
+  if (Number.isInteger(pref) && pref >= 1 && pref <= maxSlots) {
     const occupant = peerSlots[pref];
     if (!occupant || occupant === peerId) return pref;
   }
-  for (let i = 1; i <= MAX_GUEST_SLOTS; i++) {
+  for (let i = 1; i <= maxSlots; i++) {
     if (!peerSlots[i]) return i;
   }
   return null;
@@ -78,7 +79,8 @@ function getAvailablePeerSlot(preferredSlot: number | null, peerId: string | nul
 function assignPeerSlot(peerId: string, slot: number): void {
   if (!peerId) return;
   const s = Number(slot);
-  if (!Number.isInteger(s) || s < 1 || s > MAX_GUEST_SLOTS) return;
+  const maxSlots = getState('network.maxGuestSlots');
+  if (!Number.isInteger(s) || s < 1 || s > maxSlots) return;
   const peerSlots = [...getState('network.peerSlots')];
   peerSlots[s] = peerId;
   setState('network.peerSlots', peerSlots);
@@ -286,7 +288,8 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   setState('network.connectedPeers', filtered);
 
   // Enforce max guests
-  if (filtered.length >= MAX_GUEST_SLOTS) {
+  const maxGuestSlots = getState('network.maxGuestSlots');
+  if (filtered.length >= maxGuestSlots) {
     const sendFullAndClose = () => {
       try {
         conn.send({
@@ -331,7 +334,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     status: 'connecting' as string,
     conn,
     isOp: false,
-    isDataTarget: true,
+    isDataTarget: false,
     joinOrder: slot,
     lastHeartbeat: Date.now(),
     preloadedIndexes: new Set<number>(),
@@ -370,6 +373,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
       }
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
+      bus.emit('orchestrator:peer-type-detected', peerId);
 
       // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
       if (type === 'remote' && conn.open) {
@@ -384,6 +388,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
               setState('network.connectedPeers', [...ps]);
               log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
               broadcastDeviceList();
+              bus.emit('orchestrator:peer-type-detected', peerId);
             }
           }
         }, 8500);
@@ -659,7 +664,7 @@ export function leaveSession(): void {
   const peerSlotByPeerId = getState('network.peerSlotByPeerId');
   activeHostConnByPeerId.clear();
   peerSlotByPeerId.clear();
-  setState('network.peerSlots', [null, null, null, null]);
+  setState('network.peerSlots', Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[]);
 
   // ── 5. Clear transfer state ──
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
@@ -686,7 +691,7 @@ export function leaveSession(): void {
     'network.peerLabels': {},
     'network.isIntentionalDisconnect': false,
     'network.sessionCode': '',
-    'network.peerSlots': [null, null, null, null],
+    'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     // Relay
     'relay.upstreamDataConn': null,
     'relay.downstreamDataPeers': [],
@@ -864,7 +869,11 @@ function waitForPeerConnectionType(
 
 /**
  * Host-side transport guard: can we send file data to this peer?
- * Blocks remote/unknown peers. Waits up to 3s for ICE detection if unknown.
+ *
+ * TURN cost policy: file data NEVER flows through TURN.
+ * Only local (LAN) peers with isDataTarget=true receive file data from host.
+ * Remote peers receive file data only via local relay peers, never from host.
+ * TODO(pro): Pro tier could relax connectionType check for host-direct TURN.
  */
 export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   if (!conn || !conn.open) return false;
@@ -872,28 +881,38 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   const peerObj = connectedPeers.find(p => p.conn === conn);
   if (!peerObj) return false;
 
+  // Orchestrator controls isDataTarget: false = relay-served or no-data, true = host-direct
+  if (peerObj.isDataTarget === false) return false;
+
   const type = peerObj.connectionType as string | undefined;
+
+  // Only local peers can receive file data directly from host (no TURN)
   if (type === 'local') return true;
+
+  // Remote peers: blocked — file data must not flow through TURN
   if (type === 'remote') return false;
 
-  // unknown or undefined — wait for ICE detection
+  // unknown — wait for ICE detection (up to 3s)
   const resolved = await waitForPeerConnectionType(peerObj, 3000);
-  // Re-check connection after wait — peer may have disconnected during ICE detection
   if (!conn.open) return false;
-  return resolved === 'local';
+  return resolved === 'local'; // unknown→remote will be handled by orchestrator later
 }
 
 /**
  * Host-side: filter connectedPeers to only those eligible for file data.
- * Synchronous — only allows 'local' peers (safe for broadcast scenarios
- * which happen well after the 1.5s ICE detection window).
+ *
+ * TURN cost policy: double-gated by isDataTarget AND connectionType.
+ * - isDataTarget must be true (set by orchestrator after ICE detection)
+ * - connectionType must be 'local' (defense-in-depth against TURN leaks)
+ * Remote peers NEVER appear here; they receive data only via local relay.
+ * TODO(pro): Pro tier could remove connectionType gate for TURN fallback.
  */
 export function filterEligiblePeers(): Array<Record<string, unknown>> {
   const connectedPeers = getState('network.connectedPeers');
   return connectedPeers.filter(p =>
     p.status === 'connected' &&
     (p.conn as DataConnection)?.open &&
-    p.isDataTarget !== false &&
+    p.isDataTarget === true &&
     p.connectionType === 'local',
   );
 }
@@ -904,6 +923,15 @@ export function filterEligiblePeers(): Array<Record<string, unknown>> {
 export function isRemoteGuest(): boolean {
   const connType = getState('network.connectionType');
   return connType === 'remote' || connType === 'unknown';
+}
+
+/**
+ * Guest-side: do I have an active upstream relay connection?
+ * Used to relax remote guards when relay is serving data.
+ */
+export function hasActiveRelay(): boolean {
+  const up = getState('relay.upstreamDataConn');
+  return !!(up && (up as DataConnection).open);
 }
 
 /**
@@ -975,10 +1003,48 @@ bus.on('network:toggle-operator', (peerId) => {
   }
 });
 
+// Host: Kick a connected peer from the session
+bus.on('network:kick-device', (peerId) => {
+  if (!peerId) return;
+
+  // Only host can kick
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return;
+
+  const connectedPeers = getState('network.connectedPeers');
+  const target = connectedPeers.find(x => x.id === peerId);
+  if (!target) return;
+
+  const conn = target.conn as DataConnection;
+  if (conn && conn.open) {
+    try { conn.send({ type: MSG.KICK_DEVICE }); } catch { /* noop */ }
+    // Give message time to arrive before closing
+    setTimeout(() => {
+      try { conn.close(); } catch { /* noop */ }
+    }, 300);
+  }
+
+  log.info(`[Host] Kicked peer ${target.label || peerId}`);
+  bus.emit('ui:show-toast', t('toast.device_kicked', { name: target.label || peerId }));
+});
+
 // Expose toggleOperator globally for device-list UI buttons
 (window as unknown as Record<string, unknown>).toggleOperator = (peerId: string) => {
   bus.emit('network:toggle-operator', peerId);
 };
+
+// Host: resize peer slots when max guests changes
+bus.on('network:max-guests-changed', (max: number) => {
+  setState('network.maxGuestSlots', max);
+  const oldSlots = getState('network.peerSlots');
+  const newSlots = Array(max + 1).fill(null) as (string | null)[];
+  // Preserve existing assignments
+  for (let i = 1; i < Math.min(oldSlots.length, newSlots.length); i++) {
+    newSlots[i] = oldSlots[i];
+  }
+  setState('network.peerSlots', newSlots);
+  log.info(`[Peer] Max guest slots changed to ${max}`);
+});
 
 bus.on('network:device-list', (list) => {
   if (Array.isArray(list)) {
@@ -1053,6 +1119,11 @@ function handleOperatorRevoke(): void {
   bus.emit('network:role-badge-update');
 }
 
+function handleKickDeviceMsg(): void {
+  setState('network.isIntentionalDisconnect', true);
+  bus.emit('network:kicked-explicitly');
+}
+
 // ─── Init Peer Protocol Handlers ──────────────────────────────────
 
 export function initPeerHandlers(): void {
@@ -1063,6 +1134,7 @@ export function initPeerHandlers(): void {
     [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate,
     [MSG.OPERATOR_GRANT]: handleOperatorGrant,
     [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
+    [MSG.KICK_DEVICE]: handleKickDeviceMsg,
   });
 
   log.info('[Peer] Protocol handlers registered');

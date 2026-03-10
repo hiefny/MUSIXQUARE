@@ -703,6 +703,54 @@ export function initPlaylist(): void {
     if (Number.isFinite(index) && index >= 0) playTrack(index);
   });
 
+  // Host: Remove track from playlist
+  bus.on('playlist:remove-track', (index) => {
+    const hostConn = getState('network.hostConn');
+    if (hostConn) return; // Only host can remove
+
+    const playlist = [...(getState('playlist.items') || [])];
+    if (index < 0 || index >= playlist.length) return;
+
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const isCurrentTrack = (index === currentTrackIndex);
+
+    // Remove the item
+    playlist.splice(index, 1);
+    setState('playlist.items', playlist);
+
+    if (playlist.length === 0) {
+      // Empty playlist — stop everything
+      stopAllMedia();
+      setState('playlist.currentTrackIndex', -1);
+      setState('appState', APP_STATE.IDLE);
+      bus.emit('player:state-changed', APP_STATE.IDLE);
+    } else if (isCurrentTrack) {
+      // Was playing the removed track — play previous or adjusted index
+      const newIdx = Math.min(index, playlist.length - 1);
+      setState('playlist.currentTrackIndex', newIdx);
+      playTrack(newIdx);
+    } else if (index < currentTrackIndex) {
+      // Removed before current — shift index down
+      setState('playlist.currentTrackIndex', currentTrackIndex - 1);
+    }
+
+    // Broadcast updated playlist to all guests
+    const updatedPlaylist = getState('playlist.items') || [];
+    const metaList = updatedPlaylist.map(item => ({
+      type: item.type,
+      name: item.name,
+      title: item.title || item.name,
+      videoId: item.videoId || null,
+      playlistId: item.playlistId || null,
+    }));
+    broadcast({
+      type: MSG.PLAYLIST_UPDATE,
+      list: metaList,
+      currentTrackIndex: getState('playlist.currentTrackIndex'),
+    });
+    bus.emit('ui:update-playlist');
+  });
+
   // Host: Send playlist state to newly connected peer (late-join bootstrap)
   bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;

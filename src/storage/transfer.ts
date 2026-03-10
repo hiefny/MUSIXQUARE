@@ -16,7 +16,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { t } from '../i18n/index.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
+import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay, waitForGuestConnectionType } from '../network/peer.ts';
 import type { DataConnection, FileMeta, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -134,8 +134,8 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
     return;
   }
 
-  // Remote guests: block file transfer (single guard)
-  if (isRemoteGuest()) {
+  // Remote guests: block file transfer unless relay is active
+  if (isRemoteGuest() && !hasActiveRelay()) {
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');

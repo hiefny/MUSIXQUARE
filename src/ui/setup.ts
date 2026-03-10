@@ -786,8 +786,42 @@ export function initSetup(): void {
     bus.emit('app:return-to-main');
   });
 
-  // Initial overlay
-  initSetupOverlay();
+  // Explicitly kicked by host (MSG.KICK_DEVICE)
+  bus.on('network:kicked-explicitly', async () => {
+    await showDialog({
+      title: t('connect.kicked_title'),
+      message: t('connect.kicked_message'),
+      buttonText: t('common.ok'),
+      dismissible: false,
+    });
+    bus.emit('app:return-to-main');
+  });
+
+  // Check for ?join=CODE in URL — auto-join as guest
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const joinCode = urlParams.get('join');
+    if (joinCode && /^\d{6}$/.test(joinCode)) {
+      log.info(`[Setup] Auto-join code detected in URL: ${joinCode}`);
+      // Clean the URL to prevent re-joining on reload
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, '', cleanUrl);
+      // Defer the auto-join to after setup overlay is initialized
+      setTimeout(() => {
+        startGuestFlow();
+        // Fill in the code after navigating to guest flow
+        setTimeout(() => {
+          const input = setupEl('setup-join-code') as HTMLInputElement | null;
+          if (input) input.value = joinCode;
+        }, 100);
+      }, 200);
+    } else {
+      // Normal flow: show setup overlay
+      initSetupOverlay();
+    }
+  } catch {
+    initSetupOverlay();
+  }
 
   log.info('[Setup] Initialized');
 }

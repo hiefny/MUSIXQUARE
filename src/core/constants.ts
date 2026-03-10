@@ -46,7 +46,9 @@ export const DELAY = {
 } as const;
 
 // ─── Network ───────────────────────────────────────────────────────
-export const MAX_GUEST_SLOTS = 3;
+export const DEFAULT_MAX_GUEST_SLOTS = 3;
+export const MIN_GUEST_SLOTS = 1;
+export const MAX_GUEST_SLOTS_LIMIT = 32;
 export const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
@@ -121,6 +123,7 @@ export const MSG = {
   YOUTUBE_STOP: 'youtube-stop',
   YOUTUBE_SYNC: 'youtube-sync',
   SYS_TOAST: 'sys-toast',
+  KICK_DEVICE: 'kick-device',
 } as const;
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];

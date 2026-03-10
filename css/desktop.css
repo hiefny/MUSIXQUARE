@@ -71,7 +71,8 @@
     .chat-drawer,
     #tab-playlist,
     #tab-settings,
-    #tab-guide {
+    #tab-guide,
+    #tab-connect {
         padding-top: 0;
         /* Panels have internal headers now */
         display: flex;
@@ -255,10 +256,68 @@
     }
 
     /* ---------------------------------------------------
-       8. Guide (도움말 화면)
+       8. Guide & Connect (모바일 전용 탭 — 데스크톱에서 숨김)
        --------------------------------------------------- */
-    #tab-guide {
+    #tab-guide,
+    #tab-connect {
         display: none;
+    }
+
+    /* ---------------------------------------------------
+       8b. Settings Sub-Tab Navigation (Desktop)
+       --------------------------------------------------- */
+    .settings-subtab-nav {
+        display: flex !important;
+        gap: 4px;
+        padding: 16px 20px 0;
+        border-bottom: 1px solid var(--divider);
+        margin: 0 12px;
+    }
+
+    .subtab-pill {
+        flex: 1;
+        padding: 10px 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-sub);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: color 0.2s, border-color 0.2s;
+        text-align: center;
+    }
+
+    .subtab-pill:hover {
+        color: var(--text-main);
+    }
+
+    .subtab-pill.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+    }
+
+    /* Sub-panels: only active visible */
+    .settings-subtab-panel {
+        display: none;
+    }
+
+    .settings-subtab-panel.active {
+        display: block;
+    }
+
+    /* Device list in settings audio panel — hidden on desktop too
+       (connection UI lives in the "연결" sub-tab instead) */
+    .settings-device-section {
+        display: none;
+    }
+
+    /* Connect sub-panel content — match 20px inner padding of other panels */
+    #desktop-connect-content .qr-container,
+    #desktop-connect-content .device-list,
+    #desktop-connect-content .number-stepper {
+        margin-left: 20px;
+        margin-right: 20px;
     }
 
     /* ---------------------------------------------------
@@ -668,7 +727,7 @@
 
     .desktop-help-section {
         display: block;
-        margin-top: 32px;
+        margin-top: 28px; /* 28px + help-block padding-top 16px = 44px, matching other sub-tabs */
     }
 
     button[data-tab="guide"] {

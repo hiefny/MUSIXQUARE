@@ -13,6 +13,7 @@ import { MSG } from '../core/constants.ts';
 import { escapeHtml } from './dom.ts';
 import { updateTitleWithMarquee } from './dom.ts';
 import { t } from '../i18n/index.ts';
+import { showDialog } from './dialog.ts';
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
@@ -30,6 +31,19 @@ function toggleExpansion(idx: number): void {
   }
 
   updatePlaylistUI();
+}
+
+// ─── Remove Track Dialog ─────────────────────────────────────────
+
+async function handleRemoveTrack(idx: number): Promise<void> {
+  const result = await showDialog({
+    title: t('playlist.remove_title'),
+    message: t('playlist.remove_message'),
+    buttonText: t('playlist.remove_yes'),
+    secondaryText: t('playlist.remove_no'),
+  });
+  if (result.action !== 'ok') return;
+  bus.emit('playlist:remove-track', idx);
 }
 
 // ─── Playlist UI Render ──────────────────────────────────────────
@@ -82,15 +96,22 @@ export function updatePlaylistUI(): void {
       else if (op) hc.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
     };
 
+    const isHost = !getState('network.hostConn');
+    const trailingEl = isHost
+      ? `<button type="button" class="btn-playlist-remove" data-remove-idx="${idx}" aria-label="${escapeHtml(t('playlist.remove_title'))}">
+           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+         </button>`
+      : `<div class="playing-indicator">
+           <div class="bar"></div>
+           <div class="bar"></div>
+           <div class="bar"></div>
+         </div>`;
+
     li.innerHTML = `
       <div class="track-idx">${idx + 1}</div>
       <div class="track-name">${icon} ${escapeHtml(displayName)}</div>
       ${expandBtn}
-      <div class="playing-indicator">
-        <div class="bar"></div>
-        <div class="bar"></div>
-        <div class="bar"></div>
-      </div>
+      ${trailingEl}
     `;
     ul.appendChild(li);
 
@@ -101,6 +122,16 @@ export function updatePlaylistUI(): void {
         e.preventDefault();
         e.stopPropagation();
         toggleExpansion(idx);
+      });
+    }
+
+    // Bind remove button (host only)
+    const removeBtn = li.querySelector('.btn-playlist-remove');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleRemoveTrack(idx);
       });
     }
 

@@ -18,7 +18,7 @@ import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './
 import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../storage/opfs.ts';
 import { broadcastFile, unicastFile } from '../storage/transfer.ts';
 import { schedulePreload, unicastPreload } from '../storage/preload.ts';
-import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
+import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
@@ -859,7 +859,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     }
 
     // No preload — request file from host (transport guard)
-    if (isRemoteGuest()) {
+    if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || '';
       bus.emit('player:metadata-update', {
@@ -892,7 +892,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     play(time);
   } else {
     // Remote guest: no file will arrive, show guide (transport guard)
-    if (isRemoteGuest()) {
+    if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist2 = getState('playlist.items') || [];
       bus.emit('player:metadata-update', {
         type: 'file',

@@ -88,9 +88,13 @@ test.describe('MUSIXQUARE Mobile Viewport', () => {
 
     await expect(page.locator('.bottom-nav')).toBeVisible();
 
-    // Nav items should be present in DOM
+    // Nav items should be present in DOM (5-tab layout)
     await expect(page.locator('.nav-item[data-tab="play"]')).toBeAttached();
+    await expect(page.locator('.nav-item[data-tab="connect"]')).toBeAttached();
     await expect(page.locator('.nav-item[data-tab="settings"]')).toBeAttached();
+
+    // Connect tab panel should exist
+    await expect(page.locator('#tab-connect')).toBeAttached();
   });
 
   test('mobile tab switching works', async ({ page }) => {

@@ -1241,6 +1241,55 @@ input[type=range]:active::-moz-range-thumb {
     position: relative;
 }
 
+/* ── Playlist Remove Button (host only) ────────────────────────── */
+.btn-playlist-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    color: var(--text-muted);
+    padding: 0;
+}
+
+.btn-playlist-remove svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.track-item:hover .btn-playlist-remove,
+.track-item:focus-within .btn-playlist-remove {
+    opacity: 0.6;
+}
+
+.track-item:hover .btn-playlist-remove:hover {
+    opacity: 1;
+    color: #ff4d4f;
+}
+
+.track-item.active .btn-playlist-remove {
+    opacity: 0.5;
+}
+
+.track-item.active .btn-playlist-remove:hover {
+    opacity: 1;
+    color: #ff4d4f;
+}
+
+/* Touch devices: always show remove button */
+@media (hover: none) {
+    .btn-playlist-remove {
+        opacity: 0.5;
+    }
+}
 
 .section-group {
     background: transparent;
@@ -1289,7 +1338,11 @@ input[type=range]:active::-moz-range-thumb {
 }
 
 /* Target only the very first section (Language) directly inside .tab-body */
-#tab-settings > .tab-body > .section-group:first-of-type .section-header-row {
+#tab-settings > .tab-body > .section-group:first-of-type .section-header-row,
+#tab-settings .settings-subtab-panel > .section-group:first-of-type .section-header-row,
+#tab-connect > .tab-body > .section-group:first-of-type .section-header-row,
+/* Connect sub-tab: .section-group is inside #desktop-connect-content wrapper */
+#desktop-connect-content > .section-group:first-of-type .section-header-row {
     padding-top: 24px;
 }
 
@@ -1719,6 +1772,36 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 .d-status.inactive {
     background: rgba(255, 77, 79, 0.2);
+    color: #ff4d4f;
+}
+
+/* ── Kick Device Button ─────────────────────────────────────────── */
+.btn-kick-device {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    margin-left: 4px;
+    opacity: 0.4;
+    transition: opacity 0.15s, color 0.15s;
+    color: var(--text-muted);
+    padding: 0;
+}
+
+.btn-kick-device svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+}
+
+.btn-kick-device:hover {
+    opacity: 1;
     color: #ff4d4f;
 }
 
@@ -3882,6 +3965,179 @@ body.overlay-open .bottom-nav {
 /* NOTE: play-header-desktop — hidden in both mobile (here) and desktop.css.
    Reserved for future desktop-specific player header. */
 .play-header-desktop {
+    display: none;
+}
+
+/* =============================================
+   Connect Tab — QR / Device Slider / Device List
+   ============================================= */
+
+/* QR Container */
+.qr-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 0;
+    min-height: 120px;
+}
+
+.qr-container canvas,
+.qr-container img {
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: var(--radius-s, 14px);
+}
+
+.qr-placeholder {
+    font-size: 13px;
+    color: var(--text-sub);
+    text-align: center;
+    padding: 32px 0;
+}
+
+/* Number Stepper (−  3  +) */
+.number-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px 20px;
+}
+
+.stepper-btn {
+    position: relative;
+    display: block;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0;
+    padding: 0;
+    cursor: pointer;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+/* Draw −/+ with pseudo-elements for pixel-perfect centering */
+.stepper-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 11px;
+    height: 1.5px;
+    background: currentColor;
+    opacity: 0.8;
+    transform: translate(-50%, -50%);
+}
+
+.stepper-btn[data-dir="1"]::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1.5px;
+    height: 11px;
+    background: currentColor;
+    opacity: 0.8;
+    transform: translate(-50%, -50%);
+}
+
+.stepper-btn:active {
+    background: var(--surface-3);
+}
+
+.stepper-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.stepper-value {
+    width: 48px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 36px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    cursor: pointer;
+    border-bottom: 2px solid var(--divider, #333);
+    padding-bottom: 2px;
+    transition: border-color 0.15s;
+    flex-shrink: 0;
+}
+
+.stepper-value.editing {
+    border-bottom-color: var(--primary, #4a90d9);
+}
+
+/* Editable input (shown on tap) */
+.stepper-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    padding: 0;
+    line-height: 36px;
+    -moz-appearance: textfield;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Device List in Connect Tab */
+.connect-device-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.connect-device-list .section-row {
+    border-bottom: 1px solid var(--surface-3);
+}
+
+.connect-device-list .section-row:last-child {
+    border-bottom: none;
+}
+
+/* =============================================
+   Settings Sub-Tab (Desktop) — Hidden on Mobile
+   ============================================= */
+
+/* Mobile: hide sub-tab pill navigation */
+.settings-subtab-nav {
+    display: none;
+}
+
+/* Mobile: show ALL sub-tab panels (just stacked, scrollable) */
+.settings-subtab-panel {
+    display: block;
+}
+
+/* Desktop connect sub-panel — hidden on mobile (duplicate of mobile #tab-connect) */
+.settings-subtab-panel[data-panel="connect"] {
+    display: none;
+}
+
+/* Device list in settings audio panel — hidden on mobile (shown in #tab-connect instead) */
+.settings-device-section {
+    display: none;
+}
+
+/* Desktop help sub-panel — hidden on mobile (duplicate of mobile #tab-guide) */
+.settings-subtab-panel[data-panel="help"] {
     display: none;
 }
 

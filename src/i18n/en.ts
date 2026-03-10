@@ -38,6 +38,7 @@ const en: Record<I18nKey, string> = {
   'nav.playlist': 'Playlist',
   'nav.settings': 'Settings',
   'nav.help': 'Help',
+  'nav.connect': 'Connect',
   'nav.go_home': 'Go to Home',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -71,6 +72,10 @@ const en: Record<I18nKey, string> = {
   'playlist.shuffle_off': 'Shuffle disabled',
   'playlist.empty_hint': 'Please add media.',
   'playlist.loading_info': 'Loading track info...',
+  'playlist.remove_title': 'Remove from playlist',
+  'playlist.remove_message': 'Remove this media from the playlist?',
+  'playlist.remove_yes': 'Remove',
+  'playlist.remove_no': 'No',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Center speaker',
@@ -121,6 +126,27 @@ const en: Record<I18nKey, string> = {
   'settings.invite_code': 'Invite code',
   'settings.devices_title': 'Connected Devices',
   'settings.invite_share': 'Invite & Share',
+  'settings.subtab.general': 'General',
+  'settings.subtab.audio': 'Audio',
+  'settings.subtab.connect': 'Connection',
+  'settings.subtab.help': 'Help',
+
+  // ─── Connect ───────────────────────────────────────────────────
+  'connect.qr_title': 'Join via QR Code',
+  'connect.max_devices': 'Allowed Devices',
+  'connect.device_list': '{{count}} Connected Devices',
+  'connect.device_list_one': '{{count}} Connected Device',
+  'connect.status_connected': 'Connected',
+  'connect.status_disconnected': 'Disconnected',
+  'connect.no_session': 'Start a session first',
+  'connect.generating_qr': 'Generating QR code...',
+  'connect.cannot_reduce': '{{count}} devices are already connected',
+  'connect.kick_title': 'Kick device',
+  'connect.kick_message': 'Remove this device from the session?',
+  'connect.kick_yes': 'Kick',
+  'connect.kick_no': 'No',
+  'connect.kicked_title': 'Kicked',
+  'connect.kicked_message': 'You have been removed from the session by the host.',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",
@@ -198,6 +224,7 @@ const en: Record<I18nKey, string> = {
   'toast.device_connected': '{{name}} connected',
   'toast.device_disconnected': '{{name}} disconnected',
   'toast.device_conn_error': '{{name}} connection error',
+  'toast.device_kicked': '{{name}} has been kicked',
   'toast.invite_code': 'Invite code: {{code}}',
   'toast.invite_code_info': 'Connected devices: {{count}} | Invite code {{code}}',
   'toast.added_tracks': '{{count}} track(s) added',

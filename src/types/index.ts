@@ -175,6 +175,7 @@ export interface ProtocolMap {
   'assign-data-source': { targetId?: string | null };
   'data-relay': {};
   'sys-toast': { message: string };
+  'kick-device': { reason?: string };
   'operator-grant': {};
   'operator-revoke': {};
 
@@ -310,6 +311,11 @@ export interface EventMap {
   'network:role-badge-update': [];
   'network:session-full': [msg: unknown];
   'network:kicked-from-session': [];
+  'network:kick-device': [peerId: string];
+  'network:kicked-explicitly': [];
+
+  // ── Playlist ────────────────────────────────────────────────────
+  'playlist:remove-track': [index: number];
 
   // ── Storage / OPFS ────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];
@@ -337,10 +343,15 @@ export interface EventMap {
   'sync:response': [hostTime: number, isPlaying: boolean, oneWayLatencyMs: number];
   'sync:latency-update': [ms: number];
 
-  // ── Relay ─────────────────────────────────────────────────────────
+  // ── Relay / Orchestrator ─────────────────────────────────────────
   'relay:incoming-connection': [conn: DataConnection];
   'relay:serve-current-file': [conn: DataConnection, msg: unknown];
   'relay:serve-recovery': [conn: DataConnection, msg: unknown];
+  'orchestrator:peer-type-detected': [peerId: string];
+
+  // ── Connect ─────────────────────────────────────────────────────────
+  'ui:connect-tab-opened': [];
+  'network:max-guests-changed': [max: number];
 
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];

@@ -21,6 +21,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
+    "@types/qrcode": "^1.5.6",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
@@ -33,6 +34,7 @@
   },
   "dependencies": {
     "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
     "tone": "^15.1.22"
   }
 }

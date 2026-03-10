@@ -35,6 +35,7 @@ let _pendingSetupRole: number | null = null;
 let _pendingGuestRoleMode: number | null = null;
 let _hostCodeFlowId = 0;
 let _setupOverlayAbort: AbortController | null = null;
+let _pendingAutoJoinCode: string | null = null;
 
 // ─── Desktop Left Panel Sync ─────────────────────────────────────
 
@@ -495,7 +496,12 @@ function proceedToGuestCode(mode: number): void {
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
   if (input) {
-    input.value = '';
+    // Restore auto-join code from QR scan (if any), otherwise clear
+    if (_pendingAutoJoinCode) {
+      input.value = _pendingAutoJoinCode;
+    } else {
+      input.value = '';
+    }
     input.focus();
   }
 }
@@ -552,6 +558,7 @@ function initSetupOverlay(): void {
   const signal = _setupOverlayAbort.signal;
 
   ++_hostCodeFlowId;
+  _pendingAutoJoinCode = null;  // Clear auto-join code when returning to onboarding
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
 
@@ -678,8 +685,14 @@ export function initSetup(): void {
     setState('network.isConnecting', false);
     updateRoleBadge();
     hideSetupOverlay();
-    // Clear pending join code — connection succeeded, no longer needed
+    // Clear pending join code & clean URL — connection succeeded
+    _pendingAutoJoinCode = null;
     try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
+    try {
+      if (window.location.search.includes('join=')) {
+        window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+      }
+    } catch { /* noop */ }
   });
 
   bus.on('setup:guest-join-failure', (_error) => {
@@ -813,23 +826,13 @@ export function initSetup(): void {
     if (joinCode && /^\d{6}$/.test(joinCode)) {
       log.info(`[Setup] Auto-join code detected: ${joinCode}`);
 
-      // Persist code in sessionStorage so it survives SW-triggered reload
+      // Persist code so it survives SW reload AND proceedToGuestCode() clearing
       sessionStorage.setItem(JOIN_CODE_KEY, joinCode);
-
-      // Clean the URL to prevent re-joining on manual reload
-      if (urlParams.has('join')) {
-        const cleanUrl = window.location.pathname + window.location.hash;
-        window.history.replaceState({}, '', cleanUrl);
-      }
+      _pendingAutoJoinCode = joinCode;
 
       // Defer the auto-join to after setup overlay is initialized
       setTimeout(() => {
         startGuestFlow();
-        // Fill in the code after navigating to guest flow
-        setTimeout(() => {
-          const input = setupEl('setup-join-code') as HTMLInputElement | null;
-          if (input) input.value = joinCode;
-        }, 100);
       }, 200);
     } else {
       // Normal flow: show setup overlay

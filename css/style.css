@@ -4105,7 +4105,8 @@ body.overlay-open .bottom-nav {
 }
 
 .qr-svg path {
-    fill: var(--text-main);
+    stroke: var(--text-main) !important;
+    fill: var(--text-main) !important;
 }
 
 .qr-placeholder {

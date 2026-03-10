@@ -1882,9 +1882,8 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 
 /* Leave Session */
 .leave-session-section {
-    border-top: 1px dotted var(--surface-3);
     border-bottom: none;
-    padding-top: 44px;
+    padding-top: 0;
     padding-bottom: 32px;
 }
 

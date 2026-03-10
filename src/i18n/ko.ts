@@ -131,7 +131,7 @@ const ko = {
   'settings.subtab.help': '도움말',
 
   // ─── Connect ───────────────────────────────────────────────────
-  'connect.qr_title': 'QR 코드로 참가',
+  'connect.qr_title': 'QR 또는 링크로 참가',
   'connect.max_devices': '접속 가능한 기기 수',
   'connect.device_list': '연결된 기기 {{count}}대',
   'connect.device_list_one': '연결된 기기 {{count}}대',
@@ -146,6 +146,8 @@ const ko = {
   'connect.kick_no': '아니요',
   'connect.kicked_title': '강제퇴장',
   'connect.kicked_message': '호스트에 의해 세션에서 내보내졌습니다.',
+  'connect.copy_invite_link': '초대 링크 복사하기',
+  'connect.link_copied': '초대 링크가 복사되었어요',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',

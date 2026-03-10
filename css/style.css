@@ -1894,9 +1894,10 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 14px 0;
+    height: 56px;
+    padding: 0;
     border: none;
-    border-radius: 18px;
+    border-radius: 20px;
     background: rgba(255, 59, 48, 0.08);
     color: #ff3b30;
     font-size: 15px;
@@ -2642,7 +2643,7 @@ body.overlay-open .bottom-nav {
     height: 56px;
     border-radius: 20px;
     font-size: 15px;
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
     border: none;
     font-family: inherit;
@@ -2685,7 +2686,7 @@ body.overlay-open .bottom-nav {
     flex: none;
     height: 56px;
     width: 100%;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 .btn-ob-primary {
@@ -3339,8 +3340,8 @@ body.overlay-open .bottom-nav {
 /* Large File Select Button */
 .file-select-btn-large {
     width: 100%;
-    padding: 18px 20px;
-    font-size: 14px;
+    padding: 0 20px;
+    font-size: 15px;
 }
 
 
@@ -3630,7 +3631,7 @@ body.overlay-open .bottom-nav {
 }
 
 .chat-preview-text {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1;
     color: var(--text-sub);
@@ -3900,7 +3901,7 @@ body.overlay-open .bottom-nav {
     display: flex;
     align-items: center;
     width: 100%;
-    height: 72px;
+    height: 56px;
     margin-top: auto;
     gap: 10px;
     background: var(--surface-2);
@@ -3930,8 +3931,8 @@ body.overlay-open .bottom-nav {
 }
 
 .file-select-btn span {
-    font-size: 16px;
-    font-weight: 700;
+    font-size: 15px;
+    font-weight: 600;
     letter-spacing: -0.3px;
     flex: 1;
 }
@@ -3997,7 +3998,7 @@ body.overlay-open .bottom-nav {
 
 #btn-sync span,
 #btn-media-source span {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: currentColor;
 }

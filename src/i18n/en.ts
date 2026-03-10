@@ -133,7 +133,7 @@ const en: Record<I18nKey, string> = {
   'settings.subtab.help': 'Help',
 
   // ─── Connect ───────────────────────────────────────────────────
-  'connect.qr_title': 'Join via QR Code',
+  'connect.qr_title': 'Join via QR or Link',
   'connect.max_devices': 'Allowed Devices',
   'connect.device_list': '{{count}} Connected Devices',
   'connect.device_list_one': '{{count}} Connected Device',
@@ -148,6 +148,8 @@ const en: Record<I18nKey, string> = {
   'connect.kick_no': 'No',
   'connect.kicked_title': 'Kicked',
   'connect.kicked_message': 'You have been removed from the session by the host.',
+  'connect.copy_invite_link': 'Copy invite link',
+  'connect.link_copied': 'Invite link copied',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",

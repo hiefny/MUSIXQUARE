@@ -4117,6 +4117,37 @@ body.overlay-open .bottom-nav {
     padding: 32px 0;
 }
 
+/* Copy Invite Link Button */
+.btn-copy-invite-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 8px 18px;
+    border: 1px solid var(--surface-3);
+    border-radius: 20px;
+    background: transparent;
+    color: var(--text-sub);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.btn-copy-invite-link svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    flex-shrink: 0;
+}
+.btn-copy-invite-link:hover {
+    color: var(--text-main);
+    border-color: var(--text-main);
+    background: var(--surface-1);
+}
+.btn-copy-invite-link:active {
+    background: var(--surface-2);
+}
+
 /* Number Stepper (−  3  +) */
 .number-stepper {
     display: flex;

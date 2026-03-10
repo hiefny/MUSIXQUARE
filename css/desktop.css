@@ -272,10 +272,6 @@
         padding: 16px 20px 0;
         border-bottom: 1px solid var(--divider);
         margin: 0 12px;
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        background: var(--surface-1);
     }
 
     .subtab-pill {

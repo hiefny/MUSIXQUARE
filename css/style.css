@@ -1880,6 +1880,41 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     color: #ff4d4f;
 }
 
+/* Leave Session */
+.leave-session-section {
+    border-top: 1px dotted var(--surface-3);
+    border-bottom: none;
+    padding-top: 44px;
+    padding-bottom: 32px;
+}
+
+.leave-session-section .leave-session-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 0;
+    border: none;
+    border-radius: 18px;
+    background: rgba(255, 59, 48, 0.08);
+    color: #ff3b30;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.leave-session-section .leave-session-btn:active {
+    background: rgba(255, 59, 48, 0.16);
+}
+
+.leave-session-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: #ff3b30;
+}
+
 /* Help Tab */
 #tab-guide > .tab-header {
     padding-bottom: 0;

@@ -317,6 +317,22 @@ export function initConnect(): void {
     refreshAllQR();
   });
 
+  // Leave Session buttons (mobile + desktop)
+  const leaveHandler = () => {
+    showDialog({
+      title: t('dialog.return_home_title'),
+      message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
+      buttonText: t('common.ok'),
+      secondaryText: t('common.cancel'),
+    }).then(res => {
+      if (res && res.action === 'ok') {
+        window.location.reload();
+      }
+    });
+  };
+  document.getElementById('btn-leave-session')?.addEventListener('click', leaveHandler);
+  document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
+
   // Initial render
   refreshAllQR();
 

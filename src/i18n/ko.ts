@@ -122,6 +122,7 @@ const ko = {
   'settings.default_20hz': '기본값 20Hz',
   'settings.default_5s': '기본값 5.0s',
   'settings.invite_code': '초대 코드',
+  'settings.leave_session': '이 세션 나가기',
   'settings.devices_title': '연결된 기기',
   'settings.invite_share': '초대와 공유',
   'settings.subtab.general': '일반',

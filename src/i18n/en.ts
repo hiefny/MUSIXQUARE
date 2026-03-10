@@ -124,6 +124,7 @@ const en: Record<I18nKey, string> = {
   'settings.default_20hz': 'Default 20Hz',
   'settings.default_5s': 'Default 5.0s',
   'settings.invite_code': 'Invite code',
+  'settings.leave_session': 'Leave Session',
   'settings.devices_title': 'Connected Devices',
   'settings.invite_share': 'Invite & Share',
   'settings.subtab.general': 'General',

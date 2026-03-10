@@ -20,7 +20,7 @@ import {
 } from './player-controls.ts';
 import { activateNoSleep } from '../app.ts';
 import { selectStandardChannelButton } from './settings.ts';
-import { createHostSessionWithShortCode, leaveSession } from '../network/peer.ts';
+import { createHostSessionWithShortCode, leaveSession, broadcastDeviceList } from '../network/peer.ts';
 import { joinSession } from '../network/peer.ts';
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -421,6 +421,9 @@ function startSessionFromHost(): void {
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
   updateRoleBadge();
+
+  // Show host in device list immediately (don't wait for a guest to connect)
+  broadcastDeviceList();
 
   // Delay toast until View Transition completes to prevent transform conflict
   setTimeout(() => {

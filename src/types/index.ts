@@ -13,38 +13,19 @@ export type ChannelMode = -1 | 0 | 1 | 2;
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
- 
+import type { Peer as PeerClass, DataConnection as PeerJSDataConnection } from 'peerjs';
 
-/** PeerJS DataConnection (minimal typing for our use) */
-export interface DataConnection {
-  peer: string;
-  open: boolean;
-  metadata?: Record<string, unknown>;
-  send(data: unknown): void;
-  close(): void;
-  on(event: string, fn: (...args: any[]) => void): void;
-  once(event: string, fn: (...args: any[]) => void): void;
-  off(event: string, fn: (...args: any[]) => void): void;
-  dataChannel?: RTCDataChannel;
-  // Relay extensions
+/** PeerJS DataConnection extended with relay properties */
+export type DataConnection = PeerJSDataConnection & {
   _relayQueue?: unknown[];
   _relayBusy?: boolean;
-}
+  _errorHandled?: boolean;
+};
 
-/** Peer instance (minimal PeerJS typing) */
-export interface PeerInstance {
-  id: string;
-  open: boolean;
-  on(event: string, fn: (...args: any[]) => void): void;
-  once(event: string, fn: (...args: any[]) => void): void;
-  off(event: string, fn: (...args: any[]) => void): void;
-  connect(id: string, options?: Record<string, unknown>): DataConnection;
-  destroy(): void;
-  disconnect(): void;
-  reconnect(): void;
-}
+/** PeerJS Peer instance */
+export type PeerInstance = PeerClass;
 
- 
+
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {

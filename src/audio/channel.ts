@@ -47,7 +47,7 @@ export function setChannelMode(mode: number): void {
   const ramp = 0.05;
 
   // Reset LowPass to full range
-  if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = 20000;
+  if (lowPass) lowPass.frequency.value = 20000;
 
   // Reset routing
   safeDisconnect(gL);
@@ -78,7 +78,7 @@ export function setChannelMode(mode: number): void {
     // Set gain BEFORE connecting to prevent +6dB spike
     gL.gain.value = 0.5;
     gR.gain.value = 0.5;
-    if (lowPass) (lowPass as { frequency: { value: number } }).frequency.value = subFreq;
+    if (lowPass) lowPass.frequency.value = subFreq;
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
     gR.connect(merge, 0, 0);
@@ -174,9 +174,7 @@ export function setSurroundChannel(idx: number): void {
 
     // LowPass for LFE channel (rampTo avoids click on active signal path)
     if (lowPass) {
-      (lowPass as { frequency: { rampTo: (v: number, t: number) => void } }).frequency.rampTo(
-        idx === 3 ? subFreq : 20000, 0.02,
-      );
+      lowPass.frequency.rampTo(idx === 3 ? subFreq : 20000, 0.02);
     }
 
     // Force output to Dual Mono

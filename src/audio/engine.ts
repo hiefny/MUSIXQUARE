@@ -13,71 +13,29 @@ import { EQ_FREQUENCIES } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 
-// Tone.js — imported as `any` to keep our lightweight custom type stubs.
-// Real Tone.js types are far richer; a full type migration can happen later.
+import * as Tone from 'tone';
+import type {
+  Gain, Filter, Reverb, CrossFade, StereoWidener,
+  Analyser, Split, Merge,
+  ToneAudioNode,
+} from 'tone';
+import type { Compressor } from 'tone/build/esm/component/dynamics/Compressor.js';
+import type { Limiter } from 'tone/build/esm/component/dynamics/Limiter.js';
+import type { WaveShaper } from 'tone/build/esm/signal/WaveShaper.js';
+
+// ─── Tone.js type aliases (internal convenience) ──────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import * as _Tone from 'tone';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Tone = _Tone as any;
-
-// ─── Tone.js node type stubs ───────────────────────────────────────
-interface ToneNode {
-  connect(dest: ToneNode, outputNum?: number, inputNum?: number): ToneNode;
-  disconnect(dest?: ToneNode): void;
-  dispose(): void;
-  toDestination(): ToneNode;
-}
-
-interface ToneParam {
-  value: number;
-  rampTo(value: number, time: number): void;
-}
-
-interface ToneGainNode extends ToneNode {
-  gain: ToneParam;
-}
-
-interface ToneFilterNode extends ToneNode {
-  frequency: ToneParam;
-  gain: ToneParam;
-  Q: ToneParam;
-  type: string;
-}
-
-interface ToneReverbNode extends ToneNode {
-  decay: number;
-  preDelay: number;
-  wet: ToneParam;
-  generate(): Promise<void>;
-}
-
-interface ToneCrossFadeNode extends ToneNode {
-  fade: ToneParam;
-  a: ToneNode;
-  b: ToneNode;
-}
-
-interface ToneWidenerNode extends ToneNode {
-  width: ToneParam;
-  wet: ToneParam;
-}
-
-interface ToneAnalyserNode extends ToneNode {
-  smoothing: number;
-  getValue(): Float32Array;
-}
-
-interface ToneBufferSourceNode extends ToneNode {
-  buffer: unknown;
-  start(time?: number, offset?: number): void;
-  stop(time?: number): void;
-  onended: (() => void) | null;
-  playbackRate: ToneParam;
-}
+type ToneNode = ToneAudioNode<any>;
+type ToneGainNode = Gain;
+type ToneFilterNode = Filter;
+type ToneReverbNode = Reverb;
+type ToneCrossFadeNode = CrossFade;
+type ToneWidenerNode = StereoWidener;
+type ToneAnalyserNode = Analyser;
 
 // ─── Module-scoped audio nodes ─────────────────────────────────────
-let toneSplit: ToneNode | null = null;
-let toneMerge: ToneNode | null = null;
+let toneSplit: Split | null = null;
+let toneMerge: Merge | null = null;
 let gainL: ToneGainNode | null = null;
 let gainR: ToneGainNode | null = null;
 let masterGain: ToneGainNode | null = null;
@@ -93,24 +51,24 @@ let analyser: ToneAnalyserNode | null = null;
 // Virtual Bass — Dual-Band Psychoacoustic Enhancement
 let vbSubLP: ToneFilterNode | null = null;
 let vbSubHP: ToneFilterNode | null = null;
-let vbSubComp: ToneNode | null = null;
+let vbSubComp: Compressor | null = null;
 let vbSubTrim: ToneGainNode | null = null;
-let vbSubShaper: ToneNode | null = null;
+let vbSubShaper: WaveShaper | null = null;
 let vbSubPostHP: ToneFilterNode | null = null;
 let vbSubPostLP: ToneFilterNode | null = null;
 let vbSubMix: ToneGainNode | null = null;
 let vbMidLP: ToneFilterNode | null = null;
 let vbMidHP: ToneFilterNode | null = null;
-let vbMidComp: ToneNode | null = null;
+let vbMidComp: Compressor | null = null;
 let vbMidTrim: ToneGainNode | null = null;
-let vbMidShaper: ToneNode | null = null;
+let vbMidShaper: WaveShaper | null = null;
 let vbMidPostHP: ToneFilterNode | null = null;
 let vbMidPostLP: ToneFilterNode | null = null;
 let vbMidMix: ToneGainNode | null = null;
 let vbSum: ToneGainNode | null = null;
-let vbLimiter: ToneNode | null = null;
+let vbLimiter: Limiter | null = null;
 let vbGain: ToneGainNode | null = null;
-let surroundSplitter: ToneNode | null = null;
+let surroundSplitter: Split | null = null;
 let surroundGain: ToneGainNode | null = null;
 
 let _initAudioPromise: Promise<void> | null = null;
@@ -119,7 +77,7 @@ let _initAudioPromise: Promise<void> | null = null;
 
 export function getMasterGain(): ToneGainNode | null { return masterGain; }
 export function getAnalyser(): ToneAnalyserNode | null { return analyser; }
-export function getToneMerge(): ToneNode | null { return toneMerge; }
+export function getToneMerge(): Merge | null { return toneMerge; }
 export function getGainL(): ToneGainNode | null { return gainL; }
 export function getGainR(): ToneGainNode | null { return gainR; }
 export function getPreamp(): ToneGainNode | null { return preamp; }
@@ -131,18 +89,18 @@ export function getRvbCrossFade(): ToneCrossFadeNode | null { return rvbCrossFad
 export function getEqNodes(): ToneFilterNode[] { return eqNodes; }
 export function getGlobalLowPass(): ToneFilterNode | null { return globalLowPass; }
 export function getVbGain(): ToneGainNode | null { return vbGain; }
-export function getSurroundSplitter(): ToneNode | null { return surroundSplitter; }
+export function getSurroundSplitter(): Split | null { return surroundSplitter; }
 export function getSurroundGain(): ToneGainNode | null { return surroundGain; }
 export function isAudioReady(): boolean { return masterGain !== null; }
 export function getAudioContext(): AudioContext | null {
-  try { return Tone?.getContext?.()?.rawContext ?? null; } catch { return null; }
+  try { return (Tone?.getContext?.()?.rawContext as AudioContext) ?? null; } catch { return null; }
 }
 
 // For surround mode setup
-export function ensureSurroundNodes(): { splitter: ToneNode; gain: ToneGainNode } {
+export function ensureSurroundNodes(): { splitter: Split; gain: Gain } {
   if (!surroundSplitter || !surroundGain) {
-    surroundSplitter = new Tone.Split(8) as ToneNode;
-    surroundGain = new Tone.Gain(1) as ToneGainNode;
+    surroundSplitter = new Tone.Split(8);
+    surroundGain = new Tone.Gain(1);
   }
   return { splitter: surroundSplitter!, gain: surroundGain! };
 }
@@ -221,10 +179,10 @@ async function _doInitAudio(): Promise<void> {
   }
 
   // ── Channel & Stereo Processing ──
-  toneSplit = new Tone.Split() as ToneNode;
-  toneMerge = new Tone.Merge() as ToneNode;
-  gainL = new Tone.Gain(1) as ToneGainNode;
-  gainR = new Tone.Gain(1) as ToneGainNode;
+  toneSplit = new Tone.Split();
+  toneMerge = new Tone.Merge();
+  gainL = new Tone.Gain(1);
+  gainR = new Tone.Gain(1);
 
   toneSplit!.connect(gainL!, 0);  // L -> gainL
   toneSplit!.connect(gainR!, 1);  // R -> gainR
@@ -234,19 +192,19 @@ async function _doInitAudio(): Promise<void> {
   gainR!.connect(toneMerge!, 0, 1);
 
   // ── Effects Chain ──
-  masterGain = new Tone.Gain(1) as ToneGainNode;
+  masterGain = new Tone.Gain(1);
 
   // EQ (5-Band Peaking Filters)
   eqNodes = EQ_FREQUENCIES.map(f =>
-    new Tone.Filter({ type: 'peaking', frequency: f, Q: 1.0, gain: 0 }) as ToneFilterNode
+    new Tone.Filter({ type: 'peaking', frequency: f, Q: 1.0, gain: 0 })
   );
 
   // Preamplifier + Stereo Widener
-  preamp = new Tone.Gain(1) as ToneGainNode;
-  widener = new Tone.StereoWidener(1) as ToneWidenerNode;
+  preamp = new Tone.Gain(1);
+  widener = new Tone.StereoWidener(1);
 
   // Reverb
-  reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 }) as ToneReverbNode;
+  reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 });
   reverb.wet.value = 1; // 100% Wet for parallel routing
 
   try {
@@ -266,9 +224,9 @@ async function _doInitAudio(): Promise<void> {
   // Damping filters — wrapped to prevent partial graph if any node throws
   // (masterGain is already set at this point, so initAudio() would fast-path)
   try {
-  rvbLowCut = new Tone.Filter(20, 'highpass', -12) as ToneFilterNode;
-  rvbHighCut = new Tone.Filter(20000, 'lowpass', -12) as ToneFilterNode;
-  rvbCrossFade = new Tone.CrossFade(0) as ToneCrossFadeNode; // Initially Dry
+  rvbLowCut = new Tone.Filter(20, 'highpass', -12);
+  rvbHighCut = new Tone.Filter(20000, 'lowpass', -12);
+  rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
   // ── Virtual Bass — Dual-Band Psychoacoustic Enhancement ──
   // Custom waveshaper curves (8192 samples for smooth interpolation)
@@ -291,29 +249,29 @@ async function _doInitAudio(): Promise<void> {
   }
 
   // Sub-bass path (40-80 Hz)
-  vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
-  vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 }) as ToneNode;
-  vbSubTrim = new Tone.Gain(0.8) as ToneGainNode;
-  vbSubShaper = new Tone.WaveShaper(subCurve) as ToneNode;
-  vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
-  vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbSubMix = new Tone.Gain(1.0) as ToneGainNode;
+  vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 });
+  vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 });
+  vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 });
+  vbSubTrim = new Tone.Gain(0.8);
+  vbSubShaper = new Tone.WaveShaper(subCurve);
+  vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
+  vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 });
+  vbSubMix = new Tone.Gain(1.0);
 
   // Mid-bass path (80-160 Hz)
-  vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
-  vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 }) as ToneNode;
-  vbMidTrim = new Tone.Gain(0.7) as ToneGainNode;
-  vbMidShaper = new Tone.WaveShaper(midCurve) as ToneNode;
-  vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 }) as ToneFilterNode;
-  vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 }) as ToneFilterNode;
-  vbMidMix = new Tone.Gain(0.8) as ToneGainNode;
+  vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 });
+  vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
+  vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 });
+  vbMidTrim = new Tone.Gain(0.7);
+  vbMidShaper = new Tone.WaveShaper(midCurve);
+  vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 });
+  vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 });
+  vbMidMix = new Tone.Gain(0.8);
 
   // Output stage
-  vbSum = new Tone.Gain(1.0) as ToneGainNode;
-  vbLimiter = new Tone.Limiter(-3) as ToneNode;
-  vbGain = new Tone.Gain(0) as ToneGainNode;
+  vbSum = new Tone.Gain(1.0);
+  vbLimiter = new Tone.Limiter(-3);
+  vbGain = new Tone.Gain(0);
 
   // ── Connections ──
   // Player → Widener → Preamp → Split → (Channel Logic) → Merge → EQ → Reverb → Master
@@ -325,10 +283,10 @@ async function _doInitAudio(): Promise<void> {
   preamp!.connect(toneSplit!);
 
   // 3. Post-Processing: Merge → GlobalLowPass → EQ → Reverb → Master
-  globalLowPass = new Tone.Filter(20000, 'lowpass') as ToneFilterNode;
+  globalLowPass = new Tone.Filter(20000, 'lowpass');
   toneMerge!.connect(globalLowPass);
 
-  let eqIn: ToneNode = globalLowPass;
+  let eqIn: ToneNode = globalLowPass!;
   for (const fx of eqNodes) {
     eqIn.connect(fx);
     eqIn = fx;
@@ -369,7 +327,7 @@ async function _doInitAudio(): Promise<void> {
   vbGain!.connect(masterGain!);
 
   // Visualizer — 2048 bins for accurate frequency mapping (bass 0~260Hz, high 7.5k~20kHz)
-  analyser = new Tone.Analyser('fft', 2048) as ToneAnalyserNode;
+  analyser = new Tone.Analyser('fft', 2048);
   analyser.smoothing = 0.3;
   masterGain!.connect(analyser);
   masterGain!.toDestination();
@@ -412,10 +370,23 @@ async function _doInitAudio(): Promise<void> {
     // Also briefly play/pause the main video element to unlock it for later use
     const videoEl = document.getElementById('main-video') as HTMLVideoElement | null;
     if (videoEl) {
-      videoEl.play().then(() => videoEl.pause()).catch(e => log.debug('[Audio] Video unlock failed', e));
+      try { await videoEl.play(); videoEl.pause(); } catch (e) { log.debug('[Audio] Video unlock failed', e); }
     }
   } catch (e) {
     log.debug('[Audio] iOS unlock attempt failed:', e);
+  }
+
+  // Auto-resume AudioContext on interruption (phone call, AirPlay switch, etc.)
+  try {
+    const ctx = Tone.getContext().rawContext as AudioContext;
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
+        log.info(`[Audio] AudioContext ${ctx.state} — auto-resuming`);
+        ctx.resume().catch(e => log.debug('[Audio] Auto-resume failed', e));
+      }
+    });
+  } catch (e) {
+    log.debug('[Audio] statechange listener setup failed', e);
   }
 
   log.info('[Audio] Tone.js graph initialized');
@@ -493,12 +464,10 @@ bus.on('audio:activate', async () => {
 // Re-export Tone types for downstream consumers
 export type {
   ToneNode,
-  ToneParam,
   ToneGainNode,
   ToneFilterNode,
   ToneReverbNode,
   ToneCrossFadeNode,
   ToneWidenerNode,
   ToneAnalyserNode,
-  ToneBufferSourceNode,
 };

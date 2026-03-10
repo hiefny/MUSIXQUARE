@@ -16,11 +16,7 @@ import { registerHandlers } from './protocol.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, PeerInstance, DeviceInfo, AnyProtocolMsg } from '../types/index.ts';
 
-// PeerJS — imported as `any` to keep our custom PeerInstance/DataConnection stubs.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { Peer as _Peer } from 'peerjs';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Peer: any = _Peer;
+import { Peer, type PeerOptions } from 'peerjs';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -32,8 +28,7 @@ export function getPeer(): PeerInstance | null { return peer; }
 
 async function detectConnectionType(conn: DataConnection): Promise<'local' | 'remote'> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pc = (conn as any).peerConnection as RTCPeerConnection | undefined;
+    const pc = conn.peerConnection as RTCPeerConnection | undefined;
     if (!pc) return 'remote';
 
     const stats = await pc.getStats();
@@ -159,7 +154,7 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     log.debug('[Network] TURN config unavailable — STUN only');
   }
 
-  const peerOpts: Record<string, unknown> = {
+  const peerOpts: PeerOptions = {
     debug: 2,
     config: {
       iceServers,
@@ -173,14 +168,14 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
   const customPeerServer = (window as unknown as Record<string, unknown>).__MUSIXQUARE_PEER_SERVER__ as
     Record<string, unknown> | undefined;
   if (customPeerServer && typeof customPeerServer === 'object') {
-    if (customPeerServer.host) peerOpts.host = customPeerServer.host;
-    if (customPeerServer.port) peerOpts.port = customPeerServer.port;
-    if (customPeerServer.path) peerOpts.path = customPeerServer.path;
+    if (customPeerServer.host) peerOpts.host = customPeerServer.host as string;
+    if (customPeerServer.port) peerOpts.port = customPeerServer.port as number;
+    if (customPeerServer.path) peerOpts.path = customPeerServer.path as string;
     if (typeof customPeerServer.secure === 'boolean') peerOpts.secure = customPeerServer.secure;
-    if (customPeerServer.key) peerOpts.key = customPeerServer.key;
+    if (customPeerServer.key) peerOpts.key = customPeerServer.key as string;
   }
 
-  peer = new Peer(requestedId || undefined, peerOpts);
+  peer = requestedId ? new Peer(requestedId, peerOpts) : new Peer(peerOpts);
   setupPeerEvents();
 
   // Wait for open (or fail fast on error)

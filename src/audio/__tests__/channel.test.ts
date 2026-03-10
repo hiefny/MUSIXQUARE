@@ -1,8 +1,21 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
+
+// Mock ensureSurroundNodes — Tone.js constructors hang in jsdom (no real AudioContext)
+vi.mock('../engine.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../engine.ts')>();
+  return {
+    ...actual,
+    ensureSurroundNodes: vi.fn(() => ({
+      splitter: { connect: vi.fn(), disconnect: vi.fn(), dispose: vi.fn() },
+      gain: { connect: vi.fn(), disconnect: vi.fn(), dispose: vi.fn() },
+    })),
+  };
+});
+
 import { setChannelMode, toggleSurroundMode, setSurroundChannel } from '../channel.ts';
 
 beforeEach(() => {
@@ -107,12 +120,11 @@ describe('surround channel index state', () => {
     }
   });
 
-  it('toggleSurroundMode(true) sets isSurroundMode before ensureSurroundNodes throws', () => {
-    // toggleSurroundMode calls setState('audio.isSurroundMode', true) first,
-    // then ensureSurroundNodes() which throws in jsdom (no real AudioContext).
-    // setSurroundChannel(2) is never reached, so surroundChannelIndex stays -1.
-    try { toggleSurroundMode(true); } catch { /* Tone.js node creation fails in jsdom */ }
+  it('toggleSurroundMode(true) sets isSurroundMode and defaults to Center channel', () => {
+    // toggleSurroundMode(true) → setState('audio.isSurroundMode', true)
+    // → ensureSurroundNodes() (mocked) → idx === -1 → setSurroundChannel(2) (Center default)
+    toggleSurroundMode(true);
     expect(getState('audio.isSurroundMode')).toBe(true);
-    expect(getState('audio.surroundChannelIndex')).toBe(-1); // setSurroundChannel not reached
+    expect(getState('audio.surroundChannelIndex')).toBe(2); // defaults to Center
   });
 });

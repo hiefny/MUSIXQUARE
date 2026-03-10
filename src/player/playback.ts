@@ -24,15 +24,13 @@ import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection } from '../types/index.ts';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-import * as _Tone from 'tone';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Tone = _Tone as any;
+import * as Tone from 'tone';
+import type { ToneBufferSource } from 'tone';
 
 // ─── Module-local State ────────────────────────────────────────────
 
  
-let _playerNode: any = null;
+let _playerNode: ToneBufferSource | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
 let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
@@ -136,7 +134,7 @@ export function updatePlayState(playing: boolean): void {
 export function stopPlayerNode(): void {
   if (_playerNode) {
     try {
-      _playerNode.onended = null;
+      _playerNode.onended = () => {};
       _playerNode.stop();
       _playerNode.disconnect();
       _playerNode.dispose();

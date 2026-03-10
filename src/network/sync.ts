@@ -13,7 +13,8 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
-import { broadcast } from './peer.ts';
+import { broadcast, broadcastDeviceList } from './peer.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 
 // ─── Multi-Sample Sync State ─────────────────────────────────────────
 
@@ -353,5 +354,60 @@ export function initSync(): void {
     }
   });
 
+  // ── Host: Start heartbeat monitor when session starts ──
+  bus.on('state:setup.sessionStarted', (started) => {
+    if (started) startHeartbeatMonitor();
+    else stopHeartbeatMonitor();
+  });
+
   log.info('[Sync] Handlers registered');
+}
+
+// ─── Host: Heartbeat Monitor ──────────────────────────────────────
+// Checks every 5s for peers whose lastHeartbeat is older than threshold.
+// Marks them as disconnected and cleans up.
+
+const HEARTBEAT_STALE_THRESHOLD = 8000;  // 8s without heartbeat = stale
+const HEARTBEAT_CHECK_INTERVAL = 5000;   // check every 5s
+
+function startHeartbeatMonitor(): void {
+  stopHeartbeatMonitor();
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Only host monitors
+
+  setManagedTimer('heartbeat-monitor', () => {
+    const hc = getState('network.hostConn');
+    if (hc) { stopHeartbeatMonitor(); return; } // No longer host
+
+    const now = Date.now();
+    const connectedPeers = getState('network.connectedPeers');
+    let changed = false;
+
+    for (const p of connectedPeers) {
+      if (p.status !== 'connected') continue;
+      const elapsed = now - (p.lastHeartbeat as number || 0);
+      if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
+        log.warn(`[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`);
+        p.status = 'disconnected';
+        changed = true;
+
+        // Try to close the stale connection
+        try {
+          const conn = p.conn as DataConnection;
+          if (conn) conn.close();
+        } catch { /* noop */ }
+      }
+    }
+
+    if (changed) {
+      setState('network.connectedPeers', [...connectedPeers]);
+      broadcastDeviceList();
+    }
+  }, HEARTBEAT_CHECK_INTERVAL, { interval: true });
+
+  log.info('[Heartbeat] Monitor started');
+}
+
+function stopHeartbeatMonitor(): void {
+  clearManagedTimer('heartbeat-monitor');
 }

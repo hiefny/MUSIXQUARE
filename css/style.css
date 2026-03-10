@@ -1758,6 +1758,81 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     cursor: pointer;
 }
 
+/* ── Device List Row ─────────────────────────────────────────────── */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--surface-2);
+}
+
+.device-row:last-child {
+    border-bottom: none;
+}
+
+.device-row .d-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.d-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.d-dot.active {
+    background: #52c41a;
+    box-shadow: 0 0 4px rgba(82, 196, 26, 0.4);
+}
+
+.d-dot.inactive {
+    background: #ff4d4f;
+    box-shadow: 0 0 4px rgba(255, 77, 79, 0.4);
+}
+
+.d-short-id {
+    font-size: 11px;
+    opacity: 0.5;
+    margin-left: 4px;
+}
+
+.d-op-badge {
+    color: var(--primary);
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 4px;
+}
+
+.d-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.d-op-btn {
+    font-size: 10px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--surface-3);
+    background: transparent;
+    color: var(--text-sub);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.d-op-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
 .d-status {
     font-size: 11px;
     font-weight: 800;

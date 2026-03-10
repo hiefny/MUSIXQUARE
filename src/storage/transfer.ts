@@ -673,7 +673,6 @@ function handleFileWait(): void {
     const receivedCount = getState('transfer.receivedCount');
     if (receivedCount === 0) {
       log.debug('[Guest] Relay wait timeout - falling back to Host');
-      bus.emit('ui:show-toast', t('transfer.relay_no_response'));
 
       // Disconnect from relay upstream
       const upstreamDataConn = getState('relay.upstreamDataConn');
@@ -681,6 +680,18 @@ function handleFileWait(): void {
         upstreamDataConn.close();
         setState('relay.upstreamDataConn', null);
       }
+
+      // Remote guest with no relay: show WiFi guidance instead of futile host request
+      if (isRemoteGuest() && !hasActiveRelay()) {
+        log.info('[file-wait timeout] Remote guest — showing WiFi guidance');
+        showRemoteGuideUI({
+          index: getState('playlist.currentTrackIndex'),
+          name: getState('recovery.pendingFileName') || '',
+        });
+        return;
+      }
+
+      bus.emit('ui:show-toast', t('transfer.relay_no_response'));
 
       // Request file from Host
       const hostConn = getState('network.hostConn');

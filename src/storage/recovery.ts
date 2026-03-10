@@ -15,6 +15,8 @@ import { clearManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './opfs.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import { isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
@@ -24,6 +26,21 @@ import type { DataConnection } from '../types/index.ts';
  * Targets relay or host depending on what's available.
  */
 export function sendRecoveryRequest(forceChunk: number | null = null): void {
+  // Remote guest with no relay: recovery from Host is futile (no direct data channel)
+  if (isRemoteGuest() && !hasActiveRelay()) {
+    log.info('[Recovery] Remote guest without relay — skipping recovery, showing WiFi guidance');
+    clearManagedTimer('chunkWatchdog');
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    bus.emit('ui:show-loader', false);
+    bus.emit('ui:show-toast', t('toast.same_wifi_only'));
+    bus.emit('player:metadata-update', {
+      type: 'file',
+      title: t('toast.same_wifi_file_title'),
+      name: '',
+    });
+    return;
+  }
+
   const pending = getState('recovery.pending');
   if (pending) {
     log.debug('[Recovery] Request already pending, skipping');

@@ -199,90 +199,74 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
 
     list.forEach((p) => {
       const row = document.createElement('div');
-      row.className = 'section-row';
+      row.className = 'device-row';
 
+      // Status dot (green = connected, red = disconnected)
+      const dot = document.createElement('span');
+      dot.className = `d-dot ${p.status === 'connected' ? 'active' : 'inactive'}`;
+      row.appendChild(dot);
+
+      // Device name + short ID + OP badge
       const name = document.createElement('span');
       name.className = 'd-name';
       name.textContent = String(p.label || 'Device');
 
       const shortId = document.createElement('span');
-      shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
+      shortId.className = 'd-short-id';
       shortId.textContent = `(${String(p.id || '').slice(-4)})`;
       name.appendChild(document.createTextNode(' '));
       name.appendChild(shortId);
 
       if (p.isOp) {
         const op = document.createElement('span');
-        op.style.cssText = 'color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;';
+        op.className = 'd-op-badge';
         op.textContent = 'OP';
         name.appendChild(document.createTextNode(' '));
         name.appendChild(op);
       }
 
-      const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-      const statusText = p.status === 'connected' ? t('connect.status_connected') : t('connect.status_disconnected');
-
-      const status = document.createElement('span');
-      status.className = `d-status ${statusClass}`;
-      status.textContent = statusText;
-
       row.appendChild(name);
 
+      // Action buttons (host view only, non-host peers only)
       const hostConn = getState('network.hostConn');
-      if (hostConn) {
-        // Guest view — just show status
-        row.appendChild(status);
-      } else {
-        // Host view — show OP grant/revoke button
-        const right = document.createElement('div');
-        right.style.cssText = 'display:flex; gap:4px; align-items:center;';
+      if (!hostConn && !p.isHost && p.status === 'connected') {
+        const actions = document.createElement('div');
+        actions.className = 'd-actions';
 
-        if (!p.isHost && p.status === 'connected') {
-          const opBtn = document.createElement('button');
-          opBtn.className = `btn-action ${p.isOp ? 'active' : ''}`;
-          opBtn.dataset.opPeer = String(p.id || '');
-          opBtn.style.cssText = `font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}`;
-          opBtn.textContent = p.isOp ? 'REVOKE' : 'GRANT';
+        const opBtn = document.createElement('button');
+        opBtn.className = `d-op-btn ${p.isOp ? 'active' : ''}`;
+        opBtn.dataset.opPeer = String(p.id || '');
+        opBtn.textContent = p.isOp ? 'REVOKE' : 'GRANT';
+        opBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const peerId = opBtn.dataset.opPeer;
+          if (peerId) bus.emit('network:toggle-operator', peerId);
+        });
+        actions.appendChild(opBtn);
 
-          opBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const peerId = opBtn.dataset.opPeer;
-            if (peerId) bus.emit('network:toggle-operator', peerId);
+        const kickBtn = document.createElement('button');
+        kickBtn.type = 'button';
+        kickBtn.className = 'btn-kick-device';
+        kickBtn.dataset.kickPeer = String(p.id || '');
+        kickBtn.setAttribute('aria-label', t('connect.kick_title'));
+        kickBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+        kickBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const peerId = kickBtn.dataset.kickPeer;
+          if (!peerId) return;
+          const result = await showDialog({
+            title: t('connect.kick_title'),
+            message: t('connect.kick_message'),
+            buttonText: t('connect.kick_yes'),
+            secondaryText: t('connect.kick_no'),
           });
+          if (result.action !== 'ok') return;
+          bus.emit('network:kick-device', peerId);
+        });
+        actions.appendChild(kickBtn);
 
-          right.appendChild(opBtn);
-        }
-
-        right.appendChild(status);
-
-        // Kick button (non-host, connected peers only)
-        if (!p.isHost && p.status === 'connected') {
-          const kickBtn = document.createElement('button');
-          kickBtn.type = 'button';
-          kickBtn.className = 'btn-kick-device';
-          kickBtn.dataset.kickPeer = String(p.id || '');
-          kickBtn.setAttribute('aria-label', t('connect.kick_title'));
-          kickBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-
-          kickBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const peerId = kickBtn.dataset.kickPeer;
-            if (!peerId) return;
-            const result = await showDialog({
-              title: t('connect.kick_title'),
-              message: t('connect.kick_message'),
-              buttonText: t('connect.kick_yes'),
-              secondaryText: t('connect.kick_no'),
-            });
-            if (result.action !== 'ok') return;
-            bus.emit('network:kick-device', peerId);
-          });
-
-          right.appendChild(kickBtn);
-        }
-
-        row.appendChild(right);
+        row.appendChild(actions);
       }
 
       container.appendChild(row);

@@ -21,6 +21,15 @@ vi.mock('../transfer.ts', () => ({
   unicastFile: vi.fn(async () => {}),
 }));
 
+vi.mock('../../network/peer.ts', () => ({
+  isRemoteGuest: vi.fn(() => false),
+  hasActiveRelay: vi.fn(() => false),
+}));
+
+vi.mock('../../i18n/index.ts', () => ({
+  t: vi.fn((key: string) => key),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

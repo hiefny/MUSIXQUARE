@@ -4039,17 +4039,15 @@ body.overlay-open .bottom-nav {
     color: currentColor;
 }
 
-/* Remove hover/press lift effect on the two main buttons */
 #btn-sync:hover,
 #btn-media-source:hover {
-    background: var(--surface-2);
-    transform: none;
-    box-shadow: none;
+    background: var(--surface-3);
 }
 
 #btn-sync:active,
 #btn-media-source:active {
-    transform: none;
+    background: var(--surface-3);
+    transform: scale(0.97);
 }
 
 /* Minimalist Room Diagram */

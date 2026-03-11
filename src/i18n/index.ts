@@ -13,10 +13,8 @@ export type { I18nKey } from './ko.ts';
 
 // ─── Language State ──────────────────────────────────────────────
 
-type LangMode = 'ko' | 'en' | 'system';
 type ResolvedLang = 'ko' | 'en';
 
-let _activeMode: LangMode = 'system';
 let _resolved: ResolvedLang = _resolveSystem();
 
 const _dicts: Record<ResolvedLang, Record<string, string>> = { ko, en };
@@ -60,27 +58,20 @@ export function getResolvedLanguage(): ResolvedLang {
 
 /** Switch language mode. Persists to localStorage and retranslates DOM. */
 export function setLanguageMode(mode: string): void {
-  if (mode !== 'ko' && mode !== 'en' && mode !== 'system') mode = 'system';
-  _activeMode = mode as LangMode;
+  // Migrate legacy 'system' → resolve to actual value
+  if (mode === 'system') mode = _resolveSystem();
+  if (mode !== 'ko' && mode !== 'en') mode = _resolveSystem();
   _updateSelector(mode);
 
   try { localStorage.setItem('musixquare-lang', mode); } catch { /* ignore */ }
 
-  const resolved = mode === 'system' ? _resolveSystem() : mode as ResolvedLang;
-  _applyLanguage(resolved);
+  _applyLanguage(mode as ResolvedLang);
 }
 
 /** Bootstrap — call once from app.ts. */
 export function initI18n(): void {
   const saved = localStorage.getItem('musixquare-lang');
-  setLanguageMode(saved || 'system');
-
-  try {
-    window.addEventListener('languagechange', () => {
-      if (_activeMode !== 'system') return;
-      _applyLanguage(_resolveSystem());
-    });
-  } catch { /* ignore */ }
+  setLanguageMode(saved || _resolveSystem());
 
   log.info('[i18n] Initialized');
 }
@@ -159,13 +150,7 @@ function _applyLanguage(resolved: ResolvedLang): void {
 
 function _updateSelector(mode: string): void {
   try {
-    document.querySelectorAll('.lang-opt').forEach(el => el.classList.remove('active'));
-    const id = mode === 'ko' ? 'lang-ko' : mode === 'en' ? 'lang-en' : 'lang-system';
-    document.getElementById(id)?.classList.add('active');
-
-    const pillIndex = mode === 'ko' ? 0 : mode === 'en' ? 1 : 2;
-    document.querySelectorAll<HTMLElement>('.lang-selector').forEach(sel => {
-      sel.style.setProperty('--pill-index', String(pillIndex));
-    });
+    document.querySelectorAll('#grid-lang .ch-opt').forEach(el => el.classList.remove('active'));
+    document.querySelector(`#grid-lang .ch-opt[data-lang="${mode}"]`)?.classList.add('active');
   } catch { /* ignore */ }
 }

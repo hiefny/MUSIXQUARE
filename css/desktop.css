@@ -790,17 +790,6 @@
     }
 
 
-    /* Align theme pill with section title on desktop */
-    .theme-selector {
-        margin-left: 20px;
-        margin-right: 20px;
-    }
-
-    /* Align language pill with section title on desktop */
-    .lang-selector {
-        margin-left: 20px;
-        margin-right: 20px;
-    }
 
     /* Soften the settings text so title stands out */
     .slider-header {

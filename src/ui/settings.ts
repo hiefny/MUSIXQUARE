@@ -40,37 +40,28 @@ function _updateHostCtrlLockUI(): void {
   });
 }
 
-// ─── Cached Listeners (for cleanup on reinit) ────────────────────
-let _themeChangeHandler: (() => void) | null = null;
-
 // ─── Theme ───────────────────────────────────────────────────────
 
 export function setTheme(mode: string): void {
-  document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
-  const id = mode === 'light' ? 'theme-light' : mode === 'dark' ? 'theme-dark' : 'theme-system';
-  document.getElementById(id)?.classList.add('active');
-
-  // Sliding pill
-  const pillIndex = mode === 'light' ? 0 : mode === 'dark' ? 1 : 2;
-  document.querySelectorAll<HTMLElement>('.theme-selector').forEach(sel => {
-    sel.style.setProperty('--pill-index', String(pillIndex));
-  });
-
-  let resolved = mode;
+  // Migrate legacy 'system' → resolve to actual value
   if (mode === 'system') {
-    resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
-  document.documentElement.setAttribute('data-theme', resolved);
+
+  document.querySelectorAll('#grid-theme .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#grid-theme .ch-opt[data-theme="${mode}"]`)?.classList.add('active');
+
+  document.documentElement.setAttribute('data-theme', mode);
 
   // Persist preference
   try { localStorage.setItem('musixquare-theme', mode); } catch { /* ignore */ }
 
   // Update meta tags for PWA/browser integration
-  document.documentElement.style.colorScheme = resolved;
+  document.documentElement.style.colorScheme = mode;
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.setAttribute('content', resolved === 'dark' ? '#000000' : '#f2f2f7');
+  if (themeMeta) themeMeta.setAttribute('content', mode === 'dark' ? '#000000' : '#f2f2f7');
   const schemeMeta = document.querySelector('meta[name="color-scheme"]');
-  if (schemeMeta) schemeMeta.setAttribute('content', resolved);
+  if (schemeMeta) schemeMeta.setAttribute('content', mode);
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
@@ -283,6 +274,7 @@ function setBatterySaver(on: boolean): void {
   document.querySelector(`#grid-battery .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   localStorage.setItem('musixquare-battery-saver', on ? '1' : '0');
   bus.emit('visualizer:battery-saver', on);
+  if (on) bus.emit('ui:show-toast', t('toast.battery_saver_on'));
 }
 
 function setVBassOn(on: boolean): void {
@@ -371,15 +363,15 @@ export function initSettings(): void {
     if (el) el.addEventListener(evt, fn);
   };
 
-  // Theme
-  $on('theme-light', 'click', () => setTheme('light'));
-  $on('theme-dark', 'click', () => setTheme('dark'));
-  $on('theme-system', 'click', () => setTheme('system'));
+  // Theme grid
+  document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach(opt => {
+    opt.addEventListener('click', () => setTheme(opt.dataset.theme!));
+  });
 
-  // Language
-  $on('lang-ko', 'click', () => setLanguageMode('ko'));
-  $on('lang-en', 'click', () => setLanguageMode('en'));
-  $on('lang-system', 'click', () => setLanguageMode('system'));
+  // Language grid
+  document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt[data-lang]').forEach(opt => {
+    opt.addEventListener('click', () => setLanguageMode(opt.dataset.lang!));
+  });
 
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
@@ -517,22 +509,9 @@ export function initSettings(): void {
     if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
   });
 
-  // Theme: listen for system change (with cleanup for reinit safety)
-  try {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    if (_themeChangeHandler) mql.removeEventListener('change', _themeChangeHandler);
-    _themeChangeHandler = () => {
-      const themeSystem = document.getElementById('theme-system');
-      if (themeSystem?.classList.contains('active')) {
-        setTheme('system');
-      }
-    };
-    mql.addEventListener('change', _themeChangeHandler);
-  } catch { /* ignore */ }
-
-  // Initial theme: restore from localStorage or default to system
+  // Initial theme: restore from localStorage (defaults to dark; 'system' auto-resolves)
   const savedTheme = localStorage.getItem('musixquare-theme');
-  setTheme(savedTheme || 'system');
+  setTheme(savedTheme || 'dark');
 
   // Restore battery saver state
   if (localStorage.getItem('musixquare-battery-saver') === '1') setBatterySaver(true);

@@ -34,25 +34,25 @@ describe('getRoleLabelByChannelMode', () => {
 describe('getStandardRolePreset', () => {
   it('returns center preset for mode 0', () => {
     const preset = getStandardRolePreset(0);
-    expect(preset.label).toBe('Original');
+    expect(preset.labelKey).toBe('common.original');
     expect(preset.placementToastKey).toBe('role.center_placement');
   });
 
   it('returns left preset for mode -1', () => {
     const preset = getStandardRolePreset(-1);
-    expect(preset.label).toBe('Left');
+    expect(preset.labelKey).toBe('common.left');
     expect(preset.placementToastKey).toBe('role.left_placement');
   });
 
   it('returns right preset for mode 1', () => {
     const preset = getStandardRolePreset(1);
-    expect(preset.label).toBe('Right');
+    expect(preset.labelKey).toBe('common.right');
     expect(preset.placementToastKey).toBe('role.right_placement');
   });
 
   it('falls back to Original preset for unknown mode', () => {
     const preset = getStandardRolePreset(99);
-    expect(preset.label).toBe('Original');
+    expect(preset.labelKey).toBe('common.original');
     expect(preset.placementToastKey).toBe('role.center_placement');
   });
 });

@@ -25,6 +25,19 @@ try {
   // ignore (worker context, etc.)
 }
 
+/**
+ * Change log level at runtime (e.g., from browser console: `setLogLevel('debug')`).
+ */
+export function setLogLevel(level: keyof typeof LOG_LEVEL): void {
+  const v = LOG_LEVEL[level];
+  if (v !== undefined) _logLevel = v;
+}
+
+// Expose to browser console for runtime debugging
+try {
+  (globalThis as unknown as Record<string, unknown>).setLogLevel = setLogLevel;
+} catch { /* worker context */ }
+
 export const log = {
   debug: (...args: unknown[]): void => {
     if (_logLevel <= LOG_LEVEL.DEBUG) console.debug(...args);

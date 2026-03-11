@@ -169,8 +169,11 @@ export function stopAllMedia(): void {
   clearManagedTimer('autoPlayTimer');
   _pendingPlayTime = undefined;
 
-  setState('appState', APP_STATE.IDLE);
-  bus.emit('player:state-changed', APP_STATE.IDLE);
+  // Only emit state-changed if stopYouTubeMode didn't already set IDLE
+  if (getState('appState') !== APP_STATE.IDLE) {
+    setState('appState', APP_STATE.IDLE);
+    bus.emit('player:state-changed', APP_STATE.IDLE);
+  }
   updatePlayState(false);
 
   // Stop background sync timers
@@ -540,7 +543,13 @@ export function adjustSync(val: number): void {
     play(getTrackPosition());
   } else {
     const pausedAt = getState('player.pausedAt') || 0;
-    setState('player.pausedAt', pausedAt + val);
+    const videoElement = getVideoElement();
+    const duration = (_currentAudioBuffer?.duration)
+      ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
+    const newPausedAt = duration > 0
+      ? Math.max(0, Math.min(pausedAt + val, duration))
+      : Math.max(0, pausedAt + val);
+    setState('player.pausedAt', newPausedAt);
   }
 }
 

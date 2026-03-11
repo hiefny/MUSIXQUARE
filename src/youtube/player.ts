@@ -99,6 +99,7 @@ export function loadYouTubeVideo(
         log.error('[YouTube] Failed to load API script');
         _ytScriptLoading = false;
         _ytLoadInProgress = false;
+        tag.remove(); // Remove broken script tag so retry can re-insert
         bus.emit('ui:show-toast', t('youtube.load_fail'));
       };
       document.head.appendChild(tag);
@@ -708,6 +709,72 @@ export function initYouTube(): void {
     fetchYouTubePreview(url || '');
   });
 
+  /**
+   * Shared helper: add a YouTube entry to the playlist, broadcast, load, and fetch title.
+   * Used by both `youtube:load-from-input` and `youtube:load-from-chat`.
+   */
+  function _addYouTubeToPlaylist(
+    videoId: string | null,
+    playlistId: string | null,
+    title: string,
+    url: string,
+  ): void {
+    const playlist = getState('playlist.items') || [];
+    const newTrack: PlaylistItem = {
+      type: 'youtube',
+      name: title,
+      title: title,
+      videoId: videoId || undefined,
+      playlistId: playlistId || undefined,
+    };
+    const updatedPlaylist = [...playlist, newTrack];
+    setState('playlist.items', updatedPlaylist);
+    const newIndex = updatedPlaylist.length - 1;
+    setState('playlist.currentTrackIndex', newIndex);
+    bus.emit('ui:update-playlist');
+    bus.emit('player:metadata-update', newTrack);
+
+    // Broadcast playlist update + YouTube command to peers (Host only)
+    const hostConn = getState('network.hostConn');
+    if (!hostConn) {
+      const metaList = updatedPlaylist.map(item => ({
+        type: item.type,
+        name: item.name,
+        title: item.title || item.name,
+        videoId: item.videoId || null,
+        playlistId: item.playlistId || null,
+      }));
+      broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+      broadcast({
+        type: MSG.YOUTUBE_PLAY,
+        videoId,
+        playlistId,
+        index: newIndex,
+        autoplay: true,
+      });
+    }
+
+    loadYouTubeVideo(videoId, playlistId, true);
+
+    // Fetch title in background and update — capture the expected videoId/playlistId
+    // to guard against stale playlist index if the playlist changes before fetch resolves
+    const expectedVideoId = videoId;
+    const expectedPlaylistId = playlistId;
+    fetchOEmbedTitle(url).then(fetchedTitle => {
+      if (!fetchedTitle) return;
+      const currentPlaylist = getState('playlist.items') || [];
+      // Verify the item at newIndex still matches what we expect
+      const item = currentPlaylist[newIndex];
+      if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
+        const updated = [...currentPlaylist];
+        updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
+        setState('playlist.items', updated);
+        bus.emit('ui:update-playlist');
+        bus.emit('player:metadata-update', updated[newIndex]);
+      }
+    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
+  }
+
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
     const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
@@ -734,65 +801,14 @@ export function initYouTube(): void {
     if (previewEl) previewEl.style.display = 'none';
     const statusEl = document.getElementById('youtube-preview-status');
     if (statusEl) { statusEl.style.display = ''; statusEl.textContent = t('youtube.enter_link_prompt'); }
-    const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
-    if (playBtn) playBtn.disabled = true;
-
-    // Add YouTube entry to playlist
-    const playlist = getState('playlist.items') || [];
+    const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+    if (playBtnEl) playBtnEl.disabled = true;
 
     // Get title from preview UI or use URL
     const previewTitle = document.getElementById('youtube-preview-title');
     const titleText = previewTitle?.innerText?.trim() || url;
 
-    const newTrack: PlaylistItem = {
-      type: 'youtube',
-      name: titleText,
-      title: titleText,
-      videoId: videoId || undefined,
-      playlistId: playlistId || undefined,
-    };
-
-    const updatedPlaylist = [...playlist, newTrack];
-    setState('playlist.items', updatedPlaylist);
-    const newIndex = updatedPlaylist.length - 1;
-    setState('playlist.currentTrackIndex', newIndex);
-    bus.emit('ui:update-playlist');
-    bus.emit('player:metadata-update', newTrack);
-
-    // Broadcast playlist update + YouTube command to peers
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      const metaList = updatedPlaylist.map(item => ({
-        type: item.type,
-        name: item.name,
-        title: item.title || item.name,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
-      }));
-      broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-      broadcast({
-        type: MSG.YOUTUBE_PLAY,
-        videoId,
-        playlistId,
-        index: newIndex,
-        autoplay: true,
-      });
-    }
-
-    loadYouTubeVideo(videoId, playlistId, true);
-
-    // Fetch title in background and update
-    fetchOEmbedTitle(url).then(title => {
-      if (!title) return;
-      const currentPlaylist = getState('playlist.items') || [];
-      if (currentPlaylist[newIndex]) {
-        const updated = [...currentPlaylist];
-        updated[newIndex] = { ...updated[newIndex], name: title, title: title };
-        setState('playlist.items', updated);
-        bus.emit('ui:update-playlist');
-        bus.emit('player:metadata-update', updated[newIndex]);
-      }
-    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
+    _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
   });
 
   // YouTube refresh display (from tab switch)
@@ -846,15 +862,15 @@ export function initYouTube(): void {
       } catch { /* YouTube player may not be ready */ }
     }
 
-    // 2. Initial map setup
-    const subMap = getState('youtube.subItemsMap') || {};
+    // 2. Initial map setup — deep copy to avoid mutating state objects directly
+    const subMap = { ...(getState('youtube.subItemsMap') || {}) };
     if (ids.length > 0) {
       if (!subMap[playlistId]) {
-        subMap[playlistId] = { ids, titles: [] };
+        subMap[playlistId] = { ids: [...ids], titles: [] };
       } else if (!subMap[playlistId].ids || subMap[playlistId].ids.length === 0) {
-        subMap[playlistId].ids = ids;
+        subMap[playlistId] = { ...subMap[playlistId], ids: [...ids] };
       }
-      setState('youtube.subItemsMap', { ...subMap });
+      setState('youtube.subItemsMap', subMap);
     }
 
     // 3. Trigger background title fetcher (All roles)
@@ -895,53 +911,7 @@ export function initYouTube(): void {
     // Close chat drawer if open
     bus.emit('ui:close-chat-drawer');
 
-    // Add YouTube entry to playlist
-    const playlist = getState('playlist.items') || [];
-    const newTrack: PlaylistItem = {
-      type: 'youtube',
-      name: url,
-      title: url,
-      videoId: videoId || undefined,
-      playlistId: playlistId || undefined,
-    };
-    const updatedPlaylist = [...playlist, newTrack];
-    setState('playlist.items', updatedPlaylist);
-    const newIndex = updatedPlaylist.length - 1;
-    setState('playlist.currentTrackIndex', newIndex);
-    bus.emit('ui:update-playlist');
-    bus.emit('player:metadata-update', newTrack);
-
-    // hostConn is already confirmed null from guard above — we are Host
-    const metaList = updatedPlaylist.map(item => ({
-      type: item.type,
-      name: item.name,
-      title: item.title || item.name,
-      videoId: item.videoId || null,
-      playlistId: item.playlistId || null,
-    }));
-    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-    broadcast({
-      type: MSG.YOUTUBE_PLAY,
-      videoId,
-      playlistId,
-      index: newIndex,
-      autoplay: true,
-    });
-
-    loadYouTubeVideo(videoId, playlistId, true);
-
-    // Fetch title in background
-    fetchOEmbedTitle(url).then(title => {
-      if (!title) return;
-      const currentPlaylist = getState('playlist.items') || [];
-      if (currentPlaylist[newIndex]) {
-        const updated = [...currentPlaylist];
-        updated[newIndex] = { ...updated[newIndex], name: title, title: title };
-        setState('playlist.items', updated);
-        bus.emit('ui:update-playlist');
-        bus.emit('player:metadata-update', updated[newIndex]);
-      }
-    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
+    _addYouTubeToPlaylist(videoId, playlistId, url, url);
   });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)

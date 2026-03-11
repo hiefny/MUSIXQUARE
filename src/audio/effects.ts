@@ -106,7 +106,7 @@ export async function applySettings(): Promise<void> {
   let compensation = 1.0;
   const wid = getWidener();
   if (wid) {
-    wid.wet.rampTo(1, RAMP_TIME);
+    if (wid.wet.value !== 1) wid.wet.rampTo(1, RAMP_TIME);
     wid.width.rampTo(stereoWidth * 0.5, RAMP_TIME);
     if (stereoWidth < 1.0) {
       compensation = 0.6 + 0.4 * stereoWidth;

@@ -5,6 +5,9 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.ts'],
     environment: 'node',
     globals: true,
+    typecheck: {
+      tsconfig: './tsconfig.test.json',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],

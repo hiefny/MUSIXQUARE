@@ -318,6 +318,16 @@ export function initSync(): void {
     [MSG.GET_SYNC_TIME]: handleGetSyncTime,
   });
 
+  // Clean up module-scoped sync state when session ends
+  bus.on('state:network.sessionCode', (code: unknown) => {
+    if (!code) {
+      _syncSamples = [];
+      _syncSampleExpected = 0;
+      if (_syncSampleTimer) { clearTimeout(_syncSampleTimer); _syncSampleTimer = null; }
+      if (_syncTimeoutTimer) { clearTimeout(_syncTimeoutTimer); _syncTimeoutTimer = null; }
+    }
+  });
+
   // Bus event handlers for UI-triggered sync actions
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
@@ -334,13 +344,8 @@ export function initSync(): void {
     if (overlay) overlay.classList.remove('show');
   });
 
-  bus.on('sync:display-update', () => {
-    const localOffset = getState('sync.localOffset') || 0;
-    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-    const total = localOffset + autoSyncOffset;
-    const el = document.getElementById('manual-sync-value');
-    if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
-  });
+  // sync:display-update handler is in player-controls.ts (UI module) to maintain
+  // network → UI separation. This module only emits the event.
 
   // Worker tick handlers: Guest sends heartbeat/ping to host
   bus.on('worker:timer-tick', (id) => {
@@ -400,7 +405,14 @@ function startHeartbeatMonitor(): void {
     }
 
     if (changed) {
-      setState('network.connectedPeers', [...connectedPeers]);
+      // Remove stale peers entirely (defensive: conn.close() should trigger
+      // the close handler for full cleanup, but if it doesn't, this ensures
+      // zombies are removed from state and downstream listeners are notified)
+      const stalePeerIds = connectedPeers.filter(p => p.status === 'disconnected').map(p => p.id);
+      setState('network.connectedPeers', connectedPeers.filter(p => p.status !== 'disconnected'));
+      for (const id of stalePeerIds) {
+        bus.emit('network:peer-disconnected', id);
+      }
       broadcastDeviceList();
     }
   }, HEARTBEAT_CHECK_INTERVAL, { interval: true });

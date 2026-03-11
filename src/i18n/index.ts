@@ -9,7 +9,8 @@ import { log } from '../core/log.ts';
 import ko from './ko.ts';
 import en from './en.ts';
 
-export type { I18nKey } from './ko.ts';
+import type { I18nKey } from './ko.ts';
+export type { I18nKey };
 
 // ─── Language State ──────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ const _dicts: Record<ResolvedLang, Record<string, string>> = { ko, en };
  *   t('common.ok')                                   // "확인" or "OK"
  *   t('toast.device_connected', { name: 'iPhone' })  // "iPhone가 연결됐어요"
  */
-export function t(key: string, params?: Record<string, string | number>): string {
+export function t(key: I18nKey, params?: Record<string, string | number>): string {
   let str: string = _dicts[_resolved][key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
@@ -39,7 +40,7 @@ export function t(key: string, params?: Record<string, string | number>): string
 }
 
 /** Translate with HTML-safe interpolation (escapes param values for innerHTML contexts). */
-export function tHtml(key: string, params?: Record<string, string | number>): string {
+export function tHtml(key: I18nKey, params?: Record<string, string | number>): string {
   let str: string = _dicts[_resolved][key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
@@ -83,16 +84,16 @@ const I18N_ATTRS = ['placeholder', 'aria-label', 'title', 'alt'] as const;
 function _translateElement(el: Element): void {
   // textContent
   const textKey = el.getAttribute('data-i18n');
-  if (textKey) el.textContent = t(textKey);
+  if (textKey) el.textContent = t(textKey as I18nKey);
 
   // innerHTML (help blocks) — use tHtml for safe interpolation
   const htmlKey = el.getAttribute('data-i18n-html');
-  if (htmlKey) el.innerHTML = tHtml(htmlKey);
+  if (htmlKey) el.innerHTML = tHtml(htmlKey as I18nKey);
 
   // Attributes
   for (const attr of I18N_ATTRS) {
     const key = el.getAttribute(`data-i18n-${attr}`);
-    if (key) el.setAttribute(attr, t(key));
+    if (key) el.setAttribute(attr, t(key as I18nKey));
   }
 }
 

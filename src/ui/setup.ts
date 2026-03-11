@@ -22,9 +22,8 @@ import { activateNoSleep } from '../app.ts';
 import { selectStandardChannelButton } from './settings.ts';
 import { createHostSessionWithShortCode, leaveSession, broadcastDeviceList } from '../network/peer.ts';
 import { joinSession } from '../network/peer.ts';
+import { PEER_NAME_PREFIX } from '../core/constants.ts';
 // ─── Constants ───────────────────────────────────────────────────
-
-const PEER_NAME_PREFIX = 'Peer';
 const TOTAL_OB_SLIDES = 4;
 
 // ─── State ───────────────────────────────────────────────────────

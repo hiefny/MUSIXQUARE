@@ -19,6 +19,7 @@ export function switchTab(tabId: string): void {
     document.querySelectorAll('.nav-item').forEach(el => {
       el.classList.remove('active');
       el.setAttribute('aria-selected', 'false');
+      el.setAttribute('tabindex', '-1');
     });
     const tabEl = document.getElementById(`tab-${tabId}`);
     if (tabEl) tabEl.classList.add('active');
@@ -28,6 +29,7 @@ export function switchTab(tabId: string): void {
     if (navItem) {
       navItem.classList.add('active');
       navItem.setAttribute('aria-selected', 'true');
+      navItem.setAttribute('tabindex', '0');
     }
 
     if (tabId === 'settings') {
@@ -56,7 +58,23 @@ export function switchTab(tabId: string): void {
 
 export function initTabs(): void {
   // Bottom navigation
-  document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]').forEach(el => {
+  const navItems = Array.from(
+    document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]')
+  );
+
+  // Set up WAI-ARIA roles and tabindex
+  navItems.forEach(el => {
+    el.setAttribute('role', 'tab');
+    if (el.classList.contains('active')) {
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('aria-selected', 'true');
+    } else {
+      el.setAttribute('tabindex', '-1');
+      el.setAttribute('aria-selected', 'false');
+    }
+  });
+
+  navItems.forEach(el => {
     el.addEventListener('click', () => {
       try { el.blur(); } catch { /* ignore */ }
       if (el.classList.contains('active')) {
@@ -65,6 +83,36 @@ export function initTabs(): void {
       } else {
         if (el.dataset.tab) switchTab(el.dataset.tab);
       }
+    });
+
+    // Arrow key navigation following WAI-ARIA tabs pattern
+    el.addEventListener('keydown', (e: KeyboardEvent) => {
+      const idx = navItems.indexOf(el);
+      if (idx === -1) return;
+      const len = navItems.length;
+      let targetIdx = -1;
+
+      switch (e.key) {
+        case 'ArrowRight':
+          targetIdx = (idx + 1) % len;
+          break;
+        case 'ArrowLeft':
+          targetIdx = (idx - 1 + len) % len;
+          break;
+        case 'Home':
+          targetIdx = 0;
+          break;
+        case 'End':
+          targetIdx = len - 1;
+          break;
+        default:
+          return;
+      }
+
+      e.preventDefault();
+      const target = navItems[targetIdx];
+      target.focus();
+      if (target.dataset.tab) switchTab(target.dataset.tab);
     });
   });
 

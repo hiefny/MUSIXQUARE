@@ -357,6 +357,15 @@ export function initRelay(): void {
     if (conn) handleRelayConnection(conn);
   });
 
+  // Clean up OPFS catch-up pumps when session ends
+  bus.on('state:network.sessionCode', (code: unknown) => {
+    if (!code) {
+      for (const peerId of opfsCatchupPumps.keys()) {
+        stopOpfsCatchupStream(peerId, 'session ended');
+      }
+    }
+  });
+
   // Relay: serve current file to downstream peer
   bus.on('relay:serve-current-file', (conn: DataConnection, msg: unknown) => {
     const m = msg as Record<string, unknown>;

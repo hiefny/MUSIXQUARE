@@ -88,7 +88,7 @@ export function updatePlaylistUI(): void {
       ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#ff0000;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47-.13-1.33-.22-2.65-.28-1.3-.07-2.49-.1-3.59-.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
       : '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
 
-    const displayName = item.name || item.title || 'Unknown';
+    const displayName = item.name || item.title || t('common.unknown');
     li.onclick = () => {
       const hc = getState('network.hostConn');
       const op = getState('network.isOperator');
@@ -182,11 +182,11 @@ export function updatePlaylistUI(): void {
   const meta = getState('transfer.meta');
   if (currentTrackIndex !== -1) {
     const currentItem = playlist[currentTrackIndex];
-    let displayTitle = 'Unknown';
+    let displayTitle = t('common.unknown');
     if (meta && meta.index === currentTrackIndex && meta.name) {
       displayTitle = meta.name as string;
     } else if (currentItem) {
-      displayTitle = currentItem.name || currentItem.title || 'Unknown';
+      displayTitle = currentItem.name || currentItem.title || t('common.unknown');
     }
 
     updateTitleWithMarquee(displayTitle);
@@ -196,7 +196,7 @@ export function updatePlaylistUI(): void {
       if (currentItem?.artist) {
         artistEl.innerText = currentItem.artist;
       } else {
-        artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? 'YouTube Video' : `Track ${currentTrackIndex + 1}`;
+        artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? t('common.youtube_video') : `Track ${currentTrackIndex + 1}`;
       }
     }
   }

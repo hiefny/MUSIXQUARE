@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
@@ -19,10 +19,6 @@ import { fetchOEmbedTitle } from '../youtube/search.ts';
 import type { DataConnection } from '../types/index.ts';
 
 const MAX_CHAT_MESSAGES = 200;
-
-// ─── Constants ───────────────────────────────────────────────────
-
-const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -63,28 +59,32 @@ function parseTimestamp(ts: string): number {
 
 // ─── Parse Message Content ───────────────────────────────────────
 
-function parseMessageContent(text: string): string {
-  const ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]{11}[^\s]*/gi;
-  const tsRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
+const _ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]{11}[^\s]*/gi;
+const _tsRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
+const _combinedRegex = new RegExp(
+  `(${_ytRegex.source})|(${_tsRegex.source})`,
+  'gi'
+);
 
-  const combinedRegex = new RegExp(
-    `(${ytRegex.source})|(${tsRegex.source})`,
-    'gi'
-  );
+function parseMessageContent(text: string): string {
+  // Reset lastIndex for global regexes reused across calls
+  _ytRegex.lastIndex = 0;
+  _tsRegex.lastIndex = 0;
+  _combinedRegex.lastIndex = 0;
 
   let result = '';
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = combinedRegex.exec(text)) !== null) {
+  while ((match = _combinedRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
       result += escapeHtml(text.slice(lastIndex, match.index));
     }
 
     const matchedText = match[0];
 
-    ytRegex.lastIndex = 0;
-    if (ytRegex.test(matchedText)) {
+    _ytRegex.lastIndex = 0;
+    if (_ytRegex.test(matchedText)) {
       const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
       const uniqueId = 'yt-' + Math.random().toString(36).substring(2, 11);
 
@@ -106,7 +106,7 @@ function parseMessageContent(text: string): string {
       result += escapeHtml(matchedText);
     }
 
-    lastIndex = combinedRegex.lastIndex;
+    lastIndex = _combinedRegex.lastIndex;
   }
 
   if (lastIndex < text.length) {
@@ -300,7 +300,7 @@ export function addSystemChatMessage(text: string): void {
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender';
-  senderNode.innerText = 'System';
+  senderNode.innerText = t('common.system');
   group.appendChild(senderNode);
 
   const row = document.createElement('div');

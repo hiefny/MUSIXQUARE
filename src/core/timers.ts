@@ -20,7 +20,10 @@ export function setManagedTimer(
   clearManagedTimer(name);
   const id = opts?.interval
     ? setInterval(fn, delayMs)
-    : setTimeout(fn, delayMs);
+    : setTimeout(() => {
+        _timers.delete(name);
+        fn();
+      }, delayMs);
   _timers.set(name, id);
 }
 

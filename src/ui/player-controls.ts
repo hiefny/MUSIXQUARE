@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
 import { t } from '../i18n/index.ts';
+import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 import { showLoader, updateLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
@@ -26,18 +27,18 @@ import { clearPreviewDebounce } from '../youtube/search.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
-const STANDARD_ROLE_MAP: Record<string, { label: string; placementToastKey: string }> = {
-  '0': { label: 'Original', placementToastKey: 'role.center_placement' },
-  '-1': { label: 'Left', placementToastKey: 'role.left_placement' },
-  '1': { label: 'Right', placementToastKey: 'role.right_placement' },
-  '2': { label: 'Woofer', placementToastKey: 'role.center_placement' },
+const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: I18nKey }> = {
+  '0': { labelKey: 'common.original', placementToastKey: 'role.center_placement' },
+  '-1': { labelKey: 'common.left', placementToastKey: 'role.left_placement' },
+  '1': { labelKey: 'common.right', placementToastKey: 'role.right_placement' },
+  '2': { labelKey: 'common.woofer', placementToastKey: 'role.center_placement' },
 };
 
 export function getRoleLabelByChannelMode(mode: number): string {
-  return (STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).label;
+  return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
 }
 
-export function getStandardRolePreset(mode: number): { label: string; placementToastKey: string } {
+export function getStandardRolePreset(mode: number): { labelKey: I18nKey; placementToastKey: I18nKey } {
   return STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0'];
 }
 
@@ -71,7 +72,7 @@ function onVolChange(val: number): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', { type: MSG.VOLUME, value: val / 100 });
-    showToast(`Volume: ${Math.round(val)}%`);
+    showToast(t('common.volume_percent', { val: Math.round(val) }));
   }
 }
 
@@ -80,13 +81,13 @@ function toggleMute(): void {
   if (masterVolume > 0) {
     _preMuteVolume = masterVolume;
     bus.emit('audio:set-volume', 0);
-    showToast('Muted');
+    showToast(t('common.muted'));
     const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: 0 });
   } else {
     bus.emit('audio:set-volume', _preMuteVolume || 0.5);
     const newVol = _preMuteVolume || 0.5;
-    showToast(`Volume: ${Math.round(newVol * 100)}%`);
+    showToast(t('common.volume_percent', { val: Math.round(newVol * 100) }));
     const hostConn = getState('network.hostConn');
     if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: newVol });
   }
@@ -110,7 +111,7 @@ export function updateRoleBadge(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     const myDeviceLabel = getState('network.myDeviceLabel') || '';
-    const label = myDeviceLabel.trim() || 'Peer';
+    const label = myDeviceLabel.trim() || t('common.peer');
     const latency = getState('sync.lastLatencyMs') || 0;
     text.innerText = `${label} (${latency}ms)`;
     badge.classList.add('connected');
@@ -122,17 +123,17 @@ export function updateRoleBadge(): void {
 
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = 'Host';
+    text.innerText = t('common.host');
     badge.classList.add('connected');
     return;
   }
 
   if (appRole === 'guest') {
-    text.innerText = 'Guest';
+    text.innerText = t('common.guest');
     return;
   }
 
-  text.innerText = 'SETUP';
+  text.innerText = t('common.setup');
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────
@@ -354,7 +355,7 @@ function initSeekBar(): void {
   }
 
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
-  slider.addEventListener('touchstart', () => setState('player.isSeeking', true));
+  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), { passive: true });
   slider.addEventListener('input', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
@@ -398,7 +399,7 @@ function initSeekBar(): void {
   });
 
   slider.addEventListener('mouseup', () => setState('player.isSeeking', false));
-  slider.addEventListener('touchend', () => setState('player.isSeeking', false));
+  slider.addEventListener('touchend', () => setState('player.isSeeking', false), { passive: true });
   slider.addEventListener('touchcancel', () => setState('player.isSeeking', false), { passive: true });
 }
 
@@ -718,8 +719,17 @@ export function initPlayerControls(): void {
   // Metadata update (track title in player UI)
   bus.on('player:metadata-update', (item) => {
     if (!item) return;
-    const title = item.title || item.name || 'Unknown';
+    const title = item.title || item.name || t('common.unknown');
     updateTitleWithMarquee(title);
+  });
+
+  // Sync display update (manual-sync-value element)
+  bus.on('sync:display-update', () => {
+    const localOffset = getState('sync.localOffset') || 0;
+    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
+    const total = localOffset + autoSyncOffset;
+    const el = document.getElementById('manual-sync-value');
+    if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
   });
 
   // YouTube time update (seek bar + time display)

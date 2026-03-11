@@ -111,6 +111,7 @@ export function initMediaSession(): void {
 
   try {
     navigator.mediaSession.setActionHandler('stop', () => {
+      if (isBlocked()) return;
       stopPlayback();
     });
   } catch (e: unknown) {
@@ -120,6 +121,14 @@ export function initMediaSession(): void {
   // Listen for metadata update events from playlist module
   bus.on('player:metadata-update', (item: PlaylistItem) => {
     updateMediaSessionMetadata(item);
+  });
+
+  // Sync playbackState with app state (needed for Web Audio / Tone.js
+  // since the browser cannot infer state from an <audio> element)
+  bus.on('player:state-changed', (state: string) => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState =
+      isIdleOrPaused(state) ? 'paused' : 'playing';
   });
 
   log.info('[MediaSession] Initialized');

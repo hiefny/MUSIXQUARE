@@ -15,8 +15,9 @@ import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 // ─── State ───────────────────────────────────────────────────────
 
 let _animationId: number | null = null;
+let _retryTimer: ReturnType<typeof setTimeout> | null = null;
 let _visualizerRetryCount = 0;
-const MAX_VISUALIZER_RETRIES = 120;
+const MAX_VISUALIZER_RETRIES = 20;
 let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 let _resizeListenerAdded = false;
 let _batterySaver = false;
@@ -67,6 +68,10 @@ function getAnalyser(): unknown {
 export function startVisualizer(): void {
   if (_batterySaver) return;
 
+  if (_retryTimer) {
+    clearTimeout(_retryTimer);
+    _retryTimer = null;
+  }
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -82,11 +87,11 @@ export function startVisualizer(): void {
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'frames');
+      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries');
       _visualizerRetryCount = 0;
       return;
     }
-    _animationId = requestAnimationFrame(startVisualizer);
+    _retryTimer = setTimeout(startVisualizer, 100);
     return;
   }
   _visualizerRetryCount = 0;

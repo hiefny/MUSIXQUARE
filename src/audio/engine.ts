@@ -420,6 +420,10 @@ bus.on('audio:apply-youtube-volume', () => {
 /** Connect player node to surround routing */
 bus.on('audio:connect-surround', (playerNode, channelIdx) => {
   if (!playerNode) return;
+  if (typeof channelIdx !== 'number' || channelIdx < 0 || channelIdx > 7) {
+    log.warn(`[Audio] Invalid surround channelIdx: ${channelIdx}`);
+    return;
+  }
 
   const { splitter, gain } = ensureSurroundNodes();
   const pre = getPreamp();

@@ -316,7 +316,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
     }
 
     const statusClass = p.status === 'connected' ? 'active' : 'inactive';
-    const statusText = p.status === 'connected' ? 'Connected' : 'Disconnected';
+    const statusText = p.status === 'connected' ? t('common.connected') : t('common.disconnected');
 
     const status = document.createElement('span');
     status.className = `d-status ${statusClass}`;
@@ -336,7 +336,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
         opBtn.className = `btn-action ${p.isOp ? 'active' : ''}`;
         opBtn.dataset.opPeer = String(p.id || '');
         opBtn.style.cssText = `font-size:10px; padding:4px 8px; margin-right:8px; ${p.isOp ? 'background:var(--primary); color:white; border:none;' : ''}`;
-        opBtn.textContent = p.isOp ? 'REVOKE' : 'GRANT';
+        opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
 
         opBtn.addEventListener('click', (e) => {
           e.preventDefault();

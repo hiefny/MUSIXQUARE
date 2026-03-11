@@ -257,7 +257,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         const opBtn = document.createElement('button');
         opBtn.className = `d-op-btn ${p.isOp ? 'active' : ''}`;
         opBtn.dataset.opPeer = String(p.id || '');
-        opBtn.textContent = p.isOp ? 'REVOKE' : 'GRANT';
+        opBtn.textContent = p.isOp ? t('common.revoke') : t('common.grant');
         opBtn.addEventListener('click', (e) => {
           e.preventDefault();
           const peerId = opBtn.dataset.opPeer;

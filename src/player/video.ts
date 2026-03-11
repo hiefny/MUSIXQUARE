@@ -98,7 +98,6 @@ export function setEngineMode(mode: string): void {
  */
 function updateBodyModeClass(appState: string): void {
   const body = document.body;
-  body.classList.remove('mode-video', 'mode-youtube');
 
   const videoElement = _videoElement;
   const currentFileBlob = getState('files.currentFileBlob');
@@ -119,11 +118,21 @@ function updateBodyModeClass(appState: string): void {
     keepVideoVisibleOnIdle
   );
 
-  // mode-video is the master toggle for .video-wrapper visibility (CSS)
-  if (isVideoMode) body.classList.add('mode-video');
+  const wantVideo = !!isVideoMode;
+  const wantYouTube = appState === APP_STATE.PLAYING_YOUTUBE;
+  const hasVideo = body.classList.contains('mode-video');
+  const hasYouTube = body.classList.contains('mode-youtube');
 
-  // mode-youtube is additional for YouTube-specific UI (settings lock)
-  if (appState === APP_STATE.PLAYING_YOUTUBE) body.classList.add('mode-youtube');
+  // Only remove/add classes that actually need to change
+  if (wantVideo !== hasVideo) {
+    body.classList.toggle('mode-video', wantVideo);
+  }
+  if (wantYouTube !== hasYouTube) {
+    body.classList.toggle('mode-youtube', wantYouTube);
+  }
+
+  // Early return if nothing changed — downstream styles are already correct
+  if (wantVideo === hasVideo && wantYouTube === hasYouTube) return;
 
   // ── YouTube container visibility ──
   const ytContainer = document.getElementById('youtube-player-container');

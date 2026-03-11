@@ -1903,11 +1903,16 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.leave-session-section .leave-session-btn:hover {
+    background: rgba(255, 59, 48, 0.12);
 }
 
 .leave-session-section .leave-session-btn:active {
-    background: rgba(255, 59, 48, 0.16);
+    background: rgba(255, 59, 48, 0.18);
+    transform: scale(0.97);
 }
 
 .leave-session-btn svg {
@@ -2280,7 +2285,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 }
 
 .dialog-primary:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
     box-shadow: none;
 }
 
@@ -2670,7 +2675,7 @@ body.overlay-open .bottom-nav {
 
 .btn-ob-icon:active {
     background: var(--surface-3);
-    transform: scale(0.96);
+    transform: scale(0.97);
 }
 
 .btn-ob-icon svg {
@@ -2865,7 +2870,7 @@ body.overlay-open .bottom-nav {
 }
 
 #setup-role-grid .ch-opt:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
     background: var(--surface-3);
 }
 
@@ -3024,9 +3029,17 @@ body.overlay-open .bottom-nav {
     margin-bottom: 8px;
 }
 
+.btn-ob-primary:hover {
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+}
+
+.btn-ob-secondary:hover {
+    background: var(--surface-3);
+}
+
 .btn-ob-primary:active,
 .btn-ob-secondary:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
 }
 
 .btn-ob-primary:active {
@@ -3195,7 +3208,7 @@ body.overlay-open .bottom-nav {
 
 .btn-nudge:active {
     background: var(--surface-3);
-    transform: scale(0.96);
+    transform: scale(0.97);
 }
 
 .btn-nudge svg {
@@ -3292,6 +3305,10 @@ body.overlay-open .bottom-nav {
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+#media-source-overlay .file-select-btn-large:hover {
+    background: var(--surface-3);
+}
+
 #media-source-overlay .file-select-btn-large:active {
     transform: scale(0.97);
     background: var(--surface-3);
@@ -3301,7 +3318,7 @@ body.overlay-open .bottom-nav {
 
 .sync-popup-reset-btn:active,
 .sync-done-btn:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
 }
 
 @keyframes modalSlideUp {
@@ -3340,6 +3357,7 @@ body.overlay-open .bottom-nav {
 /* Large File Select Button */
 .file-select-btn-large {
     width: 100%;
+    height: 56px;
     padding: 0 20px;
     font-size: 15px;
 }
@@ -3581,7 +3599,7 @@ body.overlay-open .bottom-nav {
     background: var(--surface-2);
     border-radius: 20px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.2s;
     position: relative;
     overflow: visible;
 }
@@ -3605,8 +3623,13 @@ body.overlay-open .bottom-nav {
     padding: 4px 10px;
 }
 
+.chat-preview-btn:hover {
+    background: var(--surface-3);
+}
+
 .chat-preview-btn:active {
     background: var(--surface-3);
+    transform: scale(0.97);
 }
 
 .chat-preview-left {
@@ -3901,7 +3924,7 @@ body.overlay-open .bottom-nav {
     display: flex;
     align-items: center;
     width: 100%;
-    height: 56px;
+    height: 72px;
     margin-top: auto;
     gap: 10px;
     background: var(--surface-2);
@@ -3927,7 +3950,7 @@ body.overlay-open .bottom-nav {
 .file-select-btn:active {
     background: var(--surface-3);
     color: var(--text-main);
-    transform: scale(0.98);
+    transform: scale(0.97);
 }
 
 .file-select-btn span {
@@ -3986,6 +4009,19 @@ body.overlay-open .bottom-nav {
 [data-theme="light"] #btn-sync,
 [data-theme="light"] #btn-media-source {
     color: #444444;
+}
+
+/* Light Mode — hover/active for surface-2 buttons */
+[data-theme="light"] .chat-preview-btn:hover,
+[data-theme="light"] .file-select-btn:hover,
+[data-theme="light"] .btn-copy-invite-link:hover {
+    background: #f0f0f0;
+}
+
+[data-theme="light"] .chat-preview-btn:active,
+[data-theme="light"] .file-select-btn:active,
+[data-theme="light"] .btn-copy-invite-link:active {
+    background: #e8e8e8;
 }
 
 #btn-sync svg,
@@ -4134,15 +4170,19 @@ body.overlay-open .bottom-nav {
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.2s;
 }
 .btn-copy-invite-link svg {
     width: 20px;
     height: 20px;
     fill: currentColor;
 }
+.btn-copy-invite-link:hover {
+    background: var(--surface-3);
+}
 .btn-copy-invite-link:active {
     background: var(--surface-3);
+    transform: scale(0.97);
 }
 
 /* Number Stepper (−  3  +) */

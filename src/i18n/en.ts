@@ -129,7 +129,7 @@ const en: Record<I18nKey, string> = {
   'settings.invite_share': 'Invite & Share',
   'settings.subtab.general': 'General',
   'settings.subtab.audio': 'Audio',
-  'settings.subtab.connect': 'Connection',
+  'settings.subtab.connect': 'Connect',
   'settings.subtab.help': 'Help',
 
   // ─── Connect ───────────────────────────────────────────────────

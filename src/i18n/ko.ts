@@ -131,7 +131,7 @@ const ko = {
   'settings.subtab.help': '도움말',
 
   // ─── Connect ───────────────────────────────────────────────────
-  'connect.qr_title': 'QR 또는 링크로 참가',
+  'connect.qr_title': 'QR 또는 링크로 초대',
   'connect.max_devices': '접속 가능한 기기 수',
   'connect.device_list': '연결된 기기 {{count}}대',
   'connect.device_list_one': '연결된 기기 {{count}}대',

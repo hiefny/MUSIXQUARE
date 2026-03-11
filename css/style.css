@@ -649,8 +649,11 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
 }
 
 .vinyl-wrapper {
-    width: clamp(160px, min(55vw, calc(var(--app-height, 100dvh) - 512px)), 320px);
-    height: clamp(160px, min(55vw, calc(var(--app-height, 100dvh) - 512px)), 320px);
+    /* Flex-based sizing: vinyl shrinks first, scrollbar only at minimum */
+    flex-shrink: 1;
+    flex-basis: min(55vw, 320px);
+    min-height: 160px;
+    aspect-ratio: 1;
     margin: auto auto 0;
     position: relative;
     display: flex;
@@ -741,6 +744,7 @@ body.mode-video .video-wrapper {
 }
 
 .track-box {
+    flex-shrink: 0;
     text-align: center;
     width: 100%;
     padding: 0 24px;
@@ -816,6 +820,7 @@ body.mode-video .video-wrapper {
 }
 
 .controls-area {
+    flex-shrink: 0;
     width: 100%;
     padding: 0 24px;
     display: flex;
@@ -1307,17 +1312,6 @@ input[type=range]:active::-moz-range-thumb {
 #last-setting-section {
     border-bottom: none;
     padding-bottom: 44px;
-}
-
-/* Ensure children respect the rounded corners */
-.section-group> :first-child {
-    border-top-left-radius: inherit;
-    border-top-right-radius: inherit;
-}
-
-.section-group> :last-child {
-    border-bottom-left-radius: inherit;
-    border-bottom-right-radius: inherit;
 }
 
 /* Also ensure device list items don't overflow if list is the last child */
@@ -1881,14 +1875,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 }
 
 /* Leave Session */
-.leave-session-section {
-    border-top: 1px dotted var(--surface-3);
-    border-bottom: none;
-    padding-top: 44px;
-    padding-bottom: 32px;
-}
-
-.leave-session-section .leave-session-btn {
+.leave-session-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1896,6 +1883,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     width: 100%;
     height: 56px;
     padding: 0;
+    margin-top: 24px;
     border: none;
     border-radius: 20px;
     background: rgba(255, 59, 48, 0.08);
@@ -1906,11 +1894,11 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     transition: background 0.2s, transform 0.2s;
 }
 
-.leave-session-section .leave-session-btn:hover {
+.leave-session-btn:hover {
     background: rgba(255, 59, 48, 0.12);
 }
 
-.leave-session-section .leave-session-btn:active {
+.leave-session-btn:active {
     background: rgba(255, 59, 48, 0.18);
     transform: scale(0.97);
 }

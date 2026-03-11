@@ -133,7 +133,7 @@ const en: Record<I18nKey, string> = {
   'settings.subtab.help': 'Help',
 
   // ─── Connect ───────────────────────────────────────────────────
-  'connect.qr_title': 'Join via QR or Link',
+  'connect.qr_title': 'Invite via QR or Link',
   'connect.max_devices': 'Allowed Devices',
   'connect.device_list': '{{count}} Connected Devices',
   'connect.device_list_one': '{{count}} Connected Device',

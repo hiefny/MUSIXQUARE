@@ -476,7 +476,10 @@ export function stopPlayback(): void {
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-playback');
     setState('player.pausedAt', 0);
+    setState('appState', APP_STATE.IDLE);
     updatePlayState(false);
+    bus.emit('player:state-changed', APP_STATE.IDLE);
+    if (!getState('network.hostConn')) broadcast({ type: MSG.PAUSE, time: 0 });
     return;
   }
 

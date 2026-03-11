@@ -267,6 +267,13 @@ export function playNextTrack(): void {
     nextIndex = currentTrackIndex;
   } else if (isShuffle) {
     if (playlist.length === 1) {
+      // Single-track + shuffle + repeat OFF → stop (same as sequential behavior)
+      if (repeatMode === 0) {
+        log.debug('[Host] Single track, shuffle ON, repeat OFF. Stopping.');
+        stopAllMedia();
+        broadcast({ type: MSG.PAUSE, time: 0 });
+        return;
+      }
       nextIndex = 0;
     } else if (nextTrackIndex !== -1 && nextTrackIndex !== currentTrackIndex && nextTrackIndex < playlist.length) {
       nextIndex = nextTrackIndex;
@@ -330,6 +337,7 @@ export function playPrevTrack(): void {
     // Restart current track from the beginning (avoids redundant full reload)
     play(0);
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+    requestGlobalResyncDelayed();
     return;
   }
 

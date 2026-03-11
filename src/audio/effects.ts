@@ -291,7 +291,8 @@ export function resetVirtualBass(): void {
 // ─── Subwoofer Cutoff ──────────────────────────────────────────────
 
 function updateSubFreq(val: number): void {
-  const freq = Number(val);
+  const freq = Math.max(20, Math.min(500, Number(val)));
+  if (!Number.isFinite(freq)) return;
   setState('audio.subFreq', freq);
   applySettings();
 }
@@ -496,7 +497,9 @@ function handleEQUpdateMsg(data: Record<string, unknown>): void {
 
 function handlePreampMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
-  setPreamp(Number(data.value));
+  const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
+  setPreamp(v);
 }
 
 // ─── Host-ctrl 변경 토스트 (게스트 전용, 디바운스) ────────────
@@ -592,6 +595,7 @@ function handleReverbHighCutMsg(data: Record<string, unknown>): void {
 function handleStereoWidthMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setStereoWidth(v);
   // 120 = surround ON, 100 = OFF
   bus.emit('ui:sync-surround', v > 100);
@@ -601,6 +605,7 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
 function handleVBassMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setVirtualBass(v);
   bus.emit('ui:sync-vbass', v > 0);
   _notifyHostChanged();

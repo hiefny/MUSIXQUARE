@@ -177,8 +177,9 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
   for (let i = 0; i < total; i++) {
     if (getState('preload.sessionId') !== sessionId) return;
 
-    // Backpressure
+    // Backpressure (with 30s timeout to prevent infinite stall)
     let congested = true;
+    let bpStart = Date.now();
     while (congested) {
       congested = false;
       for (const p of targets) {
@@ -188,7 +189,10 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
           break;
         }
       }
-      if (congested) await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+      if (congested) {
+        if (Date.now() - bpStart > 30_000) { log.warn('[Preload] Backpressure timeout'); break; }
+        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+      }
     }
 
     const start = i * CHUNK;

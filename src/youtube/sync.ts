@@ -61,10 +61,12 @@ export function broadcastYouTubeSync(): void {
             const vData = player.getVideoData();
             if (vData?.title) {
               const subMap = getState('youtube.subItemsMap') || {};
-              if (!subMap[pid]) subMap[pid] = { ids: [], titles: [] };
-              if (subMap[pid].titles[sIdx] !== vData.title) {
-                subMap[pid].titles[sIdx] = vData.title;
-                setState('youtube.subItemsMap', { ...subMap });
+              const entry = subMap[pid]
+                ? { ids: [...subMap[pid].ids], titles: [...subMap[pid].titles] }
+                : { ids: [], titles: [] };
+              if (entry.titles[sIdx] !== vData.title) {
+                entry.titles[sIdx] = vData.title;
+                setState('youtube.subItemsMap', { ...subMap, [pid]: entry });
                 broadcast({
                   type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
                   playlistId: pid,

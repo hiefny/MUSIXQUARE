@@ -689,7 +689,8 @@ export function leaveSession(): void {
     'network.connectionType': 'unknown',
     'network.lastKnownDeviceList': null,
     'network.peerLabels': {},
-    'network.isIntentionalDisconnect': false,
+    // Note: isIntentionalDisconnect is NOT reset here — async close handlers
+    // may read it after batchSetState. Reset via delayed timer below.
     'network.sessionCode': '',
     'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     // Relay
@@ -730,6 +731,9 @@ export function leaveSession(): void {
   // ── 8. Reset UI ──
   bus.emit('ui:update-playlist');
   bus.emit('player:state-changed', APP_STATE.IDLE);
+
+  // Delayed reset: allow async close handlers to read the flag first
+  setTimeout(() => setState('network.isIntentionalDisconnect', false), 200);
 
   log.debug('[Network] Session left — full cleanup complete.');
 }

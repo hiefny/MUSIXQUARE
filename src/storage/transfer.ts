@@ -434,17 +434,19 @@ function handleFileResume(data: Record<string, unknown>): void {
   clearManagedTimer('prepareWatchdog');
   setState('transfer.skipIncomingFile', false);
 
+  const startChunk = (data.startChunk as number) || 0;
   postWorkerCommand({
     command: 'OPFS_START',
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
     size: CHUNK_SIZE,
+    keepExisting: startChunk > 0, // preserve existing data on resume
   });
 
   setState('files.currentFileOpfs', { name: data.name as string });
 
-  nextExpectedChunk = (data.startChunk as number) || 0;
+  nextExpectedChunk = startChunk;
   setState('transfer.meta', data as Partial<FileMeta>);
   setState('transfer.state', TRANSFER_STATE.RECEIVING);
 

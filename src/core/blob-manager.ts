@@ -105,7 +105,7 @@ export const BlobURLManager = {
       ? options.delayMs
       : DELAY.BLOB_REVOCATION;
 
-    if (this._pendingRevocations.has(url)) return;
+    if (!force && this._pendingRevocations.has(url)) return;
 
     if (!force && this._isUrlAttached(url)) {
       this._deferredUntilDetached.add(url);
@@ -113,15 +113,23 @@ export const BlobURLManager = {
       return;
     }
 
-    // Queue overflow protection
+    // Queue overflow protection — evict oldest non-attached URL, or force-revoke if all attached
     if (this._pendingRevocations.size >= this.MAX_PENDING) {
-      const oldest = this._pendingRevocations.keys().next().value;
-      if (!oldest) return;
-      if (this._isUrlAttached(oldest)) {
-        this._clearScheduled(oldest);
-        this._deferredUntilDetached.add(oldest);
-      } else {
-        this._revokeNow(oldest, 'queue-overflow');
+      let evicted = false;
+      for (const candidate of this._pendingRevocations.keys()) {
+        if (!this._isUrlAttached(candidate)) {
+          this._revokeNow(candidate, 'queue-overflow');
+          evicted = true;
+          break;
+        }
+      }
+      if (!evicted) {
+        // All pending are attached — defer oldest to prevent unbounded growth
+        const oldest = this._pendingRevocations.keys().next().value;
+        if (oldest) {
+          this._clearScheduled(oldest);
+          this._deferredUntilDetached.add(oldest);
+        }
       }
     }
 

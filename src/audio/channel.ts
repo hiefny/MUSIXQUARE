@@ -44,7 +44,6 @@ export function setChannelMode(mode: number): void {
 
   const lowPass = getGlobalLowPass();
   const subFreq = getState('audio.subFreq');
-  const ramp = 0.05;
 
   // Reset LowPass to full range
   if (lowPass) lowPass.frequency.value = 20000;
@@ -61,18 +60,14 @@ export function setChannelMode(mode: number): void {
     // Stereo: L→0, R→1
     gL.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    gL.gain.rampTo(1, ramp);
-    gR.gain.rampTo(1, ramp);
   } else if (mode === -1) {
-    // Left (Dual Mono): L→both
+    // Left Only: L→both speakers
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
-    gL.gain.rampTo(1, ramp);
   } else if (mode === 1) {
-    // Right (Dual Mono): R→both
+    // Right Only: R→both speakers
     gR.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    gR.gain.rampTo(1, ramp);
   } else if (mode === 2) {
     // Sub: L+R summed to both, with lowpass
     // Set gain BEFORE connecting to prevent +6dB spike
@@ -87,8 +82,6 @@ export function setChannelMode(mode: number): void {
     // Fallback: stereo
     gL.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    gL.gain.rampTo(1, ramp);
-    gR.gain.rampTo(1, ramp);
   }
 
   applySettings();
@@ -113,6 +106,9 @@ export function toggleSurroundMode(enabled: boolean): void {
     const sGain = getSurroundGain();
     if (splitter) safeDisconnect(splitter);
     if (sGain) safeDisconnect(sGain);
+
+    // Disconnect playerNode→splitter input (playerNode is in playback.ts scope)
+    bus.emit('audio:disconnect-surround');
 
     // Restore standard channel mode (reconnects stereo path)
     setChannelMode(getState('audio.channelMode'));
@@ -155,16 +151,8 @@ export function setSurroundChannel(idx: number): void {
     sGain.connect(preampNode);
     safeDisconnect(splitter);
 
-    // 5.1/7.1 compatibility routing
-    if (idx === 6) {
-      // Rear Left: fallback to Side Left for 5.1
-      splitter.connect(sGain, 6, 0);
-      splitter.connect(sGain, 4, 0);
-    } else if (idx === 7) {
-      // Rear Right: fallback to Side Right for 5.1
-      splitter.connect(sGain, 7, 0);
-      splitter.connect(sGain, 5, 0);
-    } else if (idx === 3) {
+    // Direct 1:1 channel mapping (no 5.1 fallback — BL/BR are silent on 5.1 content, which is correct)
+    if (idx === 3) {
       // LFE (Sub) - Direct
       splitter.connect(sGain, 3, 0);
     } else {
@@ -213,10 +201,3 @@ bus.on('audio:set-channel-mode', (mode: number) => {
   if (Number.isFinite(mode)) setChannel(mode).catch(e => log.warn('[Channel] setChannel failed:', e));
 });
 
-bus.on('audio:toggle-surround', (enabled: boolean) => {
-  toggleSurroundMode(enabled);
-});
-
-bus.on('audio:set-surround-channel', (idx: number) => {
-  if (Number.isFinite(idx) && idx >= 0 && idx <= 7) setSurroundChannel(idx);
-});

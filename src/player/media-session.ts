@@ -128,7 +128,9 @@ export function initMediaSession(): void {
   bus.on('player:state-changed', (state: string) => {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.playbackState =
-      isIdleOrPaused(state) ? 'paused' : 'playing';
+      state === APP_STATE.IDLE ? 'none'
+        : state === APP_STATE.PAUSED ? 'paused'
+        : 'playing';
   });
 
   log.info('[MediaSession] Initialized');

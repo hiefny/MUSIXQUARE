@@ -30,8 +30,7 @@ interface SyncSample {
 
 let _syncSamples: SyncSample[] = [];
 let _syncSampleExpected = 0;       // how many samples we're still waiting for
-let _syncSampleTimer: ReturnType<typeof setTimeout> | null = null;
-let _syncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+// Sync timers now managed via setManagedTimer('sync-sample') / setManagedTimer('sync-timeout')
 
 // ─── Sync Button Logic ──────────────────────────────────────────────
 
@@ -69,8 +68,8 @@ function startMultiSampleSync(): void {
   if (!hostConn || !hostConn.open) return;
 
   // Cancel any in-progress multi-sample sequence
-  if (_syncSampleTimer) { clearTimeout(_syncSampleTimer); _syncSampleTimer = null; }
-  if (_syncTimeoutTimer) { clearTimeout(_syncTimeoutTimer); _syncTimeoutTimer = null; }
+  clearManagedTimer('sync-sample');
+  clearManagedTimer('sync-timeout');
   _syncSamples = [];
   _syncSampleExpected = SYNC_SAMPLE_COUNT;
 
@@ -79,8 +78,7 @@ function startMultiSampleSync(): void {
   let sent = 1;
   const scheduleNext = () => {
     if (sent >= SYNC_SAMPLE_COUNT) return;
-    _syncSampleTimer = setTimeout(() => {
-      _syncSampleTimer = null;
+    setManagedTimer('sync-sample', () => {
       if (!hostConn.open) return;
       sendSyncSample(hostConn);
       sent++;
@@ -90,8 +88,7 @@ function startMultiSampleSync(): void {
   scheduleNext();
 
   // Safety timeout: apply whatever we have if not all responses arrive
-  _syncTimeoutTimer = setTimeout(() => {
-    _syncTimeoutTimer = null;
+  setManagedTimer('sync-timeout', () => {
     if (_syncSampleExpected > 0 && _syncSamples.length > 0) {
       log.warn(`[Sync] Timeout: got ${_syncSamples.length}/${_syncSampleExpected} samples, applying best`);
       applyBestSample();
@@ -176,19 +173,13 @@ export function requestGlobalResyncDelayed(delay = 1000): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Host only
 
-  const resyncTimer = getState('sync.resyncTimer');
-  if (resyncTimer) clearTimeout(resyncTimer);
-
-  const timer = setTimeout(() => {
-    setState('sync.resyncTimer', null);
+  setManagedTimer('global-resync', () => {
     const hc = getState('network.hostConn');
     if (!hc) {
       broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
       log.debug(`[Sync] Automatic global resync requested (delay: ${delay}ms)`);
     }
   }, delay);
-
-  setState('sync.resyncTimer', timer);
 }
 
 /**
@@ -278,7 +269,10 @@ function handleGlobalResyncRequest(): void {
   bus.emit('ui:show-toast', t('toast.host_reset_sync'));
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
-  setTimeout(() => startMultiSampleSync(), 500 + Math.random() * 500);
+  setTimeout(() => {
+    if (!getState('network.sessionCode')) return; // Session ended
+    startMultiSampleSync();
+  }, 500 + Math.random() * 500);
 }
 
 function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {
@@ -323,8 +317,10 @@ export function initSync(): void {
     if (!code) {
       _syncSamples = [];
       _syncSampleExpected = 0;
-      if (_syncSampleTimer) { clearTimeout(_syncSampleTimer); _syncSampleTimer = null; }
-      if (_syncTimeoutTimer) { clearTimeout(_syncTimeoutTimer); _syncTimeoutTimer = null; }
+      clearManagedTimer('sync-sample');
+      clearManagedTimer('sync-timeout');
+      setState('sync.lastLatencyMs', 0);
+      setState('sync.latencyHistory', []);
     }
   });
 
@@ -386,15 +382,14 @@ function startHeartbeatMonitor(): void {
 
     const now = Date.now();
     const connectedPeers = getState('network.connectedPeers');
-    let changed = false;
+    const stalePeerIds: string[] = [];
 
     for (const p of connectedPeers) {
       if (p.status !== 'connected') continue;
       const elapsed = now - (p.lastHeartbeat as number || 0);
       if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
         log.warn(`[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`);
-        p.status = 'disconnected';
-        changed = true;
+        stalePeerIds.push(p.id);
 
         // Try to close the stale connection
         try {
@@ -404,12 +399,17 @@ function startHeartbeatMonitor(): void {
       }
     }
 
-    if (changed) {
-      // Remove stale peers entirely (defensive: conn.close() should trigger
-      // the close handler for full cleanup, but if it doesn't, this ensures
-      // zombies are removed from state and downstream listeners are notified)
-      const stalePeerIds = connectedPeers.filter(p => p.status === 'disconnected').map(p => p.id);
-      setState('network.connectedPeers', connectedPeers.filter(p => p.status !== 'disconnected'));
+    if (stalePeerIds.length > 0) {
+      // Remove stale peers entirely and clean up their connection references.
+      // This prevents peer.ts close handler from emitting a duplicate
+      // 'network:peer-disconnected' — the activeHostConnByPeerId guard
+      // (conn !== stored conn) will skip since we delete the entry here.
+      const staleSet = new Set(stalePeerIds);
+      const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
+      for (const id of stalePeerIds) {
+        activeHostConnByPeerId.delete(id);
+      }
+      setState('network.connectedPeers', connectedPeers.filter(p => !staleSet.has(p.id)));
       for (const id of stalePeerIds) {
         bus.emit('network:peer-disconnected', id);
       }

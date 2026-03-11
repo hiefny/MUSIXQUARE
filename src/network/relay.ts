@@ -48,6 +48,7 @@ interface OpfsCatchupPump {
   lastActivity: number;
   active: boolean;
   _timer: ReturnType<typeof setTimeout> | null;
+  retryCount: number;
 }
 
 const opfsCatchupPumps = new Map<string, OpfsCatchupPump>();
@@ -98,6 +99,7 @@ function startOpfsCatchupStream(
     lastActivity: Date.now(),
     active: true,
     _timer: null,
+    retryCount: 0,
   };
 
   opfsCatchupPumps.set(peerId, pump);
@@ -120,6 +122,7 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   }
 
   // Session guard: stop if app advanced to newer session
+  // Note: `<` comparison is safe — IDs are timestamp-based and MAX_SAFE_INTEGER won't wrap
   const localSid = getState('transfer.localSessionId');
   if (pump.sessionId && pump.sessionId < localSid) {
     stopOpfsCatchupStream(pump.peerId, 'session advanced');
@@ -135,7 +138,13 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   if (pump.awaiting) {
     const stuckMs = Date.now() - pump.lastActivity;
     if (stuckMs > 6000 && pump.awaitingIndex !== null) {
-      log.warn(`[OPFS Catchup] Stuck ${stuckMs}ms, retry idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`);
+      pump.retryCount++;
+      const MAX_RETRIES = 5;
+      if (pump.retryCount > MAX_RETRIES) {
+        stopOpfsCatchupStream(pump.peerId, `max retries (${MAX_RETRIES}) exceeded`);
+        return;
+      }
+      log.warn(`[OPFS Catchup] Stuck ${stuckMs}ms, retry ${pump.retryCount}/${MAX_RETRIES} idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`);
       pump.awaiting = false;
       pump.nextIndex = pump.awaitingIndex; // rewind to retry
       pump.awaitingIndex = null;
@@ -226,12 +235,16 @@ export function connectToRelay(targetId: string): void {
       const receivedCount = getState('transfer.receivedCount');
       const currentTrackIndex = getState('playlist.currentTrackIndex');
 
-      sendToHost({
-        type: MSG.REQUEST_DATA_RECOVERY,
-        nextChunk: receivedCount || 0,
-        fileName: meta?.name || '',
-        index: currentTrackIndex,
-      });
+      if (currentTrackIndex < 0 || !meta?.name) {
+        log.warn('[Relay] Cannot request recovery: invalid track index or missing meta');
+      } else {
+        sendToHost({
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: receivedCount || 0,
+          fileName: meta.name,
+          index: currentTrackIndex,
+        });
+      }
     }
   }, FAIL_TIMEOUT);
 
@@ -285,11 +298,21 @@ export function connectToRelay(targetId: string): void {
 /**
  * Handle an incoming relay connection (downstream peer connecting to us).
  */
+const MAX_DOWNSTREAM_PEERS = 8;
+
 export function handleRelayConnection(conn: DataConnection): void {
   conn.on('open', () => {
     log.debug('[Relay] Accepted downstream connection from', conn.peer);
 
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
+
+    // Enforce downstream peer limit to prevent resource exhaustion
+    const currentCount = downstreamDataPeers.filter(p => p.peer !== conn.peer).length;
+    if (currentCount >= MAX_DOWNSTREAM_PEERS) {
+      log.warn(`[Relay] Downstream peer limit (${MAX_DOWNSTREAM_PEERS}) reached — rejecting ${conn.peer}`);
+      try { conn.close(); } catch { /* noop */ }
+      return;
+    }
     // Duplicate check: remove stale connection for same peer before adding new one
     const existingIdx = downstreamDataPeers.findIndex(p => p.peer === conn.peer);
     if (existingIdx !== -1) {
@@ -311,6 +334,17 @@ export function handleRelayConnection(conn: DataConnection): void {
     } else if (msg.type === MSG.REQUEST_DATA_RECOVERY) {
       bus.emit('relay:serve-recovery', conn, msg);
     }
+  });
+
+  conn.on('error', (err: unknown) => {
+    log.warn(`[Relay] Downstream connection error (${conn.peer}):`, err);
+    stopOpfsCatchupStream(conn.peer, 'downstream error');
+    const downstreamDataPeers = getState('relay.downstreamDataPeers');
+    setState(
+      'relay.downstreamDataPeers',
+      downstreamDataPeers.filter(p => p.peer !== conn.peer)
+    );
+    try { conn.close(); } catch { /* noop */ }
   });
 
   conn.on('close', () => {
@@ -378,15 +412,15 @@ export function initRelay(): void {
     const nextFileBlob = getState('preload.nextFileBlob');
     const meta = getState('transfer.meta');
     const nextMeta = getState('preload.meta');
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
 
     // Try to match current file
     const isMatchCurrent = currentFileBlob && (!reqName || (meta && meta.name === reqName));
-    // Try to match preloaded file (index match → name match → implicit current-track match)
+    // Try to match preloaded file (index match → name match → implicit next-track match)
+    const nextTrackIndex = getState('preload.nextTrackIndex');
     const isMatchPreload = nextFileBlob && (
       (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
       (reqName && nextMeta?.name === reqName) ||
-      (!reqName && (nextMeta?.index as number) === currentTrackIndex)
+      (!reqName && nextTrackIndex >= 0 && (nextMeta?.index as number) === nextTrackIndex)
     );
 
     if (isMatchCurrent) {
@@ -409,7 +443,7 @@ export function initRelay(): void {
         mime: (meta.mime as string) || '',
         total: (meta.total as number) || 0,
         size: (meta.size as number) || 0,
-        index: (meta.index as number) || 0,
+        index: (meta.index as number) ?? 0,
         sessionId: (meta.sessionId as number) ?? getState('transfer.localSessionId'),
       });
 
@@ -429,7 +463,7 @@ export function initRelay(): void {
     }
   });
 
-  // Relay: serve recovery chunk to downstream peer
+  // Relay: serve recovery chunks to downstream peer (uses catchup pump for multi-chunk)
   bus.on('relay:serve-recovery', (conn: DataConnection, msg: unknown) => {
     const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
@@ -437,27 +471,51 @@ export function initRelay(): void {
     const fileName = (m.fileName || m.name) as string || '';
     const nextChunk = Number(m.nextChunk) || 0;
     const sessionId = (m.sessionId as number) ?? getState('transfer.localSessionId');
+    const receivedCount = getState('transfer.receivedCount');
 
-    log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}`);
+    log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}, available: ${receivedCount}`);
 
-    postWorkerCommand({
-      command: 'OPFS_READ',
-      filename: fileName,
-      index: nextChunk,
-      isPreload: false,
-      sessionId,
-      requestId: `${conn.peer}|recovery`,
-    });
+    if (receivedCount > nextChunk) {
+      startOpfsCatchupStream(conn, {
+        filename: fileName,
+        sessionId,
+        startIndex: nextChunk,
+        endIndexExclusive: receivedCount,
+        isPreload: false,
+      });
+    } else {
+      safeSend(conn, { type: MSG.FILE_WAIT, message: 'Relay recovery: no data available yet' });
+    }
   });
 
-  // Handle OPFS read failure during recovery serving
+  // Handle OPFS read failure during recovery/catchup serving
   bus.on('opfs:read-error', (data: unknown) => {
     const d = data as Record<string, unknown>;
     if (!d) return;
     const requestId = (d.requestId as string) || '';
-    if (!requestId.endsWith('|recovery')) return;
-    const peerId = requestId.split('|')[0];
-    log.warn(`[Relay Recovery] OPFS read failed for ${peerId}: ${d.error || 'unknown'}`);
+    const sepIdx = requestId.lastIndexOf('|');
+    const peerId = sepIdx > 0 ? requestId.slice(0, sepIdx) : '';
+    const tag = sepIdx > 0 ? requestId.slice(sepIdx + 1) : '';
+
+    if (tag === 'recovery') {
+      log.warn(`[Relay Recovery] OPFS read failed for ${peerId}: ${d.error || 'unknown'}`);
+      const downstreamDataPeers = getState('relay.downstreamDataPeers');
+      const dConn = downstreamDataPeers.find(p => p.peer === peerId);
+      if (dConn && dConn.open) {
+        safeSend(dConn, { type: MSG.FILE_WAIT, message: 'Relay OPFS read failed' });
+      }
+    } else if (tag === 'catchup') {
+      // Stop the catchup pump on read error to prevent infinite retry (#097).
+      // Without this, the pump stays in `awaiting` state until the 6s stuck timer
+      // retries indefinitely, since no read-complete event ever arrives.
+      log.warn(`[OPFS Catchup] Read failed for ${peerId}: ${d.error || 'unknown'}`);
+      const downstreamDataPeers2 = getState('relay.downstreamDataPeers');
+      const dConn2 = downstreamDataPeers2.find(p => p.peer === peerId);
+      if (dConn2 && dConn2.open) {
+        safeSend(dConn2, { type: MSG.FILE_WAIT, message: 'Relay OPFS catchup read failed' });
+      }
+      stopOpfsCatchupStream(peerId, 'OPFS read error');
+    }
   });
 
   // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump

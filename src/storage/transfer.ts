@@ -32,6 +32,9 @@ let nextExpectedChunk = 0;
 let lastChunkTime = 0;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
+/** Per-peer unicast abort controls (key: peerId) */
+const _activeUnicasts = new Map<string, { abort: boolean }>();
+
 // ─── Chunk Watchdog ─────────────────────────────────────────────────
 
 function getEffectiveWatchdogTimeout(): number {
@@ -115,6 +118,8 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
     type: 'file',
     title: t('toast.same_wifi_file_title'),
     name: (data.name as string) || '',
+    videoId: null,
+    playlistId: null,
   });
   bus.emit('ui:show-loader', false);
   bus.emit('ui:show-toast', t('toast.same_wifi_only'));
@@ -130,7 +135,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
       setState('playlist.currentTrackIndex', data.index as number);
       bus.emit('ui:update-playlist');
     }
-    fetchDemoFromServer(data.index as number ?? 0);
+    fetchDemoFromServer((data.index as number) ?? 0);
     return;
   }
 
@@ -352,6 +357,7 @@ function handleFileStart(data: Record<string, unknown>): void {
     setState('transfer.localSessionId', incomingSid);
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'new-session-start');
+    _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
   // Skip if using preloaded file
@@ -378,7 +384,7 @@ function handleFileStart(data: Record<string, unknown>): void {
   if (opfsFilename.name && opfsFilename.name !== data.name) {
     cleanupOPFSInWorker(opfsFilename.name, false);
   }
-  setState('files.currentFileOpfs', { name: data.name as string });
+  setState('files.currentFileOpfs', { name: (data.name as string) || null });
 
   // Always fresh start — host resends from chunk 0 on recovery,
   // so keepExisting is unnecessary and stale counters cause infinite loops.
@@ -424,17 +430,21 @@ function handleFileResume(data: Record<string, unknown>): void {
   const localSid = getState('transfer.localSessionId');
 
   if (!incomingSid || incomingSid < localSid) return;
-  if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
+  if (incomingSid > localSid) {
+    setState('transfer.localSessionId', incomingSid);
+    _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
+  }
+
+  const startChunk = (data.startChunk as number) || 0;
 
   // 12-1: Reset receive state for clean resume
+  // Set receivedCount to startChunk (not 0) because we already have those chunks.
+  // Completion check is `receivedCount >= total`, so we must account for the offset.
   fileReorderBuffer.clear();
-  setState('transfer.receivedCount', 0);
-  _pendingEarlyChunks.length = 0;
+  setState('transfer.receivedCount', startChunk);
 
   clearManagedTimer('prepareWatchdog');
   setState('transfer.skipIncomingFile', false);
-
-  const startChunk = (data.startChunk as number) || 0;
   postWorkerCommand({
     command: 'OPFS_START',
     filename: data.name as string,
@@ -515,13 +525,33 @@ function handleFileChunk(data: Record<string, unknown>): void {
     _pendingEarlyChunks.length = 0;
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
+
+    // Send OPFS_START so worker accepts subsequent writes (prevents 12-60s recovery delay)
+    const chunkName = (data.name as string) || '';
+    if (chunkName) {
+      postWorkerCommand({
+        command: 'OPFS_START',
+        filename: chunkName,
+        isPreload: false,
+        sessionId: validateSessionId(incomingSid),
+        size: CHUNK_SIZE,
+      });
+      setState('files.currentFileOpfs', { name: chunkName });
+      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+      if (data.total) {
+        setState('transfer.meta', { name: chunkName, total: data.total as number, sessionId: incomingSid } as Partial<FileMeta>);
+      }
+      startChunkWatchdog();
+    }
   }
 
   if (incomingSid < localSid) return;
 
   if (!fileReorderBuffer.has(incomingSid)) {
     fileReorderBuffer.set(incomingSid, new Map());
-    nextExpectedChunk = 0;
+    // Don't reset nextExpectedChunk here — handleFileStart (line 402) and
+    // handleFileResume (line 449) already set it correctly for their flows.
+    // Resetting to 0 here overwrites the resume's startChunk value.
   }
 
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
@@ -531,7 +561,9 @@ function handleFileChunk(data: Record<string, unknown>): void {
   if (sessionBuffer.size > MAX_REORDER_BUFFER) {
     log.warn(`[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`);
     sessionBuffer.clear();
-    nextExpectedChunk = (data.index as number);
+    const overflowIdx = data.index as number;
+    nextExpectedChunk = overflowIdx;
+    setState('transfer.receivedCount', overflowIdx); // keep in sync
     bus.emit('storage:request-recovery');
   }
 
@@ -750,6 +782,13 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
   const activeBroadcast = getState('transfer.activeBroadcastSession');
   if (activeBroadcast === sessionId) return;
+
+  // Cancel previous broadcast and yield so its loop can exit cleanly
+  // before we send the new FILE_START header (prevents chunk interleaving)
+  if (activeBroadcast) {
+    setState('transfer.activeBroadcastSession', null);
+    await new Promise(r => setTimeout(r, 0));
+  }
   setState('transfer.activeBroadcastSession', sessionId);
 
   const CHUNK = CHUNK_SIZE;
@@ -788,29 +827,23 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     const chunk = new Uint8Array(chunkBuf);
     const chunkMsg = { type: MSG.FILE_CHUNK, chunk, index: i, sessionId, total, name: file.name };
 
-    for (const p of eligiblePeers) {
+    // Send to all peers concurrently (backpressure is per-peer, not sequential)
+    await Promise.all(eligiblePeers.map(async (p) => {
       const conn = p.conn as DataConnection;
-      if (conn?.open) {
-        // Backpressure check (12-24: with timeout to prevent infinite stall)
-        const BACKPRESSURE_TIMEOUT = 30_000;
-        const backpressureStart = Date.now();
-        let backpressureAbort = false;
-        while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
-          if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
-            log.warn('[Transfer] Backpressure timeout — aborting broadcast');
-            backpressureAbort = true;
-            break;
-          }
-          await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
-          if (!conn.open) break;
-        }
-        if (backpressureAbort) {
-          setState('transfer.activeBroadcastSession', null);
+      if (!conn?.open) return;
+      // Backpressure check per peer (skip peer on timeout instead of aborting all)
+      const BACKPRESSURE_TIMEOUT = 30_000;
+      const backpressureStart = Date.now();
+      while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
+        if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
+          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || p.id} — skipping`);
           return;
         }
-        try { conn.send(chunkMsg); } catch { /* noop */ }
+        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+        if (!conn.open) return;
       }
-    }
+      try { conn.send(chunkMsg); } catch { /* noop */ }
+    }));
 
     if (i % 50 === 0) await new Promise(r => setTimeout(r, DELAY.TICK));
   }
@@ -850,6 +883,13 @@ export async function unicastFile(
   const total = Math.ceil(file.size / CHUNK);
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
+  // Cancel any previous unicast to same peer
+  const unicastKey = conn.peer;
+  const prevUnicast = _activeUnicasts.get(unicastKey);
+  if (prevUnicast) prevUnicast.abort = true;
+  const control = { abort: false };
+  _activeUnicasts.set(unicastKey, control);
+
   const isResume = startChunkIndex > 0;
   const msgType = isResume ? MSG.FILE_RESUME : MSG.FILE_START;
   const fileName = 'name' in file ? file.name : 'Track';
@@ -874,8 +914,9 @@ export async function unicastFile(
 
   try {
     for (let i = startChunkIndex; i < total; i++) {
-      if (getState('transfer.currentSessionId') !== effectiveSessionId) return;
-      if (!conn.open) return;
+      // Abort if: peer-level cancel, connection closed, or track changed
+      if (control.abort || !conn.open) return;
+      if (getState('playlist.currentTrackIndex') !== currentTrackIndex) return;
 
       // Backpressure
       const startWait = Date.now();
@@ -907,6 +948,11 @@ export async function unicastFile(
     }
   } catch (e) {
     log.error('[Unicast] Transfer error:', e);
+  } finally {
+    // Clean up abort control if still ours
+    if (_activeUnicasts.get(unicastKey) === control) {
+      _activeUnicasts.delete(unicastKey);
+    }
   }
 }
 
@@ -920,6 +966,26 @@ export function initTransfer(): void {
     [MSG.FILE_CHUNK]: handleFileChunk,
     [MSG.FILE_END]: handleFileEnd,
     [MSG.FILE_WAIT]: handleFileWait,
+  });
+
+  // OPFS write failure: trigger recovery to re-request the corrupted chunk
+  // instead of silently continuing with a hole in the file data.
+  bus.on('opfs:write-error', (_filename: unknown, _chunkIndex: unknown, isPreload: unknown) => {
+    if (isPreload) return; // Preload write errors are handled separately
+    const transferState = getState('transfer.state');
+    if (transferState === TRANSFER_STATE.RECEIVING) {
+      log.warn('[Transfer] OPFS write failed — requesting recovery');
+      bus.emit('storage:request-recovery');
+    }
+  });
+
+  // Clean up reorder buffer when session ends
+  bus.on('state:network.sessionCode', (code: unknown) => {
+    if (!code) {
+      fileReorderBuffer.clear();
+      _pendingEarlyChunks.length = 0;
+      nextExpectedChunk = 0;
+    }
   });
 
   log.info('[Transfer] Handlers registered');

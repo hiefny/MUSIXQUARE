@@ -104,7 +104,7 @@ export function clearPreloadState(): void {
 
 // ─── Play Track ────────────────────────────────────────────────────
 
-export async function playTrack(index: number): Promise<void> {
+export async function playTrack(index: number, subIndex?: number): Promise<void> {
   const playlist = getState('playlist.items') || [];
   if (index < 0 || index >= playlist.length) {
     if (playlist.length === 0) bus.emit('ui:show-toast', t('toast.no_tracks'));
@@ -141,7 +141,7 @@ export async function playTrack(index: number): Promise<void> {
       setState('transfer.currentSessionId', nextSessionId());
     }
 
-    stopAllMedia();
+    stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
 
     const item = playlist[index];
     const fileName = item?.file?.name || item?.name || `Track ${index}`;
@@ -171,7 +171,7 @@ export async function playTrack(index: number): Promise<void> {
     setState('preload.nextTrackIndex', -1);
 
     if (!hostConn) {
-      stopAllMedia();
+      stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
       broadcast({
         type: MSG.YOUTUBE_PLAY,
         videoId: item.videoId,
@@ -184,10 +184,10 @@ export async function playTrack(index: number): Promise<void> {
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       if (isFirstTrackLoad) {
         setState('player.isFirstTrackLoad', false);
-        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         bus.emit('ui:show-toast', t('youtube.ready'));
       } else {
-        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false);
+        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         bus.emit('ui:show-toast', t('youtube.playing_in_3s'));
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
@@ -198,7 +198,7 @@ export async function playTrack(index: number): Promise<void> {
   }
 
   // Local file playback
-  stopAllMedia();
+  stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
 
   const file = item.file;
   if (!file) {
@@ -333,21 +333,35 @@ export function playPrevTrack(): void {
 
   // Local mode: restart if > 3s, else previous track
   const pos = getTrackPosition();
-  if (pos > 3 || currentTrackIndex <= 0) {
-    // Restart current track from the beginning (avoids redundant full reload)
+  if (pos > 3) {
+    // Restart current track from the beginning
     play(0);
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
     requestGlobalResyncDelayed();
     return;
   }
 
-  playTrack(currentTrackIndex - 1);
+  if (currentTrackIndex > 0) {
+    playTrack(currentTrackIndex - 1);
+  } else {
+    // At first track: wrap to last if repeat-all, otherwise restart
+    const playlist = getState('playlist.items') || [];
+    const repeatMode = getState('playlist.repeatMode') || 0;
+    if (repeatMode === 1 && playlist.length > 1) {
+      playTrack(playlist.length - 1);
+    } else {
+      play(0);
+      broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+      requestGlobalResyncDelayed();
+    }
+  }
 }
 
 // ─── Network Handlers ──────────────────────────────────────────────
 
 function handleRepeatMode(data: Record<string, unknown>): void {
-  setRepeatMode(Number(data.value) || 0);
+  const v = Number(data.value) || 0;
+  setRepeatMode(Math.max(0, Math.min(2, v)));
 }
 
 function handleShuffleMode(data: Record<string, unknown>): void {
@@ -572,6 +586,8 @@ async function loadDemoMedia(): Promise<void> {
       file,
       name: file.name,
       title: DEMO_TITLE,
+      videoId: null,
+      playlistId: null,
     };
 
     const playlist = [...(getState('playlist.items') || [])];
@@ -622,6 +638,8 @@ function handleFilesSelected(files: FileList | null): void {
       file,
       name: file.name,
       title: file.name.replace(/\.[^/.]+$/, ''),
+      videoId: null,
+      playlistId: null,
     };
     playlist.push(newTrack);
     addedCount++;
@@ -666,35 +684,28 @@ export function initPlaylist(): void {
     [MSG.REQUEST_SETTING]: handleRequestSetting,
   });
 
-  // Handle track ended auto-advance
+  // Handle track ended auto-advance (guarded against double-fire from overlapping timers)
+  let _endedAdvanceToken = 0;
   bus.on('player:ended', () => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
 
+    const token = ++_endedAdvanceToken;
     const repeatMode = getState('playlist.repeatMode') || 0;
     const currentTrackIndex = getState('playlist.currentTrackIndex');
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
-      setTimeout(() => playTrack(currentTrackIndex), 300);
+      setTimeout(() => { if (token === _endedAdvanceToken) playTrack(currentTrackIndex); }, 300);
     } else {
       log.debug('Auto-advancing to next track...');
-      setTimeout(() => playNextTrack(), 500);
+      setTimeout(() => { if (token === _endedAdvanceToken) playNextTrack(); }, 500);
     }
   });
 
   // Handle MediaSession navigation requests
   bus.on('playlist:prev-track', () => playPrevTrack());
   bus.on('playlist:next-track', () => playNextTrack());
-
-  // Silent mode setters (for handleStatusSync — no toast, no broadcast)
-  bus.on('playlist:set-repeat-mode', (mode, notify) => {
-    setRepeatMode(mode, notify !== false);
-  });
-
-  bus.on('playlist:set-shuffle', (enabled, notify) => {
-    setShuffle(enabled, notify !== false);
-  });
 
   // Demo media loading
   bus.on('app:load-demo', () => {
@@ -707,8 +718,8 @@ export function initPlaylist(): void {
   });
 
   // Play specific track from playlist view click
-  bus.on('playlist:play-track', (index) => {
-    if (Number.isFinite(index) && index >= 0) playTrack(index);
+  bus.on('playlist:play-track', (index, subIndex) => {
+    if (Number.isFinite(index) && index >= 0) playTrack(index, subIndex);
   });
 
   // Host: Remove track from playlist

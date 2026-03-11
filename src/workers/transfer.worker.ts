@@ -82,7 +82,7 @@ async function processQueue(): Promise<void> {
     }
   } finally {
     isProcessing = false;
-    if (messageQueue.length > 0) processQueue();
+    if (messageQueue.length > 0) setTimeout(() => processQueue(), 0);
   }
 }
 
@@ -184,7 +184,7 @@ async function acquireLock(opfsObj: OpfsSlot, sessionId: number, filename: strin
       opfsObj.lockTime = now;
       return true;
     }
-    if (sessionId < opfsObj.sessionId!) {
+    if (opfsObj.sessionId != null && sessionId < opfsObj.sessionId) {
       console.warn(`[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${opfsObj.sessionId}`);
       return false;
     }
@@ -309,13 +309,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
     const index = normalizeIndex(data.index);
     if (index === null) {
-      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Invalid index', filename, chunk: data.index, isPreload });
+      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Invalid index', filename, index: data.index, isPreload });
       return;
     }
 
     const chunk = normalizeChunk(data.chunk);
     if (!chunk) {
-      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Invalid chunk', filename, chunk: index, isPreload });
+      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Invalid chunk', filename, index, isPreload });
       return;
     }
 
@@ -334,7 +334,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
         opfsObj.lockTime = nowMs();
       }
     } catch (e: unknown) {
-      safePost({ type: 'OPFS_WRITE_ERROR', error: (e as Error)?.message ?? String(e), filename, chunk: index, isPreload });
+      safePost({ type: 'OPFS_WRITE_ERROR', error: (e as Error)?.message ?? String(e), filename, index, isPreload });
     }
     return;
   }

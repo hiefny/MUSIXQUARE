@@ -35,14 +35,8 @@ export const RECOVERY_BACKOFF = [2000, 5000, 10000] as const;
 export const DELAY = {
   TICK: 10,               // Micro-yield for main thread breathing
   BACKPRESSURE: 50,       // Backpressure polling interval
-  UI_REFRESH: 100,        // UI state refresh / short debounce
   RETRY: 200,             // Retry / reconnection pause
-  TRANSITION: 300,        // UI transition / animation settling
-  DEBOUNCE: 500,          // Standard debounce / throttle
-  CONNECTION_CHECK: 500,  // Peer connection readiness check
   BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
-  JOIN_TIMEOUT: 10000,    // Max wait for peer.open
-  RECOVERY_COOLDOWN: 5000,// Rate-limit recovery requests
 } as const;
 
 // ─── Network ───────────────────────────────────────────────────────
@@ -85,7 +79,7 @@ export const MSG = {
   REQUEST_CURRENT_FILE: 'request-current-file',
   REQUEST_DATA_RECOVERY: 'request-data-recovery',
   REQUEST_EQ_RESET: 'request-eq-reset',
-  REQUEST_REVERB_RESET: 'request-reverb-reset',
+  // REQUEST_REVERB_RESET removed — dead code (no sender, no handler)
   REQUEST_NEXT_TRACK: 'request-next-track',
   REQUEST_PAUSE: 'request-pause',
   REQUEST_PLAY: 'request-play',
@@ -96,6 +90,7 @@ export const MSG = {
   REQUEST_TRACK_CHANGE: 'request-track-change',
   REQUEST_YOUTUBE_PAUSE: 'request-youtube-pause',
   REQUEST_YOUTUBE_PLAY: 'request-youtube-play',
+  REQUEST_YOUTUBE_TOGGLE: 'request-youtube-toggle',
   REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
   REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
   REVERB: 'reverb',
@@ -105,16 +100,15 @@ export const MSG = {
   REVERB_PREDELAY: 'reverb-predelay',
   REVERB_TYPE: 'reverb-type',
   SHUFFLE_MODE: 'shuffle-mode',
-  STATUS_SYNC: 'status-sync',
+  // STATUS_SYNC removed — dead code (no sender, no handler)
   STEREO_WIDTH: 'stereo-width',
   SYNC_RESPONSE: 'sync-response',
-  FORCE_SYNC_PLAY: 'force-sync-play',
+  // FORCE_SYNC_PLAY removed — dead code (no sender, no handler)
   OPERATOR_GRANT: 'operator-grant',
   OPERATOR_REVOKE: 'operator-revoke',
   VBASS: 'vbass',
   VOLUME: 'volume',
   WELCOME: 'welcome',
-  SESSION_START: 'session-start',
   SESSION_FULL: 'session-full',
   YOUTUBE_PLAY: 'youtube-play',
   YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
@@ -122,7 +116,7 @@ export const MSG = {
   YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
   YOUTUBE_STOP: 'youtube-stop',
   YOUTUBE_SYNC: 'youtube-sync',
-  SYS_TOAST: 'sys-toast',
+  // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
 } as const;
 

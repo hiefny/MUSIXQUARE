@@ -223,6 +223,7 @@ const ko = {
   'youtube.enter_link_toast': 'YouTube 링크를 입력하세요',
   'youtube.playing_in_3s': '3초 후 YouTube 재생...',
   'youtube.open_link': 'YouTube 링크 열기',
+  'youtube.tap_to_sync': '탭하여 영상 동기화',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.connecting': '연결 중...',
@@ -250,6 +251,7 @@ const ko = {
   'toast.reverb_init_fail': '리버브 초기화에 실패했어요',
   'toast.distortion_warn': '왜곡이 심해질 수 있어요',
   'toast.battery_saver_on': '비주얼라이저가 비활성화됐어요',
+  'toast.decoding_audio': '오디오 디코딩 중...',
   'toast.preparing_next': '다음 곡 준비 중... ({{name}})',
   'toast.preparing_next_pct': '다음 곡 준비 중... {{pct}}%',
   'toast.op_status': '{{label}} 권한 {{status}}',
@@ -310,7 +312,7 @@ const ko = {
   'error.https_required': 'HTTPS 필수: 보안 연결에서만 작동합니다.',
   'error.browser_update': '브라우저를 업데이트해 주세요 (iOS 15.2+, Chrome 86+)',
   'error.audio_decode_fail': '오디오 디코딩 실패!',
-  'error.audio_decoding': '오디오 디코딩 중...',
+  'error.audio_decoding': '오디오 디코딩 중...', // deprecated — use toast.decoding_audio
   'error.audio_memory': '오디오 메모리 로드 중...',
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.audio_engine_not_ready': '오디오 엔진이 아직 준비되지 않았어요. 네트워크를 확인해 보세요.',

@@ -133,7 +133,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const done = (action: string) => closeDialog(action);
 
   on(overlay, 'click', (e) => {
-    if (!dismissible) return;
+    if (!dismissible || !_dialogActive) return;
     if (e.target === overlay) done('overlay');
   });
 
@@ -141,10 +141,12 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   if (hasSecondary && secondaryBtn) {
     on(secondaryBtn, 'click', () => done('secondary'));
   }
-  on(closeBtn, 'click', () => {
-    if (!dismissible) return done('ok');
-    done('close');
-  });
+  // Hide close button when dialog is not dismissible
+  if (!dismissible) {
+    closeBtn.style.display = 'none';
+    cleanup.push(() => { closeBtn.style.display = ''; });
+  }
+  on(closeBtn, 'click', () => done('close'));
 
   on(window, 'keydown', (e) => {
     const ke = e as KeyboardEvent;

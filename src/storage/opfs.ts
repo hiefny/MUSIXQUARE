@@ -21,7 +21,7 @@ let _syncWorker: Worker | null = null;
 const WORKER_TIMER_IDS = ['heartbeat', 'ping', 'video-sync'];
 
 // ─── OPFS Instance ID (same as core session) ───────────────────────
-const OPFS_INSTANCE_ID = INSTANCE_ID;
+// INSTANCE_ID used directly (no alias needed)
 
 // ─── Worker Initialization ──────────────────────────────────────────
 
@@ -84,7 +84,7 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
  */
 export function buildSafeOpfsName(filename: string, isPreload = false): string {
   const sanitized = String(filename || '').replace(/[^a-z0-9._-]/gi, '_');
-  return (isPreload ? 'preload_' : 'current_') + sanitized + '_' + OPFS_INSTANCE_ID;
+  return (isPreload ? 'preload_' : 'current_') + sanitized + '_' + INSTANCE_ID;
 }
 
 /**
@@ -95,13 +95,15 @@ export function buildSafeOpfsName(filename: string, isPreload = false): string {
 export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void {
   if (!filename) return;
 
+  const expectedOpfsName = buildSafeOpfsName(filename, isPreload);
+
   const watchdog = setTimeout(() => {
     log.warn(`[OPFS] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
     unsub();
   }, 10_000);
 
   const unsub = bus.on('opfs:cleanup-complete', (cleanedFile: unknown) => {
-    if (cleanedFile === filename) {
+    if (cleanedFile === filename || cleanedFile === expectedOpfsName) {
       clearTimeout(watchdog);
       unsub();
     }
@@ -111,7 +113,7 @@ export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void 
     command: 'OPFS_CLEANUP',
     filename,
     isPreload,
-    instanceId: OPFS_INSTANCE_ID,
+    instanceId: INSTANCE_ID,
   });
 }
 
@@ -162,6 +164,9 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_WRITE_ERROR':
       log.warn(`[OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
+      // Notify transfer module so it can trigger recovery instead of silently
+      // continuing with a corrupted file (missing chunk data).
+      bus.emit('opfs:write-error', data.filename || '', data.index, data.isPreload || false);
       break;
 
     case 'OPFS_READ_ERROR':
@@ -169,10 +174,28 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       bus.emit('opfs:read-error', data);
       break;
 
-    case 'OPFS_ERROR':
-      log.error(`[OPFS] Worker error: ${data.error} (${data.filename})`);
+    case 'OPFS_ERROR': {
+      const isPreload = !!data.isPreload;
+      log.error(`[OPFS] Worker error: ${data.error} (${data.filename}, code: ${data.code})`);
       bus.emit('opfs:error', data.error || '', data.filename || '');
+
+      if (!isPreload) {
+        if (data.code === 'INTEGRITY_FAIL') {
+          // File finalization failed — trigger recovery to re-fetch the file
+          log.warn('[OPFS] Integrity fail — requesting recovery');
+          bus.emit('storage:request-recovery');
+        } else if (data.code === 'START_FAILED' || data.code === 'LOCKED') {
+          // Lock acquisition failed — reset transfer state to prevent stuck RECEIVING
+          const transferState = getState('transfer.state');
+          if (transferState === TRANSFER_STATE.RECEIVING) {
+            log.warn('[OPFS] Start/lock failed — resetting stuck transfer state');
+            setState('transfer.state', TRANSFER_STATE.IDLE);
+            bus.emit('ui:show-loader', false);
+          }
+        }
+      }
       break;
+    }
 
     case 'SESSION_MISMATCH': {
       const isPreload = !!data.isPreload;

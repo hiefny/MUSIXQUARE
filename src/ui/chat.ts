@@ -334,14 +334,16 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   const senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
   const displayName = _formatChatDisplayName(senderLabel);
-  const text = (data.text as string) || '';
+  let text = (data.text as string) || '';
+  if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
   addChatMessage(displayName, text, isMine);
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    const senderPeerId = conn?.peer || (senderId as string) || '';
+    // Prefer senderId from data (original sender) over conn.peer (may be relay node)
+    const senderPeerId = senderId || conn?.peer || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
   }
 }

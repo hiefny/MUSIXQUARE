@@ -42,6 +42,7 @@ class EventBusImpl {
       this.off(event, wrapper as TypedListener<K>);
       (fn as AnyListener)(...args);
     };
+    (wrapper as unknown as Record<string, unknown>)._originalFn = fn;
     return this.on(event, wrapper as TypedListener<K>);
   }
 
@@ -51,8 +52,19 @@ class EventBusImpl {
   off<K extends EventKey>(event: K, fn: TypedListener<K>): void {
     const set = this._listeners.get(event as string);
     if (set) {
-      set.delete(fn as AnyListener);
-      if (set.size === 0) this._listeners.delete(event as string);
+      // Direct match
+      if (set.delete(fn as AnyListener)) {
+        if (set.size === 0) this._listeners.delete(event as string);
+        return;
+      }
+      // Match by original fn (for once() wrappers)
+      for (const listener of set) {
+        if ((listener as unknown as Record<string, unknown>)._originalFn === fn) {
+          set.delete(listener);
+          if (set.size === 0) this._listeners.delete(event as string);
+          return;
+        }
+      }
     }
   }
 

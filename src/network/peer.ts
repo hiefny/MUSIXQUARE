@@ -84,8 +84,9 @@ function assignPeerSlot(peerId: string, slot: number): void {
   const peerSlots = [...getState('network.peerSlots')];
   peerSlots[s] = peerId;
   setState('network.peerSlots', peerSlots);
-  const map = getState('network.peerSlotByPeerId');
+  const map = new Map(getState('network.peerSlotByPeerId'));
   map.set(peerId, s);
+  setState('network.peerSlotByPeerId', map);
 }
 
 function releasePeerSlot(peerId: string): void {
@@ -99,7 +100,9 @@ function releasePeerSlot(peerId: string): void {
       setState('network.peerSlots', peerSlots);
     }
   }
-  map.delete(peerId);
+  const updated = new Map(map);
+  updated.delete(peerId);
+  setState('network.peerSlotByPeerId', updated);
 }
 
 // ─── Network Initialization ─────────────────────────────────────────
@@ -320,9 +323,8 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   assignPeerSlot(peerId, slot);
   const deviceName = getPeerLabelBySlot(slot);
 
-  // Track label
-  const peerLabels = getState('network.peerLabels');
-  peerLabels[peerId] = deviceName;
+  // Track label (immutable update to trigger state events)
+  setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: deviceName });
 
   // New connection becomes active
   activeHostConnByPeerId.set(peerId, conn);
@@ -346,6 +348,8 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   conn.on('open', () => {
     peerObj.status = 'connected';
     peerObj.lastHeartbeat = Date.now();
+    // Trigger state event after in-place mutation
+    setState('network.connectedPeers', [...getState('network.connectedPeers')]);
 
     // Welcome message with host-assigned label
     try {
@@ -505,7 +509,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   if (!peer.open) {
     if (retryAttempt < 10) {
-      setTimeout(() => joinSession(hostId, retryAttempt + 1), 300);
+      setManagedTimer('join-retry', () => joinSession(hostId, retryAttempt + 1), 300);
     } else {
       bus.emit('network:error', new Error('PEER_NOT_READY'));
     }
@@ -532,7 +536,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   let dataChannelOpened = false;
 
   // Timeout if host is unreachable (15s to allow TURN relay negotiation)
-  const timeoutId = setTimeout(() => {
+  setManagedTimer('join-timeout', () => {
     if (dataChannelOpened || getState('network.hostConn')) return;
     log.warn('[Join] Connection timeout — data channel did not open in 15s');
     try { conn.close(); } catch { /* noop */ }
@@ -542,7 +546,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   conn.on('open', () => {
     dataChannelOpened = true;
-    clearTimeout(timeoutId);
+    clearManagedTimer('join-timeout');
     log.info('[Join] Connected to host:', hostId);
 
     setState('network.hostConn', conn);
@@ -680,6 +684,7 @@ export function leaveSession(): void {
   // ── 7. Reset all state ──
   batchSetState({
     // Network
+    'network.appRole': 'idle',
     'network.myId': null,
     'network.myDeviceLabel': 'HOST',
     'network.hostConn': null,
@@ -750,7 +755,7 @@ export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
       if (p.status === 'connected' && p.conn) {
         const conn = p.conn as DataConnection;
         if (conn.open) {
-          if (!isDataOnly || p.isDataTarget !== false) {
+          if (!isDataOnly || p.isDataTarget === true) {
             conn.send(msg);
           }
         }
@@ -772,7 +777,7 @@ export function broadcastExcept(excludePeerId: string, msg: AnyProtocolMsg, isDa
         const conn = p.conn as DataConnection;
         if (conn.open) {
           if (excludePeerId && p.id === excludePeerId) return;
-          if (!isDataOnly || p.isDataTarget !== false) {
+          if (!isDataOnly || p.isDataTarget === true) {
             conn.send(msg);
           }
         }
@@ -998,7 +1003,11 @@ bus.on('network:toggle-operator', (peerId) => {
     setState('network.connectedPeers', updated);
     const conn = p.conn as DataConnection;
     if (conn && conn.open) {
-      conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
+      try {
+        conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
+      } catch (e) {
+        log.warn(`[OP] Failed to send operator status to ${peerId}:`, e);
+      }
     } else {
       log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
     }

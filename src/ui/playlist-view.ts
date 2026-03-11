@@ -14,6 +14,7 @@ import { escapeHtml } from './dom.ts';
 import { updateTitleWithMarquee } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
+import { safeSend } from '../network/peer.ts';
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ function toggleExpansion(idx: number): void {
     bus.emit('youtube:populate-sub-items', updated[idx].playlistId, idx);
   }
 
-  updatePlaylistUI();
+  bus.emit('ui:update-playlist'); // use bus for rAF debounce (avoids double render)
 }
 
 // ─── Remove Track Dialog ─────────────────────────────────────────
@@ -93,7 +94,7 @@ export function updatePlaylistUI(): void {
       const hc = getState('network.hostConn');
       const op = getState('network.isOperator');
       if (!hc) bus.emit('playlist:play-track', idx);
-      else if (op) hc.send({ type: MSG.REQUEST_TRACK_CHANGE, index: idx });
+      else if (op) safeSend(hc, { type: MSG.REQUEST_TRACK_CHANGE, index: idx });
     };
 
     const isHost = !getState('network.hostConn');
@@ -166,7 +167,7 @@ export function updatePlaylistUI(): void {
             if (!hc) {
               bus.emit('youtube:sub-seek', idx, sIdx, isCurrent);
             } else {
-              hc.send({ type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
+              safeSend(hc, { type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
             }
           };
           subUl.appendChild(sli);
@@ -180,7 +181,7 @@ export function updatePlaylistUI(): void {
 
   // Update title/artist display
   const meta = getState('transfer.meta');
-  if (currentTrackIndex !== -1) {
+  if (currentTrackIndex !== -1 && currentTrackIndex < playlist.length) {
     const currentItem = playlist[currentTrackIndex];
     let displayTitle = t('common.unknown');
     if (meta && meta.index === currentTrackIndex && meta.name) {

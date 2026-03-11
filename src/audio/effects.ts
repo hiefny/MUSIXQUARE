@@ -31,7 +31,6 @@ import {
 const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
 
 // ─── Cached DOM Elements ──────────────────────────────────────────
-let _eqBandElements: Element[] = [];
 
 // ─── Apply All Settings ────────────────────────────────────────────
 
@@ -158,10 +157,15 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
       return;
     }
     try {
+      // Race with timeout — clear timer on success to prevent leak
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         rev!.generate(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('timeout')), 3000);
+        }),
       ]);
+      clearTimeout(timeoutId);
       _reverbGenerateInFlight = false;
 
       // Re-generate if params changed while in-flight (last-write-wins)
@@ -178,7 +182,12 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
     }
   }
   _reverbGenerateInFlight = false;
-  _reverbGeneratePending = false;
+
+  // Don't drop pending request — if params changed during failed retries, retry once more
+  if (_reverbGeneratePending) {
+    _reverbGeneratePending = false;
+    return _generateReverbWithRetry(rev, maxRetries);
+  }
 }
 
 // ─── Reverb Controls ───────────────────────────────────────────────
@@ -236,16 +245,8 @@ export function setEQ(idx: number, val: number): void {
     nodes[bandIdx].gain.rampTo(clamped, RAMP_TIME);
   }
 
-  // Update DOM label + slider (for sync from network)
-  const label = document.getElementById(`eq-val-${bandIdx}`);
-  if (label) label.innerText = clamped > 0 ? `+${clamped}` : String(clamped);
-  if (!_eqBandElements.length || !_eqBandElements[0]?.isConnected) {
-    _eqBandElements = Array.from(document.querySelectorAll('.eq-band'));
-  }
-  if (_eqBandElements[bandIdx]) {
-    const slider = _eqBandElements[bandIdx].querySelector('.eq-slider') as HTMLInputElement | null;
-    if (slider && parseFloat(slider.value) !== clamped) slider.value = String(clamped);
-  }
+  // Notify UI layer to sync slider (avoids audio module doing DOM ops)
+  bus.emit('ui:sync-eq-band', bandIdx, clamped);
 }
 
 export function resetEQ(): void {
@@ -530,7 +531,7 @@ function handleReverbMsg(data: Record<string, unknown>): void {
 }
 
 function handleReverbTypeMsg(data: Record<string, unknown>): void {
-  if (!data.value) return;
+  if (data.value == null) return;
   const type = String(data.value);
   switch (type) {
     case 'off':
@@ -597,8 +598,6 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
   setStereoWidth(v);
-  // 120 = surround ON, 100 = OFF
-  bus.emit('ui:sync-surround', v > 100);
   _notifyHostChanged();
 }
 

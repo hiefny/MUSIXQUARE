@@ -13,6 +13,8 @@ import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT } from '../core/constants.ts';
 import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 
+let _langObserver: MutationObserver | null = null;
+
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
 function _isGuestLocked(): boolean {
@@ -39,11 +41,17 @@ async function generateQR(containerId: string): Promise<void> {
   const sessionStarted = getState('setup.sessionStarted');
 
   if (!sessionStarted || !sessionCode || !/^\d{6}$/.test(sessionCode)) {
-    container.innerHTML = `<p class="qr-placeholder">${t('connect.no_session')}</p>`;
+    const p = document.createElement('p');
+    p.className = 'qr-placeholder';
+    p.textContent = t('connect.no_session');
+    container.replaceChildren(p);
     return;
   }
 
-  container.innerHTML = `<p class="qr-placeholder">${t('connect.generating_qr')}</p>`;
+  const loadingP = document.createElement('p');
+  loadingP.className = 'qr-placeholder';
+  loadingP.textContent = t('connect.generating_qr');
+  container.replaceChildren(loadingP);
 
   try {
     const base = `${location.origin}${location.pathname}`;
@@ -84,7 +92,10 @@ async function generateQR(containerId: string): Promise<void> {
     container.appendChild(copyBtn);
   } catch (e) {
     log.warn('[Connect] QR generation failed', e);
-    container.innerHTML = `<p class="qr-placeholder">${t('connect.no_session')}</p>`;
+    const errP = document.createElement('p');
+    errP.className = 'qr-placeholder';
+    errP.textContent = t('connect.no_session');
+    container.replaceChildren(errP);
   }
 }
 
@@ -317,9 +328,10 @@ export function initConnect(): void {
   // Set initial device count title
   _updateDeviceTitles();
 
-  // Re-render title on language change
-  new MutationObserver(() => _updateDeviceTitles())
-    .observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+  // Re-render title on language change (disconnect previous on re-init)
+  if (_langObserver) _langObserver.disconnect();
+  _langObserver = new MutationObserver(() => _updateDeviceTitles());
+  _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
   // Device list updates → render in connect containers
   bus.on('network:device-list-update', (list: unknown[]) => {

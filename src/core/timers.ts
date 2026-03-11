@@ -22,7 +22,7 @@ export function setManagedTimer(
     ? setInterval(fn, delayMs)
     : setTimeout(() => {
         _timers.delete(name);
-        fn();
+        try { fn(); } catch (e) { console.error(`[Timer] "${name}" threw:`, e); }
       }, delayMs);
   _timers.set(name, id);
 }

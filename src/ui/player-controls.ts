@@ -541,7 +541,6 @@ export function initPlayerControls(): void {
   bus.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
     updateRoleBadge();
-    updateInviteCodeUI();
   });
 
   // Invite code container click delegation
@@ -703,6 +702,8 @@ export function initPlayerControls(): void {
         requestGlobalResyncDelayed();
       } else {
         setState('player.pausedAt', time);
+        // Broadcast paused seek to peers so they stay in sync
+        broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
       }
     }
   });

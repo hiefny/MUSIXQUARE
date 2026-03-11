@@ -37,6 +37,7 @@ export function preventIOSPinchZoom(): void {
 let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
+let _iosViewportProbe: HTMLDivElement | null = null;
 
 function updateAppHeightNow(): void {
   const root = document.documentElement;
@@ -124,14 +125,18 @@ function updateAppHeightNow(): void {
 
   // iOS Safari (non-PWA): JS height signals can exclude safe-area-inset
   // under viewport-fit=cover. Measure actual CSS viewport via a fixed-position probe.
+  // Probe element is cached to avoid createElement/appendChild/removeChild on every resize.
   if (IS_IOS && !isLandscape && !isStandalone) {
     try {
-      const probe = document.createElement('div');
-      probe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
-      document.body.appendChild(probe);
-      const cssVh = probe.offsetHeight;
-      document.body.removeChild(probe);
-      if (cssVh > 0) h = Math.max(h, cssVh);
+      if (!_iosViewportProbe && document.body) {
+        _iosViewportProbe = document.createElement('div');
+        _iosViewportProbe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
+        document.body.appendChild(_iosViewportProbe);
+      }
+      if (_iosViewportProbe) {
+        const cssVh = _iosViewportProbe.offsetHeight;
+        if (cssVh > 0) h = Math.max(h, cssVh);
+      }
     } catch (e) { log.debug('[Platform] iOS viewport probe failed:', e); }
   }
 
@@ -219,11 +224,8 @@ export function initPlatform(): void {
     }
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', run, { once: true });
-  } else {
-    run();
-  }
+  // bootstrap() guarantees DOMContentLoaded before initPlatform() is called
+  run();
 
   try {
     window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });

@@ -37,18 +37,27 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
       preloadReorderBuffer.delete(sid);
     }
   }
-  // Clean up finalized/skipped session entries (keep only the active one)
+  // Clean up finalized/skipped session entries (immutable update)
   const sessionState = getState('preload.sessionState');
+  const toRemove: number[] = [];
   for (const [sid, entry] of sessionState.entries()) {
     if (sid !== keepSessionId && (entry.finalized || entry.skipped)) {
-      sessionState.delete(sid);
+      toRemove.push(sid);
     }
   }
-  // Hard cap: if still too many, evict oldest entries beyond the active one
-  if (sessionState.size > PRELOAD_SESSION_MAX) {
-    const sids = [...sessionState.keys()];
-    const toRemove = sids.filter(s => s !== keepSessionId).slice(0, sessionState.size - PRELOAD_SESSION_MAX);
-    for (const sid of toRemove) sessionState.delete(sid);
+  // Hard cap: evict oldest beyond the active one
+  if (sessionState.size - toRemove.length > PRELOAD_SESSION_MAX) {
+    for (const sid of sessionState.keys()) {
+      if (sid !== keepSessionId && !toRemove.includes(sid)) {
+        toRemove.push(sid);
+        if (sessionState.size - toRemove.length <= PRELOAD_SESSION_MAX) break;
+      }
+    }
+  }
+  if (toRemove.length > 0) {
+    const updated = new Map(sessionState);
+    for (const sid of toRemove) updated.delete(sid);
+    setState('preload.sessionState', updated);
   }
 }
 
@@ -358,7 +367,8 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   });
 
   // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
-  try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ }
+  // Use setTimeout(0) to let the worker process OPFS_START before receiving WRITE commands
+  setTimeout(() => { try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ } }, 0);
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
@@ -641,7 +651,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     if (retryAttempt === 0) {
       bus.emit('ui:show-loader', true, t('transfer.download_finishing'));
     }
-    setTimeout(() => {
+    setManagedTimer('preload-play-retry', () => {
       handlePlayPreloaded({ ...data, retryAttempt: retryAttempt + 1 });
     }, 500);
     return;
@@ -665,7 +675,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   if (hostConn?.open) {
     // Short jitter to avoid thundering herd, but not too long to cause stale track
     const jitter = Math.random() * 300 + 50;
-    setTimeout(() => {
+    setManagedTimer('preload-recovery-jitter', () => {
       // Double-check: did preload arrive during wait?
       const nowBlob = getState('preload.nextFileBlob');
       const nowMeta = getState('preload.meta');

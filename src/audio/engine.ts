@@ -72,6 +72,8 @@ let surroundSplitter: Split | null = null;
 let surroundGain: ToneGainNode | null = null;
 
 let _initAudioPromise: Promise<void> | null = null;
+let _ctxStateChangeCtx: AudioContext | null = null;
+let _ctxStateChangeHandler: (() => void) | null = null;
 
 // ─── Public Getters ────────────────────────────────────────────────
 
@@ -96,7 +98,7 @@ export function getAudioContext(): AudioContext | null {
   try { return (Tone?.getContext?.()?.rawContext as AudioContext) ?? null; } catch { return null; }
 }
 
-// For surround mode setup
+// For surround mode setup (creates nodes only; connected later in setSurroundChannel)
 export function ensureSurroundNodes(): { splitter: Split; gain: Gain } {
   if (!surroundSplitter || !surroundGain) {
     surroundSplitter = new Tone.Split(8);
@@ -139,6 +141,11 @@ export async function initAudio(): Promise<void> {
 
   try {
     await _initAudioPromise;
+  } catch (e) {
+    // Ensure sentinel is cleared on ANY init failure — prevents fast-path
+    // with an incomplete audio graph on subsequent initAudio() calls.
+    masterGain = null;
+    throw e;
   } finally {
     _initAudioPromise = null;
   }
@@ -201,7 +208,7 @@ async function _doInitAudio(): Promise<void> {
 
   // Preamplifier + Stereo Widener
   preamp = new Tone.Gain(1);
-  widener = new Tone.StereoWidener(1);
+  widener = new Tone.StereoWidener(1); // applySettings() overwrites with state default
 
   // Reverb
   reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 });
@@ -378,13 +385,20 @@ async function _doInitAudio(): Promise<void> {
 
   // Auto-resume AudioContext on interruption (phone call, AirPlay switch, etc.)
   try {
+    // Remove previous listener if re-init
+    if (_ctxStateChangeCtx && _ctxStateChangeHandler) {
+      _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
+    }
     const ctx = Tone.getContext().rawContext as AudioContext;
-    ctx.addEventListener('statechange', () => {
+    const handler = () => {
       if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
         log.info(`[Audio] AudioContext ${ctx.state} — auto-resuming`);
         ctx.resume().catch(e => log.debug('[Audio] Auto-resume failed', e));
       }
-    });
+    };
+    ctx.addEventListener('statechange', handler);
+    _ctxStateChangeCtx = ctx;
+    _ctxStateChangeHandler = handler;
   } catch (e) {
     log.debug('[Audio] statechange listener setup failed', e);
   }
@@ -434,11 +448,12 @@ bus.on('audio:connect-surround', (playerNode, channelIdx) => {
   } catch { /* expected */ }
   gain.connect(pre);
 
-  (playerNode as ToneNode).connect(splitter);
-
+  // Disconnect splitter BEFORE connecting playerNode to avoid brief wrong routing
   try {
     splitter.disconnect();
   } catch { /* expected */ }
+
+  (playerNode as ToneNode).connect(splitter);
 
   if (channelIdx === 6) {
     splitter.connect(gain, 6, 0);

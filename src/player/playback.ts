@@ -13,7 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
-import { initAudio, getWidener } from '../audio/engine.ts';
+import { initAudio, getWidener, getSurroundSplitter } from '../audio/engine.ts';
 import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './video.ts';
 import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../storage/opfs.ts';
 import { broadcastFile, unicastFile } from '../storage/transfer.ts';
@@ -148,7 +148,7 @@ export function stopPlayerNode(): void {
 
 // ─── Stop All Media ────────────────────────────────────────────────
 
-export function stopAllMedia(): void {
+export function stopAllMedia(opts?: { silent?: boolean }): void {
   const videoElement = getVideoElement();
 
   // 1. Stop video
@@ -169,8 +169,8 @@ export function stopAllMedia(): void {
   clearManagedTimer('autoPlayTimer');
   _pendingPlayTime = undefined;
 
-  // Only emit state-changed if stopYouTubeMode didn't already set IDLE
-  if (getState('appState') !== APP_STATE.IDLE) {
+  // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
+  if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
     setState('appState', APP_STATE.IDLE);
     bus.emit('player:state-changed', APP_STATE.IDLE);
   }
@@ -202,6 +202,8 @@ export async function play(offset: number): Promise<void> {
     if (_isPlayLocked) {
       log.warn(`[Play] Lock Timeout: Forcing unlock after 5s (locked at ${new Date(lockStartTime).toISOString()})`);
       _isPlayLocked = false;
+      _pendingPlayTime = undefined;
+      _pendingPlayDepth = 0;
       stopPlayerNode();
     }
   }, 5000);
@@ -220,6 +222,9 @@ export async function play(offset: number): Promise<void> {
         log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s (depth: ${_pendingPlayDepth})`);
         play(queued).finally(() => { _pendingPlayDepth = 0; });
       } else {
+        if (_pendingPlayTime !== undefined) {
+          log.warn(`[Play] Dropping queued play request at depth ${_pendingPlayDepth} to prevent recursion`);
+        }
         _pendingPlayTime = undefined;
         _pendingPlayDepth = 0;
       }
@@ -309,9 +314,13 @@ async function _internalPlay(offset: number): Promise<void> {
     if (videoElement?.src) {
       videoElement.currentTime = safeOffset;
       videoElement.muted = true;
-      videoElement.volume = 0;
       videoElement.play().catch(() => { /* noop */ });
     }
+  } else if (hasVideoSource && videoElement?.src) {
+    // Video-only playback (no audio buffer) — play video with its own audio track
+    videoElement.currentTime = safeOffset;
+    videoElement.muted = false;
+    videoElement.play().catch(() => { /* noop */ });
   }
 
   // Update timing
@@ -587,7 +596,7 @@ export function checkVideoSync(): void {
 export async function loadAndBroadcastFile(
   file: File,
   sessionId: number | null = null,
-  _skipTabSync = false,
+  _unused?: boolean,
   loadToken?: number,
 ): Promise<void> {
   _activeLoadSessionId++;
@@ -652,8 +661,12 @@ export async function loadAndBroadcastFile(
     bus.emit('ui:update-playlist');
 
     if (videoElement) {
-      const onMetaLoaded = () => {
+      const cleanupMeta = () => {
         videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
+        videoElement.removeEventListener('error', onMetaError);
+      };
+      const onMetaLoaded = () => {
+        cleanupMeta();
         if (myLoadId !== _activeLoadSessionId) return;
         const dur = _currentAudioBuffer ? _currentAudioBuffer.duration : videoElement.duration;
         if (dur && isFinite(dur)) {
@@ -661,7 +674,13 @@ export async function loadAndBroadcastFile(
         }
         BlobURLManager.confirm();
       };
+      const onMetaError = () => {
+        cleanupMeta();
+        log.warn('[Playback] Video loadedmetadata failed — confirming blob URL');
+        BlobURLManager.confirm();
+      };
       videoElement.addEventListener('loadedmetadata', onMetaLoaded);
+      videoElement.addEventListener('error', onMetaError, { once: true });
       videoElement.load();
     } else {
       BlobURLManager.confirm();
@@ -736,7 +755,7 @@ export async function loadPreloadedTrack(
     }
 
     log.debug('[Preload] Decoding audio for Buffer Mode...');
-    bus.emit('ui:show-toast', t('error.audio_decoding'));
+    bus.emit('ui:show-toast', t('toast.decoding_audio'));
 
     const arrayBuffer = await localBlob.arrayBuffer();
     const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
@@ -843,7 +862,7 @@ export async function loadPreloadedTrack(
 
 function handlePlayMsg(data: Record<string, unknown>): void {
   const time = Number(data.time) || 0;
-  const incomingIndex = data.index as number | undefined;
+  const incomingIndex = data.index != null ? Number(data.index) : undefined;
 
   // Guard: If loadPreloadedTrack is in progress, queue the play time
   if (_playPreloadedInProgress) {
@@ -878,6 +897,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
         name,
+        videoId: null,
+        playlistId: null,
       });
       bus.emit('ui:show-loader', false);
       log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
@@ -910,6 +931,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
         name: playlist2[currentTrackIndex]?.name || '',
+        videoId: null,
+        playlistId: null,
       });
       bus.emit('ui:show-loader', false);
       log.info('[Guest] Remote guest — no file will arrive, showing guide');
@@ -1046,9 +1069,8 @@ function clearPreviousTrackState(reason = ''): void {
     bus.emit('player:state-changed', APP_STATE.IDLE);
   }
 
-  // Clear preload ack tracking
-  const ackSent = getState('preload.ackSent');
-  if (ackSent) ackSent.clear();
+  // Clear preload ack tracking (immutable — replace with new Set)
+  setState('preload.ackSent', new Set());
 
   BlobURLManager.revoke();
 
@@ -1229,6 +1251,13 @@ export function initPlayback(): void {
 
     const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
     bus.emit('ui:show-toast', `${t('toast.sync_done')}${rttLabel}`);
+  });
+
+  // Disconnect playerNode from surround splitter (called when surround mode turns off)
+  bus.on('audio:disconnect-surround', () => {
+    if (_playerNode) {
+      try { _playerNode.disconnect(getSurroundSplitter()!); } catch { /* may not be connected */ }
+    }
   });
 
   // Surround mode toggled during playback: restart at current position

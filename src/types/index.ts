@@ -7,10 +7,6 @@
 
 import type { AppStateValue, MsgType } from '../core/constants.ts';
 
-// ─── Channel Modes ─────────────────────────────────────────────────
-/** -1 = Left, 0 = Stereo/Original, 1 = Right, 2 = Sub/LFE */
-export type ChannelMode = -1 | 0 | 1 | 2;
-
 // ─── Peer / Network ────────────────────────────────────────────────
 
 import type { Peer as PeerClass, DataConnection as PeerJSDataConnection } from 'peerjs';
@@ -59,8 +55,8 @@ export interface PlaylistItem {
   title?: string;
   artist?: string;
   thumbnail?: string;
-  videoId?: string | null;
-  playlistId?: string | null;
+  videoId: string | null;
+  playlistId: string | null;
   isExpanded?: boolean;
 }
 
@@ -92,6 +88,7 @@ export interface WorkerResponse {
   requestId?: string;
   error?: string;
   command?: string;
+  code?: string;
 }
 
 // ─── Device List ───────────────────────────────────────────────────
@@ -113,7 +110,6 @@ export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
   'welcome': { lockChannel: boolean; label: string };
   'session-full': { message: string };
-  'session-start': {};
   'force-close-duplicate': {};
 
   // ── Audio Control ────────────────────────────────────────────────
@@ -131,18 +127,10 @@ export interface ProtocolMap {
   'vbass': { value: number };
 
   // ── Playback ─────────────────────────────────────────────────────
-  'play': { time: number; index: number; name?: string | null; state?: string; timestamp?: number };
-  'pause': { time: number; index?: number; state?: string; timestamp?: number };
+  'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number };
+  'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number };
   'play-preloaded': { index: number; name: string; mime?: string; retryAttempt?: number };
   'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number };
-  'force-sync-play': { time: number; index?: number };
-  'status-sync': {
-    playlistMeta: Array<Record<string, unknown>>;
-    currentTrackIndex: number;
-    repeatMode?: number;
-    isShuffle?: boolean;
-  };
-
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
   'repeat-mode': { value: number };
@@ -150,7 +138,7 @@ export interface ProtocolMap {
 
   // ── File Transfer ────────────────────────────────────────────────
   'file-start': { name: string; mime?: string; total?: number; size?: number; index?: number; sessionId: number };
-  'file-chunk': { chunk: Uint8Array; index: number; sessionId: number; total?: number; name?: string; size?: number; mime?: string };
+  'file-chunk': { chunk: Uint8Array | ArrayBuffer; index: number; sessionId: number; total?: number; name?: string; size?: number; mime?: string };
   'file-end': { name: string; mime: string; sessionId: number };
   'file-wait': { message: string };
   'file-resume': { name: string; mime?: string; total: number; size: number; startChunk: number; sessionId: number; index?: number };
@@ -174,7 +162,6 @@ export interface ProtocolMap {
   'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string }> };
   'assign-data-source': { targetId?: string | null };
   'data-relay': {};
-  'sys-toast': { message: string };
   'kick-device': { reason?: string };
   'operator-grant': {};
   'operator-revoke': {};
@@ -189,12 +176,12 @@ export interface ProtocolMap {
   'request-track-change': { index: number };
   'request-setting': { settingType: string; value?: unknown; band?: number };
   'request-eq-reset': {};
-  'request-reverb-reset': {};
   'request-current-file': { name?: string; index?: number; reason?: string };
   'request-data-recovery': { nextChunk: number; fileName: string; index: number; sessionId?: number };
   'request-youtube-play': {};
   'request-youtube-pause': {};
-  'request-youtube-sub-seek': { subIdx: number; playlistId?: string };
+  'request-youtube-toggle': {};
+  'request-youtube-sub-seek': { subIdx: number; playlistIdx?: number };
   'request-youtube-playlist-info': { playlistId: string };
 
   // ── YouTube ──────────────────────────────────────────────────────
@@ -224,9 +211,8 @@ export interface EventMap {
   'audio:volume-changed': [volume: number];
   'audio:apply-youtube-volume': [];
   'audio:connect-surround': [playerNode: unknown, channelIdx: number];
+  'audio:disconnect-surround': [];
   'audio:set-channel-mode': [mode: number];
-  'audio:toggle-surround': [enabled: boolean];
-  'audio:set-surround-channel': [idx: number];
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
   'audio:set-eq': [band: number, value: number, isPreview?: boolean];
   'audio:reverb-type-change': [type: string];
@@ -250,14 +236,13 @@ export interface EventMap {
   'playlist:next-track': [];
   'playlist:toggle-repeat': [];
   'playlist:toggle-shuffle': [];
-  'playlist:set-repeat-mode': [mode: number, notify?: boolean];
-  'playlist:set-shuffle': [enabled: boolean, notify?: boolean];
-  'playlist:play-track': [index: number];
+  'playlist:play-track': [index: number, subIndex?: number];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];
   'ui:sync-reverb-param': [param: string, value: number];
   'ui:sync-eq-preset': [type: string];
+  'ui:sync-eq-band': [bandIdx: number, value: number];
   'ui:sync-surround': [on: boolean];
   'ui:sync-vbass': [on: boolean];
   'ui:show-toast': [message: string];
@@ -278,7 +263,7 @@ export interface EventMap {
   'chat:system-message': [text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
-  'youtube:load': [videoId: string | null, playlistId: string | null, isSync?: boolean, subIndex?: number];
+  'youtube:load': [videoId: string | null, playlistId: string | null, autoplay?: boolean, subIndex?: number];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];
   'youtube:get-position': [callback: (pos: number) => void];
@@ -340,7 +325,7 @@ export interface EventMap {
   'sync:auto-sync': [];
   'sync:close-manual': [];
   'sync:get-position': [callback: (pos: number) => void];
-  'sync:response': [hostTime: number, isPlaying: boolean, oneWayLatencyMs: number];
+  'sync:response': [hostTime: number, isPlaying: boolean, oneWayLatencySeconds: number];
   'sync:latency-update': [ms: number];
 
   // ── Relay / Orchestrator ─────────────────────────────────────────

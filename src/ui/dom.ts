@@ -90,6 +90,8 @@ function applyMarquee(el: HTMLElement): void {
       const totalDuration = travelDuration * 2 + 4;
       el.style.setProperty('--marquee-duration', `${totalDuration}s`);
       el.style.animation = '';
+    } else {
+      el.style.removeProperty('animation');
     }
   });
 }
@@ -107,6 +109,9 @@ function onMarqueeResize(): void {
 export function updateTitleWithMarquee(text: string): void {
   const el = document.getElementById('track-title');
   if (!el) return;
+
+  // Skip if text hasn't changed — prevents marquee animation restart flicker
+  if (text === _currentMarqueeText) return;
 
   _currentMarqueeText = text;
   el.innerText = text;

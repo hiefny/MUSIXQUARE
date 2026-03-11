@@ -125,6 +125,7 @@ function showSetupOverlay(): void {
 
 function hideSetupOverlay(): void {
   activateNoSleep();
+  if (_setupOverlayAbort) { _setupOverlayAbort.abort(); _setupOverlayAbort = null; }
   animateTransition(() => {
     const overlay = setupEl('setup-overlay');
     if (overlay) overlay.classList.remove('active');
@@ -588,21 +589,21 @@ function initSetupOverlay(): void {
   }
   showAndStart();
 
-  // Bind slider events
+  // Bind slider events (use addEventListener with signal for proper cleanup)
   const btnNext = setupEl('ob-next');
-  if (btnNext) btnNext.onclick = () => nextObSlide(false);
+  if (btnNext) btnNext.addEventListener('click', () => nextObSlide(false), { signal });
   const btnPrev = setupEl('ob-prev');
-  if (btnPrev) btnPrev.onclick = () => prevObSlide();
+  if (btnPrev) btnPrev.addEventListener('click', () => prevObSlide(), { signal });
 
   document.querySelectorAll<HTMLElement>('.ob-dot').forEach(dot => {
-    dot.onclick = (e) => {
+    dot.addEventListener('click', (e) => {
       const dotEl = (e.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
       const idx = parseInt(dotEl?.dataset?.idx || '', 10);
       if (isNaN(idx)) return;
       _currentObSlide = idx;
       updateObSlider();
       startObAutoSlide();
-    };
+    }, { signal });
   });
 
   // Swipe (addEventListener + passive for better scroll perf)
@@ -699,6 +700,10 @@ export function initSetup(): void {
     updateRoleBadge();
     showToast(t('network.cant_join_wifi'));
 
+    // Always hide loader — auto-reconnect flow shows loader before joinSession,
+    // so we must hide it on failure to prevent permanent loader display (#103).
+    bus.emit('ui:show-loader', false);
+
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
       { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode ?? null) },
@@ -781,9 +786,15 @@ export function initSetup(): void {
         } else {
           window.location.reload();
         }
-      });
+      }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
       showToast(userMsg);
+      // If we're in guest setup flow but isConnecting was already cleared
+      // (race condition), still reset the UI so the user isn't stuck (#102).
+      const appRole = getState('network.appRole');
+      if (appRole === 'guest' && !getState('setup.sessionStarted')) {
+        bus.emit('setup:guest-join-failure', err);
+      }
     }
   });
 

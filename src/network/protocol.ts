@@ -36,7 +36,7 @@ export function validateMessage(data: unknown, requiredFields: string[] = []): d
 // ─── Relayable Commands ─────────────────────────────────────────────
 
 /** Commands that should be automatically relayed through the chain */
-export const RELAYABLE_COMMANDS: MsgType[] = [
+export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>([
   MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
   MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
   MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
@@ -44,11 +44,11 @@ export const RELAYABLE_COMMANDS: MsgType[] = [
   MSG.STEREO_WIDTH, MSG.VBASS,
   MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
   MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
-  MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE,
+  MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
   MSG.CHAT, MSG.PLAYLIST_UPDATE,
   MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
   MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
-];
+]);
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
@@ -131,10 +131,11 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   // 1. RELAY DOWNSTREAM (Control commands from Upstream → Downstream)
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length > 0 && (RELAYABLE_COMMANDS as string[]).includes(msgType)) {
+  if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.has(msgType)) {
+    const senderPeerId = conn?.peer;
     downstreamDataPeers.forEach(p => {
       // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)
-      if (p.open && p.peer !== conn?.peer) {
+      if (p.open && (!senderPeerId || p.peer !== senderPeerId)) {
         try { p.send(data); } catch { /* peer might have closed */ }
       }
     });

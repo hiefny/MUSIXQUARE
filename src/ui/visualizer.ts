@@ -224,7 +224,8 @@ export function drawIdleVisualizer(): void {
   const ctx: CanvasRenderingContext2D = _ctx2;
 
   const wrapper = document.querySelector('.vinyl-wrapper');
-  const logicalSize = wrapper ? (wrapper as HTMLElement).clientWidth : 240;
+  const rawWidth = wrapper ? (wrapper as HTMLElement).clientWidth : 0;
+  const logicalSize = rawWidth > 10 ? rawWidth : 240;
   const dpr = window.devicePixelRatio || 1;
   if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
     canvas.width = logicalSize * dpr;
@@ -321,6 +322,7 @@ export function initVisualizer(): void {
   bus.on('visualizer:battery-saver', (on: boolean) => {
     _batterySaver = on;
     if (on) {
+      if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
     } else {
       const currentState = getState('appState');

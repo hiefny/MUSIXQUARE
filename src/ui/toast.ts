@@ -27,7 +27,7 @@ export function showLoader(show: boolean, txt?: string): void {
     if (_loaderResetTimer) { clearTimeout(_loaderResetTimer); _loaderResetTimer = null; }
     header?.classList.add('loading');
     if (txt && loadingText) loadingText.innerText = txt;
-    if (progressBg && (progressBg.style.width === '0px' || progressBg.style.width === '')) {
+    if (progressBg && (!progressBg.style.width || progressBg.style.width === '0%' || progressBg.style.width === '0px')) {
       progressBg.style.width = '0%';
     }
   } else {

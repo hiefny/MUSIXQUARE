@@ -82,13 +82,13 @@ export function initI18n(): void {
 const I18N_ATTRS = ['placeholder', 'aria-label', 'title', 'alt'] as const;
 
 function _translateElement(el: Element): void {
-  // textContent
-  const textKey = el.getAttribute('data-i18n');
-  if (textKey) el.textContent = t(textKey as I18nKey);
-
   // innerHTML (help blocks) — use tHtml for safe interpolation
   const htmlKey = el.getAttribute('data-i18n-html');
   if (htmlKey) el.innerHTML = tHtml(htmlKey as I18nKey);
+
+  // textContent (skip if innerHTML already set — avoids overwrite)
+  const textKey = el.getAttribute('data-i18n');
+  if (textKey && !htmlKey) el.textContent = t(textKey as I18nKey);
 
   // Attributes
   for (const attr of I18N_ATTRS) {

@@ -41,8 +41,14 @@ export function validateSessionId(id: unknown, strict = false): number {
   const ok = Number.isSafeInteger(sid) && sid > 0;
   if (!ok) {
     const key = String(id);
-    // Prevent unbounded growth
-    if (_warnedBadSessionIds.size > 200) _warnedBadSessionIds.clear();
+    // Evict oldest half to prevent unbounded growth (Set iterates in insertion order)
+    if (_warnedBadSessionIds.size > 200) {
+      let evict = Math.floor(_warnedBadSessionIds.size / 2);
+      for (const v of _warnedBadSessionIds) {
+        if (evict-- <= 0) break;
+        _warnedBadSessionIds.delete(v);
+      }
+    }
     if (!_warnedBadSessionIds.has(key)) {
       _warnedBadSessionIds.add(key);
       log.warn(`[Session] Invalid sessionId (${typeof id}):`, id);

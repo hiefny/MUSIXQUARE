@@ -76,10 +76,9 @@ export interface StateTree {
   sync: {
     localOffset: number;
     autoSyncOffset: number;
-    usePingCompensation: boolean;
     lastLatencyMs: number;
     latencyHistory: number[];
-    resyncTimer: ReturnType<typeof setTimeout> | null;
+    // resyncTimer removed — managed timers registry handles this via 'global-resync' key
   };
 
   // Network
@@ -210,7 +209,7 @@ function createInitialState(): StateTree {
     transfer: {
       state: TRANSFER_STATE.IDLE,
       receivedCount: 0,
-      meta: {},
+      meta: null,
       localSessionId: 0,
       currentSessionId: 0,
       activeBroadcastSession: null,
@@ -249,10 +248,9 @@ function createInitialState(): StateTree {
     sync: {
       localOffset: 0,
       autoSyncOffset: 0,
-      usePingCompensation: false, // 로컬 네트워크 전용 — RTT 보정 비활성화
       lastLatencyMs: 0,
       latencyHistory: [],
-      resyncTimer: null,
+      // resyncTimer removed — managed timers registry handles this via 'global-resync' key
     },
 
     network: {
@@ -404,15 +402,18 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
     _isBatching = false;
   }
 
-  // Emit deduplicated events
+  // Snapshot paths before emitting — re-entrant setState/batchSetState during
+  // emit would overwrite _batchedPaths, losing remaining paths.
+  const pathsToEmit = _batchedPaths;
+  _batchedPaths = [];
+
   const seen = new Set<string>();
-  for (const path of _batchedPaths) {
+  for (const path of pathsToEmit) {
     if (!seen.has(path)) {
       seen.add(path);
       bus.emit(`state:${path}` as `state:${string}`, getState(path as StatePath) as unknown, path as string);
     }
   }
-  _batchedPaths = [];
 }
 
 /**
@@ -420,17 +421,14 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
  * Returns a structuredClone to prevent external mutation of internal state.
  */
 export function snapshot(): Readonly<StateTree> {
-  try {
-    return structuredClone(_state);
-  } catch {
-    // Fallback for non-cloneable values (DataConnection, etc.)
-    return JSON.parse(JSON.stringify(_state, (_key, value) => {
-      if (value instanceof Set) return [...value];
-      if (value instanceof Map) return Object.fromEntries(value);
-      if (typeof value === 'object' && value !== null && typeof value.close === 'function') return '[Connection]';
-      return value;
-    }));
-  }
+  // JSON serialization — structuredClone always throws because
+  // StateTree contains non-cloneable DataConnection objects.
+  return JSON.parse(JSON.stringify(_state, (_key, value) => {
+    if (value instanceof Set) return [...value];
+    if (value instanceof Map) return Object.fromEntries(value);
+    if (typeof value === 'object' && value !== null && typeof value.close === 'function') return '[Connection]';
+    return value;
+  }));
 }
 
 /**

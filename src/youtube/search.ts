@@ -229,8 +229,8 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
     _subTitleAbort.abort();
     _subTitleAbort = null;
   }
-  // Clear dedup flags since the previous loop is aborted
-  _isFetching.clear();
+  // Clear dedup flag for target playlist (previous loop is aborted)
+  _isFetching.delete(playlistId);
 
   _isFetching.set(playlistId, true);
   const abort = new AbortController();
@@ -266,10 +266,11 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
 
         if (json && json.title) {
           // Update state
-          const freshMap = getState('youtube.subItemsMap') || {};
-          if (!freshMap[playlistId]) freshMap[playlistId] = { ids: [], titles: [] };
-          freshMap[playlistId].titles[i] = json.title;
-          setState('youtube.subItemsMap', { ...freshMap });
+          const oldMap = getState('youtube.subItemsMap') || {};
+          const oldEntry = oldMap[playlistId] || { ids: [], titles: [] };
+          const newTitles = [...oldEntry.titles];
+          newTitles[i] = json.title;
+          setState('youtube.subItemsMap', { ...oldMap, [playlistId]: { ...oldEntry, titles: newTitles } });
 
           log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 

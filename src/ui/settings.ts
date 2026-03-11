@@ -163,7 +163,23 @@ function syncReverbSlidersToPreset(type: string): void {
   clearReverbChipActive();
 
   if (type === 'off') {
-    // Off: reset reverb, hide sliders
+    // Off: reset reverb, reset slider values to defaults, hide sliders
+    const defaults = { mix: 0, decay: 5.0, predelay: 0.1, lowcut: 0, highcut: 0 };
+    const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
+    const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
+    const predelaySlider = document.getElementById('reverb-predelay-slider') as HTMLInputElement | null;
+    const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
+    const highcutSlider = document.getElementById('reverb-highcut-slider') as HTMLInputElement | null;
+    if (mixSlider) mixSlider.value = String(defaults.mix);
+    if (decaySlider) decaySlider.value = String(defaults.decay);
+    if (predelaySlider) predelaySlider.value = String(defaults.predelay);
+    if (lowcutSlider) lowcutSlider.value = String(defaults.lowcut);
+    if (highcutSlider) highcutSlider.value = String(defaults.highcut);
+    formatReverbValDisp('mix', defaults.mix);
+    formatReverbValDisp('decay', defaults.decay);
+    formatReverbValDisp('predelay', defaults.predelay);
+    formatReverbValDisp('lowcut', defaults.lowcut);
+    formatReverbValDisp('highcut', defaults.highcut);
     document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
     setReverbSlidersVisible(false);
     return;
@@ -183,14 +199,21 @@ function syncReverbSlidersToPreset(type: string): void {
   const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
   const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
   const predelaySlider = document.getElementById('reverb-predelay-slider') as HTMLInputElement | null;
+  const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
+  const highcutSlider = document.getElementById('reverb-highcut-slider') as HTMLInputElement | null;
   if (mixSlider) mixSlider.value = String(preset.mix);
   if (decaySlider) decaySlider.value = String(preset.decay);
   if (predelaySlider) predelaySlider.value = String(preset.predelay);
+  // Reset lowcut/highcut to defaults when switching presets (presets don't define them)
+  if (lowcutSlider) lowcutSlider.value = '0';
+  if (highcutSlider) highcutSlider.value = '0';
 
   // Update value displays
   formatReverbValDisp('mix', preset.mix);
   formatReverbValDisp('decay', preset.decay);
   formatReverbValDisp('predelay', preset.predelay);
+  formatReverbValDisp('lowcut', 0);
+  formatReverbValDisp('highcut', 0);
 
   // Update chip active state + hide sliders
   document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${type}"]`)?.classList.add('active');
@@ -262,6 +285,11 @@ function syncEqSlidersToPreset(type: string): void {
 }
 
 function setSurroundOn(on: boolean): void {
+  // Guard: skip if already in requested state (prevents dblclick duplicate toast)
+  const currentWidth = getState('audio.stereoWidth');
+  const alreadyOn = currentWidth > 1;
+  if (on === alreadyOn) return;
+
   document.querySelectorAll('#grid-surround .ch-opt').forEach(el => el.classList.remove('active'));
   document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 120%, OFF: 100%
@@ -272,7 +300,7 @@ function setSurroundOn(on: boolean): void {
 function setBatterySaver(on: boolean): void {
   document.querySelectorAll('#grid-battery .ch-opt').forEach(el => el.classList.remove('active'));
   document.querySelector(`#grid-battery .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
-  localStorage.setItem('musixquare-battery-saver', on ? '1' : '0');
+  try { localStorage.setItem('musixquare-battery-saver', on ? '1' : '0'); } catch { /* Safari private mode */ }
   bus.emit('visualizer:battery-saver', on);
   if (on) bus.emit('ui:show-toast', t('toast.battery_saver_on'));
 }
@@ -424,10 +452,12 @@ export function initSettings(): void {
     opt.addEventListener('click', () => {
       if (_guardHostCtrl()) return;
       const type = opt.dataset.eqType!;
-      syncEqSlidersToPreset(type);
       if (type === 'off') {
-        resetEQ();
-      } else if (type !== 'advanced') {
+        resetEQ(); // resetEQ triggers ui:sync-eq-preset('off') which calls syncEqSlidersToPreset
+        return;
+      }
+      syncEqSlidersToPreset(type);
+      if (type !== 'advanced') {
         const preset = EQ_PRESETS[type];
         if (preset) {
           for (let i = 0; i < 5; i++) setEQ(i, preset[i]);
@@ -499,6 +529,13 @@ export function initSettings(): void {
     document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   });
 
+  // EQ band slider/label sync (from audio module via bus, avoids audio→DOM coupling)
+  bus.on('ui:sync-eq-band', (bandIdx: number, value: number) => {
+    _setDisp(`eq-val-${bandIdx}`, value > 0 ? `+${value}` : String(value));
+    const slider = document.getElementById(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
+    if (slider && parseFloat(slider.value) !== value) slider.value = String(value);
+  });
+
   // ─── Host-Ctrl Lock UI update on role change ──────────────────
 
   // Update lock state when connection/role changes (fires on connect, OP grant/revoke, session start)
@@ -510,11 +547,15 @@ export function initSettings(): void {
   });
 
   // Initial theme: restore from localStorage (defaults to dark; 'system' auto-resolves)
-  const savedTheme = localStorage.getItem('musixquare-theme');
-  setTheme(savedTheme || 'dark');
+  try {
+    const savedTheme = localStorage.getItem('musixquare-theme');
+    setTheme(savedTheme || 'dark');
+  } catch { setTheme('dark'); }
 
   // Restore battery saver state
-  if (localStorage.getItem('musixquare-battery-saver') === '1') setBatterySaver(true);
+  try {
+    if (localStorage.getItem('musixquare-battery-saver') === '1') setBatterySaver(true);
+  } catch { /* ignore */ }
 
   // ─── Desktop Settings Sub-Tab Navigation ──────────────────────
   initSettingsSubtabs();

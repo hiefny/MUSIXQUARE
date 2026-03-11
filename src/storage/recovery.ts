@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, MAX_RECOVERY_RETRIES, RECOVERY_BACKOFF, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
-import { clearManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './opfs.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -37,6 +37,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       type: 'file',
       title: t('toast.same_wifi_file_title'),
       name: '',
+      videoId: null,
+      playlistId: null,
     });
     return;
   }
@@ -93,12 +95,16 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   const sourceLabel = targetConn === upstreamDataConn ? 'Relay' : 'Host';
   log.debug(`[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk}, backoff: ${backoffMs}ms)`);
 
-  setTimeout(() => {
+  setManagedTimer('recovery-backoff', () => {
     setState('recovery.pending', false);
 
-    // Re-check connection after backoff
-    if (!targetConn.open) {
-      log.warn('[Recovery] Connection closed during backoff');
+    // Re-fetch connection after backoff — the original reference may be stale
+    const freshUpstream = getState('relay.upstreamDataConn');
+    const freshHostConn = getState('network.hostConn');
+    const freshConn = (freshUpstream && freshUpstream.open) ? freshUpstream : freshHostConn;
+
+    if (!freshConn || !freshConn.open) {
+      log.warn('[Recovery] No healthy connection after backoff');
       return;
     }
 
@@ -112,7 +118,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     }
 
     try {
-      targetConn.send({
+      freshConn.send({
         type: MSG.REQUEST_DATA_RECOVERY,
         nextChunk: chunkToAsk,
         fileName,

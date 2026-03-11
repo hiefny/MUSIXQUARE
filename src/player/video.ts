@@ -108,7 +108,7 @@ function updateBodyModeClass(appState: string): void {
   const keepVideoVisibleOnIdle = (
     isIdleOrPaused(appState) &&
     videoElement &&
-    !!videoElement.src &&
+    !!videoElement.getAttribute('src') &&
     isMediaVideo(currentFileBlob, meta)
   );
 
@@ -131,9 +131,6 @@ function updateBodyModeClass(appState: string): void {
     body.classList.toggle('mode-youtube', wantYouTube);
   }
 
-  // Early return if nothing changed — downstream styles are already correct
-  if (wantVideo === hasVideo && wantYouTube === hasYouTube) return;
-
   // ── YouTube container visibility ──
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
@@ -155,6 +152,10 @@ function updateBodyModeClass(appState: string): void {
     if (isVideoMode) {
       videoWrapper.style.visibility = 'visible';
       videoWrapper.style.pointerEvents = 'auto';
+    } else {
+      // Clean up inline styles to prevent stale overrides on next mode switch
+      videoWrapper.style.removeProperty('visibility');
+      videoWrapper.style.removeProperty('pointer-events');
     }
   }
 

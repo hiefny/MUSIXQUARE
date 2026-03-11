@@ -49,8 +49,10 @@ export function broadcastYouTubeSync(): void {
               if (ids?.length > 0) {
                 const subMap = getState('youtube.subItemsMap') || {};
                 if (!subMap[pid] || !subMap[pid].ids?.length) {
-                  subMap[pid] = { ids, titles: subMap[pid]?.titles || [] };
-                  setState('youtube.subItemsMap', { ...subMap });
+                  setState('youtube.subItemsMap', {
+                    ...subMap,
+                    [pid]: { ids: [...ids], titles: subMap[pid]?.titles || [] },
+                  });
                 }
               }
             } catch { /* noop */ }
@@ -175,19 +177,20 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const localOffset = getState('sync.localOffset') || 0;
     const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
     const rawCompensatedTime = hostTime + autoSyncOffset + localOffset;
-    // Clamp to valid range: never negative, never beyond video duration
-    const duration = (player.getDuration && player.getDuration()) || Infinity;
-    const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
+    // Drift correction (skip if duration not loaded yet)
+    const duration = (player.getDuration && player.getDuration()) || 0;
+    if (duration > 0) {
+      const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
+      const currentTime = player.getCurrentTime();
+      const drift = Math.abs(currentTime - compensatedTime);
 
-    const currentTime = player.getCurrentTime();
-    const drift = Math.abs(currentTime - compensatedTime);
-
-    if (drift > 2 && player.seekTo) {
-      log.debug(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
-      player.seekTo(compensatedTime, true);
+      if (drift > 2 && player.seekTo) {
+        log.debug(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
+        player.seekTo(compensatedTime, true);
+      }
     }
 
-    // State sync
+    // State sync (always applied, even when duration not loaded)
     if (player.getPlayerState && player.playVideo && player.pauseVideo) {
       const ytState = player.getPlayerState();
       if (hostState === 1 && ytState !== 1) player.playVideo();
@@ -246,9 +249,10 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
   if (!playlistId || subIdx === undefined || !title) return;
 
   const subMap = getState('youtube.subItemsMap') || {};
-  if (!subMap[playlistId]) subMap[playlistId] = { ids: [], titles: [] };
-  subMap[playlistId].titles[subIdx] = title;
-  setState('youtube.subItemsMap', { ...subMap });
+  const oldEntry = subMap[playlistId] || { ids: [], titles: [] };
+  const newTitles = [...oldEntry.titles];
+  newTitles[subIdx] = title;
+  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ...oldEntry, titles: newTitles } });
 
   bus.emit('ui:update-playlist');
 
@@ -307,7 +311,6 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
     [MSG.YOUTUBE_STOP]: handleYouTubeStop,
-    [MSG.SESSION_START]: () => resetAdDetection(),
   });
 
   // Reset ad detection when guest reconnects (receives new YouTube session)

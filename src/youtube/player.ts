@@ -149,6 +149,7 @@ function initYouTubePlayer(
   const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
+    _ytLoadInProgress = false;
     return;
   }
 
@@ -161,6 +162,7 @@ function initYouTubePlayer(
         _youtubePlayer.loadVideoById(videoId);
       }
       if (!autoplay) _youtubePlayer.pauseVideo();
+      _ytLoadInProgress = false;
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
@@ -251,6 +253,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     setState('appState', APP_STATE.IDLE);
     bus.emit('player:state-changed', APP_STATE.IDLE);
     clearManagedTimer('youtubeUILoop');
+    clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -346,7 +349,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
       overlay.innerHTML = `
         <div style="background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M8 5v14l11-7z"/></svg>
-          TAP TO SYNC VIDEO
+          ${t('youtube.tap_to_sync')}
         </div>
       `;
       const wrapper = document.querySelector('.video-wrapper');
@@ -488,6 +491,28 @@ function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConne
   }
 }
 
+function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return;
+
+  if (!verifyOperator(conn, data)) {
+    log.warn(`[YouTube] Rejected request-youtube-toggle from non-OP: ${conn?.peer}`);
+    return;
+  }
+
+  if (!_youtubePlayer) return;
+  try {
+    const state = _youtubePlayer.getPlayerState();
+    if (state === YT.PlayerState.PLAYING) {
+      handleRequestYouTubePause(data, conn);
+    } else {
+      handleRequestYouTubePlay(data, conn);
+    }
+  } catch (e) {
+    log.error('[YouTube] Toggle error:', e);
+  }
+}
+
 function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
@@ -551,6 +576,7 @@ export function initYouTube(): void {
     [MSG.YOUTUBE_PLAY]: handleYouTubePlay,
     [MSG.REQUEST_YOUTUBE_PLAY]: handleRequestYouTubePlay,
     [MSG.REQUEST_YOUTUBE_PAUSE]: handleRequestYouTubePause,
+    [MSG.REQUEST_YOUTUBE_TOGGLE]: handleRequestYouTubeToggle,
     [MSG.REQUEST_YOUTUBE_SUB_SEEK]: handleRequestYouTubeSubSeek,
     [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: handleRequestYouTubePlaylistInfo,
   });
@@ -558,8 +584,8 @@ export function initYouTube(): void {
   // Bus event handlers from other modules
   bus.on('youtube:stop-mode', () => stopYouTubeMode());
 
-  bus.on('youtube:load', (videoId, playlistId, isSync, subIndex) => {
-    loadYouTubeVideo(videoId as string, playlistId as string | null, isSync as boolean, subIndex ?? 0);
+  bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
+    loadYouTubeVideo(videoId as string, playlistId as string | null, autoplay as boolean, subIndex ?? 0);
   });
 
   bus.on('youtube:toggle-play', () => {
@@ -572,19 +598,14 @@ export function initYouTube(): void {
     const isOperator = getState('network.isOperator');
 
     if (hostConn && isOperator) {
-      // OP requests
-      try {
-        const state = _youtubePlayer?.getPlayerState?.();
-        if (state === YT.PlayerState.PLAYING) {
-          hostConn.send({ type: MSG.REQUEST_YOUTUBE_PAUSE });
-        } else {
-          hostConn.send({ type: MSG.REQUEST_YOUTUBE_PLAY });
-        }
-      } catch (e) {
-        log.error('[YouTube] OP toggle error:', e);
-      }
+      // OP sends toggle request — let host decide based on ITS player state
+      // (Guest's local player may be desynchronized from host due to ads/buffering)
+      safeSend(hostConn, { type: MSG.REQUEST_YOUTUBE_TOGGLE });
       return;
     }
+
+    // Non-OP guest: no toggle permission
+    if (hostConn) return;
 
     // Host direct
     if (!_youtubePlayer) return;
@@ -625,7 +646,7 @@ export function initYouTube(): void {
     try {
       _youtubePlayer.stopVideo();
       try { _youtubePlayer.seekTo(0, true); } catch { /* noop */ }
-      broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: 0 });
+      broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0 });
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
     }
@@ -724,8 +745,8 @@ export function initYouTube(): void {
       type: 'youtube',
       name: title,
       title: title,
-      videoId: videoId || undefined,
-      playlistId: playlistId || undefined,
+      videoId: videoId || null,
+      playlistId: playlistId || null,
     };
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
@@ -839,9 +860,8 @@ export function initYouTube(): void {
         });
       }
     } else {
-      // Different playlist item — load it first, then sub-seek
-      bus.emit('playlist:play-track', playlistIdx);
-      // The sub-index will be picked up after loadYouTubeVideo
+      // Different playlist item — load it with the target sub-index
+      bus.emit('playlist:play-track', playlistIdx, subIdx);
     }
   });
 

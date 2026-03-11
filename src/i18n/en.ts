@@ -225,6 +225,7 @@ const en: Record<I18nKey, string> = {
   'youtube.enter_link_toast': 'Please enter a YouTube link',
   'youtube.playing_in_3s': 'Playing YouTube in 3 seconds...',
   'youtube.open_link': 'Open YouTube link',
+  'youtube.tap_to_sync': 'TAP TO SYNC VIDEO',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.connecting': 'Connecting...',
@@ -252,6 +253,7 @@ const en: Record<I18nKey, string> = {
   'toast.reverb_init_fail': 'Reverb initialization failed',
   'toast.distortion_warn': 'May cause distortion',
   'toast.battery_saver_on': 'Visualizer has been disabled',
+  'toast.decoding_audio': 'Decoding audio...',
   'toast.preparing_next': 'Preparing next track... ({{name}})',
   'toast.preparing_next_pct': 'Preparing next track... {{pct}}%',
   'toast.op_status': '{{label}} permission {{status}}',
@@ -312,7 +314,7 @@ const en: Record<I18nKey, string> = {
   'error.https_required': 'HTTPS required: works only on a secure connection.',
   'error.browser_update': 'Please update your browser (iOS 15.2+, Chrome 86+)',
   'error.audio_decode_fail': 'Audio decode failed!',
-  'error.audio_decoding': 'Decoding audio...',
+  'error.audio_decoding': 'Decoding audio...', // deprecated — use toast.decoding_audio
   'error.audio_memory': 'Loading audio into memory...',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.audio_engine_not_ready': "The audio engine isn't ready yet. Check your network.",

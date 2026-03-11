@@ -118,16 +118,16 @@ describe('registerHandlers', () => {
 // ─── RELAYABLE_COMMANDS ───────────────────────────────────────────────
 
 describe('RELAYABLE_COMMANDS', () => {
-  it('is a non-empty array', () => {
-    expect(Array.isArray(RELAYABLE_COMMANDS)).toBe(true);
-    expect(RELAYABLE_COMMANDS.length).toBeGreaterThan(0);
+  it('is a non-empty Set', () => {
+    expect(RELAYABLE_COMMANDS instanceof Set).toBe(true);
+    expect(RELAYABLE_COMMANDS.size).toBeGreaterThan(0);
   });
 
   it('contains known command types', () => {
     // MSG constants use lowercase values (e.g., MSG.PLAY = 'play')
-    expect(RELAYABLE_COMMANDS).toContain('play');
-    expect(RELAYABLE_COMMANDS).toContain('pause');
-    expect(RELAYABLE_COMMANDS).toContain('volume');
+    expect(RELAYABLE_COMMANDS.has('play')).toBe(true);
+    expect(RELAYABLE_COMMANDS.has('pause')).toBe(true);
+    expect(RELAYABLE_COMMANDS.has('volume')).toBe(true);
   });
 });
 

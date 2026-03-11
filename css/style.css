@@ -1314,6 +1314,11 @@ input[type=range]:active::-moz-range-thumb {
     padding-bottom: 44px;
 }
 
+/* Mobile: battery section is last-of-type in general panel but needs divider before audio panel */
+#battery-section {
+    border-bottom: 1px dotted var(--surface-3);
+}
+
 /* Also ensure device list items don't overflow if list is the last child */
 #device-list:last-child {
     border-bottom-left-radius: inherit;

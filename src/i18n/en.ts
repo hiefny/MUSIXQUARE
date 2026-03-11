@@ -91,6 +91,7 @@ const en: Record<I18nKey, string> = {
   'settings.dark': 'Dark',
   'settings.light': 'Light',
   'settings.system': 'System',
+  'settings.battery_title': 'Battery Saving Mode',
   'settings.language': 'Language · 언어',
   'settings.advanced_audio': 'Advanced audio',
   'settings.spatial_audio': 'Spatial audio',

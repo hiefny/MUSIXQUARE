@@ -89,6 +89,7 @@ const ko = {
   'settings.dark': '다크',
   'settings.light': '라이트',
   'settings.system': '시스템',
+  'settings.battery_title': '배터리 절약 모드',
   'settings.language': '언어 · Language',
   'settings.advanced_audio': '고급 음향',
   'settings.spatial_audio': '입체 음향',

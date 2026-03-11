@@ -278,6 +278,13 @@ function setSurroundOn(on: boolean): void {
   if (on) bus.emit('ui:show-toast', t('toast.distortion_warn'));
 }
 
+function setBatterySaver(on: boolean): void {
+  document.querySelectorAll('#grid-battery .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#grid-battery .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  localStorage.setItem('musixquare-battery-saver', on ? '1' : '0');
+  bus.emit('visualizer:battery-saver', on);
+}
+
 function setVBassOn(on: boolean): void {
   document.querySelectorAll('#grid-vbass .ch-opt').forEach(el => el.classList.remove('active'));
   document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
@@ -459,6 +466,11 @@ export function initSettings(): void {
     opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setVBassOn(opt.dataset.toggle === 'on'); });
   });
 
+  // Battery Saver ON/OFF grid
+  document.querySelectorAll<HTMLElement>('#grid-battery .ch-opt[data-toggle]').forEach(opt => {
+    opt.addEventListener('click', () => setBatterySaver(opt.dataset.toggle === 'on'));
+  });
+
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));
   $on('btn-nudge-minus1', 'click', () => bus.emit('sync:nudge', -1));
@@ -521,6 +533,9 @@ export function initSettings(): void {
   // Initial theme: restore from localStorage or default to system
   const savedTheme = localStorage.getItem('musixquare-theme');
   setTheme(savedTheme || 'system');
+
+  // Restore battery saver state
+  if (localStorage.getItem('musixquare-battery-saver') === '1') setBatterySaver(true);
 
   // ─── Desktop Settings Sub-Tab Navigation ──────────────────────
   initSettingsSubtabs();

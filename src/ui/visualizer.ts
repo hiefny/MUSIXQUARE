@@ -19,6 +19,7 @@ let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 120;
 let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 let _resizeListenerAdded = false;
+let _batterySaver = false;
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
@@ -64,6 +65,8 @@ function getAnalyser(): unknown {
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
+  if (_batterySaver) return;
+
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -281,20 +284,45 @@ export function initVisualizer(): void {
   // Listen for check events from tab switch
   bus.on('ui:visualizer-check', () => {
     const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) drawIdleVisualizer();
-    else startVisualizer();
+    if (currentState === APP_STATE.PAUSED) {
+      // Keep last frame — do nothing
+    } else if (currentState === APP_STATE.IDLE) {
+      drawIdleVisualizer();
+    } else {
+      startVisualizer();
+    }
   });
 
   // Listen for playback state changes
   bus.on('player:state-changed', () => {
+    if (_batterySaver) return;
     const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) drawIdleVisualizer();
-    else startVisualizer();
+    if (currentState === APP_STATE.PAUSED) {
+      // Keep last frame — only stop animation loop
+      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+    } else if (currentState === APP_STATE.IDLE) {
+      drawIdleVisualizer();
+    } else {
+      startVisualizer();
+    }
   });
 
   // Listen for visualizer start command from playback
   bus.on('visualizer:start', () => {
     startVisualizer();
+  });
+
+  // Battery saver mode toggle
+  bus.on('visualizer:battery-saver', (on: boolean) => {
+    _batterySaver = on;
+    if (on) {
+      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+    } else {
+      const currentState = getState('appState');
+      if (!isIdleOrPaused(currentState) && currentState !== APP_STATE.PLAYING_YOUTUBE) {
+        startVisualizer();
+      }
+    }
   });
 
   log.info('[Visualizer] Initialized');

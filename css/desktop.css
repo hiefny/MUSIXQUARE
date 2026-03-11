@@ -749,7 +749,8 @@
     }
 
     .section-group:last-of-type,
-    #last-setting-section {
+    #last-setting-section,
+    #battery-section {
         border-bottom: none;
     }
 

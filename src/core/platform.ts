@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Platform Detection & Viewport Management
- * Extracted from original app.js lines 54-264
+ * MUSIXQUARE 3.0 — Platform Detection & Viewport Management
  */
 
 import { log } from './log.ts';

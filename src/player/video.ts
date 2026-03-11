@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Video Element & State Helpers
- * Extracted from original app.js lines 502-504, 601-615, 1344, 4895-4926
+ * MUSIXQUARE 3.0 — Video Element & State Helpers
  *
  * Manages: videoElement reference, media type detection, idle/paused helper,
  * engine mode switching.

@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — File Transfer (Chunk Receive & Send)
- * Extracted from original app.js lines 6887-7615, 9847-10093
+ * MUSIXQUARE 3.0 — File Transfer (Chunk Receive & Send)
  *
  * Manages: File receive (prepare/start/chunk/end/wait/resume),
  * file send (broadcastFile, unicastFile), chunk watchdog,

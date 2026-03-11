@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — PeerJS Initialization & Connection Management
- * Extracted from original app.js lines 6097-6794
+ * MUSIXQUARE 3.0 — PeerJS Initialization & Connection Management
  *
  * Manages: PeerJS instance, session creation/joining, peer slot allocation,
  * host incoming connections, guest outbound connection, leave/cleanup.

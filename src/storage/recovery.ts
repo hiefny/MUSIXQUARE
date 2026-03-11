@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — File Recovery
- * Extracted from original app.js lines 9072-9173, 9778-9845
+ * MUSIXQUARE 3.0 — File Recovery
  *
  * Manages: Recovery request with progressive backoff,
  * host-side file serving (handleRequestCurrentFile, handleRequestDataRecovery).

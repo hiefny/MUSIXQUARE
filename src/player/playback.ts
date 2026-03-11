@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Playback Engine
- * Extracted from original app.js lines 4401-5056, 4544-4700, 10470-10607
+ * MUSIXQUARE 3.0 — Playback Engine
  *
  * Manages: play/pause/stop/seek, Tone.js BufferSource lifecycle,
  * video sync, track position calculation, file loading/decoding.

@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — DOM Utilities
- * Extracted from original app.js
+ * MUSIXQUARE 3.0 — DOM Utilities
  *
  * Manages: animateTransition, escapeHtml, updateTitleWithMarquee,
  * copyTextToClipboard.

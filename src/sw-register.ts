@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Service Worker Registration
+ * MUSIXQUARE 3.0 — Service Worker Registration
  *
  * Registers the service worker and handles update checks.
  * The service-worker.js itself remains in public/ as plain JS (outside Vite build).

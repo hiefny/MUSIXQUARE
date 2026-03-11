@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Sync & Latency Management
- * Extracted from original app.js lines 6034-6092, 7617-7647, 8415-8449, 9298-9364
+ * MUSIXQUARE 3.0 — Sync & Latency Management
  *
  * Manages: Heartbeat, ping/pong latency, auto-sync, manual sync (nudge),
  * sync response handling, global resync.

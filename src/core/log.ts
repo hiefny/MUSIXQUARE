@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Logging System
- * Extracted from original app.js lines 37-49
+ * MUSIXQUARE 3.0 — Logging System
  */
 
 const LOG_LEVEL = {

@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — OPFS Worker Wrapper
- * Extracted from original app.js lines 304-340, 1376-1712
+ * MUSIXQUARE 3.0 — OPFS Worker Wrapper
  *
  * Manages: transfer.worker communication, OPFS commands routing,
  * session ID validation for worker commands, cleanup helpers.

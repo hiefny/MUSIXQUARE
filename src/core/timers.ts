@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Managed Timers Registry
- * Extracted from original app.js lines 737-764
+ * MUSIXQUARE 3.0 — Managed Timers Registry
  *
  * Centralized timer management to prevent orphaned intervals/timeouts.
  * Timer names are plain strings — any module can register its own.

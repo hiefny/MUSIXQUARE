@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — English Translations
+ * MUSIXQUARE 3.0 — English Translations
  *
  * Must cover every key defined in ko.ts.
  * TypeScript enforces completeness via Record<I18nKey, string>.

@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Audio Effects
- * Extracted from original app.js lines 5342-5640
+ * MUSIXQUARE 3.0 — Audio Effects
  *
  * Manages: Reverb (wet/dry + damping), 5-band EQ, Virtual Bass,
  * Stereo Width, Preamp gain compensation.

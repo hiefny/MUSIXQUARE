@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Channel Mode Routing
- * Extracted from original app.js lines 5127-5320
+ * MUSIXQUARE 3.0 — Channel Mode Routing
  *
  * Manages channel routing (Stereo/Left/Right/Sub) and 7.1 Surround mode.
  * Direct imports from engine.ts (same domain).

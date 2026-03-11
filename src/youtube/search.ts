@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — YouTube Search & URL Extraction
- * Extracted from original app.js lines 11232-11248, 11853-11926
+ * MUSIXQUARE 3.0 — YouTube Search & URL Extraction
  *
  * Manages: Video/Playlist ID extraction, oEmbed preview fetch,
  * oEmbed title cache.

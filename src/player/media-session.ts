@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Media Session API
- * Extracted from original app.js lines 3710-3825
+ * MUSIXQUARE 3.0 — Media Session API
  *
  * Manages: System media controls (lock screen, notification area),
  * track metadata display.

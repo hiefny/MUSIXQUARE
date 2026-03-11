@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — EventBus (Singleton)
+ * MUSIXQUARE 3.0 — EventBus (Singleton)
  * Type-safe inter-module communication.
  * Same-domain modules use direct imports; cross-domain uses this bus.
  */

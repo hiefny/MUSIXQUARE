@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Player Controls (UI)
- * Extracted from original app.js lines 3090-3375, 5642-5710
+ * MUSIXQUARE 3.0 — Player Controls (UI)
  *
  * Manages: Play/pause/prev/next buttons, volume slider, seek bar,
  * mute toggle, role badge, media source popup, YouTube popup.

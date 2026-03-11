@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Setup Flow (UI)
- * Extracted from original app.js lines 2123-3062
+ * MUSIXQUARE 3.0 — Setup Flow (UI)
  *
  * Manages: Setup overlay, host/guest role selection, onboarding slider,
  * invite code display, desktop left-panel sync.

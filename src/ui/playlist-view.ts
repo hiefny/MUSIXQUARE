@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Playlist View (UI)
- * Extracted from original app.js lines 3569-3707
+ * MUSIXQUARE 3.0 — Playlist View (UI)
  *
  * Manages: Playlist DOM rendering, track highlighting,
  * sub-playlist expansion, title/artist update.

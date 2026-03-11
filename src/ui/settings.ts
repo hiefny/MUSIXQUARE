@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Settings Panel (UI)
- * Extracted from original app.js
+ * MUSIXQUARE 3.0 — Settings Panel (UI)
  *
  * Manages: Theme, channel mode selection, EQ/reverb/stereo/vbass sliders,
  * device list rendering.

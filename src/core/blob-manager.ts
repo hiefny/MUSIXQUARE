@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Blob URL Manager
- * Extracted from original app.js lines 792-995
+ * MUSIXQUARE 3.0 — Blob URL Manager
  *
  * Centralized Blob URL lifecycle management to prevent memory leaks.
  * Supports deferred revocation for URLs still attached to <video>.

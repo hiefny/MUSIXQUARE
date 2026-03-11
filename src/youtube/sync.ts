@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — YouTube Sync
- * Extracted from original app.js lines 11568-11688
+ * MUSIXQUARE 3.0 — YouTube Sync
  *
  * Manages: YouTube state broadcasting (Host), sync reception (Guest),
  * sub-index tracking, drift correction.

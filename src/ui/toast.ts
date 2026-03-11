@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Toast & Loader
- * Extracted from original app.js lines 10097-10148
+ * MUSIXQUARE 3.0 — Toast & Loader
  *
  * Manages: Toast notifications, header loading bar.
  */

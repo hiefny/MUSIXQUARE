@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Chat System
- * Extracted from original app.js lines 10624-10860
+ * MUSIXQUARE 3.0 — Chat System
  *
  * Manages: sendChatMessage, addChatMessage, parseMessageContent,
  * chat drawer toggle, YouTube oEmbed title in chat.

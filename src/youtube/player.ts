@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — YouTube Player
- * Extracted from original app.js lines 11313-11788
+ * MUSIXQUARE 3.0 — YouTube Player
  *
  * Manages: YouTube IFrame API, player lifecycle, state changes,
  * UI loop, stopYouTubeMode.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Connect Tab (UI)
+ * MUSIXQUARE 3.0 — Connect Tab (UI)
  *
  * Manages: QR code generation for session joining, max-device slider,
  * connected device list rendering (mobile + desktop sub-panel).

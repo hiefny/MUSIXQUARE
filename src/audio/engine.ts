@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Audio Engine (Tone.js)
- * Extracted from original app.js lines 476-2112
+ * MUSIXQUARE 3.0 — Audio Engine (Tone.js)
  *
  * Manages the entire Tone.js audio graph:
  *   Player → Widener → Preamp → Split → Channel Routing → Merge

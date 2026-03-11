@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Session ID Management
- * Extracted from original app.js lines 51-54, 272-294, 1369-1372
+ * MUSIXQUARE 3.0 — Session ID Management
  */
 
 import { log } from './log.ts';

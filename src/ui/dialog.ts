@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Dialog / Modal System
- * Extracted from original app.js lines 10150-10336
+ * MUSIXQUARE 3.0 — Dialog / Modal System
  *
  * Manages: Promise-based modal dialogs with queue, focus trap, a11y.
  */

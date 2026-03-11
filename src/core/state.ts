@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Central State Store
- * Extracted from original app.js global variables.
+ * MUSIXQUARE 3.0 — Central State Store
  *
  * Single Source of Truth for app-wide reactive state.
  * Uses dot-separated paths and emits bus events on change.

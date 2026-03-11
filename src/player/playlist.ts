@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Playlist Management
- * Extracted from original app.js lines 3456-4062, 4272-4397
+ * MUSIXQUARE 3.0 — Playlist Management
  *
  * Manages: playlist array, repeat/shuffle modes, playTrack,
  * playNextTrack, playPrevTrack, clearPreloadState.

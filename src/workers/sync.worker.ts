@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Sync Worker (Background Timers)
+ * MUSIXQUARE 3.0 — Sync Worker (Background Timers)
  * Ported from js/sync.worker.js
  *
  * Timer & Heartbeat background tasks with robust error handling.

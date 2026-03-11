@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Constants
- * Extracted from original app.js lines 1172-1299
+ * MUSIXQUARE 3.0 — Constants
  */
 
 // ─── App State ─────────────────────────────────────────────────────

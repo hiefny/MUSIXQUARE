@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Message Protocol & Dispatch
- * Extracted from original app.js lines 8935-9027, 9175-9223
+ * MUSIXQUARE 3.0 — Message Protocol & Dispatch
  *
  * Manages: Message validation, handler registry, dispatch (handleData),
  * relay command routing (upstream/downstream), RELAYABLE_COMMANDS list.

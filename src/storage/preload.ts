@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Preload System
- * Extracted from original app.js lines 4064-4270, 7549-8143 (preload handlers)
+ * MUSIXQUARE 3.0 — Preload System
  *
  * Manages: Host-side preload scheduling, background transfer to peers,
  * Guest-side preload receive (start/chunk/end), preload-ack, play-preloaded.

@@ -1,6 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Canvas FFT Visualizer
- * Extracted from original app.js lines 5712-5918
+ * MUSIXQUARE 3.0 — Canvas FFT Visualizer
  *
  * Manages: Bass/High frequency circle visualizer with light/dark theme.
  */

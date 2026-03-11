@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 2.0 — Shared Type Definitions
+ * MUSIXQUARE 3.0 — Shared Type Definitions
  */
 
 // NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).

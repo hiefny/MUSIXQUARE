@@ -32,43 +32,68 @@ type ToneCrossFadeNode = CrossFade;
 type ToneWidenerNode = StereoWidener;
 type ToneAnalyserNode = Analyser;
 
-// ─── Module-scoped audio nodes ─────────────────────────────────────
-let toneSplit: Split | null = null;
-let toneMerge: Merge | null = null;
-let gainL: ToneGainNode | null = null;
-let gainR: ToneGainNode | null = null;
-let masterGain: ToneGainNode | null = null;
-let reverb: ToneReverbNode | null = null;
-let rvbLowCut: ToneFilterNode | null = null;
-let rvbHighCut: ToneFilterNode | null = null;
-let rvbCrossFade: ToneCrossFadeNode | null = null;
-let eqNodes: ToneFilterNode[] = [];
-let preamp: ToneGainNode | null = null;
-let widener: ToneWidenerNode | null = null;
-let globalLowPass: ToneFilterNode | null = null;
-let analyser: ToneAnalyserNode | null = null;
-// Virtual Bass — Dual-Band Psychoacoustic Enhancement
-let vbSubLP: ToneFilterNode | null = null;
-let vbSubHP: ToneFilterNode | null = null;
-let vbSubComp: Compressor | null = null;
-let vbSubTrim: ToneGainNode | null = null;
-let vbSubShaper: WaveShaper | null = null;
-let vbSubPostHP: ToneFilterNode | null = null;
-let vbSubPostLP: ToneFilterNode | null = null;
-let vbSubMix: ToneGainNode | null = null;
-let vbMidLP: ToneFilterNode | null = null;
-let vbMidHP: ToneFilterNode | null = null;
-let vbMidComp: Compressor | null = null;
-let vbMidTrim: ToneGainNode | null = null;
-let vbMidShaper: WaveShaper | null = null;
-let vbMidPostHP: ToneFilterNode | null = null;
-let vbMidPostLP: ToneFilterNode | null = null;
-let vbMidMix: ToneGainNode | null = null;
-let vbSum: ToneGainNode | null = null;
-let vbLimiter: Limiter | null = null;
-let vbGain: ToneGainNode | null = null;
-let surroundSplitter: Split | null = null;
-let surroundGain: ToneGainNode | null = null;
+// ─── AudioGraph Struct ────────────────────────────────────────────
+interface AudioGraph {
+  // Channel & stereo processing
+  toneSplit: Split | null;
+  toneMerge: Merge | null;
+  gainL: ToneGainNode | null;
+  gainR: ToneGainNode | null;
+
+  // Effects chain
+  masterGain: ToneGainNode | null;
+  reverb: ToneReverbNode | null;
+  rvbLowCut: ToneFilterNode | null;
+  rvbHighCut: ToneFilterNode | null;
+  rvbCrossFade: ToneCrossFadeNode | null;
+  eqNodes: ToneFilterNode[];
+  preamp: ToneGainNode | null;
+  widener: ToneWidenerNode | null;
+  globalLowPass: ToneFilterNode | null;
+  analyser: ToneAnalyserNode | null;
+
+  // Virtual Bass — Dual-Band
+  vbSubLP: ToneFilterNode | null;
+  vbSubHP: ToneFilterNode | null;
+  vbSubComp: Compressor | null;
+  vbSubTrim: ToneGainNode | null;
+  vbSubShaper: WaveShaper | null;
+  vbSubPostHP: ToneFilterNode | null;
+  vbSubPostLP: ToneFilterNode | null;
+  vbSubMix: ToneGainNode | null;
+  vbMidLP: ToneFilterNode | null;
+  vbMidHP: ToneFilterNode | null;
+  vbMidComp: Compressor | null;
+  vbMidTrim: ToneGainNode | null;
+  vbMidShaper: WaveShaper | null;
+  vbMidPostHP: ToneFilterNode | null;
+  vbMidPostLP: ToneFilterNode | null;
+  vbMidMix: ToneGainNode | null;
+  vbSum: ToneGainNode | null;
+  vbLimiter: Limiter | null;
+  vbGain: ToneGainNode | null;
+
+  // Surround
+  surroundSplitter: Split | null;
+  surroundGain: ToneGainNode | null;
+}
+
+function createEmptyGraph(): AudioGraph {
+  return {
+    toneSplit: null, toneMerge: null, gainL: null, gainR: null,
+    masterGain: null, reverb: null, rvbLowCut: null, rvbHighCut: null,
+    rvbCrossFade: null, eqNodes: [], preamp: null, widener: null,
+    globalLowPass: null, analyser: null,
+    vbSubLP: null, vbSubHP: null, vbSubComp: null, vbSubTrim: null,
+    vbSubShaper: null, vbSubPostHP: null, vbSubPostLP: null, vbSubMix: null,
+    vbMidLP: null, vbMidHP: null, vbMidComp: null, vbMidTrim: null,
+    vbMidShaper: null, vbMidPostHP: null, vbMidPostLP: null, vbMidMix: null,
+    vbSum: null, vbLimiter: null, vbGain: null,
+    surroundSplitter: null, surroundGain: null,
+  };
+}
+
+let _graph: AudioGraph = createEmptyGraph();
 
 let _initAudioPromise: Promise<void> | null = null;
 let _ctxStateChangeCtx: AudioContext | null = null;
@@ -76,34 +101,34 @@ let _ctxStateChangeHandler: (() => void) | null = null;
 
 // ─── Public Getters ────────────────────────────────────────────────
 
-export function getMasterGain(): ToneGainNode | null { return masterGain; }
-export function getAnalyser(): ToneAnalyserNode | null { return analyser; }
-export function getToneMerge(): Merge | null { return toneMerge; }
-export function getGainL(): ToneGainNode | null { return gainL; }
-export function getGainR(): ToneGainNode | null { return gainR; }
-export function getPreamp(): ToneGainNode | null { return preamp; }
-export function getWidener(): ToneWidenerNode | null { return widener; }
-export function getReverb(): ToneReverbNode | null { return reverb; }
-export function getRvbLowCut(): ToneFilterNode | null { return rvbLowCut; }
-export function getRvbHighCut(): ToneFilterNode | null { return rvbHighCut; }
-export function getRvbCrossFade(): ToneCrossFadeNode | null { return rvbCrossFade; }
-export function getEqNodes(): ToneFilterNode[] { return eqNodes; }
-export function getGlobalLowPass(): ToneFilterNode | null { return globalLowPass; }
-export function getVbGain(): ToneGainNode | null { return vbGain; }
-export function getSurroundSplitter(): Split | null { return surroundSplitter; }
-export function getSurroundGain(): ToneGainNode | null { return surroundGain; }
-export function isAudioReady(): boolean { return masterGain !== null; }
+export function getMasterGain(): ToneGainNode | null { return _graph.masterGain; }
+export function getAnalyser(): ToneAnalyserNode | null { return _graph.analyser; }
+export function getToneMerge(): Merge | null { return _graph.toneMerge; }
+export function getGainL(): ToneGainNode | null { return _graph.gainL; }
+export function getGainR(): ToneGainNode | null { return _graph.gainR; }
+export function getPreamp(): ToneGainNode | null { return _graph.preamp; }
+export function getWidener(): ToneWidenerNode | null { return _graph.widener; }
+export function getReverb(): ToneReverbNode | null { return _graph.reverb; }
+export function getRvbLowCut(): ToneFilterNode | null { return _graph.rvbLowCut; }
+export function getRvbHighCut(): ToneFilterNode | null { return _graph.rvbHighCut; }
+export function getRvbCrossFade(): ToneCrossFadeNode | null { return _graph.rvbCrossFade; }
+export function getEqNodes(): ToneFilterNode[] { return _graph.eqNodes; }
+export function getGlobalLowPass(): ToneFilterNode | null { return _graph.globalLowPass; }
+export function getVbGain(): ToneGainNode | null { return _graph.vbGain; }
+export function getSurroundSplitter(): Split | null { return _graph.surroundSplitter; }
+export function getSurroundGain(): ToneGainNode | null { return _graph.surroundGain; }
+export function isAudioReady(): boolean { return _graph.masterGain !== null; }
 export function getAudioContext(): AudioContext | null {
   try { return (Tone?.getContext?.()?.rawContext as AudioContext) ?? null; } catch { return null; }
 }
 
 // For surround mode setup (creates nodes only; connected later in setSurroundChannel)
 export function ensureSurroundNodes(): { splitter: Split; gain: Gain } {
-  if (!surroundSplitter || !surroundGain) {
-    surroundSplitter = new Tone.Split(8);
-    surroundGain = new Tone.Gain(1);
+  if (!_graph.surroundSplitter || !_graph.surroundGain) {
+    _graph.surroundSplitter = new Tone.Split(8);
+    _graph.surroundGain = new Tone.Gain(1);
   }
-  return { splitter: surroundSplitter!, gain: surroundGain! };
+  return { splitter: _graph.surroundSplitter!, gain: _graph.surroundGain! };
 }
 
 /**
@@ -126,7 +151,7 @@ export function safeDisconnect(node: ToneNode | null): void {
  */
 export async function initAudio(): Promise<void> {
   // Fast-path: already initialized
-  if (masterGain) {
+  if (_graph.masterGain) {
     if (typeof Tone !== 'undefined' && Tone?.context?.state !== 'running') {
       try { await Tone.start(); } catch { /* best-effort */ }
     }
@@ -143,7 +168,7 @@ export async function initAudio(): Promise<void> {
   } catch (e) {
     // Ensure sentinel is cleared on ANY init failure — prevents fast-path
     // with an incomplete audio graph on subsequent initAudio() calls.
-    masterGain = null;
+    _graph.masterGain = null;
     throw e;
   } finally {
     _initAudioPromise = null;
@@ -158,81 +183,76 @@ async function _doInitAudio(): Promise<void> {
   if (Tone.context.state !== 'running') {
     await Tone.start();
   }
-  if (masterGain) return; // Another call may have finished while awaiting
+  if (_graph.masterGain) return; // Another call may have finished while awaiting
 
   // Guard: if a previous failed init left partial nodes, dispose them first
-  if (toneSplit || preamp || reverb || widener) {
+  if (_graph.toneSplit || _graph.preamp || _graph.reverb || _graph.widener) {
     const leftoverNodes: (ToneNode | null)[] = [
-      toneSplit, toneMerge, gainL, gainR, preamp, widener, reverb,
-      rvbLowCut, rvbHighCut, rvbCrossFade, globalLowPass, analyser,
-      vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper, vbSubPostHP, vbSubPostLP, vbSubMix,
-      vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper, vbMidPostHP, vbMidPostLP, vbMidMix,
-      vbSum, vbLimiter, vbGain,
-      surroundSplitter, surroundGain,
+      _graph.toneSplit, _graph.toneMerge, _graph.gainL, _graph.gainR,
+      _graph.preamp, _graph.widener, _graph.reverb,
+      _graph.rvbLowCut, _graph.rvbHighCut, _graph.rvbCrossFade,
+      _graph.globalLowPass, _graph.analyser,
+      _graph.vbSubLP, _graph.vbSubHP, _graph.vbSubComp, _graph.vbSubTrim,
+      _graph.vbSubShaper, _graph.vbSubPostHP, _graph.vbSubPostLP, _graph.vbSubMix,
+      _graph.vbMidLP, _graph.vbMidHP, _graph.vbMidComp, _graph.vbMidTrim,
+      _graph.vbMidShaper, _graph.vbMidPostHP, _graph.vbMidPostLP, _graph.vbMidMix,
+      _graph.vbSum, _graph.vbLimiter, _graph.vbGain,
+      _graph.surroundSplitter, _graph.surroundGain,
     ];
     for (const n of leftoverNodes) { try { if (n) n.dispose(); } catch { /* */ } }
-    for (const n of eqNodes) { try { n.dispose(); } catch { /* */ } }
-    toneSplit = toneMerge = gainL = gainR = preamp = widener = null;
-    reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
-    globalLowPass = analyser = null; eqNodes = [];
-    vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
-    vbSubPostHP = vbSubPostLP = vbSubMix = null;
-    vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
-    vbMidPostHP = vbMidPostLP = vbMidMix = null;
-    vbSum = vbLimiter = vbGain = null;
-    surroundSplitter = surroundGain = null;
+    for (const n of _graph.eqNodes) { try { n.dispose(); } catch { /* */ } }
+    _graph = createEmptyGraph();
     log.warn('[Audio] Cleaned up leftover nodes from previous failed init');
   }
 
   // ── Channel & Stereo Processing ──
-  toneSplit = new Tone.Split();
-  toneMerge = new Tone.Merge();
-  gainL = new Tone.Gain(1);
-  gainR = new Tone.Gain(1);
+  _graph.toneSplit = new Tone.Split();
+  _graph.toneMerge = new Tone.Merge();
+  _graph.gainL = new Tone.Gain(1);
+  _graph.gainR = new Tone.Gain(1);
 
-  toneSplit!.connect(gainL!, 0);  // L -> gainL
-  toneSplit!.connect(gainR!, 1);  // R -> gainR
+  _graph.toneSplit!.connect(_graph.gainL!, 0);  // L -> gainL
+  _graph.toneSplit!.connect(_graph.gainR!, 1);  // R -> gainR
 
   // Default Routing: Stereo (L→0, R→1 of merge)
-  gainL!.connect(toneMerge!, 0, 0);
-  gainR!.connect(toneMerge!, 0, 1);
+  _graph.gainL!.connect(_graph.toneMerge!, 0, 0);
+  _graph.gainR!.connect(_graph.toneMerge!, 0, 1);
 
   // ── Effects Chain ──
-  masterGain = new Tone.Gain(1);
+  _graph.masterGain = new Tone.Gain(1);
 
   // EQ (5-Band Peaking Filters)
-  eqNodes = EQ_FREQUENCIES.map(f =>
+  _graph.eqNodes = EQ_FREQUENCIES.map(f =>
     new Tone.Filter({ type: 'peaking', frequency: f, Q: 1.0, gain: 0 })
   );
 
   // Preamplifier + Stereo Widener
-  preamp = new Tone.Gain(1);
-  widener = new Tone.StereoWidener(1); // applySettings() overwrites with state default
+  _graph.preamp = new Tone.Gain(1);
+  _graph.widener = new Tone.StereoWidener(1); // applySettings() overwrites with state default
 
   // Reverb
-  reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 });
-  reverb.wet.value = 1; // 100% Wet for parallel routing
+  _graph.reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.1 });
+  _graph.reverb.wet.value = 1; // 100% Wet for parallel routing
 
   try {
-    await reverb.generate();
+    await _graph.reverb.generate();
   } catch (reverbErr) {
     // Clean up partially created nodes before rethrowing
-    [toneSplit, toneMerge, gainL, gainR, masterGain, preamp, widener, reverb].forEach(n => {
+    [_graph.toneSplit, _graph.toneMerge, _graph.gainL, _graph.gainR,
+     _graph.masterGain, _graph.preamp, _graph.widener, _graph.reverb].forEach(n => {
       try { if (n) n.dispose(); } catch { /* */ }
     });
-    eqNodes.forEach(n => { try { n.dispose(); } catch { /* */ } });
-    toneSplit = toneMerge = gainL = gainR = masterGain = preamp = widener = null;
-    reverb = null;
-    eqNodes = [];
+    _graph.eqNodes.forEach(n => { try { n.dispose(); } catch { /* */ } });
+    _graph = createEmptyGraph();
     throw reverbErr;
   }
 
   // Damping filters — wrapped to prevent partial graph if any node throws
   // (masterGain is already set at this point, so initAudio() would fast-path)
   try {
-  rvbLowCut = new Tone.Filter(20, 'highpass', -12);
-  rvbHighCut = new Tone.Filter(20000, 'lowpass', -12);
-  rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
+  _graph.rvbLowCut = new Tone.Filter(20, 'highpass', -12);
+  _graph.rvbHighCut = new Tone.Filter(20000, 'lowpass', -12);
+  _graph.rvbCrossFade = new Tone.CrossFade(0); // Initially Dry
 
   // ── Virtual Bass — Dual-Band Psychoacoustic Enhancement ──
   // Custom waveshaper curves (8192 samples for smooth interpolation)
@@ -255,88 +275,88 @@ async function _doInitAudio(): Promise<void> {
   }
 
   // Sub-bass path (40-80 Hz)
-  vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 });
-  vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 });
-  vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 });
-  vbSubTrim = new Tone.Gain(0.8);
-  vbSubShaper = new Tone.WaveShaper(subCurve);
-  vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
-  vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 });
-  vbSubMix = new Tone.Gain(1.0);
+  _graph.vbSubLP = new Tone.Filter({ frequency: 80, type: 'lowpass', rolloff: -24 });
+  _graph.vbSubHP = new Tone.Filter({ frequency: 40, type: 'highpass', rolloff: -12 });
+  _graph.vbSubComp = new Tone.Compressor({ threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 });
+  _graph.vbSubTrim = new Tone.Gain(0.8);
+  _graph.vbSubShaper = new Tone.WaveShaper(subCurve);
+  _graph.vbSubPostHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
+  _graph.vbSubPostLP = new Tone.Filter({ frequency: 320, type: 'lowpass', rolloff: -24 });
+  _graph.vbSubMix = new Tone.Gain(1.0);
 
   // Mid-bass path (80-160 Hz)
-  vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 });
-  vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
-  vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 });
-  vbMidTrim = new Tone.Gain(0.7);
-  vbMidShaper = new Tone.WaveShaper(midCurve);
-  vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 });
-  vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 });
-  vbMidMix = new Tone.Gain(0.8);
+  _graph.vbMidLP = new Tone.Filter({ frequency: 160, type: 'lowpass', rolloff: -24 });
+  _graph.vbMidHP = new Tone.Filter({ frequency: 80, type: 'highpass', rolloff: -12 });
+  _graph.vbMidComp = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 });
+  _graph.vbMidTrim = new Tone.Gain(0.7);
+  _graph.vbMidShaper = new Tone.WaveShaper(midCurve);
+  _graph.vbMidPostHP = new Tone.Filter({ frequency: 150, type: 'highpass', rolloff: -12 });
+  _graph.vbMidPostLP = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 });
+  _graph.vbMidMix = new Tone.Gain(0.8);
 
   // Output stage
-  vbSum = new Tone.Gain(1.0);
-  vbLimiter = new Tone.Limiter(-3);
-  vbGain = new Tone.Gain(0);
+  _graph.vbSum = new Tone.Gain(1.0);
+  _graph.vbLimiter = new Tone.Limiter(-3);
+  _graph.vbGain = new Tone.Gain(0);
 
   // ── Connections ──
   // Player → Widener → Preamp → Split → (Channel Logic) → Merge → EQ → Reverb → Master
 
   // 1. Pre-Processing
-  widener!.connect(preamp!);
+  _graph.widener!.connect(_graph.preamp!);
 
   // 2. Channel Splitting
-  preamp!.connect(toneSplit!);
+  _graph.preamp!.connect(_graph.toneSplit!);
 
   // 3. Post-Processing: Merge → GlobalLowPass → EQ → Reverb → Master
-  globalLowPass = new Tone.Filter(20000, 'lowpass');
-  toneMerge!.connect(globalLowPass);
+  _graph.globalLowPass = new Tone.Filter(20000, 'lowpass');
+  _graph.toneMerge!.connect(_graph.globalLowPass);
 
-  let eqIn: ToneNode = globalLowPass!;
-  for (const fx of eqNodes) {
+  let eqIn: ToneNode = _graph.globalLowPass!;
+  for (const fx of _graph.eqNodes) {
     eqIn.connect(fx);
     eqIn = fx;
   }
 
   // Wet/Dry Routing with Damping
-  eqIn.connect(rvbCrossFade.a);              // Dry path
-  eqIn.connect(reverb);                       // Wet path
-  reverb.connect(rvbLowCut);
-  rvbLowCut.connect(rvbHighCut);
-  rvbHighCut.connect(rvbCrossFade.b);
-  rvbCrossFade!.connect(masterGain!);            // Output
+  eqIn.connect(_graph.rvbCrossFade.a);              // Dry path
+  eqIn.connect(_graph.reverb!);                     // Wet path
+  _graph.reverb!.connect(_graph.rvbLowCut);
+  _graph.rvbLowCut.connect(_graph.rvbHighCut);
+  _graph.rvbHighCut.connect(_graph.rvbCrossFade.b);
+  _graph.rvbCrossFade!.connect(_graph.masterGain!);    // Output
 
   // Virtual Bass — dual-band parallel tap after EQ
   // Sub-bass path
-  eqIn.connect(vbSubLP!);
-  vbSubLP!.connect(vbSubHP!);
-  vbSubHP!.connect(vbSubComp!);
-  vbSubComp!.connect(vbSubTrim!);
-  vbSubTrim!.connect(vbSubShaper!);
-  vbSubShaper!.connect(vbSubPostHP!);
-  vbSubPostHP!.connect(vbSubPostLP!);
-  vbSubPostLP!.connect(vbSubMix!);
-  vbSubMix!.connect(vbSum!);
+  eqIn.connect(_graph.vbSubLP!);
+  _graph.vbSubLP!.connect(_graph.vbSubHP!);
+  _graph.vbSubHP!.connect(_graph.vbSubComp!);
+  _graph.vbSubComp!.connect(_graph.vbSubTrim!);
+  _graph.vbSubTrim!.connect(_graph.vbSubShaper!);
+  _graph.vbSubShaper!.connect(_graph.vbSubPostHP!);
+  _graph.vbSubPostHP!.connect(_graph.vbSubPostLP!);
+  _graph.vbSubPostLP!.connect(_graph.vbSubMix!);
+  _graph.vbSubMix!.connect(_graph.vbSum!);
   // Mid-bass path
-  eqIn.connect(vbMidLP!);
-  vbMidLP!.connect(vbMidHP!);
-  vbMidHP!.connect(vbMidComp!);
-  vbMidComp!.connect(vbMidTrim!);
-  vbMidTrim!.connect(vbMidShaper!);
-  vbMidShaper!.connect(vbMidPostHP!);
-  vbMidPostHP!.connect(vbMidPostLP!);
-  vbMidPostLP!.connect(vbMidMix!);
-  vbMidMix!.connect(vbSum!);
+  eqIn.connect(_graph.vbMidLP!);
+  _graph.vbMidLP!.connect(_graph.vbMidHP!);
+  _graph.vbMidHP!.connect(_graph.vbMidComp!);
+  _graph.vbMidComp!.connect(_graph.vbMidTrim!);
+  _graph.vbMidTrim!.connect(_graph.vbMidShaper!);
+  _graph.vbMidShaper!.connect(_graph.vbMidPostHP!);
+  _graph.vbMidPostHP!.connect(_graph.vbMidPostLP!);
+  _graph.vbMidPostLP!.connect(_graph.vbMidMix!);
+  _graph.vbMidMix!.connect(_graph.vbSum!);
   // Output stage
-  vbSum!.connect(vbLimiter!);
-  vbLimiter!.connect(vbGain!);
-  vbGain!.connect(masterGain!);
+  _graph.vbSum!.connect(_graph.vbLimiter!);
+  _graph.vbLimiter!.connect(_graph.vbGain!);
+  _graph.vbGain!.connect(_graph.masterGain!);
 
   // Visualizer — 2048 bins for accurate frequency mapping (bass 0~260Hz, high 7.5k~20kHz)
-  analyser = new Tone.Analyser('fft', 2048);
-  analyser.smoothing = 0.3;
-  masterGain!.connect(analyser);
-  masterGain!.toDestination();
+  _graph.analyser = new Tone.Analyser('fft', 2048);
+  _graph.analyser.smoothing = 0.3;
+  _graph.masterGain!.connect(_graph.analyser);
+  _graph.masterGain!.toDestination();
 
   // Analyser is available via getAnalyser() export — no need to duplicate in state
 
@@ -344,24 +364,20 @@ async function _doInitAudio(): Promise<void> {
     // Post-reverb node construction failed — dispose ALL nodes to prevent
     // partial graph (masterGain already set would make initAudio() fast-path)
     const allNodes: (ToneNode | null)[] = [
-      toneSplit, toneMerge, gainL, gainR, masterGain, preamp, widener, reverb,
-      rvbLowCut, rvbHighCut, rvbCrossFade, globalLowPass, analyser,
-      vbSubLP, vbSubHP, vbSubComp, vbSubTrim, vbSubShaper, vbSubPostHP, vbSubPostLP, vbSubMix,
-      vbMidLP, vbMidHP, vbMidComp, vbMidTrim, vbMidShaper, vbMidPostHP, vbMidPostLP, vbMidMix,
-      vbSum, vbLimiter, vbGain,
-      surroundSplitter, surroundGain,
+      _graph.toneSplit, _graph.toneMerge, _graph.gainL, _graph.gainR,
+      _graph.masterGain, _graph.preamp, _graph.widener, _graph.reverb,
+      _graph.rvbLowCut, _graph.rvbHighCut, _graph.rvbCrossFade,
+      _graph.globalLowPass, _graph.analyser,
+      _graph.vbSubLP, _graph.vbSubHP, _graph.vbSubComp, _graph.vbSubTrim,
+      _graph.vbSubShaper, _graph.vbSubPostHP, _graph.vbSubPostLP, _graph.vbSubMix,
+      _graph.vbMidLP, _graph.vbMidHP, _graph.vbMidComp, _graph.vbMidTrim,
+      _graph.vbMidShaper, _graph.vbMidPostHP, _graph.vbMidPostLP, _graph.vbMidMix,
+      _graph.vbSum, _graph.vbLimiter, _graph.vbGain,
+      _graph.surroundSplitter, _graph.surroundGain,
     ];
     for (const n of allNodes) { try { if (n) n.dispose(); } catch { /* */ } }
-    for (const n of eqNodes) { try { n.dispose(); } catch { /* */ } }
-    toneSplit = toneMerge = gainL = gainR = masterGain = preamp = widener = null;
-    reverb = null; rvbLowCut = rvbHighCut = null; rvbCrossFade = null;
-    globalLowPass = analyser = null; eqNodes = [];
-    vbSubLP = vbSubHP = vbSubComp = vbSubTrim = vbSubShaper = null;
-    vbSubPostHP = vbSubPostLP = vbSubMix = null;
-    vbMidLP = vbMidHP = vbMidComp = vbMidTrim = vbMidShaper = null;
-    vbMidPostHP = vbMidPostLP = vbMidMix = null;
-    vbSum = vbLimiter = vbGain = null;
-    surroundSplitter = surroundGain = null;
+    for (const n of _graph.eqNodes) { try { n.dispose(); } catch { /* */ } }
+    _graph = createEmptyGraph();
     throw postReverbErr;
   }
 
@@ -413,8 +429,8 @@ bus.on('audio:set-volume', (volume) => {
   if (!Number.isFinite(volume)) return;
   const clamped = Math.max(0, Math.min(1, volume));
   setState('audio.masterVolume', clamped);
-  if (masterGain) {
-    masterGain.gain.rampTo(clamped, 0.1);
+  if (_graph.masterGain) {
+    _graph.masterGain.gain.rampTo(clamped, 0.1);
   }
   bus.emit('audio:volume-changed', clamped);
   // Also sync YouTube player volume when in YouTube mode

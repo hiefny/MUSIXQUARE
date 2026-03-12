@@ -403,7 +403,7 @@ export function initSettings(): void {
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
     el.addEventListener('click', () => {
-      if (_guardHostCtrl()) return;
+      // Role selection is always allowed — each device picks its own speaker role
       setChannel(parseInt(el.dataset.ch!, 10));
     });
   });

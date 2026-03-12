@@ -405,7 +405,9 @@ export function initPlayback(): void {
     bus.emit('ui:update-loader', progress);
   });
 
-  // Host: Send playback state + current file to newly connected peer (late-join bootstrap)
+  // Host: Send playback state to newly connected peer (late-join bootstrap)
+  // NOTE: File transfer is deferred to 'orchestrator:peer-type-detected' below,
+  // because isDataTarget is still false at this point (ICE detection pending).
   bus.on('network:peer-connected', (conn) => {
     if (!conn?.open) return;
 
@@ -416,29 +418,6 @@ export function initPlayback(): void {
     const currentState = getState('appState');
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
-
-    // Send current file to late-joining guest (if local file is loaded)
-    if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-      const item = playlist[currentTrackIndex] as unknown as Record<string, unknown>;
-      if (item.type !== 'youtube') {
-        const currentFileBlob = getState('files.currentFileBlob');
-        const currentSessionId = getState('transfer.currentSessionId');
-        if (currentFileBlob) {
-          unicastFile(conn, currentFileBlob, 0, currentSessionId)
-            .catch((e: unknown) => log.error('[Host] unicastFile for late joiner failed', e));
-        }
-
-        // Also send preloaded next track
-        const nextFileBlob = getState('preload.nextFileBlob');
-        const nextMeta = getState('preload.meta');
-        const nextTrackIndex = getState('preload.nextTrackIndex');
-        if (nextFileBlob && nextMeta && nextTrackIndex >= 0) {
-          const preloadSid = (nextMeta.sessionId as number) || 0;
-          unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid)
-            .catch((e: unknown) => log.error('[Host] unicastPreload for late joiner failed', e));
-        }
-      }
-    }
 
     // Send playback state (time-sync for late joiners)
     try {
@@ -469,6 +448,44 @@ export function initPlayback(): void {
       log.debug('[Playback] Bootstrap: sent playback state to new peer');
     } catch (e) {
       log.warn('[Playback] Bootstrap send failed:', e);
+    }
+  });
+
+  // Host: Send current file after ICE detection completes (isDataTarget is now set)
+  bus.on('orchestrator:peer-type-detected', (peerId: string) => {
+    const hostConn = getState('network.hostConn');
+    if (hostConn) return; // Only Host
+
+    const peers = getState('network.connectedPeers') || [];
+    const peer = peers.find(p => p.id === peerId);
+    if (!peer || !peer.isDataTarget) return; // Remote/relay peer — no direct file send
+    const conn = peer.conn as DataConnection;
+    if (!conn?.open) return;
+
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const playlist = getState('playlist.items') || [];
+
+    if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
+      const item = playlist[currentTrackIndex] as unknown as Record<string, unknown>;
+      if (item.type !== 'youtube') {
+        const currentFileBlob = getState('files.currentFileBlob');
+        const currentSessionId = getState('transfer.currentSessionId');
+        if (currentFileBlob) {
+          log.debug(`[Playback] Sending current file to late-joiner ${peer.label || peerId} (post-ICE)`);
+          unicastFile(conn, currentFileBlob, 0, currentSessionId)
+            .catch((e: unknown) => log.error('[Host] unicastFile for late joiner failed', e));
+        }
+
+        // Also send preloaded next track
+        const nextFileBlob = getState('preload.nextFileBlob');
+        const nextMeta = getState('preload.meta');
+        const nextTrackIndex = getState('preload.nextTrackIndex');
+        if (nextFileBlob && nextMeta && nextTrackIndex >= 0) {
+          const preloadSid = (nextMeta.sessionId as number) || 0;
+          unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid)
+            .catch((e: unknown) => log.error('[Host] unicastPreload for late joiner failed', e));
+        }
+      }
     }
   });
 

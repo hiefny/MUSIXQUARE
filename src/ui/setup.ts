@@ -197,6 +197,12 @@ export function initSetup(): void {
   // Guest join success/failure events
   bus.on('setup:guest-join-success', () => {
     setState('network.isConnecting', false);
+
+    // Mark session as started so guests can see QR / invite link in Connect tab
+    setState('setup.sessionStarted', true);
+    const joinCode = getState('network.lastJoinCode');
+    if (joinCode) setState('network.sessionCode', joinCode);
+
     updateRoleBadge();
     hideSetupOverlay();
     // Clear pending join code & clean URL — connection succeeded

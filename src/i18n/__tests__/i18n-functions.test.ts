@@ -167,7 +167,7 @@ describe('i18n functions', () => {
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
 
-    it('falls back to "system" for invalid mode', async () => {
+    it('falls back to system-resolved language for invalid mode', async () => {
       Object.defineProperty(navigator, 'languages', {
         value: ['en-US'],
         configurable: true,
@@ -175,7 +175,8 @@ describe('i18n functions', () => {
       const { setLanguageMode, initI18n } = await import('../index.ts');
       initI18n();
       setLanguageMode('invalid');
-      expect(localStorage.getItem('musixquare-lang')).toBe('system');
+      // Invalid mode is resolved to the system language ('en' for en-US)
+      expect(localStorage.getItem('musixquare-lang')).toBe('en');
     });
   });
 

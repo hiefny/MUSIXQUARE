@@ -23,7 +23,6 @@ import type { Limiter } from 'tone/build/esm/component/dynamics/Limiter.js';
 import type { WaveShaper } from 'tone/build/esm/signal/WaveShaper.js';
 
 // ─── Tone.js type aliases (internal convenience) ──────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToneNode = ToneAudioNode<any>;
 type ToneGainNode = Gain;
 type ToneFilterNode = Filter;

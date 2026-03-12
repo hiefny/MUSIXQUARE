@@ -63,7 +63,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MessageHandler = (data: ProtocolMsg<any>, conn: DataConnection) => void | Promise<void>;
 const _handlers = new Map<string, MessageHandler>();
 
@@ -136,7 +135,6 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   const handler = _handlers.get(msgType);
   if (handler) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await handler(msg as ProtocolMsg<any>, conn);
     } catch (e) {
       log.error(`Error handling ${msgType}:`, e);

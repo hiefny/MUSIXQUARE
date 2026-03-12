@@ -102,6 +102,10 @@ export interface DeviceInfo {
 
 // ─── P2P Protocol Messages ────────────────────────────────────────
 
+/** Marker for protocol messages with no additional payload fields beyond `type`. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type NoPayload = {};
+
 /**
  * Maps each MsgType string literal to its payload shape (excluding the `type` field).
  * Used by ProtocolMsg<T> to build the full message type.
@@ -110,12 +114,12 @@ export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
   'welcome': { lockChannel: boolean; label: string };
   'session-full': { message: string };
-  'force-close-duplicate': {};
+  'force-close-duplicate': NoPayload;
 
   // ── Audio Control ────────────────────────────────────────────────
   'volume': { value: number };
   'eq-update': { band: number; value: number };
-  'eq-reset': {};
+  'eq-reset': NoPayload;
   'preamp': { value: number };
   'reverb': { value: number };
   'reverb-type': { value: string };
@@ -150,43 +154,43 @@ export interface ProtocolMap {
   'preload-ack': { index: number };
 
   // ── Sync / Timing ────────────────────────────────────────────────
-  'heartbeat': {};
-  'heartbeat-ack': {};
+  'heartbeat': NoPayload;
+  'heartbeat-ack': NoPayload;
   'ping-latency': { timestamp: number };
   'pong-latency': { timestamp: number };
   'sync-response': { time: number; isPlaying: boolean; reqTs: number };
   'get-sync-time': { ts: number };
-  'global-resync-request': {};
+  'global-resync-request': NoPayload;
 
   // ── Network / Relay ──────────────────────────────────────────────
   'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string }> };
   'assign-data-source': { targetId?: string | null };
-  'data-relay': {};
+  'data-relay': NoPayload;
   'kick-device': { reason?: string };
-  'operator-grant': {};
-  'operator-revoke': {};
+  'operator-grant': NoPayload;
+  'operator-revoke': NoPayload;
 
   // ── Guest Requests ───────────────────────────────────────────────
   'request-play': { time?: number };
-  'request-pause': {};
+  'request-pause': NoPayload;
   'request-seek': { time: number };
   'request-skip-time': { sec: number };
-  'request-next-track': {};
-  'request-prev-track': {};
+  'request-next-track': NoPayload;
+  'request-prev-track': NoPayload;
   'request-track-change': { index: number };
   'request-setting': { settingType: string; value?: unknown; band?: number };
-  'request-eq-reset': {};
+  'request-eq-reset': NoPayload;
   'request-current-file': { name?: string; index?: number; reason?: string };
   'request-data-recovery': { nextChunk: number; fileName: string; index: number; sessionId?: number };
-  'request-youtube-play': {};
-  'request-youtube-pause': {};
-  'request-youtube-toggle': {};
+  'request-youtube-play': NoPayload;
+  'request-youtube-pause': NoPayload;
+  'request-youtube-toggle': NoPayload;
   'request-youtube-sub-seek': { subIdx: number; playlistIdx?: number };
   'request-youtube-playlist-info': { playlistId: string };
 
   // ── YouTube ──────────────────────────────────────────────────────
   'youtube-play': { videoId?: string | null; playlistId?: string | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
-  'youtube-stop': {};
+  'youtube-stop': NoPayload;
   'youtube-state': { state: number; time: number; subIndex?: number };
   'youtube-sync': { time: number; state: number; subIndex?: number };
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
@@ -278,10 +282,8 @@ export interface StateTree {
 
 // ─── State Path Utilities ────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IsLeaf<T> = T extends
   | string | number | boolean | null | undefined
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | Array<any> | Map<any, any> | Set<any>
   | Blob | DataConnection | ReturnType<typeof setTimeout>
   ? true : false;

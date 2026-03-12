@@ -29,7 +29,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/core/log.ts', 'src/core/events.ts', 'src/ui/toast.ts'],
+    files: ['src/core/log.ts', 'src/core/events.ts', 'src/ui/toast.ts', 'src/core/timers.ts'],
     rules: { 'no-console': 'off' },
   },
   {

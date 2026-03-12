@@ -17,7 +17,6 @@ type EventArgs<K extends EventKey> = EventMap[K];
 
 type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => void;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyListener = (...args: any[]) => void;
 
 class EventBusImpl {

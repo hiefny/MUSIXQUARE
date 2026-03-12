@@ -90,7 +90,7 @@ export function initTabs(): void {
       const idx = navItems.indexOf(el);
       if (idx === -1) return;
       const len = navItems.length;
-      let targetIdx = -1;
+      let targetIdx: number;
 
       switch (e.key) {
         case 'ArrowRight':

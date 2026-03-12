@@ -28,10 +28,9 @@ beforeEach(() => {
     })),
   });
   document.body.innerHTML = `
-    <div class="theme-selector" style="">
-      <button id="theme-light" class="theme-opt">Light</button>
-      <button id="theme-dark" class="theme-opt">Dark</button>
-      <button id="theme-system" class="theme-opt">System</button>
+    <div class="channel-grid" id="grid-theme">
+      <div class="ch-opt" data-theme="light" id="theme-light">Light</div>
+      <div class="ch-opt" data-theme="dark" id="theme-dark">Dark</div>
     </div>
     <div id="grid-standard">
       <button class="ch-opt" data-ch="0">Stereo</button>
@@ -57,9 +56,10 @@ describe('setTheme', () => {
     expect(document.getElementById('theme-light')!.classList.contains('active')).toBe(false);
   });
 
-  it('activates system theme button', () => {
+  it('resolves system to light when matchMedia prefers-color-scheme is light', () => {
     setTheme('system');
-    expect(document.getElementById('theme-system')!.classList.contains('active')).toBe(true);
+    // system → resolved to 'light' (matchMedia returns false)
+    expect(document.getElementById('theme-light')!.classList.contains('active')).toBe(true);
   });
 
   it('sets data-theme attribute on html', () => {
@@ -95,22 +95,10 @@ describe('setTheme', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
-  it('sets pill index for sliding animation', () => {
-    setTheme('dark');
-    const selector = document.querySelector('.theme-selector') as HTMLElement;
-    expect(selector.style.getPropertyValue('--pill-index')).toBe('1');
-  });
-
-  it('sets pill index 0 for light', () => {
-    setTheme('light');
-    const selector = document.querySelector('.theme-selector') as HTMLElement;
-    expect(selector.style.getPropertyValue('--pill-index')).toBe('0');
-  });
-
-  it('sets pill index 2 for system', () => {
+  it('persists system as resolved value in localStorage', () => {
     setTheme('system');
-    const selector = document.querySelector('.theme-selector') as HTMLElement;
-    expect(selector.style.getPropertyValue('--pill-index')).toBe('2');
+    // 'system' resolves to 'light' (matchMedia returns false) — stored as resolved value
+    expect(localStorage.getItem('musixquare-theme')).toBe('light');
   });
 });
 

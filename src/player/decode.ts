@@ -147,6 +147,8 @@ export async function loadAndBroadcastFile(
     }
   } catch (err: unknown) {
     log.error(err);
+    // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
+    setState('files.currentFileBlob', null);
     bus.emit('ui:show-toast', `Load Failed: ${(err as Error).message}`);
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {

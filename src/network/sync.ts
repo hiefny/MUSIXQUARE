@@ -13,6 +13,7 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
+import { releasePeerSlot } from './peer-state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 
 // ─── Multi-Sample Sync State ─────────────────────────────────────────
@@ -411,6 +412,7 @@ function startHeartbeatMonitor(): void {
       setState('network.activeHostConnByPeerId', updatedConns);
       setState('network.connectedPeers', connectedPeers.filter(p => !staleSet.has(p.id)));
       for (const id of stalePeerIds) {
+        releasePeerSlot(id);
         bus.emit('network:peer-disconnected', id);
       }
       broadcastDeviceList();

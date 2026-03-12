@@ -57,7 +57,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && typeof d.index === 'number',
   [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && typeof d.total === 'number',
-  [MSG.WELCOME]: (d) => typeof d.peerId === 'string',
+  [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) => typeof d.band === 'number' && typeof d.value === 'number',
 };
 

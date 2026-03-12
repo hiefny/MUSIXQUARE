@@ -309,6 +309,10 @@ export function initYouTube(): void {
     bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
 
+    // Load locally first (triggers YOUTUBE_STOP for previous video),
+    // then broadcast PLAY — ensures guests receive STOP→PLAY order.
+    loadYouTubeVideo(videoId, playlistId, true);
+
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -328,8 +332,6 @@ export function initYouTube(): void {
         autoplay: true,
       });
     }
-
-    loadYouTubeVideo(videoId, playlistId, true);
 
     // Fetch title in background and update — capture the expected videoId/playlistId
     // to guard against stale playlist index if the playlist changes before fetch resolves

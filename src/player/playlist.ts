@@ -752,6 +752,14 @@ export function initPlaylist(): void {
       setState('playlist.currentTrackIndex', currentTrackIndex - 1);
     }
 
+    // Invalidate preload if the removed track shifted/invalidated the preloaded index
+    const preloadIdx = getState('preload.nextTrackIndex');
+    if (preloadIdx >= 0 && (index <= preloadIdx || preloadIdx >= playlist.length)) {
+      clearPreloadState();
+      // Re-schedule preload for the correct next track
+      if (playlist.length > 0) schedulePreload();
+    }
+
     // Broadcast updated playlist to all guests
     const updatedPlaylist = getState('playlist.items') || [];
     const metaList = updatedPlaylist.map(item => ({

@@ -251,6 +251,7 @@ function handleOperatorGrant(): void {
 function handleOperatorRevoke(): void {
   setState('network.isOperator', false);
   bus.emit('ui:show-toast', t('network.op_revoked'));
+  bus.emit('ui:play-btn-state', false);
   bus.emit('network:role-badge-update');
 }
 

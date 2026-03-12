@@ -232,6 +232,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     } else if (state === 2 && player.pauseVideo) {
       player.pauseVideo();
       if (player.seekTo) player.seekTo(time, true);
+    } else if (state === 0 || state === -1) {
+      // ENDED (0) or STOPPED (-1): stop guest YouTube player
+      if (player.stopVideo) player.stopVideo();
     }
   } catch (e) {
     log.error('[YouTube State] Error:', e);

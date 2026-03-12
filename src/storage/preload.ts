@@ -128,7 +128,10 @@ async function preloadNextTrack(): Promise<void> {
   }
 
   const file = item.file as File;
-  if (!file) return;
+  if (!file) {
+    setState('preload.isPreloading', false);
+    return;
+  }
 
   log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
   setState('preload.isPreloading', true);
@@ -145,10 +148,14 @@ async function preloadNextTrack(): Promise<void> {
   });
 
   // Broadcast preload to connected peers
-  await backgroundTransfer(file, nextIdx, currentSession);
-
-  if (getState('preload.sessionId') === currentSession) {
-    setState('preload.isPreloading', false);
+  try {
+    await backgroundTransfer(file, nextIdx, currentSession);
+  } catch (e) {
+    log.warn('[Preload] backgroundTransfer failed:', e);
+  } finally {
+    if (getState('preload.sessionId') === currentSession) {
+      setState('preload.isPreloading', false);
+    }
   }
 }
 

@@ -18,7 +18,9 @@ export function setManagedTimer(
 ): void {
   clearManagedTimer(name);
   const id = opts?.interval
-    ? setInterval(fn, delayMs)
+    ? setInterval(() => {
+        try { fn(); } catch (e) { console.error(`[Timer] "${name}" threw:`, e); }
+      }, delayMs)
     : setTimeout(() => {
         _timers.delete(name);
         try { fn(); } catch (e) { console.error(`[Timer] "${name}" threw:`, e); }

@@ -351,15 +351,12 @@ export function handleFileStart(data: Record<string, unknown>): void {
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
-  // Skip if using preloaded file
+  // Skip if using preloaded file — do NOT relay FILE_START downstream.
+  // Downstream peers would begin expecting chunks that will never arrive
+  // (since chunks are also skipped when skipIncomingFile is true).
   if (getState('transfer.skipIncomingFile')) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
-
-    // Relay header downstream
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
-
     return;
   }
 
@@ -562,7 +559,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   sessionBuffer.set(data.index as number, chunkData);
 
   const meta = getState('transfer.meta');
-  const opfsFilename = getState('files.currentFileOpfs');
+  let opfsFilename = getState('files.currentFileOpfs');
   let receivedCount = getState('transfer.receivedCount');
 
   // Meta-recovery: if we missed FILE_START, extract meta from chunk data
@@ -590,6 +587,8 @@ export function handleFileChunk(data: Record<string, unknown>): void {
         });
       }
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
+      // Re-read after meta-recovery updated state (prevents stale reference)
+      opfsFilename = getState('files.currentFileOpfs');
     } else if (!meta || meta.total === undefined) {
       // Orphan chunk with no meta — can't process
       return;

@@ -156,16 +156,15 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
       _reverbGenerateInFlight = false;
       return;
     }
+    let timeoutId: number | undefined;
     try {
-      // Race with timeout — clear timer on success to prevent leak
-      let timeoutId: number | undefined;
+      // Race with timeout — clear timer in finally to prevent leak
       await Promise.race([
         rev!.generate(),
         new Promise<never>((_, reject) => {
           timeoutId = window.setTimeout(() => reject(new Error('timeout')), 3000);
         }),
       ]);
-      window.clearTimeout(timeoutId);
       _reverbGenerateInFlight = false;
 
       // Re-generate if params changed while in-flight (last-write-wins)
@@ -179,6 +178,8 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
       if (attempt === maxRetries) {
         bus.emit('ui:show-toast', t('toast.reverb_init_fail'));
       }
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
   _reverbGenerateInFlight = false;
@@ -198,7 +199,7 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
 
   switch (param) {
     case 'mix':
-      setState('audio.reverbMix', v / 100);
+      setState('audio.reverbMix', Math.max(0, Math.min(1, v / 100)));
       break;
     case 'decay':
       setState('audio.reverbDecay', Math.max(0.1, Math.min(30, v)));
@@ -595,6 +596,7 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
   setStereoWidth(v);
+  bus.emit('ui:sync-surround', v > 100);
   _notifyHostChanged();
 }
 

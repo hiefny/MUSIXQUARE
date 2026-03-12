@@ -287,6 +287,7 @@ export async function loadPreloadedTrack(
     setPlayPreloadedInProgress(false);
     setPendingPlayTime(undefined);
     log.error('[Preload] Activation failed:', e);
+    bus.emit('ui:show-loader', false);
     bus.emit('ui:show-toast', t('transfer.preload_fail'));
 
     setState('preload.nextFileBlob', null);

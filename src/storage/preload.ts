@@ -297,8 +297,8 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   // Skip if this preload was already marked as skipped by host
   if (data.skipped) {
     log.debug(`[Preload] Skipping session ${sid}`);
-    const sessionState = getState('preload.sessionState');
-    sessionState.set(sid, {
+    const skipSessionState = new Map(getState('preload.sessionState'));
+    skipSessionState.set(sid, {
       skipped: true,
       progress: 0,
       total: (data.total as number) || 0,
@@ -309,6 +309,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
       nextExpectedChunk: 0,
       finalized: false,
     });
+    setState('preload.sessionState', skipSessionState);
     try { preloadReorderBuffer.delete(sid); } catch { /* ignore */ }
     return;
   }
@@ -331,8 +332,8 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   }
 
   // Initialize session state
-  const sessionState = getState('preload.sessionState');
-  sessionState.set(sid, {
+  const initSessionState = new Map(getState('preload.sessionState'));
+  initSessionState.set(sid, {
     skipped: false,
     progress: 0,
     total: (data.total as number) || 0,
@@ -343,6 +344,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
     nextExpectedChunk: 0,
     finalized: false,
   });
+  setState('preload.sessionState', initSessionState);
 
   setState('preload.meta', {
     name: data.name as string,
@@ -749,7 +751,9 @@ export function initPreload(): void {
       if (nextTrackIndex >= 0) {
         const ackSent = getState('preload.ackSent');
         if (!ackSent.has(nextTrackIndex)) {
-          ackSent.add(nextTrackIndex);
+          const updatedAckSent = new Set(ackSent);
+          updatedAckSent.add(nextTrackIndex);
+          setState('preload.ackSent', updatedAckSent);
           if (sendToHost({ type: MSG.PRELOAD_ACK, index: nextTrackIndex })) {
             log.debug(`[Guest] Sent PRELOAD_ACK for index ${nextTrackIndex}`);
           }

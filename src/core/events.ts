@@ -9,11 +9,13 @@ import type { EventMap } from '../types/index.ts';
 
 // ── Type-level helpers ──────────────────────────────────────────
 
-type EventKey = keyof EventMap | (string & {});
+// 3.0: Escape hatch removed — only declared EventMap keys + state:${StatePath} are valid.
+// Typos like bus.emit('audo:ready') → compile error.
+type EventKey = keyof EventMap;
 
-type EventArgs<K> = K extends keyof EventMap ? EventMap[K] : unknown[];
+type EventArgs<K extends EventKey> = EventMap[K];
 
-type TypedListener<K> = (...args: EventArgs<K>) => void;
+type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => void;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyListener = (...args: any[]) => void;

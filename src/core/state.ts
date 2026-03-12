@@ -7,186 +7,12 @@
 
 import { bus } from './events.ts';
 import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } from './constants.ts';
-import type { AppStateValue, TransferStateValue } from './constants.ts';
-import type { FileMeta, PlaylistItem, PreloadSessionEntry, DeviceInfo, DataConnection } from '../types/index.ts';
 
-// ─── State Tree ────────────────────────────────────────────────────
-
-export interface StateTree {
-  // App
-  appState: AppStateValue;
-
-  // Setup
-  setup: {
-    sessionStarted: boolean;
-  };
-
-  // Player (playback state — code uses `player.*` paths throughout)
-  player: {
-    startedAt: number;
-    pausedAt: number;
-    isSeeking: boolean;
-    isFirstTrackLoad: boolean;
-  };
-
-  // Transfer
-  transfer: {
-    state: TransferStateValue;
-    receivedCount: number;
-    meta: Partial<FileMeta> | null;
-    localSessionId: number;
-    currentSessionId: number;
-    activeBroadcastSession: number | null;
-    lastReceivedCountSnapshot: number;
-    skipIncomingFile: boolean;
-    waitingForPreload: boolean;
-  };
-
-  // Preload
-  preload: {
-    isPreloading: boolean;
-    sessionId: number;
-    meta: Partial<FileMeta> | null;
-    nextTrackIndex: number;
-    nextFileBlob: Blob | null;
-    ackSent: Set<number>;
-    sessionState: Map<number, PreloadSessionEntry>;
-  };
-
-  // Audio
-  audio: {
-    masterVolume: number;
-    channelMode: number;
-    isSurroundMode: boolean;
-    surroundChannelIndex: number;
-    reverbMix: number;
-    reverbDecay: number;
-    reverbPreDelay: number;
-    reverbLowCut: number;
-    reverbHighCut: number;
-    eqValues: number[];
-    stereoWidth: number;
-    virtualBass: number;
-    subFreq: number;
-    userPreampGain: number;
-  };
-
-  // Sync
-  sync: {
-    localOffset: number;
-    autoSyncOffset: number;
-    lastLatencyMs: number;
-    latencyHistory: number[];
-    // resyncTimer removed — managed timers registry handles this via 'global-resync' key
-  };
-
-  // Network
-  network: {
-    myId: string | null;
-    myDeviceLabel: string;
-    appRole: 'host' | 'guest' | 'idle';
-    sessionCode: string;
-    lastJoinCode: string;
-    hostConn: DataConnection | null;
-    connectedPeers: Array<{
-      id: string;
-      slot: number;
-      label: string;
-      conn: DataConnection | null;
-      isOp: boolean;
-      preloadedIndexes: Set<number>;
-      status: string;
-      isDataTarget: boolean;
-      joinOrder: number;
-      connectionType: 'local' | 'remote' | 'unknown';
-      lastHeartbeat: number;
-    }>;
-    isOperator: boolean;
-    isConnecting: boolean;
-    isIntentionalDisconnect: boolean;
-    lastKnownDeviceList: DeviceInfo[] | null;
-    peerLabels: Record<string, string>;
-    maxGuestSlots: number;
-    peerSlots: (string | null)[];
-    peerSlotByPeerId: Map<string, number>;
-    activeHostConnByPeerId: Map<string, DataConnection>;
-    connectionType: 'local' | 'remote' | 'unknown';
-  };
-
-  // Relay
-  relay: {
-    upstreamDataConn: DataConnection | null;
-    downstreamDataPeers: DataConnection[];
-  };
-
-  // Playlist
-  playlist: {
-    items: PlaylistItem[];
-    currentTrackIndex: number;
-    repeatMode: number;
-    isShuffle: boolean;
-  };
-
-  // Files
-  files: {
-    currentFileBlob: Blob | null;
-    currentFileOpfs: { name: string | null };
-  };
-
-  // YouTube
-  youtube: {
-    currentSubIndex: number;
-    subItemsMap: Record<string, { ids: string[]; titles: string[] }>;
-  };
-
-  // Recovery
-  recovery: {
-    pending: boolean;
-    retryCount: number;
-    pendingFileName: string;
-    pendingFileIndex: number | undefined;
-  };
-
-}
-
-// ─── Type-safe Path Utilities ─────────────────────────────────────
-
-/**
- * Leaf type check — stops path recursion at primitive/collection types.
- * Without this, `Array`, `Map`, `Set`, `Blob`, etc. would be recursed into.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type IsLeaf<T> = T extends
-  | string | number | boolean | null | undefined
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  | Array<any> | Map<any, any> | Set<any>
-  | Blob | DataConnection | ReturnType<typeof setTimeout>
-  ? true : false;
-
-/**
- * Union of all valid dot-separated state paths, auto-derived from StateTree.
- * Top-level leaf keys (e.g. 'appState') and nested keys (e.g. 'audio.masterVolume').
- */
-export type StatePath = {
-  [K in keyof StateTree & string]: IsLeaf<StateTree[K]> extends true
-    ? K
-    : `${K}.${keyof StateTree[K] & string}`
-}[keyof StateTree & string];
-
-/**
- * Maps a StatePath to its value type.
- * e.g. StatePathValue<'audio.masterVolume'> = number
- */
-export type StatePathValue<P extends string> =
-  P extends keyof StateTree
-    ? StateTree[P]
-    : P extends `${infer D}.${infer K}`
-      ? D extends keyof StateTree
-        ? K extends keyof StateTree[D]
-          ? StateTree[D][K]
-          : never
-        : never
-      : never;
+// 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
+// to enable typed state:${StatePath} events without circular dependency.
+// Re-export here for backward compatibility with existing importers.
+export type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
+import type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
 
 // ─── Initial State ─────────────────────────────────────────────────
 
@@ -317,7 +143,7 @@ let _batchedPaths: string[] = [];
  * @example getState('audio.masterVolume') // 1.0
  * @example getState('playlist.items')     // PlaylistItem[]
  */
-export function getState<P extends StatePath>(path: P): StatePathValue<P> {
+export function getState<P extends StatePath>(path: P): ShallowImmutable<StatePathValue<P>> {
   const keys = path.split('.');
   let current: unknown = _state;
   for (const key of keys) {
@@ -326,11 +152,11 @@ export function getState<P extends StatePath>(path: P): StatePathValue<P> {
         // eslint-disable-next-line no-console
         console.debug(`[State] path not found: "${path}" (failed at key "${key}")`);
       }
-      return undefined as StatePathValue<P>;
+      return undefined as ShallowImmutable<StatePathValue<P>>;
     }
     current = (current as Record<string, unknown>)[key];
   }
-  return current as StatePathValue<P>;
+  return current as ShallowImmutable<StatePathValue<P>>;
 }
 
 /**
@@ -360,7 +186,8 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
   current[lastKey] = value;
 
   if (!_isBatching) {
-    bus.emit(`state:${path}` as `state:${string}`, value as unknown, path as string);
+    // Safe: P extends StatePath ⊂ keyof StateEvents ⊂ keyof EventMap
+    (bus as any).emit(`state:${path}`, value, path);
   }
 }
 
@@ -410,7 +237,8 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
   for (const path of pathsToEmit) {
     if (!seen.has(path)) {
       seen.add(path);
-      bus.emit(`state:${path}` as `state:${string}`, getState(path as StatePath) as unknown, path as string);
+      // Safe: path is a StatePath string from setState calls
+      (bus as any).emit(`state:${path}`, getState(path as StatePath), path);
     }
   }
 }

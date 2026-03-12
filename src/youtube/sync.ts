@@ -279,8 +279,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   if (!playlistId) return;
 
   const subMap = getState('youtube.subItemsMap') || {};
-  subMap[playlistId] = { ids: ids || [], titles: titles || [] };
-  setState('youtube.subItemsMap', { ...subMap });
+  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ids: ids || [], titles: titles || [] } });
   bus.emit('ui:update-playlist');
 
   // Guest can also fetch missing titles in background

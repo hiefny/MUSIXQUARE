@@ -165,7 +165,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       log.warn(`[OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
       // Notify transfer module so it can trigger recovery instead of silently
       // continuing with a corrupted file (missing chunk data).
-      bus.emit('opfs:write-error', data.filename || '', data.index, data.isPreload || false);
+      bus.emit('opfs:write-error', { filename: data.filename || '', chunkIndex: data.index, isPreload: data.isPreload || false });
       break;
 
     case 'OPFS_READ_ERROR':

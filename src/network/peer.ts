@@ -276,7 +276,9 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   // Duplicate connection handling
   const existingActiveConn = activeHostConnByPeerId.get(peerId);
   if (existingActiveConn && existingActiveConn !== conn) {
-    activeHostConnByPeerId.set(peerId, conn);
+    const updatedConns = new Map(activeHostConnByPeerId);
+    updatedConns.set(peerId, conn);
+    setState('network.activeHostConnByPeerId', updatedConns);
     try {
       if (existingActiveConn.open) {
         existingActiveConn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
@@ -326,7 +328,9 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: deviceName });
 
   // New connection becomes active
-  activeHostConnByPeerId.set(peerId, conn);
+  const activeConns = new Map(getState('network.activeHostConnByPeerId'));
+  activeConns.set(peerId, conn);
+  setState('network.activeHostConnByPeerId', activeConns);
 
   const peerObj = {
     id: peerId,
@@ -413,14 +417,17 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     log.info(`[Host] Connection closed: ${peerId}`);
 
     // Ignore stale close events from replaced duplicate connections
-    if (activeHostConnByPeerId.get(peerId) !== conn) return;
+    if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
 
-    activeHostConnByPeerId.delete(peerId);
+    const closeConns = new Map(getState('network.activeHostConnByPeerId'));
+    closeConns.delete(peerId);
+    setState('network.activeHostConnByPeerId', closeConns);
     releasePeerSlot(peerId);
 
     const peerLabelsOnClose = getState('network.peerLabels');
     if (peerLabelsOnClose) {
-      delete peerLabelsOnClose[peerId];
+      const { [peerId]: _, ...restLabels } = peerLabelsOnClose;
+      setState('network.peerLabels', restLabels);
     }
 
     const peers = getState('network.connectedPeers');
@@ -440,17 +447,20 @@ function handleHostIncomingConnection(conn: DataConnection): void {
   conn.on('error', (err: unknown) => {
     log.error('[Host] Connection error:', err);
 
-    if (activeHostConnByPeerId.get(peerId) !== conn) {
+    if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       try { conn.close(); } catch { /* noop */ }
       return;
     }
 
-    activeHostConnByPeerId.delete(peerId);
+    const errConns = new Map(getState('network.activeHostConnByPeerId'));
+    errConns.delete(peerId);
+    setState('network.activeHostConnByPeerId', errConns);
     releasePeerSlot(peerId);
 
     const peerLabelsOnError = getState('network.peerLabels');
     if (peerLabelsOnError) {
-      delete peerLabelsOnError[peerId];
+      const { [peerId]: _, ...restLabelsErr } = peerLabelsOnError;
+      setState('network.peerLabels', restLabelsErr);
     }
 
     const peers = getState('network.connectedPeers');
@@ -663,19 +673,15 @@ export function leaveSession(): void {
   }
 
   // ── 4. Clear peer slots and maps ──
-  const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
-  const peerSlotByPeerId = getState('network.peerSlotByPeerId');
-  activeHostConnByPeerId.clear();
-  peerSlotByPeerId.clear();
+  setState('network.activeHostConnByPeerId', new Map());
+  setState('network.peerSlotByPeerId', new Map());
   setState('network.peerSlots', Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[]);
 
   // ── 5. Clear transfer state ──
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
   // Clear the state-managed preload session state (correct key: preload.sessionState)
-  const preloadSessionState = getState('preload.sessionState');
-  if (preloadSessionState) preloadSessionState.clear();
-  const ackSent = getState('preload.ackSent');
-  if (ackSent) ackSent.clear();
+  setState('preload.sessionState', new Map());
+  setState('preload.ackSent', new Set());
 
   // ── 6. Revoke blob URLs ──
   bus.emit('blob:revoke-all');
@@ -796,8 +802,8 @@ export function broadcastDeviceList(): void {
 
   const list = [
     { id: myId, label: 'HOST', status: 'connected', isHost: true },
-    ...connectedPeers
-      .sort((a, b) => (a.joinOrder as number) - (b.joinOrder as number))
+    ...[...connectedPeers]
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => (a.joinOrder as number) - (b.joinOrder as number))
       .map(p => ({
         id: p.id,
         label: p.label,

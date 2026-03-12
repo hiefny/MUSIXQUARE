@@ -669,7 +669,9 @@ function handleFileChunk(data: Record<string, unknown>): void {
     if (processingIndex !== undefined) {
       const ackSent = getState('preload.ackSent');
       if (!ackSent.has(processingIndex)) {
-        ackSent.add(processingIndex);
+        const updatedAckSent = new Set(ackSent);
+        updatedAckSent.add(processingIndex);
+        setState('preload.ackSent', updatedAckSent);
         sendToHost({ type: MSG.PRELOAD_ACK, index: processingIndex });
       }
     }
@@ -969,8 +971,9 @@ export function initTransfer(): void {
 
   // OPFS write failure: trigger recovery to re-request the corrupted chunk
   // instead of silently continuing with a hole in the file data.
-  bus.on('opfs:write-error', (_filename: unknown, _chunkIndex: unknown, isPreload: unknown) => {
-    if (isPreload) return; // Preload write errors are handled separately
+  bus.on('opfs:write-error', (data: unknown) => {
+    const info = data as { filename?: string; chunkIndex?: number; isPreload?: boolean } | undefined;
+    if (info?.isPreload) return; // Preload write errors are handled separately
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.RECEIVING) {
       log.warn('[Transfer] OPFS write failed — requesting recovery');

@@ -404,10 +404,11 @@ function startHeartbeatMonitor(): void {
       // 'network:peer-disconnected' — the activeHostConnByPeerId guard
       // (conn !== stored conn) will skip since we delete the entry here.
       const staleSet = new Set(stalePeerIds);
-      const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
+      const updatedConns = new Map(getState('network.activeHostConnByPeerId'));
       for (const id of stalePeerIds) {
-        activeHostConnByPeerId.delete(id);
+        updatedConns.delete(id);
       }
+      setState('network.activeHostConnByPeerId', updatedConns);
       setState('network.connectedPeers', connectedPeers.filter(p => !staleSet.has(p.id)));
       for (const id of stalePeerIds) {
         bus.emit('network:peer-disconnected', id);

@@ -5,7 +5,7 @@
 // NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
 //       Removed duplicate const enums that were never imported.
 
-import type { AppStateValue, MsgType } from '../core/constants.ts';
+import type { AppStateValue, TransferStateValue, MsgType } from '../core/constants.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
@@ -202,8 +202,136 @@ export type ProtocolMsg<T extends MsgType> = { type: T } & ProtocolMap[T];
 /** Union of all possible protocol messages */
 export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 
+// ─── State Tree ──────────────────────────────────────────────────────
+
+export interface StateTree {
+  appState: AppStateValue;
+  setup: { sessionStarted: boolean };
+  player: { startedAt: number; pausedAt: number; isSeeking: boolean; isFirstTrackLoad: boolean };
+  transfer: {
+    state: TransferStateValue;
+    receivedCount: number;
+    meta: Partial<FileMeta> | null;
+    localSessionId: number;
+    currentSessionId: number;
+    activeBroadcastSession: number | null;
+    lastReceivedCountSnapshot: number;
+    skipIncomingFile: boolean;
+    waitingForPreload: boolean;
+  };
+  preload: {
+    isPreloading: boolean;
+    sessionId: number;
+    meta: Partial<FileMeta> | null;
+    nextTrackIndex: number;
+    nextFileBlob: Blob | null;
+    ackSent: Set<number>;
+    sessionState: Map<number, PreloadSessionEntry>;
+  };
+  audio: {
+    masterVolume: number;
+    channelMode: number;
+    isSurroundMode: boolean;
+    surroundChannelIndex: number;
+    reverbMix: number;
+    reverbDecay: number;
+    reverbPreDelay: number;
+    reverbLowCut: number;
+    reverbHighCut: number;
+    eqValues: number[];
+    stereoWidth: number;
+    virtualBass: number;
+    subFreq: number;
+    userPreampGain: number;
+  };
+  sync: { localOffset: number; autoSyncOffset: number; lastLatencyMs: number; latencyHistory: number[] };
+  network: {
+    myId: string | null;
+    myDeviceLabel: string;
+    appRole: 'host' | 'guest' | 'idle';
+    sessionCode: string;
+    lastJoinCode: string;
+    hostConn: DataConnection | null;
+    connectedPeers: Array<{
+      id: string; slot: number; label: string; conn: DataConnection | null;
+      isOp: boolean; preloadedIndexes: Set<number>; status: string;
+      isDataTarget: boolean; joinOrder: number;
+      connectionType: 'local' | 'remote' | 'unknown'; lastHeartbeat: number;
+    }>;
+    isOperator: boolean;
+    isConnecting: boolean;
+    isIntentionalDisconnect: boolean;
+    lastKnownDeviceList: DeviceInfo[] | null;
+    peerLabels: Record<string, string>;
+    maxGuestSlots: number;
+    peerSlots: (string | null)[];
+    peerSlotByPeerId: Map<string, number>;
+    activeHostConnByPeerId: Map<string, DataConnection>;
+    connectionType: 'local' | 'remote' | 'unknown';
+  };
+  relay: { upstreamDataConn: DataConnection | null; downstreamDataPeers: DataConnection[] };
+  playlist: { items: PlaylistItem[]; currentTrackIndex: number; repeatMode: number; isShuffle: boolean };
+  files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
+  youtube: { currentSubIndex: number; subItemsMap: Record<string, { ids: string[]; titles: string[] }> };
+  recovery: { pending: boolean; retryCount: number; pendingFileName: string; pendingFileIndex: number | undefined };
+}
+
+// ─── State Path Utilities ────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type IsLeaf<T> = T extends
+  | string | number | boolean | null | undefined
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | Array<any> | Map<any, any> | Set<any>
+  | Blob | DataConnection | ReturnType<typeof setTimeout>
+  ? true : false;
+
+/** Union of all valid dot-separated state paths. */
+export type StatePath = {
+  [K in keyof StateTree & string]: IsLeaf<StateTree[K]> extends true
+    ? K
+    : `${K}.${keyof StateTree[K] & string}`
+}[keyof StateTree & string];
+
+/** Maps a StatePath to its value type. */
+export type StatePathValue<P extends string> =
+  P extends keyof StateTree
+    ? StateTree[P]
+    : P extends `${infer D}.${infer K}`
+      ? D extends keyof StateTree
+        ? K extends keyof StateTree[D]
+          ? StateTree[D][K]
+          : never
+        : never
+      : never;
+
+// ─── Immutability Utility ────────────────────────────────────────────
+
+/**
+ * Shallow immutability guard for getState() return values.
+ * Prevents .push(), .set(), .delete() on state-derived collections
+ * while keeping inner elements spreadable for immutable updates.
+ */
+export type ShallowImmutable<T> =
+  T extends Blob | DataConnection ? T :            // Opaque externals pass through
+  T extends Map<infer K, infer V> ? ReadonlyMap<K, V> :
+  T extends Set<infer U> ? ReadonlySet<U> :
+  T extends Array<infer U> ? ReadonlyArray<U> :
+  T extends object ? Readonly<T> :
+  T;
+
+// ─── State Change Events (auto-derived from StatePath) ────────────
+// Mapped type: generates 'state:appState', 'state:audio.masterVolume', etc.
+// Typos like bus.emit('state:audio.volumee') → compile error.
+type StateEvents = {
+  [P in StatePath as `state:${P}`]: [value: unknown, path: string];
+};
+
 // ─── EventBus typed events ─────────────────────────────────────────
-export interface EventMap {
+// 3.0: EventMap = BaseEventMap & StateEvents (no escape hatch)
+export type EventMap = BaseEventMap & StateEvents;
+
+interface BaseEventMap {
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
   'audio:activate': [];
@@ -313,6 +441,7 @@ export interface EventMap {
   'opfs:read-complete': [data: unknown];
   'opfs:read-error': [data: unknown];
   'opfs:error': [error: string, filename: string];
+  'opfs:write-error': [data: unknown];
   'opfs:session-mismatch': [data: unknown];
   'opfs:cleanup-complete': [filename: string];
 
@@ -355,6 +484,4 @@ export interface EventMap {
   'worker:sync-command': [payload: { command: string; id: string; interval?: number }];
   'worker:timer-tick': [id: string];
 
-  // ── Dynamic State ─────────────────────────────────────────────────
-  [key: `state:${string}`]: [value: unknown, path: string];
 }

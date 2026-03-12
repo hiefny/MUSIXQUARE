@@ -42,7 +42,7 @@ function isHost(): boolean {
   return !getState('network.hostConn');
 }
 
-function getConnectedPeers(): ConnectedPeer[] {
+function getConnectedPeers(): readonly ConnectedPeer[] {
   return getState('network.connectedPeers') || [];
 }
 

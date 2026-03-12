@@ -271,7 +271,7 @@ export function setPreamp(valDb: number): void {
 // ─── Stereo Width ──────────────────────────────────────────────────
 
 export function setStereoWidth(val: number): void {
-  setState('audio.stereoWidth', val / 100);
+  setState('audio.stereoWidth', Math.max(0, Math.min(2, val / 100)));
   applySettings();
 }
 
@@ -282,7 +282,7 @@ export function resetStereoWidth(): void {
 // ─── Virtual Bass ──────────────────────────────────────────────────
 
 export function setVirtualBass(val: number): void {
-  setState('audio.virtualBass', val / 100);
+  setState('audio.virtualBass', Math.max(0, Math.min(1, val / 100)));
   applySettings();
 }
 
@@ -313,9 +313,9 @@ function _broadcastOrRequestSetting(msgType: string, value: number | string): vo
   } else {
     // Guest (OP): request Host to apply + broadcast
     const isOperator = getState('network.isOperator');
-    if (isOperator) {
+    if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
-    } else {
+    } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
     }
   }
@@ -327,7 +327,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
     broadcast({ type: MSG.EQ_UPDATE, band, value });
   } else {
     const isOperator = getState('network.isOperator');
-    if (isOperator) {
+    if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     } else {
       bus.emit('ui:show-toast', t('toast.operator_required'));
@@ -363,7 +363,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
             broadcast({ type: MSG.STEREO_WIDTH, value });
           } else {
             const isOperator = getState('network.isOperator');
-            if (isOperator) {
+            if (isOperator && hostConn.open) {
               hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
             }
           }
@@ -400,9 +400,9 @@ bus.on('audio:reverb-type-change', (type: string) => {
     // OP Guest: only send REQUEST to host — host will broadcast back
     // (skip local apply to avoid double-application when broadcast arrives)
     const isOperator = getState('network.isOperator');
-    if (isOperator) {
+    if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_TYPE, value: type });
-    } else {
+    } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
     }
   } else {
@@ -420,7 +420,7 @@ bus.on('audio:reset-eq', () => {
     broadcast({ type: MSG.EQ_RESET });
   } else {
     const isOperator = getState('network.isOperator');
-    if (isOperator) {
+    if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
     }
   }

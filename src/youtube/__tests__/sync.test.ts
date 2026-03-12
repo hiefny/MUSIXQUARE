@@ -24,7 +24,7 @@ vi.mock('../search.ts', () => ({
   fetchPlaylistSubTitles: vi.fn(),
 }));
 
-vi.mock('../player.ts', () => ({
+vi.mock('../_state.ts', () => ({
   getYouTubePlayer: vi.fn(() => null),
 }));
 
@@ -50,7 +50,7 @@ describe('YouTube Sync', () => {
     });
 
     it('does nothing if hostConn is set (guest mode)', async () => {
-      const playerMod = await import('../player.ts');
+      const playerMod = await import('../_state.ts');
       (playerMod.getYouTubePlayer as ReturnType<typeof vi.fn>).mockReturnValue({
         getCurrentTime: () => 10,
         getPlayerState: () => 1,
@@ -66,7 +66,7 @@ describe('YouTube Sync', () => {
     });
 
     it('broadcasts sync data when host with player', async () => {
-      const playerMod = await import('../player.ts');
+      const playerMod = await import('../_state.ts');
       (playerMod.getYouTubePlayer as ReturnType<typeof vi.fn>).mockReturnValue({
         getCurrentTime: () => 42.5,
         getPlayerState: () => 1,

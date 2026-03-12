@@ -1,8 +1,13 @@
 /**
  * MUSIXQUARE 3.0 — YouTube Player
  *
- * Manages: YouTube IFrame API, player lifecycle, state changes,
- * UI loop, stopYouTubeMode.
+ * Module coordinator: stopYouTubeMode, initYouTube (bus event wiring),
+ * and re-exports from sub-modules.
+ *
+ * Sub-modules:
+ *   _state.ts    — Shared module state (getters/setters)
+ *   iframe.ts    — IFrame API loading, player creation, UI loop
+ *   handlers.ts  — Protocol message handlers
  */
 
 import { log } from '../core/log.ts';
@@ -10,389 +15,47 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer } from '../core/timers.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
-import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { IS_IOS } from '../core/platform.ts';
-import { fmtTime } from '../player/playback.ts';
-import { setEngineMode } from '../player/video.ts';
+import { registerHandlers } from '../network/protocol.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
-import { SessionScope } from '../core/session-scope.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { PlaylistItem } from '../types/index.ts';
 
- 
+// ─── Sub-module imports ────────────────────────────────────────────
+
+import {
+  getYouTubePlayer, setYouTubePlayer,
+  isYtLoadInProgress, setYtLoadInProgress,
+  getYtScope, setYtScope,
+  setCachedYtDuration,
+} from './_state.ts';
+
+import { loadYouTubeVideo, refreshYouTubeDisplay } from './iframe.ts';
+
+import {
+  handleYouTubePlay,
+  handleRequestYouTubePlay,
+  handleRequestYouTubePause,
+  handleRequestYouTubeToggle,
+  handleRequestYouTubeSubSeek,
+  handleRequestYouTubePlaylistInfo,
+} from './handlers.ts';
+
 declare const YT: any;
- 
 
-// ─── Module State ──────────────────────────────────────────────────
+// ─── Re-exports ────────────────────────────────────────────────────
+// External modules (e.g. sync.ts) import { getYouTubePlayer } from './player.ts'
 
- 
-let _youtubePlayer: any = null;
-let _currentYouTubeSessionId = 0;
-let _ytScriptLoading = false;
-let _ytIOSWatchdog: number | null = null;
-let _ytScope: SessionScope | null = null;
-
-
-export function getYouTubePlayer(): any {
-  return _youtubePlayer;
-}
-
-// ─── Load YouTube Video ────────────────────────────────────────────
-
-let _ytLoadInProgress = false;
-
-export function loadYouTubeVideo(
-  videoId: string | null,
-  playlistId: string | null = null,
-  autoplay = true,
-  subIndex = 0,
-): void {
-  // Guard: destroy previous player to prevent concurrent player instances
-  if (_ytLoadInProgress && _youtubePlayer) {
-    try {
-      _youtubePlayer.stopVideo?.();
-      if (typeof _youtubePlayer.destroy === 'function') _youtubePlayer.destroy();
-    } catch { /* best-effort cleanup */ }
-    _youtubePlayer = null;
-    const container = document.getElementById('youtube-player-container');
-    if (container) container.innerHTML = '<div id="youtube-player"></div>';
-  }
-  _ytLoadInProgress = true;
-
-  _cachedYtDuration = 0; // Reset duration cache for new video
-  _currentYouTubeSessionId++;
-  const currentSessionId = _currentYouTubeSessionId;
-  _ytScope = SessionScope.replace(_ytScope);
-  const scope = _ytScope;
-
-  bus.emit('player:stop-all-media');
-  setEngineMode('youtube');
-
-  bus.emit('ui:show-toast', t('youtube.effects_disabled'));
-
-  const wrapper = document.querySelector('.video-wrapper');
-  if (!wrapper) {
-    _ytLoadInProgress = false;
-    log.warn('[YouTube] .video-wrapper not found');
-    return;
-  }
-
-  let container = document.getElementById('youtube-player-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'youtube-player-container';
-    container.style.cssText = 'width:100%; height:100%; position:relative;';
-    wrapper.appendChild(container);
-  }
-
-  if (!_youtubePlayer) {
-    container.innerHTML = '<div id="youtube-player"></div>';
-  }
-
-  const w = window as unknown as Record<string, unknown>;
-  if (!w.YT || !(w.YT as Record<string, unknown>).Player) {
-    if (!_ytScriptLoading && !document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-      _ytScriptLoading = true;
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      tag.onload = () => log.debug('[YouTube] API script loaded');
-      tag.onerror = () => {
-        log.error('[YouTube] Failed to load API script');
-        _ytScriptLoading = false;
-        _ytLoadInProgress = false;
-        tag.remove(); // Remove broken script tag so retry can re-insert
-        bus.emit('ui:show-toast', t('youtube.load_fail'));
-      };
-      document.head.appendChild(tag);
-    }
-    w.onYouTubeIframeAPIReady = () => {
-      (w as Record<string, boolean>).isYouTubeAPIReady = true;
-      // Guard: skip if a timeout already cancelled this load session
-      if (_currentYouTubeSessionId !== currentSessionId || scope.aborted) {
-        log.debug('[YouTube] onYouTubeIframeAPIReady skipped — session changed');
-        _ytLoadInProgress = false;
-        return;
-      }
-      initYouTubePlayer(videoId, playlistId, autoplay, subIndex);
-    };
-  } else {
-    initYouTubePlayer(videoId, playlistId, autoplay, subIndex);
-  }
-
-  // Safety timeout
-  setManagedTimer('yt-load-timeout', () => {
-    if (_currentYouTubeSessionId === currentSessionId && !scope.aborted && !_youtubePlayer) {
-      log.warn('[YouTube] Load timeout triggered.');
-      _ytLoadInProgress = false;
-      bus.emit('ui:show-loader', false);
-      bus.emit('ui:show-toast', t('youtube.load_timeout'));
-    }
-  }, 15000);
-
-  bus.emit('ui:play-btn-state', true);
-
-  const fsBtn = document.querySelector('.fullscreen-btn') as HTMLElement | null;
-  if (fsBtn) fsBtn.style.setProperty('display', 'none', 'important');
-
-  setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), 500);
-  log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
-}
-
-// ─── Init YouTube Player (IFrame) ──────────────────────────────────
-
-function initYouTubePlayer(
-  videoId: string | null,
-  playlistId: string | null = null,
-  autoplay = true,
-  subIndex = 0,
-): void {
-  const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
-    log.warn('[YouTube] initYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
-    _ytLoadInProgress = false;
-    return;
-  }
-
-  if (_youtubePlayer?.loadVideoById) {
-    log.debug('[YouTube] Re-using existing player instance');
-    try {
-      if (playlistId) {
-        _youtubePlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
-      } else if (videoId) {
-        _youtubePlayer.loadVideoById(videoId);
-      }
-      if (!autoplay) _youtubePlayer.pauseVideo();
-      _ytLoadInProgress = false;
-      return;
-    } catch (e) {
-      log.warn('[YouTube] Failed to reuse player, recreating...', e);
-      const container = document.getElementById('youtube-player-container');
-      if (container) container.innerHTML = '<div id="youtube-player"></div>';
-    }
-  }
-
-   
-  const playerVars: Record<string, any> = {
-    autoplay: autoplay ? 1 : 0,
-    controls: 1,
-    rel: 0,
-    modestbranding: 1,
-    playsinline: 1,
-    origin: window.location.origin,
-  };
-
-  if (playlistId) {
-    playerVars.listType = 'playlist';
-    playerVars.list = playlistId;
-    playerVars.index = subIndex;
-  }
-
-   
-  const playerOptions: Record<string, any> = {
-    width: '100%',
-    height: '100%',
-    playerVars,
-    events: {
-      onReady: onYouTubePlayerReady,
-      onStateChange: onYouTubePlayerStateChange,
-    },
-  };
-
-  if (videoId) playerOptions.videoId = videoId;
-
-  _youtubePlayer = new YT.Player('youtube-player', playerOptions);
-
-  // A11y: add title to iframe once YouTube API creates it
-  requestAnimationFrame(() => {
-    const iframe = document.querySelector('#youtube-player-container iframe') as HTMLIFrameElement | null;
-    if (iframe) iframe.title = 'YouTube video player';
-  });
-}
-
-// ─── Player Events ─────────────────────────────────────────────────
-
-function onYouTubePlayerReady(): void {
-  _ytLoadInProgress = false;
-  log.debug('[YouTube] Player ready');
-
-  const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
-    log.debug('[YouTube] onPlayerReady skipped - mode changed');
-    return;
-  }
-
-  // Start UI update loop
-  clearManagedTimer('youtubeUILoop');
-  setManagedTimer('youtubeUILoop', updateYouTubeUI, 500, { interval: true });
-
-  // Only Host runs sync loop
-  clearManagedTimer('youtubeSyncLoop');
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    setManagedTimer('youtubeSyncLoop', () => {
-      bus.emit('youtube:broadcast-sync');
-    }, 3000, { interval: true });
-  }
-
-  // Apply volume
-  bus.emit('audio:apply-youtube-volume');
-}
-
-function onYouTubePlayerStateChange(event: { data: number }): void {
-  const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
-
-  const state = event.data;
-
-  if (state === YT.PlayerState.PLAYING) {
-    showYouTubeSyncOverlay(false);
-    bus.emit('ui:update-play-state', true);
-  } else if (state === YT.PlayerState.PAUSED) {
-    bus.emit('ui:update-play-state', false);
-  } else if (state === YT.PlayerState.ENDED) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
-    clearManagedTimer('youtubeUILoop');
-    clearManagedTimer('youtubeSyncLoop');
-
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      log.debug('[YouTube] Ended, playing next track...');
-      bus.emit('playlist:next-track');
-    }
-  }
-
-  // Host broadcasts state to guests
-  const hostConn = getState('network.hostConn');
-  if (!hostConn && _youtubePlayer?.getCurrentTime) {
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state,
-      time: _youtubePlayer.getCurrentTime(),
-      subIndex: _youtubePlayer.getPlaylistIndex?.() ?? -1,
-    });
-  }
-}
-
-// ─── YouTube UI Update Loop ────────────────────────────────────────
-
-/**
- * Duration cache — locks after first valid read.
- * Reset only on explicit video change (load, stop, playlist index change).
- * Prevents YouTube API's getDuration() float jitter from flickering the UI.
- */
-let _cachedYtDuration = 0;
-let _cachedYtPlaylistIdx = -1;
-
-function updateYouTubeUI(): void {
-  const currentState = getState('appState');
-  if (!_youtubePlayer || currentState !== APP_STATE.PLAYING_YOUTUBE || !_youtubePlayer.getCurrentTime) return;
-
-  try {
-    const currentTime = _youtubePlayer.getCurrentTime();
-    const rawDuration = _youtubePlayer.getDuration?.() || 0;
-    const playlistIdx = _youtubePlayer.getPlaylistIndex?.() ?? -1;
-    const state = _youtubePlayer.getPlayerState?.() ?? -1;
-
-    // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
-    // state=5 (CUED) is a normal pre-play state, not a playback failure
-    if (IS_IOS && state === -1) {
-      if (!_ytIOSWatchdog) _ytIOSWatchdog = Date.now();
-      if (Date.now() - _ytIOSWatchdog > 3000) {
-        showYouTubeSyncOverlay(true);
-      }
-    } else {
-      _ytIOSWatchdog = null;
-    }
-
-    // Reset cache when playlist sub-index changes (= different video)
-    if (playlistIdx !== _cachedYtPlaylistIdx) {
-      _cachedYtPlaylistIdx = playlistIdx;
-      _cachedYtDuration = 0;
-    }
-
-    // Lock duration on first valid read — stays locked until video changes
-    if (rawDuration > 0 && _cachedYtDuration === 0) {
-      _cachedYtDuration = rawDuration;
-    }
-
-    if (_cachedYtDuration > 0) {
-      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(_cachedYtDuration), currentTime, _cachedYtDuration);
-    }
-  } catch {
-    // Player not ready
-  }
-}
-
-// ─── iOS Sync Overlay ──────────────────────────────────────────────
-
-function showYouTubeSyncOverlay(show: boolean): void {
-  const overlayId = 'youtube-ios-sync-overlay';
-  let overlay = document.getElementById(overlayId);
-
-  if (show) {
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = overlayId;
-      overlay.style.cssText = `
-        position:absolute;top:0;left:0;width:100%;height:100%;
-        background:rgba(0,0,0,0.6);display:flex;align-items:center;
-        justify-content:center;z-index:100;cursor:pointer;
-        backdrop-filter:blur(4px);animation:fadeIn 0.3s ease-out;
-      `;
-      overlay.onclick = () => {
-        if (_youtubePlayer?.playVideo) {
-          _youtubePlayer.playVideo();
-          showYouTubeSyncOverlay(false);
-        }
-      };
-      overlay.innerHTML = `
-        <div style="background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M8 5v14l11-7z"/></svg>
-          ${t('youtube.tap_to_sync')}
-        </div>
-      `;
-      const wrapper = document.querySelector('.video-wrapper');
-      if (wrapper) wrapper.appendChild(overlay);
-    }
-    overlay.style.display = 'flex';
-  } else if (overlay) {
-    overlay.style.display = 'none';
-    _ytIOSWatchdog = null;
-  }
-}
-
-// ─── Refresh Display Hack ──────────────────────────────────────────
-
-function refreshYouTubeDisplay(): void {
-  const container = document.getElementById('youtube-player-container');
-  const currentState = getState('appState');
-  if (!container || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
-
-  log.debug('[YouTube] Refreshing display to prevent black screen...');
-  const iframe = container.querySelector('iframe');
-
-  container.style.display = 'none';
-  void container.offsetHeight; // Force reflow
-  container.style.display = 'block';
-
-  if (iframe) {
-    iframe.style.visibility = 'hidden';
-    void iframe.offsetHeight;
-    iframe.style.visibility = 'visible';
-  }
-
-  window.dispatchEvent(new Event('resize'));
-}
+export { getYouTubePlayer } from './_state.ts';
+export { loadYouTubeVideo } from './iframe.ts';
 
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(): void {
-  _ytScope?.dispose();
-  _ytScope = null;
-  _ytLoadInProgress = false;
-  _cachedYtDuration = 0; // Reset duration cache
+  getYtScope()?.dispose();
+  setYtScope(null);
+  setYtLoadInProgress(false);
+  setCachedYtDuration(0); // Reset duration cache
   setState('youtube.currentSubIndex', -1);
 
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
@@ -411,15 +74,16 @@ export function stopYouTubeMode(): void {
 
   clearManagedTimer('yt-load-timeout');
 
-  if (_youtubePlayer) {
+  const player = getYouTubePlayer();
+  if (player) {
     try {
       log.debug('[YouTube] Destroying player instance...');
-      _youtubePlayer.stopVideo();
-      if (typeof _youtubePlayer.destroy === 'function') _youtubePlayer.destroy();
+      player.stopVideo();
+      if (typeof player.destroy === 'function') player.destroy();
     } catch (e: unknown) {
       log.debug('[YouTube] Cleanup error (non-critical):', (e as Error).message);
     }
-    _youtubePlayer = null;
+    setYouTubePlayer(null);
   }
 
   const container = document.getElementById('youtube-player-container');
@@ -451,124 +115,6 @@ export function stopYouTubeMode(): void {
   log.debug('[YouTube] Mode stopped');
 }
 
-// ─── Network Handlers ──────────────────────────────────────────────
-
-function handleYouTubePlay(data: Record<string, unknown>): void {
-  const videoId = data.videoId as string | null;
-  const playlistId = data.playlistId as string | null;
-  const index = data.index as number | undefined;
-  const autoplay = data.autoplay as boolean | undefined;
-  const subIndex = data.subIndex as number | undefined;
-
-  if (!videoId && !playlistId) {
-    log.warn('[YouTube] handleYouTubePlay: no videoId or playlistId');
-    return;
-  }
-
-  if (index !== undefined) {
-    setState('playlist.currentTrackIndex', index);
-  }
-
-  loadYouTubeVideo(videoId, playlistId, autoplay ?? false, subIndex ?? 0);
-}
-
-function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only Host
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-play from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  if (_youtubePlayer?.playVideo) {
-    _youtubePlayer.playVideo();
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state: 1,
-      time: _youtubePlayer.getCurrentTime?.() || 0,
-    });
-  }
-}
-
-function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-toggle from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  if (!_youtubePlayer) return;
-  try {
-    const state = _youtubePlayer.getPlayerState();
-    if (state === YT.PlayerState.PLAYING) {
-      handleRequestYouTubePause(data, conn);
-    } else {
-      handleRequestYouTubePlay(data, conn);
-    }
-  } catch (e) {
-    log.error('[YouTube] Toggle error:', e);
-  }
-}
-
-function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-pause from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  if (_youtubePlayer?.pauseVideo) {
-    _youtubePlayer.pauseVideo();
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state: 2,
-      time: _youtubePlayer.getCurrentTime?.() || 0,
-    });
-  }
-}
-
-function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-sub-seek from non-OP: ${conn?.peer}`);
-    return;
-  }
-
-  const subIdx = data.subIdx as number;
-  if (_youtubePlayer?.playVideoAt && typeof subIdx === 'number') {
-    _youtubePlayer.playVideoAt(subIdx);
-  }
-}
-
-/**
- * Host responds to Guest's request for YouTube playlist sub-item data.
- * Sends cached IDs and titles from subItemsMap.
- */
-function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only Host handles this
-
-  const pid = data.playlistId as string;
-  if (!pid || !conn) return;
-
-  const subMap = getState('youtube.subItemsMap') || {};
-  if (subMap[pid]) {
-    safeSend(conn, {
-      type: MSG.YOUTUBE_PLAYLIST_INFO,
-      playlistId: pid,
-      ids: subMap[pid].ids || [],
-      titles: subMap[pid].titles || [],
-    });
-  }
-}
-
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initYouTube(): void {
@@ -589,7 +135,7 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:toggle-play', () => {
-    if (_ytLoadInProgress) {
+    if (isYtLoadInProgress()) {
       log.debug('[YouTube] Load already in progress, ignoring toggle');
       return;
     }
@@ -608,15 +154,16 @@ export function initYouTube(): void {
     if (hostConn) return;
 
     // Host direct
-    if (!_youtubePlayer) return;
+    const player = getYouTubePlayer();
+    if (!player) return;
     try {
-      const state = _youtubePlayer.getPlayerState();
+      const state = player.getPlayerState();
       if (state === YT.PlayerState.PLAYING) {
-        _youtubePlayer.pauseVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: _youtubePlayer.getCurrentTime() });
+        player.pauseVideo();
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime() });
       } else {
-        _youtubePlayer.playVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: _youtubePlayer.getCurrentTime() });
+        player.playVideo();
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: player.getCurrentTime() });
       }
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
@@ -624,8 +171,9 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:auto-play', () => {
-    if (_youtubePlayer?.playVideo) {
-      _youtubePlayer.playVideo();
+    const player = getYouTubePlayer();
+    if (player?.playVideo) {
+      player.playVideo();
       bus.emit('youtube:broadcast-sync');
     }
   });
@@ -633,7 +181,8 @@ export function initYouTube(): void {
   bus.on('youtube:get-position', (callback) => {
     if (typeof callback === 'function') {
       try {
-        const pos = _youtubePlayer?.getCurrentTime?.() ?? 0;
+        const player = getYouTubePlayer();
+        const pos = player?.getCurrentTime?.() ?? 0;
         callback(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
       } catch {
         callback(0);
@@ -642,10 +191,11 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:stop-playback', () => {
-    if (!_youtubePlayer) return;
+    const player = getYouTubePlayer();
+    if (!player) return;
     try {
-      _youtubePlayer.stopVideo();
-      try { _youtubePlayer.seekTo(0, true); } catch { /* noop */ }
+      player.stopVideo();
+      try { player.seekTo(0, true); } catch { /* noop */ }
       broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0 });
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
@@ -653,15 +203,16 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:skip-time', (seconds) => {
-    if (!_youtubePlayer) return;
+    const player = getYouTubePlayer();
+    if (!player) return;
     try {
-      const current = _youtubePlayer.getCurrentTime();
-      const duration = _youtubePlayer.getDuration();
+      const current = player.getCurrentTime();
+      const duration = player.getDuration();
       let target = current + seconds;
       if (target < 0) target = 0;
       if (target > duration) target = duration;
-      _youtubePlayer.seekTo(target, true);
-      broadcast({ type: MSG.YOUTUBE_STATE, state: _youtubePlayer.getPlayerState(), time: target });
+      player.seekTo(target, true);
+      broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: target });
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
@@ -669,14 +220,15 @@ export function initYouTube(): void {
 
   // YouTube seek from seek bar
   bus.on('youtube:seek-to', (seconds) => {
-    if (!_youtubePlayer?.seekTo || !Number.isFinite(seconds)) return;
+    const player = getYouTubePlayer();
+    if (!player?.seekTo || !Number.isFinite(seconds)) return;
     try {
-      _youtubePlayer.seekTo(seconds, true);
+      player.seekTo(seconds, true);
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
         broadcast({
           type: MSG.YOUTUBE_STATE,
-          state: _youtubePlayer.getPlayerState?.() ?? 1,
+          state: player.getPlayerState?.() ?? 1,
           time: seconds,
         });
       }
@@ -686,12 +238,13 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:try-next-internal', (callback) => {
-    if (!_youtubePlayer?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
+    const player = getYouTubePlayer();
+    if (!player?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
     try {
-      const ids = _youtubePlayer.getPlaylist() || [];
-      const idx = _youtubePlayer.getPlaylistIndex();
+      const ids = player.getPlaylist() || [];
+      const idx = player.getPlaylistIndex();
       if (ids.length > 0 && idx < ids.length - 1) {
-        _youtubePlayer.nextVideo();
+        player.nextVideo();
         callback(true);
         return;
       }
@@ -700,19 +253,20 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:try-prev-internal', (callback) => {
-    if (!_youtubePlayer || typeof callback !== 'function') { callback(false); return; }
+    const player = getYouTubePlayer();
+    if (!player || typeof callback !== 'function') { callback(false); return; }
     try {
-      const currentTime = _youtubePlayer.getCurrentTime();
+      const currentTime = player.getCurrentTime();
       if (currentTime > 3) {
-        _youtubePlayer.seekTo(0, true);
-        broadcast({ type: MSG.YOUTUBE_STATE, state: _youtubePlayer.getPlayerState(), time: 0 });
+        player.seekTo(0, true);
+        broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: 0 });
         callback(true);
         return;
       }
-      const ids = _youtubePlayer.getPlaylist?.() || [];
-      const idx = _youtubePlayer.getPlaylistIndex?.() ?? -1;
+      const ids = player.getPlaylist?.() || [];
+      const idx = player.getPlaylistIndex?.() ?? -1;
       if (ids.length > 0 && idx > 0) {
-        _youtubePlayer.previousVideo();
+        player.previousVideo();
         callback(true);
         return;
       }
@@ -839,19 +393,21 @@ export function initYouTube(): void {
 
   // YouTube set volume (from audio engine)
   bus.on('youtube:set-volume', (volumePercent) => {
-    if (_youtubePlayer?.setVolume && Number.isFinite(volumePercent)) {
-      _youtubePlayer.setVolume(volumePercent);
+    const player = getYouTubePlayer();
+    if (player?.setVolume && Number.isFinite(volumePercent)) {
+      player.setVolume(volumePercent);
     }
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
   bus.on('youtube:sub-seek', (playlistIdx, subIdx, isCurrent) => {
-    if (!_youtubePlayer) return;
+    const player = getYouTubePlayer();
+    if (!player) return;
 
     if (isCurrent) {
       // Same playlist — just jump to sub-index
-      if (_youtubePlayer.playVideoAt) {
-        _youtubePlayer.playVideoAt(subIdx);
+      if (player.playVideoAt) {
+        player.playVideoAt(subIdx);
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: 1,
@@ -870,15 +426,16 @@ export function initYouTube(): void {
     if (!playlistId) return;
 
     let ids: string[] = [];
+    const player = getYouTubePlayer();
 
     // 1. Try to get IDs from current player if it matches the requested playlist
     const playlist = getState('playlist.items') || [];
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const currentItem = playlist[currentTrackIndex];
 
-    if (_youtubePlayer?.getPlaylist && currentItem?.playlistId === playlistId) {
+    if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
-        ids = _youtubePlayer.getPlaylist() || [];
+        ids = player.getPlaylist() || [];
       } catch { /* YouTube player may not be ready */ }
     }
 
@@ -951,13 +508,15 @@ export function initYouTube(): void {
 
     if (!item || item.type !== 'youtube') return;
 
+    const player = getYouTubePlayer();
+
     try {
       let ytTime = 0;
       let ytState = 2; // paused
 
       try {
-        if (_youtubePlayer?.getCurrentTime) ytTime = _youtubePlayer.getCurrentTime();
-        if (_youtubePlayer?.getPlayerState) ytState = _youtubePlayer.getPlayerState();
+        if (player?.getCurrentTime) ytTime = player.getCurrentTime();
+        if (player?.getPlayerState) ytState = player.getPlayerState();
       } catch { /* best-effort */ }
 
       const autoplay = (ytState === 1);

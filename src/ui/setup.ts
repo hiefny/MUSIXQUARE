@@ -1,303 +1,46 @@
 /**
- * MUSIXQUARE 3.0 — Setup Flow (UI)
+ * MUSIXQUARE 3.0 — Setup Flow (Orchestrator)
  *
- * Manages: Setup overlay, host/guest role selection, onboarding slider,
- * invite code display, desktop left-panel sync.
+ * Manages: Setup overlay initialization, onboarding, bus event wiring,
+ * and re-exports from setup-host / setup-guest / setup-shared.
+ *
+ * Sub-modules:
+ *   setup-shared.ts  — shared state, UI helpers, constants
+ *   setup-host.ts    — host session creation flow
+ *   setup-guest.ts   — guest join flow
  */
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { setManagedTimer, clearManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
-import { animateTransition, updateOverlayOpenClass } from './dom.ts';
+import { setManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { showDialog } from './dialog.ts';
+import { updateRoleBadge } from './player-controls.ts';
+import { leaveSession, joinSession } from '../network/peer.ts';
+
+// ─── Sub-module imports ──────────────────────────────────────────
+import { startHostFlow, setHostGoBack } from './setup-host.ts';
+import { startGuestFlow, setGuestGoBack, handleSetupJoinWithRole } from './setup-guest.ts';
 import {
-  updateRoleBadge, updateInviteCodeUI,
-  showPlacementToastForChannel,
-} from './player-controls.ts';
-import { activateNoSleep } from '../app.ts';
-import { selectStandardChannelButton } from './settings.ts';
-import { createHostSessionWithShortCode, leaveSession, broadcastDeviceList } from '../network/peer.ts';
-import { joinSession } from '../network/peer.ts';
-import { PEER_NAME_PREFIX } from '../core/constants.ts';
-// ─── Constants ───────────────────────────────────────────────────
-const TOTAL_OB_SLIDES = 4;
-
-// ─── State ───────────────────────────────────────────────────────
-
-let _currentObSlide = 0;
-let _setupOverlayEverShown = false;
-let _pendingSetupRole: number | null = null;
-let _pendingGuestRoleMode: number | null = null;
-let _hostCodeFlowId = 0;
-let _setupOverlayAbort: AbortController | null = null;
-let _pendingAutoJoinCode: string | null = null;
-
-// ─── Desktop Left Panel Sync ─────────────────────────────────────
-
-let _desktopSyncedDiagram: HTMLElement | null = null;
-let _desktopSyncedDiagramParent: HTMLElement | null = null;
-let _desktopSyncedDiagramNextSibling: Node | null = null;
-
-function isDesktopLayout(): boolean {
-  return window.matchMedia('(min-width: 1280px)').matches;
-}
-
-function _restoreDesktopDiagram(): void {
-  if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
-    try {
-      _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
-    } catch { /* ignore */ }
-  }
-  _desktopSyncedDiagram = null;
-  _desktopSyncedDiagramParent = null;
-  _desktopSyncedDiagramNextSibling = null;
-  const hc = document.getElementById('desktop-step-header');
-  const dc = document.getElementById('desktop-diagram-area');
-  if (hc) hc.innerHTML = '';
-  if (dc) dc.innerHTML = '';
-}
-
-function syncDesktopLeftPanel(): void {
-  const headerContainer = document.getElementById('desktop-step-header');
-  const diagramContainer = document.getElementById('desktop-diagram-area');
-  if (!headerContainer || !diagramContainer) return;
-
-  if (!isDesktopLayout()) {
-    _restoreDesktopDiagram();
-    return;
-  }
-
-  if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
-    try {
-      _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
-    } catch { /* ignore */ }
-    _desktopSyncedDiagram = null;
-    _desktopSyncedDiagramParent = null;
-    _desktopSyncedDiagramNextSibling = null;
-  }
-  diagramContainer.innerHTML = '';
-  headerContainer.innerHTML = '';
-
-  const areas: Array<{ id: string; diagram: (el: HTMLElement) => HTMLElement | null }> = [
-    { id: 'setup-welcome-area', diagram: () => document.getElementById('ob-slider-area') },
-    { id: 'setup-role-area', diagram: (el) => el.querySelector('.setup-graphic-container') as HTMLElement | null },
-    { id: 'setup-join-area', diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null },
-    { id: 'setup-code-area', diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null },
-  ];
-
-  for (const area of areas) {
-    const areaEl = document.getElementById(area.id) as HTMLElement | null;
-    if (!areaEl || areaEl.style.display === 'none') continue;
-
-    const headerSrc = areaEl.querySelector('.setup-header-text');
-    if (headerSrc) headerContainer.innerHTML = headerSrc.innerHTML;
-
-    const diagramEl = area.diagram(areaEl);
-    if (diagramEl) {
-      _desktopSyncedDiagramParent = diagramEl.parentElement as HTMLElement | null;
-      _desktopSyncedDiagramNextSibling = diagramEl.nextSibling;
-      _desktopSyncedDiagram = diagramEl;
-      diagramContainer.appendChild(diagramEl);
-    }
-    break;
-  }
-}
-
-// ─── Setup Helpers ───────────────────────────────────────────────
-
-function setupEl(id: string): HTMLElement | null {
-  return document.getElementById(id);
-}
-
-function showSetupOverlay(): void {
-  animateTransition(() => {
-    const ov = setupEl('setup-overlay');
-    if (ov) ov.classList.add('active');
-    updateOverlayOpenClass();
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
-    _setupOverlayEverShown = true;
-  });
-}
-
-function hideSetupOverlay(): void {
-  activateNoSleep();
-  if (_setupOverlayAbort) { _setupOverlayAbort.abort(); _setupOverlayAbort = null; }
-  animateTransition(() => {
-    const overlay = setupEl('setup-overlay');
-    if (overlay) overlay.classList.remove('active');
-    updateOverlayOpenClass();
-    stopObAutoSlide();
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
-    try {
-      requestAnimationFrame(() => {
-        try { void document.documentElement.offsetHeight; } catch { /* ignore */ }
-      });
-    } catch { /* ignore */ }
-  });
-}
-
-function setupShowCodeArea(show: boolean): void {
-  animateTransition(() => {
-    const box = setupEl('setup-code-area');
-    if (box) box.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
-}
-
-function setupSetCode(code: string): void {
-  const el = setupEl('setup-code');
-  if (el) {
-    if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
-    else el.textContent = code || '------';
-  }
-  setupShowCodeArea(!!code);
-}
-
-function setupShowJoinArea(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-join-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
-}
-
-function setupShowRoleArea(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-role-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
-}
-
-function setupShowWelcome(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-welcome-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
-}
-
-function setupSetGuestJoinBusy(busy: boolean): void {
-  const input = setupEl('setup-join-code') as HTMLInputElement | null;
-  if (input) input.disabled = !!busy;
-
-  const grid = setupEl('setup-role-grid') as HTMLElement | null;
-  if (grid) {
-    grid.style.pointerEvents = busy ? 'none' : 'auto';
-    grid.style.opacity = busy ? '0.6' : '1';
-  }
-}
-
-function setupHighlightJoinRole(mode: number | null): void {
-  const opts = document.querySelectorAll<HTMLElement>('#setup-role-grid .ch-opt[data-join-ch]');
-  opts.forEach(o => o.classList.remove('selected'));
-  if (mode !== null && mode !== undefined) {
-    const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
-    if (el) el.classList.add('selected');
-  }
-
-  const speakers = document.querySelectorAll<HTMLElement>('.setup-graphic-svg .graphic-speaker');
-  speakers.forEach(el => el.classList.remove('active'));
-
-  let targetId: string | null = null;
-  if (mode === -1) targetId = 'svg-spk-l';
-  else if (mode === 1) targetId = 'svg-spk-r';
-  else if (mode === 0) targetId = 'svg-spk-center';
-  else if (mode === 2) targetId = 'svg-spk-woofer';
-
-  if (targetId) {
-    const spk = document.getElementById(targetId);
-    if (spk) spk.classList.add('active');
-  }
-}
-
-// ─── Button Rendering ────────────────────────────────────────────
-
-interface SetupButton {
-  id: string;
-  text?: string;
-  html?: string;
-  kind?: 'primary' | 'secondary' | 'text-link' | 'icon-only';
-  disabled?: boolean;
-  onClick?: (() => void) | null;
-}
-
-function setupRenderActions(buttons: SetupButton[], layout: 'row' | 'vertical' | 'horizontal-with-back' = 'row'): void {
-  const area = setupEl('setup-actions');
-  if (!area) return;
-  area.innerHTML = '';
-
-  area.classList.remove('vertical', 'horizontal-with-back');
-  if (layout === 'vertical') area.classList.add('vertical');
-  else if (layout === 'horizontal-with-back') area.classList.add('horizontal-with-back');
-
-  buttons.forEach(btn => {
-    const b = document.createElement('button');
-    b.id = btn.id;
-    b.type = 'button';
-
-    if (btn.kind === 'secondary') b.className = 'btn-ob-secondary';
-    else if (btn.kind === 'text-link') b.className = 'btn-ob-text-link';
-    else if (btn.kind === 'icon-only') b.className = 'btn-ob-icon';
-    else b.className = 'btn-ob-primary';
-
-    if (btn.html) b.innerHTML = btn.html;
-    else if (btn.text) b.textContent = btn.text;
-
-    if (btn.disabled) b.disabled = true;
-    if (btn.onClick) b.addEventListener('click', btn.onClick);
-    area.appendChild(b);
-  });
-}
-
-const BACK_SVG = '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>';
-
-// ─── Onboarding Slider ──────────────────────────────────────────
-
-function startObAutoSlide(): void {
-  stopObAutoSlide();
-  setManagedTimer('obAutoSlideTimer', () => {
-    nextObSlide(true);
-  }, 5000, { interval: true });
-}
-
-function stopObAutoSlide(): void {
-  clearManagedTimer('obAutoSlideTimer');
-}
-
-function updateObSlider(): void {
-  const track = setupEl('ob-slider-track');
-  const dots = document.querySelectorAll('.ob-dot');
-  if (!track) return;
-
-  (track as HTMLElement).style.transform = `translateX(-${_currentObSlide * 100}%)`;
-  dots.forEach((dot, idx) => {
-    dot.classList.toggle('active', idx === _currentObSlide);
-  });
-
-  // Fade in/out slide content
-  const slides = track.querySelectorAll('.ob-slide');
-  slides.forEach((slide, idx) => {
-    slide.classList.toggle('active', idx === _currentObSlide);
-  });
-}
-
-function nextObSlide(isAuto = false): void {
-  if (_currentObSlide < TOTAL_OB_SLIDES - 1) _currentObSlide++;
-  else _currentObSlide = 0;
-  updateObSlider();
-  if (isAuto !== true) startObAutoSlide();
-}
-
-function prevObSlide(): void {
-  if (_currentObSlide > 0) _currentObSlide--;
-  else _currentObSlide = TOTAL_OB_SLIDES - 1;
-  updateObSlider();
-  startObAutoSlide();
-}
+  BACK_SVG,
+  syncDesktopLeftPanel,
+  setupEl,
+  showSetupOverlay, hideSetupOverlay,
+  setupShowCodeArea, setupShowJoinArea, setupShowRoleArea, setupShowWelcome,
+  setupSetGuestJoinBusy,
+  setupRenderActions,
+  startObAutoSlide, updateObSlider,
+  nextObSlide, prevObSlide,
+  handleSetupRolePreview,
+  // State accessors
+  setCurrentObSlide, setPendingSetupRole, setPendingGuestRoleMode,
+  incrementHostCodeFlowId,
+  getSetupOverlayEverShown, getSetupOverlayAbort, setSetupOverlayAbort,
+  getPendingGuestRoleMode,
+  setPendingAutoJoinCode,
+} from './setup-shared.ts';
 
 // ─── Role Selection Buttons ──────────────────────────────────────
 
@@ -308,256 +51,18 @@ function showRoleSelectionButtons(): void {
   ], 'vertical');
 }
 
-// ─── Handle Role Preview ─────────────────────────────────────────
-
-function handleSetupRolePreview(mode: number): void {
-  const appRole = getState('network.appRole');
-  if (appRole !== 'guest' && appRole !== 'host') return;
-  _pendingSetupRole = mode;
-  setupHighlightJoinRole(mode);
-  showPlacementToastForChannel(mode);
-
-  const nextBtn = document.getElementById('btn-setup-next');
-  if (nextBtn) {
-    nextBtn.classList.remove('btn-ob-secondary');
-    nextBtn.classList.add('btn-ob-primary');
-  }
-}
-
-// ─── Host Flow ───────────────────────────────────────────────────
-
-function startHostFlow(): void {
-  ++_hostCodeFlowId;
-  bus.emit('audio:activate');
-
-  setState('network.appRole', 'host');
-  setState('setup.sessionStarted', false);
-  _pendingSetupRole = null;
-
-  setupShowJoinArea(false);
-  setupShowCodeArea(false);
-  setupShowWelcome(false);
-  setupShowRoleArea(true);
-
-  setupHighlightJoinRole(null);
-
-  const sliderArea = setupEl('ob-slider-area');
-  if (sliderArea) {
-    sliderArea.style.display = 'none';
-    stopObAutoSlide();
-  }
-
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => initSetupOverlay() },
-    {
-      id: 'btn-setup-next', text: t('common.next'), kind: 'primary',
-      onClick: () => {
-        if (_pendingSetupRole !== null) proceedToHostCode(_pendingSetupRole);
-        else showToast(t('setup.select_role'));
-      },
-    },
-  ], 'horizontal-with-back');
-}
-
-async function proceedToHostCode(mode: number): Promise<void> {
-  const appRole = getState('network.appRole');
-  if (appRole !== 'host') return;
-
-  const flowId = ++_hostCodeFlowId;
-
-  try {
-    selectStandardChannelButton(mode);
-    bus.emit('audio:set-channel-mode', mode);
-  } catch (e) { log.warn(e); }
-
-  setupShowRoleArea(false);
-  setupShowCodeArea(true);
-
-  const codeEl = setupEl('setup-code');
-  if (codeEl) {
-    if (codeEl.tagName === 'INPUT') (codeEl as HTMLInputElement).value = '------';
-    else codeEl.textContent = '------';
-  }
-
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-    { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
-  ], 'horizontal-with-back');
-
-  try {
-    const code = await createHostSessionWithShortCode();
-
-    // User navigated away while code was loading — discard stale result
-    if (flowId !== _hostCodeFlowId) {
-      log.info('[Setup] Host code flow cancelled (user navigated away)');
-      return;
-    }
-
-    setState('network.sessionCode', code);
-    setupSetCode(code);
-    updateInviteCodeUI();
-    setState('network.myDeviceLabel', 'HOST');
-    updateRoleBadge();
-  
-
-    setupRenderActions([
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => startSessionFromHost() },
-    ], 'horizontal-with-back');
-  } catch (e) {
-    // User navigated away — ignore the error silently
-    if (flowId !== _hostCodeFlowId) return;
-
-    log.error('[Setup] Host session init failed', e);
-    showToast(t('error.session_create_fail'));
-    startHostFlow();
-  }
-}
-
-function startSessionFromHost(): void {
-  const appRole = getState('network.appRole');
-  if (appRole !== 'host') return;
-
-  setState('setup.sessionStarted', true);
-  hideSetupOverlay();
-  updateRoleBadge();
-
-  // Show host in device list immediately (don't wait for a guest to connect)
-  broadcastDeviceList();
-
-  // Delay toast until View Transition completes to prevent transform conflict
-  setManagedTimer('host-start-toast', () => {
-    showToast(t('toast.invite_code_settings'));
-  }, 350);
-
-  setManagedTimer('host-start-blink', () => {
-    const btn = document.getElementById('btn-media-source');
-    if (btn) {
-      btn.classList.add('blink-hint');
-      btn.addEventListener('animationend', () => {
-        btn.classList.remove('blink-hint');
-      }, { once: true });
-    }
-  }, 400);
-}
-
-// ─── Guest Flow ──────────────────────────────────────────────────
-
-function startGuestFlow(): void {
-  bus.emit('audio:activate');
-
-  setState('network.appRole', 'guest');
-  setState('setup.sessionStarted', false);
-  _pendingSetupRole = null;
-
-  updateInviteCodeUI();
-
-  setupShowCodeArea(false);
-  setupShowJoinArea(false);
-  setupShowWelcome(false);
-  setupShowRoleArea(true);
-
-  setupHighlightJoinRole(null);
-  setupSetGuestJoinBusy(false);
-
-  const sliderArea = setupEl('ob-slider-area');
-  if (sliderArea) {
-    sliderArea.style.display = 'none';
-    stopObAutoSlide();
-  }
-
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => initSetupOverlay() },
-    {
-      id: 'btn-setup-next', text: t('common.next'), kind: 'primary',
-      onClick: () => {
-        if (_pendingSetupRole !== null) proceedToGuestCode(_pendingSetupRole);
-        else showToast(t('setup.select_role'));
-      },
-    },
-  ], 'horizontal-with-back');
-
-  setState('network.myDeviceLabel', t('common.guest'));
-  updateRoleBadge();
-}
-
-function proceedToGuestCode(mode: number): void {
-  _pendingGuestRoleMode = mode;
-
-  setupShowRoleArea(false);
-  setupShowJoinArea(true);
-
-
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode ?? null) },
-  ], 'horizontal-with-back');
-
-  const input = setupEl('setup-join-code') as HTMLInputElement | null;
-  if (input) {
-    // Restore auto-join code from QR scan (if any), otherwise clear
-    if (_pendingAutoJoinCode) {
-      input.value = _pendingAutoJoinCode;
-    } else {
-      input.value = '';
-    }
-    input.focus();
-  }
-}
-
-async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
-  if (mode === null || mode === undefined) {
-    showToast(t('setup.select_role_alt'));
-    return;
-  }
-
-  const appRole = getState('network.appRole');
-  if (appRole !== 'guest') return;
-
-  const input = setupEl('setup-join-code') as HTMLInputElement | null;
-  const codeRaw = (input ? input.value : '').trim();
-  const code = codeRaw.replace(/\s+/g, '');
-
-  if (!/^\d{6}$/.test(code)) {
-    showToast(t('setup.six_digit_enter'));
-    if (input) input.focus();
-    return;
-  }
-
-  setState('network.lastJoinCode', code);
-  updateInviteCodeUI();
-  activateNoSleep();
-
-  try {
-    selectStandardChannelButton(mode);
-    bus.emit('audio:set-channel-mode', mode);
-  } catch (e) { log.warn('[Setup] setChannelMode failed', e); }
-
-  setState('network.myDeviceLabel', PEER_NAME_PREFIX);
-  updateRoleBadge();
-
-  setupSetGuestJoinBusy(true);
-  setState('network.isConnecting', true);
-  updateRoleBadge();
-
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
-  ], 'horizontal-with-back');
-
-  joinSession(code);
-}
-
-// ─── Init ────────────────────────────────────────────────────────
+// ─── Init Setup Overlay ──────────────────────────────────────────
 
 function initSetupOverlay(): void {
   // Abort previous setup overlay listeners to prevent accumulation
-  if (_setupOverlayAbort) _setupOverlayAbort.abort();
-  _setupOverlayAbort = new AbortController();
-  const signal = _setupOverlayAbort.signal;
+  const prevAbort = getSetupOverlayAbort();
+  if (prevAbort) prevAbort.abort();
+  const abort = new AbortController();
+  setSetupOverlayAbort(abort);
+  const signal = abort.signal;
 
-  ++_hostCodeFlowId;
-  _pendingAutoJoinCode = null;  // Clear auto-join code when returning to onboarding
+  incrementHostCodeFlowId();
+  setPendingAutoJoinCode(null);  // Clear auto-join code when returning to onboarding
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
 
@@ -569,10 +74,10 @@ function initSetupOverlay(): void {
 
   setState('network.appRole', 'idle');
   setState('network.sessionCode', '');
-  _currentObSlide = 0;
+  setCurrentObSlide(0);
   setState('setup.sessionStarted', false);
-  _pendingSetupRole = null;
-  _pendingGuestRoleMode = null;
+  setPendingSetupRole(null);
+  setPendingGuestRoleMode(null);
 
   updateRoleBadge();
   updateObSlider();
@@ -583,7 +88,7 @@ function initSetupOverlay(): void {
     startObAutoSlide();
   };
 
-  if (!_setupOverlayEverShown) {
+  if (!getSetupOverlayEverShown()) {
     try { document.documentElement.classList.add('setup-boot-block'); } catch { /* ignore */ }
   }
   showAndStart();
@@ -599,7 +104,7 @@ function initSetupOverlay(): void {
       const dotEl = (e.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
       const idx = parseInt(dotEl?.dataset?.idx || '', 10);
       if (isNaN(idx)) return;
-      _currentObSlide = idx;
+      setCurrentObSlide(idx);
       updateObSlider();
       startObAutoSlide();
     }, { signal });
@@ -623,6 +128,15 @@ function initSetupOverlay(): void {
     }, { signal });
   }
 }
+
+// ─── Wire goBack callbacks ───────────────────────────────────────
+// Host/guest sub-modules need to navigate back to the onboarding screen,
+// but cannot import initSetupOverlay (that would create a circular dep).
+// We inject the callback at init time.
+setHostGoBack(initSetupOverlay);
+setGuestGoBack(initSetupOverlay);
+
+// ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
   // Desktop layout listener
@@ -668,8 +182,9 @@ export function initSetup(): void {
     joinInput.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
-      if (_pendingGuestRoleMode !== null) {
-        handleSetupJoinWithRole(_pendingGuestRoleMode);
+      const mode = getPendingGuestRoleMode();
+      if (mode !== null) {
+        handleSetupJoinWithRole(mode);
       }
     });
   }
@@ -685,7 +200,7 @@ export function initSetup(): void {
     updateRoleBadge();
     hideSetupOverlay();
     // Clear pending join code & clean URL — connection succeeded
-    _pendingAutoJoinCode = null;
+    setPendingAutoJoinCode(null);
     try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
     try {
       if (window.location.search.includes('join=')) {
@@ -705,7 +220,7 @@ export function initSetup(): void {
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(_pendingGuestRoleMode ?? null) },
+      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null) },
     ], 'horizontal-with-back');
 
     const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -837,7 +352,7 @@ export function initSetup(): void {
 
       // Persist code so it survives SW reload AND proceedToGuestCode() clearing
       sessionStorage.setItem(JOIN_CODE_KEY, joinCode);
-      _pendingAutoJoinCode = joinCode;
+      setPendingAutoJoinCode(joinCode);
 
       // Show overlay first, then jump to guest role selection
       setManagedTimer('auto-join-start', () => {
@@ -854,3 +369,25 @@ export function initSetup(): void {
 
   log.info('[Setup] Initialized');
 }
+
+// ─── Re-exports ──────────────────────────────────────────────────
+// External modules import from 'ui/setup.ts' — keep that contract.
+
+export { startHostFlow, startSessionFromHost } from './setup-host.ts';
+export { startGuestFlow, handleSetupJoinWithRole } from './setup-guest.ts';
+export {
+  BACK_SVG,
+  showSetupOverlay,
+  hideSetupOverlay,
+  setupShowCodeArea,
+  setupShowJoinArea,
+  setupShowRoleArea,
+  setupShowWelcome,
+  setupSetCode,
+  setupSetGuestJoinBusy,
+  setupHighlightJoinRole,
+  setupRenderActions,
+  setupEl,
+  syncDesktopLeftPanel,
+  handleSetupRolePreview,
+} from './setup-shared.ts';

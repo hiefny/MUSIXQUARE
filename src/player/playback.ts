@@ -1,867 +1,71 @@
 /**
- * MUSIXQUARE 3.0 — Playback Engine
+ * MUSIXQUARE 3.0 — Playback Engine (Coordinator)
  *
- * Manages: play/pause/stop/seek, Tone.js BufferSource lifecycle,
- * video sync, track position calculation, file loading/decoding.
+ * Orchestrates: protocol handler registration, bus event wiring.
+ * Re-exports all public API from sub-modules.
+ *
+ * Sub-modules:
+ *   _state.ts    — shared module state (leaf node)
+ *   transport.ts — play/pause/stop/seek, track position
+ *   decode.ts    — file loading, decoding, guest finalization
  */
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
-import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { BlobURLManager } from '../core/blob-manager.ts';
-import { initAudio, getWidener, getSurroundSplitter } from '../audio/engine.ts';
-import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './video.ts';
-import { postWorkerCommand, cleanupOPFSInWorker, readFileFromOpfs } from '../storage/opfs.ts';
-import { broadcastFile, unicastFile } from '../storage/transfer.ts';
-import { schedulePreload, unicastPreload } from '../storage/preload.ts';
+import { MSG, APP_STATE } from '../core/constants.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { getVideoElement } from './video.ts';
+import { readFileFromOpfs } from '../storage/opfs.ts';
+import { unicastFile } from '../storage/transfer.ts';
+import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
-import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { SessionScope } from '../core/session-scope.ts';
+import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
 
-import * as Tone from 'tone';
-import type { ToneBufferSource } from 'tone';
-
-// ─── Module-local State ────────────────────────────────────────────
-
- 
-let _playerNode: ToneBufferSource | null = null;
-let _currentAudioBuffer: AudioBuffer | null = null;
-let _currentLoadToken = 0;
-let _activeLoadSessionId = 0;
-let _isPlayLocked = false;
-let _pendingPlayTime: number | undefined;
-let _pendingPlayDepth = 0;
-let _playPreloadedInProgress = false;
-let _lastClearedTrackName = '';
-let _loadScope: SessionScope | null = null;
-
-// ─── Getters ───────────────────────────────────────────────────────
-
-export function getCurrentAudioBuffer(): AudioBuffer | null {
-  return _currentAudioBuffer;
-}
-
-export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
-  _currentAudioBuffer = buf;
-}
-
-export function incrementLoadToken(): number {
-  return ++_currentLoadToken;
-}
-
-export function getLoadToken(): number {
-  return _currentLoadToken;
-}
-
-export function setPendingPlayTime(time: number | undefined): void {
-  _pendingPlayTime = time;
-}
-
-export function getPendingPlayTime(): number | undefined {
-  return _pendingPlayTime;
-}
-
-// ─── Format Helpers ────────────────────────────────────────────────
-
-export function fmtTime(s: number): string {
-  if (!Number.isFinite(s)) return '0:00';
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec < 10 ? '0' : ''}${sec}`;
-}
-
-// ─── Track Position ────────────────────────────────────────────────
-
-export function getTrackPosition(): number {
-  const currentState = getState('appState');
-  const pausedAt = getState('player.pausedAt') || 0;
-
-  if (isIdleOrPaused(currentState)) return pausedAt;
-
-  // YouTube mode: delegated via synchronous callback
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    let ytPos = 0;
-    bus.emit('youtube:get-position', (pos: number) => { ytPos = pos; });
-    return ytPos;
-  }
-
-  const videoElement = getVideoElement();
-  const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
-    ? _currentAudioBuffer.duration
-    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
-
-  let pos = 0;
-  const startedAt = getState('player.startedAt') || 0;
-  const localOffset = getState('sync.localOffset') || 0;
-  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-
-  const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
-  if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
-    const combinedOffset = localOffset + autoSyncOffset;
-    // Guard: reset offsets if combined drift exceeds 5 seconds
-    if (Math.abs(combinedOffset) > 5) {
-      log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}, auto=${autoSyncOffset.toFixed(3)}, combined=${combinedOffset.toFixed(3)}s — resetting`);
-      setState('sync.localOffset', 0);
-      setState('sync.autoSyncOffset', 0);
-      pos = Tone.now() - startedAt;
-    } else {
-      pos = (Tone.now() - startedAt) + combinedOffset;
-    }
-  } else if (videoElement?.src && videoElement.readyState >= 1) {
-    pos = videoElement.currentTime;
-  }
-
-  if (isNaN(pos)) pos = 0;
-  if (pos < 0) pos = 0;
-  if (duration > 0 && pos > duration) pos = duration;
-
-  return pos;
-}
-
-// ─── Play State UI ─────────────────────────────────────────────────
-
-export function updatePlayState(playing: boolean): void {
-  bus.emit('ui:update-play-state', playing);
-}
-
-// ─── Stop Player Node ──────────────────────────────────────────────
-
-export function stopPlayerNode(): void {
-  if (_playerNode) {
-    try {
-      _playerNode.onended = () => {};
-      _playerNode.stop();
-      _playerNode.disconnect();
-      _playerNode.dispose();
-    } catch (e) {
-      log.warn('Error stopping/disposing playerNode:', e);
-    } finally {
-      _playerNode = null;
-    }
-  }
-}
-
-// ─── Stop All Media ────────────────────────────────────────────────
-
-export function stopAllMedia(opts?: { silent?: boolean }): void {
-  _loadScope?.dispose();
-  _loadScope = null;
-  const videoElement = getVideoElement();
-
-  // 1. Stop video
-  if (videoElement) {
-    videoElement.pause();
-    videoElement.removeAttribute('src');
-    videoElement.load();
-  }
-
-  try { BlobURLManager.revoke(); } catch { /* noop */ }
-  try { BlobURLManager.flushDeferred('stopAllMedia'); } catch { /* noop */ }
-
-  // 2. Stop YouTube
-  bus.emit('youtube:stop-mode');
-
-  // 3. Clear pending triggers
-  clearManagedTimer('preloadScheduleTimer');
-  clearManagedTimer('autoPlayTimer');
-  _pendingPlayTime = undefined;
-
-  // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
-  if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
-  }
-  updatePlayState(false);
-
-  // Stop background sync timers
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
-
-  // Stop player node
-  stopPlayerNode();
-
-  // Reset master clock
-  setState('player.startedAt', 0);
-  setState('player.pausedAt', 0);
-}
-
-// ─── Play ──────────────────────────────────────────────────────────
-
-export async function play(offset: number): Promise<void> {
-  if (_isPlayLocked) {
-    log.warn('[Play] Blocked: queuing play request');
-    _pendingPlayTime = offset;
-    return;
-  }
-  _isPlayLocked = true;
-
-  const lockStartTime = Date.now();
-  setManagedTimer('navigator-lock-watchdog', () => {
-    if (_isPlayLocked) {
-      log.warn(`[Play] Lock Timeout: Forcing unlock after 5s (locked at ${new Date(lockStartTime).toISOString()})`);
-      _isPlayLocked = false;
-      _pendingPlayTime = undefined;
-      _pendingPlayDepth = 0;
-      stopPlayerNode();
-    }
-  }, 5000);
-
-  try {
-    await _internalPlay(offset);
-  } finally {
-    clearManagedTimer('navigator-lock-watchdog');
-    setManagedTimer('playback-unlock-delay', () => {
-      _isPlayLocked = false;
-      // Consume queued play request (e.g. sync correction that arrived during lock)
-      if (_pendingPlayTime !== undefined && _pendingPlayDepth < 2) {
-        const queued = _pendingPlayTime;
-        _pendingPlayTime = undefined;
-        _pendingPlayDepth++;
-        log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s (depth: ${_pendingPlayDepth})`);
-        play(queued).finally(() => { _pendingPlayDepth = 0; });
-      } else {
-        if (_pendingPlayTime !== undefined) {
-          log.warn(`[Play] Dropping queued play request at depth ${_pendingPlayDepth} to prevent recursion`);
-        }
-        _pendingPlayTime = undefined;
-        _pendingPlayDepth = 0;
-      }
-    }, 10);
-  }
-}
-
-async function _internalPlay(offset: number): Promise<void> {
-  _pendingPlayTime = undefined;
-  log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
-
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    log.warn('[Audio] Blocked play() call while in YouTube mode');
-    return;
-  }
-
-  if (typeof Tone === 'undefined' || !Tone?.context) {
-    log.error('[Audio] Tone.js not loaded');
-    bus.emit('ui:show-toast', t('error.audio_engine_not_ready'));
-    return;
-  }
-
-  log.debug('[Play] Stage 2: Resuming AudioContext');
-  if (Tone.context.state !== 'running') {
-    try { await Tone.context.resume(); } catch (e) { log.warn('Resume failed:', e); }
-  }
-
-  const videoElement = getVideoElement();
-  const hasVideoSource = !!(videoElement?.src?.startsWith('blob:'));
-  const hasBufferSource = !!_currentAudioBuffer;
-
-  if (!hasVideoSource && !hasBufferSource) {
-    log.warn('[Play] No media source available');
-    return;
-  }
-
-  log.debug('[Play] Stage 3: Initializing audio engine');
-  try {
-    await initAudio();
-  } catch (e) {
-    log.error('[Audio] initAudio failed:', e);
-    bus.emit('ui:show-toast', t('error.audio_engine_prepare'));
-    return;
-  }
-
-  // Sanitize offset
-  let safeOffset = Number(offset);
-  if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
-  const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
-    ? _currentAudioBuffer.duration
-    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
-  if (duration > 0) {
-    if (safeOffset > duration) safeOffset = duration;
-    if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.001);
-  }
-
-  // Buffer Mode playback
-  if (_currentAudioBuffer) {
-    stopPlayerNode();
-    _playerNode = new Tone.BufferSource(_currentAudioBuffer);
-
-    const isSurroundMode = getState('audio.isSurroundMode');
-    const surroundChannelIndex = getState('audio.surroundChannelIndex');
-
-    if (isSurroundMode) {
-      bus.emit('audio:connect-surround', _playerNode, surroundChannelIndex);
-      log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
-    } else {
-      const widener = getWidener();
-      if (widener) _playerNode.connect(widener);
-      log.debug('[BufferMode] Playing in Stereo');
-    }
-
-    const endedToken = _currentLoadToken;
-    _playerNode.onended = () => {
-      if (endedToken !== _currentLoadToken) return;
-      const state = getState('appState');
-      if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
-        handleEnded();
-      }
-    };
-
-    _playerNode.start(Tone.now(), safeOffset);
-
-    // Sync visuals (muted video)
-    if (videoElement?.src) {
-      videoElement.currentTime = safeOffset;
-      videoElement.muted = true;
-      videoElement.play().catch(() => { /* noop */ });
-    }
-  } else if (hasVideoSource && videoElement?.src) {
-    // Video-only playback (no audio buffer) — play video with its own audio track
-    videoElement.currentTime = safeOffset;
-    videoElement.muted = false;
-    videoElement.play().catch(() => { /* noop */ });
-  }
-
-  // Update timing
-  const localOffset = getState('sync.localOffset') || 0;
-  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-  const startedAt = Tone.now() - (safeOffset - (localOffset + autoSyncOffset));
-  setState('player.startedAt', startedAt);
-  setState('player.pausedAt', safeOffset);
-  log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
-
-  updatePlayState(true);
-
-  const meta = getState('transfer.meta');
-  const currentFileBlob = getState('files.currentFileBlob');
-  const isVideo = isMediaVideo(currentFileBlob, meta);
-  const newState = isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO;
-  setState('appState', newState);
-  bus.emit('player:state-changed', newState);
-
-  bus.emit('visualizer:start');
-  if (isVideo) {
-    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'video-sync', interval: 2000 });
-  }
-  bus.emit('ui:loop-start');
-}
-
-// ─── Pause ─────────────────────────────────────────────────────────
-
-export function pause(forcedTime?: number): void {
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState)) return;
-
-  let pausePos: number;
-  if (typeof forcedTime === 'number' && isFinite(forcedTime) && forcedTime >= 0) {
-    pausePos = forcedTime;
-  } else {
-    pausePos = getTrackPosition();
-  }
-
-  stopPlayerNode();
-
-  const videoElement = getVideoElement();
-  if (videoElement) {
-    try { videoElement.pause(); } catch { /* noop */ }
-    try { videoElement.currentTime = pausePos; } catch { /* noop */ }
-  }
-
-  setState('appState', APP_STATE.PAUSED);
-  setState('player.pausedAt', pausePos);
-  bus.emit('player:state-changed', APP_STATE.PAUSED);
-  updatePlayState(false);
-  bus.emit('ui:show-toast', t('common.pause'));
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
-}
-
-// ─── Handle Track Ended ────────────────────────────────────────────
-
-function handleEnded(): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Guests don't handle track-end
-
-  const currentState = getState('appState');
-  const videoElement = getVideoElement();
-
-  const hasBufferDuration = !!(_currentAudioBuffer &&
-    Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.5);
-
-  const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
-  if (!hasBufferDuration && usesVideoElement && videoElement && videoElement.readyState < 1) return;
-
-  const duration = hasBufferDuration
-    ? _currentAudioBuffer!.duration
-    : (videoElement ? videoElement.duration : 0);
-
-  if (!duration || !Number.isFinite(duration) || duration <= 0.5) return;
-  if (isIdleOrPaused(currentState)) return;
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
-
-  const curr = getTrackPosition();
-  const isSeeking = getState('player.isSeeking');
-  if (isSeeking) {
-    log.debug('[handleEnded] Ignoring end signal while seeking');
-    return;
-  }
-
-  if (curr >= duration - 0.05) {
-    log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
-    stopAllMedia();
-    setState('player.pausedAt', 0);
-    bus.emit('ui:seek-reset');
-
-    // Auto-advance via playlist module
-    bus.emit('player:ended');
-  }
-}
-
-// ─── Toggle Play ───────────────────────────────────────────────────
-
-export function togglePlay(): void {
-  const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
-  const currentState = getState('appState');
-
-  // YouTube mode
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:toggle-play');
-    return;
-  }
-
-  const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
-  const pausedAt = getState('player.pausedAt') || 0;
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-
-  // Cancel pending auto-play (with user feedback)
-  if (!hostConn && getManagedTimer('autoPlayTimer')) {
-    clearManagedTimer('autoPlayTimer');
-    bus.emit('ui:show-toast', t('toast.auto_play_canceled'));
-  }
-
-  if (isActuallyPlaying) {
-    if (!hostConn) {
-      pause();
-      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
-    } else if (isOperator) {
-      sendToHost({ type: MSG.REQUEST_PAUSE });
-    }
-  } else {
-    if (!hostConn) {
-      play(pausedAt);
-      broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex });
-      requestGlobalResyncDelayed();
-    } else if (isOperator) {
-      sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
-    }
-  }
-}
-
-// ─── Stop Playback ─────────────────────────────────────────────────
-
-export function stopPlayback(): void {
-  const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
-  if (hostConn && isOperator) {
-    try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch { /* noop */ }
-    try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch { /* noop */ }
-    bus.emit('ui:show-toast', t('toast.stop_sent'));
-    return;
-  }
-
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:stop-playback');
-    setState('player.pausedAt', 0);
-    setState('appState', APP_STATE.IDLE);
-    updatePlayState(false);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
-    if (!getState('network.hostConn')) broadcast({ type: MSG.PAUSE, time: 0 });
-    return;
-  }
-
-  stopAllMedia();
-  bus.emit('ui:seek-reset');
-
-  if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0 });
-  bus.emit('ui:show-toast', t('common.stop'));
-}
-
-// ─── Skip Time ─────────────────────────────────────────────────────
-
-export function skipTime(sec: number): void {
-  const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
-  if (hostConn && isOperator) {
-    sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
-    return;
-  }
-
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:skip-time', sec);
-    return;
-  }
-
-  const current = getTrackPosition();
-  let target = current + sec;
-  const videoElement = getVideoElement();
-  const duration = (_currentAudioBuffer?.duration)
-    ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
-
-  if (target < 0) target = 0;
-  if (duration > 0 && target > duration) target = Math.max(0, duration - 0.001);
-
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
-
-  if (isPlaying) {
-    play(target);
-    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
-    requestGlobalResyncDelayed();
-  } else {
-    setState('player.pausedAt', target);
-    broadcast({ type: MSG.PAUSE, time: target });
-  }
-}
-
-// ─── Adjust Sync ───────────────────────────────────────────────────
-
-export function adjustSync(val: number): void {
-  const localOffset = getState('sync.localOffset') || 0;
-  setState('sync.localOffset', localOffset + val);
-  bus.emit('sync:display-update');
-
-  const currentState = getState('appState');
-  if (!isIdleOrPaused(currentState)) {
-    play(getTrackPosition());
-  } else {
-    const pausedAt = getState('player.pausedAt') || 0;
-    const videoElement = getVideoElement();
-    const duration = (_currentAudioBuffer?.duration)
-      ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
-    const newPausedAt = duration > 0
-      ? Math.max(0, Math.min(pausedAt + val, duration))
-      : Math.max(0, pausedAt + val);
-    setState('player.pausedAt', newPausedAt);
-  }
-}
-
-// ─── Check Video Sync ──────────────────────────────────────────────
-
-export function checkVideoSync(): void {
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState) || currentState === APP_STATE.PLAYING_YOUTUBE) return;
-
-  const videoElement = getVideoElement();
-  if (!videoElement?.src) return;
-
-  const targetTime = getTrackPosition();
-  const actualTime = videoElement.currentTime;
-  const drift = Math.abs(actualTime - targetTime);
-
-  if (drift > 0.3) {
-    if (videoElement.seeking) return;
-    log.debug(`[SyncCheck] Correcting video drift: ${drift.toFixed(3)}s`);
-
-    if (drift >= 1.9 && videoElement.paused) {
-      log.warn('[SyncCheck] Video appears frozen. Attempting kickstart...');
-      videoElement.play().catch(() => { /* noop */ });
-    }
-
-    videoElement.currentTime = targetTime;
-  }
-}
-
-// ─── Load And Broadcast File (Host) ────────────────────────────────
-
-export async function loadAndBroadcastFile(
-  file: File,
-  sessionId: number | null = null,
-  _unused?: boolean,
-  loadToken?: number,
-): Promise<void> {
-  _activeLoadSessionId++;
-  const myLoadId = _activeLoadSessionId;
-  _loadScope = SessionScope.replace(_loadScope);
-  const myToken = loadToken ?? _currentLoadToken;
-
-  bus.emit('ui:show-loader', true, t('toast.preparing', { name: file.name }));
-  stopAllMedia();
-
-  try {
-    await initAudio();
-    if (Tone.context.state === 'suspended') await Tone.start();
-
-    const url = BlobURLManager.create(file) || '';
-    setState('files.currentFileBlob', file);
-
-    log.debug('[BufferMode] Decoding audio for high-precision sync...');
-    bus.emit('ui:show-toast', t('toast.hprecision_sync'));
-
-    // Decode audio
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-    // Re-verify after async decode
-    if (loadToken !== undefined && _currentLoadToken !== myToken) {
-      if (myLoadId === _activeLoadSessionId) {
-        log.warn('[Load] Token mismatch after decode. Aborting stale load.');
-        bus.emit('ui:show-loader', false);
-      }
-      return;
-    }
-
-    // Dispose old buffer
-    if (_currentAudioBuffer) {
-      _currentAudioBuffer = null;
-    }
-
-    if (myLoadId !== _activeLoadSessionId) {
-      log.debug('[Load] Stale loading session detected. Aborting.');
-      return;
-    }
-
-    // Load into state
-    _currentAudioBuffer = audioBuffer;
-    log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
-
-    // Emit duration immediately from decoded buffer (primary source)
-    if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
-      bus.emit('ui:duration-update', audioBuffer.duration);
-    }
-
-    // Visual sync
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
-
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
-
-    bus.emit('ui:update-playlist');
-
-    if (videoElement) {
-      const cleanupMeta = () => {
-        videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
-        videoElement.removeEventListener('error', onMetaError);
-      };
-      const onMetaLoaded = () => {
-        cleanupMeta();
-        if (myLoadId !== _activeLoadSessionId) return;
-        const dur = _currentAudioBuffer ? _currentAudioBuffer.duration : videoElement.duration;
-        if (dur && isFinite(dur)) {
-          bus.emit('ui:duration-update', dur);
-        }
-        BlobURLManager.confirm();
-      };
-      const onMetaError = () => {
-        cleanupMeta();
-        log.warn('[Playback] Video loadedmetadata failed — confirming blob URL');
-        BlobURLManager.confirm();
-      };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded);
-      videoElement.addEventListener('error', onMetaError, { once: true });
-      videoElement.load();
-    } else {
-      BlobURLManager.confirm();
-    }
-
-    // Enable play button
-    const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
-
-    // Broadcast file to peers
-    const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && sessionId) {
-      bus.emit('ui:show-toast', t('transfer.file_sending'));
-      broadcastFile(file, sessionId)
-        .catch(e => log.error('[Host] broadcastFile failed:', e));
-    }
-
-    if (!hostConn) {
-      schedulePreload();
-    }
-  } catch (err: unknown) {
-    log.error(err);
-    bus.emit('ui:show-toast', `Load Failed: ${(err as Error).message}`);
-  } finally {
-    if (myLoadId === _activeLoadSessionId) {
-      bus.emit('ui:show-loader', false);
-      setState('player.pausedAt', 0);
-      updatePlayState(false);
-    }
-
-    const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    bus.emit('ui:play-btn-state', !hostConn || isOperator);
-  }
-}
-
-// ─── Load Preloaded Track ──────────────────────────────────────────
-
-export async function loadPreloadedTrack(
-  expectedIndex?: number,
-  loadToken?: number,
-): Promise<void> {
-  _loadScope = SessionScope.replace(_loadScope);
-  const nextMeta = getState('preload.meta');
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;
-  const myToken = loadToken ?? _currentLoadToken;
-  const localBlob = getState('preload.nextFileBlob');
-  const localMeta = nextMeta ? { ...nextMeta } : null;
-
-  if (!localBlob) {
-    log.warn('[Preload] No preloaded blob found in cache!');
-    _pendingPlayTime = undefined;
-    return;
-  }
-
-  _playPreloadedInProgress = true;
-
-  try {
-    await initAudio();
-
-    if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
-      log.warn(`[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
-      _playPreloadedInProgress = false;
-      _pendingPlayTime = undefined;
-      return;
-    }
-
-    // Dispose old buffer
-    if (_currentAudioBuffer) {
-      _currentAudioBuffer = null;
-    }
-
-    log.debug('[Preload] Decoding audio for Buffer Mode...');
-    bus.emit('ui:show-toast', t('toast.decoding_audio'));
-
-    const arrayBuffer = await localBlob.arrayBuffer();
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-    // Re-verify after async decode
-    if (loadToken !== undefined && _currentLoadToken !== myToken) {
-      log.warn('[Preload] Token mismatch after decode. Discarding.');
-      _playPreloadedInProgress = false;
-      _pendingPlayTime = undefined;
-      return;
-    }
-    if (expectedIndex !== undefined && currentTrackIndex !== -1 &&
-        getState('playlist.currentTrackIndex') !== targetIndex) {
-      log.warn('[Preload] Track changed during decode. Discarding.');
-      _playPreloadedInProgress = false;
-      _pendingPlayTime = undefined;
-      return;
-    }
-
-    const activeMeta = localMeta || getState('transfer.meta');
-
-    // Update global state
-    setState('files.currentFileBlob', localBlob);
-    setState('transfer.meta', activeMeta);
-    _currentAudioBuffer = audioBuffer;
-    log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
-
-    const isVideo = isMediaVideo(localBlob, activeMeta);
-    setEngineMode(isVideo ? 'video' : 'buffer');
-
-    // Visual sync
-    const url = BlobURLManager.create(localBlob) || '';
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
-
-    const dur = audioBuffer.duration;
-    if (isFinite(dur)) {
-      bus.emit('ui:duration-update', dur);
-    }
-    BlobURLManager.confirm();
-
-    if (videoElement) videoElement.load();
-
-    // Clear preload state
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
-    setState('preload.nextTrackIndex', -1);
-    log.debug('[Preload] Safe clear: nextFileBlob moved to current.');
-
-    // Reset transfer guards
-    setState('transfer.skipIncomingFile', true);
-    setState('transfer.waitingForPreload', false);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    clearManagedTimer('preloadWatchdog');
-
-    // Request 3-sample sync from host after settle
-    const hostConn = getState('network.hostConn');
-    if (hostConn?.open) {
-      setManagedTimer('playback-preload-auto-sync', () => {
-        log.debug('[Guest] Post-preload auto-sync: triggering 3-sample sync');
-        bus.emit('sync:auto-sync');
-      }, 500);
-    }
-
-    _playPreloadedInProgress = false;
-
-    // Consume pending play time
-    const localOffset = getState('sync.localOffset') || 0;
-    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-    if (hostConn && _pendingPlayTime !== undefined) {
-      const target = _pendingPlayTime + localOffset + autoSyncOffset;
-      log.debug(`[Preload] Found pending play time, starting at ${target.toFixed(2)}s`);
-      play(target);
-      _pendingPlayTime = undefined;
-    }
-
-  } catch (e: unknown) {
-    _playPreloadedInProgress = false;
-    _pendingPlayTime = undefined;
-    log.error('[Preload] Activation failed:', e);
-    bus.emit('ui:show-toast', t('transfer.preload_fail'));
-
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
-    setState('preload.nextTrackIndex', -1);
-    setState('transfer.skipIncomingFile', false);
-    setState('transfer.waitingForPreload', false);
-    clearManagedTimer('preloadWatchdog');
-
-    // Request recovery from host
-    const playlist = getState('playlist.items') || [];
-    const meta = getState('transfer.meta');
-    const idx = getState('playlist.currentTrackIndex');
-    const name = (playlist[idx] as unknown as Record<string, string>)?.name || (meta?.name as string) || '';
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: idx, reason: 'preload_activation_failed' });
-  }
-}
+import {
+  getCurrentAudioBuffer,
+  getPlayerNode,
+  incrementLoadToken,
+  getPendingPlayTime, setPendingPlayTime,
+  isPlayPreloadedInProgress,
+} from './_state.ts';
+
+import {
+  play, pause, stopAllMedia,
+  getTrackPosition, checkVideoSync, handleEnded,
+  skipTime,
+} from './transport.ts';
+
+import {
+  loadPreloadedTrack,
+  clearPreviousTrackState, finalizeGuestFile,
+} from './decode.ts';
+
+// ─── Re-exports ────────────────────────────────────────────────────
+// All public API re-exported so external imports from './playback.ts' keep working.
+
+export {
+  // _state.ts
+  getCurrentAudioBuffer, setCurrentAudioBuffer,
+  incrementLoadToken, getLoadToken,
+  setPendingPlayTime, getPendingPlayTime,
+} from './_state.ts';
+
+export {
+  // transport.ts
+  fmtTime, getTrackPosition, updatePlayState, stopPlayerNode,
+  stopAllMedia, play, pause, handleEnded,
+  togglePlay, stopPlayback, skipTime, adjustSync, checkVideoSync,
+} from './transport.ts';
+
+export {
+  // decode.ts
+  loadAndBroadcastFile, loadPreloadedTrack,
+} from './decode.ts';
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
@@ -870,8 +74,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   const incomingIndex = data.index != null ? Number(data.index) : undefined;
 
   // Guard: If loadPreloadedTrack is in progress, queue the play time
-  if (_playPreloadedInProgress) {
-    _pendingPlayTime = time;
+  if (isPlayPreloadedInProgress()) {
+    setPendingPlayTime(time);
     log.debug(`[Guest] Preload in progress, queuing play time: ${time}`);
     return;
   }
@@ -880,7 +84,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (incomingIndex !== undefined && incomingIndex !== currentTrackIndex) {
     log.warn(`[Guest] Index mismatch: current=${currentTrackIndex}, play=${incomingIndex}`);
-    _pendingPlayTime = time;
+    setPendingPlayTime(time);
     setState('playlist.currentTrackIndex', incomingIndex);
     bus.emit('ui:update-playlist');
 
@@ -889,8 +93,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     const nextTrackIndex = getState('preload.nextTrackIndex');
     if (nextFileBlob && nextTrackIndex === incomingIndex) {
       log.debug(`[Guest] Found preloaded track for index ${incomingIndex}`);
-      _currentLoadToken++;
-      loadPreloadedTrack(incomingIndex, _currentLoadToken);
+      const newToken = incrementLoadToken();
+      loadPreloadedTrack(incomingIndex, newToken);
       return;
     }
 
@@ -922,11 +126,11 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   const loadedName = (meta?.name as string) || '';
   if (expectedName && loadedName && expectedName !== loadedName) {
     log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
-    _pendingPlayTime = time;
+    setPendingPlayTime(time);
     return;
   }
 
-  if (_currentAudioBuffer || getVideoElement()?.src) {
+  if (getCurrentAudioBuffer() || getVideoElement()?.src) {
     play(time);
   } else {
     // Remote guest: no file will arrive, show guide (transport guard)
@@ -943,7 +147,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       log.info('[Guest] Remote guest — no file will arrive, showing guide');
       return;
     }
-    _pendingPlayTime = time;
+    setPendingPlayTime(time);
     log.debug(`[Guest] Storing pending play time: ${time}`);
   }
 }
@@ -1031,163 +235,6 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
   skipTime(sec);
 }
 
-// ─── Clear Previous Track State ────────────────────────────────────
-
-function clearPreviousTrackState(reason = ''): void {
-  log.debug(`[State Clear] Clearing previous track state. Reason: ${reason}`);
-
-  // Edge Case: skip redundant clears for same track
-  const playlist = getState('playlist.items') || [];
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const meta = getState('transfer.meta');
-  const trackName = playlist[currentTrackIndex]?.name || (meta?.name as string) || '';
-  if (reason === 'redundant-sync' && trackName && _lastClearedTrackName === trackName) {
-    log.debug(`[State Clear] Skipping redundant clear for: ${trackName}`);
-    return;
-  }
-  _lastClearedTrackName = trackName;
-
-  // Stop timers
-  clearManagedTimer('chunkWatchdog');
-  clearManagedTimer('prepareWatchdog');
-
-  // Reset transfer state
-  setState('transfer.receivedCount', 0);
-  setState('transfer.meta', {});
-  setState('files.currentFileBlob', null);
-
-  if (reason === 'redundant-sync') return;
-
-  // CRITICAL: Clear audio buffer to prevent previous track from replaying
-  if (_currentAudioBuffer) {
-    log.debug('[State Clear] Clearing currentAudioBuffer');
-    _currentAudioBuffer = null;
-  }
-  stopPlayerNode();
-  setState('transfer.skipIncomingFile', false);
-  _pendingPlayTime = undefined;
-
-  // Reset state to IDLE
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PAUSED) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
-  }
-
-  // Clear preload ack tracking (immutable — replace with new Set)
-  setState('preload.ackSent', new Set());
-
-  BlobURLManager.revoke();
-
-  const videoElement = getVideoElement();
-  if (videoElement) {
-    videoElement.pause();
-    videoElement.src = '';
-    videoElement.load();
-  }
-  try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch { /* noop */ }
-
-  // Physically delete OLD current file from OPFS
-  const opfsFilename = getState('files.currentFileOpfs');
-  if (opfsFilename.name) {
-    const nextMeta = getState('preload.meta');
-    const isActuallyChanging = opfsFilename.name !== nextMeta?.name;
-    if (isActuallyChanging) {
-      postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
-      cleanupOPFSInWorker(opfsFilename.name, false);
-      setState('files.currentFileOpfs', { name: null });
-    }
-  }
-}
-
-// ─── Finalize Guest File (after OPFS download) ────────────────────
-
-async function finalizeGuestFile(file: File | Blob): Promise<void> {
-  log.debug('[Guest] Finalizing with Buffer Mode...');
-  bus.emit('ui:show-loader', true, t('error.audio_memory'));
-
-  try {
-    await initAudio();
-    if (Tone.context.state === 'suspended') await Tone.start();
-
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-
-    if (_currentAudioBuffer) {
-      _currentAudioBuffer = null;
-    }
-    _currentAudioBuffer = audioBuffer;
-
-    const meta = getState('transfer.meta');
-    const isVideo = isMediaVideo(file, meta);
-    setEngineMode(isVideo ? 'video' : 'buffer');
-
-    setState('files.currentFileBlob', file);
-
-    const url = BlobURLManager.create(file) || '';
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
-
-    if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
-      bus.emit('ui:duration-update', audioBuffer.duration);
-    }
-    BlobURLManager.confirm();
-
-    if (videoElement) {
-      const onMetaLoaded = () => {
-        videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
-        const dur = _currentAudioBuffer ? _currentAudioBuffer.duration : videoElement.duration;
-        if (dur && isFinite(dur)) bus.emit('ui:duration-update', dur);
-      };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded);
-      videoElement.load();
-    }
-
-    // Reset guards
-    setState('transfer.state', TRANSFER_STATE.READY);
-    setState('transfer.skipIncomingFile', false);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-
-    // Consume pending play time (stale from PLAY message received before transfer).
-    // Start playback immediately at the saved position.
-    const hostConn = getState('network.hostConn');
-    if (hostConn && _pendingPlayTime !== undefined) {
-      const localOffset = getState('sync.localOffset') || 0;
-      const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-      const target = _pendingPlayTime + localOffset + autoSyncOffset;
-      log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
-      play(target);
-      _pendingPlayTime = undefined;
-    }
-
-    // Auto-sync after 1s — triggers the same 3-sample sync as the sync button.
-    if (hostConn?.open) {
-      setManagedTimer('playback-download-auto-sync', () => {
-        log.debug('[Guest] Post-download auto-sync: triggering 3-sample sync');
-        bus.emit('sync:auto-sync');
-      }, 1000);
-    }
-
-    bus.emit('ui:play-btn-state', true);
-  } catch (err: unknown) {
-    log.error('[Guest] Decoding failed', err);
-    bus.emit('ui:show-toast', t('error.audio_decode_fail'));
-
-    // Reset transfer state so recovery can start fresh (prevents infinite loop)
-    setState('transfer.state', TRANSFER_STATE.IDLE);
-    setState('transfer.receivedCount', 0);
-
-    // Use recovery with retry limit (3 attempts + backoff) instead of unlimited sendToHost
-    sendRecoveryRequest(0);
-  } finally {
-    bus.emit('ui:show-loader', false);
-  }
-}
-
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initPlayback(): void {
@@ -1212,7 +259,7 @@ export function initPlayback(): void {
 
   // Replay current track from start (repeat-one: guest already has file)
   bus.on('playback:replay-current', () => {
-    if (_currentAudioBuffer || getVideoElement()?.src) {
+    if (getCurrentAudioBuffer() || getVideoElement()?.src) {
       log.debug('[Guest] Replaying current track from start');
       play(0);
       // Auto-sync 1s later to align with host
@@ -1238,14 +285,14 @@ export function initPlayback(): void {
     const compensatedTime = hostTime + localOffset;
 
     if (isPlaying) {
-      if (_currentAudioBuffer || getVideoElement()?.src) {
+      if (getCurrentAudioBuffer() || getVideoElement()?.src) {
         play(compensatedTime);
       } else {
         setState('player.pausedAt', compensatedTime);
         log.debug('[Sync] Host playing but no audio data yet, storing position');
       }
     } else {
-      if (_pendingPlayTime !== undefined) {
+      if (getPendingPlayTime() !== undefined) {
         setState('player.pausedAt', compensatedTime);
         log.debug('[Sync] Host paused, keeping pending play');
         return;
@@ -1260,6 +307,7 @@ export function initPlayback(): void {
 
   // Disconnect playerNode from surround splitter (called when surround mode turns off)
   bus.on('audio:disconnect-surround', () => {
+    const _playerNode = getPlayerNode();
     if (_playerNode) {
       try { _playerNode.disconnect(getSurroundSplitter()!); } catch { /* may not be connected */ }
     }
@@ -1315,8 +363,8 @@ export function initPlayback(): void {
     const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
       setState('transfer.waitingForPreload', false);
-      _currentLoadToken++;
-      loadPreloadedTrack(index, _currentLoadToken);
+      const newToken = incrementLoadToken();
+      loadPreloadedTrack(index, newToken);
     } else {
       // Blob not ready yet — set watchdog, will be triggered by opfs:file-ready preload path
       log.debug('[Playback] Preload blob not ready yet, waiting...');

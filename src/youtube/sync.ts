@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { getYouTubePlayer } from './player.ts';
+import { getYouTubePlayer } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────

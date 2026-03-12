@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
@@ -23,6 +24,7 @@ const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
 let _activePlayPreloadedIndex: number | undefined;
+let _preloadScope: SessionScope | null = null;
 
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
@@ -153,6 +155,9 @@ async function preloadNextTrack(): Promise<void> {
 // ─── Host: Background Transfer ──────────────────────────────────────
 
 async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
+  _preloadScope = SessionScope.replace(_preloadScope);
+  const scope = _preloadScope;
+
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
   const header = {
@@ -183,6 +188,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
   // Send chunks
   for (let i = 0; i < total; i++) {
+    if (scope.aborted) return;
     if (getState('preload.sessionId') !== sessionId) return;
 
     // Backpressure (with 30s timeout to prevent infinite stall)
@@ -234,6 +240,10 @@ export async function unicastPreload(
   index: number,
   sessionId: number
 ): Promise<void> {
+  // Note: shares the preload scope — new preload overrides previous
+  _preloadScope = SessionScope.replace(_preloadScope);
+  const scope = _preloadScope;
+
   if (!conn || !conn.open || !file) return;
 
   // Transport guard: block remote/unknown peers
@@ -258,6 +268,7 @@ export async function unicastPreload(
   });
 
   for (let i = 0; i < total; i++) {
+    if (scope.aborted) return;
     if (!conn.open) return;
     while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
       await delay(DELAY.BACKPRESSURE);
@@ -789,6 +800,8 @@ export function initPreload(): void {
       latestPreloadSessionId = 0;
       preloadReorderBuffer.clear();
       _activePlayPreloadedIndex = undefined;
+      _preloadScope?.dispose();
+      _preloadScope = null;
     }
   });
 

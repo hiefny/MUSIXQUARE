@@ -16,6 +16,7 @@ import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { t } from '../i18n/index.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay, waitForGuestConnectionType } from '../network/peer.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import type { DataConnection, FileMeta, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -32,7 +33,10 @@ let lastChunkTime = 0;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 /** Per-peer unicast abort controls (key: peerId) */
-const _activeUnicasts = new Map<string, { abort: boolean }>();
+const _activeUnicasts = new Map<string, SessionScope>();
+
+/** Broadcast-level scope for cancellation */
+let _broadcastScope: SessionScope | null = null;
 
 // ─── Chunk Watchdog ─────────────────────────────────────────────────
 
@@ -792,6 +796,9 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   }
   setState('transfer.activeBroadcastSession', sessionId);
 
+  _broadcastScope = SessionScope.replace(_broadcastScope);
+  const scope = _broadcastScope;
+
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
   const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -820,6 +827,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
   // Send chunks
   for (let i = 0; i < total; i++) {
+    if (scope.aborted) return;
     if (getState('transfer.activeBroadcastSession') !== sessionId) return;
 
     const start = i * CHUNK;
@@ -857,6 +865,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   });
 
   setState('transfer.activeBroadcastSession', null);
+  scope.dispose();
 }
 
 /**
@@ -886,10 +895,9 @@ export async function unicastFile(
 
   // Cancel any previous unicast to same peer
   const unicastKey = conn.peer;
-  const prevUnicast = _activeUnicasts.get(unicastKey);
-  if (prevUnicast) prevUnicast.abort = true;
-  const control = { abort: false };
-  _activeUnicasts.set(unicastKey, control);
+  const prevScope = _activeUnicasts.get(unicastKey) ?? null;
+  const scope = SessionScope.replace(prevScope);
+  _activeUnicasts.set(unicastKey, scope);
 
   const isResume = startChunkIndex > 0;
   const msgType = isResume ? MSG.FILE_RESUME : MSG.FILE_START;
@@ -916,7 +924,7 @@ export async function unicastFile(
   try {
     for (let i = startChunkIndex; i < total; i++) {
       // Abort if: peer-level cancel, connection closed, or track changed
-      if (control.abort || !conn.open) return;
+      if (scope.aborted || !conn.open) return;
       if (getState('playlist.currentTrackIndex') !== currentTrackIndex) return;
 
       // Backpressure
@@ -951,7 +959,8 @@ export async function unicastFile(
     log.error('[Unicast] Transfer error:', e);
   } finally {
     // Clean up abort control if still ours
-    if (_activeUnicasts.get(unicastKey) === control) {
+    if (_activeUnicasts.get(unicastKey) === scope) {
+      scope.dispose();
       _activeUnicasts.delete(unicastKey);
     }
   }

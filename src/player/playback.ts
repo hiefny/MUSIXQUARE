@@ -21,6 +21,7 @@ import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import type { DataConnection } from '../types/index.ts';
 
 import * as Tone from 'tone';
@@ -38,6 +39,7 @@ let _pendingPlayTime: number | undefined;
 let _pendingPlayDepth = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
+let _loadScope: SessionScope | null = null;
 
 // ─── Getters ───────────────────────────────────────────────────────
 
@@ -148,6 +150,8 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean }): void {
+  _loadScope?.dispose();
+  _loadScope = null;
   const videoElement = getVideoElement();
 
   // 1. Stop video
@@ -600,6 +604,7 @@ export async function loadAndBroadcastFile(
 ): Promise<void> {
   _activeLoadSessionId++;
   const myLoadId = _activeLoadSessionId;
+  _loadScope = SessionScope.replace(_loadScope);
   const myToken = loadToken ?? _currentLoadToken;
 
   bus.emit('ui:show-loader', true, t('toast.preparing', { name: file.name }));
@@ -723,6 +728,7 @@ export async function loadPreloadedTrack(
   expectedIndex?: number,
   loadToken?: number,
 ): Promise<void> {
+  _loadScope = SessionScope.replace(_loadScope);
   const nextMeta = getState('preload.meta');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;

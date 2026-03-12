@@ -17,6 +17,7 @@ import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/playback.ts';
 import { setEngineMode } from '../player/video.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
  
@@ -30,8 +31,9 @@ let _youtubePlayer: any = null;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
+let _ytScope: SessionScope | null = null;
 
- 
+
 export function getYouTubePlayer(): any {
   return _youtubePlayer;
 }
@@ -61,6 +63,8 @@ export function loadYouTubeVideo(
   _cachedYtDuration = 0; // Reset duration cache for new video
   _currentYouTubeSessionId++;
   const currentSessionId = _currentYouTubeSessionId;
+  _ytScope = SessionScope.replace(_ytScope);
+  const scope = _ytScope;
 
   bus.emit('player:stop-all-media');
   setEngineMode('youtube');
@@ -105,7 +109,7 @@ export function loadYouTubeVideo(
     w.onYouTubeIframeAPIReady = () => {
       (w as Record<string, boolean>).isYouTubeAPIReady = true;
       // Guard: skip if a timeout already cancelled this load session
-      if (_currentYouTubeSessionId !== currentSessionId) {
+      if (_currentYouTubeSessionId !== currentSessionId || scope.aborted) {
         log.debug('[YouTube] onYouTubeIframeAPIReady skipped — session changed');
         _ytLoadInProgress = false;
         return;
@@ -118,7 +122,7 @@ export function loadYouTubeVideo(
 
   // Safety timeout
   setManagedTimer('yt-load-timeout', () => {
-    if (_currentYouTubeSessionId === currentSessionId && !_youtubePlayer) {
+    if (_currentYouTubeSessionId === currentSessionId && !scope.aborted && !_youtubePlayer) {
       log.warn('[YouTube] Load timeout triggered.');
       _ytLoadInProgress = false;
       bus.emit('ui:show-loader', false);
@@ -385,6 +389,8 @@ function refreshYouTubeDisplay(): void {
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(): void {
+  _ytScope?.dispose();
+  _ytScope = null;
   _ytLoadInProgress = false;
   _cachedYtDuration = 0; // Reset duration cache
   setState('youtube.currentSubIndex', -1);

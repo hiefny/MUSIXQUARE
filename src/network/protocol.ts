@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MSG, RELAYABLE_MSG_TYPES } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { sendToHost } from './peer.ts';
 import type { DataConnection, ProtocolMsg, AnyProtocolMsg } from '../types/index.ts';
@@ -34,20 +34,32 @@ export function validateMessage(data: unknown, requiredFields: string[] = []): d
 
 // ─── Relayable Commands ─────────────────────────────────────────────
 
-/** Commands that should be automatically relayed through the chain */
-export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>([
-  MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
-  MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
-  MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
-  MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
-  MSG.STEREO_WIDTH, MSG.VBASS,
-  MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
-  MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
-  MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
-  MSG.CHAT, MSG.PLAYLIST_UPDATE,
-  MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
-  MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
-]);
+/** Commands that should be automatically relayed through the chain.
+ *  3.0: Source of truth is RELAYABLE_MSG_TYPES in constants.ts (satisfies MsgType[]).
+ */
+export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>(RELAYABLE_MSG_TYPES);
+
+// ─── Lightweight Protocol Validators ─────────────────────────────────
+// 3.0: Validate high-risk message payloads before dispatch.
+// Only critical messages need validators — not all 40+ types.
+
+const isArrayBufferLike = (v: unknown): boolean =>
+  v instanceof ArrayBuffer ||
+  v instanceof Uint8Array ||
+  (v != null && typeof v === 'object' && Object.prototype.toString.call(v) === '[object ArrayBuffer]');
+
+const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
+  [MSG.PLAY]: (d) => d.time === undefined || typeof d.time === 'number',
+  [MSG.PAUSE]: (d) => d.time === undefined || typeof d.time === 'number',
+  [MSG.VOLUME]: (d) => typeof d.value === 'number',
+  [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && typeof d.index === 'number',
+  [MSG.FILE_START]: (d) => typeof d.name === 'string' && typeof d.total === 'number',
+  [MSG.FILE_END]: (d) => typeof d.name === 'string',
+  [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && typeof d.index === 'number',
+  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && typeof d.total === 'number',
+  [MSG.WELCOME]: (d) => typeof d.peerId === 'string',
+  [MSG.EQ_UPDATE]: (d) => typeof d.band === 'number' && typeof d.value === 'number',
+};
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
@@ -111,6 +123,13 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
         delete msg._originPeer;
       }
     }
+  }
+
+  // 3.0: Validate high-risk message payloads before dispatch
+  const validator = PROTOCOL_VALIDATORS[msgType];
+  if (validator && !validator(msg)) {
+    log.warn(`[Protocol] Invalid payload for ${msgType}`, Object.keys(msg));
+    return;
   }
 
   // Dispatch to registered handler

@@ -121,6 +121,23 @@ export const MSG = {
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];
 
+// ─── Relayable Message Types ─────────────────────────────────────────
+// 3.0: `satisfies` ensures every entry is a valid MsgType at compile time.
+// Adding a typo or non-existent MSG key → TS error.
+export const RELAYABLE_MSG_TYPES = [
+  MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
+  MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
+  MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
+  MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
+  MSG.STEREO_WIDTH, MSG.VBASS,
+  MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
+  MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
+  MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
+  MSG.CHAT, MSG.PLAYLIST_UPDATE,
+  MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
+  MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
+] as const satisfies readonly MsgType[];
+
 // ─── Audio ──────────────────────────────────────────────────────────
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
 

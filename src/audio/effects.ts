@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -157,14 +158,14 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
     }
     try {
       // Race with timeout — clear timer on success to prevent leak
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let timeoutId: number | undefined;
       await Promise.race([
         rev!.generate(),
         new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('timeout')), 3000);
+          timeoutId = window.setTimeout(() => reject(new Error('timeout')), 3000);
         }),
       ]);
-      clearTimeout(timeoutId);
+      window.clearTimeout(timeoutId);
       _reverbGenerateInFlight = false;
 
       // Re-generate if params changed while in-flight (last-write-wins)
@@ -503,15 +504,12 @@ function handlePreampMsg(data: Record<string, unknown>): void {
 }
 
 // ─── Host-ctrl 변경 토스트 (게스트 전용, 디바운스) ────────────
-let _hostChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function _notifyHostChanged(): void {
   // 호스트 연결 중인 게스트만 표시
   if (!getState('network.hostConn')) return;
-  if (_hostChangeTimer) clearTimeout(_hostChangeTimer);
-  _hostChangeTimer = setTimeout(() => {
+  setManagedTimer('host-change-toast', () => {
     bus.emit('ui:show-toast', t('toast.host_changed_setting'));
-    _hostChangeTimer = null;
   }, 300);
 }
 

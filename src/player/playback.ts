@@ -10,7 +10,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
-import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener, getSurroundSplitter } from '../audio/engine.ts';
 import { getVideoElement, isIdleOrPaused, isMediaVideo, setEngineMode } from './video.ts';
@@ -197,7 +197,7 @@ export async function play(offset: number): Promise<void> {
   _isPlayLocked = true;
 
   const lockStartTime = Date.now();
-  const lockWatchdog = setTimeout(() => {
+  setManagedTimer('navigator-lock-watchdog', () => {
     if (_isPlayLocked) {
       log.warn(`[Play] Lock Timeout: Forcing unlock after 5s (locked at ${new Date(lockStartTime).toISOString()})`);
       _isPlayLocked = false;
@@ -210,8 +210,8 @@ export async function play(offset: number): Promise<void> {
   try {
     await _internalPlay(offset);
   } finally {
-    clearTimeout(lockWatchdog);
-    setTimeout(() => {
+    clearManagedTimer('navigator-lock-watchdog');
+    setManagedTimer('playback-unlock-delay', () => {
       _isPlayLocked = false;
       // Consume queued play request (e.g. sync correction that arrived during lock)
       if (_pendingPlayTime !== undefined && _pendingPlayDepth < 2) {
@@ -817,7 +817,7 @@ export async function loadPreloadedTrack(
     // Request 3-sample sync from host after settle
     const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
-      setTimeout(() => {
+      setManagedTimer('playback-preload-auto-sync', () => {
         log.debug('[Guest] Post-preload auto-sync: triggering 3-sample sync');
         bus.emit('sync:auto-sync');
       }, 500);
@@ -1160,7 +1160,7 @@ async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     // Auto-sync after 1s — triggers the same 3-sample sync as the sync button.
     if (hostConn?.open) {
-      setTimeout(() => {
+      setManagedTimer('playback-download-auto-sync', () => {
         log.debug('[Guest] Post-download auto-sync: triggering 3-sample sync');
         bus.emit('sync:auto-sync');
       }, 1000);
@@ -1212,7 +1212,7 @@ export function initPlayback(): void {
       // Auto-sync 1s later to align with host
       const hostConn = getState('network.hostConn');
       if (hostConn?.open) {
-        setTimeout(() => bus.emit('sync:auto-sync'), 1000);
+        setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:auto-sync'), 1000);
       }
     }
   });
@@ -1316,7 +1316,7 @@ export function initPlayback(): void {
       log.debug('[Playback] Preload blob not ready yet, waiting...');
 
       const PRELOAD_WATCHDOG_MS = 10_000;
-      const watchdog = setTimeout(() => {
+      setManagedTimer('preload-blob-watchdog', () => {
         if (!getState('transfer.waitingForPreload')) return;
         log.warn('[Preload] Preloaded blob not available within timeout');
         setState('transfer.waitingForPreload', false);
@@ -1338,7 +1338,7 @@ export function initPlayback(): void {
       // Clear watchdog if blob arrives in time (waitingForPreload set to false)
       const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
         if (val === false) {
-          clearTimeout(watchdog);
+          clearManagedTimer('preload-blob-watchdog');
           _unsubWatchdog();
         }
       });

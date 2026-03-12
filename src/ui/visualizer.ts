@@ -8,16 +8,15 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
 let _animationId: number | null = null;
-let _retryTimer: ReturnType<typeof setTimeout> | null = null;
 let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 20;
-let _vizResizeTimer: ReturnType<typeof setTimeout> | null = null;
 let _resizeListenerAdded = false;
 let _batterySaver = false;
 
@@ -67,10 +66,7 @@ function getAnalyser(): unknown {
 export function startVisualizer(): void {
   if (_batterySaver) return;
 
-  if (_retryTimer) {
-    clearTimeout(_retryTimer);
-    _retryTimer = null;
-  }
+  clearManagedTimer('viz-retry');
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -90,7 +86,7 @@ export function startVisualizer(): void {
       _visualizerRetryCount = 0;
       return;
     }
-    _retryTimer = setTimeout(startVisualizer, 100);
+    setManagedTimer('viz-retry', startVisualizer, 100);
     return;
   }
   _visualizerRetryCount = 0;
@@ -272,8 +268,7 @@ export function initVisualizer(): void {
   if (!_resizeListenerAdded) {
     _resizeListenerAdded = true;
     window.addEventListener('resize', () => {
-      if (_vizResizeTimer) clearTimeout(_vizResizeTimer);
-      _vizResizeTimer = setTimeout(() => {
+      setManagedTimer('viz-resize', () => {
         const wrapper = document.querySelector('.vinyl-wrapper');
         if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
         const currentState = getState('appState');
@@ -321,7 +316,7 @@ export function initVisualizer(): void {
   bus.on('visualizer:battery-saver', (on: boolean) => {
     _batterySaver = on;
     if (on) {
-      if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
+      clearManagedTimer('viz-retry');
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
     } else {
       const currentState = getState('appState');

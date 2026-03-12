@@ -3,6 +3,7 @@
  */
 
 import { log } from './log.ts';
+import { setManagedTimer } from './timers.ts';
 
 // ─── Platform Detection ────────────────────────────────────────────
 
@@ -213,13 +214,13 @@ export function initPlatform(): void {
   const run = () => {
     scheduleAppHeightUpdate();
     if (IS_ANDROID) {
-      setTimeout(scheduleAppHeightUpdate, 500);
-      setTimeout(scheduleAppHeightUpdate, 1500);
+      setManagedTimer('boot-height-500', scheduleAppHeightUpdate, 500);
+      setManagedTimer('boot-height-1500', scheduleAppHeightUpdate, 1500);
       // Remove boot guard after last Android height update settles
-      setTimeout(endBootingPhase, 1800);
+      setManagedTimer('boot-end', endBootingPhase, 1800);
     } else {
       // Non-Android: remove boot guard after a short stabilization window
-      setTimeout(endBootingPhase, 300);
+      setManagedTimer('boot-end', endBootingPhase, 300);
     }
   };
 
@@ -230,7 +231,7 @@ export function initPlatform(): void {
     window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
     window.addEventListener('orientationchange', () => {
       scheduleAppHeightUpdate();
-      if (IS_ANDROID) setTimeout(scheduleAppHeightUpdate, 500);
+      if (IS_ANDROID) setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
     }, { passive: true });
     window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true });
     document.addEventListener('visibilitychange', () => {

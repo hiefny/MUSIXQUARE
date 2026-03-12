@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { t } from '../i18n/index.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -332,7 +332,7 @@ async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
       const hostConn = getState('network.hostConn');
       if (hostConn && hostConn.open) {
         const jitter = Math.random() * 1000 + 200;
-        setTimeout(() => {
+        setManagedTimer('prepare-watchdog-jitter', () => {
           if (hostConn.open && !getState('files.currentFileBlob')) {
             bus.emit('storage:request-recovery');
           }
@@ -788,7 +788,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   // before we send the new FILE_START header (prevents chunk interleaving)
   if (activeBroadcast) {
     setState('transfer.activeBroadcastSession', null);
-    await new Promise(r => setTimeout(r, 0));
+    await delay(0);
   }
   setState('transfer.activeBroadcastSession', sessionId);
 
@@ -840,13 +840,13 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
           log.warn(`[Transfer] Backpressure timeout for peer ${p.label || p.id} — skipping`);
           return;
         }
-        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+        await delay(DELAY.BACKPRESSURE);
         if (!conn.open) return;
       }
       try { conn.send(chunkMsg); } catch { /* noop */ }
     }));
 
-    if (i % 50 === 0) await new Promise(r => setTimeout(r, DELAY.TICK));
+    if (i % 50 === 0) await delay(DELAY.TICK);
   }
 
   // Send end message
@@ -911,7 +911,7 @@ export async function unicastFile(
     return;
   }
 
-  await new Promise(r => setTimeout(r, 100));
+  await delay(100);
 
   try {
     for (let i = startChunkIndex; i < total; i++) {
@@ -923,7 +923,7 @@ export async function unicastFile(
       const startWait = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
         if (Date.now() - startWait > 30000) break;
-        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+        await delay(DELAY.BACKPRESSURE);
       }
 
       const start = i * CHUNK;
@@ -940,7 +940,7 @@ export async function unicastFile(
         name: fileName,
       });
 
-      if (i % 50 === 0) await new Promise(r => setTimeout(r, DELAY.TICK));
+      if (i % 50 === 0) await delay(DELAY.TICK);
     }
 
     if (conn.open) {

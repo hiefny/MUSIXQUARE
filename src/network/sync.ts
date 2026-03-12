@@ -268,7 +268,7 @@ function handleGlobalResyncRequest(): void {
   bus.emit('ui:show-toast', t('toast.host_reset_sync'));
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
-  setTimeout(() => {
+  setManagedTimer('global-resync-jitter', () => {
     if (!getState('network.sessionCode')) return; // Session ended
     startMultiSampleSync();
   }, 500 + Math.random() * 500);

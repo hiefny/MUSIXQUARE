@@ -8,6 +8,7 @@
 import { log } from './core/log.ts';
 import { t } from './i18n/index.ts';
 import { showDialog } from './ui/dialog.ts';
+import { setManagedTimer } from './core/timers.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
 const SW_COOLDOWN_MS = 30_000; // suppress update dialog for 30s after a SW reload
@@ -82,9 +83,9 @@ export function registerServiceWorker(): void {
       });
 
       // Check for updates periodically (every 60 minutes)
-      setInterval(() => {
+      setManagedTimer('sw-update-check', () => {
         reg.update().catch(() => { /* ignore */ });
-      }, 60 * 60 * 1000);
+      }, 60 * 60 * 1000, { interval: true });
       // Immediate update check
       reg.update().catch(() => { /* ignore */ });
     } catch (err) {

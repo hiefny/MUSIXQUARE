@@ -8,6 +8,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { animateTransition } from './dom.ts';
 
 // ─── Tab Switching ───────────────────────────────────────────────
@@ -40,7 +41,7 @@ export function switchTab(tabId: string): void {
     }
 
     if (tabId === 'play') {
-      setTimeout(() => {
+      setManagedTimer('tab-play-check', () => {
         const currentState = getState('appState');
         if (currentState === APP_STATE.PLAYING_YOUTUBE) {
           bus.emit('youtube:refresh-display');

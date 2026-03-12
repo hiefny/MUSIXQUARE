@@ -10,23 +10,24 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
 async function fetchWithTimeout(url: string, timeoutMs = 5000, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const id = window.setTimeout(() => controller.abort(), timeoutMs);
   // Forward external abort to our controller
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
-    if (externalSignal.aborted) { clearTimeout(id); controller.abort(); }
+    if (externalSignal.aborted) { window.clearTimeout(id); controller.abort(); }
     else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
   try {
     return await fetch(url, { signal: controller.signal });
   } finally {
-    clearTimeout(id);
+    window.clearTimeout(id);
     externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
@@ -113,14 +114,9 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
 
 // ─── oEmbed Preview Fetch (UI-bound) ───────────────────────────────
 
-let _previewDebounce: ReturnType<typeof setTimeout> | null = null;
-
 /** Clear any pending preview debounce timer (call on overlay close). */
 export function clearPreviewDebounce(): void {
-  if (_previewDebounce) {
-    clearTimeout(_previewDebounce);
-    _previewDebounce = null;
-  }
+  clearManagedTimer('yt-preview-debounce');
 }
 
 export function fetchYouTubePreview(url: string): void {
@@ -136,7 +132,7 @@ export function fetchYouTubePreview(url: string): void {
     playBtn.style.opacity = enabled ? '1' : '0.5';
   };
 
-  if (_previewDebounce) clearTimeout(_previewDebounce);
+  clearManagedTimer('yt-preview-debounce');
 
   if (!url || url.trim() === '') {
     previewContainer.style.display = 'none';
@@ -164,7 +160,7 @@ export function fetchYouTubePreview(url: string): void {
   statusText.style.color = 'var(--text-sub)';
   setPlayBtnEnabled(false);
 
-  _previewDebounce = setTimeout(async () => {
+  setManagedTimer('yt-preview-debounce', async () => {
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
       const response = await fetchWithTimeout(oembedUrl);
@@ -204,7 +200,6 @@ export function fetchYouTubePreview(url: string): void {
 
 /** Dedup flag per playlistId to avoid parallel fetches */
 const _isFetching = new Map<string, boolean>();
-let _uiTimer: ReturnType<typeof setTimeout> | null = null;
 let _subTitleAbort: AbortController | null = null;
 
 /**
@@ -274,8 +269,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
           log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 
           // Debounced UI update to avoid rebuilding DOM per-title
-          if (_uiTimer) clearTimeout(_uiTimer);
-          _uiTimer = setTimeout(() => bus.emit('ui:update-playlist'), 200);
+          setManagedTimer('yt-search-ui-update', () => bus.emit('ui:update-playlist'), 200);
 
           // Only Host broadcasts to peers
           const hostConn = getState('network.hostConn');
@@ -294,7 +288,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
       }
 
       // 200ms delay between requests to avoid rate limiting
-      await new Promise(r => setTimeout(r, DELAY.RETRY));
+      await delay(DELAY.RETRY);
     }
   } finally {
     _isFetching.delete(playlistId);

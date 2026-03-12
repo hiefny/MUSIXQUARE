@@ -695,10 +695,10 @@ export function initPlaylist(): void {
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
-      setTimeout(() => { if (token === _endedAdvanceToken) playTrack(currentTrackIndex); }, 300);
+      setManagedTimer('ended-advance-retry', () => { if (token === _endedAdvanceToken) playTrack(currentTrackIndex); }, 300);
     } else {
       log.debug('Auto-advancing to next track...');
-      setTimeout(() => { if (token === _endedAdvanceToken) playNextTrack(); }, 500);
+      setManagedTimer('ended-advance-next', () => { if (token === _endedAdvanceToken) playNextTrack(); }, 500);
     }
   });
 

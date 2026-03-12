@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { TRANSFER_STATE } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
 
@@ -95,15 +96,16 @@ export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void 
   if (!filename) return;
 
   const expectedOpfsName = buildSafeOpfsName(filename, isPreload);
+  const watchdogName = 'opfs-cleanup-watchdog';
 
-  const watchdog = setTimeout(() => {
+  setManagedTimer(watchdogName, () => {
     log.warn(`[OPFS] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
     unsub();
   }, 10_000);
 
   const unsub = bus.on('opfs:cleanup-complete', (cleanedFile: unknown) => {
     if (cleanedFile === filename || cleanedFile === expectedOpfsName) {
-      clearTimeout(watchdog);
+      clearManagedTimer(watchdogName);
       unsub();
     }
   });

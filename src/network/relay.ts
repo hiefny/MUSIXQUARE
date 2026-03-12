@@ -47,7 +47,6 @@ interface OpfsCatchupPump {
   awaitingIndex: number | null;
   lastActivity: number;
   active: boolean;
-  _timer: ReturnType<typeof setTimeout> | null;
   retryCount: number;
 }
 
@@ -57,10 +56,7 @@ function stopOpfsCatchupStream(peerId: string, reason = ''): void {
   const pump = opfsCatchupPumps.get(peerId);
   if (!pump) return;
   pump.active = false;
-  if (pump._timer) {
-    clearTimeout(pump._timer);
-    pump._timer = null;
-  }
+  clearManagedTimer('opfs-catchup-' + peerId);
   opfsCatchupPumps.delete(peerId);
   if (reason) log.debug(`[OPFS Catchup] Stop ...${peerId.slice(-4)}: ${reason}`);
 }
@@ -98,7 +94,6 @@ function startOpfsCatchupStream(
     awaitingIndex: null,
     lastActivity: Date.now(),
     active: true,
-    _timer: null,
     retryCount: 0,
   };
 
@@ -108,8 +103,8 @@ function startOpfsCatchupStream(
 
 function scheduleOpfsCatchupPump(pump: OpfsCatchupPump, delayMs: number): void {
   if (!pump || !pump.active) return;
-  if (pump._timer) clearTimeout(pump._timer);
-  pump._timer = setTimeout(() => runOpfsCatchupPump(pump), Math.max(0, delayMs | 0));
+  const timerName = 'opfs-catchup-' + pump.peerId;
+  setManagedTimer(timerName, () => runOpfsCatchupPump(pump), Math.max(0, delayMs | 0));
 }
 
 function runOpfsCatchupPump(pump: OpfsCatchupPump): void {

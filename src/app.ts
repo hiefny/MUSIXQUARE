@@ -21,6 +21,7 @@ import { INSTANCE_ID } from './core/session.ts';
 import { getState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
+import { setManagedTimer } from './core/timers.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -298,7 +299,7 @@ function bootstrap(): void {
   safeInit('BeforeUnload', initBeforeUnload);
 
   // 12. System compatibility check (deferred to not block bootstrap)
-  setTimeout(checkSystemCompatibility, 100);
+  setManagedTimer('sys-compat-check', checkSystemCompatibility, 100);
 
   // 13. Expose debug helpers on window (dev only)
   if (import.meta.env?.DEV) {

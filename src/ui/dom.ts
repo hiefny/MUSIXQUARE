@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { setManagedTimer } from '../core/timers.ts';
 
 // ─── Batch View Transition ───────────────────────────────────────
 
@@ -64,7 +65,6 @@ export const escapeAttr = escapeHtml;
 // ─── Marquee Title ───────────────────────────────────────────────
 
 let _currentMarqueeText: string | null = null;
-let _marqueeResizeTimer: ReturnType<typeof setTimeout> | null = null;
 let _marqueeResizeListenerAdded = false;
 
 function applyMarquee(el: HTMLElement): void {
@@ -96,8 +96,7 @@ function applyMarquee(el: HTMLElement): void {
 }
 
 function onMarqueeResize(): void {
-  if (_marqueeResizeTimer) clearTimeout(_marqueeResizeTimer);
-  _marqueeResizeTimer = setTimeout(() => {
+  setManagedTimer('marquee-resize', () => {
     if (!_currentMarqueeText) return;
     const el = document.getElementById('track-title');
     if (!el) return;

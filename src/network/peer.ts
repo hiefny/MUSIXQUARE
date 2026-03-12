@@ -301,7 +301,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
           message: t('network.session_full_detail'),
         });
       } catch { /* noop */ }
-      setTimeout(() => { try { conn.close(); } catch { /* noop */ } }, 500);
+      setManagedTimer('conn-close-' + conn.peer, () => { try { conn.close(); } catch { /* noop */ } }, 500);
     };
     if (conn.open) sendFullAndClose();
     else conn.on('open', sendFullAndClose);
@@ -370,7 +370,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
     bus.emit('network:peer-connected', conn);
 
     // Detect local vs remote for this guest after ICE stabilizes
-    setTimeout(async () => {
+    setManagedTimer('ice-detect-' + peerId, async () => {
       const type = await detectConnectionType(conn);
       const peers = getState('network.connectedPeers');
       const livePeer = peers.find(p => p.id === peerId);
@@ -384,7 +384,7 @@ function handleHostIncomingConnection(conn: DataConnection): void {
 
       // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
       if (type === 'remote' && conn.open) {
-        setTimeout(async () => {
+        setManagedTimer('ice-redetect-' + peerId, async () => {
           if (!conn.open) return;
           const recheck = await detectConnectionType(conn);
           if (recheck === 'local') {
@@ -604,7 +604,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'ping', interval: 2000 });
 
     // Detect local vs remote connection after ICE stabilizes
-    setTimeout(async () => {
+    setManagedTimer('guest-ice-detect', async () => {
       const type = await detectConnectionType(conn);
       setState('network.connectionType', type);
       log.info(`[Peer] Connection type: ${type}`);
@@ -612,7 +612,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
       // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
       if (type === 'remote' && conn.open) {
-        setTimeout(async () => {
+        setManagedTimer('guest-ice-redetect', async () => {
           if (!conn.open) return;
           const recheck = await detectConnectionType(conn);
           if (recheck === 'local' && getState('network.connectionType') !== 'local') {
@@ -743,7 +743,7 @@ export function leaveSession(): void {
   bus.emit('player:state-changed', APP_STATE.IDLE);
 
   // Delayed reset: allow async close handlers to read the flag first
-  setTimeout(() => setState('network.isIntentionalDisconnect', false), 200);
+  setManagedTimer('intentional-disconnect-reset', () => setState('network.isIntentionalDisconnect', false), 200);
 
   log.debug('[Network] Session left — full cleanup complete.');
 }
@@ -1037,7 +1037,7 @@ bus.on('network:kick-device', (peerId) => {
   if (conn && conn.open) {
     try { conn.send({ type: MSG.KICK_DEVICE }); } catch { /* noop */ }
     // Give message time to arrive before closing
-    setTimeout(() => {
+    setManagedTimer('kick-close-' + peerId, () => {
       try { conn.close(); } catch { /* noop */ }
     }, 300);
   }

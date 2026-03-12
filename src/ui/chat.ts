@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
@@ -97,7 +98,7 @@ function parseMessageContent(text: string): string {
         </button>
       `;
 
-      setTimeout(() => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
+      setManagedTimer(`yt-chat-title-${uniqueId}`, () => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
     } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
       const seconds = parseTimestamp(matchedText);
       result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="Seek to ${escapeAttr(matchedText)}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
@@ -170,7 +171,7 @@ export function toggleChatDrawer(): void {
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
     const input = document.getElementById('chat-input') as HTMLInputElement | null;
-    if (input) setTimeout(() => input.focus(), 300);
+    if (input) setManagedTimer('chat-input-focus', () => input.focus(), 300);
   }
 }
 

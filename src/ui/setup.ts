@@ -426,11 +426,11 @@ function startSessionFromHost(): void {
   broadcastDeviceList();
 
   // Delay toast until View Transition completes to prevent transform conflict
-  setTimeout(() => {
+  setManagedTimer('host-start-toast', () => {
     showToast(t('toast.invite_code_settings'));
   }, 350);
 
-  setTimeout(() => {
+  setManagedTimer('host-start-blink', () => {
     const btn = document.getElementById('btn-media-source');
     if (btn) {
       btn.classList.add('blink-hint');
@@ -840,7 +840,7 @@ export function initSetup(): void {
       _pendingAutoJoinCode = joinCode;
 
       // Show overlay first, then jump to guest role selection
-      setTimeout(() => {
+      setManagedTimer('auto-join-start', () => {
         showSetupOverlay();
         startGuestFlow();
       }, 200);

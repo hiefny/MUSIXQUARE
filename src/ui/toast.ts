@@ -5,10 +5,9 @@
  */
 
 import { log } from '../core/log.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
-
-let _loaderResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function updateLoader(percent: number): void {
   const progressBg = document.getElementById('header-progress-bg');
@@ -23,7 +22,7 @@ export function showLoader(show: boolean, txt?: string): void {
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
 
   if (show) {
-    if (_loaderResetTimer) { clearTimeout(_loaderResetTimer); _loaderResetTimer = null; }
+    clearManagedTimer('loader-reset');
     header?.classList.add('loading');
     if (txt && loadingText) loadingText.innerText = txt;
     if (progressBg && (!progressBg.style.width || progressBg.style.width === '0%' || progressBg.style.width === '0px')) {
@@ -31,16 +30,13 @@ export function showLoader(show: boolean, txt?: string): void {
     }
   } else {
     header?.classList.remove('loading');
-    _loaderResetTimer = setTimeout(() => {
+    setManagedTimer('loader-reset', () => {
       if (progressBg) progressBg.style.width = '0%';
-      _loaderResetTimer = null;
     }, 400);
   }
 }
 
 // ─── Toast ───────────────────────────────────────────────────────
-
-let _toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function showToast(msg: unknown): void {
   try {
@@ -56,8 +52,7 @@ export function showToast(msg: unknown): void {
     msgEl.innerText = text;
     t.classList.add('show');
 
-    if (_toastTimer) clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => {
+    setManagedTimer('toast-hide', () => {
       try { t.classList.remove('show'); } catch { /* noop */ }
     }, 2000);
   } catch {

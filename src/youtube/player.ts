@@ -29,7 +29,6 @@ declare const YT: any;
 let _youtubePlayer: any = null;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;
-let _ytLoadTimeout: ReturnType<typeof setTimeout> | null = null;
 let _ytIOSWatchdog: number | null = null;
 
  
@@ -118,8 +117,7 @@ export function loadYouTubeVideo(
   }
 
   // Safety timeout
-  if (_ytLoadTimeout) clearTimeout(_ytLoadTimeout);
-  _ytLoadTimeout = setTimeout(() => {
+  setManagedTimer('yt-load-timeout', () => {
     if (_currentYouTubeSessionId === currentSessionId && !_youtubePlayer) {
       log.warn('[YouTube] Load timeout triggered.');
       _ytLoadInProgress = false;
@@ -133,7 +131,7 @@ export function loadYouTubeVideo(
   const fsBtn = document.querySelector('.fullscreen-btn') as HTMLElement | null;
   if (fsBtn) fsBtn.style.setProperty('display', 'none', 'important');
 
-  setTimeout(() => refreshYouTubeDisplay(), 500);
+  setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), 500);
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
 }
 
@@ -405,10 +403,7 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('youtubeUILoop');
   clearManagedTimer('youtubeSyncLoop');
 
-  if (_ytLoadTimeout) {
-    clearTimeout(_ytLoadTimeout);
-    _ytLoadTimeout = null;
-  }
+  clearManagedTimer('yt-load-timeout');
 
   if (_youtubePlayer) {
     try {

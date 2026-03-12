@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -181,7 +182,9 @@ async function copyInviteCode(): Promise<void> {
     showToast(t('toast.invite_code_info', { count: cnt, code }));
     document.querySelectorAll('.invite-code-value').forEach(el => {
       el.classList.add('copied');
-      setTimeout(() => el.classList.remove('copied'), 600);
+      setManagedTimer('copied-feedback', () => {
+        document.querySelectorAll('.invite-code-value').forEach(e => e.classList.remove('copied'));
+      }, 600);
     });
   } else {
     showToast(t('toast.copy_failed'));
@@ -228,7 +231,7 @@ function openYouTubePopup(): void {
       updateOverlayOpenClass();
     }
     const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
-    if (input) setTimeout(() => input.focus(), 100);
+    if (input) setManagedTimer('yt-url-focus', () => input.focus(), 100);
   });
 }
 
@@ -637,15 +640,13 @@ export function initPlayerControls(): void {
   });
 
   // UI loop (seek bar + time update during playback)
-  let _loopInterval: ReturnType<typeof setInterval> | null = null;
   let _endedCheckCounter = 0;
   bus.on('ui:loop-start', () => {
-    if (_loopInterval) clearInterval(_loopInterval);
     _endedCheckCounter = 0;
-    _loopInterval = setInterval(() => {
+    setManagedTimer('time-update-loop', () => {
       const currentState = getState('appState');
       if (isIdleOrPaused(currentState)) {
-        if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
+        clearManagedTimer('time-update-loop');
         return;
       }
       const pos = getTrackPosition();
@@ -664,12 +665,12 @@ export function initPlayerControls(): void {
         _endedCheckCounter = 0;
         bus.emit('player:check-ended');
       }
-    }, 250);
+    }, 250, { interval: true });
   });
 
   // Clean up UI loop when playback stops entirely (session leave, etc.)
   bus.on('player:stop-all-media', () => {
-    if (_loopInterval) { clearInterval(_loopInterval); _loopInterval = null; }
+    clearManagedTimer('time-update-loop');
   });
 
   // Player actions

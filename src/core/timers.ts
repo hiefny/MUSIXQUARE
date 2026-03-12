@@ -58,3 +58,11 @@ export function clearAllManagedTimers(): void {
 export function getManagedTimer(name: string): ReturnType<typeof setTimeout> | null {
   return _timers.get(name) ?? null;
 }
+
+/**
+ * Promise-based delay — safe alternative to `await new Promise(r => setTimeout(r, ms))`.
+ * Not cancellable; for cancellable delays use SessionScope.
+ */
+export function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}

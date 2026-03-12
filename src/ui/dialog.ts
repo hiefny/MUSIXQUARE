@@ -5,6 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
 
@@ -68,7 +69,7 @@ export function closeDialog(action = 'close'): void {
     try { active.resolve({ action }); } catch { /* ignore */ }
   }
 
-  setTimeout(drainDialogQueue, 0);
+  setManagedTimer('dialog-drain', drainDialogQueue, 0);
 }
 
 function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResult) => void): void {
@@ -82,7 +83,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   if (!overlay || !titleEl || !msgEl || !okBtn || !closeBtn) {
     showToast(typeof opts === 'string' ? opts : (opts?.message || t('common.info')));
     resolve({ action: 'fallback' });
-    setTimeout(drainDialogQueue, 0);
+    setManagedTimer('dialog-drain', drainDialogQueue, 0);
     return;
   }
 
@@ -182,7 +183,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   });
 
-  setTimeout(() => {
+  setManagedTimer('dialog-focus', () => {
     try {
       const pick = (defaultFocus === 'secondary' && hasSecondary && secondaryBtn)
         ? secondaryBtn

@@ -11,7 +11,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
@@ -199,7 +199,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
       }
       if (congested) {
         if (Date.now() - bpStart > 30_000) { log.warn('[Preload] Backpressure timeout'); break; }
-        await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+        await delay(DELAY.BACKPRESSURE);
       }
     }
 
@@ -260,7 +260,7 @@ export async function unicastPreload(
   for (let i = 0; i < total; i++) {
     if (!conn.open) return;
     while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
-      await new Promise(r => setTimeout(r, DELAY.BACKPRESSURE));
+      await delay(DELAY.BACKPRESSURE);
     }
     if (!conn.open) return;
     const start = i * CHUNK;
@@ -369,7 +369,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
   // Use setTimeout(0) to let the worker process OPFS_START before receiving WRITE commands
-  setTimeout(() => { try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ } }, 0);
+  setManagedTimer('preload-drain-' + sid, () => { try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ } }, 0);
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');

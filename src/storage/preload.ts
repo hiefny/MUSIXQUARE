@@ -193,7 +193,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
     // Backpressure (with 30s timeout to prevent infinite stall)
     let congested = true;
-    let bpStart = Date.now();
+    const bpStart = Date.now();
     while (congested) {
       congested = false;
       for (const p of targets) {

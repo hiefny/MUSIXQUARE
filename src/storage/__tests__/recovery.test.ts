@@ -35,6 +35,10 @@ vi.mock('../../core/log.ts', () => ({
 }));
 
 vi.mock('../../core/timers.ts', () => ({
+  setManagedTimer: vi.fn((name: string, fn: () => void, delayMs: number) => {
+    // Delegate to real setTimeout so vi.useFakeTimers() + advanceTimersByTime works
+    setTimeout(fn, delayMs);
+  }),
   clearManagedTimer: vi.fn(),
 }));
 

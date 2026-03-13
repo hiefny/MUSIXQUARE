@@ -359,11 +359,16 @@ export function handleRelayConnection(conn: DataConnection): void {
       stopOpfsCatchupStream(conn.peer, 'downstream error');
     }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
-    // Filter by reference (not peer ID) to avoid removing a reconnected conn from same peer
+    const wasTracked = downstreamDataPeers.some(p => p === conn);
     setState(
       'relay.downstreamDataPeers',
       downstreamDataPeers.filter(p => p !== conn)
     );
+    // Notify host so relay assignment is cleared (close handler skips if already removed)
+    if (wasTracked) {
+      bus.emit('network:peer-relay-lost', conn.peer);
+      sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
+    }
     try { conn.close(); } catch { /* noop */ }
   });
 

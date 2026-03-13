@@ -488,6 +488,7 @@ export function stopPlayback(): void {
     bus.emit('player:state-changed', APP_STATE.IDLE);
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');
+    clearManagedTimer('autoPlayTimer');
     clearManagedTimer('ended-advance-retry');
     clearManagedTimer('ended-advance-next');
     setState('player.pausedAt', 0);

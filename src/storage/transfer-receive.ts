@@ -434,6 +434,11 @@ export function handleFileResume(data: Record<string, unknown>): void {
   const localSid = getState('transfer.localSessionId');
 
   if (!incomingSid || incomingSid < localSid) return;
+  if (getState('transfer.skipIncomingFile')) {
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    return;
+  }
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session

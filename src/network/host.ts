@@ -12,7 +12,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
 
 import {
@@ -137,7 +137,29 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   }
   setState('network.connectedPeers', [...currentPeers, peerObj]);
 
+  // Timeout: clean up peer if WebRTC open never fires (ICE stall)
+  const openTimerName = 'conn-open-timeout-' + peerId;
+  setManagedTimer(openTimerName, () => {
+    const peers = getState('network.connectedPeers');
+    const stale = peers.find(p => p.id === peerId && p.status === 'connecting');
+    if (!stale) return;
+    log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
+    setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
+    const cleanConns = new Map(getState('network.activeHostConnByPeerId'));
+    cleanConns.delete(peerId);
+    setState('network.activeHostConnByPeerId', cleanConns);
+    releasePeerSlot(peerId);
+    const labels = getState('network.peerLabels');
+    if (labels && labels[peerId]) {
+      const { [peerId]: _, ...rest } = labels;
+      setState('network.peerLabels', rest);
+    }
+    try { conn.close(); } catch { /* noop */ }
+    broadcastDeviceList();
+  }, 15000);
+
   conn.on('open', () => {
+    clearManagedTimer(openTimerName);
     // Immutable update: replace peer object with updated status/heartbeat
     const peers = getState('network.connectedPeers');
     setState('network.connectedPeers', peers.map(p =>

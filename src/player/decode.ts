@@ -136,7 +136,7 @@ export async function loadAndBroadcastFile(
 
     // Broadcast file to peers
     const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && sessionId) {
+    if (connectedPeers.length > 0 && sessionId !== null) {
       bus.emit('ui:show-toast', t('transfer.file_sending'));
       broadcastFile(file, sessionId)
         .catch(e => log.error('[Host] broadcastFile failed:', e));
@@ -326,12 +326,13 @@ export function clearPreviousTrackState(reason = ''): void {
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
 
+  // Redundant sync: only reset timers and name tracking, keep audio buffer intact
+  if (reason === 'redundant-sync') return;
+
   // Reset transfer state
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', {});
   setState('files.currentFileBlob', null);
-
-  if (reason === 'redundant-sync') return;
 
   // CRITICAL: Clear audio buffer to prevent previous track from replaying
   if (getCurrentAudioBuffer()) {

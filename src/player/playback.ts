@@ -32,6 +32,7 @@ import {
   incrementLoadToken,
   getPendingPlayTime, setPendingPlayTime,
   isPlayPreloadedInProgress,
+  setLastClearedTrackName,
 } from './_state.ts';
 
 import {
@@ -352,6 +353,7 @@ export function initPlayback(): void {
 
   // Clear previous track state (called from transfer module during track switch)
   bus.on('storage:clear-previous-track', (context) => {
+    if (context === 'session-change') setLastClearedTrackName('');
     clearPreviousTrackState(context);
   });
 

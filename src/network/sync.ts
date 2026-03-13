@@ -286,7 +286,8 @@ function handleSyncResponse(data: Record<string, unknown>): void {
   const syncTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
   setState('sync.autoSyncOffset', oneWayLatencySeconds);
   bus.emit('sync:display-update');
-  bus.emit('sync:response', syncTime, !!data.isPlaying, oneWayLatencySeconds);
+  const extrapolatedTime = data.isPlaying ? syncTime + oneWayLatencySeconds : syncTime;
+  bus.emit('sync:response', extrapolatedTime, !!data.isPlaying, oneWayLatencySeconds);
 }
 
 function handleGlobalResyncRequest(): void {

@@ -7,6 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
+import { bus } from '../core/events.ts';
 import { MSG } from '../core/constants.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
@@ -118,6 +119,16 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   }
 
   const subIdx = data.subIdx as number;
+  const playlistIdx = data.playlistIdx as number | undefined;
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+
+  // If the request targets a different playlist item, switch to it first
+  // (mirrors the local path in youtube/player.ts 'youtube:sub-seek' handler)
+  if (playlistIdx !== undefined && playlistIdx !== currentTrackIndex) {
+    bus.emit('playlist:play-track', playlistIdx, subIdx);
+    return;
+  }
+
   const player = getYouTubePlayer();
   if (player?.playVideoAt && typeof subIdx === 'number') {
     player.playVideoAt(subIdx);

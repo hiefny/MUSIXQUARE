@@ -467,6 +467,7 @@ export function initPlayerControls(): void {
     roleBadge.addEventListener('click', onShowCode);
     roleBadge.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key !== 'Enter' && (e as KeyboardEvent).key !== ' ') return;
+      e.preventDefault(); // Prevent page scroll on Space key
       onShowCode(e);
     });
   }

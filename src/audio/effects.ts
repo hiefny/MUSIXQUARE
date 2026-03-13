@@ -253,8 +253,9 @@ function resetReverb(): void {
 // ─── EQ Controls ───────────────────────────────────────────────────
 
 export function setEQ(idx: number, val: number): void {
-  const bandIdx = Number(idx);
+  const bandIdx = Math.floor(Number(idx));
   const bandVal = Number(val);
+  if (!Number.isFinite(bandIdx) || !Number.isFinite(bandVal)) return;
 
   const eqValues = getState('audio.eqValues');
   if (!eqValues || bandIdx < 0 || bandIdx >= eqValues.length) return;
@@ -550,6 +551,7 @@ function handleEQResetMsg(): void {
 function handleReverbMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setReverbParam('mix', v);
   bus.emit('ui:sync-reverb-param', 'mix', v);
   _notifyHostChanged();
@@ -589,6 +591,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
 function handleReverbDecayMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setReverbParam('decay', v);
   bus.emit('ui:sync-reverb-param', 'decay', v);
   _notifyHostChanged();
@@ -597,6 +600,7 @@ function handleReverbDecayMsg(data: Record<string, unknown>): void {
 function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setReverbParam('predelay', v);
   bus.emit('ui:sync-reverb-param', 'predelay', v);
   _notifyHostChanged();
@@ -605,6 +609,7 @@ function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
 function handleReverbLowCutMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setReverbParam('lowcut', v);
   bus.emit('ui:sync-reverb-param', 'lowcut', v);
   _notifyHostChanged();
@@ -613,6 +618,7 @@ function handleReverbLowCutMsg(data: Record<string, unknown>): void {
 function handleReverbHighCutMsg(data: Record<string, unknown>): void {
   if (data.value === undefined) return;
   const v = Number(data.value);
+  if (!Number.isFinite(v)) return;
   setReverbParam('highcut', v);
   bus.emit('ui:sync-reverb-param', 'highcut', v);
   _notifyHostChanged();

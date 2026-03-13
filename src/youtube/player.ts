@@ -28,6 +28,7 @@ import {
   isYtLoadInProgress, setYtLoadInProgress,
   getYtScope, setYtScope,
   setCachedYtDuration,
+  setYtAutoplayIntent,
 } from './_state.ts';
 
 import { loadYouTubeVideo, refreshYouTubeDisplay } from './iframe.ts';
@@ -176,6 +177,7 @@ export function initYouTube(): void {
   bus.on('youtube:auto-play', () => {
     const player = getYouTubePlayer();
     if (player?.playVideo) {
+      setYtAutoplayIntent(true); // Prevent onStateChange PLAYING handler from pausing back
       player.playVideo();
       bus.emit('youtube:broadcast-sync');
     }

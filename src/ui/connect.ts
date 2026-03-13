@@ -33,7 +33,12 @@ function _guardHostCtrl(): boolean {
 
 // ─── QR Code Generation ─────────────────────────────────────────
 
+const _qrGeneration = new Map<string, number>();
+
 async function generateQR(containerId: string): Promise<void> {
+  const gen = (_qrGeneration.get(containerId) ?? 0) + 1;
+  _qrGeneration.set(containerId, gen);
+
   const container = document.getElementById(containerId);
   if (!container) return;
 
@@ -67,6 +72,9 @@ async function generateQR(containerId: string): Promise<void> {
       },
     });
 
+    // Discard stale result if another generateQR call started for this container
+    if (_qrGeneration.get(containerId) !== gen) return;
+
     container.innerHTML = svgString;
 
     // Apply CSS class for theme-aware coloring
@@ -91,6 +99,7 @@ async function generateQR(containerId: string): Promise<void> {
     });
     container.appendChild(copyBtn);
   } catch (e) {
+    if (_qrGeneration.get(containerId) !== gen) return;
     log.warn('[Connect] QR generation failed', e);
     const errP = document.createElement('p');
     errP.className = 'qr-placeholder';

@@ -566,6 +566,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
     nextExpectedChunk = overflowIdx;
     setState('transfer.receivedCount', overflowIdx); // keep in sync
     bus.emit('storage:request-recovery');
+    return; // Don't fall through to re-add chunk with incorrect offset
   }
 
   const chunkData = new Uint8Array(data.chunk as ArrayBuffer);
@@ -602,10 +603,12 @@ export function handleFileChunk(data: Record<string, unknown>): void {
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
 
       // Drain early chunks that arrived before meta-recovery (mirrors FILE_START/RESUME paths)
+      // Filter by session ID to avoid replaying stale chunks from a previous transfer
       if (_pendingEarlyChunks.length > 0) {
         const earlyChunks = _pendingEarlyChunks.splice(0);
-        log.debug(`[FileChunk] Replaying ${earlyChunks.length} early chunks after meta-recovery`);
-        for (const ec of earlyChunks) {
+        const sessionFiltered = earlyChunks.filter(ec => (ec.sessionId as number) === incomingSid);
+        log.debug(`[FileChunk] Replaying ${sessionFiltered.length}/${earlyChunks.length} early chunks after meta-recovery (session ${incomingSid})`);
+        for (const ec of sessionFiltered) {
           handleFileChunk(ec);
         }
       }

@@ -366,9 +366,17 @@ export function playPrevTrack(): void {
     if (repeatMode === 1 && playlist.length > 1) {
       playTrack(playlist.length - 1);
     } else {
-      play(0);
-      broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-      requestGlobalResyncDelayed();
+      // In IDLE state (after track ended + stopAllMedia), play(0) silently fails
+      // because no media source is available, but broadcast still fires → host-guest desync.
+      // Use playTrack to reload the file instead.
+      const appState = getState('appState');
+      if (appState === APP_STATE.IDLE) {
+        playTrack(currentTrackIndex);
+      } else {
+        play(0);
+        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+        requestGlobalResyncDelayed();
+      }
     }
   }
 }
@@ -496,30 +504,35 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
     case 'eq': {
       const band = parseInt(String(data.band), 10);
       const v = parseFloat(String(val));
+      if (!Number.isFinite(band) || !Number.isFinite(v)) break;
       setEQ(band, v);
       broadcast({ type: MSG.EQ_UPDATE, band, value: v });
       break;
     }
     case MSG.PREAMP: {
       const v = parseFloat(String(val));
+      if (!Number.isFinite(v)) break;
       setPreamp(v);
       broadcast({ type: MSG.PREAMP, value: v });
       break;
     }
     case 'stereo': {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setStereoWidth(v);
       broadcast({ type: MSG.STEREO_WIDTH, value: v });
       break;
     }
     case MSG.VBASS: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setVirtualBass(v);
       broadcast({ type: MSG.VBASS, value: v });
       break;
     }
     case MSG.REVERB: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setReverbParam('mix', v);
       broadcast({ type: MSG.REVERB, value: v });
       break;

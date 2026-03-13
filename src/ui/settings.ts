@@ -35,7 +35,13 @@ function _updateHostCtrlLockUI(): void {
   const hostCtrlIds = ['grid-reverb', 'reverb-sliders-area', 'grid-eq', 'eq-sliders-area', 'grid-surround', 'grid-vbass'];
   hostCtrlIds.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.classList.toggle('host-ctrl-locked', locked);
+    if (el) {
+      el.classList.toggle('host-ctrl-locked', locked);
+      // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
+      el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach(input => {
+        input.disabled = locked;
+      });
+    }
   });
 }
 

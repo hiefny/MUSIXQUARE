@@ -221,6 +221,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     const time = Number(data.time) || 0;
 
     // Handle sub-index change from Host broadcast
+    let subIndexChanged = false;
     const subIndex = data.subIndex as number | undefined;
     if (subIndex !== undefined && subIndex >= 0) {
       if (player.playVideoAt) {
@@ -228,12 +229,15 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         if (currentIdx !== subIndex) {
           player.playVideoAt(subIndex);
           setState('youtube.currentSubIndex', subIndex);
+          subIndexChanged = true;
         }
       }
     }
 
     if (state === 1 && player.playVideo) {
-      if (player.seekTo) player.seekTo(time, true);
+      // Skip seek when sub-index just changed — new video starts at 0,
+      // seekTo would apply to the old (briefly still loaded) video frame
+      if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
       player.playVideo();
     } else if (state === 2 && player.pauseVideo) {
       player.pauseVideo();

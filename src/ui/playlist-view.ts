@@ -166,7 +166,9 @@ export function updatePlaylistUI(): void {
             const op = getState('network.isOperator');
             if (hc && !op) return;
             if (!hc) {
-              bus.emit('youtube:sub-seek', idx, sIdx, isCurrent);
+              // Compute isCurrent at click time (not render time) to avoid stale closure
+              const isCurrentNow = (idx === getState('playlist.currentTrackIndex'));
+              bus.emit('youtube:sub-seek', idx, sIdx, isCurrentNow);
             } else {
               safeSend(hc, { type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
             }

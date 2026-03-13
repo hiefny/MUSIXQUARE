@@ -37,6 +37,12 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
  * Connect to a host session as a guest.
  */
 export function joinSession(hostId: string, retryAttempt = 0): void {
+  // Guard against duplicate calls (e.g. rapid double-click)
+  if (getState('network.isConnecting')) {
+    log.warn('[Join] Already connecting — ignoring duplicate joinSession call');
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     if (hostConn.open) {
@@ -244,7 +250,8 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
 
 function handleForceCloseDuplicate(): void {
   log.warn('[Guest] Received force-close-duplicate — connection will close');
-  // No action needed; the connection close event handles cleanup
+  // Mark as intentional so the close handler doesn't show HOST_DISCONNECTED error
+  setState('network.isIntentionalDisconnect', true);
 }
 
 function handleOperatorGrant(): void {

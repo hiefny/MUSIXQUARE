@@ -40,6 +40,11 @@ export function validateMessage(data: unknown, requiredFields: string[] = []): d
  */
 export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>(RELAYABLE_MSG_TYPES);
 
+/** Relay-local requests that should NOT be forwarded upstream (handled from local OPFS). */
+const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
+  'request-current-file', 'request-data-recovery',
+]);
+
 // ─── Lightweight Protocol Validators ─────────────────────────────────
 // 3.0: Validate high-risk message payloads before dispatch.
 // Only critical messages need validators — not all 40+ types.
@@ -161,13 +166,12 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   //    Attach _originPeer so the host can verify the actual sender, not the relay.
   //    Exclude relay-local messages that the relay node handles itself
   //    (e.g. request-current-file, request-data-recovery are served from OPFS).
-  const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
-    'request-current-file', 'request-data-recovery',
-  ]);
   if (conn && conn !== hostConn) {
     if (msgType.startsWith('request-') && !RELAY_LOCAL_REQUESTS.has(msgType)) {
       const raw = data as Record<string, unknown>;
-      const forwarded = { ...raw, _originPeer: raw._originPeer || conn.peer };
+      // Always overwrite _originPeer with actual sender — never trust downstream value
+      // (prevents spoofing: malicious peer could set _originPeer to an operator's ID)
+      const forwarded = { ...raw, _originPeer: conn.peer };
       log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`);
       sendToHost(forwarded as unknown as AnyProtocolMsg);
     }

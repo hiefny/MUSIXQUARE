@@ -52,6 +52,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   // Enforce max guests
   const maxGuestSlots = getState('network.maxGuestSlots');
   if (filtered.length >= maxGuestSlots) {
+    // Clean up activeHostConnByPeerId entry set during duplicate handling above
+    const cleanupConns = new Map(getState('network.activeHostConnByPeerId'));
+    cleanupConns.delete(peerId);
+    setState('network.activeHostConnByPeerId', cleanupConns);
+
     const sendFullAndClose = () => {
       try {
         conn.send({

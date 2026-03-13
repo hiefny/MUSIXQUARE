@@ -49,7 +49,7 @@ export function clearManagedTimer(name: string): void {
  * Clear all managed timers.
  */
 export function clearAllManagedTimers(): void {
-  for (const name of _timers.keys()) {
+  for (const name of Array.from(_timers.keys())) {
     clearManagedTimer(name);
   }
 }

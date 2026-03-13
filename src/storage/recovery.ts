@@ -264,7 +264,7 @@ export function initRecovery(): void {
     if (!code) {
       setState('recovery.pending', false);
       setState('recovery.retryCount', 0);
-      clearManagedTimer('recoveryBackoff');
+      clearManagedTimer('recovery-backoff');
     }
   });
 

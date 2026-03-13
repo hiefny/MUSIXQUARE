@@ -50,14 +50,16 @@ export function loadYouTubeVideo(
     const container = document.getElementById('youtube-player-container');
     if (container) container.innerHTML = '<div id="youtube-player"></div>';
   }
-  setYtLoadInProgress(true);
+  // Stop existing media BEFORE creating new scope/session — otherwise
+  // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
+  // new scope immediately, causing the first-ever IFrame API load to abort.
+  bus.emit('player:stop-all-media');
+  setEngineMode('youtube');
 
   setCachedYtDuration(0); // Reset duration cache for new video
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
-
-  bus.emit('player:stop-all-media');
-  setEngineMode('youtube');
+  setYtLoadInProgress(true);
 
   bus.emit('ui:show-toast', t('youtube.effects_disabled'));
 

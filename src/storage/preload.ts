@@ -615,7 +615,7 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
     preloadReorderBuffer.delete(sid);
   }
 
-  log.debug(`[Preload] End: ${session.name} (${session.progress}/${session.total} chunks)`);
+  log.debug(`[Preload] End: ${freshSession.name} (${freshSession.progress}/${freshSession.total} chunks)`);
 
   // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after OPFS confirms file)
   // Previously it was sent here (before OPFS confirmed), causing timing issues.

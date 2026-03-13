@@ -188,7 +188,7 @@ export function initYouTube(): void {
       try {
         const player = getYouTubePlayer();
         const pos = player?.getCurrentTime?.() ?? 0;
-        callback(typeof pos === 'number' && isFinite(pos) && pos >= 0 ? pos : 0);
+        callback(Number.isFinite(pos) && pos >= 0 ? pos : 0);
       } catch {
         callback(0);
       }

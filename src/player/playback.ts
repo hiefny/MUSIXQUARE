@@ -248,7 +248,8 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
     return;
   }
 
-  const sec = Number(data.sec) || 0;
+  const sec = Number(data.sec);
+  if (!Number.isFinite(sec)) return;
   skipTime(sec);
 }
 

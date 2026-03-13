@@ -87,7 +87,7 @@ export async function loadAndBroadcastFile(
     log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
     // Emit duration immediately from decoded buffer (primary source)
-    if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
+    if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
       bus.emit('ui:duration-update', audioBuffer.duration);
     }
 
@@ -112,7 +112,7 @@ export async function loadAndBroadcastFile(
         cleanupMeta();
         if (myLoadId !== getActiveLoadSessionId()) return;
         const dur = getCurrentAudioBuffer() ? getCurrentAudioBuffer()!.duration : videoElement.duration;
-        if (dur && isFinite(dur)) {
+        if (dur && Number.isFinite(dur)) {
           bus.emit('ui:duration-update', dur);
         }
         BlobURLManager.confirm();
@@ -241,7 +241,7 @@ export async function loadPreloadedTrack(
     }
 
     const dur = audioBuffer.duration;
-    if (isFinite(dur)) {
+    if (Number.isFinite(dur)) {
       bus.emit('ui:duration-update', dur);
     }
     BlobURLManager.confirm();
@@ -410,7 +410,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       videoElement.muted = true;
     }
 
-    if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
+    if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
       bus.emit('ui:duration-update', audioBuffer.duration);
     }
     BlobURLManager.confirm();
@@ -423,7 +423,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       const onMetaLoaded = () => {
         cleanupMeta();
         const dur = getCurrentAudioBuffer() ? getCurrentAudioBuffer()!.duration : videoElement.duration;
-        if (dur && isFinite(dur)) bus.emit('ui:duration-update', dur);
+        if (dur && Number.isFinite(dur)) bus.emit('ui:duration-update', dur);
       };
       const onMetaError = () => {
         cleanupMeta();

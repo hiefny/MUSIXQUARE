@@ -3,14 +3,14 @@
 ## 감사 범위
 - **대상**: fix14 완료 후 전수 감사 (Audio, Core, Network, Player, Storage, YouTube, UI)
 - **에이전트**: 3개 병렬 감사 (Player+Storage+YT+UI / Audio+Core / Network)
-- **Raw 발견**: 14건 (M7 + L7) — 이론적/이미 완화된 건 제외 후 6건 수정
+- **Raw 발견**: 14건 (M7 + L7)
 
 ## 감사 결과 요약
-**M5 + L1 = 6 인스턴스** 수정 완료.
+**M5 + L1 = 6건** 1차 수정 → 나머지 8건 정리 수정 → **전체 14건 수정 완료**.
 
 ---
 
-## 수정 항목
+## 수정 항목 (1차 — 실질 영향)
 
 ### M-1. `handleRequestPlay` — operator `time:0` 무시 — `playback.ts:188`
 
@@ -54,18 +54,55 @@ kick된 경우 state는 업데이트되지만 `device-list-update` 이벤트 미
 
 ---
 
-## 미수정 (이미 완화됨 / 이론적)
-- Global `isFinite()` → `Number.isFinite()` (decode.ts 4곳, transport.ts 1곳, youtube/player.ts 1곳): Web Audio/YouTube API에서 항상 native number 반환 → 실질 영향 없음
-- OPFS cleanup listener leak (opfs.ts): 동일 파일 반복 cleanup 시에만 발생, 매우 드뭄
-- Catchup pump stale reference (relay.ts): `active=false` 플래그로 이미 완화
-- `opfs:read-complete` tag guard (relay.ts): 현재 relay만 requestId 사용, 잠재적
-- Relay upstream close / timeout state check (relay.ts): 불필요 recovery 전송이지만 Host가 무시
+## 수정 항목 (2차 — 코드 정리)
+
+### L-2. Global `isFinite()` → `Number.isFinite()` 통일 — 6곳
+
+**심각도**: LOW (컨벤션 통일)
+**수정 파일**:
+- `transport.ts:351` — `pause()` forcedTime 검증
+- `decode.ts:90,115,244,413` — 오디오 duration 검증 4곳
+- `youtube/player.ts:191` — YouTube getCurrentTime 검증
+
+### L-3. `handleRequestSkipTime` NaN 가드 — `playback.ts:251`
+
+**심각도**: LOW
+**문제**: `Number(data.sec) || 0` → NaN을 0으로 묵시 변환.
+**수정**: `Number.isFinite(sec)` 검증 후 early return.
+
+### M-6. `opfs:read-complete` tag 가드 미비 — `relay.ts:555`
+
+**심각도**: MEDIUM (잠재적)
+**문제**: chunk 전송 블록이 tag 무관하게 실행 → 다른 모듈의 OPFS_READ 결과도 downstream 전송 가능.
+**수정**: `if (tag !== 'catchup') return;` 가드 추가.
+
+### M-7. Catchup pump stale reference — `relay.ts:110`
+
+**심각도**: MEDIUM (방어적)
+**문제**: 타이머 클로저가 pump 객체 참조를 캡처 → restart 시 stale pump 실행 가능.
+**수정**: `opfsCatchupPumps.get(pump.peerId)` 로 map에서 재조회 + 참조 일치 검증.
+
+### L-4. Relay upstream close — transfer.state 미검사 — `relay.ts:281`
+
+**심각도**: LOW
+**문제**: 전송 완료 후에도 `receivedCount < total` 이면 불필요 recovery 요청.
+**수정**: `transfer.state !== TRANSFER_STATE.RECEIVING` 이면 early return.
+
+### L-5. Relay connect timeout — transfer.state 미검사 — `relay.ts:231`
+
+**심각도**: LOW
+**문제**: 10초 타임아웃 중 전송 완료/취소된 경우에도 stale recovery 요청.
+**수정**: `transfer.state === TRANSFER_STATE.IDLE` 이면 early return.
 
 ---
 
 ## 통계
-| 심각도 | 수정 | 미수정 |
-|--------|------|--------|
-| MEDIUM | 5 | 3 (완화) |
-| LOW | 1 | 5 (이론적) |
-| **합계** | **6** | **8** |
+| 심각도 | 건수 |
+|--------|------|
+| MEDIUM | 7 |
+| LOW | 5 |
+| **합계** | **12건 (전체 수정)** |
+
+## 커밋
+- `e388e55`: fix15 1차 — M5+L1 (실질 영향)
+- (pending): fix15 2차 — 코드 정리 (컨벤션 통일 + 방어적 가드)

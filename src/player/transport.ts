@@ -348,7 +348,7 @@ export function pause(forcedTime?: number): void {
   if (isIdleOrPaused(currentState)) return;
 
   let pausePos: number;
-  if (typeof forcedTime === 'number' && isFinite(forcedTime) && forcedTime >= 0) {
+  if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
     pausePos = forcedTime;
   } else {
     pausePos = getTrackPosition();

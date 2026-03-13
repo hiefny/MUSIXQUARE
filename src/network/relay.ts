@@ -21,7 +21,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, DELAY } from '../core/constants.ts';
+import { MSG, DELAY, TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { validateSessionId } from '../core/session.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -108,7 +108,9 @@ function scheduleOpfsCatchupPump(pump: OpfsCatchupPump, delayMs: number): void {
 }
 
 function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
-  if (!pump || !pump.active) return;
+  // Verify pump from map to avoid running stale reference from timer closure
+  const current = opfsCatchupPumps.get(pump.peerId);
+  if (!pump || !pump.active || current !== pump) return;
 
   const conn = pump.conn;
   if (!conn || !conn.open) {
@@ -226,7 +228,13 @@ export function connectToRelay(targetId: string): void {
       conn.close();
       setState('relay.upstreamDataConn', null);
 
-      // Fallback: request recovery from host
+      // Fallback: request recovery from host (skip if transfer already completed/idle)
+      const transferState = getState('transfer.state');
+      if (transferState === TRANSFER_STATE.IDLE) {
+        log.debug('[Relay] Transfer idle during timeout — no recovery needed');
+        return;
+      }
+
       const meta = getState('transfer.meta');
       const receivedCount = getState('transfer.receivedCount');
       const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -277,6 +285,9 @@ export function connectToRelay(targetId: string): void {
 
     setState('relay.upstreamDataConn', null);
     bus.emit('ui:show-toast', t('network.relay_disconnected'));
+
+    const transferState = getState('transfer.state');
+    if (transferState !== TRANSFER_STATE.RECEIVING) return;
 
     const meta = getState('transfer.meta');
     const receivedCount = getState('transfer.receivedCount');
@@ -553,6 +564,9 @@ export function initRelay(): void {
     const tag = sepIdx > 0 ? requestId.slice(sepIdx + 1) : '';
 
     if (!peerId || !chunk) return;
+
+    // Only relay-originated reads should forward to downstream peers
+    if (tag !== 'catchup') return;
 
     // Session guard: discard stale chunks
     const localSid = getState('transfer.localSessionId');

@@ -771,11 +771,9 @@ export function initPlaylist(): void {
     setState('playlist.items', playlist);
 
     if (playlist.length === 0) {
-      // Empty playlist — stop everything
+      // Empty playlist — stop everything (stopAllMedia sets IDLE + emits player:state-changed)
       stopAllMedia();
       setState('playlist.currentTrackIndex', -1);
-      setState('appState', APP_STATE.IDLE);
-      bus.emit('player:state-changed', APP_STATE.IDLE);
     } else if (isCurrentTrack) {
       // Was playing the removed track — play previous or adjusted index
       const newIdx = Math.min(index, playlist.length - 1);

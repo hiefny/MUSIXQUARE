@@ -146,6 +146,8 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // 3. Clear pending triggers
   clearManagedTimer('preloadScheduleTimer');
   clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
   setPendingPlayTime(undefined);
   setPlayPreloadedInProgress(false);
 
@@ -437,6 +439,8 @@ export function togglePlay(): void {
     clearManagedTimer('autoPlayTimer');
     bus.emit('ui:show-toast', t('toast.auto_play_canceled'));
   }
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
 
   if (isActuallyPlaying) {
     if (!hostConn) {
@@ -480,6 +484,8 @@ export function stopPlayback(): void {
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-playback');  // stopVideo on host player
     bus.emit('youtube:stop-mode');      // proper cleanup: destroy player, clear timers, broadcast YOUTUBE_STOP
+    clearManagedTimer('ended-advance-retry');
+    clearManagedTimer('ended-advance-next');
     setState('player.pausedAt', 0);
     updatePlayState(false);
     return;
@@ -509,6 +515,7 @@ export function skipTime(sec: number): void {
   }
 
   const currentState = getState('appState');
+  if (currentState === APP_STATE.IDLE) return;
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:skip-time', sec);
     return;

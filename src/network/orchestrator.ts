@@ -260,10 +260,16 @@ export function initOrchestrator(): void {
 
   // When relay node reports downstream peer lost, clear stale assignment and reassign.
   // The relay node is a guest — its bus event is local-only, so it sends a protocol message.
-  registerHandler(MSG.RELAY_DOWNSTREAM_LOST, (data: ProtocolMsg<'relay-downstream-lost'>) => {
+  registerHandler(MSG.RELAY_DOWNSTREAM_LOST, (data: ProtocolMsg<'relay-downstream-lost'>, conn: DataConnection) => {
     if (!isHost()) return;
     const lostPeerId = data.lostPeerId;
     if (!lostPeerId) return;
+    // Verify sender is the assigned relay for lostPeerId to prevent spoofing
+    const assignedRelay = relayAssignments.get(lostPeerId);
+    if (assignedRelay && conn?.peer && assignedRelay !== conn.peer) {
+      log.warn(`[Orchestrator] RELAY_DOWNSTREAM_LOST from ${conn.peer} but assigned relay is ${assignedRelay} — ignoring`);
+      return;
+    }
     log.info(`[Orchestrator] Relay reported downstream lost: ${lostPeerId}`);
     relayAssignments.delete(lostPeerId);
     assignRelayForPeer(lostPeerId);

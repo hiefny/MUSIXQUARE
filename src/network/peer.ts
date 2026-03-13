@@ -246,6 +246,12 @@ export function leaveSession(): void {
     } catch { /* noop */ }
   });
 
+  // Close upstream relay connection (guest→relay link)
+  const upstreamDataConn = getState('relay.upstreamDataConn');
+  if (upstreamDataConn) {
+    try { upstreamDataConn.close(); } catch { /* noop */ }
+  }
+
   // Close downstream relay connections
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
   downstreamDataPeers.forEach(p => {

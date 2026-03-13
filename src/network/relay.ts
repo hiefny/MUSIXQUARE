@@ -354,21 +354,24 @@ export function handleRelayConnection(conn: DataConnection): void {
     log.info(`[Relay] Downstream peer disconnected: ${conn.peer}`);
     stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
+    const wasTracked = downstreamDataPeers.some(p => p.peer === conn.peer);
     setState(
       'relay.downstreamDataPeers',
       downstreamDataPeers.filter(p => p.peer !== conn.peer)
     );
-    // Notify host so orchestrator can re-assign data source for the lost peer.
-    // Bus event is local-only (relay is a guest), so also send a protocol message.
-    bus.emit('network:peer-relay-lost', conn.peer);
-    sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
+    // Only notify host if peer was still tracked — prevents double-fire when
+    // error handler already removed the peer and close fires afterwards.
+    if (wasTracked) {
+      bus.emit('network:peer-relay-lost', conn.peer);
+      sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
+    }
   });
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
 function handleAssignDataSource(data: Record<string, unknown>): void {
-  const targetId = data.targetId as string | null;
+  const targetId = (data.targetId as string | null | undefined) ?? null;
   const myId = getState('network.myId');
 
   if (targetId && targetId !== myId) {

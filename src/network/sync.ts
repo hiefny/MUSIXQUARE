@@ -241,8 +241,8 @@ function handlePingLatency(data: Record<string, unknown>, conn: DataConnection):
 }
 
 function handlePongLatency(data: Record<string, unknown>): void {
-  if (typeof data.timestamp !== 'number') return;
-  const ms = Date.now() - data.timestamp;
+  if (!Number.isFinite(data.timestamp)) return;
+  const ms = Date.now() - (data.timestamp as number);
   const latencyHistory = getState('sync.latencyHistory');
   const updated = [...latencyHistory, ms];
   if (updated.length > 10) updated.shift();

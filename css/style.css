@@ -2652,6 +2652,7 @@ body.overlay-open .bottom-nav {
 .setup-header-text h2 {
     font-size: 24px;
     font-weight: 800;
+    line-height: 29px;
     margin-bottom: 8px;
     /* Reduced from 12px */
     letter-spacing: -0.03em;

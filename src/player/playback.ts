@@ -313,8 +313,13 @@ export function initPlayback(): void {
         log.debug('[Sync] Host paused, keeping pending play');
         return;
       }
-      stopAllMedia();
-      setState('player.pausedAt', compensatedTime);
+      // Pause without destroying media — guest needs buffer/video intact to resume
+      const currentSyncState = getState('appState');
+      if (currentSyncState === APP_STATE.PLAYING_AUDIO || currentSyncState === APP_STATE.PLAYING_VIDEO) {
+        pause(compensatedTime);
+      } else {
+        setState('player.pausedAt', compensatedTime);
+      }
     }
 
     const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';

@@ -100,8 +100,12 @@ async function fetchDemoFromServer(index: number): Promise<void> {
 function showRemoteGuideUI(data: Record<string, unknown>): void {
   setState('transfer.skipIncomingFile', true);
   if (data.index !== undefined) {
-    setState('playlist.currentTrackIndex', data.index as number);
-    bus.emit('ui:update-playlist');
+    const idx = Number(data.index);
+    const playlist = getState('playlist.items') || [];
+    if (Number.isFinite(idx) && idx >= 0 && idx < playlist.length) {
+      setState('playlist.currentTrackIndex', idx);
+      bus.emit('ui:update-playlist');
+    }
   }
   bus.emit('player:metadata-update', {
     type: 'file',
@@ -122,11 +126,13 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   if (data.name === DEMO_FILE_NAME) {
     setState('transfer.skipIncomingFile', true);
     bus.emit('player:stop-all-media');
+    const demoIndex = Number(data.index);
+    const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
     if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', data.index as number);
+      setState('playlist.currentTrackIndex', safeDemoIndex);
       bus.emit('ui:update-playlist');
     }
-    fetchDemoFromServer((data.index as number) ?? 0);
+    fetchDemoFromServer(safeDemoIndex);
     return;
   }
 

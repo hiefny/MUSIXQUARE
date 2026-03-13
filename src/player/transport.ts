@@ -525,8 +525,10 @@ export function skipTime(sec: number): void {
   const current = getTrackPosition();
   let target = current + sec;
   const videoElement = getVideoElement();
-  const duration = (_currentAudioBuffer?.duration)
-    ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
+  const rawBufDur = _currentAudioBuffer?.duration;
+  const duration = (rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0)
+    ? rawBufDur
+    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
 
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
@@ -558,8 +560,10 @@ export function adjustSync(val: number): void {
     const _currentAudioBuffer = getCurrentAudioBuffer();
     const pausedAt = getState('player.pausedAt') || 0;
     const videoElement = getVideoElement();
-    const duration = (_currentAudioBuffer?.duration)
-      ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
+    const rawBufDur2 = _currentAudioBuffer?.duration;
+    const duration = (rawBufDur2 != null && Number.isFinite(rawBufDur2) && rawBufDur2 > 0)
+      ? rawBufDur2
+      : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
     const newPausedAt = duration > 0
       ? Math.max(0, Math.min(pausedAt + val, duration))
       : Math.max(0, pausedAt + val);

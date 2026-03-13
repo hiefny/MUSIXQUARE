@@ -59,23 +59,9 @@ export async function applySettings(): Promise<void> {
   const crossFade = getRvbCrossFade();
   if (crossFade) crossFade.fade.rampTo(reverbMix, RAMP_TIME);
 
-  // Reverb Engine Sync (with retry on failure)
-  const rev = getReverb();
-  if (rev) {
-    let needsGenerate = false;
-    if (rev.decay !== reverbDecay) {
-      rev.decay = reverbDecay;
-      needsGenerate = true;
-    }
-    if (rev.preDelay !== reverbPreDelay) {
-      rev.preDelay = reverbPreDelay;
-      needsGenerate = true;
-    }
-    if (needsGenerate) {
-      _reverbTotalCycles = 0; // Reset cycle counter at top-level call site only
-      await _generateReverbWithRetry(rev);
-    }
-  }
+  // ── Apply all synchronous parameters BEFORE the async reverb generation ──
+  // This prevents stale state from overwriting concurrent changes if another
+  // applySettings() call completes while reverb generation is in progress.
 
   // Reverb damping filters (clamp to [0, 100] for safety)
   const rlc = getRvbLowCut();
@@ -140,6 +126,24 @@ export async function applySettings(): Promise<void> {
   if (mg) {
     const masterVolume = getState('audio.masterVolume');
     mg.gain.rampTo(masterVolume, RAMP_TIME);
+  }
+
+  // ── Async reverb generation (after all sync params are applied) ──
+  const rev = getReverb();
+  if (rev) {
+    let needsGenerate = false;
+    if (rev.decay !== reverbDecay) {
+      rev.decay = reverbDecay;
+      needsGenerate = true;
+    }
+    if (rev.preDelay !== reverbPreDelay) {
+      rev.preDelay = reverbPreDelay;
+      needsGenerate = true;
+    }
+    if (needsGenerate) {
+      _reverbTotalCycles = 0; // Reset cycle counter at top-level call site only
+      await _generateReverbWithRetry(rev);
+    }
   }
 }
 
@@ -518,7 +522,7 @@ bus.on('network:peer-connected', (conn) => {
 
 function handleVolume(data: Record<string, unknown>): void {
   if (data.value === undefined || data.value === null) return;
-  const vol = Number(data.value);
+  const vol = Math.max(0, Math.min(1, Number(data.value)));
   if (!Number.isFinite(vol)) return;
   bus.emit('audio:set-volume', vol);
   bus.emit('ui:show-toast', `Volume: ${Math.round(vol * 100)}%`);

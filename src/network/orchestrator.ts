@@ -50,7 +50,7 @@ export function isAssignedRelay(originPeerId: string, senderPeerId: string): boo
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function isHost(): boolean {
-  return !getState('network.hostConn');
+  return getState('network.appRole') === 'host' && !getState('network.hostConn');
 }
 
 function getConnectedPeers(): readonly ConnectedPeer[] {

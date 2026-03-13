@@ -226,7 +226,6 @@ function handleSessionFull(data: Record<string, unknown>): void {
 
 function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
   const list = Array.isArray(data.list) ? data.list as DeviceInfo[] : [];
-  setState('network.lastKnownDeviceList', list);
 
   const myId = getState('network.myId');
   const hostConn = getState('network.hostConn');
@@ -237,14 +236,14 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
       log.warn('[Guest] Removed from Host device list. Leaving session...');
       setState('network.isIntentionalDisconnect', true);
       bus.emit('network:kicked-from-session');
-      return;
+      return; // Don't update state with a list that excludes us
     }
-    const me = amIStillConnected;
-    if (me && me.label) {
-      setState('network.myDeviceLabel', String(me.label));
+    if (amIStillConnected.label) {
+      setState('network.myDeviceLabel', String(amIStillConnected.label));
     }
   }
 
+  setState('network.lastKnownDeviceList', list);
   bus.emit('network:device-list-update', list);
 }
 

@@ -185,7 +185,8 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
 
   clearManagedTimer('autoPlayTimer');
   const pausedAt = getState('player.pausedAt') || 0;
-  const time = Number(data.time) || pausedAt;
+  const rawTime = Number(data.time);
+  const time = (Number.isFinite(rawTime) && rawTime >= 0) ? rawTime : pausedAt;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   play(time);

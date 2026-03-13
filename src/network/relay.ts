@@ -343,9 +343,10 @@ export function handleRelayConnection(conn: DataConnection): void {
     log.warn(`[Relay] Downstream connection error (${conn.peer}):`, err);
     stopOpfsCatchupStream(conn.peer, 'downstream error');
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
+    // Filter by reference (not peer ID) to avoid removing a reconnected conn from same peer
     setState(
       'relay.downstreamDataPeers',
-      downstreamDataPeers.filter(p => p.peer !== conn.peer)
+      downstreamDataPeers.filter(p => p !== conn)
     );
     try { conn.close(); } catch { /* noop */ }
   });
@@ -354,13 +355,14 @@ export function handleRelayConnection(conn: DataConnection): void {
     log.info(`[Relay] Downstream peer disconnected: ${conn.peer}`);
     stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
-    const wasTracked = downstreamDataPeers.some(p => p.peer === conn.peer);
+    // Use reference equality to avoid removing a new connection from the same peer
+    const wasTracked = downstreamDataPeers.some(p => p === conn);
     setState(
       'relay.downstreamDataPeers',
-      downstreamDataPeers.filter(p => p.peer !== conn.peer)
+      downstreamDataPeers.filter(p => p !== conn)
     );
-    // Only notify host if peer was still tracked — prevents double-fire when
-    // error handler already removed the peer and close fires afterwards.
+    // Only notify host if THIS connection was still tracked — prevents double-fire when
+    // error handler already removed it and close fires afterwards.
     if (wasTracked) {
       bus.emit('network:peer-relay-lost', conn.peer);
       sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });

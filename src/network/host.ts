@@ -57,6 +57,15 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     cleanupConns.delete(peerId);
     setState('network.activeHostConnByPeerId', cleanupConns);
 
+    // Release old peer's slot and label — the old conn's close handler
+    // will return early (activeHostConnByPeerId guard), so we must clean up here.
+    releasePeerSlot(peerId);
+    const currentLabels = getState('network.peerLabels');
+    if (currentLabels && currentLabels[peerId]) {
+      const { [peerId]: _, ...restLabels } = currentLabels;
+      setState('network.peerLabels', restLabels);
+    }
+
     const sendFullAndClose = () => {
       try {
         conn.send({

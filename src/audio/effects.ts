@@ -38,6 +38,11 @@ const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
  * Synchronize all audio effect parameters to the Tone.js nodes.
  * Call after any setting change.
  */
+/** Fire-and-forget wrapper — prevents unhandled promise rejection from applySettings */
+export function applySettingsAsync(): void {
+  applySettings().catch(e => log.warn('[Effects] applySettings failed:', e));
+}
+
 export async function applySettings(): Promise<void> {
   if (!getMasterGain()) return;
 
@@ -242,7 +247,7 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
       break;
   }
 
-  if (!skipApply) applySettings();
+  if (!skipApply) applySettingsAsync();
 }
 
 function resetReverb(): void {
@@ -251,7 +256,7 @@ function resetReverb(): void {
   setReverbParam('predelay', 0.1, true);
   setReverbParam('lowcut', 0, true);
   setReverbParam('highcut', 0, true);
-  applySettings();
+  applySettingsAsync();
 }
 
 // ─── EQ Controls ───────────────────────────────────────────────────
@@ -284,7 +289,7 @@ export function resetEQ(): void {
   setState('audio.eqValues', Array(count).fill(0));
   setState('audio.userPreampGain', 1.0);
   nodes?.forEach(node => node.gain.rampTo(0, RAMP_TIME));
-  applySettings();
+  applySettingsAsync();
 }
 
 // ─── Preamp ────────────────────────────────────────────────────────
@@ -294,7 +299,7 @@ export function setPreamp(valDb: number): void {
   if (!Number.isFinite(db)) return;
   const linear = Math.pow(10, db / 20);
   setState('audio.userPreampGain', linear);
-  applySettings();
+  applySettingsAsync();
 }
 
 // ─── Stereo Width ──────────────────────────────────────────────────
@@ -303,7 +308,7 @@ export function setStereoWidth(val: number): void {
   const v = Number(val);
   if (!Number.isFinite(v)) return;
   setState('audio.stereoWidth', Math.max(0, Math.min(2, v / 100)));
-  applySettings();
+  applySettingsAsync();
 }
 
 export function resetStereoWidth(): void {
@@ -316,7 +321,7 @@ export function setVirtualBass(val: number): void {
   const v = Number(val);
   if (!Number.isFinite(v)) return;
   setState('audio.virtualBass', Math.max(0, Math.min(1, v / 100)));
-  applySettings();
+  applySettingsAsync();
 }
 
 export function resetVirtualBass(): void {
@@ -329,7 +334,7 @@ function updateSubFreq(val: number): void {
   const freq = Math.max(20, Math.min(500, Number(val)));
   if (!Number.isFinite(freq)) return;
   setState('audio.subFreq', freq);
-  applySettings();
+  applySettingsAsync();
 }
 
 // ─── Network Broadcast Helpers ───────────────────────────────────
@@ -472,7 +477,7 @@ bus.on('audio:reset-eq', () => {
 /** Sync state defaults to Tone.js nodes after audio graph init */
 bus.on('audio:ready', () => {
   log.info('[Effects] Audio ready — applying default settings');
-  applySettings();
+  applySettingsAsync();
 });
 
 /**
@@ -604,7 +609,7 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
     default:
       return;
   }
-  applySettings();
+  applySettingsAsync();
   bus.emit('ui:sync-reverb-preset', type);
   _notifyHostChanged();
 }

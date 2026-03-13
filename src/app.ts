@@ -25,7 +25,7 @@ import { setManagedTimer } from './core/timers.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
-import { applySettings, initEffectsHandlers } from './audio/effects.ts';
+import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
 
 // ── Network ──
@@ -171,7 +171,7 @@ function initWakeLock(): void {
           log.info('[App] AudioContext resumed successfully');
           const currentState = getState('appState');
           if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-            applySettings();
+            applySettingsAsync();
           }
         }).catch(err => {
           log.warn('[App] AudioContext resume failed:', err);

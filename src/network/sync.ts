@@ -146,6 +146,15 @@ function applyBestSample(): void {
 
   // Pick lowest RTT
   const best = _syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
+
+  // Guard: if best sample has no usable RTT (all corrupted), abort
+  if (!Number.isFinite(best.rtt) || best.sentAt <= 0) {
+    log.warn('[Sync] No usable sample (invalid RTT or sentAt), aborting');
+    _syncSamples = [];
+    _syncSampleExpected = 0;
+    return;
+  }
+
   const elapsed = (Date.now() - best.sentAt - best.rtt / 2) / 1000; // seconds since host reported
 
   log.debug(`[Sync] Best sample: RTT=${best.rtt}ms, hostTime=${best.hostTime.toFixed(2)}s, elapsed=${elapsed.toFixed(3)}s`);
@@ -313,7 +322,7 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
         type: MSG.SYNC_RESPONSE,
         time: position,
         isPlaying,
-        reqTs: (data.ts as number) || 0,
+        reqTs: (typeof data.ts === 'number' && Number.isFinite(data.ts)) ? data.ts : 0,
         t2: hostReceiveTs,
         t3: hostSendTs,
       });

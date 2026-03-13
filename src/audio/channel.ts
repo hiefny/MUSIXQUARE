@@ -22,7 +22,7 @@ import {
   initAudio,
   safeDisconnect,
 } from './engine.ts';
-import { applySettings } from './effects.ts';
+import { applySettingsAsync } from './effects.ts';
 
 // ─── Channel Mode ──────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ export function setChannelMode(mode: number): void {
     gR.connect(merge, 0, 1);
   }
 
-  applySettings();
+  applySettingsAsync();
 }
 
 // ─── 7.1 Surround Mode ────────────────────────────────────────────
@@ -196,7 +196,7 @@ export function setSurroundChannel(idx: number): void {
     log.info(`[Surround] Channel set: ${names[idx]}`);
 
     // Sync VirtualBass / LowPass / Preamp compensation to surround routing
-    applySettings();
+    applySettingsAsync();
   } catch (e) {
     log.warn('[Surround] setSurroundChannel error:', e);
   }

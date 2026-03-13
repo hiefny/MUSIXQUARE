@@ -325,6 +325,7 @@ export function clearPreviousTrackState(reason = ''): void {
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
+  clearManagedTimer('stale-audio-recovery');
 
   // Redundant sync: only reset timers and name tracking, keep audio buffer intact
   if (reason === 'redundant-sync') return;

@@ -407,6 +407,7 @@ function handleAssignDataSource(data: Record<string, unknown>): void {
   } else if (targetId === null) {
     // Fallback to Host Direct
     log.debug('[Relay] Fallback to Host requested.');
+    clearManagedTimer(RELAY_CONN_TIMER);
     const upstreamDataConn = getState('relay.upstreamDataConn');
     if (upstreamDataConn) {
       upstreamDataConn.close();

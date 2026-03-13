@@ -492,7 +492,7 @@ bus.on('network:peer-connected', (conn) => {
 
   try {
     const masterVolume = getState('audio.masterVolume');
-    conn.send({ type: MSG.VOLUME, value: masterVolume });
+    conn.send({ type: MSG.VOLUME, value: masterVolume, _bootstrap: true });
 
     const reverbMix = getState('audio.reverbMix');
     conn.send({ type: MSG.REVERB, value: reverbMix * 100 });
@@ -538,7 +538,9 @@ function handleVolume(data: Record<string, unknown>): void {
   const vol = Math.max(0, Math.min(1, Number(data.value)));
   if (!Number.isFinite(vol)) return;
   bus.emit('audio:set-volume', vol);
-  bus.emit('ui:show-toast', `Volume: ${Math.round(vol * 100)}%`);
+  if (!data._bootstrap) {
+    bus.emit('ui:show-toast', `Volume: ${Math.round(vol * 100)}%`);
+  }
 }
 
 function handleEQUpdateMsg(data: Record<string, unknown>): void {

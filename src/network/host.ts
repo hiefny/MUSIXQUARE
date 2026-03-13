@@ -183,39 +183,43 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     // Detect local vs remote for this guest after ICE stabilizes
     setManagedTimer('ice-detect-' + peerId, async () => {
-      const type = await detectConnectionType(conn);
-      const peers = getState('network.connectedPeers');
-      const livePeer = peers.find(p => p.id === peerId);
-      if (livePeer) {
-        // Immutable update: replace peer object with detected connection type
-        setState('network.connectedPeers', peers.map(p =>
-          p.id === peerId ? { ...p, connectionType: type } : p
-        ));
-      }
-      log.info(`[Host] ${deviceName} connection type: ${type}`);
-      broadcastDeviceList();
-      bus.emit('orchestrator:peer-type-detected', peerId);
+      try {
+        const type = await detectConnectionType(conn);
+        const peers = getState('network.connectedPeers');
+        const livePeer = peers.find(p => p.id === peerId);
+        if (livePeer) {
+          // Immutable update: replace peer object with detected connection type
+          setState('network.connectedPeers', peers.map(p =>
+            p.id === peerId ? { ...p, connectionType: type } : p
+          ));
+        }
+        log.info(`[Host] ${deviceName} connection type: ${type}`);
+        broadcastDeviceList();
+        bus.emit('orchestrator:peer-type-detected', peerId);
 
-      // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
-      if (type === 'remote' && conn.open) {
-        setManagedTimer('ice-redetect-' + peerId, async () => {
-          if (!conn.open) return;
-          const recheck = await detectConnectionType(conn);
-          if (recheck === 'local') {
-            const ps = getState('network.connectedPeers');
-            const p = ps.find(x => x.id === peerId);
-            if (p && p.connectionType !== 'local') {
-              // Immutable update: replace peer object with reclassified connection type
-              setState('network.connectedPeers', ps.map(x =>
-                x.id === peerId ? { ...x, connectionType: 'local' as const } : x
-              ));
-              log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
-              broadcastDeviceList();
-              bus.emit('orchestrator:peer-type-detected', peerId);
-            }
-          }
-        }, 8500);
-      }
+        // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
+        if (type === 'remote' && conn.open) {
+          setManagedTimer('ice-redetect-' + peerId, async () => {
+            try {
+              if (!conn.open) return;
+              const recheck = await detectConnectionType(conn);
+              if (recheck === 'local') {
+                const ps = getState('network.connectedPeers');
+                const p = ps.find(x => x.id === peerId);
+                if (p && p.connectionType !== 'local') {
+                  // Immutable update: replace peer object with reclassified connection type
+                  setState('network.connectedPeers', ps.map(x =>
+                    x.id === peerId ? { ...x, connectionType: 'local' as const } : x
+                  ));
+                  log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
+                  broadcastDeviceList();
+                  bus.emit('orchestrator:peer-type-detected', peerId);
+                }
+              }
+            } catch (e) { log.warn('[Host] ICE re-detection error:', e); }
+          }, 8500);
+        }
+      } catch (e) { log.warn('[Host] ICE detection error:', e); }
     }, 1500);
 
     // Broadcast updated device list to all peers
@@ -234,6 +238,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     // Ignore stale close events from replaced duplicate connections
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
+
+    // Clear ICE detection timers to prevent firing on disconnected peer
+    clearManagedTimer('ice-detect-' + peerId);
+    clearManagedTimer('ice-redetect-' + peerId);
 
     const closeConns = new Map(getState('network.activeHostConnByPeerId'));
     closeConns.delete(peerId);
@@ -267,6 +275,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       try { conn.close(); } catch { /* noop */ }
       return;
     }
+
+    // Clear ICE detection timers to prevent firing on disconnected peer
+    clearManagedTimer('ice-detect-' + peerId);
+    clearManagedTimer('ice-redetect-' + peerId);
 
     const errConns = new Map(getState('network.activeHostConnByPeerId'));
     errConns.delete(peerId);

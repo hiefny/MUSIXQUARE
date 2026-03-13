@@ -293,6 +293,8 @@ export function initSetup(): void {
             setState('transfer.waitingForPreload', false);
             setState('transfer.receivedCount', 0);
             setState('transfer.meta', {});
+            setState('recovery.pending', false);
+            setState('recovery.retryCount', 0);
             setState('preload.isPreloading', false);
             setState('preload.nextFileBlob', null);
             setState('preload.meta', null);

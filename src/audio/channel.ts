@@ -54,8 +54,11 @@ export function setChannelMode(mode: number): void {
   safeDisconnect(gR);
 
   // Reset gains (rampTo prevents audible click, matches setSurroundChannel pattern)
-  gL.gain.rampTo(1, 0.05);
-  gR.gain.rampTo(1, 0.05);
+  // Skip for Sub mode (mode=2) — immediate .value=0.5 override avoids transient spike
+  if (mode !== 2) {
+    gL.gain.rampTo(1, 0.05);
+    gR.gain.rampTo(1, 0.05);
+  }
 
   if (mode === 0) {
     // Stereo: L→0, R→1

@@ -181,6 +181,7 @@ export interface ProtocolMap {
   'assign-data-source': { targetId?: string | null };
   'data-relay': NoPayload;
   'kick-device': { reason?: string };
+  'relay-downstream-lost': { lostPeerId: string };
   'operator-grant': NoPayload;
   'operator-revoke': NoPayload;
 

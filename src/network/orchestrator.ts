@@ -24,7 +24,8 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { safeSend } from './peer.ts';
-import type { DataConnection } from '../types/index.ts';
+import { registerHandler } from './protocol.ts';
+import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 import type { StateTree } from '../core/state.ts';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -255,6 +256,17 @@ export function initOrchestrator(): void {
 
   bus.on('network:peer-disconnected', (peerId: string) => {
     handlePeerDisconnect(peerId);
+  });
+
+  // When relay node reports downstream peer lost, clear stale assignment and reassign.
+  // The relay node is a guest — its bus event is local-only, so it sends a protocol message.
+  registerHandler(MSG.RELAY_DOWNSTREAM_LOST, (data: ProtocolMsg<'relay-downstream-lost'>) => {
+    if (!isHost()) return;
+    const lostPeerId = data.lostPeerId;
+    if (!lostPeerId) return;
+    log.info(`[Orchestrator] Relay reported downstream lost: ${lostPeerId}`);
+    relayAssignments.delete(lostPeerId);
+    assignRelayForPeer(lostPeerId);
   });
 
   // Clear assignments on session leave (sessionCode becomes '')

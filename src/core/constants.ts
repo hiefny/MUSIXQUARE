@@ -117,6 +117,7 @@ export const MSG = {
   YOUTUBE_SYNC: 'youtube-sync',
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
+  RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost',
 } as const;
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];

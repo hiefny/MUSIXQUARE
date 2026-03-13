@@ -358,8 +358,10 @@ export function handleRelayConnection(conn: DataConnection): void {
       'relay.downstreamDataPeers',
       downstreamDataPeers.filter(p => p.peer !== conn.peer)
     );
-    // Notify host so orchestrator can re-assign data source for the lost peer
+    // Notify host so orchestrator can re-assign data source for the lost peer.
+    // Bus event is local-only (relay is a guest), so also send a protocol message.
     bus.emit('network:peer-relay-lost', conn.peer);
+    sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
   });
 }
 

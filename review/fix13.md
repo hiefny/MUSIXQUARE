@@ -5,7 +5,7 @@
 - **도메인**: Audio(3), Core(8), Network(8), Player(7), Storage(7), YouTube(6), UI(14), App(1)
 
 ## 감사 결과 요약
-12차까지 ~140건 수정 후. **H3 + M9 + L7 = 24 인스턴스** 발견 (H1 구조적 이슈 보류).
+12차까지 ~140건 수정 후. **H4 + M9 + L7 = 24 인스턴스** 발견 (전체 수정 완료).
 
 ---
 
@@ -31,13 +31,17 @@
 relay 파일 서빙 경로 전체가 작동 불능.
 **수정**: `unicastFile`에 `skipTransportGuard` 파라미터 추가, relay 호출에서 `true` 전달.
 
-### H-4. `network:peer-relay-lost` 무리스너 (보류)
+### H-4. `network:peer-relay-lost` 무리스너 — relay→host 알림 부재
 
-**심각도**: HIGH (구조적 — 프로토콜 메시지 추가 필요, fix13에서 보류)
+**심각도**: HIGH (구조적)
 **문제**: relay 노드에서 downstream 피어 연결 끊김 시 `bus.emit('network:peer-relay-lost')` 하지만
 relay는 guest이므로 호스트의 orchestrator가 이 이벤트를 수신 불가.
 호스트가 relay 재할당 불가 → remote 피어 데이터 수신 중단.
-**대응**: 프로토콜 메시지 추가가 필요하여 14차 이후 별도 작업으로 보류.
+**수정**: `RELAY_DOWNSTREAM_LOST` 프로토콜 메시지 신규 추가.
+- `constants.ts`: `RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost'` 추가
+- `types/index.ts`: ProtocolMap에 `'relay-downstream-lost': { lostPeerId: string }` 추가
+- `relay.ts`: downstream close 시 `sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId })` 전송
+- `orchestrator.ts`: `registerHandler(MSG.RELAY_DOWNSTREAM_LOST)` → `relayAssignments.delete` + `assignRelayForPeer` 재할당
 
 ### M-1~M-3. NaN 가드 누락 — `effects.ts` (setPreamp/setStereoWidth/setVirtualBass)
 
@@ -101,7 +105,7 @@ relay는 guest이므로 호스트의 orchestrator가 이 이벤트를 수신 불
 | 심각도 | 건수 |
 |--------|------|
 | CRITICAL | 0 |
-| HIGH | 3 수정 + 1 보류 |
+| HIGH | 4 |
 | MEDIUM | 9 |
 | LOW | 7 패턴 (11 인스턴스) |
-| **합계** | **24 인스턴스 (23 수정, 1 보류)** |
+| **합계** | **24 인스턴스 (전체 수정)** |

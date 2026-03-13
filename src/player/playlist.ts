@@ -544,24 +544,28 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
     }
     case MSG.REVERB_DECAY: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setReverbParam('decay', v);
       broadcast({ type: MSG.REVERB_DECAY, value: v });
       break;
     }
     case MSG.REVERB_PREDELAY: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setReverbParam('predelay', v);
       broadcast({ type: MSG.REVERB_PREDELAY, value: v });
       break;
     }
     case MSG.REVERB_LOWCUT: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setReverbParam('lowcut', v);
       broadcast({ type: MSG.REVERB_LOWCUT, value: v });
       break;
     }
     case MSG.REVERB_HIGHCUT: {
       const v = Number(val);
+      if (!Number.isFinite(v)) break;
       setReverbParam('highcut', v);
       broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
       break;

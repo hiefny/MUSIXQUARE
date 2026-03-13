@@ -367,7 +367,7 @@
         align-items: flex-start;
         text-align: left;
         padding: 0;
-        color: white;
+        color: var(--text-main);
         position: relative;
         overflow: hidden;
     }

@@ -107,10 +107,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   setState('network.connectedPeers', [...getState('network.connectedPeers'), peerObj]);
 
   conn.on('open', () => {
-    peerObj.status = 'connected';
-    peerObj.lastHeartbeat = Date.now();
-    // Trigger state event after in-place mutation
-    setState('network.connectedPeers', [...getState('network.connectedPeers')]);
+    // Immutable update: replace peer object with updated status/heartbeat
+    const peers = getState('network.connectedPeers');
+    setState('network.connectedPeers', peers.map(p =>
+      p.id === peerId ? { ...p, status: 'connected', lastHeartbeat: Date.now() } : p
+    ));
 
     // Welcome message with host-assigned label
     try {
@@ -133,8 +134,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       const peers = getState('network.connectedPeers');
       const livePeer = peers.find(p => p.id === peerId);
       if (livePeer) {
-        livePeer.connectionType = type;
-        setState('network.connectedPeers', [...peers]);
+        // Immutable update: replace peer object with detected connection type
+        setState('network.connectedPeers', peers.map(p =>
+          p.id === peerId ? { ...p, connectionType: type } : p
+        ));
       }
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
@@ -149,8 +152,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
             const ps = getState('network.connectedPeers');
             const p = ps.find(x => x.id === peerId);
             if (p && p.connectionType !== 'local') {
-              p.connectionType = 'local';
-              setState('network.connectedPeers', [...ps]);
+              // Immutable update: replace peer object with reclassified connection type
+              setState('network.connectedPeers', ps.map(x =>
+                x.id === peerId ? { ...x, connectionType: 'local' as const } : x
+              ));
               log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
               broadcastDeviceList();
               bus.emit('orchestrator:peer-type-detected', peerId);

@@ -403,6 +403,8 @@ function initSeekBar(): void {
   slider.addEventListener('mouseup', () => setState('player.isSeeking', false));
   slider.addEventListener('touchend', () => setState('player.isSeeking', false), { passive: true });
   slider.addEventListener('touchcancel', () => setState('player.isSeeking', false), { passive: true });
+  // Right-click during drag can steal mouseup — contextmenu resets as safety net
+  slider.addEventListener('contextmenu', () => setState('player.isSeeking', false));
 }
 
 // ─── Volume Sync ─────────────────────────────────────────────────

@@ -683,6 +683,11 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 export function handleFileEnd(data: Record<string, unknown>): void {
   if (getState('transfer.skipIncomingFile')) return;
 
+  // Ignore stale FILE_END from old sessions
+  const incomingSid = data.sessionId as number;
+  const localSid = getState('transfer.localSessionId');
+  if (incomingSid && incomingSid < localSid) return;
+
   // Relay to downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
   downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });

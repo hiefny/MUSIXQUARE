@@ -92,7 +92,7 @@ export function stopYouTubeMode(): void {
   const videoEl = document.getElementById('main-video') as HTMLVideoElement | null;
   if (videoEl) {
     videoEl.pause();
-    videoEl.src = '';
+    videoEl.removeAttribute('src');
     videoEl.style.display = 'none';
     videoEl.load();
   }

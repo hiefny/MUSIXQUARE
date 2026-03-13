@@ -150,12 +150,20 @@ export function setSurroundChannel(idx: number): void {
     sGain.connect(preampNode);
     safeDisconnect(splitter);
 
-    // Direct 1:1 channel mapping (no 5.1 fallback — BL/BR are silent on 5.1 content, which is correct)
+    // Channel mapping — mirrors audio:connect-surround in engine.ts
     if (idx === 3) {
-      // LFE (Sub) - Direct
+      // LFE (Sub) — direct
       splitter.connect(sGain, 3, 0);
+    } else if (idx === 6) {
+      // Rear Left (BL) — also include Side Left (SL) for 5.1 compatibility
+      splitter.connect(sGain, 6, 0);
+      splitter.connect(sGain, 4, 0);
+    } else if (idx === 7) {
+      // Rear Right (BR) — also include Side Right (SR) for 5.1 compatibility
+      splitter.connect(sGain, 7, 0);
+      splitter.connect(sGain, 5, 0);
     } else {
-      // Standard 1:1 mapping
+      // Standard 1:1 mapping (FL, FR, C, SL, SR)
       splitter.connect(sGain, idx, 0);
     }
 

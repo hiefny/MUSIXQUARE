@@ -103,17 +103,17 @@ OPFS worker 명령은 `postMessage` 후 응답을 기다리지 않음 (대부분
 
 ---
 
-## 3. 리스크가 낮아 보류된 항목 (Low-Risk Deferred Items)
+## 3. 보류 항목 → 모두 수정 완료 (Deferred Items — All Resolved)
 
-| # | 항목 | 위치 | 이유 |
-|---|------|------|------|
-| 1 | Reverb `generate()` 재시도 무한 루프 가능성 | `effects.ts` | 각 사이클 ~9초, rate-limited. 실제 발생 사례 없음 |
-| 2 | `setSurroundChannel` BL/BR 라우팅 불일치 | `channel.ts` | 현재 unreachable — play 재시작이 항상 올바른 라우팅 덮어씀 |
-| 3 | `backgroundTransfer` 연결 끊긴 피어에게 전송 시도 | `preload.ts` | 성능 낭비만 발생, 크래시 없음 |
-| 4 | Seek bar `isSeeking` 플래그 우클릭 시 stuck | `player-controls.ts` | `mouseup`으로 리셋, `contextmenu` 미처리. 드문 사용 패턴 |
-| 5 | Reverb preset chip 상태 guest에서 desync | `settings.ts` | UI cosmetic issue, 오디오 동작에 영향 없음 |
-| 6 | Reverb decay/predelay float 표시 아티팩트 | `settings.ts` | `1.4000000000000001s` 등. `.toFixed(1)` 적용 권장 |
-| 7 | `handleRequestYouTubeToggle` 이중 `verifyOperator` 호출 | `handlers.ts` | 비효율적이나 기능상 문제 없음 |
+| # | 항목 | 위치 | 수정 내용 |
+|---|------|------|-----------|
+| 1 | Reverb `generate()` 재시도 무한 루프 가능성 | `effects.ts` | ✅ `MAX_TOTAL_CYCLES = 6` 상한 추가 (fix10d) |
+| 2 | `setSurroundChannel` BL/BR 라우팅 불일치 | `channel.ts` | ✅ BL→SL, BR→SR 이중 매핑 추가 — engine.ts와 동일 (fix10f) |
+| 3 | `backgroundTransfer` 연결 끊긴 피어에게 전송 시도 | `preload.ts` | ✅ `conn?.open` 가드 추가 (fix10f) |
+| 4 | Seek bar `isSeeking` 플래그 우클릭 시 stuck | `player-controls.ts` | ✅ `contextmenu` 이벤트 리스너 추가 (fix10f) |
+| 5 | Reverb preset chip 상태 guest에서 desync | `settings.ts` | ✅ `detectReverbPreset()` 자동 감지 + 칩 동기화 (fix10f) |
+| 6 | Reverb decay/predelay float 표시 아티팩트 | `settings.ts` | ✅ `.toFixed(1)`/`.toFixed(2)` 적용 (fix10d) |
+| 7 | `handleRequestYouTubeToggle` 이중 `verifyOperator` 호출 | `handlers.ts` | ✅ play/pause 로직 인라인화 — 단일 호출로 통합 (fix10f) |
 
 ---
 
@@ -153,9 +153,12 @@ OPFS worker 명령은 `postMessage` 후 응답을 기다리지 않음 (대부분
 
 ## 5. 결론
 
-MUSIXQUARE 3.0 코드베이스는 9라운드의 심층 분석을 거쳐 **136건의 실제 버그**를 수정했습니다. 남은 항목들은:
-- 구조적으로 수정 불가하거나 (SPA 패턴, fire-and-forget 워커)
-- 수정 시 리스크가 이점보다 크거나 (sync 정밀도 개선, OPFS drain 순서)
-- 실제 발생 확률이 극히 낮은 (reverb 무한 루프, BL/BR 라우팅)
+MUSIXQUARE 3.0 코드베이스는 9라운드의 심층 분석을 거쳐 **124건의 버그**를 수정했습니다.
 
-경우에 해당합니다. 프로덕션 배포 준비가 완료된 상태입니다.
+fix10 폴리싱 라운드에서 추가로:
+- 구조적 한계 6건 중 5건 개선 (fix10a–f): 불변 상태 업데이트, ConnectedPeer 타입, YouTube 정리, 리버브 안전장치, OPFS drain 순서
+- 보류 항목 7건 전원 수정 완료: 리버브 무한루프/칩 desync/float 표시, 서라운드 라우팅, 시크바 우클릭, 전송 가드, 핸들러 중복 제거
+
+남은 구조적 한계는 설계상 트레이드오프(SPA 리스너 영구등록, fire-and-forget 워커, TURN 비용정책)와 저리스크 항목(sync 정밀도 NTP 보정, relay catch-up 갭)으로, 현재 동작에 영향 없습니다.
+
+프로덕션 배포 준비가 완료된 상태입니다.

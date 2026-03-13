@@ -267,9 +267,9 @@ function bootstrap(): void {
   }
 
   if (transferWorkerReady) {
-    initTransfer();
-    initPreload();
-    initRecovery();
+    safeInit('Transfer', initTransfer);
+    safeInit('Preload', initPreload);
+    safeInit('Recovery', initRecovery);
   } else {
     log.warn('[App] Skipping transfer/preload/recovery init — worker unavailable');
   }

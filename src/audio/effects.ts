@@ -147,6 +147,8 @@ export async function applySettings(): Promise<void> {
 let _reverbGenerateInFlight = false;
 let _reverbGeneratePending = false;
 let _reverbGenerationId = 0;
+let _reverbTotalCycles = 0;
+const MAX_TOTAL_CYCLES = 6;
 
 async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRetries = 2): Promise<void> {
   if (_reverbGenerateInFlight) {
@@ -156,6 +158,7 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
   _reverbGenerateInFlight = true;
   _reverbGeneratePending = false;
   const generationId = ++_reverbGenerationId;
+  _reverbTotalCycles = 0; // Reset cycle counter for each new generation
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     // Bail out if a newer generation was requested (prevents stale retries)
@@ -177,6 +180,10 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
       // Re-generate if params changed while in-flight (last-write-wins)
       if (_reverbGeneratePending && generationId === _reverbGenerationId) {
         _reverbGeneratePending = false;
+        if (++_reverbTotalCycles >= MAX_TOTAL_CYCLES) {
+          log.warn(`[Reverb] Max total cycles (${MAX_TOTAL_CYCLES}) reached — dropping pending re-generate`);
+          return;
+        }
         return _generateReverbWithRetry(rev, maxRetries);
       }
       return;
@@ -194,6 +201,10 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
   // Don't drop pending request — if params changed during failed retries, retry once more
   if (_reverbGeneratePending) {
     _reverbGeneratePending = false;
+    if (++_reverbTotalCycles >= MAX_TOTAL_CYCLES) {
+      log.warn(`[Reverb] Max total cycles (${MAX_TOTAL_CYCLES}) reached — aborting retry after failures`);
+      return;
+    }
     return _generateReverbWithRetry(rev, maxRetries);
   }
 }

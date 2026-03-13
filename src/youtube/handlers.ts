@@ -91,9 +91,17 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
   try {
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) {
-      handleRequestYouTubePause(data, conn);
+      // Inline pause — verifyOperator already checked above
+      if (player.pauseVideo) {
+        player.pauseVideo();
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0 });
+      }
     } else {
-      handleRequestYouTubePlay(data, conn);
+      // Inline play — verifyOperator already checked above
+      if (player.playVideo) {
+        player.playVideo();
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: player.getCurrentTime?.() || 0 });
+      }
     }
   } catch (e) {
     log.error('[YouTube] Toggle error:', e);
@@ -113,6 +121,12 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   const player = getYouTubePlayer();
   if (player?.playVideoAt && typeof subIdx === 'number') {
     player.playVideoAt(subIdx);
+    broadcast({
+      type: MSG.YOUTUBE_STATE,
+      state: 1,
+      time: 0,
+      subIndex: subIdx,
+    });
   }
 }
 

@@ -100,6 +100,20 @@ export interface DeviceInfo {
   status: string;
 }
 
+export interface ConnectedPeer {
+  id: string;
+  slot: number;
+  label: string;
+  conn: DataConnection | null;
+  isOp: boolean;
+  preloadedIndexes: Set<number>;
+  status: string;
+  isDataTarget: boolean;
+  joinOrder: number;
+  connectionType: 'local' | 'remote' | 'unknown';
+  lastHeartbeat: number;
+}
+
 // ─── P2P Protocol Messages ────────────────────────────────────────
 
 /** Marker for protocol messages with no additional payload fields beyond `type`. */
@@ -256,12 +270,7 @@ export interface StateTree {
     sessionCode: string;
     lastJoinCode: string;
     hostConn: DataConnection | null;
-    connectedPeers: Array<{
-      id: string; slot: number; label: string; conn: DataConnection | null;
-      isOp: boolean; preloadedIndexes: Set<number>; status: string;
-      isDataTarget: boolean; joinOrder: number;
-      connectionType: 'local' | 'remote' | 'unknown'; lastHeartbeat: number;
-    }>;
+    connectedPeers: ConnectedPeer[];
     isOperator: boolean;
     isConnecting: boolean;
     isIntentionalDisconnect: boolean;

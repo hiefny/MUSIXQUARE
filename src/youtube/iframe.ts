@@ -256,8 +256,13 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
+      // Host: next-track flow calls stopAllMedia → youtube:stop-mode internally
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
+    } else {
+      // Guest: clean up orphaned player (destroy iframe, clear caches).
+      // stopYouTubeMode sees appState=IDLE so it won't re-set state or broadcast.
+      bus.emit('youtube:stop-mode');
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }

@@ -94,16 +94,15 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
     // Send to all peers concurrently (backpressure is per-peer, not sequential)
     await Promise.all(eligiblePeers.map(async (p) => {
-      const peerId = p.id as string;
-      if (timedOutPeers.has(peerId)) return;
+      if (timedOutPeers.has(p.id)) return;
       const conn = p.conn as DataConnection;
       if (!conn?.open) return;
       const BACKPRESSURE_TIMEOUT = 30_000;
       const backpressureStart = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
         if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
-          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || peerId} — excluding from remaining transfer`);
-          timedOutPeers.add(peerId);
+          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining transfer`);
+          timedOutPeers.add(p.id);
           return;
         }
         await delay(DELAY.BACKPRESSURE);

@@ -25,6 +25,8 @@ let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
 let _activePlayPreloadedIndex: number | undefined;
 let _preloadScope: SessionScope | null = null;
+/** Per-peer unicast preload abort controls (key: peerId) */
+const _activePreloadUnicasts = new Map<string, SessionScope>();
 
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
@@ -224,7 +226,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
     targetsWhoNeedChunks.forEach(p => {
       const conn = p.conn as DataConnection;
-      safeSend(conn, chunkMsg);
+      if (conn?.open) safeSend(conn, chunkMsg);
     });
   }
 
@@ -232,7 +234,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     const endMsg = { type: MSG.PRELOAD_END, name: file.name, index, sessionId };
     targets.forEach(p => {
       const conn = p.conn as DataConnection;
-      safeSend(conn, endMsg);
+      if (conn?.open) safeSend(conn, endMsg);
     });
     log.debug('[Preload] Complete for index:', index);
   }
@@ -247,9 +249,11 @@ export async function unicastPreload(
   index: number,
   sessionId: number
 ): Promise<void> {
-  // Note: shares the preload scope — new preload overrides previous
-  _preloadScope = SessionScope.replace(_preloadScope);
-  const scope = _preloadScope;
+  // Per-peer scope isolation: cancel any previous unicast preload to same peer
+  const unicastKey = conn.peer;
+  const prevScope = _activePreloadUnicasts.get(unicastKey) ?? null;
+  const scope = SessionScope.replace(prevScope);
+  _activePreloadUnicasts.set(unicastKey, scope);
 
   if (!conn || !conn.open || !file) return;
 
@@ -263,30 +267,40 @@ export async function unicastPreload(
   const total = Math.ceil(file.size / CHUNK);
   const fileName = 'name' in file ? file.name : 'Track';
 
-  safeSend(conn, {
-    type: MSG.PRELOAD_START,
-    name: fileName,
-    mime: file.type,
-    total,
-    size: file.size,
-    index,
-    sessionId,
-    skipped: false,
-  });
+  try {
+    safeSend(conn, {
+      type: MSG.PRELOAD_START,
+      name: fileName,
+      mime: file.type,
+      total,
+      size: file.size,
+      index,
+      sessionId,
+      skipped: false,
+    });
 
-  for (let i = 0; i < total; i++) {
-    if (scope.aborted) return;
-    if (!conn.open) return;
-    while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
-      await delay(DELAY.BACKPRESSURE);
+    for (let i = 0; i < total; i++) {
+      if (scope.aborted) return;
+      if (!conn.open) return;
+      const bpStart = Date.now();
+      while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
+        if (Date.now() - bpStart > 30_000) { log.warn('[Preload Unicast] Backpressure timeout'); return; }
+        await delay(DELAY.BACKPRESSURE);
+      }
+      if (!conn.open) return;
+      const start = i * CHUNK;
+      const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
+      safeSend(conn, { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId });
     }
-    if (!conn.open) return;
-    const start = i * CHUNK;
-    const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
-    safeSend(conn, { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId });
-  }
 
-  safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
+    safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
+  } finally {
+    // Clean up scope if still ours
+    if (_activePreloadUnicasts.get(unicastKey) === scope) {
+      scope.dispose();
+      _activePreloadUnicasts.delete(unicastKey);
+    }
+  }
 }
 
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
@@ -454,12 +468,23 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     nextChunkPtr++;
   }
 
-  session.nextExpectedChunk = nextChunkPtr;
-  session.progress = nextChunkPtr;
+  // Immutable update: create new session object with updated progress
+  const totalExpected = session.total || 0;
+  const fileSize = session.size || 0;
+  const isComplete = totalExpected > 0 && nextChunkPtr >= totalExpected;
+  const updatedSession = {
+    ...session,
+    nextExpectedChunk: nextChunkPtr,
+    progress: nextChunkPtr,
+    finalized: session.finalized || (isComplete ? true : false),
+  };
+  const newSessionState = new Map(getState('preload.sessionState'));
+  newSessionState.set(sessionId, updatedSession);
+  setState('preload.sessionState', newSessionState);
 
   // Update preload progress UI (only if main transfer is not active)
-  if (session.total > 0) {
-    const pct = Math.round((session.progress / session.total) * 100);
+  if (updatedSession.total > 0) {
+    const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
       bus.emit('ui:show-loader', true, t('toast.preparing_next_pct', { pct }));
@@ -480,21 +505,16 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   }
 
   // Finalize if all chunks received (in-chunk finalization)
-  const totalExpected = session.total || 0;
-  const fileSize = session.size || 0;
-  if (totalExpected > 0 && session.progress >= totalExpected) {
-    if (!session.finalized) {
-      log.debug(`[Preload] All chunks received (${session.progress}/${totalExpected}). Finalizing...`);
-      session.finalized = true;
-      postWorkerCommand({
-        command: 'OPFS_END',
-        filename: session.name,
-        isPreload: true,
-        sessionId: validateSessionId(sessionId),
-        totalSize: fileSize,
-      });
-      preloadReorderBuffer.delete(sessionId); // Prevent memory leak
-    }
+  if (isComplete && !session.finalized) {
+    log.debug(`[Preload] All chunks received (${nextChunkPtr}/${totalExpected}). Finalizing...`);
+    postWorkerCommand({
+      command: 'OPFS_END',
+      filename: updatedSession.name,
+      isPreload: true,
+      sessionId: validateSessionId(sessionId),
+      totalSize: fileSize,
+    });
+    preloadReorderBuffer.delete(sessionId); // Prevent memory leak
   }
 }
 
@@ -558,22 +578,42 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
   const session = sessionState.get(sid);
   if (!session || session.skipped) return;
 
-  // Only finalize if not already finalized by in-chunk detection
-  if (!session.finalized) {
-    session.finalized = true;
+  // Drain any remaining buffered chunks FIRST — ensures OPFS_WRITE messages
+  // are posted to the worker before OPFS_END (worker processes sequentially).
+  drainPreloadReorderBuffer(sid);
 
-    // Finalize OPFS
-    postWorkerCommand({
-      command: 'OPFS_END',
-      filename: session.name,
-      isPreload: true,
-      sessionId: validateSessionId(sid),
-      totalSize: session.size,
-    });
+  // Re-read session after drain (drain may have updated it via immutable setState)
+  const freshSession = getState('preload.sessionState').get(sid);
+  if (!freshSession) return;
+
+  // Only finalize if not already finalized by in-chunk detection (drain may have done it)
+  if (!freshSession.finalized) {
+    const allReceived = freshSession.total > 0 && freshSession.progress >= freshSession.total;
+    if (allReceived) {
+      // All chunks drained — safe to send OPFS_END
+      const finalizedSession = { ...freshSession, finalized: true };
+      const updatedSessionState = new Map(getState('preload.sessionState'));
+      updatedSessionState.set(sid, finalizedSession);
+      setState('preload.sessionState', updatedSessionState);
+
+      postWorkerCommand({
+        command: 'OPFS_END',
+        filename: freshSession.name,
+        isPreload: true,
+        sessionId: validateSessionId(sid),
+        totalSize: freshSession.size,
+      });
+    } else {
+      // Some chunks still missing — let future handlePreloadChunk → drain finalize it.
+      // This prevents premature OPFS_END when network reordering causes late chunk arrival.
+      log.debug(`[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring OPFS_END`);
+    }
   }
 
-  // Cleanup reorder buffer
-  preloadReorderBuffer.delete(sid);
+  // Cleanup reorder buffer only if finalized (otherwise chunks may still arrive)
+  if (getState('preload.sessionState').get(sid)?.finalized) {
+    preloadReorderBuffer.delete(sid);
+  }
 
   log.debug(`[Preload] End: ${session.name} (${session.progress}/${session.total} chunks)`);
 
@@ -809,6 +849,8 @@ export function initPreload(): void {
       _activePlayPreloadedIndex = undefined;
       _preloadScope?.dispose();
       _preloadScope = null;
+      _activePreloadUnicasts.forEach(s => s.dispose());
+      _activePreloadUnicasts.clear();
     }
   });
 

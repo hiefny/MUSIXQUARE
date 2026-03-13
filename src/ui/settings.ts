@@ -103,10 +103,10 @@ function formatReverbValDisp(param: string, v: number): void {
       _setDisp('val-reverb', v + '%');
       break;
     case 'decay':
-      _setDisp('val-rvb-decay', v + 's');
+      _setDisp('val-rvb-decay', parseFloat(v.toFixed(1)) + 's');
       break;
     case 'predelay':
-      _setDisp('val-rvb-predelay', v + 's');
+      _setDisp('val-rvb-predelay', parseFloat(v.toFixed(2)) + 's');
       break;
     case 'lowcut': {
       const lFreq = 20 * Math.pow(50, v / 100);
@@ -146,6 +146,30 @@ const REVERB_PRESETS: Record<string, { mix: number; decay: number; predelay: num
 
 function clearReverbChipActive(): void {
   document.querySelectorAll('#grid-reverb .ch-opt').forEach(el => el.classList.remove('active'));
+}
+
+/**
+ * Read current slider values and detect which preset (if any) matches.
+ * Returns 'off', 'studio', 'arena', or 'advanced'.
+ */
+function detectReverbPreset(): string {
+  const mix      = Number((document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ?? 0);
+  const decay    = Number((document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ?? 5);
+  const predelay = Number((document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ?? 0.1);
+  const lowcut   = Number((document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ?? 0);
+  const highcut  = Number((document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ?? 0);
+
+  // Off: mix is 0 and no cut filters active
+  if (mix === 0 && lowcut === 0 && highcut === 0) return 'off';
+
+  // Check named presets (lowcut/highcut must be 0 to match)
+  if (lowcut === 0 && highcut === 0) {
+    for (const [name, p] of Object.entries(REVERB_PRESETS)) {
+      if (mix === p.mix && decay === p.decay && predelay === p.predelay) return name;
+    }
+  }
+
+  return 'advanced';
 }
 
 function setReverbSlidersVisible(visible: boolean): void {
@@ -514,6 +538,12 @@ export function initSettings(): void {
       if (slider) slider.value = String(value);
     }
     formatReverbValDisp(param, value);
+
+    // Sync preset chip: detect if current values match a named preset
+    const detected = detectReverbPreset();
+    clearReverbChipActive();
+    document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${detected}"]`)?.classList.add('active');
+    setReverbSlidersVisible(detected === 'advanced');
   });
 
   // Surround toggle sync (from host broadcast)

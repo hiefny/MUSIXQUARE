@@ -203,12 +203,16 @@ export function handleAutoSync(): void {
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
 function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): void {
-  // Update liveness timestamp
+  // Update liveness timestamp (immutable update)
   try {
     if (conn && conn.peer) {
       const connectedPeers = getState('network.connectedPeers');
       const p = connectedPeers.find(x => x.id === conn.peer);
-      if (p) p.lastHeartbeat = Date.now();
+      if (p) {
+        setState('network.connectedPeers', connectedPeers.map(x =>
+          x.id === conn.peer ? { ...x, lastHeartbeat: Date.now() } : x
+        ));
+      }
     }
   } catch { /* ignore */ }
 

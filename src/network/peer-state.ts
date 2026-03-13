@@ -12,7 +12,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import type { DataConnection, PeerInstance, AnyProtocolMsg } from '../types/index.ts';
+import type { DataConnection, PeerInstance, AnyProtocolMsg, ConnectedPeer } from '../types/index.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -163,7 +163,7 @@ export function broadcastDeviceList(): void {
   const list = [
     { id: myId, label: 'HOST', status: 'connected', isHost: true, isOp: true },
     ...[...connectedPeers]
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => (a.joinOrder as number) - (b.joinOrder as number))
+      .sort((a, b) => a.joinOrder - b.joinOrder)
       .map(p => ({
         id: p.id,
         label: p.label,
@@ -205,7 +205,7 @@ export function sendToHost(msg: AnyProtocolMsg): boolean {
  */
 let _peerConnTypeCounter = 0;
 function waitForPeerConnectionType(
-  peerObj: Record<string, unknown>,
+  peerObj: ConnectedPeer,
   timeout: number,
 ): Promise<string> {
   const id = ++_peerConnTypeCounter;
@@ -278,7 +278,7 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
  * Remote peers NEVER appear here; they receive data only via local relay.
  * TODO(pro): Pro tier could remove connectionType gate for TURN fallback.
  */
-export function filterEligiblePeers(): Array<Record<string, unknown>> {
+export function filterEligiblePeers(): ConnectedPeer[] {
   const connectedPeers = getState('network.connectedPeers');
   return connectedPeers.filter(p =>
     p.status === 'connected' &&

@@ -385,8 +385,15 @@
         z-index: 2;
     }
 
+    .desktop-step-header .logo-svg {
+        height: clamp(22px, calc(-34px + 4.375vw), 29px);
+        width: auto;
+        margin-top: clamp(3px, calc(-18px + 1.625vw), 5px);
+        margin-bottom: 12px;
+    }
+
     .desktop-step-header h2 {
-        font-size: clamp(22px, 2.4vw, 32px);
+        font-size: clamp(24px, calc(-40px + 5vw), 32px);
         font-weight: 800;
         letter-spacing: -0.03em;
         color: var(--text-main);
@@ -395,7 +402,7 @@
     }
 
     .desktop-step-header p {
-        font-size: clamp(14px, 1.1vw, 16px);
+        font-size: clamp(16px, 1.25vw, 18px);
         color: var(--text-sub);
         opacity: 0.75;
         line-height: 1.5;

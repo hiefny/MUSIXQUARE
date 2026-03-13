@@ -20,7 +20,7 @@ import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateT
 import { showDialog } from './dialog.ts';
 import { fmtTime, getTrackPosition, togglePlay, play } from '../player/playback.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
-import { isIdleOrPaused } from '../player/video.ts';
+import { isIdleOrPaused, getVideoElement } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { clearPreviewDebounce } from '../youtube/search.ts';
@@ -705,6 +705,8 @@ export function initPlayerControls(): void {
         requestGlobalResyncDelayed();
       } else {
         setState('player.pausedAt', time);
+        const videoElement = getVideoElement();
+        if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
         // Broadcast paused seek to peers so they stay in sync
         broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
       }

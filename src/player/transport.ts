@@ -24,6 +24,7 @@ import {
   isPlayLocked, setPlayLocked,
   getPendingPlayTime, setPendingPlayTime,
   getPendingPlayDepth, setPendingPlayDepth,
+  setPlayPreloadedInProgress,
   getLoadScope, setLoadScope,
 } from './_state.ts';
 
@@ -67,11 +68,22 @@ export function getTrackPosition(): number {
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
     const combinedOffset = localOffset + autoSyncOffset;
-    // Guard: reset offsets if combined drift exceeds 5 seconds
+    // Guard: schedule offset reset if combined drift exceeds 5 seconds.
+    // Deferred to avoid setState inside a getter (side-effect in read path).
     if (Math.abs(combinedOffset) > 5) {
       log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}, auto=${autoSyncOffset.toFixed(3)}, combined=${combinedOffset.toFixed(3)}s — resetting`);
-      setState('sync.localOffset', 0);
-      setState('sync.autoSyncOffset', 0);
+      queueMicrotask(() => {
+        // Read current offsets at execution time (may have changed since queued)
+        const lo = getState('sync.localOffset') || 0;
+        const ao = getState('sync.autoSyncOffset') || 0;
+        const drift = lo + ao;
+        setState('sync.localOffset', 0);
+        setState('sync.autoSyncOffset', 0);
+        // Recalculate startedAt to remove the encoded offset — prevents position
+        // jump on next getTrackPosition() call after offsets are zeroed.
+        const sa = getState('player.startedAt');
+        if (sa) setState('player.startedAt', sa - drift);
+      });
       pos = Tone.now() - startedAt;
     } else {
       pos = (Tone.now() - startedAt) + combinedOffset;
@@ -135,6 +147,7 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   clearManagedTimer('preloadScheduleTimer');
   clearManagedTimer('autoPlayTimer');
   setPendingPlayTime(undefined);
+  setPlayPreloadedInProgress(false);
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
   if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
@@ -254,7 +267,7 @@ async function _internalPlay(offset: number): Promise<void> {
     : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
   if (duration > 0) {
     if (safeOffset > duration) safeOffset = duration;
-    if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.001);
+    if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
   }
 
   // Buffer Mode playback
@@ -300,9 +313,12 @@ async function _internalPlay(offset: number): Promise<void> {
   }
 
   // Update timing
+  // startedAt = wall-clock time when playback would have started from 0:00
+  //   = now - playbackPosition + syncCorrection
   const localOffset = getState('sync.localOffset') || 0;
   const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-  const startedAt = Tone.now() - (safeOffset - (localOffset + autoSyncOffset));
+  const combinedSyncOffset = localOffset + autoSyncOffset;
+  const startedAt = Tone.now() - safeOffset + combinedSyncOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
@@ -459,6 +475,8 @@ export function stopPlayback(): void {
   }
 
   const currentState = getState('appState');
+  if (currentState === APP_STATE.IDLE) return; // Nothing to stop
+
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-playback');  // stopVideo on host player
     bus.emit('youtube:stop-mode');      // proper cleanup: destroy player, clear timers, broadcast YOUTUBE_STOP
@@ -504,7 +522,7 @@ export function skipTime(sec: number): void {
     ?? (videoElement && isFinite(videoElement.duration) ? videoElement.duration : 0);
 
   if (target < 0) target = 0;
-  if (duration > 0 && target > duration) target = Math.max(0, duration - 0.001);
+  if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;

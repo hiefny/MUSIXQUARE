@@ -36,6 +36,16 @@ type ConnectedPeer = StateTree['network']['connectedPeers'][number];
 /** remotePeerId → relayPeerId */
 const relayAssignments = new Map<string, string>();
 
+// ─── Exported Lookups ────────────────────────────────────────────────
+
+/**
+ * Check if `senderPeerId` is the assigned relay for `originPeerId`.
+ * Used by protocol.ts to validate _originPeer claims and prevent spoofing.
+ */
+export function isAssignedRelay(originPeerId: string, senderPeerId: string): boolean {
+  return relayAssignments.get(originPeerId) === senderPeerId;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function isHost(): boolean {
@@ -54,14 +64,16 @@ function getDownstreamCount(relayPeerId: string): number {
   return count;
 }
 
-/** Update isDataTarget on a connected peer and persist */
+/** Update isDataTarget on a connected peer (immutable update) */
 function setPeerDataTarget(peerId: string, value: boolean): void {
   const peers = getConnectedPeers();
   const peer = peers.find(p => p.id === peerId);
   if (!peer) return;
   if (peer.isDataTarget === value) return;
-  peer.isDataTarget = value;
-  setState('network.connectedPeers', [...peers]);
+  const updatedPeers = peers.map(p =>
+    p.id === peerId ? { ...p, isDataTarget: value } : p,
+  );
+  setState('network.connectedPeers', updatedPeers);
 }
 
 // ─── Core Logic ──────────────────────────────────────────────────────
@@ -248,6 +260,13 @@ export function initOrchestrator(): void {
   // Clear assignments on session leave (sessionCode becomes '')
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
+      relayAssignments.clear();
+    }
+  });
+
+  // Clear assignments on re-host (new session start with same code)
+  bus.on('state:setup.sessionStarted', (started: unknown) => {
+    if (started) {
       relayAssignments.clear();
     }
   });

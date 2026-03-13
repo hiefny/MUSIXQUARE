@@ -73,12 +73,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   const pendingFileName = getState('recovery.pendingFileName');
   const pendingFileIndex = getState('recovery.pendingFileIndex');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const localSid = getState('transfer.localSessionId');
-  const currentTransferSid = getState('transfer.currentSessionId');
-
   const fileName = (meta?.name as string) || pendingFileName || '';
   const index = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
-  const currentSid = localSid || currentTransferSid;
 
   // Progressive backoff
   const backoffMs = RECOVERY_BACKOFF[Math.min(retryCount, RECOVERY_BACKOFF.length - 1)];
@@ -116,13 +112,18 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       chunkToAsk = getState('transfer.receivedCount') || 0;
     }
 
+    // Re-read sessionId after backoff — session may have advanced during delay
+    const freshLocalSid = getState('transfer.localSessionId');
+    const freshTransferSid = getState('transfer.currentSessionId');
+    const freshSid = freshLocalSid || freshTransferSid;
+
     try {
       freshConn.send({
         type: MSG.REQUEST_DATA_RECOVERY,
         nextChunk: chunkToAsk,
         fileName,
         index,
-        sessionId: currentSid,
+        sessionId: freshSid,
       });
     } catch {
       log.warn('[Recovery] Failed to send recovery request');
@@ -256,6 +257,15 @@ export function initRecovery(): void {
   // Listen for recovery events from other modules
   bus.on('storage:request-recovery', () => {
     sendRecoveryRequest();
+  });
+
+  // Clear recovery state on session leave to prevent stale pending flag
+  bus.on('state:network.sessionCode', (code: unknown) => {
+    if (!code) {
+      setState('recovery.pending', false);
+      setState('recovery.retryCount', 0);
+      clearManagedTimer('recoveryBackoff');
+    }
   });
 
   log.info('[Recovery] Handlers registered');

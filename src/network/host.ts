@@ -104,7 +104,20 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     connectionType: 'unknown' as 'local' | 'remote' | 'unknown',
   };
 
-  setState('network.connectedPeers', [...getState('network.connectedPeers'), peerObj]);
+  // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)
+  const currentPeers = getState('network.connectedPeers');
+  if (currentPeers.length >= getState('network.maxGuestSlots')) {
+    log.warn(`[Host] Max guests reached during slot allocation for ${peerId}, rejecting`);
+    releasePeerSlot(peerId);
+    const sendFullAndClose = () => {
+      try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
+      try { conn.close(); } catch { /* noop */ }
+    };
+    if (conn.open) sendFullAndClose();
+    else conn.on('open', sendFullAndClose);
+    return;
+  }
+  setState('network.connectedPeers', [...currentPeers, peerObj]);
 
   conn.on('open', () => {
     // Immutable update: replace peer object with updated status/heartbeat

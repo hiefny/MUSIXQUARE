@@ -72,6 +72,7 @@ export async function applySettings(): Promise<void> {
       needsGenerate = true;
     }
     if (needsGenerate) {
+      _reverbTotalCycles = 0; // Reset cycle counter at top-level call site only
       await _generateReverbWithRetry(rev);
     }
   }
@@ -158,7 +159,8 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
   _reverbGenerateInFlight = true;
   _reverbGeneratePending = false;
   const generationId = ++_reverbGenerationId;
-  _reverbTotalCycles = 0; // Reset cycle counter for each new generation
+  // Note: _reverbTotalCycles is reset by the caller (applySettings), NOT here.
+  // Resetting here would defeat MAX_TOTAL_CYCLES across recursive re-generation calls.
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     // Bail out if a newer generation was requested (prevents stale retries)
@@ -168,7 +170,10 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
     }
     let timeoutId: number | undefined;
     try {
-      // Race with timeout — clear timer in finally to prevent leak
+      // Race with timeout — clear timer in finally to prevent leak.
+      // Note: Tone.js Reverb.generate() cannot be cancelled mid-flight.
+      // On timeout, the old generate() may still complete in the background,
+      // but generationId check above ensures stale results are discarded.
       await Promise.race([
         rev!.generate(),
         new Promise<never>((_, reject) => {
@@ -226,10 +231,10 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
       setState('audio.reverbPreDelay', Math.max(0, Math.min(1, v)));
       break;
     case 'lowcut':
-      setState('audio.reverbLowCut', v);
+      setState('audio.reverbLowCut', Math.max(0, Math.min(100, v)));
       break;
     case 'highcut':
-      setState('audio.reverbHighCut', v);
+      setState('audio.reverbHighCut', Math.max(0, Math.min(100, v)));
       break;
   }
 
@@ -506,13 +511,17 @@ bus.on('network:peer-connected', (conn) => {
 function handleVolume(data: Record<string, unknown>): void {
   if (data.value === undefined || data.value === null) return;
   const vol = Number(data.value);
+  if (!Number.isFinite(vol)) return;
   bus.emit('audio:set-volume', vol);
   bus.emit('ui:show-toast', `Volume: ${Math.round(vol * 100)}%`);
 }
 
 function handleEQUpdateMsg(data: Record<string, unknown>): void {
   if (data.band === undefined || data.value === undefined) return;
-  setEQ(Number(data.band), Number(data.value));
+  const band = Number(data.band);
+  const value = Number(data.value);
+  if (!Number.isFinite(band) || !Number.isFinite(value)) return;
+  setEQ(band, value);
 }
 
 function handlePreampMsg(data: Record<string, unknown>): void {

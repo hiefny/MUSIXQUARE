@@ -112,8 +112,9 @@ function _applyValue(value: number): void {
   const clamped = Math.max(MIN_GUEST_SLOTS, Math.min(MAX_GUEST_SLOTS_LIMIT, value));
   const cur = getState('network.maxGuestSlots') ?? 3;
 
-  // Prevent reducing below current connected device count
-  const peers = (getState('network.connectedPeers') as unknown[]) || [];
+  // Prevent reducing below current connected device count (only count peers with open connections)
+  const allPeers = getState('network.connectedPeers') || [];
+  const peers = allPeers.filter(p => p.conn?.open !== false);
   if (clamped < peers.length && clamped < cur) {
     bus.emit('ui:show-toast', t('connect.cannot_reduce', { count: peers.length }));
     syncAllValues(cur);  // revert display

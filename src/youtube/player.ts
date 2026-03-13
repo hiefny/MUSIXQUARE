@@ -89,6 +89,10 @@ export function stopYouTubeMode(): void {
   const container = document.getElementById('youtube-player-container');
   if (container) container.innerHTML = '';
 
+  // Remove iOS sync overlay if present (prevents orphaned overlay on mode exit)
+  const iosOverlay = document.getElementById('youtube-ios-sync-overlay');
+  if (iosOverlay) iosOverlay.remove();
+
   const videoEl = document.getElementById('main-video') as HTMLVideoElement | null;
   if (videoEl) {
     videoEl.pause();
@@ -160,11 +164,10 @@ export function initYouTube(): void {
       const state = player.getPlayerState();
       if (state === YT.PlayerState.PLAYING) {
         player.pauseVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime() });
       } else {
         player.playVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: player.getCurrentTime() });
       }
+      // Broadcast is handled by onYouTubePlayerStateChange — no need to emit here
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
     }
@@ -212,7 +215,11 @@ export function initYouTube(): void {
       if (target < 0) target = 0;
       if (target > duration) target = duration;
       player.seekTo(target, true);
-      broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: target });
+      // Only host broadcasts — guests don't have authority to seek
+      const hostConn = getState('network.hostConn');
+      if (!hostConn) {
+        broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: target });
+      }
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
@@ -245,6 +252,9 @@ export function initYouTube(): void {
       const idx = player.getPlaylistIndex();
       if (ids.length > 0 && idx < ids.length - 1) {
         player.nextVideo();
+        const nextIdx = idx + 1;
+        setState('youtube.currentSubIndex', nextIdx);
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: nextIdx });
         callback(true);
         return;
       }
@@ -267,6 +277,9 @@ export function initYouTube(): void {
       const idx = player.getPlaylistIndex?.() ?? -1;
       if (ids.length > 0 && idx > 0) {
         player.previousVideo();
+        const prevIdx = idx - 1;
+        setState('youtube.currentSubIndex', prevIdx);
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: prevIdx });
         callback(true);
         return;
       }
@@ -370,6 +383,10 @@ export function initYouTube(): void {
       return;
     }
 
+    // Get title from preview UI BEFORE hiding it (innerText returns '' for hidden elements)
+    const previewTitle = document.getElementById('youtube-preview-title');
+    const titleText = previewTitle?.textContent?.trim() || url;
+
     // Close the overlay + reset preview UI
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) overlay.classList.remove('active');
@@ -380,10 +397,6 @@ export function initYouTube(): void {
     if (statusEl) { statusEl.style.display = ''; statusEl.textContent = t('youtube.enter_link_prompt'); }
     const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtnEl) playBtnEl.disabled = true;
-
-    // Get title from preview UI or use URL
-    const previewTitle = document.getElementById('youtube-preview-title');
-    const titleText = previewTitle?.innerText?.trim() || url;
 
     _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
   });
@@ -410,6 +423,7 @@ export function initYouTube(): void {
       // Same playlist — just jump to sub-index
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
+        setState('youtube.currentSubIndex', subIdx);
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: 1,

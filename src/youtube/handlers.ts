@@ -121,6 +121,7 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   const player = getYouTubePlayer();
   if (player?.playVideoAt && typeof subIdx === 'number') {
     player.playVideoAt(subIdx);
+    setState('youtube.currentSubIndex', subIdx);
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state: 1,

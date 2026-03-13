@@ -149,16 +149,19 @@ export function safeDisconnect(node: ToneNode | null): void {
  * Safe to call multiple times (idempotent).
  */
 export async function initAudio(): Promise<void> {
-  // Fast-path: already initialized
+  // Prevent concurrent initializations — check BEFORE masterGain.
+  // During _doInitAudio, masterGain is assigned early (before reverb.generate
+  // completes). Without this order, a concurrent caller would see masterGain
+  // set and return with an incomplete audio graph.
+  if (_initAudioPromise) return _initAudioPromise;
+
+  // Fast-path: already fully initialized (no pending promise = init complete)
   if (_graph.masterGain) {
     if (typeof Tone !== 'undefined' && Tone?.context?.state !== 'running') {
       try { await Tone.start(); } catch { /* best-effort */ }
     }
     return;
   }
-
-  // Prevent concurrent initializations
-  if (_initAudioPromise) return _initAudioPromise;
 
   _initAudioPromise = _doInitAudio();
 
@@ -453,9 +456,10 @@ bus.on('audio:connect-surround', (playerNode, channelIdx) => {
     return;
   }
 
-  const { splitter, gain } = ensureSurroundNodes();
+  // Check preamp BEFORE creating surround nodes to avoid unnecessary allocation
   const pre = getPreamp();
   if (!pre) return;
+  const { splitter, gain } = ensureSurroundNodes();
 
   try {
     gain.disconnect();

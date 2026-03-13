@@ -211,9 +211,15 @@ function waitForPeerConnectionType(
   const id = ++_peerConnTypeCounter;
   const intervalName = `peerConnType-interval-${id}`;
   const timeoutName = `peerConnType-timeout-${id}`;
+  const peerId = peerObj.id; // Capture ID, not object — immutable state updates replace peer objects
 
   return new Promise(resolve => {
-    const check = () => peerObj.connectionType as string | undefined;
+    // Poll by peer ID to avoid stale object reference after immutable state update
+    const check = (): string | undefined => {
+      const peers = getState('network.connectedPeers');
+      const current = peers.find(p => p.id === peerId);
+      return current?.connectionType as string | undefined;
+    };
     const current = check();
     if (current && current !== 'unknown') return resolve(current);
 

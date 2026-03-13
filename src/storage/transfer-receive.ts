@@ -332,6 +332,13 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       }
     }
   }, prepareTimeout);
+
+  // Relay FILE_PREPARE to downstream peers (mirrors FILE_START/CHUNK/END relay).
+  // Downstream peers need FILE_PREPARE to update their playlist index and metadata.
+  if (!getState('transfer.skipIncomingFile')) {
+    const downstreamPeers = getState('relay.downstreamDataPeers');
+    downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  }
 }
 
 export function handleFileStart(data: Record<string, unknown>): void {
@@ -397,12 +404,15 @@ export function handleFileStart(data: Record<string, unknown>): void {
 
   startChunkWatchdog();
 
-  // Replay any early chunks that arrived before FILE_START
+  // Replay any early chunks that arrived before FILE_START (same session only)
   if (_pendingEarlyChunks.length > 0) {
     const earlyChunks = _pendingEarlyChunks.splice(0);
-    log.debug(`[file-start] Replaying ${earlyChunks.length} early chunks`);
-    for (const pending of earlyChunks) {
-      handleFileChunk(pending);
+    const matching = earlyChunks.filter(c => (c.sessionId as number) === incomingSid);
+    if (matching.length > 0) {
+      log.debug(`[file-start] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`);
+      for (const pending of matching) {
+        handleFileChunk(pending);
+      }
     }
   }
 
@@ -450,12 +460,15 @@ export function handleFileResume(data: Record<string, unknown>): void {
 
   startChunkWatchdog();
 
-  // 12-28: Drain any early chunks that arrived before resume was processed
+  // 12-28: Drain any early chunks that arrived before resume was processed (same session only)
   if (_pendingEarlyChunks.length > 0) {
     const earlyChunks = _pendingEarlyChunks.splice(0);
-    log.debug(`[file-resume] Replaying ${earlyChunks.length} early chunks`);
-    for (const pending of earlyChunks) {
-      handleFileChunk(pending);
+    const matching = earlyChunks.filter(c => (c.sessionId as number) === incomingSid);
+    if (matching.length > 0) {
+      log.debug(`[file-resume] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`);
+      for (const pending of matching) {
+        handleFileChunk(pending);
+      }
     }
   }
 
@@ -587,6 +600,16 @@ export function handleFileChunk(data: Record<string, unknown>): void {
         });
       }
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
+
+      // Drain early chunks that arrived before meta-recovery (mirrors FILE_START/RESUME paths)
+      if (_pendingEarlyChunks.length > 0) {
+        const earlyChunks = _pendingEarlyChunks.splice(0);
+        log.debug(`[FileChunk] Replaying ${earlyChunks.length} early chunks after meta-recovery`);
+        for (const ec of earlyChunks) {
+          handleFileChunk(ec);
+        }
+      }
+
       // Re-read after meta-recovery updated state (prevents stale reference)
       opfsFilename = getState('files.currentFileOpfs');
     } else if (!meta || meta.total === undefined) {
@@ -638,6 +661,12 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 
   setState('transfer.receivedCount', receivedCount);
   lastChunkTime = Date.now();
+
+  // Reset recovery retry counter on meaningful progress — prevents cumulative
+  // retryCount from permanently disabling recovery after partial successes.
+  if (getState('recovery.retryCount') > 0) {
+    setState('recovery.retryCount', 0);
+  }
 
   // Progress update — re-read meta from state to avoid stale reference after recovery
   const currentMeta = getState('transfer.meta');

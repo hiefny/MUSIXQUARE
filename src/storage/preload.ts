@@ -636,8 +636,16 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
   if (p && data.index !== undefined) {
     const preloadedIndexes = p.preloadedIndexes as Set<number>;
     if (preloadedIndexes) {
-      preloadedIndexes.add(Number(data.index));
-      log.debug(`[Host] Marked index ${data.index} as CACHED for peer ${p.label}`);
+      const idx = Number(data.index);
+      if (preloadedIndexes.has(idx)) return; // Already marked
+      // Immutable update: new Set → new peer → new array → setState
+      const updatedSet = new Set(preloadedIndexes);
+      updatedSet.add(idx);
+      const updatedPeers = connectedPeers.map(x =>
+        x.id === conn.peer ? { ...x, preloadedIndexes: updatedSet } : x,
+      );
+      setState('network.connectedPeers', updatedPeers);
+      log.debug(`[Host] Marked index ${idx} as CACHED for peer ${p.label}`);
     }
   }
 }
@@ -843,7 +851,7 @@ export function initPreload(): void {
 
   // Clean up module-local variables when the session is left
   bus.on('state:network.sessionCode', (code: unknown) => {
-    if (code === '') {
+    if (!code) {
       latestPreloadSessionId = 0;
       preloadReorderBuffer.clear();
       _activePlayPreloadedIndex = undefined;

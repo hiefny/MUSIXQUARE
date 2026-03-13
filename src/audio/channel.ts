@@ -44,16 +44,18 @@ export function setChannelMode(mode: number): void {
   const lowPass = getGlobalLowPass();
   const subFreq = getState('audio.subFreq');
 
-  // Reset LowPass to full range (ramp to prevent audible click)
-  if (lowPass) lowPass.frequency.rampTo(20000, 0.02);
+  // Reset LowPass: skip full-range ramp when switching TO Sub (mode=2),
+  // because Sub immediately sets its own target frequency — avoids transient
+  // burst of unfiltered bass during the 20kHz→subFreq ramp.
+  if (lowPass && mode !== 2) lowPass.frequency.rampTo(20000, 0.02);
 
   // Reset routing
   safeDisconnect(gL);
   safeDisconnect(gR);
 
-  // Reset gains
-  gL.gain.value = 1;
-  gR.gain.value = 1;
+  // Reset gains (rampTo prevents audible click, matches setSurroundChannel pattern)
+  gL.gain.rampTo(1, 0.05);
+  gR.gain.rampTo(1, 0.05);
 
   if (mode === 0) {
     // Stereo: L→0, R→1
@@ -127,6 +129,12 @@ export function toggleSurroundMode(enabled: boolean): void {
  * 7.1 Layout: L(0), R(1), C(2), LFE(3), SL(4), SR(5), BL(6), BR(7)
  */
 export function setSurroundChannel(idx: number): void {
+  // Validate channel index (0-7 for 7.1 surround)
+  if (!Number.isFinite(idx) || idx < 0 || idx > 7) {
+    log.warn(`[Surround] Invalid channel index: ${idx}`);
+    return;
+  }
+  idx = Math.floor(idx);
   setState('audio.surroundChannelIndex', idx);
 
   const splitter = getSurroundSplitter();

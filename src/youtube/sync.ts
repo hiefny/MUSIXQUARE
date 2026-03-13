@@ -162,7 +162,13 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       if (player.playVideoAt && player.getPlaylistIndex) {
         const ytPlaylist = player.getPlaylist?.() || [];
         if (hostSubIndex >= 0 && hostSubIndex < ytPlaylist.length && player.getPlaylistIndex() !== hostSubIndex) {
-          player.playVideoAt(hostSubIndex);
+          try {
+            player.playVideoAt(hostSubIndex);
+          } catch (e) {
+            // Rollback state on failure to keep UI in sync with actual player
+            log.warn('[YouTube Sync] playVideoAt failed, rolling back sub-index:', e);
+            setState('youtube.currentSubIndex', currentSubIndex);
+          }
         }
       }
 

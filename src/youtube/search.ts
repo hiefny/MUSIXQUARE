@@ -198,8 +198,6 @@ export function fetchYouTubePreview(url: string): void {
 
 // ─── Background Playlist Sub-Title Fetcher ─────────────────────────
 
-/** Dedup flag per playlistId to avoid parallel fetches */
-const _isFetching = new Map<string, boolean>();
 let _subTitleAbort: AbortController | null = null;
 
 /**
@@ -223,10 +221,6 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
     _subTitleAbort.abort();
     _subTitleAbort = null;
   }
-  // Clear dedup flag for target playlist (previous loop is aborted)
-  _isFetching.delete(playlistId);
-
-  _isFetching.set(playlistId, true);
   const abort = new AbortController();
   _subTitleAbort = abort;
 
@@ -291,7 +285,6 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
       await delay(DELAY.RETRY);
     }
   } finally {
-    _isFetching.delete(playlistId);
     if (_subTitleAbort === abort) _subTitleAbort = null;
   }
 }

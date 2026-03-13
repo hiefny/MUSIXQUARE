@@ -18,6 +18,15 @@ let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
 
 /**
+ * Autoplay intent flag — set by createYouTubePlayer.
+ * When false, the PLAYING state handler will immediately pause the video.
+ * This handles the case where loadPlaylist() is async and pauseVideo()
+ * on an UNSTARTED player is a no-op.
+ * Reset to true after the pause-back fires (so subsequent user plays work).
+ */
+let _ytAutoplayIntent = true;
+
+/**
  * Duration cache — locks after first valid read.
  * Reset only on explicit video change (load, stop, playlist index change).
  * Prevents YouTube API's getDuration() float jitter from flickering the UI.
@@ -49,6 +58,10 @@ export function getYtScope(): SessionScope | null {
 
 export function isYtLoadInProgress(): boolean {
   return _ytLoadInProgress;
+}
+
+export function getYtAutoplayIntent(): boolean {
+  return _ytAutoplayIntent;
 }
 
 export function getCachedYtDuration(): number {
@@ -89,6 +102,10 @@ export function replaceYtScope(): SessionScope {
 
 export function setYtLoadInProgress(inProgress: boolean): void {
   _ytLoadInProgress = inProgress;
+}
+
+export function setYtAutoplayIntent(autoplay: boolean): void {
+  _ytAutoplayIntent = autoplay;
 }
 
 export function setCachedYtDuration(duration: number): void {

@@ -60,6 +60,8 @@ export function updatePlaylistUI(): void {
     return;
   }
 
+  // Preserve scroll position across rebuild
+  const savedScrollTop = ul.scrollTop;
   ul.innerHTML = '';
   if (playlist.length === 0) {
     ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t('playlist.empty_hint'))}</li>`;
@@ -200,6 +202,9 @@ export function updatePlaylistUI(): void {
       }
     }
   }
+
+  // Restore scroll position after DOM rebuild
+  if (savedScrollTop > 0) ul.scrollTop = savedScrollTop;
 }
 
 // ─── Init ────────────────────────────────────────────────────────

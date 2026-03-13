@@ -83,8 +83,16 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
   // Send chunks
   for (let i = 0; i < total; i++) {
-    if (scope.aborted) return;
-    if (getState('transfer.activeBroadcastSession') !== sessionId) return;
+    if (scope.aborted) {
+      setState('transfer.activeBroadcastSession', null);
+      scope.dispose();
+      return;
+    }
+    if (getState('transfer.activeBroadcastSession') !== sessionId) {
+      // Another broadcast superseded this one — scope/session already reassigned
+      scope.dispose();
+      return;
+    }
 
     const start = i * CHUNK;
     const end = Math.min(start + CHUNK, file.size);
@@ -114,9 +122,10 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     if (i % 50 === 0) await delay(DELAY.TICK);
   }
 
-  // Send end message
+  // Send end message (skip timed-out peers — they have incomplete data)
   const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
   eligiblePeers.forEach(p => {
+    if (timedOutPeers.has(p.id)) return;
     const conn = p.conn as DataConnection;
     if (conn?.open) try { conn.send(endMsg); } catch { /* noop */ }
   });

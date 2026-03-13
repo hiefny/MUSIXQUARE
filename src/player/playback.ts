@@ -127,6 +127,14 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   if (expectedName && loadedName && expectedName !== loadedName) {
     log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
     setPendingPlayTime(time);
+    // Request the correct file from host after a short delay to allow in-flight
+    // transfers to complete. Without this, the guest permanently blocks.
+    setManagedTimer('stale-audio-recovery', () => {
+      if (getPendingPlayTime() !== undefined && !getCurrentAudioBuffer()) {
+        log.info('[Guest] Stale audio recovery: requesting current file from host');
+        sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: expectedName, index: currentTrackIndex, reason: 'stale_audio' });
+      }
+    }, 5000);
     return;
   }
 

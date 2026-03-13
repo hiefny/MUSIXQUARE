@@ -103,6 +103,13 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   // Own flag — don't trust conn.open (PeerJS can set it true before 'open' event fires)
   let dataChannelOpened = false;
 
+  // Register data handler BEFORE 'open' to avoid missing early messages
+  // (e.g. WELCOME sent by host in its own 'open' handler).
+  // Same pattern as relay.ts:247.
+  conn.on('data', (data: unknown) => {
+    bus.emit('network:data', data, conn);
+  });
+
   // Timeout if host is unreachable (15s to allow TURN relay negotiation)
   setManagedTimer('join-timeout', () => {
     if (dataChannelOpened || getState('network.hostConn')) return;
@@ -120,12 +127,11 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     setState('network.hostConn', conn);
     setState('network.isConnecting', false);
 
-    // Deduplicate error/close handlers
+    // close/error handlers are intentionally inside 'open' callback:
+    // Before 'open' fires, the join-timeout timer handles failures.
+    // Registering them here avoids premature cleanup from PeerJS
+    // internal close events that can fire before the channel opens.
     (conn as unknown as Record<string, unknown>)._errorHandled = false;
-
-    conn.on('data', (data: unknown) => {
-      bus.emit('network:data', data, conn);
-    });
 
     conn.on('close', () => {
       log.warn('[Join] Host connection closed');

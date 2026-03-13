@@ -177,6 +177,10 @@ function setupPeerEvents(): void {
     const appRole = getState('network.appRole');
     const hostConn = getState('network.hostConn');
 
+    // During initialization (no role set yet), errors are handled by the
+    // initNetwork promise chain — don't emit duplicate error events.
+    if (!appRole) return;
+
     if (appRole === 'host' && !hostConn) {
       if (err && typeof err === 'object' && (err as Record<string, unknown>).type === 'id-taken') {
         return; // Handled by retry loop

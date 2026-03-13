@@ -238,6 +238,7 @@ export function connectToRelay(targetId: string): void {
           nextChunk: receivedCount || 0,
           fileName: meta.name,
           index: currentTrackIndex,
+          sessionId: getState('transfer.currentSessionId') || getState('transfer.localSessionId') || 0,
         });
       }
     }
@@ -328,6 +329,11 @@ export function handleRelayConnection(conn: DataConnection): void {
       bus.emit('relay:serve-current-file', conn, msg);
     } else if (msg.type === MSG.REQUEST_DATA_RECOVERY) {
       bus.emit('relay:serve-recovery', conn, msg);
+    } else {
+      // Route all other messages through the protocol dispatcher
+      // (e.g. operator request-* messages from downstream peers).
+      // RELAY_LOCAL_REQUESTS in protocol.ts prevents double-handling.
+      bus.emit('network:data', data, conn);
     }
   });
 
@@ -343,12 +349,15 @@ export function handleRelayConnection(conn: DataConnection): void {
   });
 
   conn.on('close', () => {
+    log.info(`[Relay] Downstream peer disconnected: ${conn.peer}`);
     stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     setState(
       'relay.downstreamDataPeers',
       downstreamDataPeers.filter(p => p.peer !== conn.peer)
     );
+    // Notify host so orchestrator can re-assign data source for the lost peer
+    bus.emit('network:peer-relay-lost', conn.peer);
   });
 }
 
@@ -465,7 +474,12 @@ export function initRelay(): void {
 
     const fileName = (m.fileName || m.name) as string || '';
     const nextChunk = Number(m.nextChunk) || 0;
-    const sessionId = (m.sessionId as number) ?? getState('transfer.localSessionId');
+    const rawSessionId = m.sessionId;
+    if (rawSessionId == null) {
+      log.warn('[Relay Recovery] Missing sessionId in recovery request — skipping');
+      return;
+    }
+    const sessionId = Number(rawSessionId);
     const receivedCount = getState('transfer.receivedCount');
 
     log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}, available: ${receivedCount}`);

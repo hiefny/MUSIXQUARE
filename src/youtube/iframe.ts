@@ -23,6 +23,7 @@ import {
   getYtIOSWatchdog, setYtIOSWatchdog,
   replaceYtScope,
   isYtLoadInProgress, setYtLoadInProgress,
+  getYtAutoplayIntent, setYtAutoplayIntent,
   getCachedYtDuration, setCachedYtDuration,
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
 } from './_state.ts';
@@ -143,6 +144,11 @@ function createYouTubePlayer(
     return;
   }
 
+  // Set autoplay intent BEFORE any player API call — onStateChange
+  // checks this flag to pause-back if autoplay was not requested.
+  // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
+  setYtAutoplayIntent(autoplay);
+
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
@@ -152,7 +158,8 @@ function createYouTubePlayer(
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
-      if (!autoplay) existingPlayer.pauseVideo();
+      // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
+      // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
       setState('youtube.currentSubIndex', subIndex);
       setYtLoadInProgress(false);
       return;
@@ -244,24 +251,31 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   const state = event.data;
 
   if (state === YT.PlayerState.PLAYING) {
+    // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
+    // Reset flag after firing so subsequent user-initiated plays work normally.
+    if (!getYtAutoplayIntent()) {
+      setYtAutoplayIntent(true);
+      player?.pauseVideo?.();
+      return; // Don't broadcast or update UI — we're reverting to paused
+    }
     showYouTubeSyncOverlay(false);
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
     clearManagedTimer('youtubeUILoop');
     clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      // Host: next-track flow calls stopAllMedia → youtube:stop-mode internally
+      // Host: skip IDLE state transition to prevent UI flash — next-track
+      // will call stopAllMedia({ silent: true }) which handles state internally.
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
     } else {
-      // Guest: clean up orphaned player (destroy iframe, clear caches).
-      // stopYouTubeMode sees appState=IDLE so it won't re-set state or broadcast.
+      // Guest: set IDLE and clean up orphaned player
+      setState('appState', APP_STATE.IDLE);
+      bus.emit('player:state-changed', APP_STATE.IDLE);
       bus.emit('youtube:stop-mode');
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track

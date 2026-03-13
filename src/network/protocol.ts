@@ -11,6 +11,7 @@ import { getState } from '../core/state.ts';
 import { MSG, RELAYABLE_MSG_TYPES } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { sendToHost } from './peer.ts';
+import { isAssignedRelay } from './orchestrator.ts';
 import type { DataConnection, ProtocolMsg, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
@@ -109,16 +110,15 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   // Security: validate _originPeer to prevent spoofing.
   // If _originPeer is set and differs from conn.peer, the message must
-  // be arriving through a known relay node. Otherwise strip _originPeer
-  // so that verifyOperator uses the actual sender.
+  // be arriving through a known relay node. Verify the sender is actually
+  // the assigned relay for the claimed origin — prevents any guest from
+  // impersonating an operator by setting _originPeer to an operator's ID.
   if (msg._originPeer && msg._originPeer !== conn?.peer) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      // Host side: verify the direct sender is a connected peer acting as relay
-      const connectedPeers = getState('network.connectedPeers');
-      const senderPeer = connectedPeers.find(p => p.id === conn?.peer);
-      if (!senderPeer) {
-        log.warn(`[Protocol] Stripping spoofed _originPeer from unknown sender: ${conn?.peer}`);
+      // Host side: verify sender is the assigned relay for the claimed _originPeer
+      if (!isAssignedRelay(msg._originPeer as string, conn?.peer)) {
+        log.warn(`[Protocol] Stripping spoofed _originPeer=${msg._originPeer} from ${conn?.peer} (not assigned relay)`);
         delete msg._originPeer;
       }
     }
@@ -159,8 +159,13 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   // 2. RELAY UPSTREAM (Operator requests from Downstream → Upstream)
   //    Attach _originPeer so the host can verify the actual sender, not the relay.
+  //    Exclude relay-local messages that the relay node handles itself
+  //    (e.g. request-current-file, request-data-recovery are served from OPFS).
+  const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
+    'request-current-file', 'request-data-recovery',
+  ]);
   if (conn && conn !== hostConn) {
-    if (msgType.startsWith('request-')) {
+    if (msgType.startsWith('request-') && !RELAY_LOCAL_REQUESTS.has(msgType)) {
       const raw = data as Record<string, unknown>;
       const forwarded = { ...raw, _originPeer: raw._originPeer || conn.peer };
       log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`);

@@ -162,10 +162,12 @@ function detectReverbPreset(): string {
   // Off: mix is 0 and no cut filters active
   if (mix === 0 && lowcut === 0 && highcut === 0) return 'off';
 
-  // Check named presets (lowcut/highcut must be 0 to match)
+  // Check named presets (lowcut/highcut must be 0 to match).
+  // Use epsilon comparison for floats — slider values may have rounding drift.
+  const nearEq = (a: number, b: number) => Math.abs(a - b) < 0.01;
   if (lowcut === 0 && highcut === 0) {
     for (const [name, p] of Object.entries(REVERB_PRESETS)) {
-      if (mix === p.mix && decay === p.decay && predelay === p.predelay) return name;
+      if (nearEq(mix, p.mix) && nearEq(decay, p.decay) && nearEq(predelay, p.predelay)) return name;
     }
   }
 
@@ -282,6 +284,12 @@ function syncEqSlidersToPreset(type: string): void {
 
   if (type === 'off') {
     document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
+    // Zero all slider DOM values so switching to Advanced shows flat EQ
+    for (let i = 0; i < 5; i++) {
+      const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
+      if (slider) slider.value = '0';
+      _setDisp(`eq-val-${i}`, '0');
+    }
     setEqSlidersVisible(false);
     return;
   }

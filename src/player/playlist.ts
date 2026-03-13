@@ -265,7 +265,13 @@ export function playNextTrack(): void {
   let nextIndex: number;
 
   if (repeatMode === 2) {
-    nextIndex = currentTrackIndex;
+    // Repeat-one: restart current track from 0 without full file reload.
+    // The audio buffer / video element is still in memory — just seek + play.
+    // Note: do NOT call stopAllMedia here — it destroys videoElement.src and
+    // revokes blob URLs, preventing video playback from restarting.
+    play(0).catch(() => { /* noop */ });
+    broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+    return;
   } else if (isShuffle) {
     if (playlist.length === 1) {
       // Single-track + shuffle + repeat OFF → stop (same as sequential behavior)

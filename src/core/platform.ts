@@ -98,9 +98,14 @@ function updateAppHeightNow(): void {
     // This fallback only applies when the viewport height closely matches the
     // screen's shorter dimension, suggesting the viewport extends behind the navbar.
     if (softKeyHeight === 0) {
-      const scrDimH = Math.min(scr.height || Infinity, scr.width || Infinity);
-      if (Number.isFinite(scrDimH) && scrDimH > 100) {
-        if (Math.abs(h - scrDimH) < 4) softKeyHeight = 48;
+      // Skip heuristic when CSS safe-area-inset is supported — the browser
+      // already provides accurate inset values for gesture navigation devices.
+      const hasSafeArea = CSS.supports?.('padding-bottom: env(safe-area-inset-bottom)');
+      if (!hasSafeArea) {
+        const scrDimH = Math.min(scr.height || Infinity, scr.width || Infinity);
+        if (Number.isFinite(scrDimH) && scrDimH > 100) {
+          if (Math.abs(h - scrDimH) < 4) softKeyHeight = 48;
+        }
       }
     }
 

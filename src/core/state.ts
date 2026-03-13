@@ -181,6 +181,9 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
 
   const lastKey = keys[keys.length - 1];
   const oldValue = current[lastKey];
+  // Intentional: skip if same reference (===). For objects/arrays, callers MUST
+  // provide a new reference (spread/map) to trigger subscribers. This is by design
+  // for performance — avoids deep equality checks on hot paths.
   if (oldValue === value) return;
 
   current[lastKey] = value;
@@ -250,12 +253,23 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
 export function snapshot(): Readonly<StateTree> {
   // JSON serialization — structuredClone always throws because
   // StateTree contains non-cloneable DataConnection objects.
-  return JSON.parse(JSON.stringify(_state, (_key, value) => {
-    if (value instanceof Set) return [...value];
-    if (value instanceof Map) return Object.fromEntries(value);
-    if (typeof value === 'object' && value !== null && typeof value.close === 'function') return '[Connection]';
-    return value;
-  }));
+  try {
+    const seen = new WeakSet();
+    return JSON.parse(JSON.stringify(_state, (_key, value) => {
+      if (value instanceof Set) return [...value];
+      if (value instanceof Map) return Object.fromEntries(value);
+      if (value instanceof Blob) return '[Blob]';
+      if (typeof value === 'object' && value !== null) {
+        if (typeof value.close === 'function') return '[Connection]';
+        // Guard against arbitrary circular references
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+      }
+      return value;
+    }));
+  } catch {
+    return {} as Readonly<StateTree>;
+  }
 }
 
 /**

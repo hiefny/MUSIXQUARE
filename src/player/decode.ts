@@ -122,7 +122,7 @@ export async function loadAndBroadcastFile(
         log.warn('[Playback] Video loadedmetadata failed — confirming blob URL');
         BlobURLManager.confirm();
       };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded);
+      videoElement.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
       videoElement.addEventListener('error', onMetaError, { once: true });
       videoElement.load();
     } else {
@@ -429,7 +429,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
         cleanupMeta();
         log.warn('[Guest] Video loadedmetadata failed during finalize');
       };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded);
+      videoElement.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
       videoElement.addEventListener('error', onMetaError, { once: true });
       videoElement.load();
     }

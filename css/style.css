@@ -346,7 +346,7 @@ header.loading .header-progress-bg {
 
 .logo-welcome > .wl {
     animation-duration: var(--wd, 150ms);
-    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+    animation-timing-function: cubic-bezier(0.05, 0.7, 0.1, 1);
     animation-delay: var(--wt, 0ms);
     animation-fill-mode: both;
 }

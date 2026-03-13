@@ -358,7 +358,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
     const isOperator = getState('network.isOperator');
     if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
-    } else {
+    } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
     }
   }
@@ -530,6 +530,7 @@ function handleEQUpdateMsg(data: Record<string, unknown>): void {
   const value = Number(data.value);
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
   setEQ(band, value);
+  _notifyHostChanged();
 }
 
 function handlePreampMsg(data: Record<string, unknown>): void {
@@ -537,6 +538,7 @@ function handlePreampMsg(data: Record<string, unknown>): void {
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
   setPreamp(v);
+  _notifyHostChanged();
 }
 
 // ─── Host-ctrl 변경 토스트 (게스트 전용, 디바운스) ────────────

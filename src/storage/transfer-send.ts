@@ -77,6 +77,10 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     try { (p.conn as DataConnection).send(header); } catch { /* noop */ }
   });
 
+  // Track peers that hit backpressure timeout — skip them for ALL remaining chunks
+  // to avoid creating permanent chunk holes that force a full recovery re-transfer.
+  const timedOutPeers = new Set<string>();
+
   // Send chunks
   for (let i = 0; i < total; i++) {
     if (scope.aborted) return;
@@ -90,14 +94,16 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
 
     // Send to all peers concurrently (backpressure is per-peer, not sequential)
     await Promise.all(eligiblePeers.map(async (p) => {
+      const peerId = p.id as string;
+      if (timedOutPeers.has(peerId)) return;
       const conn = p.conn as DataConnection;
       if (!conn?.open) return;
-      // Backpressure check per peer (skip peer on timeout instead of aborting all)
       const BACKPRESSURE_TIMEOUT = 30_000;
       const backpressureStart = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
         if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
-          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || p.id} — skipping`);
+          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || peerId} — excluding from remaining transfer`);
+          timedOutPeers.add(peerId);
           return;
         }
         await delay(DELAY.BACKPRESSURE);
@@ -181,10 +187,10 @@ export async function unicastFile(
       if (scope.aborted || !conn.open) return;
       if (getState('playlist.currentTrackIndex') !== currentTrackIndex) return;
 
-      // Backpressure
+      // Backpressure (return on timeout — connection is likely dead)
       const startWait = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
-        if (Date.now() - startWait > 30000) break;
+        if (Date.now() - startWait > 30000) { log.warn('[Unicast] Backpressure timeout'); return; }
         await delay(DELAY.BACKPRESSURE);
       }
 

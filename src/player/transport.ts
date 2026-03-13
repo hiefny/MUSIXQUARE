@@ -172,6 +172,11 @@ export async function play(offset: number): Promise<void> {
       setPendingPlayTime(undefined);
       setPendingPlayDepth(0);
       stopPlayerNode();
+      // Reset appState to IDLE to prevent stuck "playing" UI
+      if (getState('appState') !== APP_STATE.IDLE) {
+        setState('appState', APP_STATE.IDLE);
+        bus.emit('player:state-changed', APP_STATE.IDLE);
+      }
     }
   }, 5000);
 
@@ -455,12 +460,10 @@ export function stopPlayback(): void {
 
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:stop-playback');
+    bus.emit('youtube:stop-playback');  // stopVideo on host player
+    bus.emit('youtube:stop-mode');      // proper cleanup: destroy player, clear timers, broadcast YOUTUBE_STOP
     setState('player.pausedAt', 0);
-    setState('appState', APP_STATE.IDLE);
     updatePlayState(false);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
-    if (!getState('network.hostConn')) broadcast({ type: MSG.PAUSE, time: 0 });
     return;
   }
 

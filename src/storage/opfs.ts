@@ -96,7 +96,7 @@ export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void 
   if (!filename) return;
 
   const expectedOpfsName = buildSafeOpfsName(filename, isPreload);
-  const watchdogName = 'opfs-cleanup-watchdog';
+  const watchdogName = `opfs-cleanup-watchdog-${expectedOpfsName}`;
 
   setManagedTimer(watchdogName, () => {
     log.warn(`[OPFS] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);

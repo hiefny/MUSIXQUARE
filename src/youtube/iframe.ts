@@ -85,7 +85,7 @@ export function loadYouTubeVideo(
       setYtScriptLoading(true);
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
-      tag.onload = () => log.debug('[YouTube] API script loaded');
+      tag.onload = () => { setYtScriptLoading(false); log.debug('[YouTube] API script loaded'); };
       tag.onerror = () => {
         log.error('[YouTube] Failed to load API script');
         setYtScriptLoading(false);
@@ -153,6 +153,7 @@ function createYouTubePlayer(
         existingPlayer.loadVideoById(videoId);
       }
       if (!autoplay) existingPlayer.pauseVideo();
+      setState('youtube.currentSubIndex', subIndex);
       setYtLoadInProgress(false);
       return;
     } catch (e) {
@@ -184,6 +185,7 @@ function createYouTubePlayer(
     events: {
       onReady: onYouTubePlayerReady,
       onStateChange: onYouTubePlayerStateChange,
+      onError: onYouTubePlayerError,
     },
   };
 
@@ -227,6 +229,13 @@ function onYouTubePlayerReady(): void {
   bus.emit('audio:apply-youtube-volume');
 }
 
+function onYouTubePlayerError(event: { data: number }): void {
+  log.error('[YouTube] Player error:', event.data);
+  setYtLoadInProgress(false);
+  bus.emit('ui:show-loader', false);
+  bus.emit('ui:show-toast', t('youtube.load_fail'));
+}
+
 function onYouTubePlayerStateChange(event: { data: number }): void {
   const currentState = getState('appState');
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
@@ -250,6 +259,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
     }
+    return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
 
   // Host broadcasts state to guests

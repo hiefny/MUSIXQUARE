@@ -44,8 +44,8 @@ export function setChannelMode(mode: number): void {
   const lowPass = getGlobalLowPass();
   const subFreq = getState('audio.subFreq');
 
-  // Reset LowPass to full range
-  if (lowPass) lowPass.frequency.value = 20000;
+  // Reset LowPass to full range (ramp to prevent audible click)
+  if (lowPass) lowPass.frequency.rampTo(20000, 0.02);
 
   // Reset routing
   safeDisconnect(gL);
@@ -72,7 +72,7 @@ export function setChannelMode(mode: number): void {
     // Set gain BEFORE connecting to prevent +6dB spike
     gL.gain.value = 0.5;
     gR.gain.value = 0.5;
-    if (lowPass) lowPass.frequency.value = subFreq;
+    if (lowPass) lowPass.frequency.rampTo(subFreq, 0.02);
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
     gR.connect(merge, 0, 0);

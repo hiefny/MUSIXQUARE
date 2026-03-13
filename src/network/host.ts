@@ -303,9 +303,14 @@ bus.on('network:max-guests-changed', (max: number) => {
   setState('network.maxGuestSlots', max);
   const oldSlots = getState('network.peerSlots');
   const newSlots = Array(max + 1).fill(null) as (string | null)[];
-  // Preserve existing assignments
-  for (let i = 1; i < Math.min(oldSlots.length, newSlots.length); i++) {
-    newSlots[i] = oldSlots[i];
+  // Preserve existing assignments, clean up orphaned peers in truncated slots
+  for (let i = 1; i < oldSlots.length; i++) {
+    if (i < newSlots.length) {
+      newSlots[i] = oldSlots[i];
+    } else if (oldSlots[i]) {
+      // Slot is being truncated — release from peerSlotByPeerId
+      releasePeerSlot(oldSlots[i]!);
+    }
   }
   setState('network.peerSlots', newSlots);
   log.info(`[Peer] Max guest slots changed to ${max}`);

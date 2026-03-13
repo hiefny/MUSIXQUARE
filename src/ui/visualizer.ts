@@ -132,8 +132,8 @@ export function startVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
-    // YouTube mode: Tone.js analyser isn't connected, skip draw to avoid 60fps waste
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
+    // YouTube/Video mode: Tone.js analyser isn't connected or canvas is CSS-hidden, skip draw
+    if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
     if (!isToneAnalyser) {
       log.warn('[Visualizer] Non-Tone analyser not supported');
       _animationId = null;

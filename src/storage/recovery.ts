@@ -73,7 +73,6 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   const pendingFileName = getState('recovery.pendingFileName');
   const pendingFileIndex = getState('recovery.pendingFileIndex');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const receivedCount = getState('transfer.receivedCount');
   const localSid = getState('transfer.localSessionId');
   const currentTransferSid = getState('transfer.currentSessionId');
 
@@ -81,18 +80,13 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   const index = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
   const currentSid = localSid || currentTransferSid;
 
-  let chunkToAsk = forceChunk;
-  if (chunkToAsk === null) {
-    chunkToAsk = receivedCount || 0;
-  }
-
   // Progressive backoff
   const backoffMs = RECOVERY_BACKOFF[Math.min(retryCount, RECOVERY_BACKOFF.length - 1)];
   setState('recovery.retryCount', retryCount + 1);
   setState('recovery.pending', true);
 
   const sourceLabel = targetConn === upstreamDataConn ? 'Relay' : 'Host';
-  log.debug(`[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (Chunk: ${chunkToAsk}, backoff: ${backoffMs}ms)`);
+  log.debug(`[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (backoff: ${backoffMs}ms)`);
 
   setManagedTimer('recovery-backoff', () => {
     setState('recovery.pending', false);
@@ -114,6 +108,12 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
       setState('recovery.retryCount', 0);
       return;
+    }
+
+    // Re-read receivedCount after backoff — more chunks may have arrived during delay
+    let chunkToAsk = forceChunk;
+    if (chunkToAsk === null) {
+      chunkToAsk = getState('transfer.receivedCount') || 0;
     }
 
     try {

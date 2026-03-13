@@ -10,6 +10,7 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
+import { clearManagedTimer } from '../core/timers.ts';
 import { joinSession } from '../network/peer.ts';
 import {
   t, bus, showToast,
@@ -35,6 +36,19 @@ export function setGuestGoBack(fn: () => void): void {
 
 export function startGuestFlow(): void {
   bus.emit('audio:activate');
+
+  // Cancel any in-flight join attempt (back button pressed during connecting)
+  if (getState('network.isConnecting')) {
+    clearManagedTimer('join-timeout');
+    clearManagedTimer('join-retry');
+    setState('network.isConnecting', false);
+    setState('network.isIntentionalDisconnect', true);
+    const hostConn = getState('network.hostConn');
+    if (hostConn) {
+      try { hostConn.close(); } catch { /* noop */ }
+      setState('network.hostConn', null);
+    }
+  }
 
   setState('network.appRole', 'guest');
   setState('setup.sessionStarted', false);

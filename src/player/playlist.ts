@@ -111,6 +111,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   }
 
   clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
 
   // Cancel in-flight preload
   setState('preload.isPreloading', false);
@@ -325,8 +327,17 @@ export function playPrevTrack(): void {
     bus.emit('youtube:try-prev-internal', (success: boolean) => { handled = success; });
     if (handled) return;
 
-    if (currentTrackIndex > 0) playTrack(currentTrackIndex - 1);
-    else playTrack(0);
+    if (currentTrackIndex > 0) {
+      playTrack(currentTrackIndex - 1);
+    } else {
+      const playlist = getState('playlist.items') || [];
+      const repeatMode = getState('playlist.repeatMode') || 0;
+      if (repeatMode === 1 && playlist.length > 1) {
+        playTrack(playlist.length - 1);
+      } else {
+        playTrack(0);
+      }
+    }
     return;
   }
 

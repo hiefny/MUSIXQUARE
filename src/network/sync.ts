@@ -411,6 +411,18 @@ function startHeartbeatMonitor(): void {
       }
       setState('network.activeHostConnByPeerId', updatedConns);
       setState('network.connectedPeers', connectedPeers.filter(p => !staleSet.has(p.id)));
+
+      // Clean up peerLabels for stale peers — host.ts close handler won't fire
+      // because activeHostConnByPeerId was already cleared above (guard skips).
+      const currentLabels = getState('network.peerLabels');
+      if (currentLabels && Object.keys(currentLabels).length > 0) {
+        const cleanedLabels = { ...currentLabels };
+        for (const id of stalePeerIds) {
+          delete cleanedLabels[id];
+        }
+        setState('network.peerLabels', cleanedLabels);
+      }
+
       for (const id of stalePeerIds) {
         releasePeerSlot(id);
         bus.emit('network:peer-disconnected', id);

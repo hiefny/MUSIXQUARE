@@ -286,6 +286,7 @@ export function leaveSession(): void {
     // may read it after batchSetState. Reset via delayed timer below.
     'network.sessionCode': '',
     'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
+    'network.maxGuestSlots': DEFAULT_MAX_GUEST_SLOTS,
     // Relay
     'relay.upstreamDataConn': null,
     'relay.downstreamDataPeers': [],
@@ -309,6 +310,7 @@ export function leaveSession(): void {
     'recovery.pendingFileIndex': undefined,
     // Files
     'files.currentFileBlob': null,
+    'files.currentFileOpfs': { name: null },
     // Preload
     'preload.nextFileBlob': null,
     'preload.meta': null,

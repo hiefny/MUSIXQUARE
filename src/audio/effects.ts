@@ -133,6 +133,13 @@ export async function applySettings(): Promise<void> {
   if (lp) {
     lp.frequency.rampTo(isWooferRole ? subFreq : 20000, RAMP_TIME);
   }
+
+  // Master Volume — sync state to Tone.js node (needed after late audio init)
+  const mg = getMasterGain();
+  if (mg) {
+    const masterVolume = getState('audio.masterVolume');
+    mg.gain.rampTo(masterVolume, RAMP_TIME);
+  }
 }
 
 // ─── Reverb Generate with Retry ────────────────────────────────────

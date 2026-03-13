@@ -153,6 +153,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
 }
 
 function handlePauseMsg(data: Record<string, unknown>): void {
+  // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
   const time = Number(data.time) || 0;
   pause(time);
 }
@@ -370,7 +372,17 @@ export function initPlayback(): void {
       log.debug('[Playback] Preload blob not ready yet, waiting...');
 
       const PRELOAD_WATCHDOG_MS = 10_000;
+
+      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
+      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
+        if (val === false) {
+          clearManagedTimer('preload-blob-watchdog');
+          _unsubWatchdog();
+        }
+      });
+
       setManagedTimer('preload-blob-watchdog', () => {
+        _unsubWatchdog(); // Always clean up state listener on timer expiry
         if (!getState('transfer.waitingForPreload')) return;
         log.warn('[Preload] Preloaded blob not available within timeout');
         setState('transfer.waitingForPreload', false);
@@ -388,14 +400,6 @@ export function initPlayback(): void {
           });
         }
       }, PRELOAD_WATCHDOG_MS);
-
-      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
-      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
-        if (val === false) {
-          clearManagedTimer('preload-blob-watchdog');
-          _unsubWatchdog();
-        }
-      });
     }
   });
 

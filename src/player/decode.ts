@@ -47,7 +47,7 @@ export async function loadAndBroadcastFile(
   const myToken = loadToken ?? getLoadToken();
 
   bus.emit('ui:show-loader', true, t('toast.preparing', { name: file.name }));
-  stopAllMedia();
+  stopAllMedia({ silent: true });
 
   try {
     await initAudio();
@@ -357,7 +357,7 @@ export function clearPreviousTrackState(reason = ''): void {
   const videoElement = getVideoElement();
   if (videoElement) {
     videoElement.pause();
-    videoElement.src = '';
+    videoElement.removeAttribute('src');
     videoElement.load();
   }
   try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch { /* noop */ }
@@ -379,6 +379,7 @@ export function clearPreviousTrackState(reason = ''): void {
 
 export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   log.debug('[Guest] Finalizing with Buffer Mode...');
+  const myLoadId = incrementLoadSessionId();
   bus.emit('ui:show-loader', true, t('error.audio_memory'));
 
   try {
@@ -386,18 +387,21 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     if (Tone.context.state === 'suspended') await Tone.start();
 
     const arrayBuffer = await file.arrayBuffer();
+    if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (pre-decode), aborting'); return; }
     const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+    if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (post-decode), aborting'); return; }
 
     if (getCurrentAudioBuffer()) {
       setCurrentAudioBuffer(null);
     }
     setCurrentAudioBuffer(audioBuffer);
 
+    // Set blob BEFORE setEngineMode so updateBodyModeClass reads the correct file
+    setState('files.currentFileBlob', file);
+
     const meta = getState('transfer.meta');
     const isVideo = isMediaVideo(file, meta);
     setEngineMode(isVideo ? 'video' : 'buffer');
-
-    setState('files.currentFileBlob', file);
 
     const url = BlobURLManager.create(file) || '';
     const videoElement = getVideoElement();
@@ -412,12 +416,21 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     BlobURLManager.confirm();
 
     if (videoElement) {
-      const onMetaLoaded = () => {
+      const cleanupMeta = () => {
         videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
+        videoElement.removeEventListener('error', onMetaError);
+      };
+      const onMetaLoaded = () => {
+        cleanupMeta();
         const dur = getCurrentAudioBuffer() ? getCurrentAudioBuffer()!.duration : videoElement.duration;
         if (dur && isFinite(dur)) bus.emit('ui:duration-update', dur);
       };
+      const onMetaError = () => {
+        cleanupMeta();
+        log.warn('[Guest] Video loadedmetadata failed during finalize');
+      };
       videoElement.addEventListener('loadedmetadata', onMetaLoaded);
+      videoElement.addEventListener('error', onMetaError, { once: true });
       videoElement.load();
     }
 

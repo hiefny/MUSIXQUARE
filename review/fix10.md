@@ -27,9 +27,9 @@ fix01–fix09에서 총 **136건**의 버그를 수정했습니다 (High 21, Med
 |------|------|
 | `sync.ts` — `handleSyncResponse` | 단일 RTT 샘플로 오프셋 계산. 네트워크 지터가 클 경우 부정확 |
 
-**현재 동작**: 3-sample median 방식 (`startSyncCycle` → 3회 측정 → median 선택)으로 보정. 그러나 각 샘플 내에서 경과 시간(elapsed time) 보상이 없음 — `requestAnimationFrame` 기반 측정에서는 큰 문제가 되지 않으나 TURN 릴레이 환경에서 RTT 100ms+ 시 최대 ±50ms 오차 가능.
+**현재 동작**: 3-sample min-RTT 방식 (`startMultiSampleSync` → 3회 측정 → 최소 RTT 선택)으로 보정. NTP-style t2/t3 타임스탬프를 포함하여 호스트 처리 시간(host processing)을 제거한 순수 네트워크 RTT로 보정 적용 완료.
 
-**권장**: NTP-style symmetric delay 보정 적용 (low priority — 현재 3-median이 충분히 정확).
+**✅ 수정 완료**: Host가 `t2`(수신시각), `t3`(발신시각)을 응답에 포함 → Guest가 `networkRtt = grossRtt - (t3-t2)`로 순수 네트워크 RTT 계산. TURN 릴레이에서도 호스트 처리 지연이 오차에 포함되지 않음.
 
 ---
 

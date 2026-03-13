@@ -110,20 +110,27 @@ function sendSyncSample(conn: DataConnection): void {
  * the best one (lowest RTT) once all samples are in.
  */
 function collectSyncSample(data: Record<string, unknown>): void {
-  const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
-  const rtt = reqTs ? Date.now() - reqTs : Infinity;
+  const t4 = Date.now();
+  const t1 = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
+  const grossRtt = t1 ? t4 - t1 : Infinity;
+
+  // NTP-style: subtract host processing time to get pure network RTT
+  const t2 = (typeof data.t2 === 'number') ? data.t2 : 0;
+  const t3 = (typeof data.t3 === 'number') ? data.t3 : 0;
+  const hostProcessing = (t2 && t3 && t3 >= t2) ? t3 - t2 : 0;
+  const rtt = grossRtt < Infinity ? Math.max(0, grossRtt - hostProcessing) : Infinity;
 
   const hostTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
   const isPlaying = !!data.isPlaying;
 
   _syncSamples.push({
-    sentAt: reqTs,
+    sentAt: t1,
     rtt,
     hostTime,
     isPlaying,
   });
 
-  log.debug(`[Sync] Sample ${_syncSamples.length}/${_syncSampleExpected}: RTT=${rtt}ms, hostTime=${hostTime.toFixed(2)}s`);
+  log.debug(`[Sync] Sample ${_syncSamples.length}/${_syncSampleExpected}: netRTT=${rtt}ms (gross=${grossRtt}ms, hostProc=${hostProcessing}ms), hostTime=${hostTime.toFixed(2)}s`);
 
   if (_syncSamples.length >= _syncSampleExpected) {
     applyBestSample();
@@ -258,8 +265,13 @@ function handleSyncResponse(data: Record<string, unknown>): void {
   let oneWayLatencySeconds = 0;
   if (getState('network.connectionType') !== 'local') {
     const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
-    const rtt = reqTs ? Date.now() - reqTs : 0;
-    if (rtt > 0) oneWayLatencySeconds = (rtt / 2) / 1000;
+    const grossRtt = reqTs ? Date.now() - reqTs : 0;
+    // NTP-style: subtract host processing time
+    const t2 = (typeof data.t2 === 'number') ? data.t2 : 0;
+    const t3 = (typeof data.t3 === 'number') ? data.t3 : 0;
+    const hostProcessing = (t2 && t3 && t3 >= t2) ? t3 - t2 : 0;
+    const networkRtt = Math.max(0, grossRtt - hostProcessing);
+    if (networkRtt > 0) oneWayLatencySeconds = (networkRtt / 2) / 1000;
   }
 
   const syncTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
@@ -285,6 +297,8 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
 
   if (!conn || !conn.open) return;
 
+  const hostReceiveTs = Date.now(); // NTP t2: when host received the request
+
   bus.emit('sync:get-position', (position: number) => {
     if (!conn.open) return; // guard against close during callback
     const currentState = getState('appState');
@@ -292,12 +306,16 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
                       currentState === APP_STATE.PLAYING_VIDEO ||
                       currentState === APP_STATE.PLAYING_YOUTUBE;
 
+    const hostSendTs = Date.now(); // NTP t3: when host sends the response
+
     try {
       conn.send({
         type: MSG.SYNC_RESPONSE,
         time: position,
         isPlaying,
         reqTs: (data.ts as number) || 0,
+        t2: hostReceiveTs,
+        t3: hostSendTs,
       });
     } catch { /* connection closed */ }
   });

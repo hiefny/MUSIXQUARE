@@ -287,6 +287,7 @@ export function resetEQ(): void {
 
 export function setPreamp(valDb: number): void {
   const db = Math.max(-48, Math.min(12, Number(valDb)));
+  if (!Number.isFinite(db)) return;
   const linear = Math.pow(10, db / 20);
   setState('audio.userPreampGain', linear);
   applySettings();
@@ -295,7 +296,9 @@ export function setPreamp(valDb: number): void {
 // ─── Stereo Width ──────────────────────────────────────────────────
 
 export function setStereoWidth(val: number): void {
-  setState('audio.stereoWidth', Math.max(0, Math.min(2, val / 100)));
+  const v = Number(val);
+  if (!Number.isFinite(v)) return;
+  setState('audio.stereoWidth', Math.max(0, Math.min(2, v / 100)));
   applySettings();
 }
 
@@ -306,7 +309,9 @@ export function resetStereoWidth(): void {
 // ─── Virtual Bass ──────────────────────────────────────────────────
 
 export function setVirtualBass(val: number): void {
-  setState('audio.virtualBass', Math.max(0, Math.min(1, val / 100)));
+  const v = Number(val);
+  if (!Number.isFinite(v)) return;
+  setState('audio.virtualBass', Math.max(0, Math.min(1, v / 100)));
   applySettings();
 }
 
@@ -389,6 +394,8 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
             const isOperator = getState('network.isOperator');
             if (isOperator && hostConn.open) {
               hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
+            } else if (!isOperator) {
+              bus.emit('ui:show-toast', t('toast.operator_required'));
             }
           }
         }

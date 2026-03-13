@@ -339,7 +339,8 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
 
     setManagedTimer(timeoutName, () => {
       cleanup();
-      resolve(check() === 'unknown' ? 'remote' : check() as 'local' | 'remote');
+      const final = check();
+      resolve(final === 'unknown' ? 'remote' : final as 'local' | 'remote');
     }, timeout);
   });
 }

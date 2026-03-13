@@ -188,6 +188,7 @@ function onOpfsCatchupReadComplete(peerId: string, sessionId: number, requestTag
   pump.awaiting = false;
   pump.awaitingIndex = null;
   pump.lastActivity = Date.now();
+  pump.retryCount = 0;
   scheduleOpfsCatchupPump(pump, 0);
 }
 
@@ -231,7 +232,8 @@ export function connectToRelay(targetId: string): void {
       const currentTrackIndex = getState('playlist.currentTrackIndex');
 
       if (currentTrackIndex < 0 || !meta?.name) {
-        log.warn('[Relay] Cannot request recovery: invalid track index or missing meta');
+        log.warn('[Relay] Cannot request recovery: no active transfer — requesting current file');
+        sendToHost({ type: MSG.REQUEST_CURRENT_FILE });
       } else {
         sendToHost({
           type: MSG.REQUEST_DATA_RECOVERY,
@@ -430,11 +432,11 @@ export function initRelay(): void {
     if (isMatchCurrent) {
       log.debug(`[Relay] Serving current file to ${conn.peer}: ${meta?.name}`);
       const file = ensureNamedFile(currentFileBlob, (meta?.name as string) || 'Track');
-      if (file) unicastFile(conn, file, 0).catch(e => log.error('[Relay] unicast current failed:', e));
+      if (file) unicastFile(conn, file, 0, null, true).catch(e => log.error('[Relay] unicast current failed:', e));
     } else if (isMatchPreload) {
       log.debug(`[Relay] Serving preloaded file to ${conn.peer}: ${nextMeta?.name}`);
       const file = ensureNamedFile(nextFileBlob, (nextMeta?.name as string) || 'Track');
-      if (file) unicastFile(conn, file, 0).catch(e => log.error('[Relay] unicast preload failed:', e));
+      if (file) unicastFile(conn, file, 0, null, true).catch(e => log.error('[Relay] unicast preload failed:', e));
     } else if (meta?.name) {
       // Mid-download relay: send header + trigger OPFS catch-up
       const receivedCount = getState('transfer.receivedCount');

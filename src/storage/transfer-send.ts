@@ -144,7 +144,8 @@ export async function unicastFile(
   conn: DataConnection,
   file: File | Blob,
   startChunkIndex = 0,
-  sessionId: number | null = null
+  sessionId: number | null = null,
+  skipTransportGuard = false,
 ): Promise<void> {
   if (!conn || !conn.open) {
     log.error('[Unicast] Connection is not open');
@@ -152,7 +153,8 @@ export async function unicastFile(
   }
 
   // Transport guard: block remote/unknown peers
-  if (!(await canSendFileTo(conn))) {
+  // skipTransportGuard=true for relay→downstream (conn is in relay.downstreamDataPeers, not connectedPeers)
+  if (!skipTransportGuard && !(await canSendFileTo(conn))) {
     log.info('[Unicast] Skipped — remote/unknown peer');
     return;
   }

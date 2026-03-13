@@ -114,6 +114,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   if (currentPeers.length >= getState('network.maxGuestSlots')) {
     log.warn(`[Host] Max guests reached during slot allocation for ${peerId}, rejecting`);
     releasePeerSlot(peerId);
+    // Clean up activeHostConnByPeerId to prevent stale entry + spurious close handler
+    const cleanupConns = new Map(getState('network.activeHostConnByPeerId'));
+    cleanupConns.delete(peerId);
+    setState('network.activeHostConnByPeerId', cleanupConns);
     const sendFullAndClose = () => {
       try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
       try { conn.close(); } catch { /* noop */ }

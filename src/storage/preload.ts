@@ -205,7 +205,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     const bpStart = Date.now();
     while (congested) {
       congested = false;
-      for (const p of targets) {
+      for (const p of targetsWhoNeedChunks) {
         const conn = p.conn as DataConnection;
         if (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
           congested = true;
@@ -255,11 +255,17 @@ export async function unicastPreload(
   const scope = SessionScope.replace(prevScope);
   _activePreloadUnicasts.set(unicastKey, scope);
 
-  if (!conn || !conn.open || !file) return;
+  if (!conn || !conn.open || !file) {
+    scope.dispose();
+    _activePreloadUnicasts.delete(unicastKey);
+    return;
+  }
 
   // Transport guard: block remote/unknown peers
   if (!(await canSendFileTo(conn))) {
     log.info('[Preload Unicast] Skipped — remote/unknown peer');
+    scope.dispose();
+    _activePreloadUnicasts.delete(unicastKey);
     return;
   }
 

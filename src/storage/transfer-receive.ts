@@ -615,6 +615,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 
       // Re-read after meta-recovery updated state (prevents stale reference)
       opfsFilename = getState('files.currentFileOpfs');
+      receivedCount = getState('transfer.receivedCount');
     } else if (!meta || meta.total === undefined) {
       // Orphan chunk with no meta — can't process
       return;

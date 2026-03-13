@@ -71,10 +71,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
   const meta = getState('transfer.meta');
   const pendingFileName = getState('recovery.pendingFileName');
-  const pendingFileIndex = getState('recovery.pendingFileIndex');
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const fileName = (meta?.name as string) || pendingFileName || '';
-  const index = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
 
   // Progressive backoff
   const backoffMs = RECOVERY_BACKOFF[Math.min(retryCount, RECOVERY_BACKOFF.length - 1)];
@@ -94,6 +91,9 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
     if (!freshConn || !freshConn.open) {
       log.warn('[Recovery] No healthy connection after backoff');
+      // Don't consume retry budget if request was never sent
+      const currentRetry = getState('recovery.retryCount');
+      if (currentRetry > 0) setState('recovery.retryCount', currentRetry - 1);
       return;
     }
 
@@ -117,12 +117,17 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     const freshTransferSid = getState('transfer.currentSessionId');
     const freshSid = freshLocalSid || freshTransferSid;
 
+    // Re-read index after backoff — track position may have changed during delay
+    const freshPendingFileIndex = getState('recovery.pendingFileIndex');
+    const freshCurrentTrackIndex = getState('playlist.currentTrackIndex');
+    const freshIndex = freshPendingFileIndex !== undefined ? freshPendingFileIndex : freshCurrentTrackIndex;
+
     try {
       freshConn.send({
         type: MSG.REQUEST_DATA_RECOVERY,
         nextChunk: chunkToAsk,
         fileName,
-        index,
+        index: freshIndex,
         sessionId: freshSid,
       });
     } catch {

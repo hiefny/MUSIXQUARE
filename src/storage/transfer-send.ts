@@ -69,6 +69,7 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   // 12-13: Clean up activeBroadcastSession on early return to avoid resource leak
   if (eligiblePeers.length === 0) {
     setState('transfer.activeBroadcastSession', null);
+    scope.dispose();
     return;
   }
 

@@ -338,10 +338,7 @@ header.loading .header-progress-bg {
 .logo-brand { height: 28px; width: auto; }
 .logo-welcome { height: 22px; width: auto; margin-top: 3px; margin-bottom: 12px; }
 
-/* SVG Stroke Writing Animation — ghost underlay + per-bar directional reveal */
-.logo-welcome > .wg { opacity: 0.15; animation: ghostIn 400ms 2500ms both; }
-@keyframes ghostIn { to { opacity: 1; } }
-
+/* SVG Stroke Writing Animation — per-bar directional reveal */
 @keyframes wlr { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 @keyframes wrl { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0 0 0 0); } }
 @keyframes wtb { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
@@ -350,8 +347,8 @@ header.loading .header-progress-bg {
 
 .logo-welcome > .wl {
     animation-duration: var(--wd, 150ms);
-    animation-timing-function: cubic-bezier(0.15, 0.5, 0.05, 1);
-    animation-delay: calc(var(--wt, 0ms) + 500ms);
+    animation-timing-function: cubic-bezier(0.05, 0.7, 0.1, 1);
+    animation-delay: var(--wt, 0ms);
     animation-fill-mode: both;
 }
 .logo-welcome > .wlr { animation-name: wlr; }

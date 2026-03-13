@@ -336,7 +336,7 @@ header.loading .header-progress-bg {
 .logo-svg { display: block; overflow: visible; }
 .logo-header { height: 16px; width: auto; }
 .logo-brand { height: 28px; width: auto; }
-.logo-welcome { height: 22px; width: auto; margin-top: 3px; margin-bottom: 12px; }
+.logo-welcome { height: 22px; width: auto; margin-top: 3px; margin-bottom: 11.8px; }
 
 /* SVG Stroke Writing Animation — ghost underlay + per-bar directional reveal */
 .logo-welcome > .wg { opacity: 0.15; animation: ghostIn 400ms 2500ms both; }

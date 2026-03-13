@@ -338,29 +338,22 @@ header.loading .header-progress-bg {
 .logo-brand { height: 28px; width: auto; }
 .logo-welcome { height: 22px; width: auto; margin-top: 3px; margin-bottom: 12px; }
 
-/* SVG Writing Animation — clip-path line reveal */
-@keyframes svg-line-write {
-    from { clip-path: inset(0 100% 0 0); }
-    to   { clip-path: inset(0 0 0 0); }
-}
+/* SVG Stroke Writing Animation — per-bar directional reveal */
+@keyframes wlr { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes wrl { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0 0 0 0); } }
+@keyframes wtb { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes wbt { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
 
-.logo-welcome > * {
-    clip-path: inset(0 100% 0 0);
-    animation: svg-line-write var(--wd, 300ms) cubic-bezier(0.25, 1, 0.5, 1) var(--wt, 0ms) forwards;
+.logo-welcome > .wl {
+    animation-duration: var(--wd, 150ms);
+    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+    animation-delay: var(--wt, 0ms);
+    animation-fill-mode: both;
 }
-
-.logo-welcome > :nth-child(1)  { --wt: 0ms;   --wd: 350ms; } /* M  */
-.logo-welcome > :nth-child(2)  { --wt: 100ms; --wd: 280ms; } /* U  */
-.logo-welcome > :nth-child(3)  { --wt: 190ms; --wd: 280ms; } /* S  */
-.logo-welcome > :nth-child(4)  { --wt: 280ms; --wd: 100ms; } /* I  */
-.logo-welcome > :nth-child(5)  { --wt: 310ms; --wd: 320ms; } /* X  */
-.logo-welcome > :nth-child(6)  { --wt: 420ms; --wd: 340ms; } /* Q  */
-.logo-welcome > :nth-child(7)  { --wt: 520ms; --wd: 280ms; } /* U  */
-.logo-welcome > :nth-child(8)  { --wt: 610ms; --wd: 340ms; } /* A  */
-.logo-welcome > :nth-child(9)  { --wt: 710ms; --wd: 300ms; } /* R  */
-.logo-welcome > :nth-child(10) { --wt: 810ms; --wd: 280ms; } /* E─ */
-.logo-welcome > :nth-child(11) { --wt: 850ms; --wd: 220ms; } /* E─ */
-.logo-welcome > :nth-child(12) { --wt: 890ms; --wd: 280ms; } /* E─ */
+.logo-welcome > .wlr { animation-name: wlr; }
+.logo-welcome > .wrl { animation-name: wrl; }
+.logo-welcome > .wtb { animation-name: wtb; }
+.logo-welcome > .wbt { animation-name: wbt; }
 
 /* Light Mode Logo Overrides */
 [data-theme="light"] .app-logo {

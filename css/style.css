@@ -343,6 +343,7 @@ header.loading .header-progress-bg {
 @keyframes wrl { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0 0 0 0); } }
 @keyframes wtb { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
 @keyframes wbt { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes wdiag { from { clip-path: inset(0 100% 100% 0); } to { clip-path: inset(0 0 0 0); } }
 
 .logo-welcome > .wl {
     animation-duration: var(--wd, 150ms);
@@ -354,6 +355,7 @@ header.loading .header-progress-bg {
 .logo-welcome > .wrl { animation-name: wrl; }
 .logo-welcome > .wtb { animation-name: wtb; }
 .logo-welcome > .wbt { animation-name: wbt; }
+.logo-welcome > .wdiag { animation-name: wdiag; }
 
 /* Light Mode Logo Overrides */
 [data-theme="light"] .app-logo {

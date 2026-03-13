@@ -281,6 +281,7 @@ const ko = {
   'toast.file_ready': '파일이 준비됐어요! 재생 버튼을 눌러 보세요.',
   'toast.host_ad': '호스트가 광고를 보고 있는 것 같아요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
+  'toast.connection_closing': '연결 끊김 — 설정이 동기화되지 않았어요',
   'toast.host_changed_setting': '방장이 설정을 변경했어요',
   'toast.session_mismatch': '세션 불일치 감지 — 파일 전송이 재시도됩니다.',
   'toast.same_wifi_only': '동일 Wi-Fi로 연결하면 파일 기능도 이용할 수 있어요!',

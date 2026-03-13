@@ -137,7 +137,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         const currentName = (currentMeta?.name as string) || '';
         if (!currentName || currentName !== expectedName) {
           log.info('[Guest] Stale audio recovery: requesting current file from host');
-          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: expectedName, index: currentTrackIndex, reason: 'stale_audio' });
+          const freshIndex = getState('playlist.currentTrackIndex');
+          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: expectedName, index: freshIndex, reason: 'stale_audio' });
         }
       }
     }, 5000);

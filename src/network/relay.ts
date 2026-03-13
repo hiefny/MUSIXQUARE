@@ -281,7 +281,8 @@ export function connectToRelay(targetId: string): void {
 
   conn.on('close', () => {
     const currentUpstream = getState('relay.upstreamDataConn');
-    if (currentUpstream && currentUpstream !== conn) return;
+    // Skip if upstream was already cleaned up (e.g. by timeout handler) or replaced
+    if (currentUpstream !== conn) return;
 
     setState('relay.upstreamDataConn', null);
     bus.emit('ui:show-toast', t('network.relay_disconnected'));
@@ -352,7 +353,11 @@ export function handleRelayConnection(conn: DataConnection): void {
 
   conn.on('error', (err: unknown) => {
     log.warn(`[Relay] Downstream connection error (${conn.peer}):`, err);
-    stopOpfsCatchupStream(conn.peer, 'downstream error');
+    // Only stop pump if it belongs to THIS connection (not a reconnected one)
+    const pump = opfsCatchupPumps.get(conn.peer);
+    if (pump && pump.conn === conn) {
+      stopOpfsCatchupStream(conn.peer, 'downstream error');
+    }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     // Filter by reference (not peer ID) to avoid removing a reconnected conn from same peer
     setState(
@@ -364,7 +369,10 @@ export function handleRelayConnection(conn: DataConnection): void {
 
   conn.on('close', () => {
     log.info(`[Relay] Downstream peer disconnected: ${conn.peer}`);
-    stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
+    const pump = opfsCatchupPumps.get(conn.peer);
+    if (pump && pump.conn === conn) {
+      stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
+    }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     // Use reference equality to avoid removing a new connection from the same peer
     const wasTracked = downstreamDataPeers.some(p => p === conn);
@@ -399,7 +407,10 @@ function handleAssignDataSource(data: Record<string, unknown>): void {
       upstreamDataConn.close();
       setState('relay.upstreamDataConn', null);
     }
-    bus.emit('storage:request-recovery');
+    const transferState = getState('transfer.state');
+    if (transferState !== TRANSFER_STATE.IDLE) {
+      bus.emit('storage:request-recovery');
+    }
   }
 }
 

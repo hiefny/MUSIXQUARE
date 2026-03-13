@@ -123,13 +123,15 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     if (i % 50 === 0) await delay(DELAY.TICK);
   }
 
-  // Send end message (skip timed-out peers — they have incomplete data)
-  const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
-  eligiblePeers.forEach(p => {
-    if (timedOutPeers.has(p.id)) return;
-    const conn = p.conn as DataConnection;
-    if (conn?.open) try { conn.send(endMsg); } catch { /* noop */ }
-  });
+  // Send end message (skip if superseded or aborted after loop)
+  if (!scope.aborted && getState('transfer.activeBroadcastSession') === sessionId) {
+    const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
+    eligiblePeers.forEach(p => {
+      if (timedOutPeers.has(p.id)) return;
+      const conn = p.conn as DataConnection;
+      if (conn?.open) try { conn.send(endMsg); } catch { /* noop */ }
+    });
+  }
 
   setState('transfer.activeBroadcastSession', null);
   scope.dispose();

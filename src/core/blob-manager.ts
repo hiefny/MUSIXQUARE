@@ -137,6 +137,7 @@ export const BlobURLManager = {
       return;
     }
 
+    this._clearScheduled(url);
     const t = setTimeout(() => {
       this._revokeNow(url, 'scheduled');
     }, delayMs);

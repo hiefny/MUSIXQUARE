@@ -364,7 +364,7 @@ export function clearPreviousTrackState(reason = ''): void {
 
   // Physically delete OLD current file from OPFS
   const opfsFilename = getState('files.currentFileOpfs');
-  if (opfsFilename.name) {
+  if (opfsFilename?.name) {
     const nextMeta = getState('preload.meta');
     const isActuallyChanging = opfsFilename.name !== nextMeta?.name;
     if (isActuallyChanging) {

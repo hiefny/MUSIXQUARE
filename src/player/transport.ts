@@ -383,7 +383,7 @@ export function handleEnded(): void {
   const hasBufferDuration = !!(_currentAudioBuffer &&
     Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.5);
 
-  const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_AUDIO;
+  const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO;
   if (!hasBufferDuration && usesVideoElement && videoElement && videoElement.readyState < 1) return;
 
   const duration = hasBufferDuration
@@ -482,8 +482,12 @@ export function stopPlayback(): void {
   if (currentState === APP_STATE.IDLE) return; // Nothing to stop
 
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    bus.emit('youtube:stop-playback');  // stopVideo on host player
-    bus.emit('youtube:stop-mode');      // proper cleanup: destroy player, clear timers, broadcast YOUTUBE_STOP
+    // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
+    // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
+    setState('appState', APP_STATE.IDLE);
+    bus.emit('player:state-changed', APP_STATE.IDLE);
+    bus.emit('youtube:stop-playback');
+    bus.emit('youtube:stop-mode');
     clearManagedTimer('ended-advance-retry');
     clearManagedTimer('ended-advance-next');
     setState('player.pausedAt', 0);
@@ -556,19 +560,9 @@ export function adjustSync(val: number): void {
   const currentState = getState('appState');
   if (!isIdleOrPaused(currentState)) {
     play(getTrackPosition());
-  } else {
-    const _currentAudioBuffer = getCurrentAudioBuffer();
-    const pausedAt = getState('player.pausedAt') || 0;
-    const videoElement = getVideoElement();
-    const rawBufDur2 = _currentAudioBuffer?.duration;
-    const duration = (rawBufDur2 != null && Number.isFinite(rawBufDur2) && rawBufDur2 > 0)
-      ? rawBufDur2
-      : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
-    const newPausedAt = duration > 0
-      ? Math.max(0, Math.min(pausedAt + val, duration))
-      : Math.max(0, pausedAt + val);
-    setState('player.pausedAt', newPausedAt);
   }
+  // Paused: localOffset is stored and applied on next play(pausedAt) via startedAt.
+  // Don't modify pausedAt — it would cancel out the offset in startedAt calculation.
 }
 
 // ─── Check Video Sync ──────────────────────────────────────────────

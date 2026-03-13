@@ -48,9 +48,10 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
       toRemove.push(sid);
     }
   }
-  // Hard cap: evict oldest beyond the active one
+  // Hard cap: evict numerically oldest beyond the active one
   if (sessionState.size - toRemove.length > PRELOAD_SESSION_MAX) {
-    for (const sid of sessionState.keys()) {
+    const sortedSids = [...sessionState.keys()].sort((a, b) => a - b);
+    for (const sid of sortedSids) {
       if (sid !== keepSessionId && !toRemove.includes(sid)) {
         toRemove.push(sid);
         if (sessionState.size - toRemove.length <= PRELOAD_SESSION_MAX) break;

@@ -323,7 +323,8 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
 
   return new Promise(resolve => {
     const check = () => getState('network.connectionType');
-    if (check() !== 'unknown') return resolve(check() as 'local' | 'remote');
+    const initial = check();
+    if (initial !== 'unknown') return resolve(initial as 'local' | 'remote');
 
     const cleanup = () => {
       clearManagedTimer(intervalName);
@@ -331,9 +332,10 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
     };
 
     setManagedTimer(intervalName, () => {
-      if (check() !== 'unknown') {
+      const val = check();
+      if (val !== 'unknown') {
         cleanup();
-        resolve(check() as 'local' | 'remote');
+        resolve(val as 'local' | 'remote');
       }
     }, 100, { interval: true });
 

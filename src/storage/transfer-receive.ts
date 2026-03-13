@@ -606,6 +606,9 @@ export function handleFileChunk(data: Record<string, unknown>): void {
           size: CHUNK_SIZE,
         });
       }
+      // Reset chunk pointer for new OPFS file (mirrors handleFileStart/handleFileResume)
+      nextExpectedChunk = 0;
+      setState('transfer.receivedCount', 0);
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
 
       // Drain early chunks that arrived before meta-recovery (mirrors FILE_START/RESUME paths)

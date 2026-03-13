@@ -283,6 +283,7 @@ const en: Record<I18nKey, string> = {
   'toast.file_ready': 'Your file is ready! Press Play.',
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.operator_required': 'Only admin can change audio settings',
+  'toast.connection_closing': 'Connection lost — setting not synced',
   'toast.host_changed_setting': 'The host changed a setting',
   'toast.session_mismatch': 'Session mismatch detected — file transfer will retry.',
   'toast.same_wifi_only': 'Connect via the same Wi-Fi to enjoy file sharing!',

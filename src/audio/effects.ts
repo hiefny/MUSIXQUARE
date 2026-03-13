@@ -350,6 +350,8 @@ function _broadcastOrRequestSetting(msgType: string, value: number | string): vo
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
     } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
+    } else {
+      bus.emit('ui:show-toast', t('toast.connection_closing'));
     }
   }
 }
@@ -364,6 +366,8 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
+    } else {
+      bus.emit('ui:show-toast', t('toast.connection_closing'));
     }
   }
 }
@@ -400,6 +404,8 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
               hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
             } else if (!isOperator) {
               bus.emit('ui:show-toast', t('toast.operator_required'));
+            } else {
+              bus.emit('ui:show-toast', t('toast.connection_closing'));
             }
           }
         }
@@ -439,6 +445,8 @@ bus.on('audio:reverb-type-change', (type: string) => {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_TYPE, value: type });
     } else if (!isOperator) {
       bus.emit('ui:show-toast', t('toast.operator_required'));
+    } else {
+      bus.emit('ui:show-toast', t('toast.connection_closing'));
     }
   } else {
     // Host: apply locally + broadcast

@@ -330,16 +330,20 @@ bus.on('network:max-guests-changed', (max: number) => {
   setState('network.maxGuestSlots', max);
   const oldSlots = getState('network.peerSlots');
   const newSlots = Array(max + 1).fill(null) as (string | null)[];
-  // Preserve existing assignments, clean up orphaned peers in truncated slots
+  // Preserve existing assignments, kick peers in truncated slots
+  const orphanedPeerIds: string[] = [];
   for (let i = 1; i < oldSlots.length; i++) {
     if (i < newSlots.length) {
       newSlots[i] = oldSlots[i];
     } else if (oldSlots[i]) {
-      // Slot is being truncated — release from peerSlotByPeerId
+      orphanedPeerIds.push(oldSlots[i]!);
       releasePeerSlot(oldSlots[i]!);
     }
   }
   setState('network.peerSlots', newSlots);
+  for (const peerId of orphanedPeerIds) {
+    bus.emit('network:kick-device', peerId);
+  }
   log.info(`[Peer] Max guest slots changed to ${max}`);
 });
 

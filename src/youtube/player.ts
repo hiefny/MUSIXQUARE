@@ -320,13 +320,13 @@ export function initYouTube(): void {
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
-    setState('playlist.currentTrackIndex', newIndex);
     bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
 
-    // Load locally first (triggers YOUTUBE_STOP for previous video),
-    // then broadcast PLAY — ensures guests receive STOP→PLAY order.
+    // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
+    // a window where index points to new track while old media is active.
     loadYouTubeVideo(videoId, playlistId, true);
+    setState('playlist.currentTrackIndex', newIndex);
 
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');

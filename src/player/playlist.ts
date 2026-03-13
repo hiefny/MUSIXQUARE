@@ -269,6 +269,7 @@ export function playNextTrack(): void {
     // The audio buffer / video element is still in memory — just seek + play.
     // Note: do NOT call stopAllMedia here — it destroys videoElement.src and
     // revokes blob URLs, preventing video playback from restarting.
+    incrementLoadToken();
     play(0).catch(() => { /* noop */ });
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
     return;

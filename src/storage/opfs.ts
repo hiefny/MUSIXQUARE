@@ -156,6 +156,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_FILE_READY':
       log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
+      clearManagedTimer('finalizationWatchdog');
       bus.emit('opfs:file-ready', data.filename || '', data.sessionId || 0, data.isPreload || false);
       break;
 
@@ -186,10 +187,12 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           log.warn('[OPFS] Integrity fail — requesting recovery');
           bus.emit('storage:request-recovery');
         } else if (data.code === 'START_FAILED' || data.code === 'LOCKED') {
-          // Lock acquisition failed — reset transfer state to prevent stuck RECEIVING
+          // Lock acquisition failed — reset transfer state to prevent stuck loader.
+          // Check both RECEIVING and PROCESSING: with fast transfers, main thread
+          // may detect completion (PROCESSING) before the worker reports START_FAILED.
           const transferState = getState('transfer.state');
-          if (transferState === TRANSFER_STATE.RECEIVING) {
-            log.warn('[OPFS] Start/lock failed — resetting stuck transfer state');
+          if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
+            log.warn(`[OPFS] Start/lock failed — resetting stuck ${transferState} state`);
             setState('transfer.state', TRANSFER_STATE.IDLE);
             bus.emit('ui:show-loader', false);
           }

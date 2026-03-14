@@ -347,12 +347,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
 
     if (sessionId !== opfsObj.sessionId) {
-      if (opfsObj.sessionId !== null) {
-        postSessionMismatch({
-          type: 'SESSION_MISMATCH', command: 'OPFS_END',
-          expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
-        });
-      }
+      // Always notify main thread — even when opfsObj.sessionId is null
+      // (e.g. OPFS_START failed and released lock). Without this, the main
+      // thread's SESSION_MISMATCH safety net for stuck PROCESSING never fires.
+      postSessionMismatch({
+        type: 'SESSION_MISMATCH', command: 'OPFS_END',
+        expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
+      });
       return;
     }
 

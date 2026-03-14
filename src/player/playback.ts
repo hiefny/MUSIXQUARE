@@ -141,6 +141,11 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // transfers to complete. Without this, the guest permanently blocks.
     setManagedTimer('stale-audio-recovery', () => {
       if (getPendingPlayTime() !== undefined) {
+        // Transport guard: remote guest without relay can't receive file data
+        if (isRemoteGuest() && !hasActiveRelay()) {
+          log.info('[Guest] Stale audio recovery skipped — remote without relay');
+          return;
+        }
         // Check by name match instead of buffer existence — a stale buffer
         // may still be loaded (different track name), blocking recovery
         const currentMeta = getState('transfer.meta');

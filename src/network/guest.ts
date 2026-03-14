@@ -76,10 +76,12 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   // Ensure peer exists and is open
   if (!peer) {
     if (retryAttempt > 3) {
+      setState('network.isConnecting', false);
       bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
       return;
     }
     if (!_initNetwork) {
+      setState('network.isConnecting', false);
       bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
       return;
     }
@@ -87,6 +89,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       .then(() => joinSession(hostId, retryAttempt + 1))
       .catch((e) => {
         log.error('[Join] Failed to init peer', e);
+        setState('network.isConnecting', false);
         bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));
       });
     return;
@@ -96,6 +99,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     if (retryAttempt < 10) {
       setManagedTimer('join-retry', () => joinSession(hostId, retryAttempt + 1), 300);
     } else {
+      setState('network.isConnecting', false);
       bus.emit('network:error', new Error('PEER_NOT_READY'));
     }
     return;
@@ -150,7 +154,11 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
     conn.on('close', () => {
       log.warn('[Join] Host connection closed');
-      setState('network.hostConn', null);
+      // Only clear hostConn if WE are still the current connection.
+      // Prevents old conn's async close from nullifying a new connection.
+      if (getState('network.hostConn') === conn) {
+        setState('network.hostConn', null);
+      }
       setState('network.isConnecting', false);
 
       if ((conn as unknown as Record<string, unknown>)._errorHandled) {
@@ -170,7 +178,9 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
     conn.on('error', (err: unknown) => {
       log.error('[Join] Host connection error', err);
-      setState('network.hostConn', null);
+      if (getState('network.hostConn') === conn) {
+        setState('network.hostConn', null);
+      }
       setState('network.isConnecting', false);
 
       if ((conn as unknown as Record<string, unknown>)._errorHandled) return;

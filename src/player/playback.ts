@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
@@ -144,6 +144,12 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         // Transport guard: remote guest without relay can't receive file data
         if (isRemoteGuest() && !hasActiveRelay()) {
           log.info('[Guest] Stale audio recovery skipped — remote without relay');
+          return;
+        }
+        // Skip if transfer is already in progress — file is arriving, no need to re-request
+        const transferState = getState('transfer.state');
+        if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
+          log.info(`[Guest] Stale audio recovery skipped — transfer in progress (${transferState})`);
           return;
         }
         // Check by name match instead of buffer existence — a stale buffer

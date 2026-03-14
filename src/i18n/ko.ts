@@ -309,6 +309,7 @@ const ko = {
   'transfer.preload_pending': '프리로드 완료 대기 중: {{name}}',
   'transfer.waiting_recovery': '복구 대기 중: {{name}}',
   'transfer.preparing_name': '준비 중: {{name}}',
+  'transfer.recovery_failed': '파일 복구 실패. 다시 시도해주세요.',
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS 필수: 보안 연결에서만 작동합니다.',

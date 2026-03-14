@@ -56,6 +56,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     setState('recovery.pending', false);
     setState('recovery.retryCount', 0);
     bus.emit('ui:show-loader', false);
+    bus.emit('ui:show-toast', t('transfer.recovery_failed'));
     return;
   }
 

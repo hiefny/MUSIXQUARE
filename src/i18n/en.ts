@@ -311,6 +311,7 @@ const en: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Waiting for preload: {{name}}',
   'transfer.waiting_recovery': 'Recovery pending: {{name}}',
   'transfer.preparing_name': 'Preparing: {{name}}',
+  'transfer.recovery_failed': 'File recovery failed. Please try again.',
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS required: works only on a secure connection.',

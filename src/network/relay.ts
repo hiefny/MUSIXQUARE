@@ -220,7 +220,7 @@ export function connectToRelay(targetId: string): void {
     metadata: { type: MSG.DATA_RELAY, label: myId },
   });
 
-  const FAIL_TIMEOUT = 10000;
+  const FAIL_TIMEOUT = 15000;
   setManagedTimer(RELAY_CONN_TIMER, () => {
     if (!conn.open) {
       log.warn('[Relay] Connect Timeout');

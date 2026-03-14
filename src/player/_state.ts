@@ -17,7 +17,6 @@ let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _pendingPlayTime: number | undefined;
-let _pendingPlayDepth = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
 let _loadScope: SessionScope | null = null;
@@ -80,14 +79,6 @@ export function getPendingPlayTime(): number | undefined {
 
 export function setPendingPlayTime(time: number | undefined): void {
   _pendingPlayTime = time;
-}
-
-export function getPendingPlayDepth(): number {
-  return _pendingPlayDepth;
-}
-
-export function setPendingPlayDepth(d: number): void {
-  _pendingPlayDepth = d;
 }
 
 // ─── Preloaded In Progress ─────────────────────────────────────────

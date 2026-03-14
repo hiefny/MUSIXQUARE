@@ -23,7 +23,6 @@ import {
   getLoadToken,
   isPlayLocked, setPlayLocked,
   getPendingPlayTime, setPendingPlayTime,
-  getPendingPlayDepth, setPendingPlayDepth,
   setPlayPreloadedInProgress,
   getLoadScope, setLoadScope,
 } from './_state.ts';
@@ -68,9 +67,11 @@ export function getTrackPosition(): number {
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
     const combinedOffset = localOffset + autoSyncOffset;
-    // Guard: schedule offset reset if combined drift exceeds 5 seconds.
+    // Guard: schedule offset reset if combined drift exceeds 30 seconds.
+    // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
+    // Only fires on genuine bugs (e.g. corrupted autoSyncOffset).
     // Deferred to avoid setState inside a getter (side-effect in read path).
-    if (Math.abs(combinedOffset) > 5) {
+    if (Math.abs(combinedOffset) > 30) {
       log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}, auto=${autoSyncOffset.toFixed(3)}, combined=${combinedOffset.toFixed(3)}s — resetting`);
       queueMicrotask(() => {
         // Read current offsets at execution time (may have changed since queued)
@@ -182,10 +183,9 @@ export async function play(offset: number): Promise<void> {
   const lockStartTime = Date.now();
   setManagedTimer('navigator-lock-watchdog', () => {
     if (isPlayLocked()) {
-      log.warn(`[Play] Lock Timeout: Forcing unlock after 5s (locked at ${new Date(lockStartTime).toISOString()})`);
+      log.warn(`[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`);
       setPlayLocked(false);
       setPendingPlayTime(undefined);
-      setPendingPlayDepth(0);
       stopPlayerNode();
       // Reset appState to IDLE to prevent stuck "playing" UI
       if (getState('appState') !== APP_STATE.IDLE) {
@@ -193,7 +193,7 @@ export async function play(offset: number): Promise<void> {
         bus.emit('player:state-changed', APP_STATE.IDLE);
       }
     }
-  }, 5000);
+  }, 15000);
 
   try {
     await _internalPlay(offset);
@@ -203,19 +203,10 @@ export async function play(offset: number): Promise<void> {
       setPlayLocked(false);
       // Consume queued play request (e.g. sync correction that arrived during lock)
       const pendingTime = getPendingPlayTime();
-      const pendingDepth = getPendingPlayDepth();
-      if (pendingTime !== undefined && pendingDepth < 2) {
-        const queued = pendingTime;
+      if (pendingTime !== undefined) {
         setPendingPlayTime(undefined);
-        setPendingPlayDepth(pendingDepth + 1);
-        log.debug(`[Play] Consuming queued play request: ${queued.toFixed(2)}s (depth: ${pendingDepth + 1})`);
-        play(queued).finally(() => { setPendingPlayDepth(0); });
-      } else {
-        if (pendingTime !== undefined) {
-          log.warn(`[Play] Dropping queued play request at depth ${pendingDepth} to prevent recursion`);
-        }
-        setPendingPlayTime(undefined);
-        setPendingPlayDepth(0);
+        log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
+        play(pendingTime);
       }
     }, 10);
   }
@@ -381,7 +372,7 @@ export function handleEnded(): void {
   const videoElement = getVideoElement();
 
   const hasBufferDuration = !!(_currentAudioBuffer &&
-    Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.5);
+    Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.1);
 
   const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO;
   if (!hasBufferDuration && usesVideoElement && videoElement && videoElement.readyState < 1) return;
@@ -390,7 +381,7 @@ export function handleEnded(): void {
     ? _currentAudioBuffer!.duration
     : (videoElement ? videoElement.duration : 0);
 
-  if (!duration || !Number.isFinite(duration) || duration <= 0.5) return;
+  if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
   if (isIdleOrPaused(currentState)) return;
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 

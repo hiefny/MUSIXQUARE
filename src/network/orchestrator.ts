@@ -103,8 +103,14 @@ function evaluatePeer(peerId: string): void {
 
     // New local peer available: check if any orphaned remotes can now use it
     reassignOrphanedRemotes();
+
+    // Signal that evaluation is complete — isDataTarget is now set
+    bus.emit('orchestrator:peer-evaluated', peerId);
   } else if (connType === 'remote') {
     assignRelayForPeer(peerId);
+
+    // Signal that evaluation is complete — relay assignment done
+    bus.emit('orchestrator:peer-evaluated', peerId);
   }
   // 'unknown' → ignore, event will fire again when detection completes
 }

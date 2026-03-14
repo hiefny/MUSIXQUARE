@@ -479,8 +479,8 @@ export function initPlayback(): void {
     }
   });
 
-  // Host: Send current file after ICE detection completes (isDataTarget is now set)
-  bus.on('orchestrator:peer-type-detected', (peerId: string) => {
+  // Host: Send current file after orchestrator evaluation (isDataTarget is now set)
+  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host
 

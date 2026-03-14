@@ -475,6 +475,7 @@ interface BaseEventMap {
   'relay:serve-current-file': [conn: DataConnection, msg: unknown];
   'relay:serve-recovery': [conn: DataConnection, msg: unknown];
   'orchestrator:peer-type-detected': [peerId: string];
+  'orchestrator:peer-evaluated': [peerId: string];
 
   // ── Connect ─────────────────────────────────────────────────────────
   'ui:connect-tab-opened': [];

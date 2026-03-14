@@ -342,7 +342,14 @@ export function clearPreviousTrackState(reason = ''): void {
   }
   stopPlayerNode();
   setState('transfer.skipIncomingFile', false);
-  setPendingPlayTime(undefined);
+
+  // Don't clear pendingPlayTime for 'new-session-start' — late-join flow sends
+  // PLAY bootstrap (which sets pendingPlayTime) BEFORE FILE_START arrives.
+  // Clearing it here would prevent the guest from auto-playing at the correct position.
+  // For 'file-prepare' / 'session-change', PLAY arrives AFTER the clear, so it's safe.
+  if (reason !== 'new-session-start') {
+    setPendingPlayTime(undefined);
+  }
 
   // Reset state to IDLE
   const currentState = getState('appState');

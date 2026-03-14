@@ -99,6 +99,15 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       return;
     }
 
+    // Fresh join (currentTrackIndex was -1): the file will be sent automatically
+    // by the orchestrator:peer-evaluated handler after ICE detection completes.
+    // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
+    // if the request arrives after the orchestrator sets isDataTarget=true.
+    if (currentTrackIndex === -1) {
+      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-evaluated');
+      return;
+    }
+
     // No preload — request file from host (transport guard)
     if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist = getState('playlist.items') || [];

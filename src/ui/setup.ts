@@ -300,7 +300,7 @@ export function initSetup(): void {
             setState('preload.meta', null);
             bus.emit('ui:show-loader', true, t('setup.joining'));
 
-            setState('network.isConnecting', true);
+            // Note: isConnecting is set inside joinSession() — do NOT pre-set here
             joinSession(lastCode);
           } else {
             startGuestFlow();

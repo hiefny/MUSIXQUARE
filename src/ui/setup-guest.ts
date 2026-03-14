@@ -142,7 +142,8 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   updateRoleBadge();
 
   setupSetGuestJoinBusy(true);
-  setState('network.isConnecting', true);
+  // Note: isConnecting is set inside joinSession() — do NOT pre-set here
+  // (pre-setting would block joinSession's own guard)
   updateRoleBadge();
 
   setupRenderActions([

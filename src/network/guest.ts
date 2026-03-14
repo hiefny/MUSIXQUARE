@@ -38,7 +38,9 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
  */
 export function joinSession(hostId: string, retryAttempt = 0): void {
   // Guard against duplicate calls (e.g. rapid double-click)
-  if (getState('network.isConnecting')) {
+  // Only check on initial call — retries (retryAttempt > 0) must pass through
+  // because isConnecting is already true from the initial call.
+  if (retryAttempt === 0 && getState('network.isConnecting')) {
     log.warn('[Join] Already connecting — ignoring duplicate joinSession call');
     return;
   }
@@ -59,6 +61,11 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   }
 
   setState('network.lastJoinCode', hostId);
+
+  // Set connecting state on initial call (callers must NOT pre-set this)
+  if (retryAttempt === 0) {
+    setState('network.isConnecting', true);
+  }
 
   const peer = getPeer();
 
@@ -89,8 +96,6 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     }
     return;
   }
-
-  setState('network.isConnecting', true);
 
   let conn: DataConnection;
   try {

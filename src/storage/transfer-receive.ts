@@ -724,19 +724,6 @@ export function handleFileChunk(data: Record<string, unknown>): void {
     });
 
     clearManagedTimer('chunkWatchdog');
-
-    // Last-resort safety net: if OPFS_FILE_READY never arrives despite
-    // SESSION_MISMATCH fixes (e.g. worker crash, message lost), the UI
-    // stays stuck forever. Use a generous 30s timeout to avoid false
-    // positives on slow devices with large files. Only resets state —
-    // does NOT trigger recovery (avoids double-loading confusion).
-    setManagedTimer('finalizationWatchdog', () => {
-      if (getState('transfer.state') === TRANSFER_STATE.PROCESSING) {
-        log.warn('[Transfer] Finalization watchdog fired — OPFS_FILE_READY never arrived');
-        setState('transfer.state', TRANSFER_STATE.IDLE);
-        bus.emit('ui:show-loader', false);
-      }
-    }, 30000);
   }
 }
 

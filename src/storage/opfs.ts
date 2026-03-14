@@ -156,7 +156,6 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     case 'OPFS_FILE_READY':
       log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
-      clearManagedTimer('finalizationWatchdog');
       bus.emit('opfs:file-ready', data.filename || '', data.sessionId || 0, data.isPreload || false);
       break;
 

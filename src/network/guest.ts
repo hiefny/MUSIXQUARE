@@ -65,6 +65,10 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   // Set connecting state on initial call (callers must NOT pre-set this)
   if (retryAttempt === 0) {
     setState('network.isConnecting', true);
+    // Clear stale flag from previous cancelled join (startGuestFlow sets true
+    // on back-button cancel, but if old conn never opened, close handler
+    // never fires to reset it — leaving the flag stuck on true).
+    setState('network.isIntentionalDisconnect', false);
   }
 
   const peer = getPeer();

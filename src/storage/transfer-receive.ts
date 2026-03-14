@@ -725,17 +725,18 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 
     clearManagedTimer('chunkWatchdog');
 
-    // Safety net: if OPFS_FILE_READY never arrives (worker OPFS_START failed,
-    // session mismatch silent drop, etc.), the UI stays stuck on "수신중 100%".
-    // This watchdog resets the state after 15s so recovery can re-attempt.
+    // Last-resort safety net: if OPFS_FILE_READY never arrives despite
+    // SESSION_MISMATCH fixes (e.g. worker crash, message lost), the UI
+    // stays stuck forever. Use a generous 30s timeout to avoid false
+    // positives on slow devices with large files. Only resets state —
+    // does NOT trigger recovery (avoids double-loading confusion).
     setManagedTimer('finalizationWatchdog', () => {
       if (getState('transfer.state') === TRANSFER_STATE.PROCESSING) {
         log.warn('[Transfer] Finalization watchdog fired — OPFS_FILE_READY never arrived');
         setState('transfer.state', TRANSFER_STATE.IDLE);
         bus.emit('ui:show-loader', false);
-        bus.emit('storage:request-recovery');
       }
-    }, 15000);
+    }, 30000);
   }
 }
 

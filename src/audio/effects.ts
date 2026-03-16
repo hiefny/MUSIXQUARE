@@ -160,6 +160,14 @@ let _reverbGenerationId = 0;
 let _reverbTotalCycles = 0;
 const MAX_TOTAL_CYCLES = 6;
 
+// Tracks the raw Tone.js generate() promise to serialize calls.
+// Tone.js Reverb.generate() cannot be cancelled — a timed-out call keeps
+// running in the background (a "ghost") and will overwrite the ConvolverNode
+// buffer when it eventually completes. By awaiting the previous raw promise
+// before starting a new generate(), we guarantee our latest call always
+// sets the buffer LAST, preventing ghost overwrites.
+let _lastRawGeneratePromise: Promise<unknown> = Promise.resolve();
+
 async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRetries = 2): Promise<void> {
   if (_reverbGenerateInFlight) {
     _reverbGeneratePending = true;
@@ -179,14 +187,24 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
     }
     let timeoutId: number | undefined;
     try {
-      // Race with timeout — clear timer in finally to prevent leak.
-      // Note: Tone.js Reverb.generate() cannot be cancelled mid-flight.
-      // On timeout, the old generate() may still complete in the background,
-      // but generationId check above ensures stale results are discarded.
+      // Serialize: wait for any ghost generate() from a previous timed-out
+      // attempt to finish, so our new call sets the ConvolverNode buffer LAST.
+      await _lastRawGeneratePromise.catch(() => {});
+
+      // Re-check stale after ghost wait — a newer generation may have started
+      if (generationId !== _reverbGenerationId) {
+        _reverbGenerateInFlight = false;
+        return;
+      }
+
+      // Start the actual generate() and track the raw promise for serialization
+      const p = rev!.generate();
+      _lastRawGeneratePromise = p;
+
       await Promise.race([
-        rev!.generate(),
+        p,
         new Promise<never>((_, reject) => {
-          timeoutId = window.setTimeout(() => reject(new Error('timeout')), 3000);
+          timeoutId = window.setTimeout(() => reject(new Error('timeout')), 8000);
         }),
       ]);
       _reverbGenerateInFlight = false;
@@ -220,6 +238,44 @@ async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRe
       return;
     }
     return _generateReverbWithRetry(rev, maxRetries);
+  }
+}
+
+/**
+ * Generate reverb IR during audio init — tracked to prevent race with
+ * bootstrap messages. _doInitAudio creates masterGain BEFORE calling
+ * reverb.generate(), so bootstrap messages can pass the getMasterGain()
+ * null check in applySettings() and start a concurrent generate().
+ * This wrapper sets _reverbGenerateInFlight so bootstrap-triggered
+ * generate() calls are deferred via the pending mechanism.
+ */
+export async function generateReverbInit(rev: NonNullable<ReturnType<typeof getReverb>>): Promise<void> {
+  _reverbGenerateInFlight = true;
+  _reverbGeneratePending = false;
+  const generationId = ++_reverbGenerationId;
+
+  try {
+    const p = rev.generate();
+    _lastRawGeneratePromise = p;
+    await p;
+  } catch (e) {
+    _reverbGenerateInFlight = false;
+    throw e; // Propagate to _doInitAudio's catch for node cleanup
+  }
+
+  _reverbGenerateInFlight = false;
+
+  // Drain pending from bootstrap messages that arrived during init generate.
+  // Errors here are non-fatal — audio:ready → applySettings() provides a
+  // second chance to regenerate with the correct params.
+  if (_reverbGeneratePending && generationId === _reverbGenerationId) {
+    _reverbGeneratePending = false;
+    _reverbTotalCycles = 0;
+    try {
+      await _generateReverbWithRetry(rev);
+    } catch (e) {
+      log.warn('[Reverb] Post-init re-generate failed:', e);
+    }
   }
 }
 

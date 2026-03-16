@@ -11,6 +11,7 @@ import { log } from '../core/log.ts';
 import { EQ_FREQUENCIES } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { generateReverbInit } from './effects.ts';
 
 import * as Tone from 'tone';
 import type {
@@ -237,7 +238,7 @@ async function _doInitAudio(): Promise<void> {
   _graph.reverb.wet.value = 1; // 100% Wet for parallel routing
 
   try {
-    await _graph.reverb.generate();
+    await generateReverbInit(_graph.reverb);
   } catch (reverbErr) {
     // Clean up partially created nodes before rethrowing
     [_graph.toneSplit, _graph.toneMerge, _graph.gainL, _graph.gainR,

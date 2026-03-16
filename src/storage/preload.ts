@@ -65,6 +65,23 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
   }
 }
 
+// ─── Host: Cancel In-Flight Preload ─────────────────────────────────
+
+/**
+ * Cancel any in-flight preload transfer (host-only).
+ * Called by clearPreloadState() during backward navigation to prevent stale
+ * preload data from reaching guests after the host changes tracks.
+ */
+export function cancelPreloadTransfer(): void {
+  if (_preloadScope) {
+    _preloadScope = SessionScope.replace(_preloadScope);
+    _preloadScope.dispose();
+    _preloadScope = null;
+  }
+  // Bump sessionId so any lingering async loop sees a mismatch and exits
+  setState('preload.sessionId', nextSessionId());
+}
+
 // ─── Host: Schedule Preload ─────────────────────────────────────────
 
 /**
@@ -384,6 +401,11 @@ function handlePreloadStart(data: Record<string, unknown>): void {
     finalized: false,
   });
   setState('preload.sessionState', initSessionState);
+
+  // Clear stale preload blob BEFORE updating meta — prevents meta/blob mismatch
+  // where old blob (from a completed stale preload) matches new meta index,
+  // causing handlePlayPreloaded to use the wrong file.
+  setState('preload.nextFileBlob', null);
 
   setState('preload.meta', {
     name: data.name as string,
@@ -801,6 +823,16 @@ export function initPreload(): void {
   bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
     try {
       log.debug(`[Preload] OPFS preload ready: ${filename} (SID: ${sessionId})`);
+
+      // Guard: ignore stale OPFS completions from superseded preload sessions.
+      // After backward navigation, clearPreloadState cancels the host's transfer
+      // and bumps the session ID, but the OPFS worker may still signal completion
+      // for the old session. Accepting it would set preload.nextFileBlob to a stale
+      // file, causing handlePlayPreloaded to use the wrong track.
+      if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
+        log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}`);
+        return;
+      }
 
       const file = await readFileFromOpfs(filename, true);
       if (!file) {

@@ -17,7 +17,7 @@ import {
   getTrackPosition, incrementLoadToken,
 } from './playback.ts';
 
-import { schedulePreload } from '../storage/preload.ts';
+import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
   setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
 } from '../audio/effects.ts';
@@ -90,12 +90,31 @@ export function clearPreloadState(): void {
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isNextTrackActive = nextMeta && (Number(nextMeta.index) === currentTrackIndex);
 
+  // Cancel any in-flight backgroundTransfer to prevent stale preload data
+  // from reaching guests after backward navigation (host-only).
+  cancelPreloadTransfer();
+
   setState('preload.nextTrackIndex', -1);
   if (!isNextTrackActive) {
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
   }
   setState('preload.isPreloading', false);
+
+  // Host side: clear peers' preloadedIndexes cache — guests reset their OPFS
+  // on track change, so the host must not assume they still have old files
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) {
+    const connectedPeers = getState('network.connectedPeers') || [];
+    if (connectedPeers.length > 0 && connectedPeers.some(p => p.preloadedIndexes?.size > 0)) {
+      const updatedPeers = connectedPeers.map(p =>
+        p.preloadedIndexes?.size > 0
+          ? { ...p, preloadedIndexes: new Set<number>() }
+          : p,
+      );
+      setState('network.connectedPeers', updatedPeers);
+    }
+  }
 
   // Guest side
   postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
@@ -400,6 +419,8 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
   if (!incoming) {
     setState('playlist.items', []);
     setState('playlist.currentTrackIndex', -1);
+    stopAllMedia();
+    clearPreloadState();
     bus.emit('ui:update-playlist');
     return;
   }
@@ -418,7 +439,19 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
     return;
   }
 
+  const prevLength = (getState('playlist.items') || []).length;
   setState('playlist.items', incoming);
+
+  // Playlist emptied — stop media and clear ALL stale audio state on guest.
+  // CRITICAL: must clear files.currentFileBlob and audio buffer, otherwise when
+  // a new track is added at the same index, handleFilePrepare's same-track check
+  // (isSameTrackByIndex) matches and the guest replays the old audio instead of
+  // downloading the new file.
+  if (incoming.length === 0 && prevLength > 0) {
+    stopAllMedia();
+    clearPreloadState();
+    bus.emit('storage:clear-previous-track', 'playlist-emptied');
+  }
 
   // Sync current track index from host (late-join bootstrap)
   let idx = getState('playlist.currentTrackIndex');
@@ -772,9 +805,12 @@ export function initPlaylist(): void {
     setState('playlist.items', playlist);
 
     if (playlist.length === 0) {
-      // Empty playlist — stop everything (stopAllMedia sets IDLE + emits player:state-changed)
+      // Empty playlist — stop everything and clear all stale state
       stopAllMedia();
+      clearPreloadState();
       setState('playlist.currentTrackIndex', -1);
+      setState('files.currentFileBlob', null);
+      setState('transfer.meta', {});
     } else if (isCurrentTrack) {
       // Was playing the removed track — play previous or adjusted index
       const newIdx = Math.min(index, playlist.length - 1);

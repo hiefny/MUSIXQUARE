@@ -1,0 +1,98 @@
+/**
+ * E2E: File Transfer Tests
+ *
+ * Tests file upload and transfer from host to guest:
+ * - Host uploads a file → guest receives it
+ * - Playlist updates propagate to guest
+ * - Transfer state transitions
+ */
+import { test, expect } from '@playwright/test';
+import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
+import { waitForPlaylistCount, readState } from './helpers/wait.ts';
+
+let pair: HostGuestPair;
+
+test.describe('File Transfer', () => {
+  test.beforeEach(async ({ browser }) => {
+    pair = await createHostGuestContexts(browser);
+  });
+
+  test.afterEach(async () => {
+    await cleanupContexts(pair);
+  });
+
+  test('host uploads file and it appears in playlist', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    // Upload a file on host
+    await uploadFixture(pair.hostPage, 'silence3s');
+
+    // Wait for playlist to have 1 item on host
+    await waitForPlaylistCount(pair.hostPage, 1);
+
+    const hostPlaylistCount = await pair.hostPage.evaluate(() => {
+      const list = document.getElementById('playlist-ui');
+      return list?.children.length ?? 0;
+    });
+    expect(hostPlaylistCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('guest receives file after host uploads', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    // Upload file on host
+    await uploadFixture(pair.hostPage, 'silence3s');
+
+    // Wait for host playlist
+    await waitForPlaylistCount(pair.hostPage, 1);
+
+    // Guest should also get the playlist update
+    await waitForPlaylistCount(pair.guestPage, 1, 20_000);
+
+    const guestPlaylistCount = await pair.guestPage.evaluate(() => {
+      const list = document.getElementById('playlist-ui');
+      return list?.children.length ?? 0;
+    });
+    expect(guestPlaylistCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('host uploads multiple files', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    // Upload first file
+    await uploadFixture(pair.hostPage, 'silence3s');
+    await waitForPlaylistCount(pair.hostPage, 1);
+
+    // Upload second file
+    await uploadFixture(pair.hostPage, 'silence5s');
+    await waitForPlaylistCount(pair.hostPage, 2);
+
+    // Guest should see both
+    await waitForPlaylistCount(pair.guestPage, 2, 25_000);
+  });
+
+  test('transfer state returns to idle after completion', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    await uploadFixture(pair.hostPage, 'tone1s');
+    await waitForPlaylistCount(pair.hostPage, 1);
+
+    // Wait for transfer to complete on guest
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        if (!get) return false;
+        const state = get('transfer.state');
+        return state === 'IDLE';
+      },
+      { timeout: 20_000 },
+    );
+
+    const transferState = await readState(pair.guestPage, 'transfer.state');
+    expect(transferState).toBe('IDLE');
+  });
+});

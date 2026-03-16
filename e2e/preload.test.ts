@@ -38,11 +38,11 @@ test.describe('Preload System', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload 2 files
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForTimeout(2000); // Wait for playTrack + schedulePreload
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
     // Wait for preload to potentially schedule
@@ -63,14 +63,14 @@ test.describe('Preload System', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload 3 files
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForTimeout(2000);
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    await uploadFixture(pair.hostPage, 'tone1s');
+    await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
     await pair.hostPage.waitForTimeout(2000);
 
@@ -93,11 +93,11 @@ test.describe('Preload System', () => {
   test('guest receives playlist update with track metadata', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
     await waitForPlaylistCount(pair.guestPage, 2, 20_000);
 

@@ -10,9 +10,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
 
 export const FIXTURE_FILES = {
-  silence3s: path.join(FIXTURES_DIR, 'silence-3s.mp3'),
-  silence5s: path.join(FIXTURES_DIR, 'silence-5s.mp3'),
-  tone1s: path.join(FIXTURES_DIR, 'tone-1s.mp3'),
+  test01: path.join(FIXTURES_DIR, 'test-01.mp3'),
+  test02: path.join(FIXTURES_DIR, 'test-02.mp3'),
+  test03: path.join(FIXTURES_DIR, 'test-03.mp3'),
 } as const;
 
 /**

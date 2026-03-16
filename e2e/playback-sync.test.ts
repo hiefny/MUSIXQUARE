@@ -29,7 +29,7 @@ test.describe('Playback Sync', () => {
   test('host file upload sets transfer meta and track index', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     // Host should have currentTrackIndex set to 0
@@ -50,7 +50,7 @@ test.describe('Playback Sync', () => {
   test('host play button changes app state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     // Wait for file to be loaded (currentFileBlob should be set)
@@ -76,7 +76,7 @@ test.describe('Playback Sync', () => {
   test('guest playlist syncs with host after file upload', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
@@ -94,7 +94,7 @@ test.describe('Playback Sync', () => {
   test('host pause changes state to PAUSED', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     // Wait for file blob

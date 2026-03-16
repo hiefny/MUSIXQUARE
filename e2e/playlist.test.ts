@@ -27,13 +27,13 @@ test.describe('Playlist Management', () => {
   test('multiple files appear in playlist on both sides', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    await uploadFixture(pair.hostPage, 'tone1s');
+    await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
     // Guest should eventually see all 3
@@ -44,15 +44,15 @@ test.describe('Playlist Management', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload 3 files
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForTimeout(2000);
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
     await pair.hostPage.waitForTimeout(1000);
 
-    await uploadFixture(pair.hostPage, 'tone1s');
+    await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
     await pair.hostPage.waitForTimeout(1000);
 
@@ -85,11 +85,11 @@ test.describe('Playlist Management', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload 2 files
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForTimeout(1000);
 
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
     await pair.hostPage.waitForTimeout(1000);
 
@@ -125,9 +125,9 @@ test.describe('Playlist Management', () => {
   test('playlist sync: guest sees same track count as host', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
     // Guest should see 2 tracks

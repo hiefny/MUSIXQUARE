@@ -87,11 +87,11 @@ test.describe('Device Management', () => {
     }
   });
 
-  test.skip('session full rejects extra guest', async ({ browser }) => {
-    // TODO: Flaky — setState('network.maxGuestSlots', 1) timing issue
+  test('session full rejects extra guest', async ({ browser }) => {
+    // Start host session first
     const code = await setupHostAndStart(pair.hostPage);
 
-    // Set max guest slots to 1 directly via exposed setState
+    // Restrict to 1 guest slot immediately (before any guest connects)
     await pair.hostPage.evaluate(() => {
       const setState = (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ as
         | ((path: string, value: unknown) => void)
@@ -101,8 +101,11 @@ test.describe('Device Management', () => {
       }
     });
 
-    // First guest joins
+    // First guest joins (should succeed — slot 1 of 1)
     await setupGuest(pair.guestPage, code);
+
+    // Confirm first guest is connected before second guest tries
+    await waitForDeviceCount(pair.hostPage, 2);
 
     // Create a second guest
     const guest2Context = await browser.newContext();
@@ -121,10 +124,16 @@ test.describe('Device Management', () => {
       await guest2Page.fill('#setup-join-code', code);
       await guest2Page.click('#btn-setup-confirm');
 
-      // Wait for response
-      await guest2Page.waitForTimeout(10_000);
+      // Wait for SESSION_FULL — guest2 should see dialog or remain on setup overlay
+      await guest2Page.waitForFunction(
+        () => {
+          const overlay = document.getElementById('setup-overlay');
+          const dialog = document.querySelector('.dialog-overlay.active, .dialog-backdrop.active, .dialog-container');
+          return overlay?.classList.contains('active') || !!dialog;
+        },
+        { timeout: 20_000 },
+      );
 
-      // Second guest should still be on setup (rejected) or see a dialog
       const overlayActive = await guest2Page.evaluate(() =>
         document.getElementById('setup-overlay')?.classList.contains('active'),
       );

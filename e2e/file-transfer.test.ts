@@ -27,7 +27,7 @@ test.describe('File Transfer', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload a file on host
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
 
     // Wait for playlist to have 1 item on host
     await waitForPlaylistCount(pair.hostPage, 1);
@@ -43,7 +43,7 @@ test.describe('File Transfer', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload file on host
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
 
     // Wait for host playlist
     await waitForPlaylistCount(pair.hostPage, 1);
@@ -62,11 +62,11 @@ test.describe('File Transfer', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload first file
-    await uploadFixture(pair.hostPage, 'silence3s');
+    await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     // Upload second file
-    await uploadFixture(pair.hostPage, 'silence5s');
+    await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
     // Guest should see both
@@ -76,7 +76,7 @@ test.describe('File Transfer', () => {
   test('transfer state returns to idle after completion', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    await uploadFixture(pair.hostPage, 'tone1s');
+    await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     // Wait for transfer to complete on guest

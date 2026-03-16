@@ -72,10 +72,10 @@ test.describe('MUSIXQUARE Smoke Test', () => {
       await settingsNav.click();
     }
 
-    // Theme buttons should exist
-    await expect(page.locator('#theme-light')).toBeAttached();
-    await expect(page.locator('#theme-dark')).toBeAttached();
-    await expect(page.locator('#theme-system')).toBeAttached();
+    // Theme grid and options should exist (data-theme attributes, no IDs)
+    await expect(page.locator('#grid-theme')).toBeAttached();
+    await expect(page.locator('.ch-opt[data-theme="light"]')).toBeAttached();
+    await expect(page.locator('.ch-opt[data-theme="dark"]')).toBeAttached();
   });
 });
 

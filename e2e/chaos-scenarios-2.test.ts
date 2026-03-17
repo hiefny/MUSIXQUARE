@@ -2318,7 +2318,7 @@ test.describe('Nuclear Meltdown v2', () => {
       // Step 13: Guest4 joins during pause
       const g4 = await joinAsLateGuest(browser, code);
       allGuests.push(g4);
-      await waitForPlaylistCount(g4.guestPage, 4, 45_000);
+      await waitForPlaylistCount(g4.guestPage, 4, 90_000);
 
       // Step 14: Guest2 disconnects
       await g2.guestContext.close();

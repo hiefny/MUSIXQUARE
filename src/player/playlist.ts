@@ -763,7 +763,14 @@ export function initPlaylist(): void {
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
-      setManagedTimer('ended-advance-retry', () => { if (token === _endedAdvanceToken) playTrack(currentTrackIndex); }, 300);
+      setManagedTimer('ended-advance-retry', () => {
+        if (token !== _endedAdvanceToken) return;
+        // Reuse in-memory audio buffer — skip file re-transfer to guests.
+        // Same optimized path as playNextTrack() repeat-one branch.
+        incrementLoadToken();
+        play(0).catch(() => { /* noop */ });
+        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+      }, 300);
     } else {
       log.debug('Auto-advancing to next track...');
       setManagedTimer('ended-advance-next', () => { if (token === _endedAdvanceToken) playNextTrack(); }, 500);

@@ -1,0 +1,330 @@
+/**
+ * MUSIXQUARE 3.0 — Canvas FFT Visualizer
+ *
+ * Manages: Bass/High frequency circle visualizer with light/dark theme.
+ */
+
+import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
+import { getState } from '../core/state.ts';
+import { APP_STATE } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { isIdleOrPaused } from '../player/video.ts';
+import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
+
+// ─── State ───────────────────────────────────────────────────────
+
+let _animationId: number | null = null;
+let _visualizerRetryCount = 0;
+const MAX_VISUALIZER_RETRIES = 20;
+let _resizeListenerAdded = false;
+let _batterySaver = false;
+
+// ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
+const BASS_SMOOTH = 0.8;
+const HIGH_SMOOTH = 0.8;
+
+// ─── (Frame throttle removed — runs at display's native refresh rate) ───
+
+// ─── Cached values (avoid per-frame DOM reads) ──────────────────
+let _cachedIsLight = false;
+let _themeListenersRegistered = false;
+let _themeObserver: MutationObserver | null = null;
+
+function refreshThemeCache(): void {
+  const theme = document.documentElement.getAttribute('data-theme');
+  _cachedIsLight = (theme === 'light');
+}
+
+function _initThemeListeners(): void {
+  if (_themeListenersRegistered) return;
+  _themeListenersRegistered = true;
+
+  // Listen for OS-level prefers-color-scheme change
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshThemeCache);
+  } catch { /* ignore */ }
+
+  // Listen for data-theme attribute changes (app-level theme toggle)
+  try {
+    _themeObserver = new MutationObserver(refreshThemeCache);
+    _themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  } catch { /* ignore */ }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+function getAnalyser(): unknown {
+  return getEngineAnalyser();
+}
+
+// ─── Start Active Visualizer ─────────────────────────────────────
+
+export function startVisualizer(): void {
+  if (_batterySaver) return;
+
+  clearManagedTimer('viz-retry');
+  if (_animationId) {
+    cancelAnimationFrame(_animationId);
+    _animationId = null;
+  }
+
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const _ctx = canvas.getContext('2d');
+  if (!_ctx) return;
+  const ctx: CanvasRenderingContext2D = _ctx;
+
+  const analyser = getAnalyser() as Record<string, unknown> | null;
+
+  if (!analyser) {
+    if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
+      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries');
+      _visualizerRetryCount = 0;
+      return;
+    }
+    setManagedTimer('viz-retry', startVisualizer, 100);
+    return;
+  }
+  _visualizerRetryCount = 0;
+
+  // Check type: Tone.js analyser has .getValue(), native has .getByteFrequencyData()
+  const isToneAnalyser = typeof (analyser as Record<string, unknown>).getValue === 'function';
+  const bufferLength = isToneAnalyser
+    ? ((analyser as Record<string, number>).size || 256)
+    : (analyser as unknown as AnalyserNode).frequencyBinCount;
+
+  let smoothedBass = 0;
+  let smoothedHigh = 0;
+
+  // Canvas scale (High DPI)
+  const wrapper = document.querySelector('.vinyl-wrapper');
+  const logicalSize = (wrapper && (wrapper as HTMLElement).clientWidth > 10)
+    ? (wrapper as HTMLElement).clientWidth : 240;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
+    canvas.width = logicalSize * dpr;
+    canvas.height = logicalSize * dpr;
+    canvas.style.width = '';
+    canvas.style.height = '';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
+
+  // Pre-compute constants outside draw loop
+  const centerX = logicalSize / 2;
+  const centerY = logicalSize / 2;
+  const scale = logicalSize / 240;
+  const twoPi = 2 * Math.PI;
+  const highStart = Math.floor(bufferLength * 0.7);
+  const highEnd = bufferLength;
+  let highCountVal = highEnd - highStart;
+  if (highCountVal < 1) highCountVal = 1;
+  let bassCount = 12;
+  if (bassCount > bufferLength) bassCount = bufferLength;
+
+  // Cache theme on start
+  refreshThemeCache();
+
+  function draw(): void {
+    const currentState = getState('appState');
+    if (isIdleOrPaused(currentState)) { _animationId = null; return; }
+    // YouTube/Video mode: Tone.js analyser isn't connected or canvas is CSS-hidden, skip draw
+    if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+    if (!isToneAnalyser) {
+      log.warn('[Visualizer] Non-Tone analyser not supported');
+      _animationId = null;
+      return;
+    }
+
+    try {
+      const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, logicalSize, logicalSize);
+
+      // Bass: 0~260Hz (12 bins)
+      let bassSum = 0;
+      for (let i = 0; i < bassCount; i++) {
+        let val = (dbData[i] + 100) * 2.5;
+        if (!isFinite(val)) val = 0;
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        bassSum += val;
+      }
+      const bassAverage = bassSum / bassCount;
+
+      smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
+      let bassPunch = Math.pow(smoothedBass / 255, 2.5);
+      if (!isFinite(bassPunch)) bassPunch = 0;
+
+      // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
+      let highSum = 0;
+      for (let i = highStart; i < highEnd; i++) {
+        let val = (dbData[i] + 100) * 2.5;
+        if (!isFinite(val)) val = 0;
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        highSum += val;
+      }
+      const highAverage = highSum / highCountVal;
+      smoothedHigh = smoothedHigh * HIGH_SMOOTH + highAverage * (1 - HIGH_SMOOTH);
+      let highPunch = smoothedHigh / 255;
+      if (!isFinite(highPunch)) highPunch = 0;
+
+      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
+      ctx.shadowBlur = 0;
+
+      // Circle 1: Bass
+      const bassRadius = (55 + (bassPunch * 200)) * scale;
+      const bassLightness = 20 + (bassPunch * 60);
+      ctx.fillStyle = _cachedIsLight
+        ? 'rgba(59, 130, 246, 0.6)'
+        : `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
+      ctx.fill();
+
+      // Circle 2: High
+      const highRadius = (40 + (highPunch * 130)) * scale;
+      const highLightness = 40 + (highPunch * 60);
+      ctx.fillStyle = _cachedIsLight
+        ? 'rgba(96, 165, 250, 0.6)'
+        : `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, highRadius, 0, twoPi);
+      ctx.fill();
+
+      // Schedule next frame only after successful draw
+      _animationId = requestAnimationFrame(draw);
+    } catch (e) {
+      log.warn('[Visualizer] draw() error — stopping animation loop:', e);
+      _animationId = null;
+    }
+  }
+
+  draw();
+}
+
+// ─── Idle Visualizer ─────────────────────────────────────────────
+
+export function drawIdleVisualizer(): void {
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const _ctx2 = canvas.getContext('2d');
+  if (!_ctx2) return;
+  const ctx: CanvasRenderingContext2D = _ctx2;
+
+  const wrapper = document.querySelector('.vinyl-wrapper');
+  const rawWidth = wrapper ? (wrapper as HTMLElement).clientWidth : 0;
+  const logicalSize = rawWidth > 10 ? rawWidth : 240;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
+    canvas.width = logicalSize * dpr;
+    canvas.height = logicalSize * dpr;
+    canvas.style.width = '';
+    canvas.style.height = '';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
+
+  const theme = document.documentElement.getAttribute('data-theme');
+  const isLight = (theme === 'light');
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, logicalSize, logicalSize);
+  ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
+  ctx.shadowBlur = 0;
+
+  const centerX = logicalSize / 2;
+  const centerY = logicalSize / 2;
+  const scale = logicalSize / 240;
+
+  // Bass circle (static)
+  const bassRadius = 55 * scale;
+  ctx.fillStyle = isLight ? 'rgba(59, 130, 246, 0.6)' : 'hsla(217, 91%, 60%, 0.4)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
+  ctx.fill();
+
+  // High circle (static)
+  const highRadius = 40 * scale;
+  ctx.fillStyle = isLight ? 'rgba(96, 165, 250, 0.6)' : 'hsla(217, 100%, 70%, 0.4)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+// ─── Init ────────────────────────────────────────────────────────
+
+export function initVisualizer(): void {
+  refreshThemeCache();
+  _initThemeListeners();
+  drawIdleVisualizer();
+
+  if (!_resizeListenerAdded) {
+    _resizeListenerAdded = true;
+    window.addEventListener('resize', () => {
+      setManagedTimer('viz-resize', () => {
+        const wrapper = document.querySelector('.vinyl-wrapper');
+        if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
+        const currentState = getState('appState');
+        if (isIdleOrPaused(currentState)) {
+          drawIdleVisualizer();
+        } else {
+          startVisualizer();
+        }
+      }, 250);
+    });
+  }
+
+  // Listen for check events from tab switch
+  bus.on('ui:visualizer-check', () => {
+    const currentState = getState('appState');
+    if (currentState === APP_STATE.PAUSED) {
+      // Keep last frame — do nothing
+    } else if (currentState === APP_STATE.IDLE) {
+      drawIdleVisualizer();
+    } else {
+      startVisualizer();
+    }
+  });
+
+  // Listen for playback state changes
+  bus.on('player:state-changed', () => {
+    if (_batterySaver) return;
+    const currentState = getState('appState');
+    if (currentState === APP_STATE.PAUSED) {
+      // Keep last frame — only stop animation loop
+      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+    } else if (currentState === APP_STATE.IDLE) {
+      drawIdleVisualizer();
+    } else {
+      startVisualizer();
+    }
+  });
+
+  // Listen for visualizer start command from playback
+  bus.on('visualizer:start', () => {
+    startVisualizer();
+  });
+
+  // Battery saver mode toggle
+  bus.on('visualizer:battery-saver', (on: boolean) => {
+    _batterySaver = on;
+    if (on) {
+      clearManagedTimer('viz-retry');
+      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+    } else {
+      const currentState = getState('appState');
+      if (!isIdleOrPaused(currentState) && currentState !== APP_STATE.PLAYING_YOUTUBE) {
+        startVisualizer();
+      }
+    }
+  });
+
+  log.info('[Visualizer] Initialized');
+}

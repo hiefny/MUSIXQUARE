@@ -1,0 +1,325 @@
+/**
+ * MUSIXQUARE 3.0 — Application Bootstrap
+ *
+ * Module initialization order:
+ * 1. core/   — constants, log, events, state, platform, session, blob-manager, timers
+ * 2. audio/  — engine, effects, channel
+ * 3. network/ — peer, protocol, sync, relay
+ * 4. storage/ — opfs, transfer, preload, recovery
+ * 5. player/ — playback, playlist, video, media-session
+ * 6. youtube/ — player, sync, search
+ * 7. ui/     — dom, toast, dialog, tabs, i18n, visualizer, chat, playlist-view,
+ *              player-controls, settings, setup
+ * 8. sw-register
+ */
+
+// ── Core ──
+import { log } from './core/log.ts';
+import { bus } from './core/events.ts';
+import { initPlatform } from './core/platform.ts';
+import { INSTANCE_ID } from './core/session.ts';
+import { getState, snapshot } from './core/state.ts';
+import { APP_STATE } from './core/constants.ts';
+import { BlobURLManager } from './core/blob-manager.ts';
+import { setManagedTimer } from './core/timers.ts';
+
+// ── Audio ──
+import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
+import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
+import { setChannelMode } from './audio/channel.ts';
+
+// ── Network ──
+import { initProtocol } from './network/protocol.ts';
+import { initPeerHandlers, leaveSession } from './network/peer.ts';
+import { initSync } from './network/sync.ts';
+import { initRelay } from './network/relay.ts';
+import { initOrchestrator } from './network/orchestrator.ts';
+
+// ── Storage ──
+import { setSyncWorker, setTransferWorker } from './storage/opfs.ts';
+import { initTransfer } from './storage/transfer.ts';
+import { initPreload } from './storage/preload.ts';
+import { initRecovery } from './storage/recovery.ts';
+
+// ── Player ──
+import { initPlayback } from './player/playback.ts';
+import { initPlaylist } from './player/playlist.ts';
+import { initVideo } from './player/video.ts';
+import { initMediaSession } from './player/media-session.ts';
+
+// ── YouTube ──
+import { initYouTube } from './youtube/player.ts';
+import { initYouTubeSync } from './youtube/sync.ts';
+
+// ── UI ──
+import { initOverlayOpenObserver } from './ui/dom.ts';
+import { initToast } from './ui/toast.ts';
+import { initDialog } from './ui/dialog.ts';
+import { initTabs } from './ui/tabs.ts';
+import { initI18n } from './i18n/index.ts';
+import { t } from './i18n/index.ts';
+import { initVisualizer } from './ui/visualizer.ts';
+import { initChat } from './ui/chat.ts';
+import { initPlaylistView } from './ui/playlist-view.ts';
+import { initPlayerControls } from './ui/player-controls.ts';
+import { initSettings } from './ui/settings.ts';
+import { initConnect } from './ui/connect.ts';
+import { initSetup } from './ui/setup.ts';
+
+// ── Service Worker ──
+import { registerServiceWorker } from './sw-register.ts';
+
+// ── System Compatibility Check ──
+
+function checkSystemCompatibility(): void {
+  let allPassed = true;
+
+  // HTTPS check
+  if (!window.isSecureContext) {
+    allPassed = false;
+    bus.emit('ui:show-toast', t('error.https_required'));
+    log.warn('[App] Not a secure context');
+  }
+
+  // OPFS support check
+  if (!(navigator.storage && navigator.storage.getDirectory)) {
+    allPassed = false;
+    bus.emit('ui:show-toast', t('error.browser_update'));
+    log.warn('[App] OPFS not supported');
+  }
+
+  if (allPassed) {
+    log.info('[App] System compatibility check passed');
+  }
+}
+
+// ── Keyboard Shortcuts ──
+
+function initKeyboardShortcuts(): void {
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    // If another handler already claimed this key, don't also treat it as a global shortcut
+    if (e.defaultPrevented) return;
+
+    // Don't intercept when focused on text input elements
+    const activeTag = document.activeElement?.tagName;
+    if (activeTag && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+
+    // Don't hijack Space on interactive controls (important for a11y)
+    const interactive = (e.target as Element)?.closest?.(
+      'button, a, [role="button"], input, textarea, select, [contenteditable="true"]'
+    );
+    if ((e.key === ' ' || e.code === 'Space') && interactive) return;
+
+    // Don't intercept modifier key combos (Ctrl+S, Cmd+P, etc.)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const currentState = getState('appState');
+    const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
+                      currentState === APP_STATE.PLAYING_VIDEO ||
+                      currentState === APP_STATE.PLAYING_YOUTUBE;
+
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      bus.emit('player:toggle-play');
+    } else if (e.key === 'p' || e.key === 'P') {
+      if (!isPlaying) bus.emit('player:toggle-play');
+    } else if (e.key === 's' || e.key === 'S') {
+      if (isPlaying) bus.emit('player:toggle-play');
+    } else if (e.key === 'c' || e.key === 'C') {
+      bus.emit('ui:toggle-chat-drawer');
+    }
+  });
+
+  log.info('[App] Keyboard shortcuts registered');
+}
+
+// ── Wake Lock (native API) ──
+// Enabled once when session starts, never disabled.
+// Re-acquired automatically when tab becomes visible again.
+
+let _wakeLockActive = false;
+
+async function acquireWakeLock(): Promise<void> {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    await navigator.wakeLock.request('screen');
+    log.debug('[App] Wake Lock acquired');
+  } catch (err) {
+    log.warn('[App] Wake Lock request failed:', err);
+  }
+}
+
+export function activateNoSleep(): void {
+  if (_wakeLockActive) return;
+  _wakeLockActive = true;
+  acquireWakeLock();
+}
+
+function initWakeLock(): void {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+
+    // Re-acquire wake lock
+    if (_wakeLockActive) acquireWakeLock();
+
+    // iOS audio interruption recovery: resume suspended AudioContext
+    if (isAudioReady()) {
+      const ctx = getAudioContext();
+      if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
+        log.info(`[App] AudioContext ${ctx.state} — attempting resume`);
+        ctx.resume().then(() => {
+          log.info('[App] AudioContext resumed successfully');
+          const currentState = getState('appState');
+          if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+            applySettingsAsync();
+          }
+        }).catch(err => {
+          log.warn('[App] AudioContext resume failed:', err);
+        });
+      }
+    }
+  });
+
+  log.info('[App] Wake Lock initialized (native API)');
+}
+
+// ── Global Error Handlers ──
+
+window.onerror = (msg, src, line, col, err) => {
+  log.error(`[Global] ${msg} at ${src}:${line}:${col}`, err);
+  return false;
+};
+window.addEventListener('unhandledrejection', (e) => {
+  log.error('[Global] Unhandled rejection:', e.reason);
+});
+
+// ── Beforeunload Cleanup ──
+
+function initBeforeUnload(): void {
+  window.addEventListener('beforeunload', () => {
+    try { leaveSession(); } catch { /* noop */ }
+  });
+}
+
+// ── Bootstrap ──
+
+function bootstrap(): void {
+  log.info(`[App] MUSIXQUARE 3.0 bootstrap (instance: ${INSTANCE_ID})`);
+
+  /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
+  function safeInit(name: string, fn: () => void): void {
+    try { fn(); } catch (e) { log.error(`[App] ${name} init failed:`, e); }
+  }
+
+  // 1. Platform detection & viewport height
+  safeInit('Platform', initPlatform);
+
+  // 2. Core UI init (must run before other UI modules)
+  safeInit('OverlayObserver', initOverlayOpenObserver);
+  safeInit('Toast', initToast);
+  safeInit('Dialog', initDialog);
+  safeInit('Tabs', initTabs);
+  safeInit('I18n', initI18n);
+
+  // 3. Player & Media
+  safeInit('Playback', initPlayback);
+  safeInit('Playlist', initPlaylist);
+  safeInit('Video', initVideo);
+  safeInit('MediaSession', initMediaSession);
+
+  // 4. Audio engine (deferred init — actual Tone.js init on user interaction)
+  // Engine, effects, channel register bus listeners at import time
+  safeInit('EffectsHandlers', initEffectsHandlers);
+
+  // 5. Network (registers bus listeners; PeerJS init deferred to host/guest flow)
+  // initNetwork() is called from setup.ts via createHostSessionWithShortCode() or joinSession()
+  safeInit('Protocol', initProtocol);
+  safeInit('PeerHandlers', initPeerHandlers);
+  safeInit('Sync', initSync);
+  safeInit('Relay', initRelay);
+  safeInit('Orchestrator', initOrchestrator);
+
+  // 6. Workers & Storage
+  try {
+    const syncW = new Worker(
+      new URL('./workers/sync.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    setSyncWorker(syncW);
+    syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
+    log.info('[App] SyncWorker started');
+  } catch (e) {
+    log.warn('[App] SyncWorker failed:', e);
+  }
+
+  let transferWorkerReady = false;
+  try {
+    const transferW = new Worker(
+      new URL('./workers/transfer.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    setTransferWorker(transferW);
+    transferWorkerReady = true;
+    transferW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
+    log.info('[App] TransferWorker started');
+  } catch (e) {
+    log.warn('[App] TransferWorker failed:', e);
+  }
+
+  if (transferWorkerReady) {
+    safeInit('Transfer', initTransfer);
+    safeInit('Preload', initPreload);
+    safeInit('Recovery', initRecovery);
+  } else {
+    log.warn('[App] Skipping transfer/preload/recovery init — worker unavailable');
+  }
+
+  // 7. YouTube
+  safeInit('YouTube', initYouTube);
+  safeInit('YouTubeSync', initYouTubeSync);
+
+  // 8. UI modules (binds DOM events)
+  safeInit('Visualizer', initVisualizer);
+  safeInit('Chat', initChat);
+  safeInit('PlaylistView', initPlaylistView);
+  safeInit('PlayerControls', initPlayerControls);
+  safeInit('Settings', initSettings);
+  safeInit('Connect', initConnect);
+  safeInit('Setup', initSetup);
+
+  // 9. Service Worker
+  safeInit('ServiceWorker', registerServiceWorker);
+
+  // 10. Blob URL cleanup on disconnect
+  bus.on('blob:revoke-all', () => BlobURLManager.revokeAllNow('session-end'));
+
+  // 11. Keyboard shortcuts, Wake Lock & Cleanup
+  safeInit('KeyboardShortcuts', initKeyboardShortcuts);
+  safeInit('WakeLock', initWakeLock);
+  safeInit('BeforeUnload', initBeforeUnload);
+
+  // 12. System compatibility check (deferred to not block bootstrap)
+  setManagedTimer('sys-compat-check', checkSystemCompatibility, 100);
+
+  // 13. Expose debug helpers on window (dev only)
+  if (import.meta.env?.DEV) {
+    const debugObj = {
+      state: snapshot,
+      bus,
+      initAudio,
+      isAudioReady,
+      applySettings,
+      setChannelMode,
+    };
+    (window as unknown as Record<string, unknown>).__MXQR = debugObj;
+  }
+
+  log.info('[App] Bootstrap complete — all modules loaded');
+}
+
+// Run bootstrap
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+} else {
+  bootstrap();
+}

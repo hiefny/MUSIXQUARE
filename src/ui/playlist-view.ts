@@ -111,7 +111,7 @@ export function updatePlaylistUI(): void {
 
     li.innerHTML = `
       <div class="track-idx">${idx + 1}</div>
-      <div class="track-name">${icon} ${escapeHtml(displayName)}</div>
+      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
       ${expandBtn}
       ${trailingEl}
     `;

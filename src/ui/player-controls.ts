@@ -643,26 +643,70 @@ export function initPlayerControls(): void {
   });
 
   // UI loop (seek bar + time update during playback)
+  // Uses rAF interpolation for smooth 60fps slider movement,
+  // with 250ms polling for authoritative position correction + ended check.
+  let _rafId = 0;
+  let _rafAnchorTime = 0;   // last authoritative position (seconds)
+  let _rafAnchorTs = 0;     // performance.now() when anchor was set
+  let _rafLastFmtSec = -1;  // last formatted second (avoid redundant DOM writes)
+
+  function _seekRafLoop(now: number): void {
+    const isSeeking = getState('player.isSeeking');
+    if (!isSeeking) {
+      const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+      const tc = document.getElementById('time-curr');
+      if (slider) {
+        const dt = (now - _rafAnchorTs) / 1000;
+        const interpolated = Math.min(_rafAnchorTime + dt, parseFloat(slider.max) || 0);
+        slider.value = String(interpolated);
+
+        // Only update text + aria when the displayed second changes (perf)
+        const sec = Math.floor(interpolated);
+        if (sec !== _rafLastFmtSec) {
+          _rafLastFmtSec = sec;
+          const fmt = fmtTime(interpolated);
+          slider.setAttribute('aria-valuetext', fmt);
+          if (tc) tc.innerText = fmt;
+        }
+      }
+    }
+    _rafId = requestAnimationFrame(_seekRafLoop);
+  }
+
+  function _startSeekRaf(): void {
+    if (_rafId) return; // already running
+    _rafAnchorTime = getTrackPosition();
+    _rafAnchorTs = performance.now();
+    _rafLastFmtSec = -1;
+    _rafId = requestAnimationFrame(_seekRafLoop);
+  }
+
+  function _stopSeekRaf(): void {
+    if (_rafId) {
+      cancelAnimationFrame(_rafId);
+      _rafId = 0;
+    }
+  }
+
   let _endedCheckCounter = 0;
   bus.on('ui:loop-start', () => {
     _endedCheckCounter = 0;
+    _startSeekRaf();
+
+    // 250ms authoritative correction + ended check (lightweight — no DOM writes)
     setManagedTimer('time-update-loop', () => {
       const currentState = getState('appState');
       if (isIdleOrPaused(currentState)) {
         clearManagedTimer('time-update-loop');
+        _stopSeekRaf();
         return;
       }
-      const pos = getTrackPosition();
-      const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-      const tc = document.getElementById('time-curr');
-      const isSeeking = getState('player.isSeeking');
-      if (slider && !isSeeking) {
-        slider.value = String(pos);
-        slider.setAttribute('aria-valuetext', fmtTime(pos));
-      }
-      if (tc && !isSeeking) tc.innerText = fmtTime(pos);
 
-      // Safety polling: check if track ended (every ~500ms, since loop runs at 250ms)
+      // Correct rAF anchor to real position (prevents drift)
+      _rafAnchorTime = getTrackPosition();
+      _rafAnchorTs = performance.now();
+
+      // Safety polling: check if track ended (every ~500ms)
       _endedCheckCounter++;
       if (_endedCheckCounter >= 2) {
         _endedCheckCounter = 0;
@@ -674,6 +718,7 @@ export function initPlayerControls(): void {
   // Clean up UI loop when playback stops entirely (session leave, etc.)
   bus.on('player:stop-all-media', () => {
     clearManagedTimer('time-update-loop');
+    _stopSeekRaf();
   });
 
   // Player actions

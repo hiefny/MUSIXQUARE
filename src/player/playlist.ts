@@ -291,6 +291,7 @@ export function playNextTrack(): void {
     incrementLoadToken();
     play(0).catch(() => { /* noop */ });
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+    requestGlobalResyncDelayed();
     return;
   } else if (isShuffle) {
     if (playlist.length === 1) {
@@ -770,6 +771,7 @@ export function initPlaylist(): void {
         incrementLoadToken();
         play(0).catch(() => { /* noop */ });
         broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+        requestGlobalResyncDelayed();
       }, 300);
     } else {
       log.debug('Auto-advancing to next track...');

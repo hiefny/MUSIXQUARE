@@ -1109,13 +1109,18 @@ input[type=range]:active::-moz-range-thumb {
     flex: 1;
     font-size: 16px;
     font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--text-main);
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+}
+
+.track-name-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .type-icon {

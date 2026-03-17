@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSIXQUARE – Logo Animation</title>
+<style>
+@font-face {
+  font-family: "Pretendard";
+  src: url("../../fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #f8f9fa;
+  --primary: #3b82f6;
+  --primary-rgb: 59, 130, 246;
+  --text-main: #212529;
+  --text-sub: #495057;
+}
+
+body {
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scene {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── Glow ─── */
+.glow-bg {
+  position: absolute;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--primary-rgb), 0.15) 0%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ─── Note icon ─── */
+.note-icon-wrapper {
+  margin-bottom: 48px;
+  opacity: 0;
+  transform: scale(0.5);
+}
+.note-icon {
+  width: 96px;
+  height: 96px;
+}
+.note-stroke {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.2;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+.note-fill-path {
+  fill: var(--primary);
+  opacity: 0;
+}
+
+/* ─── Logo SVG — all strokes start hidden ─── */
+.logo-welcome {
+  height: 56px;
+  fill: var(--text-main);
+  display: block;
+}
+.logo-welcome > .wg {
+  opacity: 0;
+}
+/* All writing strokes start fully clipped */
+.logo-welcome > .wl {
+  /* Will be set by JS */
+}
+.wl.wlr  { clip-path: inset(0 100% 0 0); }
+.wl.wrl  { clip-path: inset(0 0 0 100%); }
+.wl.wtb  { clip-path: inset(0 0 100% 0); }
+.wl.wbt  { clip-path: inset(100% 0 0 0); }
+.wl.wdiag { clip-path: inset(0 100% 100% 0); }
+
+/* ─── Tagline ─── */
+.tagline {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text-sub);
+  margin-top: 36px;
+  letter-spacing: -0.3px;
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+/* ─── Feature pills ─── */
+.feature-pills {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  opacity: 0;
+  transform: translateY(16px);
+}
+.pill {
+  padding: 8px 20px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary);
+}
+</style>
+</head>
+<body>
+<div class="scene">
+  <div class="glow-bg" id="glow"></div>
+
+  <!-- Music note icon -->
+  <div class="note-icon-wrapper" id="note-wrapper">
+    <svg class="note-icon" viewBox="0 0 24 24">
+      <path class="note-stroke" id="note-stroke"
+            d="M12,3v9.28c-.47-.17-.97-.28-1.5-.28-2.49,0-4.5,2.01-4.5,4.5s2.01,4.5,4.5,4.5c2.31,0,4.21-1.75,4.5-4h0V6h4V3h-7Z"/>
+      <path class="note-fill-path" id="note-fill"
+            d="M12,3v9.28c-.47-.17-.97-.28-1.5-.28-2.49,0-4.5,2.01-4.5,4.5s2.01,4.5,4.5,4.5c2.31,0,4.21-1.75,4.5-4h0V6h4V3h-7Z"/>
+    </svg>
+  </div>
+
+  <!-- MUSIXQUARE writing animation (exact SVG from setup screen) -->
+  <svg class="logo-welcome" id="logo-svg" viewBox="43 12 214 26" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><g class="wg"><polygon points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3"/><polygon points="86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8"/><polygon points="95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3"/><rect x="117.5" y="12.8" width="4.5" height="22.5"/><polygon points="139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8"/><path d="M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z"/><polygon points="183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8"/><path d="M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z"/><path d="M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z"/><rect x="237.2" y="12.8" width="18" height="4.5"/><rect x="237.2" y="21.8" width="13.5" height="4.5"/><rect x="237.2" y="30.8" width="18" height="4.5"/></g><!-- M --><rect class="wl wlr" x="45.5" y="12.8" width="22.5" height="4.5" style="--wt:0ms;--wd:1080ms"/><rect class="wl wtb" x="45.5" y="17.3" width="4.5" height="18" style="--wt:120ms;--wd:900ms"/><rect class="wl wtb" x="54.5" y="17.3" width="4.5" height="18" style="--wt:400ms;--wd:900ms"/><rect class="wl wtb" x="63.5" y="17.3" width="4.5" height="18" style="--wt:660ms;--wd:900ms"/><!-- U --><rect class="wl wtb" x="72.5" y="12.8" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="72.5" y="30.8" width="18" height="4.5" style="--wt:480ms;--wd:840ms"/><rect class="wl wbt" x="86" y="12.8" width="4.5" height="18" style="--wt:960ms;--wd:840ms"/><!-- S --><rect class="wl wrl" x="95" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wtb" x="95" y="17.3" width="4.5" height="4.5" style="--wt:360ms;--wd:300ms"/><rect class="wl wlr" x="95" y="21.8" width="18" height="4.5" style="--wt:540ms;--wd:600ms"/><rect class="wl wtb" x="108.5" y="26.3" width="4.5" height="4.5" style="--wt:900ms;--wd:300ms"/><rect class="wl wrl" x="95" y="30.8" width="18" height="4.5" style="--wt:1080ms;--wd:600ms"/><!-- I --><rect class="wl wtb" x="117.5" y="12.8" width="4.5" height="22.5" style="--wt:0ms;--wd:840ms"/><!-- X --><polygon class="wl wtb" points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3" style="--wt:0ms;--wd:700ms"/><polygon class="wl wtb" points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3" style="--wt:400ms;--wd:700ms"/><!-- Q --><rect class="wl wrl" x="147.2" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wtb" x="147.2" y="17.3" width="4.5" height="13.5" style="--wt:360ms;--wd:600ms"/><rect class="wl wlr" x="147.2" y="30.8" width="18" height="4.5" style="--wt:780ms;--wd:600ms"/><rect class="wl wbt" x="160.7" y="17.3" width="4.5" height="13.5" style="--wt:1200ms;--wd:600ms"/><rect class="wl wtb" x="154" y="28.5" width="4.5" height="2.3" style="--wt:1560ms;--wd:180ms"/><rect class="wl wtb" x="154" y="35.3" width="4.5" height="2.7" style="--wt:1660ms;--wd:300ms"/><!-- U --><rect class="wl wtb" x="169.7" y="12.8" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="169.7" y="30.8" width="18" height="4.5" style="--wt:480ms;--wd:840ms"/><rect class="wl wbt" x="183.2" y="12.8" width="4.5" height="18" style="--wt:960ms;--wd:840ms"/><!-- A --><rect class="wl wbt" x="192.2" y="17.3" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="192.2" y="12.8" width="18" height="4.5" style="--wt:480ms;--wd:600ms"/><rect class="wl wtb" x="205.7" y="17.3" width="4.5" height="18" style="--wt:840ms;--wd:840ms"/><rect class="wl wlr" x="196.7" y="21.8" width="9" height="4.5" style="--wt:1380ms;--wd:480ms"/><!-- R --><rect class="wl wtb" x="214.7" y="12.8" width="4.5" height="22.5" style="--wt:0ms;--wd:1020ms"/><rect class="wl wlr" x="219.2" y="12.8" width="13.5" height="4.5" style="--wt:600ms;--wd:540ms"/><rect class="wl wtb" x="228.2" y="17.3" width="4.5" height="4.5" style="--wt:960ms;--wd:240ms"/><rect class="wl wrl" x="219.2" y="21.8" width="13.5" height="4.5" style="--wt:1080ms;--wd:540ms"/><polygon class="wl wdiag" points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3" style="--wt:1440ms;--wd:600ms"/><!-- E --><rect class="wl wlr" x="237.2" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wlr" x="237.2" y="21.8" width="13.5" height="4.5" style="--wt:480ms;--wd:480ms"/><rect class="wl wlr" x="237.2" y="30.8" width="18" height="4.5" style="--wt:960ms;--wd:600ms"/></svg>
+
+  <div class="tagline" id="tagline">P2P Synchronized Music Player</div>
+
+  <div class="feature-pills" id="pills">
+    <span class="pill">WebRTC</span>
+    <span class="pill">Real-time Sync</span>
+    <span class="pill">Free</span>
+  </div>
+</div>
+
+<script>
+// ─── Parse all .wl elements and pre-compute their animation data ───
+const wlData = [];
+document.querySelectorAll('.wl').forEach(el => {
+  const style = el.style;
+  const wt = parseFloat(style.getPropertyValue('--wt')) || 0;  // ms
+  const wd = parseFloat(style.getPropertyValue('--wd')) || 150; // ms
+
+  // Determine direction from class
+  let dir = 'wlr';
+  if (el.classList.contains('wrl'))  dir = 'wrl';
+  if (el.classList.contains('wtb'))  dir = 'wtb';
+  if (el.classList.contains('wbt'))  dir = 'wbt';
+  if (el.classList.contains('wdiag')) dir = 'wdiag';
+
+  wlData.push({ el, wt, wd, dir });
+});
+
+// Easing: approximate cubic-bezier(0.15, 0.5, 0.05, 1)
+function ease(t) {
+  // Fast start, smooth deceleration
+  return 1 - Math.pow(1 - t, 2.5);
+}
+
+// Set clip-path based on direction and progress (0→1)
+function setClipPath(el, dir, progress) {
+  const p = ease(progress);
+  const remain = (1 - p) * 100;
+  switch (dir) {
+    case 'wlr':  el.style.clipPath = `inset(0 ${remain}% 0 0)`; break;
+    case 'wrl':  el.style.clipPath = `inset(0 0 0 ${remain}%)`; break;
+    case 'wtb':  el.style.clipPath = `inset(0 0 ${remain}% 0)`; break;
+    case 'wbt':  el.style.clipPath = `inset(${remain}% 0 0 0)`; break;
+    case 'wdiag': el.style.clipPath = `inset(0 ${remain}% ${remain}% 0)`; break;
+  }
+}
+
+// ─── Timeline constants ───
+const LOGO_WRITE_START = 1400; // ms — when letter writing begins
+const NOTE_APPEAR = 200;
+const NOTE_DRAW_START = 300;
+const NOTE_DRAW_END = 1100;
+const NOTE_FILL_START = 900;
+const NOTE_FILL_END = 1300;
+const GHOST_TIME = 1200;
+const TAGLINE_START = 3200;
+const PILLS_START = 3600;
+const GLOW_START = 3800;
+
+// ─── Main timeline controller ───
+window.__promoSetTime = function(ms) {
+  const noteWrapper = document.getElementById('note-wrapper');
+  const noteStroke = document.getElementById('note-stroke');
+  const noteFill = document.getElementById('note-fill');
+  const ghost = document.querySelector('.wg');
+  const tagline = document.getElementById('tagline');
+  const pills = document.getElementById('pills');
+  const glow = document.getElementById('glow');
+
+  // Phase 1: Note icon scale-in (200ms)
+  if (ms >= NOTE_APPEAR) {
+    const p = Math.min((ms - NOTE_APPEAR) / 400, 1);
+    const ep = 1 - Math.pow(1 - p, 3);
+    noteWrapper.style.opacity = String(ep);
+    noteWrapper.style.transform = `scale(${0.5 + 0.5 * ep})`;
+  }
+
+  // Phase 2: Note stroke draw-in (300–1100ms)
+  if (ms >= NOTE_DRAW_START) {
+    const p = Math.min((ms - NOTE_DRAW_START) / (NOTE_DRAW_END - NOTE_DRAW_START), 1);
+    const ep = 1 - Math.pow(1 - p, 3);
+    noteStroke.style.strokeDashoffset = String(60 * (1 - ep));
+    noteStroke.style.opacity = '1';
+  }
+
+  // Phase 3: Note fill fade-in (900–1300ms)
+  if (ms >= NOTE_FILL_START) {
+    const p = Math.min((ms - NOTE_FILL_START) / (NOTE_FILL_END - NOTE_FILL_START), 1);
+    noteFill.style.opacity = String(p);
+  }
+
+  // Phase 4: Ghost underlay (1200ms)
+  if (ms >= GHOST_TIME && ghost) {
+    const p = Math.min((ms - GHOST_TIME) / 300, 1);
+    ghost.style.opacity = String(0.15 * p);
+  }
+
+  // Phase 5: Letter writing animation (1400ms+)
+  // Each .wl element: startTime = LOGO_WRITE_START + wt, duration = wd
+  wlData.forEach(({ el, wt, wd, dir }) => {
+    const startTime = LOGO_WRITE_START + wt;
+    if (ms < startTime) {
+      // Still hidden
+      return;
+    }
+    const progress = Math.min((ms - startTime) / wd, 1);
+    setClipPath(el, dir, progress);
+  });
+
+  // Phase 6: Tagline (3200ms)
+  if (ms >= TAGLINE_START) {
+    const p = Math.min((ms - TAGLINE_START) / 500, 1);
+    const ep = 1 - Math.pow(1 - p, 3);
+    tagline.style.opacity = String(ep);
+    tagline.style.transform = `translateY(${16 * (1 - ep)}px)`;
+  }
+
+  // Phase 7: Feature pills (3600ms)
+  if (ms >= PILLS_START) {
+    const p = Math.min((ms - PILLS_START) / 500, 1);
+    const ep = 1 - Math.pow(1 - p, 3);
+    pills.style.opacity = String(ep);
+    pills.style.transform = `translateY(${16 * (1 - ep)}px)`;
+  }
+
+  // Phase 8: Glow pulse (3800ms)
+  if (ms >= GLOW_START) {
+    const p = Math.min((ms - GLOW_START) / 1200, 1);
+    const pulse = Math.sin(p * Math.PI);
+    glow.style.opacity = String(pulse * 0.8);
+    glow.style.transform = `scale(${0.8 + pulse * 0.3})`;
+  }
+};
+
+// Auto-play mode (for browser preview)
+const params = new URLSearchParams(location.search);
+if (params.get('autoplay') === 'true') {
+  let startTime = performance.now();
+  function loop() {
+    const elapsed = performance.now() - startTime;
+    window.__promoSetTime(elapsed);
+    if (elapsed < 5000) requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>

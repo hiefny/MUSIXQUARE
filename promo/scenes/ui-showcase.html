@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSIXQUARE – UI Showcase</title>
+<style>
+@font-face {
+  font-family: "Pretendard";
+  src: url("../../fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #f8f9fa;
+  --primary: #3b82f6;
+  --primary-rgb: 59, 130, 246;
+  --text-main: #212529;
+  --text-sub: #495057;
+}
+
+body {
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* ─── Scene wrapper ─── */
+.promo-scene {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+/* ─── Background blobs ─── */
+.promo-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0;
+  pointer-events: none;
+}
+.promo-blob-1 {
+  width: 500px; height: 500px;
+  background: rgba(59,130,246,0.10);
+  top: -120px; right: -120px;
+}
+.promo-blob-2 {
+  width: 400px; height: 400px;
+  background: rgba(59,130,246,0.06);
+  bottom: -100px; left: -100px;
+}
+
+/* ─── Title above phone ─── */
+.promo-top {
+  text-align: center;
+  margin-bottom: 40px;
+  opacity: 0;
+  transform: translateY(20px);
+  z-index: 2;
+}
+.promo-title {
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -1.5px;
+}
+.promo-subtitle {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-sub);
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+/* ─── Phone frame (scaled to fill portrait canvas) ─── */
+.promo-phone-wrap {
+  /* The iframe inside is 375×812, we scale it up */
+  width: 375px;
+  height: 812px;
+  transform: scale(1.55);
+  transform-origin: top center;
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+}
+
+.promo-phone {
+  width: 375px;
+  height: 812px;
+  border-radius: 44px;
+  overflow: hidden;
+  position: relative;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.06),
+    0 25px 80px rgba(0,0,0,0.14),
+    0 6px 24px rgba(0,0,0,0.07);
+}
+
+/* The real app lives here */
+.promo-phone iframe {
+  width: 375px;
+  height: 812px;
+  border: none;
+  display: block;
+}
+
+/* ─── Reveal overlay (covers phone, fades out element-by-element) ─── */
+</style>
+</head>
+<body>
+
+<div class="promo-scene">
+  <div class="promo-blob promo-blob-1"></div>
+  <div class="promo-blob promo-blob-2"></div>
+
+  <div class="promo-top" id="promo-top">
+    <div class="promo-title">MUSIXQUARE</div>
+    <div class="promo-subtitle">P2P Synchronized Music Player</div>
+  </div>
+
+  <div class="promo-phone-wrap" id="promo-phone-wrap">
+    <div class="promo-phone">
+      <iframe id="app-frame" src="../../index.html"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+const iframe = document.getElementById('app-frame');
+let appDoc = null;
+window.appReady = false;
+
+function tryInit() {
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!doc || !doc.body || doc.body.children.length < 5) return false;
+    appDoc = doc;
+    setupApp();
+    window.appReady = true;
+    return true;
+  } catch(e) {
+    console.error('Cannot access iframe:', e);
+    return false;
+  }
+}
+
+if (!tryInit()) {
+  iframe.addEventListener('load', () => tryInit());
+  const poll = setInterval(() => { if (tryInit()) clearInterval(poll); }, 200);
+}
+
+// ─── Easing ───
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+// ─── Cached element refs (filled in setupApp) ───
+const revealEls = {};   // selector → DOM element
+let currentTab = 'play';
+
+// ─── Setup: populate fake data, hide overlay, prep elements ───
+function setupApp() {
+  if (!appDoc) return;
+
+  // Hide overlay & FOUC guard
+  const overlay = appDoc.getElementById('setup-overlay');
+  if (overlay) overlay.style.display = 'none';
+  const fouc = appDoc.getElementById('fouc-guard');
+  if (fouc) fouc.remove();
+
+  // Force light theme
+  appDoc.documentElement.setAttribute('data-theme', 'light');
+
+  // HOST badge — blue (#3b82f6), matching real app's .role-badge.connected
+  const roleBadge = appDoc.getElementById('role-badge');
+  if (roleBadge) {
+    const roleText = appDoc.getElementById('role-text');
+    const roleDot = roleBadge.querySelector('.role-dot');
+    if (roleText) roleText.textContent = 'HOST';
+    if (roleDot) roleDot.style.background = '#ffffff';
+    roleBadge.style.background = '#3b82f6';
+    roleBadge.style.color = '#ffffff';
+    roleBadge.classList.add('connected');
+    if (roleText) roleText.style.color = '#ffffff';
+  }
+
+  // Track info
+  const tt = appDoc.getElementById('track-title');
+  if (tt) tt.textContent = 'Sunset Boulevard';
+  const ta = appDoc.getElementById('track-artist');
+  if (ta) ta.textContent = 'Luna & The Stars';
+
+  // Seek / volume
+  const ss = appDoc.getElementById('seek-slider');
+  if (ss) { ss.max = '225'; ss.value = '83'; }
+  const tc = appDoc.getElementById('time-curr');
+  if (tc) tc.textContent = '1:23';
+  const td = appDoc.getElementById('time-dur');
+  if (td) td.textContent = '3:45';
+  const vs = appDoc.getElementById('volume-slider');
+  if (vs) vs.value = '80';
+
+  // Playlist
+  const pul = appDoc.getElementById('playlist-ui');
+  if (pul) {
+    pul.innerHTML = '';
+    [
+      { name: 'Sunset Boulevard', active: true },
+      { name: 'Midnight in Seoul', active: false },
+      { name: 'Ocean Drive (feat. Luna)', active: false },
+      { name: 'Golden Hour', active: false },
+    ].forEach((t, i) => {
+      const li = appDoc.createElement('li');
+      li.className = 'track-item' + (t.active ? ' active' : '');
+      li.innerHTML = `<span class="track-idx">${i+1}</span><div class="track-name"><span class="track-name-text">${t.name}</span>${t.active ? '<div class="playing-indicator"><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>':''}</div>`;
+      pul.appendChild(li);
+    });
+  }
+
+
+  // Invite codes — 6-digit numeric like the real app
+  appDoc.querySelectorAll('.invite-code-value').forEach(el => el.textContent = '482937');
+  const dt = appDoc.getElementById('connect-device-title');
+  if (dt) dt.textContent = '연결된 기기 2대';
+
+  // Hide chat drawer
+  const cd = appDoc.getElementById('chat-drawer');
+  if (cd) cd.style.display = 'none';
+
+  // ─── Populate all i18n text (the app's i18n system doesn't run in promo) ───
+  const i18nMap = {
+    // Navigation
+    'nav.home': '메인',
+    'nav.playlist': '재생목록',
+    'nav.connect': '연결',
+    'nav.settings': '설정',
+    'nav.help': '도움말',
+    // Play tab
+    'chat.start': '채팅을 시작하세요',
+    'common.sync': '동기화',
+    'player.play_media': '미디어 재생',
+    // Connect tab
+    'settings.invite_code': '초대 코드',
+    'connect.qr_title': 'QR 코드로 참가',
+    'connect.max_devices': '접속 가능한 기기 수',
+    'settings.leave_session': '이 세션 나가기',
+    // Settings tab
+    'settings.subtab.general': '일반',
+    'settings.subtab.audio': '오디오',
+    'settings.subtab.connect': '연결',
+    'settings.subtab.help': '도움말',
+    'settings.language': '언어',
+    'settings.theme': '테마',
+    'settings.theme_light': '라이트',
+    'settings.battery_saving': '배터리 절약 모드',
+    'settings.speaker_role': '스피커 역할',
+    'settings.speaker_role_stereo': '스테레오',
+    'settings.reverb': '리버브',
+    'settings.reverb_none': '없음',
+    'settings.visualizer': '비주얼라이저',
+    'settings.eq': '이퀄라이저',
+    'player.visualizer': '비주얼라이저',
+  };
+  appDoc.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (i18nMap[key]) el.textContent = i18nMap[key];
+  });
+
+  // Also set tab titles (span.tab-title with data-i18n)
+  appDoc.querySelectorAll('.tab-title[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (i18nMap[key]) el.textContent = i18nMap[key];
+  });
+
+  // Connect tab: QR code — inject real QR SVG for https://mxqr.netlify.app
+  const qrContainer = appDoc.getElementById('qr-container');
+  if (qrContainer) {
+    qrContainer.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" class="qr-svg" width="200" height="200" viewBox="0 0 27 27" shape-rendering="crispEdges"><path stroke="#212529" d="M1 1.5h7m4 0h3m2 0h1m1 0h7M1 2.5h1m5 0h1m3 0h1m1 0h1m2 0h1m2 0h1m5 0h1M1 3.5h1m1 0h3m1 0h1m1 0h2m1 0h2m1 0h3m1 0h1m1 0h3m1 0h1M1 4.5h1m1 0h3m1 0h1m1 0h7m3 0h1m1 0h3m1 0h1M1 5.5h1m1 0h3m1 0h1m1 0h1m7 0h1m1 0h1m1 0h3m1 0h1M1 6.5h1m5 0h1m1 0h1m4 0h3m2 0h1m5 0h1M1 7.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 8.5h1m1 0h1m4 0h2M1 9.5h1m1 0h5m4 0h6m1 0h5M1 10.5h1m1 0h1m1 0h1m2 0h1m3 0h4m1 0h2m1 0h1m3 0h1M1 11.5h1m3 0h1m1 0h2m1 0h1m5 0h2m2 0h1m1 0h1m1 0h2M1 12.5h1m3 0h1m2 0h1m1 0h3m2 0h3m1 0h3m3 0h1M1 13.5h3m1 0h1m1 0h1m1 0h2m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m1 0h3M1 14.5h5m4 0h1m2 0h2m2 0h2m1 0h1m1 0h1m1 0h1M1 15.5h1m2 0h2m1 0h1m2 0h2m2 0h3m2 0h4m1 0h2M1 16.5h1m1 0h1m2 0h1m4 0h1m1 0h1m3 0h5m3 0h1M1 17.5h1m5 0h1m1 0h1m1 0h1m1 0h3m1 0h5m1 0h1M9 18.5h1m1 0h1m4 0h2m3 0h2M1 19.5h7m4 0h2m3 0h1m1 0h1m1 0h1m1 0h3M1 20.5h1m5 0h1m1 0h2m1 0h1m2 0h1m1 0h1m3 0h2m2 0h1M1 21.5h1m1 0h3m1 0h1m1 0h1m1 0h11m1 0h1M1 22.5h1m1 0h3m1 0h1m1 0h2m2 0h1m1 0h5m1 0h5M1 23.5h1m1 0h3m1 0h1m1 0h1m3 0h1m3 0h2m3 0h2m1 0h1M1 24.5h1m5 0h1m3 0h1m1 0h1m2 0h2m1 0h4m2 0h1M1 25.5h7m1 0h1m4 0h3m3 0h6"/></svg>
+      <button class="btn-copy-invite-link" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true" style="width:20px;height:20px;fill:currentColor;"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+        <span>초대 링크 복사</span>
+      </button>
+    `;
+  }
+
+  // Connect tab: devices — real app uses .device-row structure
+  const dl2 = appDoc.getElementById('connect-device-list');
+  if (dl2) {
+    dl2.innerHTML = '';
+    [
+      { name: 'iPhone 15 Pro', shortId: 'a3b7', isOp: true },
+      { name: 'Galaxy S24', shortId: 'e4f2', isOp: false },
+    ].forEach(d => {
+      const row = appDoc.createElement('div');
+      row.className = 'device-row';
+      row.innerHTML = `<span class="d-dot active"></span><span class="d-name">${d.name} <span class="d-short-id">(${d.shortId})</span>${d.isOp ? '<span class="d-op-badge">OP</span>' : ''}</span>`;
+      dl2.appendChild(row);
+    });
+  }
+
+  // Inject styles (NO transitions — we drive everything via JS)
+  const style = appDoc.createElement('style');
+  style.textContent = `
+    * { transition: none !important; animation: none !important; }
+    .header-loading-text { display: none !important; }
+  `;
+  appDoc.head.appendChild(style);
+
+  // Cache reveal-target elements & set initial hidden state
+  const revealSelectors = [
+    '#main-header', '.vinyl-wrapper', '.track-box',
+    '.progress-bar', '.play-controls-left', '.chat-preview-btn',
+    '.play-action-buttons', '.bottom-nav',
+  ];
+  revealSelectors.forEach(sel => {
+    const el = appDoc.querySelector(sel);
+    if (el) {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(14px)';
+      revealEls[sel] = el;
+    }
+  });
+
+  // Ensure play tab active
+  switchTab('play', true);
+}
+
+function switchTab(tabName, force) {
+  if (!appDoc) return;
+  if (tabName === currentTab && !force) return;
+  currentTab = tabName;
+
+  appDoc.querySelectorAll('.tab-content').forEach(t => {
+    t.classList.remove('active');
+    t.style.display = 'none';
+    t.style.opacity = '0';
+    t.style.transform = 'translateX(0)';
+  });
+
+  const target = appDoc.getElementById('tab-' + tabName);
+  if (target) {
+    target.style.display = '';
+    target.classList.add('active');
+    // Initial tab (play) starts visible; others start at 0 (animated by timeline)
+    if (force) {
+      target.style.opacity = '1';
+      target.style.transform = 'translateX(0)';
+    }
+  }
+
+  // Nav highlight
+  const navMap = { play:'nav-play', playlist:'nav-playlist', connect:'nav-connect', settings:'nav-settings' };
+  appDoc.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const nEl = appDoc.getElementById(navMap[tabName]);
+  if (nEl) nEl.classList.add('active');
+}
+
+// ─── Timeline — slower, more breathing room ───
+const REVEAL_DUR = 500;   // ms for each element reveal
+const TAB_DUR = 450;      // ms for tab crossfade
+
+const entries = [
+  // Phase 1: Player tab reveals (0.5s – 4.5s)
+  { t: 500,  dur: REVEAL_DUR, type: 'reveal', sel: '#main-header' },
+  { t: 1000, dur: REVEAL_DUR, type: 'reveal', sel: '.vinyl-wrapper' },
+  { t: 1600, dur: REVEAL_DUR, type: 'reveal', sel: '.track-box' },
+  { t: 2100, dur: REVEAL_DUR, type: 'reveal', sel: '.progress-bar' },
+  { t: 2700, dur: REVEAL_DUR, type: 'reveal', sel: '.play-controls-left' },
+  { t: 3200, dur: REVEAL_DUR, type: 'reveal', sel: '.chat-preview-btn' },
+  { t: 3700, dur: REVEAL_DUR, type: 'reveal', sel: '.play-action-buttons' },
+  { t: 4200, dur: REVEAL_DUR, type: 'reveal', sel: '.bottom-nav' },
+
+  // Phase 2: Playlist tab (5.0s – 7.0s)
+  { t: 5000, dur: TAB_DUR, type: 'tab', tab: 'playlist' },
+  { t: 5500, dur: 400, type: 'reveal-track', idx: 0 },
+  { t: 5800, dur: 400, type: 'reveal-track', idx: 1 },
+  { t: 6100, dur: 400, type: 'reveal-track', idx: 2 },
+  { t: 6400, dur: 400, type: 'reveal-track', idx: 3 },
+
+  // Phase 3: Connect tab (7.5s – 9.5s)
+  { t: 7500, dur: TAB_DUR, type: 'tab', tab: 'connect' },
+
+  // Phase 4: Settings tab (10.0s – 12.0s)
+  { t: 10000, dur: TAB_DUR, type: 'tab', tab: 'settings' },
+];
+
+// ─── Main timeline controller — pure JS, no CSS transitions ───
+window.__promoSetTime = function(ms) {
+  // ── Outer scene ──
+  const top = document.getElementById('promo-top');
+  const phone = document.getElementById('promo-phone-wrap');
+  const blob1 = document.querySelector('.promo-blob-1');
+  const blob2 = document.querySelector('.promo-blob-2');
+
+  if (blob1) blob1.style.opacity = String(Math.min(ms / 800, 1) * 0.7);
+  if (blob2) blob2.style.opacity = String(Math.min(ms / 1000, 1) * 0.5);
+
+  // Title fade-in (100–600ms)
+  if (top) {
+    if (ms < 100) { top.style.opacity = '0'; top.style.transform = 'translateY(20px)'; }
+    else {
+      const p = easeOut(Math.min((ms - 100) / 500, 1));
+      top.style.opacity = String(p);
+      top.style.transform = `translateY(${20 * (1 - p)}px)`;
+    }
+  }
+
+  // Phone fade-in (200–800ms)
+  if (phone) {
+    if (ms < 200) { phone.style.opacity = '0'; }
+    else { phone.style.opacity = String(easeOut(Math.min((ms - 200) / 600, 1))); }
+  }
+
+  // ── App content (iframe) ──
+  if (!window.appReady || !appDoc) return;
+
+  for (const e of entries) {
+    if (ms < e.t) continue;  // Not started yet
+
+    const progress = Math.min((ms - e.t) / e.dur, 1);
+    const ep = easeOut(progress);
+
+    if (e.type === 'reveal') {
+      const el = revealEls[e.sel];
+      if (el) {
+        el.style.opacity = String(ep);
+        el.style.transform = `translateY(${14 * (1 - ep)}px)`;
+      }
+    }
+    else if (e.type === 'reveal-track') {
+      const items = appDoc.querySelectorAll('.track-item');
+      const el = items[e.idx];
+      if (el) {
+        el.style.opacity = String(ep);
+        el.style.transform = `translateX(${20 * (1 - ep)}px)`;
+      }
+    }
+    else if (e.type === 'tab') {
+      // Switch tab (once)
+      if (!e._switched) {
+        switchTab(e.tab);
+        e._switched = true;
+      }
+      // Animate the new tab content opacity + slide
+      const tabEl = appDoc.getElementById('tab-' + e.tab);
+      if (tabEl) {
+        tabEl.style.opacity = String(ep);
+        tabEl.style.transform = `translateX(${16 * (1 - ep)}px)`;
+      }
+    }
+  }
+};
+
+// Auto-play mode
+const params = new URLSearchParams(location.search);
+if (params.get('autoplay') === 'true') {
+  const waitForReady = setInterval(() => {
+    if (window.appReady) {
+      clearInterval(waitForReady);
+      let startTime = performance.now();
+      (function loop() {
+        const elapsed = performance.now() - startTime;
+        window.__promoSetTime(elapsed);
+        if (elapsed < 12000) requestAnimationFrame(loop);
+      })();
+    }
+  }, 100);
+}
+</script>
+</body>
+</html>

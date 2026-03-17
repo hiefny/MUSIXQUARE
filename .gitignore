@@ -2,3 +2,5 @@
 node_modules/
 dist/
 *.ait
+promo/frames/
+promo/output/

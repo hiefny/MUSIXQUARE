@@ -40,7 +40,7 @@ interface Orientation {
 }
 
 const SCENES: SceneConfig[] = [
-  { name: 'ui-showcase',     htmlFile: 'scenes/ui-showcase.html',    durationMs: 12000, fps: 60 },
+  { name: 'ui-showcase',     htmlFile: 'scenes/ui-showcase.html',    durationMs: 40000, fps: 60 },
   { name: 'logo-animation',  htmlFile: 'scenes/logo-animation.html', durationMs: 5000,  fps: 60 },
 ];
 

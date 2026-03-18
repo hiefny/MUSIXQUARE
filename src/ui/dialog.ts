@@ -19,10 +19,18 @@ export interface DialogOptions {
   cancelText?: string;
   dismissible?: boolean;
   defaultFocus?: 'primary' | 'secondary' | 'close';
+  inputField?: {
+    placeholder?: string;
+    defaultValue?: string;
+    maxLength?: number;
+    hint?: string;
+    validator?: (value: string) => string | null;
+  };
 }
 
 export interface DialogResult {
   action: string;
+  inputValue?: string;
 }
 
 interface DialogActiveState {
@@ -34,6 +42,10 @@ interface DialogActiveState {
 // ─── State ───────────────────────────────────────────────────────
 
 let _dialogActive: DialogActiveState | null = null;
+let _dialogInput: HTMLInputElement | null = null;
+let _dialogHint: HTMLDivElement | null = null;
+let _dialogValidator: ((value: string) => string | null) | null = null;
+let _dialogHintDefault = '';
 const _dialogQueue: Array<{ opts: DialogOptions | string; resolve: (result: DialogResult) => void }> = [];
 
 // ─── Internal ────────────────────────────────────────────────────
@@ -65,8 +77,11 @@ export function closeDialog(action = 'close'): void {
     try { (active.prevFocus as HTMLElement).focus(); } catch { /* ignore */ }
   }
 
+  const inputValue = _dialogInput ? _dialogInput.value : undefined;
+  _dialogInput = null;
+
   if (typeof active?.resolve === 'function') {
-    try { active.resolve({ action }); } catch { /* ignore */ }
+    try { active.resolve({ action, inputValue }); } catch { /* ignore */ }
   }
 
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
@@ -103,6 +118,33 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   titleEl.textContent = title;
   msgEl.textContent = message;
+
+  // Input field support
+  const inputCfg = (typeof opts === 'object' && opts) ? opts.inputField : undefined;
+  if (inputCfg) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'dialog-input';
+    if (inputCfg.placeholder) input.placeholder = inputCfg.placeholder;
+    if (inputCfg.defaultValue) input.value = inputCfg.defaultValue;
+    if (inputCfg.maxLength) input.maxLength = inputCfg.maxLength;
+    msgEl.appendChild(input);
+    _dialogInput = input;
+
+    const hint = document.createElement('div');
+    hint.className = 'dialog-hint';
+    hint.textContent = inputCfg.hint || '';
+    msgEl.appendChild(hint);
+    _dialogHint = hint;
+    _dialogHintDefault = inputCfg.hint || '';
+    _dialogValidator = inputCfg.validator || null;
+  } else {
+    _dialogInput = null;
+    _dialogHint = null;
+    _dialogValidator = null;
+    _dialogHintDefault = '';
+  }
+
   okBtn.textContent = buttonText;
 
   if (secondaryBtn) {
@@ -130,6 +172,43 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   _dialogActive = { resolve, prevFocus, cleanup };
 
+  const tryValidateAndClose = () => {
+    if (_dialogValidator && _dialogInput) {
+      const val = _dialogInput.value.trim();
+      const error = _dialogValidator(val);
+      if (error) {
+        // Show inline error
+        if (_dialogHint) {
+          _dialogHint.textContent = error;
+          _dialogHint.classList.add('error');
+        }
+        _dialogInput.classList.add('invalid');
+        _dialogInput.classList.remove('shake');
+        // Force reflow to restart animation
+        void _dialogInput.offsetWidth;
+        _dialogInput.classList.add('shake');
+        _dialogInput.addEventListener('animationend', () => {
+          _dialogInput?.classList.remove('shake');
+        }, { once: true });
+        return;
+      }
+    }
+    closeDialog('ok');
+  };
+
+  const clearInputError = () => {
+    if (_dialogHint && _dialogHint.classList.contains('error')) {
+      _dialogHint.textContent = _dialogHintDefault;
+      _dialogHint.classList.remove('error');
+    }
+    _dialogInput?.classList.remove('invalid');
+  };
+
+  // Clear error on input change
+  if (_dialogInput) {
+    on(_dialogInput, 'input', () => clearInputError());
+  }
+
   const done = (action: string) => closeDialog(action);
 
   on(overlay, 'click', (e) => {
@@ -137,7 +216,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (e.target === overlay) done('overlay');
   });
 
-  on(okBtn, 'click', () => done('ok'));
+  on(okBtn, 'click', () => tryValidateAndClose());
   if (hasSecondary && secondaryBtn) {
     on(secondaryBtn, 'click', () => done('secondary'));
   }
@@ -147,6 +226,16 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     cleanup.push(() => { closeBtn.style.display = ''; });
   }
   on(closeBtn, 'click', () => done('close'));
+
+  // Enter key on input confirms dialog (with validation)
+  if (_dialogInput) {
+    on(_dialogInput, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
+        (e as KeyboardEvent).preventDefault();
+        tryValidateAndClose();
+      }
+    });
+  }
 
   on(window, 'keydown', (e) => {
     const ke = e as KeyboardEvent;
@@ -160,9 +249,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (ke.key === 'Tab') {
       const focusables = [
         closeBtn,
+        _dialogInput as HTMLElement | null,
         hasSecondary ? secondaryBtn : null,
         okBtn,
-      ].filter((x): x is HTMLButtonElement => x != null && x.offsetParent !== null);
+      ].filter((x): x is HTMLElement => x != null && x.offsetParent !== null);
       if (focusables.length === 0) return;
 
       const first = focusables[0]!;
@@ -185,10 +275,15 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   setManagedTimer('dialog-focus', () => {
     try {
-      const pick = (defaultFocus === 'secondary' && hasSecondary && secondaryBtn)
-        ? secondaryBtn
-        : (defaultFocus === 'close' ? closeBtn : okBtn);
-      (pick || okBtn)!.focus();
+      if (_dialogInput) {
+        _dialogInput.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
+        _dialogInput.select();
+      } else {
+        const pick = (defaultFocus === 'secondary' && hasSecondary && secondaryBtn)
+          ? secondaryBtn
+          : (defaultFocus === 'close' ? closeBtn : okBtn);
+        (pick || okBtn)!.focus();
+      }
     } catch { /* ignore */ }
   }, 0);
 }

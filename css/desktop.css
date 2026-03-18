@@ -786,6 +786,7 @@
         /* Symmetric 44px top start and 28px gap to content */
     }
 
+    .rename-device-btn,
     .leave-session-btn {
         margin-left: 20px;
         margin-right: 20px;

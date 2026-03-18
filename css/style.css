@@ -1672,17 +1672,22 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     cursor: pointer;
 }
 
-/* ── Device List Row ─────────────────────────────────────────────── */
+/* ── Device List Row (playlist-unified) ─────────────────────────── */
 .device-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--surface-2);
+    gap: 16px;
+    padding: 16px;
+    min-height: 61px;
+    box-sizing: border-box;
+    border-radius: var(--radius-m);
+    background: transparent;
+    transition: background 0.2s;
+    border-bottom: 1px solid transparent;
 }
 
-.device-row:last-child {
-    border-bottom: none;
+.device-row:active {
+    background: var(--surface-2);
 }
 
 .device-row .d-name {
@@ -1691,36 +1696,25 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-main);
 }
 
-.d-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+.d-order {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 24px;
+    text-align: center;
     flex-shrink: 0;
-}
-
-.d-dot.active {
-    background: #52c41a;
-    box-shadow: 0 0 4px rgba(82, 196, 26, 0.4);
-}
-
-.d-dot.inactive {
-    background: #ff4d4f;
-    box-shadow: 0 0 4px rgba(255, 77, 79, 0.4);
-}
-
-.d-short-id {
-    font-size: 11px;
-    opacity: 0.5;
-    margin-left: 4px;
 }
 
 .d-op-badge {
     color: var(--primary);
     font-size: 10px;
     font-weight: bold;
-    margin-left: 4px;
+    margin-left: 6px;
 }
 
 .d-actions {
@@ -1764,38 +1758,47 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     color: #ff4d4f;
 }
 
-/* ── Kick Device Button ─────────────────────────────────────────── */
+/* ── Kick Device Button (playlist-remove style) ────────────────── */
 .btn-kick-device {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
     background: none;
     border: none;
     border-radius: 50%;
     cursor: pointer;
-    margin-left: 4px;
-    opacity: 0.4;
+    opacity: 0;
     transition: opacity 0.15s, color 0.15s;
     color: var(--text-muted);
     padding: 0;
 }
 
 .btn-kick-device svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     fill: currentColor;
 }
 
-.btn-kick-device:hover {
+.device-row:hover .btn-kick-device {
+    opacity: 0.6;
+}
+
+.device-row:hover .btn-kick-device:hover {
     opacity: 1;
     color: #ff4d4f;
 }
 
+@media (pointer: coarse) {
+    .btn-kick-device {
+        opacity: 0.5;
+    }
+}
+
 /* Leave Session */
-.leave-session-btn {
+.rename-device-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1804,6 +1807,40 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     height: 56px;
     padding: 0;
     margin-top: 24px;
+    border: none;
+    border-radius: 20px;
+    background: rgba(0, 122, 255, 0.08);
+    color: #007aff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.rename-device-btn:hover {
+    background: rgba(0, 122, 255, 0.12);
+}
+
+.rename-device-btn:active {
+    background: rgba(0, 122, 255, 0.18);
+    transform: scale(0.97);
+}
+
+.rename-device-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: #007aff;
+}
+
+.leave-session-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 56px;
+    padding: 0;
+    margin-top: 12px;
     border: none;
     border-radius: 20px;
     background: rgba(255, 59, 48, 0.08);
@@ -2151,6 +2188,56 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: keep-all;
+}
+
+.dialog-input {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px 4px;
+    border: none;
+    border-bottom: 2px solid var(--surface-3);
+    border-radius: 0;
+    background: none;
+    color: var(--text-main);
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-bottom-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.dialog-input:focus {
+    border-bottom-color: var(--primary);
+    outline: none;
+}
+
+.dialog-input.invalid {
+    border-bottom-color: #ef4444;
+}
+
+.dialog-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    min-height: 16px;
+    transition: color 0.2s;
+}
+
+.dialog-hint.error {
+    color: #ef4444;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(5px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(3px); }
+}
+
+.dialog-input.shake {
+    animation: shake 0.4s ease;
 }
 
 .dialog-actions {
@@ -3370,6 +3457,33 @@ body.overlay-open .bottom-nav {
     margin-bottom: 4px;
     margin-left: 2px;
     text-transform: none;
+}
+
+.chat-group.mine .chat-sender {
+    text-align: right;
+    margin-left: 0;
+    margin-right: 2px;
+}
+
+.chat-crown {
+    vertical-align: middle;
+    margin-right: 2px;
+    width: 14px;
+    height: 14px;
+}
+
+.chat-badge-host {
+    color: #f5c842;
+}
+
+.chat-badge-op {
+    color: #999;
+}
+
+.chat-join-order {
+    font-size: 0.8em;
+    opacity: 0.5;
+    margin-left: 2px;
 }
 
 /* System messages — full-width notice style */

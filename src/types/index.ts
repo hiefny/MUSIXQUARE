@@ -98,6 +98,7 @@ export interface DeviceInfo {
   isOp: boolean;
   isHost: boolean;
   status: string;
+  joinOrder?: number;
 }
 
 export interface ConnectedPeer {
@@ -177,7 +178,7 @@ export interface ProtocolMap {
   'global-resync-request': NoPayload;
 
   // ── Network / Relay ──────────────────────────────────────────────
-  'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string }> };
+  'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string; joinOrder?: number }> };
   'assign-data-source': { targetId?: string | null };
   'data-relay': NoPayload;
   'kick-device': { reason?: string };
@@ -212,7 +213,10 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Chat ─────────────────────────────────────────────────────────
-  'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number };
+  'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number; joinOrder?: number };
+
+  // ── Rename ──────────────────────────────────────────────────────
+  'request-rename': { newLabel: string };
 }
 
 /** Full protocol message = { type: T } & payload */
@@ -267,6 +271,7 @@ export interface StateTree {
   network: {
     myId: string | null;
     myDeviceLabel: string;
+    myJoinOrder: number;
     appRole: 'host' | 'guest' | 'idle';
     sessionCode: string;
     lastJoinCode: string;
@@ -439,6 +444,7 @@ interface BaseEventMap {
   'network:kicked-from-session': [];
   'network:kick-device': [peerId: string];
   'network:kicked-explicitly': [];
+  'network:rename-device': [newName: string];
 
   // ── Playlist ────────────────────────────────────────────────────
   'playlist:remove-track': [index: number];

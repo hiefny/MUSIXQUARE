@@ -396,3 +396,13 @@ bus.on('network:device-list', (list) => {
     bus.emit('network:device-list-update', list);
   }
 });
+
+// ─── Host: Rename Device ─────────────────────────────────────────
+
+// Host renames itself — no network message needed
+bus.on('network:rename-device', (newName: string) => {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Only host handles this path
+  setState('network.myDeviceLabel', newName);
+  broadcastDeviceList();
+});

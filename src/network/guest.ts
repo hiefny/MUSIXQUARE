@@ -260,6 +260,9 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
     if (amIStillConnected.label) {
       setState('network.myDeviceLabel', String(amIStillConnected.label));
     }
+    if (typeof amIStillConnected.joinOrder === 'number') {
+      setState('network.myJoinOrder', amIStillConnected.joinOrder);
+    }
   }
 
   setState('network.lastKnownDeviceList', list);
@@ -302,6 +305,17 @@ export function initGuestProtocolHandlers(): void {
     [MSG.OPERATOR_GRANT]: handleOperatorGrant,
     [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
     [MSG.KICK_DEVICE]: handleKickDeviceMsg,
+  });
+
+  // Guest: rename device → send request to host
+  bus.on('network:rename-device', (newName: string) => {
+    const hostConn = getState('network.hostConn') as DataConnection | null;
+    if (!hostConn) return; // Only guests (who have a hostConn) use this path
+    try {
+      hostConn.send({ type: MSG.REQUEST_RENAME, newLabel: newName });
+    } catch { /* ignore */ }
+    // Optimistic local update
+    setState('network.myDeviceLabel', newName);
   });
 
   log.info('[Guest] Protocol handlers registered');

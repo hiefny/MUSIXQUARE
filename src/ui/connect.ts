@@ -9,7 +9,7 @@ import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT } from '../core/constants.ts';
+import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
 import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 
@@ -243,21 +243,18 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       const row = document.createElement('div');
       row.className = 'device-row';
 
-      // Status dot (green = connected, red = disconnected)
-      const dot = document.createElement('span');
-      dot.className = `d-dot ${p.status === 'connected' ? 'active' : 'inactive'}`;
-      row.appendChild(dot);
+      // Join order number (replaces old status dot)
+      const orderBadge = document.createElement('span');
+      orderBadge.className = 'd-order';
+      const idx = typeof p.joinOrder === 'number' ? p.joinOrder : '?';
+      orderBadge.textContent = `${idx}`;
+      row.appendChild(orderBadge);
 
       // Device name + short ID + OP badge
       const name = document.createElement('span');
       name.className = 'd-name';
       name.textContent = String(p.label || 'Device');
 
-      const shortId = document.createElement('span');
-      shortId.className = 'd-short-id';
-      shortId.textContent = `(${String(p.id || '').slice(-4)})`;
-      name.appendChild(document.createTextNode(' '));
-      name.appendChild(shortId);
 
       if (p.isOp) {
         const op = document.createElement('span');
@@ -375,6 +372,42 @@ export function initConnect(): void {
   };
   document.getElementById('btn-leave-session')?.addEventListener('click', leaveHandler);
   document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
+
+  // Rename Device buttons (mobile + desktop)
+  const renameHandler = async () => {
+    const currentLabel = getState('network.myDeviceLabel') || '';
+    const isDefault = currentLabel === 'HOST' || currentLabel.startsWith('Peer');
+    const result = await showDialog({
+      title: t('connect.rename_title'),
+      message: t('connect.rename_message'),
+      inputField: {
+        placeholder: t('connect.rename_placeholder'),
+        defaultValue: isDefault ? '' : currentLabel,
+        maxLength: 20,
+        hint: t('connect.rename_placeholder'),
+        validator: (val) => {
+          const name = val.trim();
+          if (!name) return t('connect.rename_reserved');
+          if (RESERVED_NAMES.some(r => name.toLowerCase() === r.toLowerCase())) {
+            return t('connect.rename_reserved');
+          }
+          const peers = getState('network.connectedPeers') || [];
+          if (peers.some(p => p.label.toLowerCase() === name.toLowerCase())) {
+            return t('connect.rename_duplicate');
+          }
+          return null;
+        },
+      },
+      buttonText: t('common.ok'),
+      secondaryText: t('common.cancel'),
+    });
+    if (result.action !== 'ok') return;
+    const newName = (result.inputValue || '').trim();
+    if (!newName || newName.length > 20) return;
+    bus.emit('network:rename-device', newName);
+  };
+  document.getElementById('btn-rename-device')?.addEventListener('click', renameHandler);
+  document.getElementById('desktop-btn-rename-device')?.addEventListener('click', renameHandler);
 
   // Initial render
   refreshAllQR();

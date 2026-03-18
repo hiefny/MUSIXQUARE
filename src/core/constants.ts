@@ -91,6 +91,7 @@ export const MSG = {
   REQUEST_YOUTUBE_PLAY: 'request-youtube-play',
   REQUEST_YOUTUBE_TOGGLE: 'request-youtube-toggle',
   REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
+  REQUEST_RENAME: 'request-rename',
   REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
   REVERB: 'reverb',
   REVERB_DECAY: 'reverb-decay',
@@ -141,6 +142,12 @@ export const RELAYABLE_MSG_TYPES = [
 
 // ─── Audio ──────────────────────────────────────────────────────────
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
+
+// ─── Rename Validation ──────────────────────────────────────────────
+export const RESERVED_NAMES = [
+  'host', 'guest', 'admin', 'operator', 'op', 'mod', 'moderator',
+  'system', 'server', 'bot', '방장', '호스트', '관리자', '운영자',
+] as const;
 
 // ─── Misc ──────────────────────────────────────────────────────────
 export const DEMO_FILE_NAME = 'demo_track.mp3';

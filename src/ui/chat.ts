@@ -29,10 +29,13 @@ let _isChatDrawerOpen = false;
 
 function _getChatLabelBase(): string {
   const hostConn = getState('network.hostConn');
-  if (!hostConn) return 'Host';
-
   const myDeviceLabel = getState('network.myDeviceLabel') || '';
   const label = myDeviceLabel.trim();
+
+  if (!hostConn) {
+    // Host: use custom label if set, otherwise default 'Host'
+    return (label && label !== 'HOST') ? label : 'Host';
+  }
 
   if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest')) return PEER_NAME_PREFIX;
 
@@ -192,34 +195,49 @@ function initChatSwipeToDismiss(): void {
   let deltaY = 0;
   let isDragging = false;
 
-  header.addEventListener('touchstart', (e: TouchEvent) => {
+  const startDrag = (y: number) => {
     if (_isDesktop.matches || !_isChatDrawerOpen) return;
-    startY = e.touches[0].clientY;
+    startY = y;
     deltaY = 0;
     isDragging = true;
     drawer.style.transition = 'none';
-  }, { passive: true });
+  };
 
-  header.addEventListener('touchmove', (e: TouchEvent) => {
+  const moveDrag = (y: number) => {
     if (!isDragging) return;
-    deltaY = Math.max(0, e.touches[0].clientY - startY);
+    deltaY = Math.max(0, y - startY);
     drawer.style.transform = `translateY(${deltaY}px)`;
-  }, { passive: true });
+  };
 
   const endDrag = () => {
     if (!isDragging) return;
     isDragging = false;
-    // Clear inline styles so CSS classes take over cleanly
     drawer.style.transition = '';
     drawer.style.transform = '';
     if (deltaY > SWIPE_DISMISS_THRESHOLD) {
       toggleChatDrawer();
     }
-    // else: snaps back via CSS (transform removed → .open's translateY(0) applies)
   };
 
+  // Touch events
+  header.addEventListener('touchstart', (e: TouchEvent) => startDrag(e.touches[0].clientY), { passive: true });
+  header.addEventListener('touchmove', (e: TouchEvent) => moveDrag(e.touches[0].clientY), { passive: true });
   header.addEventListener('touchend', endDrag);
   header.addEventListener('touchcancel', endDrag);
+
+  // Mouse events (for small-screen PC users)
+  header.addEventListener('mousedown', (e: MouseEvent) => {
+    startDrag(e.clientY);
+    e.preventDefault(); // prevent text selection while dragging
+  });
+  window.addEventListener('mousemove', (e: MouseEvent) => moveDrag(e.clientY));
+  window.addEventListener('mouseup', endDrag);
+
+  // Header click to close (tap or click without drag)
+  header.addEventListener('click', () => {
+    if (_isDesktop.matches || !_isChatDrawerOpen) return;
+    if (deltaY < 5) toggleChatDrawer(); // only if no significant drag occurred
+  });
 }
 
 // ─── Send & Receive ──────────────────────────────────────────────
@@ -242,7 +260,11 @@ export function sendChatMessage(): void {
   const senderRole = getRoleLabelByChannelMode(channelMode);
   const displayName = _formatChatDisplayName(senderLabel);
 
-  addChatMessage(displayName, text, true);
+  const hostConn = getState('network.hostConn');
+  const isHost = !hostConn;
+  const isOp = getState('network.isOperator') || false;
+  const myJoinOrder = getState('network.myJoinOrder') ?? 0;
+  addChatMessage(displayName, text, true, isHost ? 'host' : isOp ? 'op' : undefined, myJoinOrder);
 
   const myId = getState('network.myId') || '';
   const chatMsg = {
@@ -251,11 +273,13 @@ export function sendChatMessage(): void {
     sender: senderLabel,
     senderLabel: senderLabel,
     senderRole: senderRole,
+    isHost,
+    isOp,
     text: text,
     ts: Date.now(),
+    joinOrder: myJoinOrder,
   };
 
-  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else {
@@ -271,7 +295,9 @@ function pruneOldMessages(container: HTMLElement): void {
   }
 }
 
-export function addChatMessage(sender: string, text: string, isMine: boolean): void {
+const CROWN_SVG = '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
+
+export function addChatMessage(sender: string, text: string, isMine: boolean, badge?: 'host' | 'op', joinOrder?: number): void {
   const container = document.getElementById('chat-messages');
 
   if (container) {
@@ -284,12 +310,22 @@ export function addChatMessage(sender: string, text: string, isMine: boolean): v
     const group = document.createElement('div');
     group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
 
-    if (!isMine) {
-      const senderNode = document.createElement('div');
-      senderNode.className = 'chat-sender';
-      senderNode.innerText = sender;
-      group.appendChild(senderNode);
+    const senderNode = document.createElement('div');
+    senderNode.className = 'chat-sender';
+    if (badge) {
+      const crown = document.createElement('span');
+      crown.className = `chat-badge-${badge}`;
+      crown.innerHTML = CROWN_SVG;
+      senderNode.appendChild(crown);
     }
+    senderNode.appendChild(document.createTextNode(sender));
+    if (typeof joinOrder === 'number') {
+      const orderSpan = document.createElement('span');
+      orderSpan.className = 'chat-join-order';
+      orderSpan.textContent = ` #${joinOrder}`;
+      senderNode.appendChild(orderSpan);
+    }
+    group.appendChild(senderNode);
 
     const row = document.createElement('div');
     row.className = 'chat-row';
@@ -384,7 +420,9 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
-  addChatMessage(displayName, text, isMine);
+  const badge: 'host' | 'op' | undefined = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
+  const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
+  addChatMessage(displayName, text, isMine, badge, joinOrder);
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
   const hostConn = getState('network.hostConn');

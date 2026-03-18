@@ -81,6 +81,7 @@ function createInitialState(): StateTree {
     network: {
       myId: null,
       myDeviceLabel: 'HOST',
+      myJoinOrder: 0,
       appRole: 'idle',
       sessionCode: '',
       lastJoinCode: '',

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
@@ -333,6 +333,36 @@ function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection):
 
 // ─── Register Handlers ──────────────────────────────────────────────
 
+// ─── Rename Handler (host-only) ─────────────────────────────────────
+// Registered here instead of host.ts to avoid circular dependency
+// (host.ts → protocol.ts → peer.ts → host.ts).
+
+function handleRequestRename(data: Record<string, unknown>, conn: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Only host processes this
+
+  const peerId = (data._originPeer as string) || conn?.peer;
+  if (!peerId) return;
+
+  const newLabel = String(data.newLabel || '').trim().slice(0, 20);
+  if (!newLabel) return;
+
+  // Reserved name check
+  if (RESERVED_NAMES.some(r => newLabel.toLowerCase() === r.toLowerCase())) return;
+
+  // Duplicate name check
+  const peers = getState('network.connectedPeers');
+  if (peers.some(p => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase())) return;
+
+  setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: newLabel });
+  setState('network.connectedPeers', peers.map(p =>
+    p.id === peerId ? { ...p, label: newLabel } : p
+  ));
+
+  broadcastDeviceList();
+  log.info(`[Sync] Peer ${peerId} renamed to "${newLabel}"`);
+}
+
 export function initSync(): void {
   registerHandlers({
     [MSG.HEARTBEAT]: handleHeartbeat,
@@ -342,6 +372,7 @@ export function initSync(): void {
     [MSG.SYNC_RESPONSE]: handleSyncResponse,
     [MSG.GLOBAL_RESYNC_REQUEST]: handleGlobalResyncRequest,
     [MSG.GET_SYNC_TIME]: handleGetSyncTime,
+    [MSG.REQUEST_RENAME]: handleRequestRename,
   });
 
   // Clean up module-scoped sync state when session ends

@@ -161,7 +161,7 @@ export function broadcastDeviceList(): void {
   const connectedPeers = getState('network.connectedPeers');
 
   const list = [
-    { id: myId, label: 'HOST', status: 'connected', isHost: true, isOp: true },
+    { id: myId, label: getState('network.myDeviceLabel') || 'HOST', status: 'connected', isHost: true, isOp: true, joinOrder: 0 },
     ...[...connectedPeers]
       .sort((a, b) => a.joinOrder - b.joinOrder)
       .map(p => ({
@@ -171,6 +171,7 @@ export function broadcastDeviceList(): void {
         isHost: false,
         isOp: p.isOp,
         connectionType: (p.connectionType as string) || 'unknown',
+        joinOrder: p.joinOrder,
       })),
   ];
 

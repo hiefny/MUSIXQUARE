@@ -3593,6 +3593,20 @@ body.overlay-open .bottom-nav {
     display: block;
 }
 
+/* Chat Backdrop — mobile only, hidden on desktop via desktop.css */
+.chat-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: transparent;
+    visibility: hidden;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.chat-backdrop.open {
+    visibility: visible;
+}
+
 /* Slide-up Chat Drawer */
 .chat-drawer {
     position: fixed;
@@ -3637,7 +3651,26 @@ body.overlay-open .bottom-nav {
     justify-content: space-between;
     align-items: center;
     padding: 16px;
+    padding-top: 20px;
     border-bottom: none;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Drag handle bar — bottom sheet affordance */
+.chat-drawer-header::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-sub);
+    opacity: 0.35;
 }
 
 
@@ -3674,8 +3707,6 @@ body.overlay-open .bottom-nav {
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -3684,8 +3715,15 @@ body.overlay-open .bottom-nav {
     overscroll-behavior-y: none;
 }
 
-.chat-drawer-messages::-webkit-scrollbar {
-    display: none;
+/* Mobile: hide scrollbar — desktop.css @layer re-enables it for ≥1280px */
+@media (max-width: 1279px) {
+    .chat-drawer-messages {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .chat-drawer-messages::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 .chat-drawer-input {

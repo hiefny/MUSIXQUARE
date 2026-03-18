@@ -166,6 +166,10 @@ export function toggleChatDrawer(): void {
   _isChatDrawerOpen = !_isChatDrawerOpen;
   drawer.classList.toggle('open', _isChatDrawerOpen);
 
+  // Sync backdrop
+  const backdrop = document.getElementById('chat-backdrop');
+  if (backdrop) backdrop.classList.toggle('open', _isChatDrawerOpen);
+
   if (_isChatDrawerOpen) {
     resetUnread();
     const messages = document.getElementById('chat-messages');
@@ -173,6 +177,49 @@ export function toggleChatDrawer(): void {
     const input = document.getElementById('chat-input') as HTMLInputElement | null;
     if (input) setManagedTimer('chat-input-focus', () => input.focus(), 300);
   }
+}
+
+// ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────
+const SWIPE_DISMISS_THRESHOLD = 100; // px
+const _isDesktop = window.matchMedia('(min-width: 1280px)');
+
+function initChatSwipeToDismiss(): void {
+  const header = document.querySelector('.chat-drawer-header') as HTMLElement | null;
+  const drawer = document.getElementById('chat-drawer');
+  if (!header || !drawer) return;
+
+  let startY = 0;
+  let deltaY = 0;
+  let isDragging = false;
+
+  header.addEventListener('touchstart', (e: TouchEvent) => {
+    if (_isDesktop.matches || !_isChatDrawerOpen) return;
+    startY = e.touches[0].clientY;
+    deltaY = 0;
+    isDragging = true;
+    drawer.style.transition = 'none';
+  }, { passive: true });
+
+  header.addEventListener('touchmove', (e: TouchEvent) => {
+    if (!isDragging) return;
+    deltaY = Math.max(0, e.touches[0].clientY - startY);
+    drawer.style.transform = `translateY(${deltaY}px)`;
+  }, { passive: true });
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    // Clear inline styles so CSS classes take over cleanly
+    drawer.style.transition = '';
+    drawer.style.transform = '';
+    if (deltaY > SWIPE_DISMISS_THRESHOLD) {
+      toggleChatDrawer();
+    }
+    // else: snaps back via CSS (transform removed → .open's translateY(0) applies)
+  };
+
+  header.addEventListener('touchend', endDrag);
+  header.addEventListener('touchcancel', endDrag);
 }
 
 // ─── Send & Receive ──────────────────────────────────────────────
@@ -386,6 +433,13 @@ export function initChat(): void {
   });
 
   initChatEventDelegation();
+  initChatSwipeToDismiss();
+
+  // Backdrop tap to close
+  const backdrop = document.getElementById('chat-backdrop');
+  if (backdrop) backdrop.addEventListener('click', () => {
+    if (_isChatDrawerOpen) toggleChatDrawer();
+  });
 
   // Wire up UI buttons
   const sendBtn = document.getElementById('btn-chat-send');

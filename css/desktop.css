@@ -244,6 +244,20 @@
         grid-area: tab-chat;
     }
 
+    /* Desktop: no backdrop, no drag handle */
+    .chat-backdrop {
+        display: none !important;
+    }
+
+    .chat-drawer-header {
+        cursor: default;
+        touch-action: auto;
+    }
+
+    .chat-drawer-header::before {
+        display: none;
+    }
+
     /* ---------------------------------------------------
        6. Specific Panel: Playlist
        --------------------------------------------------- */

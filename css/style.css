@@ -3318,11 +3318,13 @@ body.overlay-open .bottom-nav {
 
 .chat-bubble {
     max-width: 100%;
+    min-width: 0;
     padding: 10px 14px;
     border-radius: 14px;
     font-size: 14px;
     line-height: 1.4;
-    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 @keyframes bubbleIn {
@@ -3651,26 +3653,31 @@ body.overlay-open .bottom-nav {
     justify-content: space-between;
     align-items: center;
     padding: 16px;
-    padding-top: 20px;
     border-bottom: none;
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
 }
 
-/* Drag handle bar — bottom sheet affordance */
-.chat-drawer-header::before {
-    content: '';
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--text-sub);
-    opacity: 0.35;
+@media (max-width: 1279px) {
+    .chat-drawer-header {
+        justify-content: center;
+        padding: 16px;
+        background: transparent;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+}
+
+/* Drag handle bar — mobile bottom sheet affordance */
+@media (max-width: 1279px) {
+    .chat-drawer-header::before {
+        content: '';
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--text-sub);
+        opacity: 0.35;
+    }
 }
 
 
@@ -3702,6 +3709,14 @@ body.overlay-open .bottom-nav {
     width: 20px;
     height: 20px;
     fill: currentColor;
+}
+
+/* Mobile only: title & close hidden — MUST come after .chat-drawer-close base styles */
+@media (max-width: 1279px) {
+    .chat-drawer-title,
+    .chat-drawer-close {
+        display: none;
+    }
 }
 
 .chat-drawer-messages {

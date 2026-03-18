@@ -101,7 +101,7 @@
     .chat-drawer-messages {
         flex: 1;
         overflow-y: auto;
-        padding-bottom: 40px;
+        padding-bottom: 16px;
         scrollbar-gutter: stable;
         /* Prevent layout shift */
     }

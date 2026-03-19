@@ -464,10 +464,7 @@ test.describe('Chat Commands', () => {
     expect(guestHasHelpChat).toBe(false);
   });
 
-  // TODO: Known bug — freeze state is not synced to late-joining guests.
-  // The test correctly identifies this issue. Re-enable once freeze state
-  // is included in the initial sync payload sent to new peers.
-  test.fixme('/freeze + late-join guest cannot chat', async ({ browser }) => {
+  test('/freeze + late-join guest cannot chat', async ({ browser }) => {
     // Setup host only
     const hostContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const hostPage = await hostContext.newPage();

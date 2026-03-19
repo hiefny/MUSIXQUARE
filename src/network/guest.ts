@@ -225,6 +225,12 @@ function handleWelcome(data: Record<string, unknown>): void {
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
+  // Sync chat moderation state from host
+  if (data.chatFrozen) setState('network.chatFrozen', true);
+  if (typeof data.slowmodeSeconds === 'number' && data.slowmodeSeconds > 0) {
+    setState('network.slowmodeSeconds', data.slowmodeSeconds as number);
+  }
+  if (data.filterEnabled) setState('network.filterEnabled', true);
   bus.emit('network:role-badge-update');
 }
 

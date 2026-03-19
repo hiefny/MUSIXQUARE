@@ -172,6 +172,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         type: MSG.WELCOME,
         lockChannel: false,
         label: deviceName,
+        chatFrozen: getState('network.chatFrozen') || false,
+        slowmodeSeconds: getState('network.slowmodeSeconds') || 0,
+        filterEnabled: getState('network.filterEnabled') || false,
       });
     } catch { /* noop */ }
 

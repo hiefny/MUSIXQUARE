@@ -12,6 +12,7 @@ import { getState } from '../core/state.ts';
 import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
 import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
+import { containsProfanity } from '../chat/profanity.ts';
 
 let _langObserver: MutationObserver | null = null;
 
@@ -390,6 +391,9 @@ export function initConnect(): void {
           if (!name) return t('connect.rename_reserved');
           if (RESERVED_NAMES.some(r => name.toLowerCase() === r.toLowerCase())) {
             return t('connect.rename_reserved');
+          }
+          if (containsProfanity(name)) {
+            return t('connect.rename_profanity');
           }
           const peers = getState('network.connectedPeers') || [];
           if (peers.some(p => p.label.toLowerCase() === name.toLowerCase())) {

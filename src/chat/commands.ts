@@ -12,6 +12,7 @@ import { MSG, RESERVED_NAMES } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '../ui/chat.ts';
+import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -196,6 +197,10 @@ function cmdNick(_: string[], rawArgs: string): void {
   if (newName.length > 20) { addSystemChatMessage(t('chat.cmd_nick_too_long')); return; }
   if (RESERVED_NAMES.some(r => newName.toLowerCase() === r.toLowerCase())) {
     addSystemChatMessage(t('connect.rename_reserved'));
+    return;
+  }
+  if (containsProfanity(newName)) {
+    addSystemChatMessage(t('connect.rename_profanity'));
     return;
   }
   const peers = getState('network.connectedPeers') as ConnectedPeer[];

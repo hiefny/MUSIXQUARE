@@ -3710,6 +3710,15 @@ body.overlay-open .bottom-nav {
     box-shadow: none;
     outline: none;
     -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Hide search-type decorations (X button, search icon) */
+.chat-input::-webkit-search-decoration,
+.chat-input::-webkit-search-cancel-button,
+.chat-input::-webkit-search-results-button,
+.chat-input::-webkit-search-results-decoration {
+    display: none;
 }
 
 .chat-input:focus {

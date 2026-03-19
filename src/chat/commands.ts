@@ -338,6 +338,15 @@ export function getAvailableCommands(filter = ''): { name: string; usage: string
   return result;
 }
 
+/** Returns the argument hint for a command, e.g. "/freeze" → "[on | off]" */
+export function getCommandArgHint(cmdName: string): string {
+  const def = COMMANDS[cmdName.toLowerCase()];
+  if (!def) return '';
+  // Extract args portion from usage: "/freeze [on | off]" → "[on | off]"
+  const spaceIdx = def.usage.indexOf(' ');
+  return spaceIdx === -1 ? '' : def.usage.slice(spaceIdx + 1);
+}
+
 export function executeCommand(cmd: ParsedCommand): void {
   const def = COMMANDS[cmd.name];
   if (!def) {

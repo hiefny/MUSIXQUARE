@@ -16,7 +16,7 @@ import { escapeHtml, escapeAttr } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
-import { parseCommand, executeCommand, getAvailableCommands } from '../chat/commands.ts';
+import { parseCommand, executeCommand, getAvailableCommands, getCommandArgHint } from '../chat/commands.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -731,6 +731,27 @@ export function initChat(): void {
     suggest.style.display = 'none';
     if (wrapper) wrapper.appendChild(suggest);
 
+    // Ghost text overlay for argument hints
+    const ghost = document.createElement('div');
+    ghost.className = 'chat-cmd-ghost';
+    if (wrapper) wrapper.appendChild(ghost);
+
+    function updateGhost(): void {
+      const val = chatInput!.value;
+      // Match "/commandname " (with trailing space)
+      const match = val.match(/^\/(\w+)\s/);
+      if (match) {
+        const hint = getCommandArgHint(match[1]);
+        if (hint) {
+          // Show: transparent typed text + visible hint
+          ghost.innerHTML = `<span class="chat-cmd-ghost-typed">${escapeHtml(val)}</span><span class="chat-cmd-ghost-hint">${escapeHtml(hint)}</span>`;
+          ghost.style.display = '';
+          return;
+        }
+      }
+      ghost.style.display = 'none';
+    }
+
     let _suggestIdx = 0;
     let _suggestItems: { name: string; usage: string; description: string }[] = [];
 
@@ -755,11 +776,13 @@ export function initChat(): void {
       chatInput.value = `/${item.name} `;
       chatInput.focus();
       hideSuggest();
+      updateGhost();
     }
 
-    // Input event: filter commands
+    // Input event: filter commands + ghost text
     chatInput.addEventListener('input', () => {
       const val = chatInput.value;
+      updateGhost();
       if (!val.startsWith('/') || val.includes(' ')) { hideSuggest(); return; }
       const query = val.slice(1).toLowerCase();
       const matches = getAvailableCommands(query);

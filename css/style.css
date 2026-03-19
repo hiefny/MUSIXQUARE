@@ -3625,6 +3625,35 @@ body.overlay-open .bottom-nav {
     font-weight: 400;
 }
 
+/* ── Command Ghost Text (inline arg hint) ── */
+.chat-cmd-ghost {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    padding: 10px 4px;
+    font-size: 16px;
+    font-weight: 500;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.chat-cmd-ghost-typed {
+    color: transparent;
+    white-space: pre;
+}
+
+.chat-cmd-ghost-hint {
+    color: var(--text-muted);
+    opacity: 0.45;
+    font-style: italic;
+    white-space: pre;
+}
+
 .chat-input {
     flex: 1;
     background: none;

@@ -155,6 +155,7 @@ export function hideSetupOverlay(): void {
     updateOverlayOpenClass();
     stopObAutoSlide();
     try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
+    bus.emit('setup:app-entrance');
     try {
       requestAnimationFrame(() => {
         try { void document.documentElement.offsetHeight; } catch { /* ignore */ }

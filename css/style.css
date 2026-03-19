@@ -113,6 +113,23 @@ html.setup-boot-block .bottom-nav {
     pointer-events: none !important;
 }
 
+/* ── App Entrance Animation ────────────────────────────────────── */
+.app-entrance {
+    opacity: 0 !important;
+    transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+    transition-delay: var(--entrance-delay, 0ms);
+}
+
+.app-entrance.app-entrance-down  { transform: translateY(-20px) !important; }
+.app-entrance.app-entrance-up    { transform: translateY(20px) !important; }
+.app-entrance.app-entrance-right { transform: translateX(-30px) !important; }
+.app-entrance.app-entrance-left  { transform: translateX(30px) !important; }
+
+.app-entrance.app-entered {
+    opacity: 1 !important;
+    transform: none !important;
+}
+
 /* Force UA color scheme per app theme.
    (Critical for mobile/PWA overlay scrollbar contrast in light mode.) */
 html[data-theme="dark"],

@@ -51,6 +51,54 @@ function showRoleSelectionButtons(): void {
   ], 'vertical');
 }
 
+// ─── App Entrance Animation ─────────────────────────────────────
+
+/** Entrance config: [selector, direction, delay_ms] */
+const ENTRANCE_TARGETS: [string, string, number][] = [
+  ['#main-header',         'down',  0],
+  ['#visualizerCanvas',    'up',    50],
+  ['.track-box',           'up',    100],
+  ['.progress-bar',        'up',    150],
+  ['.play-controls-left',  'up',    200],
+  ['.vol-group-playback',  'up',    250],
+  ['#chat-preview-btn',    'up',    300],
+  ['.play-action-buttons', 'up',    350],
+  ['.bottom-nav',          'up',    400],
+  // Desktop panels (mobile ones are display:none, harmless)
+  ['#tab-playlist',        'down',  100],
+  ['.chat-drawer',         'up',    200],
+  ['#tab-settings',        'left',  150],
+];
+
+function _applyEntranceClasses(): void {
+  for (const [sel, dir, delay] of ENTRANCE_TARGETS) {
+    const el = document.querySelector(sel) as HTMLElement | null;
+    if (!el) continue;
+    el.classList.add('app-entrance', `app-entrance-${dir}`);
+    el.classList.remove('app-entered');
+    el.style.setProperty('--entrance-delay', `${delay}ms`);
+  }
+}
+
+export function triggerAppEntrance(): void {
+  requestAnimationFrame(() => {
+    for (const [sel] of ENTRANCE_TARGETS) {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      if (el) el.classList.add('app-entered');
+    }
+    // Cleanup after all transitions complete
+    setTimeout(() => {
+      for (const [sel] of ENTRANCE_TARGETS) {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (el) {
+          el.classList.remove('app-entrance', 'app-entrance-down', 'app-entrance-up', 'app-entrance-left', 'app-entrance-right', 'app-entered');
+          el.style.removeProperty('--entrance-delay');
+        }
+      }
+    }, 900); // max delay(400) + duration(450) + buffer
+  });
+}
+
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
 function initSetupOverlay(): void {
@@ -91,6 +139,10 @@ function initSetupOverlay(): void {
   if (!getSetupOverlayEverShown()) {
     try { document.documentElement.classList.add('setup-boot-block'); } catch { /* ignore */ }
   }
+
+  // Apply entrance animation classes to main UI elements
+  _applyEntranceClasses();
+
   showAndStart();
 
   // Bind slider events (use addEventListener with signal for proper cleanup)
@@ -235,6 +287,11 @@ export function initSetup(): void {
       input.focus();
     }
     setupSetGuestJoinBusy(false);
+  });
+
+  // App entrance animation trigger
+  bus.on('setup:app-entrance', () => {
+    triggerAppEntrance();
   });
 
   // Return to main event

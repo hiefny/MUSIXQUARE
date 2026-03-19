@@ -508,6 +508,7 @@ interface BaseEventMap {
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
+  'setup:app-entrance': [];
 
   // ── App ───────────────────────────────────────────────────────────
   'app:return-to-main': [];

@@ -30,7 +30,8 @@ interface CommandDef {
   execute: (args: string[], rawArgs: string) => void;
   usage: string;
   description: string;
-  hidden?: boolean;
+  hidden?: boolean;       // /help 출력 목록에서 숨김
+  hideFromSuggest?: boolean; // 자동완성 드롭다운에서 숨김
 }
 
 // ─── Target Resolution ──────────────────────────────────────────
@@ -310,7 +311,7 @@ const COMMANDS: Record<string, CommandDef> = {
   deop:     { permission: 'host',    execute: cmdDeop,     usage: '/deop [기기]',                       description: '관리자 회수' },
   mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute [기기]',                       description: '채팅 금지' },
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute [기기]',                     description: '채팅 금지 해제' },
-  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper [기기] [내용]',              description: '귓속말', hidden: true },
+  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper [기기] [내용]',              description: '귓속말', hidden: true, hideFromSuggest: true },
   help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                            description: '명령어 목록', hidden: true },
 };
 
@@ -329,7 +330,7 @@ export function getAvailableCommands(filter = ''): { name: string; usage: string
   const result: { name: string; usage: string; description: string }[] = [];
   const query = filter.toLowerCase();
   for (const [name, def] of Object.entries(COMMANDS)) {
-    if (def.hidden) continue;
+    if (def.hideFromSuggest) continue;
     if (!hasPermission(def.permission)) continue;
     if (query && !name.startsWith(query)) continue;
     result.push({ name, usage: def.usage, description: def.description });

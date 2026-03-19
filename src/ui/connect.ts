@@ -367,12 +367,7 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     }).then(res => {
       if (res && res.action === 'ok') {
-        showDialog({
-          title: t('dialog.leaving_session'),
-          message: '',
-          dismissible: false,
-          buttonText: '',
-        });
+        bus.emit('ui:show-loader', true, t('dialog.leaving_session'));
         setTimeout(() => window.location.reload(), 300);
       }
     });

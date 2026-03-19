@@ -30,6 +30,7 @@ interface CommandDef {
   execute: (args: string[], rawArgs: string) => void;
   usage: string;
   description: string;
+  hidden?: boolean;
 }
 
 // ─── Target Resolution ──────────────────────────────────────────
@@ -220,14 +221,14 @@ function cmdNick(_: string[], rawArgs: string): void {
 }
 
 function cmdWhisper(args: string[], rawArgs: string): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/whisper #번호 메시지' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/w #번호 메시지' })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
 
   // Extract message (everything after the target identifier)
   const msgStart = rawArgs.indexOf(args[0]) + args[0].length;
   const msg = rawArgs.slice(msgStart).trim();
-  if (!msg) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/whisper #번호 메시지' })); return; }
+  if (!msg) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/w #번호 메시지' })); return; }
 
   const myId = getState('network.myId') || '';
   const myLabel = getState('network.myDeviceLabel') || '';
@@ -261,6 +262,7 @@ function cmdHelp(): void {
   const role = isHost() ? 'host' : getState('network.isOperator') ? 'op' : 'user';
 
   for (const [name, def] of Object.entries(COMMANDS)) {
+    if (def.hidden) continue;
     if (def.permission === 'all'
       || (def.permission === 'host' && role === 'host')
       || (def.permission === 'host+op' && (role === 'host' || role === 'op'))) {
@@ -303,9 +305,8 @@ const COMMANDS: Record<string, CommandDef> = {
   slowmode: { permission: 'host+op', execute: cmdSlowmode, usage: '/slowmode 초',              description: '슬로우 모드' },
   notice:   { permission: 'host+op', execute: cmdNotice,   usage: '/notice 메시지',             description: '공지 메시지' },
   nick:     { permission: 'all',     execute: cmdNick,     usage: '/nick 새이름',               description: '닉네임 변경' },
-  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper #번호 메시지',       description: '귓속말' },
-  w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w #번호 메시지',             description: '귓속말 (단축)' },
-  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                    description: '명령어 목록' },
+  w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w #번호 메시지',             description: '귓속말' },
+  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                    description: '명령어 목록', hidden: true },
   users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                   description: '접속자 목록' },
 };
 

@@ -341,54 +341,105 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    const group = document.createElement('div');
-    group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
+    // Check if we can append to the previous group (same sender + same minute)
+    const lastGroup = container.lastElementChild as HTMLElement | null;
+    const lastSenderId = lastGroup?.dataset.senderId;
+    const lastTimeStr = lastGroup?.dataset.timeStr;
+    const canGroup = lastGroup
+      && !lastGroup.classList.contains('system')
+      && lastSenderId === sender
+      && lastTimeStr === timeStr
+      && ((isMine && lastGroup.classList.contains('mine')) || (!isMine && lastGroup.classList.contains('others')));
 
-    const senderNode = document.createElement('div');
-    senderNode.className = 'chat-sender';
-    if (badge) {
-      const crown = document.createElement('span');
-      crown.className = `chat-badge-${badge}`;
-      crown.innerHTML = CROWN_SVG;
-      senderNode.appendChild(crown);
-    }
-    senderNode.appendChild(document.createTextNode(sender));
-    if (typeof joinOrder === 'number') {
-      const orderSpan = document.createElement('span');
-      orderSpan.className = 'chat-join-order';
-      orderSpan.textContent = ` #${joinOrder}`;
-      senderNode.appendChild(orderSpan);
-    }
-    group.appendChild(senderNode);
+    if (canGroup && lastGroup) {
+      // Remove time from the previous row's last bubble
+      const prevRows = lastGroup.querySelectorAll('.chat-row');
+      const prevLastRow = prevRows[prevRows.length - 1];
+      if (prevLastRow) {
+        const prevTime = prevLastRow.querySelector('.chat-time');
+        if (prevTime) prevTime.remove();
+      }
 
-    const row = document.createElement('div');
-    row.className = 'chat-row';
+      // Add new row to existing group
+      const row = document.createElement('div');
+      row.className = 'chat-row';
 
-    const bubble = document.createElement('div');
-    bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-    const chatTextDiv = document.createElement('div');
-    chatTextDiv.className = 'chat-text';
-    chatTextDiv.innerHTML = parseMessageContent(text);
-    bubble.appendChild(chatTextDiv);
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
+      const chatTextDiv = document.createElement('div');
+      chatTextDiv.className = 'chat-text';
+      chatTextDiv.innerHTML = parseMessageContent(text);
+      bubble.appendChild(chatTextDiv);
+      try { if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube'); } catch { /* ignore */ }
 
-    try {
-      if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
-    } catch { /* ignore */ }
+      const timeNode = document.createElement('div');
+      timeNode.className = 'chat-time';
+      timeNode.innerText = timeStr;
 
-    const timeNode = document.createElement('div');
-    timeNode.className = 'chat-time';
-    timeNode.innerText = timeStr;
+      if (isMine) { row.appendChild(timeNode); row.appendChild(bubble); }
+      else { row.appendChild(bubble); row.appendChild(timeNode); }
 
-    if (isMine) {
-      row.appendChild(timeNode);
-      row.appendChild(bubble);
+      lastGroup.appendChild(row);
+      lastGroup.dataset.timeStr = timeStr;
     } else {
-      row.appendChild(bubble);
-      row.appendChild(timeNode);
+      // Create new group
+      const group = document.createElement('div');
+      group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
+      group.dataset.senderId = sender;
+      group.dataset.timeStr = timeStr;
+
+      const senderNode = document.createElement('div');
+      senderNode.className = 'chat-sender';
+      if (badge) {
+        const crown = document.createElement('span');
+        crown.className = `chat-badge-${badge}`;
+        crown.innerHTML = CROWN_SVG;
+        senderNode.appendChild(crown);
+      }
+      senderNode.appendChild(document.createTextNode(sender));
+      if (typeof joinOrder === 'number') {
+        const orderSpan = document.createElement('span');
+        orderSpan.className = 'chat-join-order';
+        orderSpan.textContent = ` #${joinOrder}`;
+        senderNode.appendChild(orderSpan);
+      }
+      group.appendChild(senderNode);
+
+      const row = document.createElement('div');
+      row.className = 'chat-row';
+
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
+      const chatTextDiv = document.createElement('div');
+      chatTextDiv.className = 'chat-text';
+      chatTextDiv.innerHTML = parseMessageContent(text);
+      bubble.appendChild(chatTextDiv);
+      try { if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube'); } catch { /* ignore */ }
+
+      const timeNode = document.createElement('div');
+      timeNode.className = 'chat-time';
+      timeNode.innerText = timeStr;
+
+      if (isMine) { row.appendChild(timeNode); row.appendChild(bubble); }
+      else { row.appendChild(bubble); row.appendChild(timeNode); }
+
+      group.appendChild(row);
+      container.appendChild(group);
     }
 
-    group.appendChild(row);
-    container.appendChild(group);
+    // Update time when minute changes on existing group
+    if (canGroup && lastGroup) {
+      const allRows = lastGroup.querySelectorAll('.chat-row');
+      const lastRow = allRows[allRows.length - 1];
+      if (lastRow && !lastRow.querySelector('.chat-time')) {
+        const timeNode = document.createElement('div');
+        timeNode.className = 'chat-time';
+        timeNode.innerText = timeStr;
+        if (isMine) lastRow.insertBefore(timeNode, lastRow.firstChild);
+        else lastRow.appendChild(timeNode);
+      }
+    }
+
     pruneOldMessages(container);
     container.scrollTop = container.scrollHeight;
   }

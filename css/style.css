@@ -2153,7 +2153,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     overflow: hidden;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
     animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     display: flex;
     flex-direction: column;

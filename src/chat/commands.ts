@@ -265,12 +265,12 @@ function cmdHelp(): void {
   const lines: string[] = [t('chat.cmd_help_title')];
   const role = isHost() ? 'host' : getState('network.isOperator') ? 'op' : 'user';
 
-  for (const [name, def] of Object.entries(COMMANDS)) {
+  for (const [, def] of Object.entries(COMMANDS)) {
     if (def.hidden) continue;
     if (def.permission === 'all'
       || (def.permission === 'host' && role === 'host')
       || (def.permission === 'host+op' && (role === 'host' || role === 'op'))) {
-      lines.push(`/${name} — ${def.description}`);
+      lines.push(`${def.usage} - ${def.description}`);
     }
   }
   addSystemChatMessage(lines.join('\n'));
@@ -297,21 +297,21 @@ function cmdUsers(): void {
 // ─── Command Registry ───────────────────────────────────────────
 
 const COMMANDS: Record<string, CommandDef> = {
-  kick:     { permission: 'host',    execute: cmdKick,     usage: '/kick #번호|이름',          description: '기기 강퇴' },
-  op:       { permission: 'host',    execute: cmdOp,       usage: '/op #번호|이름',            description: '관리자 권한 부여' },
-  deop:     { permission: 'host',    execute: cmdDeop,     usage: '/deop #번호|이름',           description: '관리자 권한 회수' },
-  freeze:   { permission: 'host',    execute: cmdFreeze,   usage: '/freeze on|off',           description: '채팅 잠금' },
-  mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute #번호|이름',           description: '채팅 금지' },
-  unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute #번호|이름',          description: '채팅 금지 해제' },
-  clear:    { permission: 'host+op', execute: cmdClear,    usage: '/clear',                   description: '채팅 내역 삭제' },
-  filter:   { permission: 'host+op', execute: cmdFilter,   usage: '/filter on|off',           description: '비속어 필터' },
-  slowmode: { permission: 'host+op', execute: cmdSlowmode, usage: '/slowmode 초',              description: '슬로우 모드' },
-  notice:   { permission: 'host+op', execute: cmdNotice,   usage: '/notice 메시지',             description: '공지 메시지' },
-  nick:     { permission: 'all',     execute: cmdNick,     usage: '/nick 새이름',               description: '닉네임 변경' },
-  w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w #번호 메시지',             description: '귓속말' },
-  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper #번호 메시지',       description: '귓속말', hidden: true },
-  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                    description: '명령어 목록', hidden: true },
-  users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                   description: '접속자 목록' },
+  users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                           description: '접속자 목록 보기' },
+  clear:    { permission: 'host+op', execute: cmdClear,    usage: '/clear',                           description: '채팅 내역 삭제' },
+  filter:   { permission: 'host+op', execute: cmdFilter,   usage: '/filter [on | off]',               description: '비속어 필터링' },
+  freeze:   { permission: 'host',    execute: cmdFreeze,   usage: '/freeze [on | off]',               description: '채팅 잠금' },
+  slowmode: { permission: 'host+op', execute: cmdSlowmode, usage: '/slowmode [초]',                    description: '슬로우 모드' },
+  w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w [기기] [내용]',                   description: '귓속말' },
+  notice:   { permission: 'host+op', execute: cmdNotice,   usage: '/notice [메시지]',                   description: '공지 메시지' },
+  nick:     { permission: 'all',     execute: cmdNick,     usage: '/nick [닉네임]',                     description: '닉네임 변경' },
+  kick:     { permission: 'host',    execute: cmdKick,     usage: '/kick [기기]',                       description: '퇴장시키기' },
+  op:       { permission: 'host',    execute: cmdOp,       usage: '/op [기기]',                         description: '관리자 부여' },
+  deop:     { permission: 'host',    execute: cmdDeop,     usage: '/deop [기기]',                       description: '관리자 회수' },
+  mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute [기기]',                       description: '채팅 금지' },
+  unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute [기기]',                     description: '채팅 금지 해제' },
+  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper [기기] [내용]',              description: '귓속말', hidden: true },
+  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                            description: '명령어 목록', hidden: true },
 };
 
 // ─── Public API ─────────────────────────────────────────────────

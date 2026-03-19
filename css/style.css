@@ -3573,6 +3573,47 @@ body.overlay-open .bottom-nav {
     border-bottom-color: var(--primary);
 }
 
+/* ── Command Autocomplete Dropdown ── */
+.chat-cmd-suggest {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--surface-2);
+    border-radius: 12px;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    z-index: 10;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.chat-cmd-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    transition: background 0.1s;
+}
+
+.chat-cmd-item:hover,
+.chat-cmd-item.active {
+    background: var(--surface-3);
+}
+
+.chat-cmd-usage {
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.chat-cmd-desc {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
 .chat-input {
     flex: 1;
     background: none;

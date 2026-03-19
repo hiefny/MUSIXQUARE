@@ -16,7 +16,7 @@ import { escapeHtml, escapeAttr } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
-import { parseCommand, executeCommand } from '../chat/commands.ts';
+import { parseCommand, executeCommand, getAvailableCommands } from '../chat/commands.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -718,10 +718,104 @@ export function initChat(): void {
   const previewBtn = document.getElementById('chat-preview-btn');
   if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer);
 
-  // Chat input: send on Enter
+  // Chat input: send on Enter + command autocomplete
   const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
   if (chatInput) {
+    // Create autocomplete dropdown
+    const wrapper = chatInput.closest('.chat-input-wrapper');
+    if (wrapper) {
+      (wrapper as HTMLElement).style.position = 'relative';
+    }
+    const suggest = document.createElement('div');
+    suggest.className = 'chat-cmd-suggest';
+    suggest.style.display = 'none';
+    if (wrapper) wrapper.appendChild(suggest);
+
+    let _suggestIdx = 0;
+    let _suggestItems: { name: string; usage: string; description: string }[] = [];
+
+    function showSuggest(items: { name: string; usage: string; description: string }[]): void {
+      _suggestItems = items;
+      _suggestIdx = 0;
+      if (!items.length) { suggest.style.display = 'none'; return; }
+      suggest.innerHTML = items.map((it, i) =>
+        `<div class="chat-cmd-item${i === 0 ? ' active' : ''}" data-idx="${i}"><span class="chat-cmd-usage">${escapeHtml(it.usage)}</span> <span class="chat-cmd-desc">${escapeHtml(it.description)}</span></div>`
+      ).join('');
+      suggest.style.display = '';
+    }
+
+    function hideSuggest(): void {
+      suggest.style.display = 'none';
+      _suggestItems = [];
+    }
+
+    function applySuggest(): void {
+      const item = _suggestItems[_suggestIdx];
+      if (!item || !chatInput) return;
+      chatInput.value = `/${item.name} `;
+      chatInput.focus();
+      hideSuggest();
+    }
+
+    // Input event: filter commands
+    chatInput.addEventListener('input', () => {
+      const val = chatInput.value;
+      if (!val.startsWith('/') || val.includes(' ')) { hideSuggest(); return; }
+      const query = val.slice(1).toLowerCase();
+      const matches = getAvailableCommands(query);
+      showSuggest(matches);
+    });
+
+    // Click on suggest item
+    suggest.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // Keep focus on input
+      const el = (e.target as HTMLElement).closest('.chat-cmd-item') as HTMLElement | null;
+      if (el) {
+        _suggestIdx = parseInt(el.dataset.idx || '0', 10);
+        applySuggest();
+      }
+    });
+
+    // Blur: hide suggest (with delay for click to register)
+    chatInput.addEventListener('blur', () => {
+      setTimeout(hideSuggest, 150);
+    });
+
     chatInput.addEventListener('keydown', (e) => {
+      // Autocomplete navigation
+      if (_suggestItems.length && suggest.style.display !== 'none') {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          applySuggest();
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
+          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) =>
+            el.classList.toggle('active', i === _suggestIdx));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
+          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) =>
+            el.classList.toggle('active', i === _suggestIdx));
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          hideSuggest();
+          return;
+        }
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          applySuggest();
+          return;
+        }
+      }
+
+      // Normal Enter: send message
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         sendChatMessage();

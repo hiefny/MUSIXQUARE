@@ -325,6 +325,18 @@ export function parseCommand(input: string): ParsedCommand | null {
   return { name, args, rawArgs };
 }
 
+export function getAvailableCommands(filter = ''): { name: string; usage: string; description: string }[] {
+  const result: { name: string; usage: string; description: string }[] = [];
+  const query = filter.toLowerCase();
+  for (const [name, def] of Object.entries(COMMANDS)) {
+    if (def.hidden) continue;
+    if (!hasPermission(def.permission)) continue;
+    if (query && !name.startsWith(query)) continue;
+    result.push({ name, usage: def.usage, description: def.description });
+  }
+  return result;
+}
+
 export function executeCommand(cmd: ParsedCommand): void {
   const def = COMMANDS[cmd.name];
   if (!def) {

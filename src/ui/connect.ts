@@ -389,8 +389,12 @@ export function initConnect(): void {
         validator: (val) => {
           const name = val.trim();
           if (!name) return t('connect.rename_reserved');
+          const isHostSelf = !getState('network.hostConn');
           if (RESERVED_NAMES.some(r => name.toLowerCase() === r.toLowerCase())) {
-            return t('connect.rename_reserved');
+            // HOST가 "host"/"방장"/"호스트"로 되돌리는 건 허용
+            if (!isHostSelf || !['host', '방장', '호스트'].includes(name.toLowerCase())) {
+              return t('connect.rename_reserved');
+            }
           }
           if (containsProfanity(name)) {
             return t('connect.rename_profanity');

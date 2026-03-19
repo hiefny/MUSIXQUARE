@@ -195,9 +195,12 @@ function cmdNick(_: string[], rawArgs: string): void {
   const newName = rawArgs.trim();
   if (!newName) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/nick 새이름' })); return; }
   if (newName.length > 20) { addSystemChatMessage(t('chat.cmd_nick_too_long')); return; }
+  const isHostSelf = !getState('network.hostConn');
   if (RESERVED_NAMES.some(r => newName.toLowerCase() === r.toLowerCase())) {
-    addSystemChatMessage(t('connect.rename_reserved'));
-    return;
+    if (!isHostSelf || !['host', '방장', '호스트'].includes(newName.toLowerCase())) {
+      addSystemChatMessage(t('connect.rename_reserved'));
+      return;
+    }
   }
   if (containsProfanity(newName)) {
     addSystemChatMessage(t('connect.rename_profanity'));

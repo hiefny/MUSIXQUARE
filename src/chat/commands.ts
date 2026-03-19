@@ -98,16 +98,20 @@ function cmdDeop(args: string[]): void {
   bus.emit('network:toggle-operator', target.peerId);
 }
 
-function cmdFreeze(): void {
-  setState('network.chatFrozen', true);
-  bus.emit('network:broadcast', { type: MSG.CHAT_FREEZE });
-  addSystemChatMessage(t('chat.cmd_frozen'));
-}
-
-function cmdUnfreeze(): void {
-  setState('network.chatFrozen', false);
-  bus.emit('network:broadcast', { type: MSG.CHAT_UNFREEZE });
-  addSystemChatMessage(t('chat.cmd_unfrozen'));
+function cmdFreeze(args: string[]): void {
+  const flag = args[0]?.toLowerCase();
+  if (flag !== 'on' && flag !== 'off') {
+    addSystemChatMessage(t('chat.cmd_usage', { usage: '/freeze on|off' }));
+    return;
+  }
+  const on = flag === 'on';
+  if (isHost()) {
+    setState('network.chatFrozen', on);
+    bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+    addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
+  } else {
+    sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: on ? 'freeze' : 'unfreeze', args: [] });
+  }
 }
 
 function cmdMute(args: string[]): void {
@@ -296,8 +300,7 @@ const COMMANDS: Record<string, CommandDef> = {
   kick:     { permission: 'host',    execute: cmdKick,     usage: '/kick #번호|이름',          description: '기기 강퇴' },
   op:       { permission: 'host',    execute: cmdOp,       usage: '/op #번호|이름',            description: '관리자 권한 부여' },
   deop:     { permission: 'host',    execute: cmdDeop,     usage: '/deop #번호|이름',           description: '관리자 권한 회수' },
-  freeze:   { permission: 'host',    execute: cmdFreeze,   usage: '/freeze',                  description: '채팅 잠금' },
-  unfreeze: { permission: 'host',    execute: cmdUnfreeze, usage: '/unfreeze',                 description: '채팅 잠금 해제' },
+  freeze:   { permission: 'host',    execute: cmdFreeze,   usage: '/freeze on|off',           description: '채팅 잠금' },
   mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute #번호|이름',           description: '채팅 금지' },
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute #번호|이름',          description: '채팅 금지 해제' },
   clear:    { permission: 'host+op', execute: cmdClear,    usage: '/clear',                   description: '채팅 내역 삭제' },

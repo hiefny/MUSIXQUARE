@@ -3650,7 +3650,6 @@ body.overlay-open .bottom-nav {
 .chat-cmd-ghost-hint {
     color: var(--text-muted);
     opacity: 0.45;
-    font-style: italic;
     white-space: pre;
 }
 

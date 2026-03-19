@@ -79,7 +79,7 @@ export function initI18n(): void {
 
 // ─── DOM Translation ────────────────────────────────────────────
 
-const I18N_ATTRS = ['placeholder', 'aria-label', 'title', 'alt'] as const;
+const I18N_ATTRS = ['placeholder', 'aria-label', 'title', 'alt', 'data-placeholder'] as const;
 
 function _translateElement(el: Element): void {
   // innerHTML (help blocks) — use tHtml for safe interpolation
@@ -98,7 +98,7 @@ function _translateElement(el: Element): void {
 }
 
 const _I18N_SELECTOR =
-  '[data-i18n],[data-i18n-html],[data-i18n-placeholder],[data-i18n-aria-label],[data-i18n-title],[data-i18n-alt]';
+  '[data-i18n],[data-i18n-html],[data-i18n-placeholder],[data-i18n-aria-label],[data-i18n-title],[data-i18n-alt],[data-i18n-data-placeholder]';
 
 function _translateSubtree(root: Element | Document): void {
   if (root instanceof Element) _translateElement(root);

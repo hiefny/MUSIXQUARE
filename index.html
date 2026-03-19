@@ -923,9 +923,11 @@
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">
-                <input type="search" class="chat-input" id="chat-input" placeholder="메시지 입력..." maxlength="500"
-                    name="mxqr-chat-nofill" autocomplete="nope" autocorrect="off" autocapitalize="off" spellcheck="false"
-                    aria-label="" data-i18n-placeholder="chat.placeholder" data-i18n-aria-label="chat.input_label">
+                <div class="chat-input" id="chat-input" contenteditable="true" role="textbox"
+                    aria-label="" data-i18n-aria-label="chat.input_label"
+                    data-placeholder="메시지 입력..." data-i18n-data-placeholder="chat.placeholder"
+                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                    inputmode="text"></div>
                 <button class="chat-send-btn" id="btn-chat-send" aria-label="" data-i18n-aria-label="chat.send">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />

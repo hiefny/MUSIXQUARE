@@ -179,7 +179,7 @@ export function toggleChatDrawer(): void {
     resetUnread();
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
-    const input = document.getElementById('chat-input') as HTMLInputElement | null;
+    const input = document.getElementById('chat-input') as HTMLDivElement | null;
     if (input) setManagedTimer('chat-input-focus', () => input.focus(), 300);
   }
 }
@@ -249,15 +249,15 @@ const MAX_MSG_LENGTH = 500;
 let _lastSentTime = 0;
 
 export function sendChatMessage(): void {
-  const input = document.getElementById('chat-input') as HTMLInputElement | null;
+  const input = document.getElementById('chat-input') as HTMLDivElement | null;
   if (!input) return;
-  let text = input.value.trim();
+  let text = (input.textContent || '').trim();
   if (!text) return;
 
   // ── Command intercept ──
   const cmd = parseCommand(text);
   if (cmd) {
-    input.value = '';
+    input.textContent = '';
     executeCommand(cmd);
     return;
   }
@@ -320,7 +320,7 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  input.value = '';
+  input.textContent = '';
 }
 
 function pruneOldMessages(container: HTMLElement): void {
@@ -764,7 +764,7 @@ export function initChat(): void {
   if (sendBtn) sendBtn.addEventListener('click', () => {
     sendChatMessage();
     // Re-focus input to keep mobile keyboard open
-    const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
+    const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
     if (chatInput) chatInput.focus();
   });
 
@@ -775,7 +775,7 @@ export function initChat(): void {
   if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer);
 
   // Chat input: send on Enter + command autocomplete
-  const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
+  const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
   if (chatInput) {
     // Create autocomplete dropdown
     const wrapper = chatInput.closest('.chat-input-wrapper');
@@ -792,8 +792,29 @@ export function initChat(): void {
     ghost.className = 'chat-cmd-ghost';
     if (wrapper) wrapper.appendChild(ghost);
 
+    /** Read text from contenteditable div */
+    function getInputValue(): string {
+      return chatInput!.textContent || '';
+    }
+
+    /** Write text to contenteditable div and place cursor at end */
+    function setInputValue(text: string): void {
+      chatInput!.textContent = text;
+      // Place cursor at end
+      if (text) {
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(chatInput!);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+
     function updateGhost(): void {
-      const val = chatInput!.value;
+      const val = getInputValue();
       // Match "/commandname " (with trailing space)
       const match = val.match(/^\/(\w+)\s/);
       if (match) {
@@ -837,15 +858,50 @@ export function initChat(): void {
     function applySuggest(): void {
       const item = _suggestItems[_suggestIdx];
       if (!item || !chatInput) return;
-      chatInput.value = `/${item.name} `;
+      setInputValue(`/${item.name} `);
       chatInput.focus();
       hideSuggest();
       updateGhost();
     }
 
+    // Paste handler: strip HTML, paste plain text only
+    chatInput.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = e.clipboardData?.getData('text/plain') || '';
+      // Remove line breaks and limit length
+      const clean = text.replace(/[\r\n]/g, ' ').substring(0, MAX_MSG_LENGTH);
+      document.execCommand('insertText', false, clean);
+    });
+
+    // Prevent line breaks in contenteditable
+    chatInput.addEventListener('beforeinput', (e) => {
+      if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
+        e.preventDefault();
+        return;
+      }
+      // Enforce maxlength
+      if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText') {
+        const current = getInputValue();
+        const incoming = e.data || '';
+        if (current.length + incoming.length > MAX_MSG_LENGTH) {
+          e.preventDefault();
+          // Insert only what fits
+          const remaining = MAX_MSG_LENGTH - current.length;
+          if (remaining > 0) {
+            document.execCommand('insertText', false, incoming.substring(0, remaining));
+          }
+        }
+      }
+    });
+
+    // Drop handler: prevent dropping rich content
+    chatInput.addEventListener('drop', (e) => {
+      e.preventDefault();
+    });
+
     // Input event: filter commands + ghost text
     chatInput.addEventListener('input', () => {
-      const val = chatInput.value;
+      const val = getInputValue();
       updateGhost();
       if (!val.startsWith('/') || val.includes(' ')) { hideSuggest(); return; }
       const query = val.slice(1).toLowerCase();
@@ -934,10 +990,11 @@ export function initChat(): void {
 
   // Muted state: disable input
   bus.on('chat:muted-state-changed', (isMuted: boolean) => {
-    const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
+    const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
     if (chatInput) {
-      chatInput.placeholder = isMuted ? t('chat.muted_placeholder') : t('chat.placeholder');
-      chatInput.disabled = isMuted;
+      chatInput.setAttribute('data-placeholder', isMuted ? t('chat.muted_placeholder') : t('chat.placeholder'));
+      chatInput.contentEditable = isMuted ? 'false' : 'true';
+      chatInput.dataset.disabled = isMuted ? 'true' : 'false';
     }
   });
 

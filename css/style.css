@@ -3711,14 +3711,13 @@ body.overlay-open .bottom-nav {
     outline: none;
     -webkit-appearance: none;
     appearance: none;
-}
-
-/* Hide search-type decorations (X button, search icon) */
-.chat-input::-webkit-search-decoration,
-.chat-input::-webkit-search-cancel-button,
-.chat-input::-webkit-search-results-button,
-.chat-input::-webkit-search-results-decoration {
-    display: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 1.2em;
+    -webkit-user-select: text;
+    user-select: text;
+    word-break: break-all;
 }
 
 .chat-input:focus {
@@ -3726,8 +3725,17 @@ body.overlay-open .bottom-nav {
     box-shadow: none;
 }
 
-.chat-input::placeholder {
+/* Placeholder via ::before when contenteditable is empty */
+.chat-input:empty::before {
+    content: attr(data-placeholder);
     color: var(--text-muted);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Disabled state (muted) */
+.chat-input[data-disabled="true"] {
+    pointer-events: none;
     opacity: 0.5;
 }
 
@@ -3749,7 +3757,7 @@ body.overlay-open .bottom-nav {
 }
 
 /* Lights up in blue when input is not empty */
-.chat-input:not(:placeholder-shown)+.chat-send-btn {
+.chat-input:not(:empty)+.chat-send-btn {
     color: var(--primary);
 }
 

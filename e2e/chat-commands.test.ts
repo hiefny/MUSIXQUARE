@@ -66,15 +66,15 @@ async function hasNonSystemChatContaining(
 
 async function isChatInputDisabled(page: import('@playwright/test').Page): Promise<boolean> {
   return page.evaluate(() => {
-    const input = document.getElementById('chat-input') as HTMLInputElement | null;
-    return input?.disabled ?? false;
+    const input = document.getElementById('chat-input') as HTMLElement | null;
+    return input?.contentEditable === 'false';
   });
 }
 
 async function getChatInputPlaceholder(page: import('@playwright/test').Page): Promise<string> {
   return page.evaluate(() => {
-    const input = document.getElementById('chat-input') as HTMLInputElement | null;
-    return input?.placeholder ?? '';
+    const input = document.getElementById('chat-input') as HTMLElement | null;
+    return input?.getAttribute('data-placeholder') ?? '';
   });
 }
 
@@ -132,10 +132,10 @@ test.describe('Chat Commands', () => {
 
     // Debug: check if parseCommand exists in the bundle
     const debugInfo = await pair.hostPage.evaluate(() => {
-      const input = document.getElementById('chat-input') as HTMLInputElement;
-      input.value = '/users';
+      const input = document.getElementById('chat-input') as HTMLElement;
+      input.textContent = '/users';
       // Check the text that sendChatMessage would read
-      const text = input.value.trim();
+      const text = (input.textContent || '').trim();
       return {
         inputValue: text,
         startsWith: text.startsWith('/'),

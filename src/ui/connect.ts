@@ -384,7 +384,7 @@ export function initConnect(): void {
         placeholder: t('connect.rename_placeholder'),
         defaultValue: isDefault ? '' : currentLabel,
         maxLength: 20,
-        hint: t('connect.rename_placeholder'),
+        hint: `${t('connect.rename_current')}: ${currentLabel}`,
         validator: (val) => {
           const name = val.trim();
           if (!name) return t('connect.rename_reserved');

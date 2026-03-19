@@ -146,6 +146,7 @@ const en: Record<I18nKey, string> = {
   'connect.rename_title': 'Change Device Name',
   'connect.rename_message': 'Enter a name visible to others.',
   'connect.rename_placeholder': 'New name (max 20 chars)',
+  'connect.rename_current': 'Current name',
   'connect.rename_reserved': 'This name is not allowed.',
   'connect.rename_duplicate': 'This name is already in use.',
   'settings.devices_title': 'Connected Devices',

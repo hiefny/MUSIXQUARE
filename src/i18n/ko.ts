@@ -144,6 +144,7 @@ const ko = {
   'connect.rename_title': '기기 이름 변경',
   'connect.rename_message': '다른 사람에게 보일 이름을 입력하세요.',
   'connect.rename_placeholder': '새 이름 (최대 20자)',
+  'connect.rename_current': '기존 이름',
   'connect.rename_reserved': '사용할 수 없는 이름입니다.',
   'connect.rename_duplicate': '이미 사용 중인 이름입니다.',
   'settings.devices_title': '연결된 기기',

@@ -56,7 +56,7 @@ export function startHostFlow(): void {
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
     {
-      id: 'btn-setup-next', text: t('common.next'), kind: 'primary',
+      id: 'btn-setup-next', text: t('common.next'), kind: 'secondary',
       onClick: () => {
         const role = getPendingSetupRole();
         if (role !== null) proceedToHostCode(role);

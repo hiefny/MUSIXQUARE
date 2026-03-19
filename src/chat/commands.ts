@@ -202,6 +202,10 @@ function cmdNick(_: string[], rawArgs: string): void {
       return;
     }
   }
+  if (/^#\d+$/.test(newName)) {
+    addSystemChatMessage(t('connect.rename_reserved'));
+    return;
+  }
   if (containsProfanity(newName)) {
     addSystemChatMessage(t('connect.rename_profanity'));
     return;

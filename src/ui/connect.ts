@@ -396,6 +396,9 @@ export function initConnect(): void {
               return t('connect.rename_reserved');
             }
           }
+          if (/^#\d+$/.test(name)) {
+            return t('connect.rename_reserved');
+          }
           if (containsProfanity(name)) {
             return t('connect.rename_profanity');
           }

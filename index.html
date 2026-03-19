@@ -26,8 +26,10 @@
         }
     </script>
 
+    <link rel="canonical" href="https://musixquare.com/">
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#f2f2f7">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
 
     <!-- Theme preflight (before CSS):
          - Prevent light-mode overlay scrollbars becoming white (invisible) on mobile/PWA
@@ -75,11 +77,12 @@
     <meta name="twitter:image" content="https://musixquare.com/og-image.png">
     <title>MUSIXQUARE - 뮤직스퀘어</title>
     <meta name="description" content="MUSIXQUARE(뮤직스퀘어) - 여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요. P2P 기반 실시간 오디오 동기화 웹앱.">
+    <link rel="icon" href="/favicon.ico" sizes="48x48">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+    <link rel="manifest" href="/manifest.webmanifest">
 
     <!-- FOUC guard: hide body until stylesheets are parsed.
          Removed by the rAF poll below (checks for --bg CSS variable from style.css). -->

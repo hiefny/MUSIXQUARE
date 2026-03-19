@@ -298,6 +298,7 @@ function cmdUsers(): void {
 // ─── Command Registry ───────────────────────────────────────────
 
 const COMMANDS: Record<string, CommandDef> = {
+  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                            description: '명령어 목록', hidden: true },
   users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                           description: '접속자 목록 보기' },
   clear:    { permission: 'host+op', execute: cmdClear,    usage: '/clear',                           description: '채팅 내역 삭제' },
   filter:   { permission: 'host+op', execute: cmdFilter,   usage: '/filter [on | off]',               description: '비속어 필터링' },
@@ -312,7 +313,6 @@ const COMMANDS: Record<string, CommandDef> = {
   mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute [기기]',                       description: '채팅 금지' },
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute [기기]',                     description: '채팅 금지 해제' },
   whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper [기기] [내용]',              description: '귓속말', hidden: true, hideFromSuggest: true },
-  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                            description: '명령어 목록', hidden: true },
 };
 
 // ─── Public API ─────────────────────────────────────────────────

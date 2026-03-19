@@ -743,10 +743,18 @@ export function initChat(): void {
       if (match) {
         const hint = getCommandArgHint(match[1]);
         if (hint) {
-          // Show: transparent typed text + visible hint
-          ghost.innerHTML = `<span class="chat-cmd-ghost-typed">${escapeHtml(val)}</span><span class="chat-cmd-ghost-hint">${escapeHtml(hint)}</span>`;
-          ghost.style.display = '';
-          return;
+          // Count how many args the user has typed so far
+          const afterCmd = val.slice(match[0].length);
+          const typedArgs = afterCmd ? afterCmd.split(/\s+/).filter(Boolean) : [];
+          // Split hint into bracket groups: ["[on | off]"] or ["[기기]", "[내용]"]
+          const hintParts = hint.match(/\[[^\]]*\]/g) || [];
+          // Remove already-filled arg hints
+          const remaining = hintParts.slice(typedArgs.length);
+          if (remaining.length > 0) {
+            ghost.innerHTML = `<span class="chat-cmd-ghost-typed">${escapeHtml(val)}</span><span class="chat-cmd-ghost-hint">${escapeHtml(remaining.join(' '))}</span>`;
+            ghost.style.display = '';
+            return;
+          }
         }
       }
       ghost.style.display = 'none';

@@ -792,15 +792,19 @@ export function initChat(): void {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
-          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) =>
-            el.classList.toggle('active', i === _suggestIdx));
+          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
+            el.classList.toggle('active', i === _suggestIdx);
+            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest' });
+          });
           return;
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
-          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) =>
-            el.classList.toggle('active', i === _suggestIdx));
+          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
+            el.classList.toggle('active', i === _suggestIdx);
+            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest' });
+          });
           return;
         }
         if (e.key === 'Escape') {

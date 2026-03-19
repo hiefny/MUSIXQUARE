@@ -5,6 +5,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 
+// ─── Global stubs ────────────────────────────────────────────────────────
+window.matchMedia = window.matchMedia || vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
 vi.mock('../../core/log.ts', () => ({

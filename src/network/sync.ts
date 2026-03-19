@@ -363,6 +363,85 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   log.info(`[Sync] Peer ${peerId} renamed to "${newLabel}"`);
 }
 
+// ─── Chat Command Request (OP guest → Host) ─────────────────────
+
+function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Only host processes this
+
+  const peerId = (data._originPeer as string) || conn?.peer;
+  if (!peerId) return;
+
+  // Verify OP status
+  const peers = getState('network.connectedPeers');
+  const peer = peers.find(p => p.id === peerId);
+  if (!peer?.isOp) return;
+
+  const command = data.command as string;
+  const args = (data.args as string[]) || [];
+
+  switch (command) {
+    case 'mute': {
+      const targetArg = args[0];
+      if (!targetArg) return;
+      const target = _resolveTargetForHost(targetArg);
+      if (!target) return;
+      const current = getState('network.mutedPeers');
+      setState('network.mutedPeers', new Set([...current, target.peerId]));
+      broadcast({ type: MSG.CHAT_MUTE, targetId: target.peerId, targetLabel: target.label });
+      break;
+    }
+    case 'unmute': {
+      const targetArg = args[0];
+      if (!targetArg) return;
+      const target = _resolveTargetForHost(targetArg);
+      if (!target) return;
+      const current = getState('network.mutedPeers');
+      const next = new Set([...current]);
+      next.delete(target.peerId);
+      setState('network.mutedPeers', next);
+      broadcast({ type: MSG.CHAT_UNMUTE, targetId: target.peerId, targetLabel: target.label });
+      break;
+    }
+    case 'clear':
+      broadcast({ type: MSG.CHAT_CLEAR });
+      bus.emit('chat:clear-all');
+      break;
+    case 'slowmode': {
+      const sec = parseInt(args[0] || '0', 10);
+      if (isNaN(sec) || sec < 0 || sec > 60) return;
+      setState('network.slowmodeSeconds', sec);
+      broadcast({ type: MSG.CHAT_SLOWMODE, seconds: sec });
+      break;
+    }
+    case 'notice': {
+      const text = args.join(' ').trim();
+      if (!text) return;
+      const peerLabel = peer.label || 'OP';
+      broadcast({ type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() });
+      break;
+    }
+    default:
+      log.warn(`[Sync] Unknown chat command from OP: ${command}`);
+  }
+}
+
+function _resolveTargetForHost(arg: string): { peerId: string; label: string } | null {
+  const peers = getState('network.connectedPeers');
+  if (arg.startsWith('#')) {
+    const order = parseInt(arg.slice(1), 10);
+    if (!isNaN(order)) {
+      const p = peers.find(peer => peer.joinOrder === order);
+      if (p) return { peerId: p.id, label: p.label };
+    }
+    return null;
+  }
+  const lower = arg.toLowerCase();
+  const p = peers.find(peer => peer.label.toLowerCase() === lower);
+  if (p) return { peerId: p.id, label: p.label };
+  return null;
+}
+
 export function initSync(): void {
   registerHandlers({
     [MSG.HEARTBEAT]: handleHeartbeat,
@@ -373,6 +452,7 @@ export function initSync(): void {
     [MSG.GLOBAL_RESYNC_REQUEST]: handleGlobalResyncRequest,
     [MSG.GET_SYNC_TIME]: handleGetSyncTime,
     [MSG.REQUEST_RENAME]: handleRequestRename,
+    [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 
   // Clean up module-scoped sync state when session ends

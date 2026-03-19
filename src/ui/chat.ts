@@ -7,7 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -16,6 +16,8 @@ import { escapeHtml, escapeAttr } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
+import { parseCommand, executeCommand } from '../chat/commands.ts';
+import { filterProfanity } from '../chat/profanity.ts';
 import type { DataConnection } from '../types/index.ts';
 
 const MAX_CHAT_MESSAGES = 200;
@@ -244,25 +246,57 @@ function initChatSwipeToDismiss(): void {
 
 const MAX_MSG_LENGTH = 500;
 
+let _lastSentTime = 0;
+
 export function sendChatMessage(): void {
   const input = document.getElementById('chat-input') as HTMLInputElement | null;
   if (!input) return;
   let text = input.value.trim();
   if (!text) return;
 
+  // ── Command intercept ──
+  const cmd = parseCommand(text);
+  if (cmd) {
+    input.value = '';
+    executeCommand(cmd);
+    return;
+  }
+
+  // ── Freeze check ──
+  const chatFrozen = getState('network.chatFrozen');
+  const hostConn = getState('network.hostConn');
+  const isHost = !hostConn;
+  const isOp = getState('network.isOperator') || false;
+  if (chatFrozen && !isHost && !isOp) {
+    addSystemChatMessage(t('chat.cmd_frozen_blocked'));
+    return;
+  }
+
+  // ── Slowmode check ──
+  const slowmode = getState('network.slowmodeSeconds');
+  if (slowmode > 0 && !isHost) {
+    const elapsed = (Date.now() - _lastSentTime) / 1000;
+    if (elapsed < slowmode) {
+      addSystemChatMessage(t('chat.cmd_slowmode_wait', { sec: Math.ceil(slowmode - elapsed) }));
+      return;
+    }
+  }
+  _lastSentTime = Date.now();
+
   if (text.length > MAX_MSG_LENGTH) {
     text = text.substring(0, MAX_MSG_LENGTH);
     bus.emit('ui:show-toast', t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
+  }
+
+  // ── Profanity filter (own messages too) ──
+  if (getState('network.filterEnabled')) {
+    text = filterProfanity(text);
   }
 
   const senderLabel = _getChatLabelBase();
   const channelMode = getState('audio.channelMode') ?? 0;
   const senderRole = getRoleLabelByChannelMode(channelMode);
   const displayName = _formatChatDisplayName(senderLabel);
-
-  const hostConn = getState('network.hostConn');
-  const isHost = !hostConn;
-  const isOp = getState('network.isOperator') || false;
   const myJoinOrder = getState('network.myJoinOrder') ?? 0;
   addChatMessage(displayName, text, true, isHost ? 'host' : isOp ? 'op' : undefined, myJoinOrder);
 
@@ -408,29 +442,215 @@ export function addSystemChatMessage(text: string): void {
   container.scrollTop = container.scrollHeight;
 }
 
+// ─── Whisper Message ─────────────────────────────────────────────
+
+export function addWhisperMessage(peerLabel: string, text: string, isSent: boolean): void {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const empty = container.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const now = new Date();
+  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+  const group = document.createElement('div');
+  group.className = `chat-group ${isSent ? 'mine' : 'others'} whisper`;
+
+  const senderNode = document.createElement('div');
+  senderNode.className = 'chat-sender whisper-label';
+  senderNode.textContent = isSent
+    ? t('chat.cmd_whisper_to', { name: peerLabel })
+    : t('chat.cmd_whisper_from', { name: peerLabel });
+  group.appendChild(senderNode);
+
+  const row = document.createElement('div');
+  row.className = 'chat-row';
+
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${isSent ? 'mine' : 'others'} whisper`;
+  const chatTextDiv = document.createElement('div');
+  chatTextDiv.className = 'chat-text';
+  chatTextDiv.innerHTML = parseMessageContent(text);
+  bubble.appendChild(chatTextDiv);
+
+  const timeNode = document.createElement('div');
+  timeNode.className = 'chat-time';
+  timeNode.innerText = timeStr;
+
+  if (isSent) { row.appendChild(timeNode); row.appendChild(bubble); }
+  else { row.appendChild(bubble); row.appendChild(timeNode); }
+
+  group.appendChild(row);
+  container.appendChild(group);
+  pruneOldMessages(container);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ─── Notice Message ─────────────────────────────────────────────
+
+export function addNoticeChatMessage(sender: string, text: string): void {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const empty = container.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const now = new Date();
+  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+  const group = document.createElement('div');
+  group.className = 'chat-group others notice';
+
+  const senderNode = document.createElement('div');
+  senderNode.className = 'chat-sender notice-label';
+  senderNode.textContent = `${t('chat.cmd_notice_prefix')} — ${sender}`;
+  group.appendChild(senderNode);
+
+  const row = document.createElement('div');
+  row.className = 'chat-row';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble others notice';
+  const chatTextDiv = document.createElement('div');
+  chatTextDiv.className = 'chat-text';
+  chatTextDiv.textContent = text;
+  bubble.appendChild(chatTextDiv);
+
+  const timeNode = document.createElement('div');
+  timeNode.className = 'chat-time';
+  timeNode.innerText = timeStr;
+
+  row.appendChild(bubble);
+  row.appendChild(timeNode);
+  group.appendChild(row);
+  container.appendChild(group);
+  pruneOldMessages(container);
+  container.scrollTop = container.scrollHeight;
+
+  incrementUnread();
+}
+
 // ─── Handler for Incoming Chat ───────────────────────────────────
 
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
   const myId = getState('network.myId') || '';
   const senderId = data.senderId as string || '';
   const isMine = senderId === myId;
+  const hostConn = getState('network.hostConn');
+
+  // ── Host-side enforcement: mute, freeze ──
+  if (!hostConn && !isMine) {
+    const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
+    // Muted user — silently drop
+    if (getState('network.mutedPeers').has(senderPeerId)) return;
+    // Frozen chat — non-OP non-host blocked
+    if (getState('network.chatFrozen') && !data.isHost && !data.isOp) return;
+  }
 
   const senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
   const displayName = _formatChatDisplayName(senderLabel);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
+  // ── Host-side profanity filter ──
+  if (!hostConn && getState('network.filterEnabled')) {
+    text = filterProfanity(text);
+    data.text = text; // Update data so relay sends filtered text
+  }
+
   const badge: 'host' | 'op' | undefined = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
   addChatMessage(displayName, text, isMine, badge, joinOrder);
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
-  const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    // Prefer senderId from data (original sender) over conn.peer (may be relay node)
     const senderPeerId = senderId || conn?.peer || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
   }
+}
+
+// ─── Chat Command Protocol Handlers ─────────────────────────────
+
+function handleChatMute(data: Record<string, unknown>): void {
+  const targetId = data.targetId as string;
+  const targetLabel = data.targetLabel as string;
+  const myId = getState('network.myId') || '';
+
+  if (targetId === myId) {
+    bus.emit('chat:muted-state-changed', true);
+  }
+  addSystemChatMessage(t('chat.cmd_muted', { name: targetLabel }));
+}
+
+function handleChatUnmute(data: Record<string, unknown>): void {
+  const targetId = data.targetId as string;
+  const targetLabel = data.targetLabel as string;
+  const myId = getState('network.myId') || '';
+
+  if (targetId === myId) {
+    bus.emit('chat:muted-state-changed', false);
+  }
+  addSystemChatMessage(t('chat.cmd_unmuted', { name: targetLabel }));
+}
+
+function handleChatFreeze(): void {
+  setState('network.chatFrozen', true);
+  addSystemChatMessage(t('chat.cmd_frozen'));
+}
+
+function handleChatUnfreeze(): void {
+  setState('network.chatFrozen', false);
+  addSystemChatMessage(t('chat.cmd_unfrozen'));
+}
+
+function handleChatClear(): void {
+  bus.emit('chat:clear-all');
+}
+
+function handleChatWhisper(data: Record<string, unknown>): void {
+  const myId = getState('network.myId') || '';
+  const targetId = data.targetId as string || '';
+  const senderId = data.senderId as string || '';
+  const senderLabel = data.senderLabel as string || '';
+  const text = data.text as string || '';
+  const hostConn = getState('network.hostConn');
+
+  // Host relays whisper to target only
+  if (!hostConn && senderId !== myId) {
+    if (targetId === myId) {
+      // Whisper is for us (the host)
+      addWhisperMessage(senderLabel, text, false);
+    } else {
+      // Relay to target peer only
+      const connMap = getState('network.activeHostConnByPeerId');
+      const targetConn = connMap.get(targetId);
+      if (targetConn) targetConn.send(data);
+    }
+    return;
+  }
+
+  // Guest receiving whisper
+  if (senderId !== myId) {
+    addWhisperMessage(senderLabel, text, false);
+  }
+}
+
+function handleChatNotice(data: Record<string, unknown>): void {
+  const senderLabel = data.senderLabel as string || '';
+  const text = data.text as string || '';
+  addNoticeChatMessage(senderLabel, text);
+}
+
+function handleChatSlowmode(data: Record<string, unknown>): void {
+  const seconds = data.seconds as number || 0;
+  setState('network.slowmodeSeconds', seconds);
+  addSystemChatMessage(seconds > 0
+    ? t('chat.cmd_slowmode_on', { sec: seconds })
+    : t('chat.cmd_slowmode_off'));
+}
+
+function handleChatSystem(data: Record<string, unknown>): void {
+  const text = data.text as string || '';
+  if (text) addSystemChatMessage(text);
 }
 
 // ─── Event Delegation ────────────────────────────────────────────
@@ -468,6 +688,15 @@ function initChatEventDelegation(): void {
 export function initChat(): void {
   registerHandlers({
     [MSG.CHAT]: handleChatMessage,
+    [MSG.CHAT_MUTE]: handleChatMute,
+    [MSG.CHAT_UNMUTE]: handleChatUnmute,
+    [MSG.CHAT_FREEZE]: handleChatFreeze,
+    [MSG.CHAT_UNFREEZE]: handleChatUnfreeze,
+    [MSG.CHAT_CLEAR]: handleChatClear,
+    [MSG.CHAT_WHISPER]: handleChatWhisper,
+    [MSG.CHAT_NOTICE]: handleChatNotice,
+    [MSG.CHAT_SLOWMODE]: handleChatSlowmode,
+    [MSG.CHAT_SYSTEM]: handleChatSystem,
   });
 
   initChatEventDelegation();
@@ -513,6 +742,24 @@ export function initChat(): void {
   // System messages from loader (avoids circular import with toast.ts)
   bus.on('chat:system-message', (text: string) => {
     addSystemChatMessage(text);
+  });
+
+  // Muted state: disable input
+  bus.on('chat:muted-state-changed', (isMuted: boolean) => {
+    const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
+    if (chatInput) {
+      chatInput.placeholder = isMuted ? t('chat.muted_placeholder') : t('chat.placeholder');
+      chatInput.disabled = isMuted;
+    }
+  });
+
+  // Clear all chat messages
+  bus.on('chat:clear-all', () => {
+    const container = document.getElementById('chat-messages');
+    if (container) {
+      container.innerHTML = '';
+      addSystemChatMessage(t('chat.cmd_clear'));
+    }
   });
 
   log.info('[Chat] Initialized');

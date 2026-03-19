@@ -3450,6 +3450,32 @@ body.overlay-open .bottom-nav {
     padding: 0;
 }
 
+/* Whisper bubble */
+.chat-bubble.whisper {
+    background: rgba(147, 112, 219, 0.15);
+    border: 1px solid rgba(147, 112, 219, 0.3);
+}
+
+.chat-bubble.whisper.mine {
+    background: rgba(147, 112, 219, 0.25);
+    color: white;
+}
+
+.whisper-label {
+    color: #9370db;
+}
+
+/* Notice bubble */
+.chat-bubble.notice {
+    background: rgba(255, 193, 7, 0.12);
+    border: 1px solid rgba(255, 193, 7, 0.35);
+}
+
+.notice-label {
+    color: #ffc107;
+    font-weight: 600;
+}
+
 .chat-sender {
     font-size: 11px;
     font-weight: 700;
@@ -3519,6 +3545,7 @@ body.overlay-open .bottom-nav {
 .chat-text {
     font-size: 14px;
     line-height: 1.5;
+    white-space: pre-line;
 }
 
 .chat-time {

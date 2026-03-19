@@ -217,6 +217,18 @@ export interface ProtocolMap {
 
   // ── Rename ──────────────────────────────────────────────────────
   'request-rename': { newLabel: string };
+
+  // ── Chat Commands ─────────────────────────────────────────────
+  'chat-mute': { targetId: string; targetLabel: string };
+  'chat-unmute': { targetId: string; targetLabel: string };
+  'chat-freeze': NoPayload;
+  'chat-unfreeze': NoPayload;
+  'chat-clear': NoPayload;
+  'chat-whisper': { senderId: string; senderLabel: string; text: string; ts: number; joinOrder: number };
+  'chat-notice': { senderLabel: string; text: string; ts: number };
+  'chat-slowmode': { seconds: number };
+  'chat-system': { text: string };
+  'request-chat-command': { command: string; args: string[] };
 }
 
 /** Full protocol message = { type: T } & payload */
@@ -287,6 +299,10 @@ export interface StateTree {
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
     connectionType: 'local' | 'remote' | 'unknown';
+    mutedPeers: Set<string>;
+    chatFrozen: boolean;
+    slowmodeSeconds: number;
+    filterEnabled: boolean;
   };
   relay: { upstreamDataConn: DataConnection | null; downstreamDataPeers: DataConnection[] };
   playlist: { items: PlaylistItem[]; currentTrackIndex: number; repeatMode: number; isShuffle: boolean };
@@ -445,6 +461,8 @@ interface BaseEventMap {
   'network:kick-device': [peerId: string];
   'network:kicked-explicitly': [];
   'network:rename-device': [newName: string];
+  'chat:muted-state-changed': [isMuted: boolean];
+  'chat:clear-all': [];
 
   // ── Playlist ────────────────────────────────────────────────────
   'playlist:remove-track': [index: number];

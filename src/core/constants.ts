@@ -119,6 +119,18 @@ export const MSG = {
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
   RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost',
+
+  // ── Chat Commands ──────────────────────────────────────────────
+  CHAT_MUTE: 'chat-mute',
+  CHAT_UNMUTE: 'chat-unmute',
+  CHAT_FREEZE: 'chat-freeze',
+  CHAT_UNFREEZE: 'chat-unfreeze',
+  CHAT_CLEAR: 'chat-clear',
+  CHAT_WHISPER: 'chat-whisper',
+  CHAT_NOTICE: 'chat-notice',
+  CHAT_SLOWMODE: 'chat-slowmode',
+  CHAT_SYSTEM: 'chat-system',
+  REQUEST_CHAT_COMMAND: 'request-chat-command',
 } as const;
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];
@@ -135,7 +147,10 @@ export const RELAYABLE_MSG_TYPES = [
   MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
   MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
   MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
-  MSG.CHAT, MSG.PLAYLIST_UPDATE,
+  MSG.CHAT, MSG.CHAT_MUTE, MSG.CHAT_UNMUTE,
+  MSG.CHAT_FREEZE, MSG.CHAT_UNFREEZE, MSG.CHAT_CLEAR,
+  MSG.CHAT_NOTICE, MSG.CHAT_SLOWMODE, MSG.CHAT_SYSTEM,
+  MSG.PLAYLIST_UPDATE,
   MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
   MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
 ] as const satisfies readonly MsgType[];

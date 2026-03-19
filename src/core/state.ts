@@ -97,6 +97,10 @@ function createInitialState(): StateTree {
       peerSlotByPeerId: new Map(),
       activeHostConnByPeerId: new Map(),
       connectionType: 'unknown' as const,
+      mutedPeers: new Set<string>(),
+      chatFrozen: false,
+      slowmodeSeconds: 0,
+      filterEnabled: false,
     },
 
     relay: {

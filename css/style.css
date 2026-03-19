@@ -3579,7 +3579,7 @@ body.overlay-open .bottom-nav {
     bottom: calc(100% + 4px);
     left: 0;
     right: 0;
-    background: var(--surface-2);
+    background: var(--surface-1);
     border-radius: 12px;
     box-shadow: none;
     overflow: hidden;
@@ -3599,7 +3599,7 @@ body.overlay-open .bottom-nav {
 
 .chat-cmd-item:hover,
 .chat-cmd-item.active {
-    background: var(--surface-3);
+    background: var(--surface-2);
 }
 
 .chat-cmd-usage {

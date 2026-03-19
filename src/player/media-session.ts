@@ -122,8 +122,15 @@ export function initMediaSession(): void {
     updateMediaSessionMetadata(item);
   });
 
-  // Sync playbackState with app state (needed for Web Audio / Tone.js
-  // since the browser cannot infer state from an <audio> element)
+  // ⚠️ CRITICAL — DO NOT REMOVE
+  // Sync playbackState with app state. This explicitly tells the OS
+  // that media is playing, which has a crucial side effect on iOS PWA:
+  // iOS keeps the AudioContext alive in the background when
+  // playbackState === 'playing', enabling background audio playback.
+  // Without this, iOS suspends the AudioContext when the app goes to
+  // the background or the screen turns off, killing audio immediately.
+  // (Tone.js / Web Audio apps need this because the browser can't
+  // infer playback state from an <audio> element.)
   bus.on('player:state-changed', (state: string) => {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.playbackState =

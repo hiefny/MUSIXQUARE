@@ -3603,8 +3603,8 @@ body.overlay-open .bottom-nav {
 }
 
 .chat-cmd-usage {
-    color: var(--primary);
-    font-weight: 600;
+    color: var(--text-main);
+    font-weight: 400;
     font-size: 14px;
     white-space: nowrap;
 }
@@ -3612,6 +3612,17 @@ body.overlay-open .bottom-nav {
 .chat-cmd-desc {
     color: var(--text-muted);
     font-size: 13px;
+    font-weight: 400;
+}
+
+.chat-cmd-item.active .chat-cmd-usage {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.chat-cmd-item.active .chat-cmd-desc {
+    color: var(--primary);
+    font-weight: 500;
 }
 
 .chat-input {

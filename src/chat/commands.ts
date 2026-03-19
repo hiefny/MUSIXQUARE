@@ -266,7 +266,7 @@ function cmdHelp(): void {
   const lines: string[] = [t('chat.cmd_help_title')];
   const role = isHost() ? 'host' : getState('network.isOperator') ? 'op' : 'user';
 
-  for (const [, def] of Object.entries(COMMANDS)) {
+  for (const [, def] of _allCommandEntries()) {
     if (def.hidden) continue;
     if (def.permission === 'all'
       || (def.permission === 'host' && role === 'host')
@@ -297,23 +297,36 @@ function cmdUsers(): void {
 
 // ─── Command Registry ───────────────────────────────────────────
 
-const COMMANDS: Record<string, CommandDef> = {
-  help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                            description: '명령어 목록', hidden: true },
-  users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                           description: '접속자 목록 보기' },
-  clear:    { permission: 'host+op', execute: cmdClear,    usage: '/clear',                           description: '채팅 내역 삭제' },
-  filter:   { permission: 'host+op', execute: cmdFilter,   usage: '/filter [on | off]',               description: '비속어 필터링' },
-  freeze:   { permission: 'host',    execute: cmdFreeze,   usage: '/freeze [on | off]',               description: '채팅 잠금' },
-  slowmode: { permission: 'host+op', execute: cmdSlowmode, usage: '/slowmode [초]',                    description: '슬로우 모드' },
-  w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w [기기] [내용]',                   description: '귓속말' },
-  notice:   { permission: 'host+op', execute: cmdNotice,   usage: '/notice [메시지]',                   description: '공지 메시지' },
-  nick:     { permission: 'all',     execute: cmdNick,     usage: '/nick [닉네임]',                     description: '닉네임 변경' },
-  kick:     { permission: 'host',    execute: cmdKick,     usage: '/kick [기기]',                       description: '퇴장시키기' },
-  op:       { permission: 'host',    execute: cmdOp,       usage: '/op [기기]',                         description: '관리자 부여' },
-  deop:     { permission: 'host',    execute: cmdDeop,     usage: '/deop [기기]',                       description: '관리자 회수' },
-  mute:     { permission: 'host+op', execute: cmdMute,     usage: '/mute [기기]',                       description: '채팅 금지' },
-  unmute:   { permission: 'host+op', execute: cmdUnmute,   usage: '/unmute [기기]',                     description: '채팅 금지 해제' },
-  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper [기기] [내용]',              description: '귓속말', hidden: true, hideFromSuggest: true },
+// usage/description use i18n keys, resolved at access time via getAvailableCommands()
+const COMMANDS_DEF: Record<string, Omit<CommandDef, 'usage' | 'description'> & { usageKey: string; descKey: string }> = {
+  help:     { permission: 'all',     execute: cmdHelp,     usageKey: 'chat.cmd_u_help',     descKey: 'chat.cmd_d_help',     hidden: true },
+  users:    { permission: 'all',     execute: cmdUsers,    usageKey: 'chat.cmd_u_users',    descKey: 'chat.cmd_d_users' },
+  clear:    { permission: 'host+op', execute: cmdClear,    usageKey: 'chat.cmd_u_clear',    descKey: 'chat.cmd_d_clear' },
+  filter:   { permission: 'host+op', execute: cmdFilter,   usageKey: 'chat.cmd_u_filter',   descKey: 'chat.cmd_d_filter' },
+  freeze:   { permission: 'host',    execute: cmdFreeze,   usageKey: 'chat.cmd_u_freeze',   descKey: 'chat.cmd_d_freeze' },
+  slowmode: { permission: 'host+op', execute: cmdSlowmode, usageKey: 'chat.cmd_u_slowmode', descKey: 'chat.cmd_d_slowmode' },
+  w:        { permission: 'all',     execute: cmdWhisper,  usageKey: 'chat.cmd_u_w',        descKey: 'chat.cmd_d_w' },
+  notice:   { permission: 'host+op', execute: cmdNotice,   usageKey: 'chat.cmd_u_notice',   descKey: 'chat.cmd_d_notice' },
+  nick:     { permission: 'all',     execute: cmdNick,     usageKey: 'chat.cmd_u_nick',     descKey: 'chat.cmd_d_nick' },
+  kick:     { permission: 'host',    execute: cmdKick,     usageKey: 'chat.cmd_u_kick',     descKey: 'chat.cmd_d_kick' },
+  op:       { permission: 'host',    execute: cmdOp,       usageKey: 'chat.cmd_u_op',       descKey: 'chat.cmd_d_op' },
+  deop:     { permission: 'host',    execute: cmdDeop,     usageKey: 'chat.cmd_u_deop',     descKey: 'chat.cmd_d_deop' },
+  mute:     { permission: 'host+op', execute: cmdMute,     usageKey: 'chat.cmd_u_mute',     descKey: 'chat.cmd_d_mute' },
+  unmute:   { permission: 'host+op', execute: cmdUnmute,   usageKey: 'chat.cmd_u_unmute',   descKey: 'chat.cmd_d_unmute' },
+  whisper:  { permission: 'all',     execute: cmdWhisper,  usageKey: 'chat.cmd_u_whisper',  descKey: 'chat.cmd_d_w', hidden: true, hideFromSuggest: true },
 };
+
+// Resolve i18n at access time
+function _resolveCommand(name: string): CommandDef | undefined {
+  const def = COMMANDS_DEF[name];
+  if (!def) return undefined;
+  return { ...def, usage: t(def.usageKey as Parameters<typeof t>[0]), description: t(def.descKey as Parameters<typeof t>[0]) };
+}
+
+// For iteration (help list, autocomplete)
+function _allCommandEntries(): [string, CommandDef][] {
+  return Object.entries(COMMANDS_DEF).map(([name, def]) => [name, { ...def, usage: t(def.usageKey as Parameters<typeof t>[0]), description: t(def.descKey as Parameters<typeof t>[0]) }]);
+}
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -329,8 +342,8 @@ export function parseCommand(input: string): ParsedCommand | null {
 export function getAvailableCommands(filter = ''): { name: string; usage: string; description: string }[] {
   const result: { name: string; usage: string; description: string }[] = [];
   const query = filter.toLowerCase();
-  for (const [name, def] of Object.entries(COMMANDS)) {
-    if (def.hideFromSuggest) continue;
+  for (const [name, def] of _allCommandEntries()) {
+    if ((def as unknown as Record<string, unknown>).hideFromSuggest) continue;
     if (!hasPermission(def.permission)) continue;
     if (query && !name.startsWith(query)) continue;
     result.push({ name, usage: def.usage, description: def.description });
@@ -340,15 +353,14 @@ export function getAvailableCommands(filter = ''): { name: string; usage: string
 
 /** Returns the argument hint for a command, e.g. "/freeze" → "[on | off]" */
 export function getCommandArgHint(cmdName: string): string {
-  const def = COMMANDS[cmdName.toLowerCase()];
+  const def = _resolveCommand(cmdName.toLowerCase());
   if (!def) return '';
-  // Extract args portion from usage: "/freeze [on | off]" → "[on | off]"
   const spaceIdx = def.usage.indexOf(' ');
   return spaceIdx === -1 ? '' : def.usage.slice(spaceIdx + 1);
 }
 
 export function executeCommand(cmd: ParsedCommand): void {
-  const def = COMMANDS[cmd.name];
+  const def = _resolveCommand(cmd.name);
   if (!def) {
     addSystemChatMessage(t('chat.cmd_unknown', { cmd: cmd.name }));
     return;

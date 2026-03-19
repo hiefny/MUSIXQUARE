@@ -306,6 +306,7 @@ const COMMANDS: Record<string, CommandDef> = {
   notice:   { permission: 'host+op', execute: cmdNotice,   usage: '/notice 메시지',             description: '공지 메시지' },
   nick:     { permission: 'all',     execute: cmdNick,     usage: '/nick 새이름',               description: '닉네임 변경' },
   w:        { permission: 'all',     execute: cmdWhisper,  usage: '/w #번호 메시지',             description: '귓속말' },
+  whisper:  { permission: 'all',     execute: cmdWhisper,  usage: '/whisper #번호 메시지',       description: '귓속말', hidden: true },
   help:     { permission: 'all',     execute: cmdHelp,     usage: '/help',                    description: '명령어 목록', hidden: true },
   users:    { permission: 'all',     execute: cmdUsers,    usage: '/users',                   description: '접속자 목록' },
 };

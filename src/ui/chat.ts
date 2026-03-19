@@ -794,7 +794,7 @@ export function initChat(): void {
           _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
           suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
             el.classList.toggle('active', i === _suggestIdx);
-            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest' });
+            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
           });
           return;
         }
@@ -803,7 +803,7 @@ export function initChat(): void {
           _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
           suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
             el.classList.toggle('active', i === _suggestIdx);
-            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest' });
+            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
           });
           return;
         }

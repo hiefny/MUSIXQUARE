@@ -406,6 +406,7 @@ const ko = {
   'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
+  'dialog.leaving_session': '세션 나가는 중...',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었습니다. 새로고침하면 업데이트가 적용됩니다.',
   'dialog.reconnect_ask': '다시 연결하시겠어요?',

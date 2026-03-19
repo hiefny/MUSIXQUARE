@@ -408,6 +408,7 @@ const en: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',
+  'dialog.leaving_session': 'Leaving session...',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready. Refresh to update.',
   'dialog.reconnect_ask': 'Would you like to reconnect?',

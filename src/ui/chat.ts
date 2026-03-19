@@ -855,6 +855,10 @@ export function initChat(): void {
         sendChatMessage();
       }
     });
+
+    // Re-render ghost text on language change
+    new MutationObserver(() => updateGhost()).observe(
+      document.documentElement, { attributes: true, attributeFilter: ['lang'] });
   }
 
   // Bus event for toggling drawer from other modules

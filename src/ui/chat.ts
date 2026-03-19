@@ -761,7 +761,12 @@ export function initChat(): void {
 
   // Wire up UI buttons
   const sendBtn = document.getElementById('btn-chat-send');
-  if (sendBtn) sendBtn.addEventListener('click', sendChatMessage);
+  if (sendBtn) sendBtn.addEventListener('click', () => {
+    sendChatMessage();
+    // Re-focus input to keep mobile keyboard open
+    const chatInput = document.getElementById('chat-input') as HTMLInputElement | null;
+    if (chatInput) chatInput.focus();
+  });
 
   const closeBtn = document.getElementById('btn-chat-close');
   if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer);

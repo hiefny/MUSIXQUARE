@@ -836,9 +836,8 @@ export function initChat(): void {
           return;
         }
         if (e.key === 'Enter' && !e.isComposing) {
-          e.preventDefault();
-          applySuggest();
-          return;
+          hideSuggest();
+          // Fall through to normal Enter send below
         }
       }
 

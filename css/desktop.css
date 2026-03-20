@@ -171,6 +171,12 @@
         border-right: 1px solid var(--divider);
         background: transparent;
         box-shadow: none;
+        /* Reset mobile slide-up drawer properties for desktop grid layout */
+        position: relative;
+        visibility: visible;
+        height: auto;
+        max-height: none;
+        border-radius: 0;
     }
 
     #tab-settings {
@@ -242,6 +248,24 @@
        --------------------------------------------------- */
     .chat-drawer {
         grid-area: tab-chat;
+    }
+
+    /* Desktop entrance animation for chat (can't use .app-entrance
+       because mobile .chat-drawer has its own transform/transition
+       for the slide-up drawer that conflicts) */
+    @keyframes chatEntranceUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    .chat-drawer.app-chat-entrance {
+        animation: chatEntranceUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
     }
 
     /* Desktop: no backdrop, no drag handle */

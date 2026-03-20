@@ -66,7 +66,6 @@ const ENTRANCE_TARGETS: [string, string, number][] = [
   ['.bottom-nav',          'up',    400],
   // Desktop panels (mobile ones are display:none, harmless)
   ['#tab-playlist',        'down',  100],
-  ['.chat-drawer',         'up',    200],
   ['#tab-settings',        'left',  150],
 ];
 
@@ -86,6 +85,11 @@ export function triggerAppEntrance(): void {
       const el = document.querySelector(sel) as HTMLElement | null;
       if (el) el.classList.add('app-entered');
     }
+    // Desktop chat: separate animation (mobile drawer conflicts with app-entrance)
+    const chatDrawer = document.querySelector('.chat-drawer') as HTMLElement | null;
+    if (chatDrawer && window.matchMedia('(min-width: 1280px)').matches) {
+      chatDrawer.classList.add('app-chat-entrance');
+    }
     // Cleanup after all transitions complete
     setTimeout(() => {
       for (const [sel] of ENTRANCE_TARGETS) {
@@ -95,7 +99,8 @@ export function triggerAppEntrance(): void {
           el.style.removeProperty('--entrance-delay');
         }
       }
-    }, 900); // max delay(400) + duration(450) + buffer
+      if (chatDrawer) chatDrawer.classList.remove('app-chat-entrance');
+    }, 1200); // max delay(400) + duration(900) + buffer
   });
 }
 

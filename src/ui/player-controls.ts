@@ -94,6 +94,8 @@ function toggleMute(): void {
 }
 
 // ─── Role Badge ──────────────────────────────────────────────────
+// Badge text is intentionally English-only (HOST, PEER, GUEST, etc.)
+// — treated as a brand/UI label, not translatable content.
 
 export function updateRoleBadge(): void {
   const badge = document.getElementById('role-badge');
@@ -104,14 +106,14 @@ export function updateRoleBadge(): void {
 
   const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
-    text.innerText = t('network.connecting');
+    text.innerText = 'CONNECTING';
     return;
   }
 
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     const myDeviceLabel = getState('network.myDeviceLabel') || '';
-    const label = myDeviceLabel.trim() || t('common.peer');
+    const label = myDeviceLabel.trim() || 'PEER';
     const latency = getState('sync.lastLatencyMs') || 0;
     text.innerText = `${label} (${latency}ms)`;
     badge.classList.add('connected');
@@ -123,17 +125,17 @@ export function updateRoleBadge(): void {
 
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = t('common.host').toUpperCase();
+    text.innerText = 'HOST';
     badge.classList.add('connected');
     return;
   }
 
   if (appRole === 'guest') {
-    text.innerText = t('common.guest');
+    text.innerText = 'GUEST';
     return;
   }
 
-  text.innerText = t('common.setup');
+  text.innerText = 'SETUP';
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

@@ -741,7 +741,9 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     align-items: center;
     justify-content: center;
     border: 2px solid var(--bg);
-}#tab-play {
+}
+
+#tab-play {
     justify-content: flex-start;
     padding-top: calc(var(--header-height) + 10px);
 }
@@ -1106,7 +1108,9 @@ input[type=range]:active::-moz-range-thumb {
     width: 28px;
     height: 28px;
     fill: currentColor;
-}.playlist-title-area {
+}
+
+.playlist-title-area {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1353,7 +1357,9 @@ input[type=range]:active::-moz-range-thumb {
     .btn-playlist-remove {
         opacity: 0.5;
     }
-}.section-group {
+}
+
+.section-group {
     background: transparent;
     border-radius: 0;
     margin: 0 44px;

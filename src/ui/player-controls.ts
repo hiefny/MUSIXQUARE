@@ -519,9 +519,6 @@ export function initPlayerControls(): void {
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
   $on('youtube-play-btn', 'click', () => bus.emit('youtube:load-from-input'));
 
-  // Guide tab
-  $on('btn-demo-guide', 'click', () => { switchTab('play'); bus.emit('app:load-demo'); });
-
   // Seek bar
   initSeekBar();
 

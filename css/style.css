@@ -3080,26 +3080,6 @@ body.overlay-open .bottom-nav {
     }
 }
 
-/* Demo Button */
-.demo-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--primary);
-    color: white;
-    padding: 12px 24px;
-    border-radius: 12px;
-    border: none;
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.2s;
-    font-family: inherit;
-}
-
-.demo-btn:active {
-    transform: scale(0.95);
-}
 
 /* Large File Select Button */
 .file-select-btn-large {

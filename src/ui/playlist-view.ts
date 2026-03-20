@@ -149,7 +149,7 @@ export function updatePlaylistUI(): void {
           const isActiveSub = (isCurrent && sIdx === currentYouTubeSubIndex);
           sli.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
 
-          const sTitle = (subData.titles && subData.titles[sIdx]) ? subData.titles[sIdx] : `Video ${sIdx + 1}`;
+          const sTitle = (subData.titles && subData.titles[sIdx]) ? subData.titles[sIdx] : t('playlist.video_fallback', { idx: sIdx + 1 });
           sli.innerHTML = `
             <span class="sub-idx">${sIdx + 1}</span>
             <span class="sub-name">${escapeHtml(sTitle)}</span>
@@ -200,7 +200,7 @@ export function updatePlaylistUI(): void {
       if (currentItem?.artist) {
         artistEl.innerText = currentItem.artist;
       } else {
-        artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? t('common.youtube_video') : `Track ${currentTrackIndex + 1}`;
+        artistEl.innerText = (currentItem && currentItem.type === 'youtube') ? t('common.youtube_video') : t('playlist.track_fallback', { idx: currentTrackIndex + 1 });
       }
     }
   }

@@ -92,6 +92,8 @@ const en: Record<I18nKey, string> = {
   'playlist.remove_message': 'Remove this media from the playlist?',
   'playlist.remove_yes': 'Remove',
   'playlist.remove_no': 'No',
+  'playlist.video_fallback': 'Video {{idx}}',
+  'playlist.track_fallback': 'Track {{idx}}',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Center',
@@ -274,6 +276,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_deop': 'Revoke operator',
   'chat.cmd_d_mute': 'Mute device',
   'chat.cmd_d_unmute': 'Unmute device',
+  'chat.seek_to': 'Seek to {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Enter YouTube link',

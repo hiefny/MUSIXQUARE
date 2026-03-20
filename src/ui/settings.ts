@@ -364,7 +364,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
 
     const name = document.createElement('span');
     name.className = 'd-name';
-    name.textContent = String(p.label || 'Device');
+    name.textContent = String(p.label || t('common.peer'));
 
     const shortId = document.createElement('span');
     shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';

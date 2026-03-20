@@ -127,7 +127,7 @@ type NoPayload = {};
  */
 export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
-  'welcome': { lockChannel: boolean; label: string };
+  'welcome': { lockChannel: boolean; label: string; chatFrozen?: boolean; slowmodeSeconds?: number; filterEnabled?: boolean };
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
 

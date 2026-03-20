@@ -106,7 +106,7 @@ function parseMessageContent(text: string): string {
       setManagedTimer(`yt-chat-title-${uniqueId}`, () => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
     } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
       const seconds = parseTimestamp(matchedText);
-      result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="Seek to ${escapeAttr(matchedText)}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
+      result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="${escapeAttr(t('chat.seek_to', { time: matchedText }))}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
     } else {
       result += escapeHtml(matchedText);
     }
@@ -257,7 +257,7 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const cmd = parseCommand(text);
   if (cmd) {
-    input.textContent = '';
+    input.innerHTML = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     executeCommand(cmd);
     return;
@@ -321,7 +321,7 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  input.textContent = '';
+  input.innerHTML = '';
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 

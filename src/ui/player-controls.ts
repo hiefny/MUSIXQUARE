@@ -123,7 +123,7 @@ export function updateRoleBadge(): void {
 
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = 'HOST';
+    text.innerText = t('common.host').toUpperCase();
     badge.classList.add('connected');
     return;
   }

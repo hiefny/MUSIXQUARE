@@ -254,7 +254,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       // Device name + short ID + OP badge
       const name = document.createElement('span');
       name.className = 'd-name';
-      name.textContent = String(p.label || 'Device');
+      name.textContent = String(p.label || t('common.peer'));
 
 
       if (p.isOp) {

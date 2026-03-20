@@ -106,13 +106,9 @@ function cmdFreeze(args: string[]): void {
     return;
   }
   const on = flag === 'on';
-  if (isHost()) {
-    setState('network.chatFrozen', on);
-    bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
-    addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
-  } else {
-    sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: on ? 'freeze' : 'unfreeze', args: [] });
-  }
+  setState('network.chatFrozen', on);
+  bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
+  addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
 }
 
 function cmdMute(args: string[]): void {

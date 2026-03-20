@@ -333,6 +333,8 @@ export function leaveSession(): void {
     'sync.autoSyncOffset': 0,
     // Player
     'player.pausedAt': 0,
+    // YouTube
+    'youtube.subItemsMap': {},
     // App state
     'appState': APP_STATE.IDLE,
   });

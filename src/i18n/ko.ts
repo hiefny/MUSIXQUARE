@@ -90,6 +90,8 @@ const ko = {
   'playlist.remove_message': '이 미디어를 재생목록에서 지울까요?',
   'playlist.remove_yes': '지우기',
   'playlist.remove_no': '아니요',
+  'playlist.video_fallback': '영상 {{idx}}',
+  'playlist.track_fallback': '트랙 {{idx}}',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': '중앙 스피커',
@@ -272,6 +274,7 @@ const ko = {
   'chat.cmd_d_deop': '관리자 회수',
   'chat.cmd_d_mute': '채팅 금지',
   'chat.cmd_d_unmute': '채팅 금지 해제',
+  'chat.seek_to': '{{time}}(으)로 이동',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube 링크 입력',

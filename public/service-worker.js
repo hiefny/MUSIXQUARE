@@ -46,7 +46,9 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./dummy_audio.mp3",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./favicon.ico",
+  "./favicon.svg"
 ];
 
 self.addEventListener('install', (event) => {

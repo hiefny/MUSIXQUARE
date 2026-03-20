@@ -205,26 +205,29 @@ test.describe('Chat Commands', () => {
 
   // ── /mute ──────────────────────────────────────────────────────
 
-  test.fixme('/mute blocks specific guest, /unmute unblocks — contentEditable propagation timing', async () => {
+  test('/mute blocks specific guest, /unmute unblocks', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await openChat(pair.hostPage);
     await openChat(pair.guestPage);
 
     // Host mutes guest #1
     await sendChat(pair.hostPage, '/mute #1');
-    // Wait for mute state to propagate to guest
+    // Wait for mute state to propagate to guest (contentEditable becomes 'false')
     await pair.guestPage.waitForFunction(() => {
       const input = document.getElementById('chat-input') as HTMLElement | null;
       return input?.contentEditable === 'false';
-    }, { timeout: 5000 });
+    }, { timeout: 10000 });
     const isDisabled = await isChatInputDisabled(pair.guestPage);
     expect(isDisabled).toBe(true);
 
     // Unmute
     await sendChat(pair.hostPage, '/unmute #1');
-    await pair.guestPage.waitForTimeout(1500);
+    // Wait for unmute to propagate (contentEditable becomes 'true' again)
+    await pair.guestPage.waitForFunction(() => {
+      const input = document.getElementById('chat-input') as HTMLElement | null;
+      return input?.contentEditable === 'true';
+    }, { timeout: 10000 });
 
-    // Guest input should be re-enabled
     const isEnabledAgain = await isChatInputDisabled(pair.guestPage);
     expect(isEnabledAgain).toBe(false);
 

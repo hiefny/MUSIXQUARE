@@ -13,6 +13,7 @@ import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
+import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 
@@ -347,10 +348,13 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   const newLabel = String(data.newLabel || '').trim().slice(0, 20);
   if (!newLabel) return;
 
-  // Reserved name check
+  // Reserved name / profanity check
   if (RESERVED_NAMES.some(r => newLabel.toLowerCase() === r.toLowerCase())) return;
+  if (containsProfanity(newLabel)) return;
 
-  // Duplicate name check
+  // Duplicate name check (including host's own label)
+  const hostLabel = getState('network.myDeviceLabel') || '';
+  if (hostLabel && newLabel.toLowerCase() === hostLabel.toLowerCase()) return;
   const peers = getState('network.connectedPeers');
   if (peers.some(p => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase())) return;
 
@@ -389,6 +393,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       const current = getState('network.mutedPeers');
       setState('network.mutedPeers', new Set([...current, target.peerId]));
       broadcast({ type: MSG.CHAT_MUTE, targetId: target.peerId, targetLabel: target.label });
+      bus.emit('chat:system-message', t('chat.cmd_muted', { name: target.label }));
       break;
     }
     case 'unmute': {
@@ -401,6 +406,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       next.delete(target.peerId);
       setState('network.mutedPeers', next);
       broadcast({ type: MSG.CHAT_UNMUTE, targetId: target.peerId, targetLabel: target.label });
+      bus.emit('chat:system-message', t('chat.cmd_unmuted', { name: target.label }));
       break;
     }
     case 'clear':
@@ -412,13 +418,26 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       if (isNaN(sec) || sec < 0 || sec > 60) return;
       setState('network.slowmodeSeconds', sec);
       broadcast({ type: MSG.CHAT_SLOWMODE, seconds: sec });
+      bus.emit('chat:system-message', sec > 0
+        ? t('chat.cmd_slowmode_on', { sec })
+        : t('chat.cmd_slowmode_off'));
+      break;
+    }
+    case 'filter': {
+      const on = args[0]?.toLowerCase() === 'on';
+      setState('network.filterEnabled', on);
+      const sysText = on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off');
+      broadcast({ type: MSG.CHAT_SYSTEM, text: sysText });
+      bus.emit('chat:system-message', sysText);
       break;
     }
     case 'notice': {
       const text = args.join(' ').trim();
       if (!text) return;
       const peerLabel = peer.label || 'OP';
-      broadcast({ type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() });
+      const noticePayload = { type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() };
+      broadcast(noticePayload);
+      bus.emit('chat:notice-message', peerLabel, text);
       break;
     }
     default:

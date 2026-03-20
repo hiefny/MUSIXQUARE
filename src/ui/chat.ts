@@ -595,8 +595,13 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
     // Muted user — silently drop
     if (getState('network.mutedPeers').has(senderPeerId)) return;
-    // Frozen chat — non-OP non-host blocked
-    if (getState('network.chatFrozen') && !data.isHost && !data.isOp) return;
+    // Frozen chat — verify OP status from host's own peer list (don't trust client data)
+    if (getState('network.chatFrozen')) {
+      const peers = getState('network.connectedPeers');
+      const peerEntry = peers.find(p => p.id === senderPeerId);
+      const actualIsOp = peerEntry?.isOp ?? false;
+      if (!actualIsOp) return;
+    }
   }
 
   const senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
@@ -988,6 +993,11 @@ export function initChat(): void {
   // System messages from loader (avoids circular import with toast.ts)
   bus.on('chat:system-message', (text: string) => {
     addSystemChatMessage(text);
+  });
+
+  // Notice messages (host-side for OP-initiated notices)
+  bus.on('chat:notice-message', (sender: string, text: string) => {
+    addNoticeChatMessage(sender, text);
   });
 
   // Muted state: disable input

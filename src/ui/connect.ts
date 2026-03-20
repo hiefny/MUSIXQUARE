@@ -403,6 +403,11 @@ export function initConnect(): void {
           if (containsProfanity(name)) {
             return t('connect.rename_profanity');
           }
+          // Check against host's own label + all peers
+          const hostLabel = getState('network.myDeviceLabel') || '';
+          if (hostLabel && name.toLowerCase() === hostLabel.toLowerCase() && name !== currentLabel) {
+            return t('connect.rename_duplicate');
+          }
           const peers = getState('network.connectedPeers') || [];
           if (peers.some(p => p.label.toLowerCase() === name.toLowerCase())) {
             return t('connect.rename_duplicate');

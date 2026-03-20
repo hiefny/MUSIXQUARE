@@ -422,6 +422,7 @@ interface BaseEventMap {
   'ui:close-chat-drawer': [];
   'ui:toggle-chat-drawer': [];
   'chat:system-message': [text: string];
+  'chat:notice-message': [sender: string, text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
   'youtube:load': [videoId: string | null, playlistId: string | null, autoplay?: boolean, subIndex?: number];

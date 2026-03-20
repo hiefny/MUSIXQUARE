@@ -447,7 +447,6 @@ interface BaseEventMap {
   'network:peer-ready': [peerId: string];
   'network:peer-connected': [conn: DataConnection];
   'network:peer-disconnected': [peerId: string];
-  'network:peer-relay-lost': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
   'network:broadcast': [data: unknown];

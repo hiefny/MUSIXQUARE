@@ -366,7 +366,6 @@ export function handleRelayConnection(conn: DataConnection): void {
     );
     // Notify host so relay assignment is cleared (close handler skips if already removed)
     if (wasTracked) {
-      bus.emit('network:peer-relay-lost', conn.peer);
       sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
     }
     try { conn.close(); } catch { /* noop */ }
@@ -388,7 +387,6 @@ export function handleRelayConnection(conn: DataConnection): void {
     // Only notify host if THIS connection was still tracked — prevents double-fire when
     // error handler already removed it and close fires afterwards.
     if (wasTracked) {
-      bus.emit('network:peer-relay-lost', conn.peer);
       sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
     }
   });

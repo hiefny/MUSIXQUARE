@@ -511,13 +511,6 @@ header.loading .header-loading-text {
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 24px);
 }
 
-/* Desktop: no bottom nav, just breathing room */
-@media (min-width: 1280px) {
-    .tab-body {
-        padding-bottom: 24px;
-    }
-}
-
 /* Structural Fix: Targeted Persistence Hack.
    Only the Play tab stays "alive" off-screen when YouTube is active in the background. */
 body.mode-video #tab-play:not(.active) {
@@ -585,7 +578,6 @@ body.mode-youtube #youtube-settings-disabled-wrap {
     opacity: 0.55;
     pointer-events: none;
     transform: translateZ(0);
-    will-change: filter;
 }
 
 html[data-theme="light"] .youtube-settings-note {
@@ -1001,25 +993,6 @@ input[type=range]:active::-moz-range-thumb {
     height: 12px;
     width: 12px;
     border: none;
-}
-
-.ctrl-btn-small {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: transparent;
-    border: none;
-    color: var(--text-sub);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.ctrl-btn-small:hover {
-    color: var(--text-main);
-    background: var(--surface-2);
 }
 
 .ctrl-btn {
@@ -2058,35 +2031,6 @@ input[type=range].eq-slider:active::-moz-range-thumb {
     fill: var(--primary);
 }
 
-/* Nav Icon Wrapper for Badge */
-.nav-icon-wrapper {
-    position: relative;
-    display: inline-flex;
-}
-
-/* Chat Badge */
-.chat-badge {
-    position: absolute;
-    top: -6px;
-    right: -8px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    background: #ef4444;
-    color: white;
-    font-size: 10px;
-    font-weight: 700;
-    border-radius: 8px;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-.chat-badge.show {
-    display: flex;
-}
-
 .toast {
     position: fixed;
     bottom: 110px;
@@ -2900,30 +2844,10 @@ body.overlay-open .bottom-nav {
     max-width: 280px;
 }
 
-.graphic-host {
-    fill: var(--primary);
-}
-
-.graphic-guest {
-    fill: #8B95A1;
-}
-
-.graphic-accent {
-    fill: var(--primary);
-    opacity: 0.1;
-}
-
 .graphic-device {
     fill: #000000;
     stroke: var(--surface-3);
     stroke-width: 1;
-}
-
-.graphic-line {
-    stroke: var(--surface-3);
-    stroke-width: 1.2;
-    stroke-dasharray: 4 4;
-    fill: none;
 }
 
 .graphic-line-active {
@@ -2949,17 +2873,6 @@ body.overlay-open .bottom-nav {
     font-size: 10px;
     font-weight: 700;
     fill: var(--text-sub);
-}
-
-.setup-code {
-    font-size: 32px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    color: var(--text-main);
-    margin-right: -0.12em;
-    align-self: center;
-    /* Keep the code itself centered */
-    font-variant-numeric: tabular-nums;
 }
 
 .setup-join-input {
@@ -3135,179 +3048,7 @@ body.overlay-open .bottom-nav {
     animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.sync-glass-panel.panel-compact {
-    padding: 32px 28px 24px;
-    gap: 16px;
-}
-
-.panel-compact .sync-header {
-    margin-bottom: 0;
-}
-
-.panel-compact .sync-actions-row {
-    margin-top: 12px;
-}
-
 /* Light / Dark Mode Handling is automatic via var(--surface-1) */
-
-.sync-header {
-    width: 100%;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 4px;
-}
-
-.sync-label {
-    font-size: 14px;
-    font-weight: 800;
-    color: var(--text-sub);
-    letter-spacing: 1.2px;
-}
-
-.sync-value-wrapper {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 2px;
-}
-
-.sync-main-val {
-    font-size: 40px;
-    font-weight: 800;
-    color: var(--text-main);
-    font-variant-numeric: tabular-nums;
-    /* No Text Shadow */
-}
-
-.sync-unit {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-sub);
-}
-
-/* Control Row: Split Left/Right */
-.sync-control-row {
-    display: flex;
-    width: 100%;
-    height: 100px;
-    gap: 12px;
-}
-
-.sync-group-side {
-    flex: 1;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-/* Buttons: Unified Look (< >) */
-.btn-nudge {
-    border: none;
-    border-radius: 16px;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    background: var(--surface-2);
-    color: var(--text-main);
-    transition: all 0.1s;
-}
-
-.btn-nudge:active {
-    background: var(--surface-3);
-    transform: scale(0.97);
-}
-
-.btn-nudge svg {
-    fill: currentColor;
-}
-
-.btn-nudge span {
-    font-size: 11px;
-    font-weight: 700;
-    opacity: 0.6;
-}
-
-.btn-nudge svg {
-    width: 20px;
-    height: 20px;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    fill: none;
-}
-
-.btn-nudge.large {
-    flex: 2;
-    /* Takes more space */
-    height: 100%;
-    font-size: 14px;
-}
-
-.btn-nudge.large svg {
-    width: 32px;
-    height: 32px;
-}
-
-.btn-nudge.small {
-    flex: 1;
-    /* Narrower */
-    height: 100%;
-}
-
-.btn-nudge.small svg {
-    width: 18px;
-    height: 18px;
-    opacity: 0.6;
-}
-
-.sync-divider {
-    width: 1px;
-    background: var(--surface-3);
-    height: 100%;
-}
-
-/* Action Buttons Row */
-.sync-actions-row {
-    display: flex;
-    width: 100%;
-    gap: 12px;
-    margin-top: 24px;
-}
-
-.sync-popup-reset-btn,
-.sync-done-btn {
-    height: 56px;
-    /* Enforce same height */
-    border-radius: 20px;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    cursor: pointer;
-    transition: transform 0.1s, background 0.2s;
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    /* Make them equal width */
-}
-
-.sync-popup-reset-btn {
-    background: var(--surface-2);
-    color: var(--text-sub);
-}
-
-.sync-done-btn {
-    background: var(--text-main);
-    color: var(--bg);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-}
 
 /* Media Source Button Enhancements */
 #media-source-overlay .file-select-btn-large {
@@ -3326,11 +3067,6 @@ body.overlay-open .bottom-nav {
 }
 
 
-
-.sync-popup-reset-btn:active,
-.sync-done-btn:active {
-    transform: scale(0.97);
-}
 
 @keyframes modalSlideUp {
     from {
@@ -3384,10 +3120,6 @@ body.overlay-open .bottom-nav {
     font-size: 14px;
     text-align: center;
     line-height: 1.6;
-}
-
-.chat-empty,
-.list-empty-state {
     flex: 1;
 }
 
@@ -3795,17 +3527,9 @@ body.overlay-open .bottom-nav {
     overflow: visible;
 }
 
-.chat-preview-left,
-.chat-preview-right {
+.chat-preview-left {
     position: relative;
     z-index: 1;
-}
-
-.chat-preview-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
 }
 
 /* Role badge inside chat preview — compact fit */
@@ -4311,10 +4035,6 @@ body.overlay-open .bottom-nav {
     opacity: 0.8;
 }
 
-.graphic-listener {
-    fill: var(--surface-3);
-    stroke: none;
-}
 
 .graphic-speaker {
     fill: var(--surface-1);
@@ -4442,7 +4162,7 @@ body.overlay-open .bottom-nav {
     border-radius: 50%;
     border: none;
     background: var(--surface-2);
-    color: var(--text);
+    color: var(--text-main);
     font-size: 0;
     padding: 0;
     cursor: pointer;
@@ -4492,7 +4212,7 @@ body.overlay-open .bottom-nav {
     font-weight: 700;
     line-height: 36px;
     font-variant-numeric: tabular-nums;
-    color: var(--text);
+    color: var(--text-main);
     cursor: pointer;
     border-bottom: 2px solid var(--divider, #333);
     padding-bottom: 2px;
@@ -4509,7 +4229,7 @@ body.overlay-open .bottom-nav {
     width: 100%;
     background: transparent;
     border: none;
-    color: var(--text);
+    color: var(--text-main);
     font-size: 22px;
     font-weight: 700;
     text-align: center;
@@ -4524,21 +4244,6 @@ body.overlay-open .bottom-nav {
 .stepper-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
-}
-
-/* Device List in Connect Tab */
-.connect-device-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-}
-
-.connect-device-list .section-row {
-    border-bottom: 1px solid var(--surface-3);
-}
-
-.connect-device-list .section-row:last-child {
-    border-bottom: none;
 }
 
 /* =============================================

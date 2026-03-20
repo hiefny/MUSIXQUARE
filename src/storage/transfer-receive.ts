@@ -522,7 +522,13 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   // Buffer early chunks that arrive before FILE_START sets up the session
   if (transferState === TRANSFER_STATE.IDLE && !fileReorderBuffer.has(incomingSid)) {
     _pendingEarlyChunks.push(data);
-    if (_pendingEarlyChunks.length > 200) _pendingEarlyChunks.shift(); // overflow protection
+    // Overflow protection: drop oldest chunk from a DIFFERENT session first
+    if (_pendingEarlyChunks.length > 200) {
+      const currentSid = (data as Record<string, unknown>).sessionId;
+      const staleIdx = _pendingEarlyChunks.findIndex(c => (c as Record<string, unknown>).sessionId !== currentSid);
+      if (staleIdx >= 0) _pendingEarlyChunks.splice(staleIdx, 1);
+      else _pendingEarlyChunks.shift();
+    }
     return;
   }
 

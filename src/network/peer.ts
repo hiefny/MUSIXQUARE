@@ -297,6 +297,10 @@ export function leaveSession(): void {
     'network.sessionCode': '',
     'network.peerSlots': Array(DEFAULT_MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.maxGuestSlots': DEFAULT_MAX_GUEST_SLOTS,
+    'network.mutedPeers': new Set<string>(),
+    'network.chatFrozen': false,
+    'network.slowmodeSeconds': 0,
+    'network.filterEnabled': false,
     // Relay
     'relay.upstreamDataConn': null,
     'relay.downstreamDataPeers': [],

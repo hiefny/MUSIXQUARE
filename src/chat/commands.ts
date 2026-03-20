@@ -162,8 +162,15 @@ function cmdFilter(args: string[]): void {
   const on = args[0]?.toLowerCase() === 'on';
   const off = args[0]?.toLowerCase() === 'off';
   if (!on && !off) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/filter on|off' })); return; }
-  setState('network.filterEnabled', on);
-  addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
+
+  if (isHost()) {
+    setState('network.filterEnabled', on);
+    const sysText = on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off');
+    bus.emit('network:broadcast', { type: MSG.CHAT_SYSTEM, text: sysText });
+    addSystemChatMessage(sysText);
+  } else {
+    sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: 'filter', args });
+  }
 }
 
 function cmdSlowmode(args: string[]): void {

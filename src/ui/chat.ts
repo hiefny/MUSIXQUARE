@@ -258,6 +258,7 @@ export function sendChatMessage(): void {
   const cmd = parseCommand(text);
   if (cmd) {
     input.textContent = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     executeCommand(cmd);
     return;
   }
@@ -274,7 +275,7 @@ export function sendChatMessage(): void {
 
   // ── Slowmode check ──
   const slowmode = getState('network.slowmodeSeconds');
-  if (slowmode > 0 && !isHost) {
+  if (slowmode > 0 && !isHost && !isOp) {
     const elapsed = (Date.now() - _lastSentTime) / 1000;
     if (elapsed < slowmode) {
       addSystemChatMessage(t('chat.cmd_slowmode_wait', { sec: Math.ceil(slowmode - elapsed) }));
@@ -321,6 +322,7 @@ export function sendChatMessage(): void {
   }
 
   input.textContent = '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function pruneOldMessages(container: HTMLElement): void {
@@ -880,7 +882,7 @@ export function initChat(): void {
         return;
       }
       // Enforce maxlength
-      if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText') {
+      if (e.inputType === 'insertText') {
         const current = getInputValue();
         const incoming = e.data || '';
         if (current.length + incoming.length > MAX_MSG_LENGTH) {

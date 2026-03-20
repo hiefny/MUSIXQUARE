@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://musixquare.com/sitemap.xml

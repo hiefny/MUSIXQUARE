@@ -1,0 +1,393 @@
+/* ── Device List Row (playlist-unified) ─────────────────────────── */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    min-height: 61px;
+    box-sizing: border-box;
+    border-radius: var(--radius-m);
+    background: transparent;
+    transition: background 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.device-row:active {
+    background: var(--surface-2);
+}
+
+.device-row .d-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-main);
+}
+
+.d-order {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.d-op-badge {
+    color: var(--primary);
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 6px;
+}
+
+.d-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.d-op-btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    border: 1px solid transparent;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.d-op-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.d-status {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 100px;
+}
+
+.d-status.active {
+    background: rgba(82, 196, 26, 0.2);
+    color: #52c41a;
+}
+
+.d-status.inactive {
+    background: rgba(255, 77, 79, 0.2);
+    color: #ff4d4f;
+}
+
+/* ── Kick Device Button (playlist-remove style) ────────────────── */
+.btn-kick-device {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    color: var(--text-muted);
+    padding: 0;
+}
+
+.btn-kick-device svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.device-row:hover .btn-kick-device {
+    opacity: 0.6;
+}
+
+.device-row:hover .btn-kick-device:hover {
+    opacity: 1;
+    color: #ff4d4f;
+}
+
+@media (pointer: coarse) {
+    .btn-kick-device {
+        opacity: 0.5;
+    }
+}
+
+/* Leave Session */
+.rename-device-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 56px;
+    padding: 0;
+    margin-top: 24px;
+    border: none;
+    border-radius: 20px;
+    background: rgba(0, 122, 255, 0.08);
+    color: #007aff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.rename-device-btn:hover {
+    background: rgba(0, 122, 255, 0.12);
+}
+
+.rename-device-btn:active {
+    background: rgba(0, 122, 255, 0.18);
+    transform: scale(0.97);
+}
+
+.rename-device-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: #007aff;
+}
+
+.leave-session-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 56px;
+    padding: 0;
+    margin-top: 12px;
+    border: none;
+    border-radius: 20px;
+    background: rgba(255, 59, 48, 0.08);
+    color: #ff3b30;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.leave-session-btn:hover {
+    background: rgba(255, 59, 48, 0.12);
+}
+
+.leave-session-btn:active {
+    background: rgba(255, 59, 48, 0.18);
+    transform: scale(0.97);
+}
+
+.leave-session-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: #ff3b30;
+}
+
+/* =============================================
+   Connect Tab — QR / Device Slider / Device List
+   ============================================= */
+
+/* QR Container */
+.qr-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 0;
+    min-height: 120px;
+}
+
+.qr-container canvas,
+.qr-container img {
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: var(--radius-s, 14px);
+}
+
+.qr-svg {
+    width: 200px;
+    height: 200px;
+}
+
+.qr-svg path {
+    stroke: var(--text-main) !important;
+    fill: var(--text-main) !important;
+}
+
+.qr-placeholder {
+    font-size: 13px;
+    color: var(--text-sub);
+    text-align: center;
+    padding: 32px 0;
+}
+
+/* Copy Invite Link Button */
+.btn-copy-invite-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 56px;
+    padding: 0;
+    margin-top: 14px;
+    border: none;
+    border-radius: 20px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+.btn-copy-invite-link svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+.btn-copy-invite-link:hover {
+    background: var(--surface-3);
+}
+.btn-copy-invite-link:active {
+    background: var(--surface-3);
+    transform: scale(0.97);
+}
+
+/* Number Stepper (−  3  +) */
+.number-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px 20px;
+}
+
+.stepper-btn {
+    position: relative;
+    display: block;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: var(--text-main);
+    font-size: 0;
+    padding: 0;
+    cursor: pointer;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+/* Draw −/+ with pseudo-elements for pixel-perfect centering */
+.stepper-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 11px;
+    height: 1.5px;
+    background: currentColor;
+    opacity: 0.8;
+    transform: translate(-50%, -50%);
+}
+
+.stepper-btn[data-dir="1"]::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1.5px;
+    height: 11px;
+    background: currentColor;
+    opacity: 0.8;
+    transform: translate(-50%, -50%);
+}
+
+.stepper-btn:active {
+    background: var(--surface-3);
+}
+
+.stepper-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.stepper-value {
+    width: 48px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 36px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-main);
+    cursor: pointer;
+    border-bottom: 2px solid var(--divider, #333);
+    padding-bottom: 2px;
+    transition: border-color 0.15s;
+    flex-shrink: 0;
+}
+
+.stepper-value.editing {
+    border-bottom-color: var(--primary, #4a90d9);
+}
+
+/* Editable input (shown on tap) */
+.stepper-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    padding: 0;
+    line-height: 36px;
+    -moz-appearance: textfield;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* =============================================
+   Settings Sub-Tab (Desktop) — Hidden on Mobile
+   ============================================= */
+
+/* Mobile: hide sub-tab pill navigation */
+.settings-subtab-nav {
+    display: none;
+}
+
+/* Mobile: show ALL sub-tab panels (just stacked, scrollable) */
+.settings-subtab-panel {
+    display: block;
+}
+
+/* Desktop connect sub-panel — hidden on mobile (duplicate of mobile #tab-connect) */
+.settings-subtab-panel[data-panel="connect"] {
+    display: none;
+}
+
+/* Device list in settings audio panel — hidden on mobile (shown in #tab-connect instead) */
+.settings-device-section {
+    display: none;
+}
+
+/* Desktop help sub-panel — hidden on mobile (duplicate of mobile #tab-guide) */
+.settings-subtab-panel[data-panel="help"] {
+    display: none;
+}

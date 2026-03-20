@@ -1,0 +1,360 @@
+.section-group {
+    background: transparent;
+    border-radius: 0;
+    margin: 0 44px;
+    padding: 0 0 44px;
+    border-bottom: 1px dotted var(--surface-3);
+}
+
+[data-theme="light"] .section-group {
+    border-bottom: 1px dotted var(--surface-3);
+}
+
+.section-group:last-of-type,
+#last-setting-section {
+    border-bottom: none;
+    padding-bottom: 44px;
+}
+
+/* Mobile: battery section is last-of-type in general panel but needs divider before audio panel */
+#battery-section {
+    border-bottom: 1px dotted var(--surface-3);
+}
+
+/* Also ensure device list items don't overflow if list is the last child */
+#device-list:last-child {
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+    overflow: hidden;
+    /* Only clip the list itself if needed, or rely on item radius below */
+}
+
+.section-header-row {
+    padding: 44px 0 16px;
+    /* 44px Top gap | 16+12=28px Gap to first content */
+    border-bottom: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Target only the very first section (Language) directly inside .tab-body */
+#tab-settings > .tab-body > .section-group:first-of-type .section-header-row,
+#tab-settings .settings-subtab-panel > .section-group:first-of-type .section-header-row,
+#tab-connect > .tab-body > .section-group:first-of-type .section-header-row,
+/* Connect sub-tab: .section-group is inside #desktop-connect-content wrapper */
+#desktop-connect-content > .section-group:first-of-type .section-header-row {
+    padding-top: 24px;
+}
+
+#youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
+    padding-top: 56px;
+    /* Increased gap from the divider above to avoid "sticking" feel */
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    text-transform: none;
+    /* No uppercase for a more modern, minimal feel */
+    letter-spacing: -0.5px;
+}
+
+.badge-host-ctrl {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-sub);
+    background: var(--surface-2);
+    padding: 4px 10px;
+    border-radius: 100px;
+    letter-spacing: -0.2px;
+}
+
+.host-ctrl-locked {
+    opacity: 0.4;
+    pointer-events: none;
+    user-select: none;
+}
+
+.section-row {
+    padding: 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 16px;
+    font-weight: 500;
+}
+
+
+.section-row:last-child {
+    border-bottom: none;
+}
+
+/* Reset any default input margins that might shift the visual balance */
+input[type="range"] {
+    margin: 0;
+    display: block;
+    width: 100%;
+}
+
+.section-row.clickable {
+    cursor: pointer;
+}
+
+.section-row.clickable:active {
+    background: var(--surface-2);
+}
+
+.row-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+
+.row-val {
+    color: var(--text-sub);
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+
+.reverb-sliders-area {
+    overflow: hidden;
+    opacity: 1;
+    padding-top: 24px;
+    transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity 0.25s ease,
+                padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#woofer-cutoff-control:not(.collapsed) { max-height: 100px; }
+#reverb-sliders-area:not(.collapsed) { max-height: 380px; }
+#eq-sliders-area:not(.collapsed) { max-height: 200px; }
+
+.reverb-sliders-area.collapsed {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    pointer-events: none;
+}
+
+/* Graphic EQ */
+.eq-container {
+    display: flex;
+    justify-content: space-between;
+    padding: 0;
+    height: 160px;
+}
+
+
+/* Vertical Slider Compact Logic */
+input[type=range].eq-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+
+    /* Rotation Logic */
+    width: 100px;
+    /* 원래 길이 복구 */
+    height: 32px;
+    /* 터치 영역 개선을 위해 input 박스 크기를 키움 */
+    transform: rotate(-90deg);
+
+    /* Absolute Positioning to ignore layout width */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin-left: -50px;
+    /* Half of 100px width */
+    margin-top: -16px;
+    /* Half of 32px height */
+}
+
+/* Track */
+input[type=range].eq-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    background: var(--surface-2);
+    /* 메인 슬라이더와 통일된 두께 및 색상 */
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+input[type=range].eq-slider::-moz-range-track {
+    width: 100%;
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+/* EQ Thumb */
+input[type=range].eq-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background-color: var(--text-sub);
+    margin-top: -5px;
+    transform: scale(1);
+    filter: none;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
+}
+
+input[type=range].eq-slider::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background-color: var(--text-sub);
+    border: none;
+    transform: scale(1);
+    filter: none;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s, background-color 0.2s;
+}
+
+input[type=range].eq-slider:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+    filter: none;
+}
+
+input[type=range].eq-slider:active::-moz-range-thumb {
+    transform: scale(1.25);
+    filter: none;
+}
+
+.eq-band {
+    position: relative;
+    /* Anchor for slider */
+    height: 160px;
+    /* Fixed height for zone */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    /* Val at top, Label at bottom */
+    align-items: center;
+    flex: 1;
+    /* Distribute equally */
+    min-width: 0;
+    /* Allow shrinking */
+    padding: 10px 0;
+}
+
+.eq-val {
+    margin-bottom: auto;
+    /* Push to top */
+    z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--primary);
+    /* Match preamp blue */
+    font-weight: 700;
+}
+
+.eq-label {
+    margin-top: auto;
+    /* Push to bottom */
+    z-index: 2;
+    font-size: 11px;
+    /* Smaller font */
+    color: var(--text-sub);
+    /* Gray color */
+    font-weight: 500;
+}
+
+
+/*
+   The Unified Symmetry System:
+   Content units use consistent padding.
+   Sliders use tighter 6px padding (12px total gap) for a professional layout.
+*/
+.slider-wrap {
+    padding: 6px 0;
+}
+
+#tab-settings .channel-grid {
+    padding-top: 12px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Global Grid System: Used in both Settings and Setup/Onboarding */
+.channel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    /* Fallback padding */
+}
+
+.ch-opt {
+    background: var(--surface-1);
+    color: var(--text-sub);
+    padding: 18px 12px;
+    border-radius: var(--radius-m);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    border: 2px solid var(--surface-2);
+}
+
+.ch-opt svg {
+    width: 32px;
+    height: 32px;
+    fill: currentColor;
+    opacity: 1;
+    transition: opacity 0.2s;
+    flex-shrink: 0;
+}
+
+.ch-opt.active,
+.ch-opt.selected {
+    background: rgba(var(--primary-rgb), 0.08);
+    border-color: var(--primary);
+    border-width: 2px;
+    color: var(--primary);
+    box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);
+}
+
+.ch-opt.active svg,
+.ch-opt.selected svg {
+    opacity: 1;
+    fill: var(--primary);
+}
+
+.slider-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-sub);
+    /* Subdued label color to make the slider/value stand out */
+}
+
+.val-disp {
+    color: var(--primary);
+}
+
+.btn-action {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0 24px;
+    border-radius: var(--radius-m);
+    font-weight: 700;
+    cursor: pointer;
+}

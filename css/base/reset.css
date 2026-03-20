@@ -1,0 +1,132 @@
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Fill the full viewport (including safe areas with viewport-fit=cover).
+       On iOS PWA, CSS units (100%, 100dvh) both exclude safe-area-inset-top,
+       so platform.ts sets root.style.height via JS (window.innerHeight). */
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg);
+
+    /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
+       The *forced* scheme is controlled by html[data-theme]. */
+    color-scheme: light dark;
+}
+
+html.standalone body {
+    overflow: hidden;
+}
+
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 16px;
+    z-index: 99999;
+    padding: 12px 24px;
+    background: var(--primary, #3b82f6);
+    color: #fff;
+    border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: top 0.2s ease;
+}
+
+.skip-link:focus {
+    top: 0;
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Allow text selection & caret control in editable fields */
+input,
+textarea,
+[contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+}
+
+/* Normalize form controls across platforms (Android WebView/Chrome can otherwise use
+   different default fonts/sizes, breaking the layout). */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 8px;
+    /* 실제 썸네일(4px) + 우측 여백(2px) 등을 고려한 안전 영역 크기 */
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    /* background 속성을 background-color로 변경하여 clip 방해 방지 */
+    border: 2px solid transparent;
+    /* 좌우상하 2px 띄우기용 투명 테두리 추가 */
+    border-radius: 10px;
+    /* 얇아진 만큼 완전히 둥글게 처리 */
+    background-clip: padding-box;
+    /* 색상(background)이 테두리(border) 영역을 침범하지 않도록 하여 여백 렌더링 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+    /* 마우스 올렸을 때 좀 더 밝게 */
+}
+
+::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-active);
+    /* 클릭해서 드래그할 때 확연하게 밝게 */
+}
+
+
+/* Firefox */
+@supports (-moz-appearance:none) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb-ff) transparent;
+    }
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-main);
+    font-family: "Pretendard", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+
+    /* Viewport sizing:
+       1. Fallback: classic 100vh
+       2. Modern: 100dvh (respects dynamic viewport)
+       3. JS override via --app-height (most reliable on Android Webview landscape) */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    min-height: 0;
+    max-height: var(--app-height, 100dvh);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}

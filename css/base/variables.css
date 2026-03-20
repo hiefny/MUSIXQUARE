@@ -1,0 +1,84 @@
+:root {
+    /* Palette - Deep & Clean & Flat */
+    --bg: #121212;
+    --surface-1: #1A1A1A;
+    /* Header, Nav, Cards */
+    --surface-2: #262626;
+    /* Inputs, Buttons */
+    --surface-3: #404040;
+    /* Hover, Active */
+    --divider: var(--surface-2);
+    --primary: #3b82f6;
+    --primary-rgb: 59, 130, 246;
+    --accent: var(--primary);
+    --accent-rgb: var(--primary-rgb);
+    --text-main: #ffffff;
+    --text-sub: #a1a1aa;
+    --text-muted: #52525b;
+
+    --radius-l: 32px;
+    --radius-m: 20px;
+    --radius-s: 14px;
+
+    --glass-bg: rgba(38, 38, 38, 0.75);
+    --glass-border: transparent;
+    --glass-blur: 16px;
+
+    /* Scrollbar colors (desktop WebKit + Firefox).
+       Mobile overlay scrollbars aren't fully stylable, but they follow `color-scheme`. */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
+    --scrollbar-thumb-active: rgba(255, 255, 255, 0.6);
+    --scrollbar-thumb-ff: rgba(255, 255, 255, 0.25);
+
+    /* Safe areas (iOS PWA / notch devices) */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+    --header-height: calc(60px + var(--safe-top));
+    --nav-height: 72px;
+}
+
+/* Force UA color scheme per app theme.
+   (Critical for mobile/PWA overlay scrollbar contrast in light mode.) */
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+    color-scheme: dark;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] body {
+    color-scheme: light;
+
+    /* Palette - Light & Sleek */
+    --bg: #f8f9fa;
+    /* Soft dynamic background */
+    --surface-1: #ffffff;
+    /* Pure white for depth */
+    --surface-2: #f1f3f5;
+    /* Header/Nav/Cards */
+    --surface-3: #B7B9BB;
+    /* Interactions */
+    --divider: var(--surface-3);
+    --primary: #3b82f6;
+    --primary-rgb: 59, 130, 246;
+    --accent: var(--primary);
+    --accent-rgb: var(--primary-rgb);
+    --text-main: #212529;
+    /* Contrast dark text */
+    --text-sub: #495057;
+    /* Darker grey for legibility */
+    --text-muted: #868e96;
+    /* Darker grey for legibility */
+
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(0, 0, 0, 0.06);
+
+    /* Scrollbar colors (desktop). */
+    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
+    --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
+    --scrollbar-thumb-ff: rgba(0, 0, 0, 0.2);
+}

@@ -1,0 +1,128 @@
+/* =============================================
+   Bottom Nav — Toss Quick_Tabbar (Floating Pill)
+   ============================================= */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+
+    /* Solid edge-to-edge bottom bar */
+    border-radius: 0;
+    padding: 10px 16px calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+
+    /* Match header translucency */
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    background: var(--glass-bg);
+
+    box-shadow: none;
+    border: none;
+
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Prevent transparency flicker during View Transition tab switches */
+    view-transition-name: bottom-nav;
+}
+
+/* Blur halo (Removed since nav is now a solid edge-to-edge block) */
+.nav-blur-halo {
+    display: none;
+}
+
+/* Light Mode */
+[data-theme="light"] .bottom-nav {
+    background: var(--glass-bg);
+    box-shadow: none;
+    border: none;
+}
+
+/* Dark Mode */
+[data-theme="dark"] .bottom-nav {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: none;
+    border: none;
+}
+
+/* --- Nav Items (Toss adaptive grey) --- */
+.nav-item {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: auto;
+    min-width: 0;
+    position: relative;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+    min-height: 44px;
+    cursor: pointer;
+    transition: color 0.2s;
+    color: #B0B8C1;
+}
+
+.nav-item svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    transition: transform 0.2s;
+}
+
+.nav-item span {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.2;
+    /* Inactive text: adaptive.grey600 */
+    color: #6B7684;
+}
+
+/* Active State — theme blue */
+.nav-item.active {
+    color: var(--primary);
+}
+
+.nav-item.active span {
+    color: var(--primary);
+}
+
+.nav-item.active svg {
+    fill: var(--primary);
+    transform: none;
+}
+
+.nav-item:active svg {
+    transform: scale(0.9);
+}
+
+/* Dark mode adaptive colors */
+[data-theme="dark"] .nav-item {
+    color: #6B7684;
+}
+
+[data-theme="dark"] .nav-item span {
+    color: #8B95A1;
+}
+
+[data-theme="dark"] .nav-item.active {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active span {
+    color: var(--primary);
+}
+
+[data-theme="dark"] .nav-item.active svg {
+    fill: var(--primary);
+}

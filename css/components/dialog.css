@@ -1,0 +1,211 @@
+.toast {
+    position: fixed;
+    bottom: 110px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    transform: translateY(20px);
+    background: none;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+        transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+    z-index: 7000;
+}
+
+.toast > span {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #000;
+    padding: 14px 28px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15),
+        transform 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
+}
+
+
+/* ========================================
+   App Dialog (replaces alert())
+   ======================================== */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    /* Match other overlays (sync/media/setup) for consistency */
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 6000;
+    /* Higher than onboarding-overlay (2000) and desktop overlay (5000) */
+    animation: fadeIn 0.3s ease-out;
+}
+
+.dialog-overlay.show {
+    display: flex;
+}
+
+.dialog {
+    width: 100%;
+    max-width: 400px;
+    border-radius: var(--radius-l);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+    animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 28px 12px;
+}
+
+.dialog-title {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-main);
+}
+
+.dialog-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dialog-close:active {
+    transform: scale(0.9);
+    background: var(--surface-3);
+}
+
+.dialog-close svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+}
+
+.dialog-message {
+    padding: 12px 28px 24px;
+    font-size: 15px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: keep-all;
+}
+
+.dialog-input {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px 4px;
+    border: none;
+    border-bottom: 2px solid var(--surface-3);
+    border-radius: 0;
+    background: none;
+    color: var(--text-main);
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-bottom-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.dialog-input:focus {
+    border-bottom-color: var(--primary);
+    outline: none;
+}
+
+.dialog-input.invalid {
+    border-bottom-color: #ef4444;
+}
+
+.dialog-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    min-height: 16px;
+    transition: color 0.2s;
+}
+
+.dialog-hint.error {
+    color: #ef4444;
+}
+
+.dialog-input.shake {
+    animation: shake 0.4s ease;
+}
+
+.dialog-actions {
+    padding: 0 28px 32px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.dialog-secondary {
+    border: 1px solid var(--glass-border);
+    background: var(--surface-2);
+    color: var(--text-main);
+    border-radius: 18px;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 100px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dialog-secondary:active {
+    transform: scale(0.97);
+    box-shadow: none;
+}
+
+.dialog-primary {
+    border: none;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 18px;
+    padding: 16px 32px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 100px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dialog-primary:active {
+    transform: scale(0.97);
+    box-shadow: none;
+}
+
+
+/* Dark theme toast - dark semi-transparent background */
+[data-theme="dark"] .toast > span {
+    background: rgba(30, 30, 30, 0.85);
+    color: #fff;
+}

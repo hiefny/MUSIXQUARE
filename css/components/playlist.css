@@ -1,0 +1,248 @@
+.playlist-title-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Speaker Active State — see canonical definition near line 4885+ */
+
+.playlist-ul {
+    list-style: none;
+    padding: 0 16px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    /* Fill the container */
+}
+
+.track-item {
+    background: transparent;
+    padding: 16px 16px;
+    border-radius: var(--radius-m);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.track-item:active {
+    background: var(--surface-2);
+}
+
+.track-item.active {
+    background: var(--surface-2);
+}
+
+.track-item.active .track-idx,
+.track-item.active .track-name {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.track-idx {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 24px;
+    text-align: center;
+}
+
+.track-name {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.track-name-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.type-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    fill: var(--text-sub);
+}
+
+/* Now Playing Animation (Wave/Equalizer) */
+.playing-indicator {
+    display: none;
+    align-items: flex-end;
+    gap: 2px;
+    width: 16px;
+    height: 12px;
+}
+
+.track-item.active .playing-indicator,
+.sub-track-item.active .playing-indicator {
+    display: flex;
+}
+
+.playing-indicator .bar {
+    width: 3px;
+    height: 100%;
+    background: var(--primary);
+    border-radius: 1px;
+    animation: playingWave 0.6s ease-in-out infinite alternate;
+}
+
+.playing-indicator .bar:nth-child(2) {
+    animation-delay: -0.4s;
+    height: 70%;
+}
+
+.playing-indicator .bar:nth-child(3) {
+    animation-delay: -0.2s;
+    height: 85%;
+}
+
+
+.sub-playlist {
+    list-style: none;
+    padding: 0 0 8px 48px;
+    margin: -4px 0 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.sub-track-item {
+    padding: 8px 12px;
+    border-radius: var(--radius-s);
+    font-size: 13px;
+    color: var(--text-sub);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.2s;
+}
+
+.sub-track-item:hover {
+    background: var(--surface-2);
+    color: var(--text-main);
+}
+
+.sub-track-item.active {
+    color: var(--primary);
+    font-weight: 700;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.sub-idx {
+    font-size: 11px;
+    font-weight: 800;
+    width: 20px;
+    opacity: 0.5;
+}
+
+.sub-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sub-track-item.loading {
+    font-style: italic;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+/* Expand Toggle */
+.expand-toggle {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+}
+
+.expand-toggle:hover {
+    background: var(--surface-3);
+    color: var(--text-main);
+}
+
+.expand-toggle svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.expand-toggle.active svg {
+    transform: rotate(180deg);
+}
+
+.track-item.is-playlist {
+    position: relative;
+}
+
+/* ── Playlist Remove Button (host only) ────────────────────────── */
+.btn-playlist-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    color: var(--text-muted);
+    padding: 0;
+}
+
+.btn-playlist-remove svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.track-item:hover .btn-playlist-remove,
+.track-item:focus-within .btn-playlist-remove {
+    opacity: 0.6;
+}
+
+.track-item:hover .btn-playlist-remove:hover {
+    opacity: 1;
+    color: #ff4d4f;
+}
+
+.track-item.active .btn-playlist-remove {
+    opacity: 0.5;
+}
+
+.track-item.active .btn-playlist-remove:hover {
+    opacity: 1;
+    color: #ff4d4f;
+}
+
+/* Touch devices: always show remove button */
+@media (hover: none) {
+    .btn-playlist-remove {
+        opacity: 0.5;
+    }
+}

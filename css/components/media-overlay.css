@@ -1,0 +1,221 @@
+/* CSS for Calm & Clean Manual Sync UI */
+.manual-sync-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Standard Dimming */
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 3000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+}
+
+.manual-sync-overlay.show {
+    display: flex;
+    opacity: 1;
+    animation: fadeInScale 0.2s forwards;
+}
+
+.sync-glass-panel {
+    width: 350px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-l);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    position: relative;
+    animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Light / Dark Mode Handling is automatic via var(--surface-1) */
+
+/* Media Source Button Enhancements */
+#media-source-overlay .file-select-btn-large {
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#media-source-overlay .file-select-btn-large:hover {
+    background: var(--surface-3);
+}
+
+#media-source-overlay .file-select-btn-large:active {
+    transform: scale(0.97);
+    background: var(--surface-3);
+}
+
+
+.sync-card-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 24px;
+    color: var(--text-main);
+}
+
+.sync-status-text {
+    font-size: 16px;
+    color: var(--primary);
+    font-weight: 700;
+    margin-top: 16px;
+    min-height: 24px;
+}
+
+/* Large File Select Button */
+.file-select-btn-large {
+    width: 100%;
+    height: 56px;
+    padding: 0 20px;
+    font-size: 15px;
+}
+
+
+/* Media Source Overlay Styles */
+/* Consolidated with global .setup-header-text above */
+
+.file-select-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 72px;
+    margin-top: auto;
+    gap: 10px;
+    background: var(--surface-2);
+    border-radius: 20px;
+    padding: 0 20px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    color: var(--text-sub);
+    text-align: left;
+}
+
+.file-select-btn:hover {
+    background: var(--surface-3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.file-select-btn:active {
+    background: var(--surface-3);
+    color: var(--text-main);
+    transform: scale(0.97);
+}
+
+.file-select-btn span {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    flex: 1;
+}
+
+.btn-icon-bg {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+    color: var(--text-main);
+    transition: color 0.2s;
+}
+
+.btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.file-select-btn:hover .btn-icon-bg {
+    background: transparent;
+    color: var(--primary);
+}
+
+.file-select-btn:hover .btn-icon-bg.youtube {
+    color: #FF0000;
+}
+
+.btn-icon-bg svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Smaller Sync/Media Buttons for Main Screen (Match Chat Button) */
+#btn-sync,
+#btn-media-source {
+    height: 56px;
+    padding: 0 20px;
+    font-size: 14px;
+    gap: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    /* Use currentColor so icon/text stay perfectly consistent across themes */
+    color: var(--text-sub);
+}
+
+[data-theme="light"] #btn-sync,
+[data-theme="light"] #btn-media-source {
+    color: #444444;
+}
+
+/* Light Mode — hover/active for surface-2 buttons */
+[data-theme="light"] .chat-preview-btn:hover,
+[data-theme="light"] .file-select-btn:hover,
+[data-theme="light"] .btn-copy-invite-link:hover {
+    background: #f0f0f0;
+}
+
+[data-theme="light"] .chat-preview-btn:active,
+[data-theme="light"] .file-select-btn:active,
+[data-theme="light"] .btn-copy-invite-link:active {
+    background: #e8e8e8;
+}
+
+#btn-sync svg,
+#btn-media-source svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    margin: 0;
+}
+
+#btn-sync span,
+#btn-media-source span {
+    font-size: 15px;
+    font-weight: 600;
+    color: currentColor;
+}
+
+#btn-sync:hover,
+#btn-media-source:hover {
+    background: var(--surface-3);
+}
+
+#btn-sync:active,
+#btn-media-source:active {
+    background: var(--surface-3);
+    transform: scale(0.97);
+}
+
+/* Animation for media play button hint */
+.blink-hint {
+    animation: blink-primary-light 0.8s step-end 3;
+}

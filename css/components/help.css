@@ -1,0 +1,54 @@
+/* Help Tab */
+#tab-guide > .tab-header {
+    padding-bottom: 0;
+}
+
+.help-block {
+    background: transparent;
+    padding: 24px 0;
+    margin: 0 44px;
+}
+
+.help-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.help-title svg {
+    width: 22px;
+    height: 22px;
+    fill: var(--primary);
+}
+
+.help-desc {
+    font-size: 14px;
+    color: var(--text-sub);
+    line-height: 1.6;
+}
+
+.help-list {
+    margin-top: 10px;
+    margin-left: 20px;
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.help-list li {
+    margin-bottom: 4px;
+}
+
+.desktop-help-section {
+    display: none;
+}
+
+/* NOTE: play-header-desktop — hidden in both mobile (here) and desktop.css.
+   Reserved for future desktop-specific player header. */
+.play-header-desktop {
+    display: none;
+}

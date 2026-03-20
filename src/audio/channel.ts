@@ -23,6 +23,7 @@ import {
   safeDisconnect,
 } from './engine.ts';
 import { applySettingsAsync } from './effects.ts';
+import { rampParam } from './helpers.ts';
 
 // ─── Channel Mode ──────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ export function setChannelMode(mode: number): void {
   // Reset LowPass: skip full-range ramp when switching TO Sub (mode=2),
   // because Sub immediately sets its own target frequency — avoids transient
   // burst of unfiltered bass during the 20kHz→subFreq ramp.
-  if (lowPass && mode !== 2) lowPass.frequency.rampTo(20000, 0.02);
+  if (lowPass && mode !== 2) rampParam(lowPass.frequency,20000, 0.02);
 
   // Reset routing
   safeDisconnect(gL);
@@ -56,8 +57,8 @@ export function setChannelMode(mode: number): void {
   // Reset gains (rampTo prevents audible click, matches setSurroundChannel pattern)
   // Skip for Sub mode (mode=2) — immediate .value=0.5 override avoids transient spike
   if (mode !== 2) {
-    gL.gain.rampTo(1, 0.05);
-    gR.gain.rampTo(1, 0.05);
+    rampParam(gL.gain,1, 0.05);
+    rampParam(gR.gain,1, 0.05);
   }
 
   if (mode === 0) {
@@ -77,7 +78,7 @@ export function setChannelMode(mode: number): void {
     // Set gain BEFORE connecting to prevent +6dB spike
     gL.gain.value = 0.5;
     gR.gain.value = 0.5;
-    if (lowPass) lowPass.frequency.rampTo(subFreq, 0.02);
+    if (lowPass) rampParam(lowPass.frequency,subFreq, 0.02);
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
     gR.connect(merge, 0, 0);
@@ -180,7 +181,7 @@ export function setSurroundChannel(idx: number): void {
 
     // LowPass for LFE channel (rampTo avoids click on active signal path)
     if (lowPass) {
-      lowPass.frequency.rampTo(idx === 3 ? subFreq : 20000, 0.02);
+      rampParam(lowPass.frequency,idx === 3 ? subFreq : 20000, 0.02);
     }
 
     // Force output to Dual Mono
@@ -188,8 +189,8 @@ export function setSurroundChannel(idx: number): void {
     safeDisconnect(gR);
     gL.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    gL.gain.rampTo(1, 0.1);
-    gR.gain.rampTo(1, 0.1);
+    rampParam(gL.gain,1, 0.1);
+    rampParam(gR.gain,1, 0.1);
 
     const names = [
       'Front Left (L)', 'Front Right (R)', 'Center (Dialog)',

@@ -17,7 +17,6 @@ export default defineConfig({
       input: resolve(__dirname, 'index.html'),
       output: {
         manualChunks: {
-          tone: ['tone'],
           peerjs: ['peerjs'],
         },
       },

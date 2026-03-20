@@ -32,7 +32,7 @@ import {
 
 import { play, stopAllMedia, stopPlayerNode, updatePlayState } from './transport.ts';
 
-import * as Tone from 'tone';
+import { getAudioContext, ensureRunning } from '../audio/context.ts';
 
 // ─── Load And Broadcast File (Host) ────────────────────────────────
 
@@ -51,7 +51,7 @@ export async function loadAndBroadcastFile(
 
   try {
     await initAudio();
-    if (Tone.context.state === 'suspended') await Tone.start();
+    if (getAudioContext().state === 'suspended') await ensureRunning();
 
     const url = BlobURLManager.create(file) || '';
     setState('files.currentFileBlob', file);
@@ -61,7 +61,7 @@ export async function loadAndBroadcastFile(
 
     // Decode audio
     const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
 
     // Re-verify after async decode
     if (loadToken !== undefined && getLoadToken() !== myToken) {
@@ -204,7 +204,7 @@ export async function loadPreloadedTrack(
     bus.emit('ui:show-toast', t('toast.decoding_audio'));
 
     const arrayBuffer = await localBlob.arrayBuffer();
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
 
     // Re-verify after async decode
     if (loadToken !== undefined && getLoadToken() !== myToken) {
@@ -393,11 +393,11 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
   try {
     await initAudio();
-    if (Tone.context.state === 'suspended') await Tone.start();
+    if (getAudioContext().state === 'suspended') await ensureRunning();
 
     const arrayBuffer = await file.arrayBuffer();
     if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (pre-decode), aborting'); return; }
-    const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
+    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
     if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (post-decode), aborting'); return; }
 
     if (getCurrentAudioBuffer()) {

@@ -27,7 +27,7 @@ import {
   getLoadScope, setLoadScope,
 } from './_state.ts';
 
-import * as Tone from 'tone';
+import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
 
 // ─── Format Helpers ────────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ export function getTrackPosition(): number {
   const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
 
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
-  if (startedAtValid && typeof Tone !== 'undefined' && Tone?.now) {
+  if (startedAtValid && getCurrentTime() > 0) {
     const combinedOffset = localOffset + autoSyncOffset;
     // Guard: schedule offset reset if combined drift exceeds 30 seconds.
     // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
@@ -85,9 +85,9 @@ export function getTrackPosition(): number {
         const sa = getState('player.startedAt');
         if (sa) setState('player.startedAt', sa - drift);
       });
-      pos = Tone.now() - startedAt;
+      pos = getCurrentTime() - startedAt;
     } else {
-      pos = (Tone.now() - startedAt) + combinedOffset;
+      pos = (getCurrentTime() - startedAt) + combinedOffset;
     }
   } else if (videoElement?.src && videoElement.readyState >= 1) {
     pos = videoElement.currentTime;
@@ -112,12 +112,10 @@ export function stopPlayerNode(): void {
   const _playerNode = getPlayerNode();
   if (_playerNode) {
     try {
-      _playerNode.onended = () => {};
       _playerNode.stop();
       _playerNode.disconnect();
-      _playerNode.dispose();
     } catch (e) {
-      log.warn('Error stopping/disposing playerNode:', e);
+      log.warn('Error stopping playerNode:', e);
     } finally {
       setPlayerNode(null);
     }
@@ -222,16 +220,8 @@ async function _internalPlay(offset: number): Promise<void> {
     return;
   }
 
-  if (typeof Tone === 'undefined' || !Tone?.context) {
-    log.error('[Audio] Tone.js not loaded');
-    bus.emit('ui:show-toast', t('error.audio_engine_not_ready'));
-    return;
-  }
-
   log.debug('[Play] Stage 2: Resuming AudioContext');
-  if (Tone.context.state !== 'running') {
-    try { await Tone.context.resume(); } catch (e) { log.warn('Resume failed:', e); }
-  }
+  try { await ensureRunning(); } catch (e) { log.warn('Resume failed:', e); }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const videoElement = getVideoElement();
@@ -266,7 +256,9 @@ async function _internalPlay(offset: number): Promise<void> {
   // Buffer Mode playback
   if (_currentAudioBuffer) {
     stopPlayerNode();
-    const newNode = new Tone.BufferSource(_currentAudioBuffer);
+    const ctx = getAudioContext();
+    const newNode = ctx.createBufferSource();
+    newNode.buffer = _currentAudioBuffer;
     setPlayerNode(newNode);
 
     const isSurroundMode = getState('audio.isSurroundMode');
@@ -277,20 +269,20 @@ async function _internalPlay(offset: number): Promise<void> {
       log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
     } else {
       const widener = getWidener();
-      if (widener) newNode.connect(widener);
+      if (widener) newNode.connect(widener.input);
       log.debug('[BufferMode] Playing in Stereo');
     }
 
     const endedToken = getLoadToken();
-    newNode.onended = () => {
+    newNode.addEventListener('ended', () => {
       if (endedToken !== getLoadToken()) return;
       const state = getState('appState');
       if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
         handleEnded();
       }
-    };
+    });
 
-    newNode.start(Tone.now(), safeOffset);
+    newNode.start(0, safeOffset);
 
     // Sync visuals (muted video)
     if (videoElement?.src) {
@@ -311,7 +303,7 @@ async function _internalPlay(offset: number): Promise<void> {
   const localOffset = getState('sync.localOffset') || 0;
   const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
   const combinedSyncOffset = localOffset + autoSyncOffset;
-  const startedAt = Tone.now() - safeOffset + combinedSyncOffset;
+  const startedAt = getCurrentTime() - safeOffset + combinedSyncOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);

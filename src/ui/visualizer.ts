@@ -57,7 +57,7 @@ function _initThemeListeners(): void {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-function getAnalyser(): unknown {
+function getAnalyser(): AnalyserNode | null {
   return getEngineAnalyser();
 }
 
@@ -78,7 +78,7 @@ export function startVisualizer(): void {
   if (!_ctx) return;
   const ctx: CanvasRenderingContext2D = _ctx;
 
-  const analyser = getAnalyser() as Record<string, unknown> | null;
+  const analyser = getAnalyser();
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
@@ -91,11 +91,8 @@ export function startVisualizer(): void {
   }
   _visualizerRetryCount = 0;
 
-  // Check type: Tone.js analyser has .getValue(), native has .getByteFrequencyData()
-  const isToneAnalyser = typeof (analyser as Record<string, unknown>).getValue === 'function';
-  const bufferLength = isToneAnalyser
-    ? ((analyser as Record<string, number>).size || 256)
-    : (analyser as unknown as AnalyserNode).frequencyBinCount;
+  const bufferLength = analyser.frequencyBinCount;
+  const _freqData = new Float32Array(bufferLength);
 
   let smoothedBass = 0;
   let smoothedHigh = 0;
@@ -132,16 +129,12 @@ export function startVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     if (isIdleOrPaused(currentState)) { _animationId = null; return; }
-    // YouTube/Video mode: Tone.js analyser isn't connected or canvas is CSS-hidden, skip draw
+    // YouTube/Video mode: analyser isn't connected or canvas is CSS-hidden, skip draw
     if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
-    if (!isToneAnalyser) {
-      log.warn('[Visualizer] Non-Tone analyser not supported');
-      _animationId = null;
-      return;
-    }
 
     try {
-      const dbData = (analyser as Record<string, (...args: unknown[]) => Float32Array>).getValue() as Float32Array;
+      analyser!.getFloatFrequencyData(_freqData);
+      const dbData = _freqData;
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalSize, logicalSize);

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Audio Effects
+ * MUSIXQUARE 3.0 — Audio Effects (Native Web Audio API)
  *
  * Manages: Reverb (wet/dry + damping), 5-band EQ, Virtual Bass,
  * Stereo Width, Preamp gain compensation.
@@ -26,18 +26,13 @@ import {
   getGlobalLowPass,
   getVbGain,
 } from './engine.ts';
+import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
 
-// ─── Cached DOM Elements ──────────────────────────────────────────
-
 // ─── Apply All Settings ────────────────────────────────────────────
 
-/**
- * Synchronize all audio effect parameters to the Tone.js nodes.
- * Call after any setting change.
- */
 /** Fire-and-forget wrapper — prevents unhandled promise rejection from applySettings */
 export function applySettingsAsync(): void {
   applySettings().catch(e => log.warn('[Effects] applySettings failed:', e));
@@ -62,25 +57,21 @@ export async function applySettings(): Promise<void> {
 
   // Reverb Mix (CrossFade)
   const crossFade = getRvbCrossFade();
-  if (crossFade) crossFade.fade.rampTo(reverbMix, RAMP_TIME);
+  if (crossFade) setCrossFade(crossFade, reverbMix, RAMP_TIME);
 
-  // ── Apply all synchronous parameters BEFORE the async reverb generation ──
-  // This prevents stale state from overwriting concurrent changes if another
-  // applySettings() call completes while reverb generation is in progress.
-
-  // Reverb damping filters (clamp to [0, 100] for safety)
+  // Reverb damping filters
   const rlc = getRvbLowCut();
   if (rlc) {
     const lFreq = 20 * Math.pow(50, Math.max(0, Math.min(100, reverbLowCut)) / 100);
-    rlc.frequency.rampTo(lFreq, RAMP_TIME);
+    rampParam(rlc.frequency, lFreq, RAMP_TIME);
   }
   const rhc = getRvbHighCut();
   if (rhc) {
     const hFreq = 20000 * Math.pow(0.05, Math.max(0, Math.min(100, reverbHighCut)) / 100);
-    rhc.frequency.rampTo(hFreq, RAMP_TIME);
+    rampParam(rhc.frequency, hFreq, RAMP_TIME);
   }
 
-  // EQ Sync (clamp to [-12, 12] dB for safety)
+  // EQ Sync
   const nodes = getEqNodes();
   if (nodes && nodes.length > 0 && eqValues) {
     nodes.forEach((node, i) => {
@@ -88,7 +79,7 @@ export async function applySettings(): Promise<void> {
       const raw = eqValues[i] ?? 0;
       const clamped = Math.max(-12, Math.min(12, raw));
       if (node.gain.value !== clamped) {
-        node.gain.rampTo(clamped, RAMP_TIME);
+        rampParam(node.gain, clamped, RAMP_TIME);
       }
     });
   }
@@ -97,187 +88,56 @@ export async function applySettings(): Promise<void> {
   let compensation = 1.0;
   const wid = getWidener();
   if (wid) {
-    if (wid.wet.value !== 1) wid.wet.rampTo(1, RAMP_TIME);
-    wid.width.rampTo(stereoWidth * 0.5, RAMP_TIME);
+    wid.setWidth(stereoWidth * 0.5, RAMP_TIME);
     if (stereoWidth < 1.0) {
       compensation = 0.6 + 0.4 * stereoWidth;
     } else if (stereoWidth > 1.0) {
-      // Wide stereo: compensate to prevent volume boost
       compensation = Math.max(0.5, 1.0 / (0.6 + 0.4 * stereoWidth));
     }
   }
 
   // Preamp
   const pre = getPreamp();
-  if (pre) pre.gain.rampTo(userPreampGain * compensation, RAMP_TIME);
+  if (pre) rampParam(pre.gain, userPreampGain * compensation, RAMP_TIME);
 
-  // Virtual Bass — dual-band chain has fixed crossover points, just control output gain
+  // Virtual Bass
   const isWooferRole = channelMode === 2 || (isSurroundMode && surroundChannelIndex === 3);
   const vbg = getVbGain();
   if (vbg) {
-    // Mute VB in woofer/LFE mode (subwoofer doesn't need psychoacoustic bass)
     const targetGain = isWooferRole ? 0 : virtualBass;
-    vbg.gain.rampTo(targetGain, RAMP_TIME);
+    rampParam(vbg.gain, targetGain, RAMP_TIME);
   }
 
   // Global LowPass
   const lp = getGlobalLowPass();
   if (lp) {
-    lp.frequency.rampTo(isWooferRole ? subFreq : 20000, RAMP_TIME);
+    rampParam(lp.frequency, isWooferRole ? subFreq : 20000, RAMP_TIME);
   }
 
-  // Master Volume — sync state to Tone.js node (needed after late audio init)
+  // Master Volume
   const mg = getMasterGain();
   if (mg) {
     const masterVolume = getState('audio.masterVolume');
-    mg.gain.rampTo(masterVolume, RAMP_TIME);
+    rampParam(mg.gain, masterVolume, RAMP_TIME);
   }
 
-  // ── Async reverb generation (after all sync params are applied) ──
+  // Reverb IR regeneration (SYNCHRONOUS — no async/retry needed!)
   const rev = getReverb();
   if (rev) {
-    let needsGenerate = false;
-    if (rev.decay !== reverbDecay) {
-      rev.decay = reverbDecay;
-      needsGenerate = true;
-    }
-    if (rev.preDelay !== reverbPreDelay) {
-      rev.preDelay = reverbPreDelay;
-      needsGenerate = true;
-    }
-    if (needsGenerate) {
-      _reverbTotalCycles = 0; // Reset cycle counter at top-level call site only
-      await _generateReverbWithRetry(rev);
+    // Check if decay or preDelay actually changed by comparing with stored values
+    const currentDecay = _lastReverbDecay;
+    const currentPreDelay = _lastReverbPreDelay;
+    if (currentDecay !== reverbDecay || currentPreDelay !== reverbPreDelay) {
+      _lastReverbDecay = reverbDecay;
+      _lastReverbPreDelay = reverbPreDelay;
+      rev.buffer = generateReverbIR(reverbDecay, reverbPreDelay);
     }
   }
 }
 
-// ─── Reverb Generate with Retry ────────────────────────────────────
-
-let _reverbGenerateInFlight = false;
-let _reverbGeneratePending = false;
-let _reverbGenerationId = 0;
-let _reverbTotalCycles = 0;
-const MAX_TOTAL_CYCLES = 6;
-
-// Tracks the raw Tone.js generate() promise to serialize calls.
-// Tone.js Reverb.generate() cannot be cancelled — a timed-out call keeps
-// running in the background (a "ghost") and will overwrite the ConvolverNode
-// buffer when it eventually completes. By awaiting the previous raw promise
-// before starting a new generate(), we guarantee our latest call always
-// sets the buffer LAST, preventing ghost overwrites.
-let _lastRawGeneratePromise: Promise<unknown> = Promise.resolve();
-
-async function _generateReverbWithRetry(rev: ReturnType<typeof getReverb>, maxRetries = 2): Promise<void> {
-  if (_reverbGenerateInFlight) {
-    _reverbGeneratePending = true;
-    return;
-  }
-  _reverbGenerateInFlight = true;
-  _reverbGeneratePending = false;
-  const generationId = ++_reverbGenerationId;
-  // Note: _reverbTotalCycles is reset by the caller (applySettings), NOT here.
-  // Resetting here would defeat MAX_TOTAL_CYCLES across recursive re-generation calls.
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    // Bail out if a newer generation was requested (prevents stale retries)
-    if (generationId !== _reverbGenerationId) {
-      _reverbGenerateInFlight = false;
-      return;
-    }
-    let timeoutId: number | undefined;
-    try {
-      // Serialize: wait for any ghost generate() from a previous timed-out
-      // attempt to finish, so our new call sets the ConvolverNode buffer LAST.
-      await _lastRawGeneratePromise.catch(() => {});
-
-      // Re-check stale after ghost wait — a newer generation may have started
-      if (generationId !== _reverbGenerationId) {
-        _reverbGenerateInFlight = false;
-        return;
-      }
-
-      // Start the actual generate() and track the raw promise for serialization
-      const p = rev!.generate();
-      _lastRawGeneratePromise = p;
-
-      await Promise.race([
-        p,
-        new Promise<never>((_, reject) => {
-          timeoutId = window.setTimeout(() => reject(new Error('timeout')), 8000);
-        }),
-      ]);
-      _reverbGenerateInFlight = false;
-
-      // Re-generate if params changed while in-flight (last-write-wins)
-      if (_reverbGeneratePending && generationId === _reverbGenerationId) {
-        _reverbGeneratePending = false;
-        if (++_reverbTotalCycles >= MAX_TOTAL_CYCLES) {
-          log.warn(`[Reverb] Max total cycles (${MAX_TOTAL_CYCLES}) reached — dropping pending re-generate`);
-          return;
-        }
-        return _generateReverbWithRetry(rev, maxRetries);
-      }
-      return;
-    } catch (e) {
-      log.warn(`[Reverb] generate() attempt ${attempt + 1}/${maxRetries + 1} failed:`, e);
-      if (attempt === maxRetries) {
-        bus.emit('ui:show-toast', t('toast.reverb_init_fail'));
-      }
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-  _reverbGenerateInFlight = false;
-
-  // Don't drop pending request — if params changed during failed retries, retry once more
-  if (_reverbGeneratePending) {
-    _reverbGeneratePending = false;
-    if (++_reverbTotalCycles >= MAX_TOTAL_CYCLES) {
-      log.warn(`[Reverb] Max total cycles (${MAX_TOTAL_CYCLES}) reached — aborting retry after failures`);
-      return;
-    }
-    return _generateReverbWithRetry(rev, maxRetries);
-  }
-}
-
-/**
- * Generate reverb IR during audio init — tracked to prevent race with
- * bootstrap messages. _doInitAudio creates masterGain BEFORE calling
- * reverb.generate(), so bootstrap messages can pass the getMasterGain()
- * null check in applySettings() and start a concurrent generate().
- * This wrapper sets _reverbGenerateInFlight so bootstrap-triggered
- * generate() calls are deferred via the pending mechanism.
- */
-export async function generateReverbInit(rev: NonNullable<ReturnType<typeof getReverb>>): Promise<void> {
-  _reverbGenerateInFlight = true;
-  _reverbGeneratePending = false;
-  const generationId = ++_reverbGenerationId;
-
-  try {
-    const p = rev.generate();
-    _lastRawGeneratePromise = p;
-    await p;
-  } catch (e) {
-    _reverbGenerateInFlight = false;
-    throw e; // Propagate to _doInitAudio's catch for node cleanup
-  }
-
-  _reverbGenerateInFlight = false;
-
-  // Drain pending from bootstrap messages that arrived during init generate.
-  // Errors here are non-fatal — audio:ready → applySettings() provides a
-  // second chance to regenerate with the correct params.
-  if (_reverbGeneratePending && generationId === _reverbGenerationId) {
-    _reverbGeneratePending = false;
-    _reverbTotalCycles = 0;
-    try {
-      await _generateReverbWithRetry(rev);
-    } catch (e) {
-      log.warn('[Reverb] Post-init re-generate failed:', e);
-    }
-  }
-}
+// Track last reverb params to avoid unnecessary IR regeneration
+let _lastReverbDecay = 5.0;
+let _lastReverbPreDelay = 0.1;
 
 // ─── Reverb Controls ───────────────────────────────────────────────
 
@@ -330,21 +190,20 @@ export function setEQ(idx: number, val: number): void {
   newValues[bandIdx] = clamped;
   setState('audio.eqValues', newValues);
 
-  const nodes = getEqNodes();
-  if (nodes?.[bandIdx]) {
-    nodes[bandIdx].gain.rampTo(clamped, RAMP_TIME);
+  const eqNodes = getEqNodes();
+  if (eqNodes?.[bandIdx]) {
+    rampParam(eqNodes[bandIdx].gain, clamped, RAMP_TIME);
   }
 
-  // Notify UI layer to sync slider (avoids audio module doing DOM ops)
   bus.emit('ui:sync-eq-band', bandIdx, clamped);
 }
 
 export function resetEQ(): void {
-  const nodes = getEqNodes();
-  const count = nodes ? nodes.length : 5;
+  const eqNodes = getEqNodes();
+  const count = eqNodes ? eqNodes.length : 5;
   setState('audio.eqValues', Array(count).fill(0));
   setState('audio.userPreampGain', 1.0);
-  nodes?.forEach(node => node.gain.rampTo(0, RAMP_TIME));
+  eqNodes?.forEach(node => rampParam(node.gain, 0, RAMP_TIME));
   applySettingsAsync();
 }
 
@@ -395,17 +254,11 @@ function updateSubFreq(val: number): void {
 
 // ─── Network Broadcast Helpers ───────────────────────────────────
 
-/**
- * Broadcast an audio setting change (Host) or send REQUEST_SETTING (OP Guest).
- * Called only on 'change' event (slider release), not during 'input' (dragging).
- */
 function _broadcastOrRequestSetting(msgType: string, value: number | string): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    // Host: broadcast to all peers
     broadcast({ type: msgType, value } as AnyProtocolMsg);
   } else {
-    // Guest (OP): request Host to apply + broadcast
     const isOperator = getState('network.isOperator');
     if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
@@ -435,14 +288,12 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
-/** Central audio effect dispatcher from settings UI */
 bus.on('audio:update-effect', (type, param, value, isPreview) => {
   if (!Number.isFinite(value)) return;
 
   switch (type) {
     case 'reverb':
       setReverbParam(param, value);
-      // Broadcast on release only (not while dragging)
       if (!isPreview) {
         const REVERB_MSG_MAP: Record<string, string> = {
           mix: MSG.REVERB, decay: MSG.REVERB_DECAY, predelay: MSG.REVERB_PREDELAY,
@@ -486,7 +337,6 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
   }
 });
 
-/** Set EQ band */
 bus.on('audio:set-eq', (band, value, isPreview) => {
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
   setEQ(band, value);
@@ -495,12 +345,9 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
   }
 });
 
-/** Reverb preset type change from UI chip */
 bus.on('audio:reverb-type-change', (type: string) => {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    // OP Guest: only send REQUEST to host — host will broadcast back
-    // (skip local apply to avoid double-application when broadcast arrives)
     const isOperator = getState('network.isOperator');
     if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_TYPE, value: type });
@@ -510,7 +357,6 @@ bus.on('audio:reverb-type-change', (type: string) => {
       bus.emit('ui:show-toast', t('toast.connection_closing'));
     }
   } else {
-    // Host: apply locally + broadcast
     handleReverbTypeMsg({ value: type });
     broadcast({ type: MSG.REVERB_TYPE, value: type } as AnyProtocolMsg);
   }
@@ -519,7 +365,6 @@ bus.on('audio:reverb-type-change', (type: string) => {
 bus.on('audio:reset-eq', () => {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    // Host: reset locally + broadcast
     resetEQ();
     broadcast({ type: MSG.EQ_RESET });
   } else {
@@ -530,19 +375,13 @@ bus.on('audio:reset-eq', () => {
   }
 });
 
-/** Sync state defaults to Tone.js nodes after audio graph init */
 bus.on('audio:ready', () => {
   log.info('[Effects] Audio ready — applying default settings');
   applySettingsAsync();
 });
 
-/**
- * Host: Send all current audio settings to a newly connected peer (late-join bootstrap).
- */
 bus.on('network:peer-connected', (conn) => {
   if (!conn?.open) return;
-
-  // Only Host bootstraps guests
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
@@ -587,7 +426,7 @@ bus.on('network:peer-connected', (conn) => {
   }
 });
 
-// ─── Network Protocol Handlers (Host→Guest effect sync) ──────────
+// ─── Network Protocol Handlers ──────────────────────────────────
 
 function handleVolume(data: Record<string, unknown>): void {
   if (data.value === undefined || data.value === null) return;
@@ -616,10 +455,7 @@ function handlePreampMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-// ─── Host-ctrl 변경 토스트 (게스트 전용, 디바운스) ────────────
-
 function _notifyHostChanged(): void {
-  // 호스트 연결 중인 게스트만 표시
   if (!getState('network.hostConn')) return;
   setManagedTimer('host-change-toast', () => {
     bus.emit('ui:show-toast', t('toast.host_changed_setting'));
@@ -726,11 +562,9 @@ function handleVBassMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-// ─── Operator Request Handlers (Host-side) ──────────────────────
-
 function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only Host
+  if (hostConn) return;
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);

@@ -7,11 +7,9 @@
  */
 
 import { SessionScope } from '../core/session-scope.ts';
-import type { ToneBufferSource } from 'tone';
-
 // ─── Module State ──────────────────────────────────────────────────
 
-let _playerNode: ToneBufferSource | null = null;
+let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
 let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
@@ -23,11 +21,11 @@ let _loadScope: SessionScope | null = null;
 
 // ─── PlayerNode ────────────────────────────────────────────────────
 
-export function getPlayerNode(): ToneBufferSource | null {
+export function getPlayerNode(): AudioBufferSourceNode | null {
   return _playerNode;
 }
 
-export function setPlayerNode(v: ToneBufferSource | null): void {
+export function setPlayerNode(v: AudioBufferSourceNode | null): void {
   _playerNode = v;
 }
 

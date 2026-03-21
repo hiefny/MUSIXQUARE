@@ -480,7 +480,16 @@ export function addSystemChatMessage(text: string): void {
   bubble.className = 'chat-bubble others system';
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
-  chatTextDiv.textContent = text;
+  // First line bold if multi-line (command output headers like /help, /users, /debug)
+  const msgLines = text.split('\n');
+  if (msgLines.length > 1) {
+    const strong = document.createElement('strong');
+    strong.textContent = msgLines[0];
+    chatTextDiv.appendChild(strong);
+    chatTextDiv.appendChild(document.createTextNode('\n' + msgLines.slice(1).join('\n')));
+  } else {
+    chatTextDiv.textContent = text;
+  }
   bubble.appendChild(chatTextDiv);
 
   const timeNode = document.createElement('div');

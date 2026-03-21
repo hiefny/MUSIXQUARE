@@ -238,10 +238,10 @@ const ko = {
   'chat.cmd_nick_too_long': '닉네임은 20자까지 가능합니다',
   'chat.cmd_already_op': '{{name}} 님은 이미 관리자입니다',
   'chat.cmd_not_op': '{{name}} 님은 관리자가 아닙니다',
-  'chat.cmd_help_title': '── 사용 가능한 명령어 ──',
+  'chat.cmd_help_title': '사용 가능한 명령어',
   'chat.cmd_unknown': '알 수 없는 명령어: /{{cmd}}',
   'chat.cmd_usage': '사용법: {{usage}}',
-  'chat.cmd_users_title': '── 접속자 목록 ──',
+  'chat.cmd_users_title': '접속자 목록',
   'chat.cmd_users_me': '나',
 
   // ─── Command usage & description (i18n) ────────────────────────

@@ -240,10 +240,10 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_nick_too_long': 'Nickname must be 20 characters or less',
   'chat.cmd_already_op': '{{name}} is already an operator',
   'chat.cmd_not_op': '{{name}} is not an operator',
-  'chat.cmd_help_title': '── Available Commands ──',
+  'chat.cmd_help_title': 'Available Commands',
   'chat.cmd_unknown': 'Unknown command: /{{cmd}}',
   'chat.cmd_usage': 'Usage: {{usage}}',
-  'chat.cmd_users_title': '── Connected Users ──',
+  'chat.cmd_users_title': 'Connected Users',
   'chat.cmd_users_me': 'me',
 
   // ─── Command usage & description (i18n) ────────────────────────

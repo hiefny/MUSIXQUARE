@@ -299,7 +299,7 @@ function cmdUsers(): void {
 }
 
 function cmdDebug(): void {
-  const lines: string[] = ['──── SYSTEM DEBUG INFO ────'];
+  const lines: string[] = ['SYSTEM DEBUG INFO'];
 
   // Device & Browser
   const ua = navigator.userAgent;
@@ -391,7 +391,6 @@ function cmdDebug(): void {
     }
   } catch { /* ignore */ }
 
-  lines.push('──────────────────────────');
   addSystemChatMessage(lines.join('\n'));
 }
 

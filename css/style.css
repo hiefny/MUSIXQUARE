@@ -3858,7 +3858,20 @@ body.overlay-open .bottom-nav {
     overscroll-behavior-y: none;
 }
 
-/* Mobile: hide scrollbar — desktop.css @layer re-enables it for ≥1280px */
+/* Chat scroll wrapper: passthrough on mobile, positioned on desktop */
+.chat-scroll-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Custom scrollbar: hidden on mobile */
+.chat-custom-scrollbar {
+    display: none;
+}
+
+/* Mobile: hide native scrollbar */
 @media (max-width: 1279px) {
     .chat-drawer-messages {
         scrollbar-width: none;

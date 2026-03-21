@@ -909,8 +909,13 @@
                 </svg>
             </button>
         </div>
-        <div class="chat-drawer-messages" id="chat-messages" role="log" aria-live="polite">
-            <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
+        <div class="chat-scroll-wrapper">
+            <div class="chat-drawer-messages" id="chat-messages" role="log" aria-live="polite">
+                <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
+            </div>
+            <div class="chat-custom-scrollbar" id="chat-custom-scrollbar">
+                <div class="chat-scrollbar-thumb" id="chat-scrollbar-thumb"></div>
+            </div>
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">

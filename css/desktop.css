@@ -905,7 +905,15 @@
         background-color: rgba(255, 255, 255, 0.55);
     }
 
-    /* Chat scroll: hide scrollbar, full-bleed system messages */
+    /* Chat scroll wrapper: relative container for custom scrollbar overlay */
+    .chat-scroll-wrapper {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    /* Chat scroll: hide native scrollbar */
     .chat-drawer-messages {
         overflow-y: auto;
         overflow-x: hidden;
@@ -913,10 +921,61 @@
         -ms-overflow-style: none;
         padding-left: 24px;
         padding-right: 16px;
+        height: 100%;
     }
 
     .chat-drawer-messages::-webkit-scrollbar {
         display: none;
+    }
+
+    /* Custom scrollbar: floats above content (including system messages) */
+    .chat-custom-scrollbar {
+        position: absolute;
+        top: 0;
+        right: 2px;
+        width: 6px;
+        height: 100%;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+        z-index: 10;
+    }
+
+    .chat-custom-scrollbar.visible {
+        opacity: 1;
+    }
+
+    .chat-custom-scrollbar.dragging,
+    .chat-custom-scrollbar:hover {
+        width: 8px;
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    .chat-scrollbar-thumb {
+        position: absolute;
+        right: 0;
+        width: 100%;
+        min-height: 30px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        cursor: pointer;
+        pointer-events: auto;
+        transition: background 0.15s;
+    }
+
+    .chat-scrollbar-thumb:hover,
+    .chat-custom-scrollbar.dragging .chat-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    [data-theme="light"] .chat-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.15);
+    }
+
+    [data-theme="light"] .chat-scrollbar-thumb:hover,
+    [data-theme="light"] .chat-custom-scrollbar.dragging .chat-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.35);
     }
 
     /* System messages: full-bleed override for desktop padding (24px left, 16px right) */

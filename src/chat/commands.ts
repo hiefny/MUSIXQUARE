@@ -346,7 +346,6 @@ function cmdDebug(): void {
   lines.push(`[Lang] ${lang}`);
 
   // Network
-  const role = isHost() ? 'HOST' : 'GUEST';
   const connType = getState('network.connectionType') || 'unknown';
   const sessionCode = getState('network.sessionCode') || '-';
   const myId = getState('network.myId') || '-';
@@ -354,7 +353,7 @@ function cmdDebug(): void {
   const myLabel = getState('network.myDeviceLabel') || '-';
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
   const isOp = getState('network.isOperator') ? 'yes' : 'no';
-  lines.push(`[Network] ${role} | #${myOrder} ${myLabel} | code:${sessionCode} | conn:${connType} | OP:${isOp}`);
+  lines.push(`[Network] #${myOrder} ${myLabel} | code:${sessionCode} | conn:${connType} | OP:${isOp}`);
   lines.push(`[PeerID] ${myId}`);
   lines.push(`[Peers] ${peers.length} connected`);
   for (const p of peers) {

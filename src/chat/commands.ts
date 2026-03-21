@@ -298,12 +298,41 @@ function cmdUsers(): void {
   addSystemChatMessage(lines.join('\n'));
 }
 
+function _parseBrowser(ua: string): string {
+  // Order matters: check specific browsers before generic ones
+  if (/SamsungBrowser\/([\d.]+)/.test(ua)) return `Samsung Internet ${RegExp.$1}`;
+  if (/OPR\/([\d.]+)/.test(ua) || /Opera\/([\d.]+)/.test(ua)) return `Opera ${RegExp.$1}`;
+  if (/Edg\/([\d.]+)/.test(ua)) return `Microsoft Edge ${RegExp.$1}`;
+  if (/Whale\/([\d.]+)/.test(ua)) return `Naver Whale ${RegExp.$1}`;
+  if (/Firefox\/([\d.]+)/.test(ua)) return `Firefox ${RegExp.$1}`;
+  if (/CriOS\/([\d.]+)/.test(ua)) return `Chrome iOS ${RegExp.$1}`;
+  if (/FxiOS\/([\d.]+)/.test(ua)) return `Firefox iOS ${RegExp.$1}`;
+  if (/Version\/([\d.]+).*Safari/.test(ua)) return `Safari ${RegExp.$1}`;
+  if (/Chrome\/([\d.]+)/.test(ua)) return `Chrome ${RegExp.$1}`;
+  return ua.slice(0, 50);
+}
+
+function _parseOS(ua: string): string {
+  if (/iPhone OS ([\d_]+)/.test(ua)) return `iOS ${RegExp.$1.replace(/_/g, '.')}`;
+  if (/iPad.*OS ([\d_]+)/.test(ua)) return `iPadOS ${RegExp.$1.replace(/_/g, '.')}`;
+  if (/Mac OS X ([\d_.]+)/.test(ua)) return `macOS ${RegExp.$1.replace(/_/g, '.')}`;
+  if (/Android ([\d.]+)/.test(ua)) return `Android ${RegExp.$1}`;
+  if (/Windows NT ([\d.]+)/.test(ua)) {
+    const ver: Record<string, string> = { '10.0': '10/11', '6.3': '8.1', '6.2': '8', '6.1': '7' };
+    return `Windows ${ver[RegExp.$1] || RegExp.$1}`;
+  }
+  if (/CrOS/.test(ua)) return 'Chrome OS';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Unknown';
+}
+
 function cmdDebug(): void {
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
   // Device & Browser
   const ua = navigator.userAgent;
-  const platform = navigator.platform || 'unknown';
+  const browser = _parseBrowser(ua);
+  const os = _parseOS(ua);
   const lang = navigator.language;
   const screen = `${window.screen.width}×${window.screen.height}`;
   const viewport = `${window.innerWidth}×${window.innerHeight}`;
@@ -311,8 +340,9 @@ function cmdDebug(): void {
   const touch = 'ontouchstart' in window ? 'yes' : 'no';
   const standalone = (window.matchMedia('(display-mode: standalone)').matches
     || (navigator as unknown as Record<string, unknown>).standalone) ? 'yes' : 'no';
-  lines.push(`[Device] ${platform} | ${screen} (${viewport}) @${dpr}x | touch:${touch} | PWA:${standalone}`);
-  lines.push(`[UA] ${ua.slice(0, 120)}${ua.length > 120 ? '...' : ''}`);
+  lines.push(`[Browser] ${browser}`);
+  lines.push(`[OS] ${os}`);
+  lines.push(`[Screen] ${screen} (${viewport}) @${dpr}x | touch:${touch} | PWA:${standalone}`);
   lines.push(`[Lang] ${lang}`);
 
   // Network

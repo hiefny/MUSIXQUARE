@@ -298,6 +298,103 @@ function cmdUsers(): void {
   addSystemChatMessage(lines.join('\n'));
 }
 
+function cmdDebug(): void {
+  const lines: string[] = ['──── SYSTEM DEBUG INFO ────'];
+
+  // Device & Browser
+  const ua = navigator.userAgent;
+  const platform = navigator.platform || 'unknown';
+  const lang = navigator.language;
+  const screen = `${window.screen.width}×${window.screen.height}`;
+  const viewport = `${window.innerWidth}×${window.innerHeight}`;
+  const dpr = window.devicePixelRatio?.toFixed(1) || '?';
+  const touch = 'ontouchstart' in window ? 'yes' : 'no';
+  const standalone = (window.matchMedia('(display-mode: standalone)').matches
+    || (navigator as unknown as Record<string, unknown>).standalone) ? 'yes' : 'no';
+  lines.push(`[Device] ${platform} | ${screen} (${viewport}) @${dpr}x | touch:${touch} | PWA:${standalone}`);
+  lines.push(`[UA] ${ua.slice(0, 120)}${ua.length > 120 ? '...' : ''}`);
+  lines.push(`[Lang] ${lang}`);
+
+  // Network
+  const role = isHost() ? 'HOST' : 'GUEST';
+  const connType = getState('network.connectionType') || 'unknown';
+  const sessionCode = getState('network.sessionCode') || '-';
+  const myId = getState('network.myId') || '-';
+  const myOrder = getState('network.myJoinOrder') ?? 0;
+  const myLabel = getState('network.myDeviceLabel') || '-';
+  const peers = getState('network.connectedPeers') as ConnectedPeer[];
+  const isOp = getState('network.isOperator') ? 'yes' : 'no';
+  lines.push(`[Network] ${role} | #${myOrder} ${myLabel} | code:${sessionCode} | conn:${connType} | OP:${isOp}`);
+  lines.push(`[PeerID] ${myId}`);
+  lines.push(`[Peers] ${peers.length} connected`);
+  for (const p of peers) {
+    const flags = [p.isOp ? 'OP' : '', (p as unknown as Record<string, unknown>).connectionType || ''].filter(Boolean).join(',');
+    lines.push(`  #${p.joinOrder} ${p.label} [${flags}]`);
+  }
+
+  // Chat moderation
+  const frozen = getState('network.chatFrozen') ? 'ON' : 'off';
+  const slowmode = getState('network.slowmodeSeconds');
+  const filter = getState('network.filterEnabled') ? 'ON' : 'off';
+  const mutedCount = getState('network.mutedPeers').size;
+  lines.push(`[Chat] freeze:${frozen} | slowmode:${slowmode}s | filter:${filter} | muted:${mutedCount}`);
+
+  // Audio
+  const appState = getState('appState') || 'IDLE';
+  const channelMode = getState('audio.channelMode') ?? 0;
+  const channelNames: Record<number, string> = { 0: 'Center', '-1': 'Left', 1: 'Right', 2: 'Subwoofer' };
+  const chName = channelNames[channelMode] || String(channelMode);
+  const reverbMix = getState('audio.reverbMix') ?? 0;
+  const eqValues = getState('audio.eqValues') || [];
+  const eqActive = Array.isArray(eqValues) && eqValues.some((v: number) => v !== 0);
+  const vbass = getState('audio.virtualBass') ?? 0;
+  const volume = getState('audio.masterVolume') ?? 1;
+  lines.push(`[Audio] state:${appState} | ch:${chName} | vol:${Math.round(volume * 100)}%`);
+  lines.push(`[FX] EQ:${eqActive ? 'ON' : 'off'} | reverb:${reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'off'} | vbass:${vbass > 0 ? 'ON' : 'off'}`);
+
+  // Try to get AudioContext info
+  try {
+    const ctx = (window as unknown as Record<string, unknown>).__mxqr_audio_ctx as AudioContext | undefined;
+    if (ctx) {
+      lines.push(`[AudioCtx] sr:${ctx.sampleRate}Hz | state:${ctx.state} | time:${ctx.currentTime.toFixed(1)}s`);
+    }
+  } catch { /* ignore */ }
+
+  // Playlist
+  const trackIdx = getState('playlist.currentTrackIndex') ?? -1;
+  const playlist = getState('playlist.items') || [];
+  const currentTitle = trackIdx >= 0 && playlist[trackIdx]
+    ? (playlist[trackIdx] as unknown as Record<string, unknown>).title || 'untitled'
+    : '-';
+  lines.push(`[Playlist] ${playlist.length} tracks | current:#${trackIdx} ${currentTitle}`);
+
+  // Session timing
+  const sessionStarted = getState('setup.sessionStarted');
+  lines.push(`[Session] started:${sessionStarted ? 'yes' : 'no'}`);
+
+  // Memory (if available)
+  try {
+    const perf = performance as unknown as Record<string, unknown>;
+    const mem = perf.memory as { usedJSHeapSize: number; jsHeapSizeLimit: number } | undefined;
+    if (mem) {
+      const used = (mem.usedJSHeapSize / 1048576).toFixed(1);
+      const limit = (mem.jsHeapSizeLimit / 1048576).toFixed(0);
+      lines.push(`[Memory] ${used}MB / ${limit}MB`);
+    }
+  } catch { /* ignore */ }
+
+  // Network info (if available)
+  try {
+    const conn = (navigator as unknown as Record<string, unknown>).connection as Record<string, unknown> | undefined;
+    if (conn) {
+      lines.push(`[NetInfo] type:${conn.effectiveType || '?'} | downlink:${conn.downlink || '?'}Mbps | rtt:${conn.rtt || '?'}ms`);
+    }
+  } catch { /* ignore */ }
+
+  lines.push('──────────────────────────');
+  addSystemChatMessage(lines.join('\n'));
+}
+
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -317,6 +414,7 @@ const COMMANDS_DEF: Record<string, Omit<CommandDef, 'usage' | 'description'> & {
   mute:     { permission: 'host+op', execute: cmdMute,     usageKey: 'chat.cmd_u_mute',     descKey: 'chat.cmd_d_mute' },
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usageKey: 'chat.cmd_u_unmute',   descKey: 'chat.cmd_d_unmute' },
   whisper:  { permission: 'all',     execute: cmdWhisper,  usageKey: 'chat.cmd_u_whisper',  descKey: 'chat.cmd_d_w', hidden: true, hideFromSuggest: true },
+  debug:    { permission: 'all',     execute: cmdDebug,    usageKey: 'chat.cmd_u_debug',    descKey: 'chat.cmd_d_debug', hidden: true, hideFromSuggest: true },
 };
 
 // Resolve i18n at access time

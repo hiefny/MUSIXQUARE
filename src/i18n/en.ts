@@ -276,6 +276,8 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_deop': 'Revoke operator',
   'chat.cmd_d_mute': 'Mute device',
   'chat.cmd_d_unmute': 'Unmute device',
+  'chat.cmd_u_debug': '/debug',
+  'chat.cmd_d_debug': 'System debug info',
   'chat.seek_to': 'Seek to {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────

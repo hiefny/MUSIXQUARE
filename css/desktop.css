@@ -905,47 +905,27 @@
         background-color: rgba(255, 255, 255, 0.55);
     }
 
-    /* Chat scroll container: thin scrollbar overlaps content via scrollbar-width */
+    /* Chat scroll: hide scrollbar, full-bleed system messages */
     .chat-drawer-messages {
-        -ms-overflow-style: auto;
         overflow-y: auto;
-        scrollbar-width: thin;
+        overflow-x: hidden;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
         padding-left: 24px;
         padding-right: 16px;
     }
 
-    /* System messages: full-bleed across the entire chat width */
+    .chat-drawer-messages::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* System messages: full-bleed override for desktop padding (24px left, 16px right) */
     .chat-group.system .chat-row {
         width: calc(100% + 40px);
         margin: 0 -16px 0 -24px;
     }
 
-    .chat-drawer-messages::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    .chat-drawer-messages::-webkit-scrollbar-track {
-        margin-bottom: 20px;
-        background: transparent;
-    }
-
-    .chat-drawer-messages::-webkit-scrollbar-thumb {
-        background-color: rgba(255, 255, 255, 0.15);
-        border: 2px solid transparent;
-        border-radius: 10px;
-        background-clip: padding-box;
-    }
-
-    .chat-drawer-messages::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(255, 255, 255, 0.35);
-    }
-
-    .chat-drawer-messages::-webkit-scrollbar-thumb:active {
-        background-color: rgba(255, 255, 255, 0.55);
-    }
-
-    /* Light mode: dark scrollbar thumbs on light background */
+    /* Light mode: dark scrollbar thumbs on light background (tab-body only) */
     [data-theme="light"] .tab-body::-webkit-scrollbar-thumb {
         background-color: rgba(0, 0, 0, 0.2);
     }
@@ -955,18 +935,6 @@
     }
 
     [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:active {
-        background-color: rgba(0, 0, 0, 0.6);
-    }
-
-    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb {
-        background-color: rgba(0, 0, 0, 0.2);
-    }
-
-    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(0, 0, 0, 0.4);
-    }
-
-    [data-theme="light"] .chat-drawer-messages::-webkit-scrollbar-thumb:active {
         background-color: rgba(0, 0, 0, 0.6);
     }
 

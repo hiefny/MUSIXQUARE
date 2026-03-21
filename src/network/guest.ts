@@ -267,6 +267,12 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
     if (typeof amIStillConnected.joinOrder === 'number') {
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
+    // Trust host's connectionType over local ICE detection (host sees both sides)
+    const hostConnType = (amIStillConnected as unknown as Record<string, unknown>).connectionType as string | undefined;
+    if (hostConnType && hostConnType !== 'unknown') {
+      setState('network.connectionType', hostConnType as 'local' | 'remote' | 'unknown');
+      bus.emit('network:role-badge-update');
+    }
   }
 
   setState('network.lastKnownDeviceList', list);

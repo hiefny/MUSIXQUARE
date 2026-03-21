@@ -254,7 +254,8 @@ export async function loadPreloadedTrack(
     setState('preload.nextTrackIndex', -1);
     log.debug('[Preload] Safe clear: nextFileBlob moved to current.');
 
-    // Reset transfer guards
+    // Reset transfer guards — transfer.state must be READY so next preload loader shows
+    setState('transfer.state', 'READY');
     setState('transfer.skipIncomingFile', true);
     setState('transfer.waitingForPreload', false);
     clearManagedTimer('prepareWatchdog');

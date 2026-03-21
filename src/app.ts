@@ -101,8 +101,10 @@ function initKeyboardShortcuts(): void {
     if (e.defaultPrevented) return;
 
     // Don't intercept when focused on text input elements
-    const activeTag = document.activeElement?.tagName;
+    const active = document.activeElement;
+    const activeTag = active?.tagName;
     if (activeTag && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+    if (active && (active as HTMLElement).isContentEditable) return;
 
     // Don't hijack Space on interactive controls (important for a11y)
     const interactive = (e.target as Element)?.closest?.(

@@ -451,7 +451,7 @@ const COMMANDS_DEF: Record<string, Omit<CommandDef, 'usage' | 'description'> & {
   mute:     { permission: 'host+op', execute: cmdMute,     usageKey: 'chat.cmd_u_mute',     descKey: 'chat.cmd_d_mute' },
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usageKey: 'chat.cmd_u_unmute',   descKey: 'chat.cmd_d_unmute' },
   whisper:  { permission: 'all',     execute: cmdWhisper,  usageKey: 'chat.cmd_u_whisper',  descKey: 'chat.cmd_d_w', hidden: true, hideFromSuggest: true },
-  debug:    { permission: 'all',     execute: cmdDebug,    usageKey: 'chat.cmd_u_debug',    descKey: 'chat.cmd_d_debug', hidden: true, hideFromSuggest: true },
+  debug:    { permission: 'all',     execute: cmdDebug,    usageKey: 'chat.cmd_u_debug',    descKey: 'chat.cmd_d_debug' },
 };
 
 // Resolve i18n at access time

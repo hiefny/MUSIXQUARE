@@ -220,6 +220,14 @@
         margin-bottom: 0;
     }
 
+    body.viz-spectrum .vinyl-wrapper {
+        width: 100%;
+        height: clamp(160px, min(22vw, 30vh), 320px);
+        aspect-ratio: auto;
+        max-width: none;
+        padding: 0 32px;
+    }
+
     .video-wrapper {
         width: 100%;
         /* Prevent infinite scaling on wide monitors, also respect vertical space for controls */
@@ -803,8 +811,7 @@
     }
 
     .section-group:last-of-type,
-    #last-setting-section,
-    #battery-section {
+    #last-setting-section {
         border-bottom: none;
     }
 

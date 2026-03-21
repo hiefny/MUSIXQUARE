@@ -18,7 +18,16 @@ let _animationId: number | null = null;
 let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 20;
 let _resizeListenerAdded = false;
-let _batterySaver = false;
+let _vizMode: 'circular' | 'spectrum' = 'circular';
+
+// ─── Spectrum constants ─────────────────────────────────────────
+const MIN_FREQ = 20;
+const MAX_FREQ = 20000;
+const MIN_DB = -100;
+const MAX_DB = 0;
+const SLOPE_DB_PER_OCTAVE = 4.5;
+const SLOPE_REF_FREQ = 1000;
+const LOG_GAMMA = 1.3; // compress low frequencies on log scale
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
@@ -64,7 +73,7 @@ function getAnalyser(): AnalyserNode | null {
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
-  if (_batterySaver) return;
+  if (_vizMode === 'spectrum') { startSpectrumVisualizer(); return; }
 
   clearManagedTimer('viz-retry');
   if (_animationId) {
@@ -205,6 +214,7 @@ export function startVisualizer(): void {
 // ─── Idle Visualizer ─────────────────────────────────────────────
 
 export function drawIdleVisualizer(): void {
+  if (_vizMode === 'spectrum') { drawIdleSpectrum(); return; }
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
   const _ctx2 = canvas.getContext('2d');
@@ -251,6 +261,218 @@ export function drawIdleVisualizer(): void {
   ctx.fill();
 }
 
+// ─── Spectrum Helpers ────────────────────────────────────────────
+
+function freqToX(freq: number, w: number, padX: number): number {
+  const logMin = Math.log10(MIN_FREQ);
+  const logMax = Math.log10(MAX_FREQ);
+  const norm = (Math.log10(freq) - logMin) / (logMax - logMin);
+  const compressed = Math.pow(norm, LOG_GAMMA);
+  return padX + compressed * (w - 2 * padX);
+}
+
+function dbToY(db: number, h: number, padY: number): number {
+  const clamped = Math.max(MIN_DB, Math.min(MAX_DB, db));
+  const norm = (clamped - MIN_DB) / (MAX_DB - MIN_DB);
+  return padY + (1 - norm) * (h - 2 * padY);
+}
+
+function slopeCompensation(freq: number): number {
+  if (freq <= 0) return 0;
+  return SLOPE_DB_PER_OCTAVE * Math.log2(freq / SLOPE_REF_FREQ);
+}
+
+function drawSpectrumGrid(ctx: CanvasRenderingContext2D, w: number, h: number, padX: number, padY: number, isLight: boolean): void {
+  const gridFreqs = [100, 1000, 10000];
+  const alpha = isLight ? 0.06 : 0.06;
+  ctx.lineWidth = 1;
+  for (const f of gridFreqs) {
+    const x = freqToX(f, w, padX);
+    const grad = ctx.createLinearGradient(0, padY, 0, h - padY);
+    const col = isLight ? '0,0,0' : '255,255,255';
+    grad.addColorStop(0, `rgba(${col},0)`);
+    grad.addColorStop(0.15, `rgba(${col},${alpha})`);
+    grad.addColorStop(0.85, `rgba(${col},${alpha})`);
+    grad.addColorStop(1, `rgba(${col},0)`);
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(x, padY);
+    ctx.lineTo(x, h - padY);
+    ctx.stroke();
+  }
+}
+
+// ─── Spectrum Active Drawing ────────────────────────────────────
+
+function startSpectrumVisualizer(): void {
+  clearManagedTimer('viz-retry');
+  if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const _ctx = canvas.getContext('2d');
+  if (!_ctx) return;
+  const ctx: CanvasRenderingContext2D = _ctx;
+
+  const analyser = getAnalyser();
+  if (!analyser) {
+    if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
+      _visualizerRetryCount = 0;
+      return;
+    }
+    setManagedTimer('viz-retry', () => { if (_vizMode === 'spectrum') startSpectrumVisualizer(); else startVisualizer(); }, 100);
+    return;
+  }
+  _visualizerRetryCount = 0;
+
+  // Set higher smoothing for spectrum mode
+  analyser.smoothingTimeConstant = 0.8;
+
+  const bufferLength = analyser.frequencyBinCount;
+  const freqData = new Float32Array(bufferLength);
+  const sampleRate = analyser.context.sampleRate;
+
+  // Canvas sizing (non-square for spectrum)
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  const logicalW = wrapper && wrapper.clientWidth > 10 ? wrapper.clientWidth : 400;
+  const logicalH = wrapper && wrapper.clientHeight > 10 ? wrapper.clientHeight : 240;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
+    canvas.width = logicalW * dpr;
+    canvas.height = logicalH * dpr;
+    canvas.style.width = '';
+    canvas.style.height = '';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
+
+  const padX = 4;
+  const padY = 8;
+
+  refreshThemeCache();
+
+  function draw(): void {
+    const currentState = getState('appState');
+    if (isIdleOrPaused(currentState)) { _animationId = null; return; }
+    if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+
+    try {
+      analyser!.getFloatFrequencyData(freqData);
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, logicalW, logicalH);
+
+      // Grid
+      drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+
+      // Build points with variable step
+      const points: { x: number; y: number }[] = [];
+      let firstX = -1;
+
+      for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
+        const freq = (i * sampleRate) / (bufferLength * 2);
+        if (freq < MIN_FREQ) continue;
+        if (freq > MAX_FREQ) break;
+
+        const rawDb = freqData[i];
+        const compensated = rawDb + slopeCompensation(freq);
+        const x = freqToX(freq, logicalW, padX);
+        const y = dbToY(compensated, logicalH, padY);
+
+        if (firstX < 0) firstX = x;
+        points.push({ x, y });
+      }
+
+      if (points.length < 2) { _animationId = requestAnimationFrame(draw); return; }
+
+      // Stroke color
+      const strokeColor = _cachedIsLight ? 'rgba(59, 130, 246, 0.9)' : 'rgba(96, 180, 255, 0.9)';
+      const fillColorTop = _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(96, 180, 255, 0.12)';
+      const fillColorBot = _cachedIsLight ? 'rgba(59, 130, 246, 0.0)' : 'rgba(96, 180, 255, 0.0)';
+
+      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
+
+      // Fill gradient path
+      const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
+      grad.addColorStop(0, fillColorTop);
+      grad.addColorStop(1, fillColorBot);
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      // Start from bottom-left, go up to first point
+      ctx.moveTo(padX, logicalH - padY);
+      ctx.lineTo(padX, points[0].y);
+
+      // Bezier curve through all points
+      for (let i = 0; i < points.length - 1; i++) {
+        const midX = (points[i].x + points[i + 1].x) / 2;
+        const midY = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+      }
+      // Last point
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+      ctx.lineTo(last.x, logicalH - padY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Stroke line
+      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(padX, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const midX = (points[i].x + points[i + 1].x) / 2;
+        const midY = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+      }
+      ctx.lineTo(last.x, last.y);
+      ctx.stroke();
+
+      _animationId = requestAnimationFrame(draw);
+    } catch (e) {
+      log.warn('[Visualizer] spectrum draw() error:', e);
+      _animationId = null;
+    }
+  }
+
+  draw();
+}
+
+// ─── Idle Spectrum ──────────────────────────────────────────────
+
+function drawIdleSpectrum(): void {
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const _ctx = canvas.getContext('2d');
+  if (!_ctx) return;
+  const ctx: CanvasRenderingContext2D = _ctx;
+
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  const logicalW = wrapper && wrapper.clientWidth > 10 ? wrapper.clientWidth : 400;
+  const logicalH = wrapper && wrapper.clientHeight > 10 ? wrapper.clientHeight : 240;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
+    canvas.width = logicalW * dpr;
+    canvas.height = logicalH * dpr;
+    canvas.style.width = '';
+    canvas.style.height = '';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
+
+  const theme = document.documentElement.getAttribute('data-theme');
+  const isLight = (theme === 'light');
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, logicalW, logicalH);
+
+  const padX = 4;
+  const padY = 8;
+  drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, isLight);
+}
+
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initVisualizer(): void {
@@ -288,7 +510,6 @@ export function initVisualizer(): void {
 
   // Listen for playback state changes
   bus.on('player:state-changed', () => {
-    if (_batterySaver) return;
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       // Keep last frame — only stop animation loop
@@ -305,17 +526,27 @@ export function initVisualizer(): void {
     startVisualizer();
   });
 
-  // Battery saver mode toggle
-  bus.on('visualizer:battery-saver', (on: boolean) => {
-    _batterySaver = on;
-    if (on) {
-      clearManagedTimer('viz-retry');
-      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+  // Visualizer mode switch
+  bus.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
+    _vizMode = mode;
+    document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
+    document.body.classList.toggle('viz-circular', mode === 'circular');
+
+    // Stop current animation
+    if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+
+    // Reset smoothingTimeConstant when switching back to circular
+    const analyser = getAnalyser();
+    if (analyser) {
+      analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
+    }
+
+    // Redraw
+    const currentState = getState('appState');
+    if (isIdleOrPaused(currentState)) {
+      drawIdleVisualizer();
     } else {
-      const currentState = getState('appState');
-      if (!isIdleOrPaused(currentState) && currentState !== APP_STATE.PLAYING_YOUTUBE) {
-        startVisualizer();
-      }
+      startVisualizer();
     }
   });
 

@@ -774,6 +774,20 @@ html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
     background: transparent;
 }
 
+/* Spectrum visualizer mode */
+body.viz-spectrum .vinyl-wrapper {
+    width: 100%;
+    flex-basis: auto;
+    aspect-ratio: 5 / 3;
+    border-radius: 0;
+    padding: 0 24px;
+    box-sizing: border-box;
+}
+
+body.viz-spectrum #visualizerCanvas {
+    border-radius: 0;
+}
+
 .video-wrapper {
     width: 100%;
     max-width: 600px;
@@ -1377,10 +1391,6 @@ input[type=range]:active::-moz-range-thumb {
     padding-bottom: 44px;
 }
 
-/* Mobile: battery section is last-of-type in general panel but needs divider before audio panel */
-#battery-section {
-    border-bottom: 1px dotted var(--surface-3);
-}
 
 /* Also ensure device list items don't overflow if list is the last child */
 #device-list:last-child {

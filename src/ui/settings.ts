@@ -334,13 +334,13 @@ function setSurroundOn(on: boolean): void {
   if (on) bus.emit('ui:show-toast', t('toast.distortion_warn'));
 }
 
-function setBatterySaver(on: boolean): void {
-  document.querySelectorAll('#grid-battery .ch-opt').forEach(el => el.classList.remove('active'));
-  document.querySelector(`#grid-battery .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
-  try { localStorage.setItem('musixquare-battery-saver', on ? '1' : '0'); } catch { /* Safari private mode */ }
-  bus.emit('visualizer:battery-saver', on);
-  if (on) bus.emit('ui:show-toast', t('toast.battery_saver_on'));
+function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
+  document.querySelectorAll('#grid-visualizer .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#grid-visualizer .ch-opt[data-viz="${mode}"]`)?.classList.add('active');
+  try { localStorage.setItem('musixquare-viz-mode', mode); } catch { /* Safari private mode */ }
+  bus.emit('visualizer:set-type', mode);
 }
+
 
 function setVBassOn(on: boolean): void {
   document.querySelectorAll('#grid-vbass .ch-opt').forEach(el => el.classList.remove('active'));
@@ -525,10 +525,11 @@ export function initSettings(): void {
     opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setVBassOn(opt.dataset.toggle === 'on'); });
   });
 
-  // Battery Saver ON/OFF grid
-  document.querySelectorAll<HTMLElement>('#grid-battery .ch-opt[data-toggle]').forEach(opt => {
-    opt.addEventListener('click', () => setBatterySaver(opt.dataset.toggle === 'on'));
+  // Visualizer mode grid
+  document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach(opt => {
+    opt.addEventListener('click', () => setVisualizerMode(opt.dataset.viz as 'circular' | 'spectrum'));
   });
+
 
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));
@@ -595,10 +596,12 @@ export function initSettings(): void {
     setTheme(savedTheme || 'dark');
   } catch { setTheme('dark'); }
 
-  // Restore battery saver state
+  // Restore visualizer mode
   try {
-    if (localStorage.getItem('musixquare-battery-saver') === '1') setBatterySaver(true);
+    const savedViz = localStorage.getItem('musixquare-viz-mode');
+    if (savedViz === 'spectrum') setVisualizerMode('spectrum');
   } catch { /* ignore */ }
+
 
   // ─── Desktop Settings Sub-Tab Navigation ──────────────────────
   initSettingsSubtabs();

@@ -517,7 +517,7 @@ interface BaseEventMap {
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];
-  'visualizer:battery-saver': [on: boolean];
+  'visualizer:set-type': [mode: 'circular' | 'spectrum'];
 
   // ── Worker ──────────────────────────────────────────────────────────
   'worker:sync-command': [payload: { command: string; id: string; interval?: number }];

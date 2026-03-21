@@ -786,6 +786,8 @@ body.viz-spectrum .vinyl-wrapper {
 
 body.viz-spectrum #visualizerCanvas {
     border-radius: 0;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
+    mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
 }
 
 .video-wrapper {
@@ -1670,7 +1672,7 @@ input[type=range].eq-slider:active::-moz-range-thumb {
 .ch-opt.active,
 .ch-opt.selected {
     background: rgba(var(--primary-rgb), 0.08);
-    border-color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.9);
     border-width: 2px;
     color: var(--primary);
     box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);

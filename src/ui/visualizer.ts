@@ -386,9 +386,9 @@ function startSpectrumVisualizer(): void {
       if (points.length < 2) { _animationId = requestAnimationFrame(draw); return; }
 
       // Stroke color
-      const strokeColor = _cachedIsLight ? 'rgba(59, 130, 246, 0.9)' : 'rgba(96, 180, 255, 0.9)';
-      const fillColorTop = _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(96, 180, 255, 0.12)';
-      const fillColorBot = _cachedIsLight ? 'rgba(59, 130, 246, 0.0)' : 'rgba(96, 180, 255, 0.0)';
+      const strokeColor = 'rgba(59, 130, 246, 0.9)';
+      const fillColorTop = _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)';
+      const fillColorBot = 'rgba(59, 130, 246, 0.0)';
 
       ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
 
@@ -419,7 +419,7 @@ function startSpectrumVisualizer(): void {
       // Stroke line
       ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(padX, points[0].y);
       for (let i = 0; i < points.length - 1; i++) {
@@ -471,6 +471,55 @@ function drawIdleSpectrum(): void {
   const padX = 4;
   const padY = 8;
   drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, isLight);
+
+  // Silent spectrum curve (all at MIN_DB + slope compensation)
+  const points: { x: number; y: number }[] = [];
+  const numPoints = 64;
+  for (let i = 0; i < numPoints; i++) {
+    const f = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, i / (numPoints - 1));
+    const compensated = MIN_DB + slopeCompensation(f);
+    points.push({
+      x: freqToX(f, logicalW, padX),
+      y: dbToY(compensated, logicalH, padY),
+    });
+  }
+
+  if (points.length < 2) return;
+
+  const strokeColor = 'rgba(59, 130, 246, 0.9)';
+  const fillColorTop = isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)';
+
+  // Fill
+  const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
+  grad.addColorStop(0, fillColorTop);
+  grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(padX, logicalH - padY);
+  ctx.lineTo(padX, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  }
+  const last = points[points.length - 1];
+  ctx.lineTo(last.x, last.y);
+  ctx.lineTo(last.x, logicalH - padY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Stroke
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padX, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  }
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
 }
 
 // ─── Init ────────────────────────────────────────────────────────

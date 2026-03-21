@@ -234,7 +234,7 @@ const ko = {
   'chat.cmd_whisper_to': '{{name}} 님에게 귓속말',
   'chat.cmd_target_not_found': '대상을 찾을 수 없습니다: {{target}}',
   'chat.cmd_no_permission': '이 명령어를 사용할 권한이 없습니다',
-  'chat.cmd_nick_changed': '이름이 {{name}}(으)로 변경되었습니다',
+  'chat.cmd_nick_changed': '이름이 {{name}}(으)로 변경됐어요',
   'chat.cmd_nick_too_long': '닉네임은 20자까지 가능합니다',
   'chat.cmd_already_op': '{{name}} 님은 이미 관리자입니다',
   'chat.cmd_not_op': '{{name}} 님은 관리자가 아닙니다',

@@ -424,6 +424,7 @@ export function initConnect(): void {
     const newName = (result.inputValue || '').trim();
     if (!newName || newName.length > 20) return;
     bus.emit('network:rename-device', newName);
+    bus.emit('ui:show-toast', t('chat.cmd_nick_changed', { name: newName }));
   };
   document.getElementById('btn-rename-device')?.addEventListener('click', renameHandler);
   document.getElementById('desktop-btn-rename-device')?.addEventListener('click', renameHandler);

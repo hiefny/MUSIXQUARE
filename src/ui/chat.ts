@@ -340,6 +340,10 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
     const empty = container.querySelector('.chat-empty');
     if (empty) empty.remove();
 
+    // Desktop: hide chat title when messages exist
+    const drawer = document.getElementById('chat-drawer');
+    if (drawer) drawer.classList.add('has-messages');
+
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
@@ -461,6 +465,9 @@ export function addSystemChatMessage(text: string): void {
 
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
+
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
 
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;

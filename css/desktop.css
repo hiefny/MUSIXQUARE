@@ -282,6 +282,11 @@
         display: none;
     }
 
+    /* Hide chat title when messages exist — more room for bubbles */
+    .chat-drawer.has-messages .chat-drawer-header {
+        display: none;
+    }
+
     /* ---------------------------------------------------
        6. Specific Panel: Playlist
        --------------------------------------------------- */

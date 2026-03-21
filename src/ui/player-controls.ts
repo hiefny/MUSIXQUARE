@@ -232,13 +232,15 @@ function openYouTubePopup(): void {
       overlay.classList.add('active');
       updateOverlayOpenClass();
     }
-    const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
+    const input = document.getElementById('youtube-url-input') as HTMLElement | null;
     if (input) setManagedTimer('yt-url-focus', () => input.focus(), 100);
   });
 }
 
 function closeYouTubePopup(): void {
   clearPreviewDebounce();
+  const ytInput = document.getElementById('youtube-url-input');
+  if (ytInput) ytInput.textContent = '';
   animateTransition(() => {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
@@ -516,8 +518,19 @@ export function initPlayerControls(): void {
   $on('btn-demo-media', 'click', () => { closeMediaSourcePopup(); bus.emit('app:load-demo'); });
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
-  // YouTube popup
-  $on('youtube-url-input', 'input', function (this: HTMLInputElement) { bus.emit('youtube:preview', this.value); });
+  // YouTube popup (contenteditable)
+  const ytInput = document.getElementById('youtube-url-input');
+  if (ytInput) {
+    ytInput.addEventListener('input', () => { bus.emit('youtube:preview', ytInput.textContent || ''); });
+    ytInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); bus.emit('youtube:load-from-input'); }
+    });
+    ytInput.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e as ClipboardEvent).clipboardData?.getData('text/plain') || '';
+      document.execCommand('insertText', false, text);
+    });
+  }
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
   $on('youtube-play-btn', 'click', () => bus.emit('youtube:load-from-input'));
 

@@ -369,9 +369,9 @@ export function initYouTube(): void {
 
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
-    const input = document.getElementById('youtube-url-input') as HTMLInputElement | null;
+    const input = document.getElementById('youtube-url-input') as HTMLElement | null;
     if (!input) return;
-    const url = input.value.trim();
+    const url = (input.textContent || '').trim();
     if (!url) {
       bus.emit('ui:show-toast', t('youtube.enter_link_toast'));
       return;
@@ -392,7 +392,7 @@ export function initYouTube(): void {
     // Close the overlay + reset preview UI
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) overlay.classList.remove('active');
-    input.value = '';
+    input.textContent = '';
     const previewEl = document.getElementById('youtube-preview');
     if (previewEl) previewEl.style.display = 'none';
     const statusEl = document.getElementById('youtube-preview-status');

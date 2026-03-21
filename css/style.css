@@ -3577,7 +3577,9 @@ body.overlay-open .bottom-nav {
 }
 
 /* Placeholder via ::before when contenteditable is empty */
-.chat-input:empty::before {
+.chat-input:empty::before,
+[contenteditable].setup-join-input:empty::before,
+[contenteditable].dialog-input:empty::before {
     content: attr(data-placeholder);
     color: var(--text-muted);
     opacity: 0.5;

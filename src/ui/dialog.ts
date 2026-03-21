@@ -42,7 +42,7 @@ interface DialogActiveState {
 // ─── State ───────────────────────────────────────────────────────
 
 let _dialogActive: DialogActiveState | null = null;
-let _dialogInput: HTMLInputElement | null = null;
+let _dialogInput: HTMLElement | null = null;
 let _dialogHint: HTMLDivElement | null = null;
 let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
@@ -77,7 +77,7 @@ export function closeDialog(action = 'close'): void {
     try { (active.prevFocus as HTMLElement).focus(); } catch { /* ignore */ }
   }
 
-  const inputValue = _dialogInput ? _dialogInput.value : undefined;
+  const inputValue = _dialogInput ? (_dialogInput.textContent || '').trim() : undefined;
   _dialogInput = null;
 
   if (typeof active?.resolve === 'function') {
@@ -122,12 +122,29 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   // Input field support
   const inputCfg = (typeof opts === 'object' && opts) ? opts.inputField : undefined;
   if (inputCfg) {
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('div');
+    input.contentEditable = 'true';
     input.className = 'dialog-input';
-    if (inputCfg.placeholder) input.placeholder = inputCfg.placeholder;
-    if (inputCfg.defaultValue) input.value = inputCfg.defaultValue;
-    if (inputCfg.maxLength) input.maxLength = inputCfg.maxLength;
+    input.setAttribute('role', 'textbox');
+    if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
+    if (inputCfg.defaultValue) input.textContent = inputCfg.defaultValue;
+    const maxLen = inputCfg.maxLength || 0;
+    // Paste: plain text only
+    input.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = e.clipboardData?.getData('text/plain') || '';
+      document.execCommand('insertText', false, maxLen ? text.slice(0, maxLen) : text);
+    });
+    // Maxlength enforcement
+    if (maxLen) {
+      input.addEventListener('beforeinput', (e) => {
+        if (e.inputType === 'insertCompositionText') return; // Don't break IME
+        const current = (input.textContent || '').length;
+        const sel = window.getSelection();
+        const selectedLen = sel && sel.rangeCount ? sel.toString().length : 0;
+        if (e.data && (current - selectedLen + e.data.length) > maxLen) e.preventDefault();
+      });
+    }
     msgEl.appendChild(input);
     _dialogInput = input;
 
@@ -174,7 +191,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   const tryValidateAndClose = () => {
     if (_dialogValidator && _dialogInput) {
-      const val = _dialogInput.value.trim();
+      const val = (_dialogInput.textContent || '').trim();
       const error = _dialogValidator(val);
       if (error) {
         // Show inline error
@@ -277,7 +294,14 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     try {
       if (_dialogInput) {
         _dialogInput.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
-        _dialogInput.select();
+        // Select all text in contenteditable
+        const sel = window.getSelection();
+        if (sel && _dialogInput.textContent) {
+          const range = document.createRange();
+          range.selectNodeContents(_dialogInput);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
       } else {
         const pick = (defaultFocus === 'secondary' && hasSecondary && secondaryBtn)
           ? secondaryBtn

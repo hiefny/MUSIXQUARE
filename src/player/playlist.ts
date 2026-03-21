@@ -23,6 +23,7 @@ import {
 } from '../audio/effects.ts';
 import { postWorkerCommand } from '../storage/opfs.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
+import { isGuestBlocked } from '../network/guards.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
@@ -252,14 +253,10 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 // ─── Play Next Track ───────────────────────────────────────────────
 
 export function playNextTrack(): void {
+  if (isGuestBlocked()) return;
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
   if (hostConn && isOperator) {
     sendToHost({ type: MSG.REQUEST_NEXT_TRACK });
     return;
@@ -332,14 +329,10 @@ export function playNextTrack(): void {
 // ─── Play Previous Track ───────────────────────────────────────────
 
 export function playPrevTrack(): void {
+  if (isGuestBlocked()) return;
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
   if (hostConn && isOperator) {
     sendToHost({ type: MSG.REQUEST_PREV_TRACK });
     return;

@@ -16,6 +16,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
+import { setAppState } from '../player/transport.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
@@ -68,8 +69,7 @@ export function stopYouTubeMode(): void {
   const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
 
   if (wasInYouTube) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
+    setAppState(APP_STATE.IDLE);
   }
 
   clearManagedTimer('youtubeUILoop');

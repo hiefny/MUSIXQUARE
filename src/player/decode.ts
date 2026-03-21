@@ -30,7 +30,7 @@ import {
   replaceLoadScope,
 } from './_state.ts';
 
-import { play, stopAllMedia, stopPlayerNode, updatePlayState } from './transport.ts';
+import { play, stopAllMedia, stopPlayerNode, updatePlayState, setAppState } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 
@@ -355,8 +355,7 @@ export function clearPreviousTrackState(reason = ''): void {
   // Reset state to IDLE
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PAUSED) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
+    setAppState(APP_STATE.IDLE);
   }
 
   // Clear preload ack tracking (immutable — replace with new Set)

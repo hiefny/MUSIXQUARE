@@ -15,6 +15,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/playback.ts';
+import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import {
   getYouTubePlayer, setYouTubePlayer,
@@ -280,8 +281,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       bus.emit('playlist:next-track');
     } else {
       // Guest: set IDLE and clean up orphaned player
-      setState('appState', APP_STATE.IDLE);
-      bus.emit('player:state-changed', APP_STATE.IDLE);
+      setAppState(APP_STATE.IDLE);
       bus.emit('youtube:stop-mode');
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track

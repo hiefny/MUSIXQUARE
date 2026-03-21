@@ -15,6 +15,7 @@ import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getVideoElement, isIdleOrPaused, isMediaVideo } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
+import { isGuestBlocked } from '../network/guards.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 
 import {
@@ -36,6 +37,18 @@ export function fmtTime(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+}
+
+// ─── App State Helper ─────────────────────────────────────────────
+
+/**
+ * Central function: update appState + emit player:state-changed.
+ * All code paths that change the app state MUST use this instead of
+ * calling setState('appState') directly.
+ */
+export function setAppState(newState: string): void {
+  setState('appState', newState);
+  bus.emit('player:state-changed', newState);
 }
 
 // ─── Track Position ────────────────────────────────────────────────
@@ -152,8 +165,7 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
   if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
+    setAppState(APP_STATE.IDLE);
   }
   updatePlayState(false);
 
@@ -187,8 +199,7 @@ export async function play(offset: number): Promise<void> {
       stopPlayerNode();
       // Reset appState to IDLE to prevent stuck "playing" UI
       if (getState('appState') !== APP_STATE.IDLE) {
-        setState('appState', APP_STATE.IDLE);
-        bus.emit('player:state-changed', APP_STATE.IDLE);
+        setAppState(APP_STATE.IDLE);
       }
     }
   }, 15000);
@@ -314,8 +325,7 @@ async function _internalPlay(offset: number): Promise<void> {
   const currentFileBlob = getState('files.currentFileBlob');
   const isVideo = isMediaVideo(currentFileBlob, meta);
   const newState = isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO;
-  setState('appState', newState);
-  bus.emit('player:state-changed', newState);
+  setAppState(newState);
 
   bus.emit('visualizer:start');
   if (isVideo) {
@@ -345,9 +355,8 @@ export function pause(forcedTime?: number): void {
     try { videoElement.currentTime = pausePos; } catch { /* noop */ }
   }
 
-  setState('appState', APP_STATE.PAUSED);
+  setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
-  bus.emit('player:state-changed', APP_STATE.PAUSED);
   updatePlayState(false);
   bus.emit('ui:show-toast', t('common.pause'));
   bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
@@ -398,12 +407,7 @@ export function handleEnded(): void {
 // ─── Toggle Play ───────────────────────────────────────────────────
 
 export function togglePlay(): void {
-  const hostConn = getState('network.hostConn');
-  const isOperator = getState('network.isOperator');
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
+  if (isGuestBlocked()) return;
 
   const currentState = getState('appState');
 
@@ -446,14 +450,10 @@ export function togglePlay(): void {
 // ─── Stop Playback ─────────────────────────────────────────────────
 
 export function stopPlayback(): void {
+  if (isGuestBlocked()) return;
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
   if (hostConn && isOperator) {
     try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch { /* noop */ }
     try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch { /* noop */ }
@@ -467,8 +467,7 @@ export function stopPlayback(): void {
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
-    setState('appState', APP_STATE.IDLE);
-    bus.emit('player:state-changed', APP_STATE.IDLE);
+    setAppState(APP_STATE.IDLE);
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');
     clearManagedTimer('autoPlayTimer');
@@ -489,14 +488,10 @@ export function stopPlayback(): void {
 // ─── Skip Time ─────────────────────────────────────────────────────
 
 export function skipTime(sec: number): void {
+  if (isGuestBlocked()) return;
+
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-
-  if (hostConn && !isOperator) {
-    bus.emit('ui:show-toast', t('toast.host_only_control'));
-    return;
-  }
-
   if (hostConn && isOperator) {
     sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
     return;

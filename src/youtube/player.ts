@@ -30,6 +30,7 @@ import {
   setCachedYtDuration,
   setYtAutoplayIntent,
   setYouTubeSubIndex,
+  updateSubItemIds,
 } from './_state.ts';
 
 import { loadYouTubeVideo, refreshYouTubeDisplay } from './iframe.ts';
@@ -458,15 +459,12 @@ export function initYouTube(): void {
       } catch { /* YouTube player may not be ready */ }
     }
 
-    // 2. Initial map setup — deep copy to avoid mutating state objects directly
-    const subMap = { ...(getState('youtube.subItemsMap') || {}) };
+    // 2. Initial map setup
     if (ids.length > 0) {
-      if (!subMap[playlistId]) {
-        subMap[playlistId] = { ids: [...ids], titles: [] };
-      } else if (!subMap[playlistId].ids || subMap[playlistId].ids.length === 0) {
-        subMap[playlistId] = { ...subMap[playlistId], ids: [...ids] };
+      const subMap = getState('youtube.subItemsMap') || {};
+      if (!subMap[playlistId]?.ids?.length) {
+        updateSubItemIds(playlistId, ids);
       }
-      setState('youtube.subItemsMap', subMap);
     }
 
     // 3. Trigger background title fetcher (All roles)

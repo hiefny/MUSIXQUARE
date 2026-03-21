@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -48,10 +48,7 @@ export function broadcastYouTubeSync(): void {
               if (ids?.length > 0) {
                 const subMap = getState('youtube.subItemsMap') || {};
                 if (!subMap[pid] || !subMap[pid].ids?.length) {
-                  setState('youtube.subItemsMap', {
-                    ...subMap,
-                    [pid]: { ids: [...ids], titles: subMap[pid]?.titles || [] },
-                  });
+                  updateSubItemIds(pid, ids);
                 }
               }
             } catch { /* noop */ }
@@ -62,12 +59,9 @@ export function broadcastYouTubeSync(): void {
             const vData = player.getVideoData();
             if (vData?.title) {
               const subMap = getState('youtube.subItemsMap') || {};
-              const entry = subMap[pid]
-                ? { ids: [...subMap[pid].ids], titles: [...subMap[pid].titles] }
-                : { ids: [], titles: [] };
-              if (entry.titles[sIdx] !== vData.title) {
-                entry.titles[sIdx] = vData.title;
-                setState('youtube.subItemsMap', { ...subMap, [pid]: entry });
+              const existingTitle = subMap[pid]?.titles?.[sIdx];
+              if (existingTitle !== vData.title) {
+                updateSubItemTitle(pid, sIdx, vData.title);
                 broadcast({
                   type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
                   playlistId: pid,
@@ -258,12 +252,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
 
   if (!playlistId || subIdx === undefined || !title) return;
 
-  const subMap = getState('youtube.subItemsMap') || {};
-  const oldEntry = subMap[playlistId] || { ids: [], titles: [] };
-  const newTitles = [...oldEntry.titles];
-  newTitles[subIdx] = title;
-  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ...oldEntry, titles: newTitles } });
-
+  updateSubItemTitle(playlistId, subIdx, title);
   bus.emit('ui:update-playlist');
 
   const playlist = getState('playlist.items') || [];
@@ -289,8 +278,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   if (!playlistId) return;
 
-  const subMap = getState('youtube.subItemsMap') || {};
-  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ids: ids || [], titles: titles || [] } });
+  setSubItemsData(playlistId, ids, titles);
   bus.emit('ui:update-playlist');
 
   // Guest can also fetch missing titles in background

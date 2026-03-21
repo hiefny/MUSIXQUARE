@@ -306,21 +306,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
     case 'stereo':
       if (param === 'mix') {
         setStereoWidth(value);
-        if (!isPreview) {
-          const hostConn = getState('network.hostConn');
-          if (!hostConn) {
-            broadcast({ type: MSG.STEREO_WIDTH, value });
-          } else {
-            const isOperator = getState('network.isOperator');
-            if (isOperator && hostConn.open) {
-              hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'stereo', value });
-            } else if (!isOperator) {
-              bus.emit('ui:show-toast', t('toast.operator_required'));
-            } else {
-              bus.emit('ui:show-toast', t('toast.connection_closing'));
-            }
-          }
-        }
+        if (!isPreview) _broadcastOrRequestSetting(MSG.STEREO_WIDTH, value);
       }
       break;
     case 'vbass':
@@ -347,18 +333,13 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
 
 bus.on('audio:reverb-type-change', (type: string) => {
   const hostConn = getState('network.hostConn');
-  if (hostConn) {
-    const isOperator = getState('network.isOperator');
-    if (isOperator && hostConn.open) {
-      hostConn.send({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_TYPE, value: type });
-    } else if (!isOperator) {
-      bus.emit('ui:show-toast', t('toast.operator_required'));
-    } else {
-      bus.emit('ui:show-toast', t('toast.connection_closing'));
-    }
-  } else {
+  if (!hostConn) {
+    // Host: apply locally + broadcast
     handleReverbTypeMsg({ value: type });
     broadcast({ type: MSG.REVERB_TYPE, value: type } as AnyProtocolMsg);
+  } else {
+    // Guest: request Host to change
+    _broadcastOrRequestSetting(MSG.REVERB_TYPE, type);
   }
 });
 

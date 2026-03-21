@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
+import { updateSubItemTitle } from './_state.ts';
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
@@ -254,11 +255,7 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
 
         if (json && json.title) {
           // Update state
-          const oldMap = getState('youtube.subItemsMap') || {};
-          const oldEntry = oldMap[playlistId] || { ids: [], titles: [] };
-          const newTitles = [...oldEntry.titles];
-          newTitles[i] = json.title;
-          setState('youtube.subItemsMap', { ...oldMap, [playlistId]: { ...oldEntry, titles: newTitles } });
+          updateSubItemTitle(playlistId, i, json.title);
 
           log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 

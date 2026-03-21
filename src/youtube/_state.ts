@@ -7,7 +7,7 @@
  */
 
 import { SessionScope } from '../core/session-scope.ts';
-import { setState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { bus } from '../core/events.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
@@ -126,4 +126,35 @@ export function setCachedYtPlaylistIdx(idx: number): void {
 export function setYouTubeSubIndex(index: number): void {
   setState('youtube.currentSubIndex', index);
   bus.emit('ui:update-playlist');
+}
+
+// ─── SubItemsMap Centralized Updaters ─────────────────────────────
+
+type SubItemsMap = Record<string, { ids: string[]; titles: string[] }>;
+
+function _getSubMap(): SubItemsMap {
+  return getState('youtube.subItemsMap') || {};
+}
+
+/** Set playlist IDs for a YouTube playlist (preserves existing titles). */
+export function updateSubItemIds(playlistId: string, ids: string[]): void {
+  const subMap = { ..._getSubMap() };
+  subMap[playlistId] = { ids: [...ids], titles: subMap[playlistId]?.titles || [] };
+  setState('youtube.subItemsMap', subMap);
+}
+
+/** Update a single sub-item title by index. */
+export function updateSubItemTitle(playlistId: string, subIdx: number, title: string): void {
+  const subMap = { ..._getSubMap() };
+  const oldEntry = subMap[playlistId] || { ids: [], titles: [] };
+  const newTitles = [...oldEntry.titles];
+  newTitles[subIdx] = title;
+  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ...oldEntry, titles: newTitles } });
+}
+
+/** Set full sub-item data (IDs + titles) for a playlist. */
+export function setSubItemsData(playlistId: string, ids: string[], titles: string[]): void {
+  const subMap = { ..._getSubMap() };
+  subMap[playlistId] = { ids: ids || [], titles: titles || [] };
+  setState('youtube.subItemsMap', subMap);
 }

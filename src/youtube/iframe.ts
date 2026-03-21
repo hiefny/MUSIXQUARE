@@ -323,6 +323,14 @@ function updateYouTubeUI(): void {
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
+
+      // Update track title when YouTube auto-advances within a playlist
+      if (player.getVideoData) {
+        const vData = player.getVideoData();
+        if (vData?.title) {
+          bus.emit('player:metadata-update', { title: vData.title });
+        }
+      }
     }
 
     // Lock duration on first valid read — stays locked until video changes

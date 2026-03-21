@@ -3847,6 +3847,15 @@ body.overlay-open .bottom-nav {
     }
 }
 
+/* Chat scroll wrapper: flex child of chat-drawer */
+.chat-scroll-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+}
+
 .chat-drawer-messages {
     flex: 1;
     overflow-y: auto;
@@ -3858,20 +3867,68 @@ body.overlay-open .bottom-nav {
     overscroll-behavior-y: none;
 }
 
-/* Chat scroll wrapper: passthrough on mobile, positioned on desktop */
-.chat-scroll-wrapper {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+/* Custom scrollbar: overlay on all viewports */
+.chat-custom-scrollbar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 10;
 }
 
-/* Custom scrollbar: hidden on mobile */
-.chat-custom-scrollbar {
+.chat-custom-scrollbar.visible {
+    opacity: 1;
+}
+
+.chat-scrollbar-thumb {
+    position: absolute;
+    right: 0;
+    width: 100%;
+    min-height: 30px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    background-clip: padding-box;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 0.15s;
+}
+
+.chat-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.35);
+}
+
+.chat-scrollbar-thumb:active {
+    background-color: rgba(255, 255, 255, 0.55);
+}
+
+[data-theme="light"] .chat-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .chat-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .chat-scrollbar-thumb:active {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* Hide native scrollbar (all viewports) */
+.chat-drawer-messages {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.chat-drawer-messages::-webkit-scrollbar {
     display: none;
 }
 
-/* Mobile: hide native scrollbar */
+/* Mobile: keep native scrollbar hidden */
 @media (max-width: 1279px) {
     .chat-drawer-messages {
         scrollbar-width: none;

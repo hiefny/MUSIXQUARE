@@ -1049,7 +1049,6 @@ function initCustomScrollbar(): void {
   const thumb = document.getElementById('chat-scrollbar-thumb');
   if (!container || !scrollbar || !thumb) return;
 
-  let hideTimer = 0;
   let isDragging = false;
   let dragStartY = 0;
   let dragStartScroll = 0;
@@ -1070,13 +1069,6 @@ function initCustomScrollbar(): void {
     thumb!.style.top = `${thumbTop}px`;
 
     scrollbar!.classList.add('visible');
-
-    if (!isDragging) {
-      clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(() => {
-        scrollbar!.classList.remove('visible');
-      }, 1200);
-    }
   }
 
   // Scroll event → update thumb position

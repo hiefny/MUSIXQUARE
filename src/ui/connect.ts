@@ -400,7 +400,9 @@ export function initConnect(): void {
           if (/^#\d+$/.test(name)) {
             return t('connect.rename_reserved');
           }
-          if (containsProfanity(name)) {
+          // HOST가 "host"/"방장"/"호스트"로 되돌릴 때는 profanity 체크 스킵
+          const isHostRestore = isHostSelf && ['host', '방장', '호스트'].includes(name.toLowerCase());
+          if (!isHostRestore && containsProfanity(name)) {
             return t('connect.rename_profanity');
           }
           // Check against host's own label + all peers

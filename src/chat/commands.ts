@@ -215,7 +215,8 @@ function cmdNick(_: string[], rawArgs: string): void {
     addSystemChatMessage(t('connect.rename_reserved'));
     return;
   }
-  if (containsProfanity(newName)) {
+  const isHostRestore = isHostSelf && ['host', '방장', '호스트'].includes(newName.toLowerCase());
+  if (!isHostRestore && containsProfanity(newName)) {
     addSystemChatMessage(t('connect.rename_profanity'));
     return;
   }

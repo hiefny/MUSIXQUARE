@@ -20,9 +20,7 @@
             "tab-play tab-chat tab-settings";
         gap: 0;
         /* Gaps emulated through panel paddings so vertical dividers function cleanly */
-        padding-bottom: 0;
-        padding-right: 24px;
-        padding-left: 24px;
+        padding: 0;
         background: var(--bg);
         /* Deepest background for the outer space */
         overflow: hidden;
@@ -36,9 +34,7 @@
     header {
         grid-area: header;
         position: relative;
-        width: 100vw;
-        margin-left: -24px;
-        /* Offset the body's padding-left */
+        width: 100%;
         padding-left: 24px;
         padding-right: 24px;
         box-sizing: border-box;

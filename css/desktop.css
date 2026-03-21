@@ -905,16 +905,16 @@
         background-color: rgba(255, 255, 255, 0.55);
     }
 
-    /* Apply the exact same floaty scrollbar and layout-shift prevention to the Chat panel on Desktop, but without the 86px track margin because its header is outside the scroll area */
+    /* Chat scroll container: thin scrollbar overlaps content via scrollbar-width */
     .chat-drawer-messages {
         -ms-overflow-style: auto;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
+        overflow-y: auto;
+        scrollbar-width: thin;
         padding-left: 24px;
-        /* 기본 여백 16px + 우측 투명 스크롤바 대칭용 물리적 여백 8px 추가 */
+        padding-right: 16px;
     }
 
-    /* System messages: extend full-bleed accounting for asymmetric desktop padding (left 24px, right 16px) */
+    /* System messages: full-bleed across the entire chat width */
     .chat-group.system .chat-row {
         width: calc(100% + 40px);
         margin: 0 -16px 0 -24px;

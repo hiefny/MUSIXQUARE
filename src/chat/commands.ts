@@ -421,7 +421,15 @@ function cmdDebug(): void {
     }
   } catch { /* ignore */ }
 
-  addSystemChatMessage(lines.join('\n'));
+  const debugText = lines.join('\n');
+  addSystemChatMessage(debugText);
+
+  // Auto-copy to clipboard
+  try {
+    navigator.clipboard.writeText(debugText).then(() => {
+      bus.emit('ui:show-toast', t('chat.debug_copied'));
+    }).catch(() => { /* clipboard not available */ });
+  } catch { /* ignore */ }
 }
 
 // ─── Command Registry ───────────────────────────────────────────

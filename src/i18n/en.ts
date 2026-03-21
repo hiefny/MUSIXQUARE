@@ -278,6 +278,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'Unmute device',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'System debug info',
+  'chat.debug_copied': 'Debug info copied. Send it to the developer if you found a bug.',
   'chat.seek_to': 'Seek to {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────

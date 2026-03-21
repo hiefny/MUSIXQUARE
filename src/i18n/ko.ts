@@ -276,6 +276,7 @@ const ko = {
   'chat.cmd_d_unmute': '채팅 금지 해제',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': '시스템 디버그 정보',
+  'chat.debug_copied': '환경 정보가 복사됐어요. 버그가 있다면 개발자에게 보내주세요.',
   'chat.seek_to': '{{time}}(으)로 이동',
 
   // ─── YouTube ─────────────────────────────────────────────────────

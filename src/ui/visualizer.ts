@@ -477,7 +477,7 @@ function drawIdleSpectrum(): void {
   const numPoints = 64;
   for (let i = 0; i < numPoints; i++) {
     const f = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, i / (numPoints - 1));
-    const compensated = MIN_DB + slopeCompensation(f);
+    const compensated = -Infinity + slopeCompensation(f);
     points.push({
       x: freqToX(f, logicalW, padX),
       y: dbToY(compensated, logicalH, padY),

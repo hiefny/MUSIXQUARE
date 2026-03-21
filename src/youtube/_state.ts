@@ -7,6 +7,8 @@
  */
 
 import { SessionScope } from '../core/session-scope.ts';
+import { setState } from '../core/state.ts';
+import { bus } from '../core/events.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
 
@@ -114,4 +116,14 @@ export function setCachedYtDuration(duration: number): void {
 
 export function setCachedYtPlaylistIdx(idx: number): void {
   _cachedYtPlaylistIdx = idx;
+}
+
+/**
+ * Central function: update YouTube sub-index + refresh playlist UI.
+ * All code paths that change the current sub-video within a YouTube playlist
+ * MUST use this function instead of calling setState directly.
+ */
+export function setYouTubeSubIndex(index: number): void {
+  setState('youtube.currentSubIndex', index);
+  bus.emit('ui:update-playlist');
 }

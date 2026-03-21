@@ -26,6 +26,7 @@ import {
   getYtAutoplayIntent, setYtAutoplayIntent,
   getCachedYtDuration, setCachedYtDuration,
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
+  setYouTubeSubIndex,
 } from './_state.ts';
 
 declare const YT: any;
@@ -165,7 +166,7 @@ function createYouTubePlayer(
       }
       // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
-      setState('youtube.currentSubIndex', subIndex);
+      setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
       return;
     } catch (e) {

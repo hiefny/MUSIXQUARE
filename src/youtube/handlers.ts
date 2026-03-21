@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { MSG } from '../core/constants.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
-import { getYouTubePlayer } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -132,7 +132,7 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   const player = getYouTubePlayer();
   if (player?.playVideoAt && typeof subIdx === 'number') {
     player.playVideoAt(subIdx);
-    setState('youtube.currentSubIndex', subIdx);
+    setYouTubeSubIndex(subIdx);
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state: 1,

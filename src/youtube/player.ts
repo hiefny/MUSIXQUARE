@@ -29,6 +29,7 @@ import {
   getYtScope, setYtScope,
   setCachedYtDuration,
   setYtAutoplayIntent,
+  setYouTubeSubIndex,
 } from './_state.ts';
 
 import { loadYouTubeVideo, refreshYouTubeDisplay } from './iframe.ts';
@@ -57,7 +58,7 @@ export function stopYouTubeMode(): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  setState('youtube.currentSubIndex', -1);
+  setYouTubeSubIndex(-1);
 
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
@@ -255,8 +256,7 @@ export function initYouTube(): void {
       if (ids.length > 0 && idx < ids.length - 1) {
         player.nextVideo();
         const nextIdx = idx + 1;
-        setState('youtube.currentSubIndex', nextIdx);
-        bus.emit('ui:update-playlist');
+        setYouTubeSubIndex(nextIdx);
         broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: nextIdx });
         callback(true);
         return;
@@ -281,8 +281,7 @@ export function initYouTube(): void {
       if (ids.length > 0 && idx > 0) {
         player.previousVideo();
         const prevIdx = idx - 1;
-        setState('youtube.currentSubIndex', prevIdx);
-        bus.emit('ui:update-playlist');
+        setYouTubeSubIndex(prevIdx);
         broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: prevIdx });
         callback(true);
         return;
@@ -427,8 +426,7 @@ export function initYouTube(): void {
       // Same playlist — just jump to sub-index
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
-        setState('youtube.currentSubIndex', subIdx);
-        bus.emit('ui:update-playlist');
+        setYouTubeSubIndex(subIdx);
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: 1,

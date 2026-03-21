@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { getYouTubePlayer } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -32,7 +32,7 @@ export function broadcastYouTubeSync(): void {
       const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
 
       if (sIdx !== currentYouTubeSubIndex) {
-        setState('youtube.currentSubIndex', sIdx);
+        setYouTubeSubIndex(sIdx);
 
         const playlist = getState('playlist.items') || [];
         const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -79,7 +79,6 @@ export function broadcastYouTubeSync(): void {
           }
         }
 
-        bus.emit('ui:update-playlist');
         bus.emit('player:metadata-update', playlist[currentTrackIndex]);
       }
     }
@@ -157,7 +156,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
-      setState('youtube.currentSubIndex', hostSubIndex);
+      setYouTubeSubIndex(hostSubIndex);
 
       if (player.playVideoAt && player.getPlaylistIndex) {
         const ytPlaylist = player.getPlaylist?.() || [];
@@ -167,12 +166,11 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           } catch (e) {
             // Rollback state on failure to keep UI in sync with actual player
             log.warn('[YouTube Sync] playVideoAt failed, rolling back sub-index:', e);
-            setState('youtube.currentSubIndex', currentSubIndex);
+            setYouTubeSubIndex(currentSubIndex);
           }
         }
       }
 
-      bus.emit('ui:update-playlist');
       const playlist = getState('playlist.items') || [];
       const currentTrackIndex = getState('playlist.currentTrackIndex');
       bus.emit('player:metadata-update', playlist[currentTrackIndex]);
@@ -228,7 +226,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         const currentIdx = player.getPlaylistIndex?.() ?? -1;
         if (currentIdx !== subIndex) {
           player.playVideoAt(subIndex);
-          setState('youtube.currentSubIndex', subIndex);
+          setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
         }
       }

@@ -256,6 +256,7 @@ export function initYouTube(): void {
         player.nextVideo();
         const nextIdx = idx + 1;
         setState('youtube.currentSubIndex', nextIdx);
+        bus.emit('ui:update-playlist');
         broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: nextIdx });
         callback(true);
         return;
@@ -281,6 +282,7 @@ export function initYouTube(): void {
         player.previousVideo();
         const prevIdx = idx - 1;
         setState('youtube.currentSubIndex', prevIdx);
+        bus.emit('ui:update-playlist');
         broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: prevIdx });
         callback(true);
         return;
@@ -426,6 +428,7 @@ export function initYouTube(): void {
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
         setState('youtube.currentSubIndex', subIdx);
+        bus.emit('ui:update-playlist');
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: 1,

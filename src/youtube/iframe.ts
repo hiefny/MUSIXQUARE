@@ -30,6 +30,9 @@ import {
 
 declare const YT: any;
 
+/** Tracks the last known YouTube video title to detect changes */
+let _lastYtVideoTitle = '';
+
 // ─── Load YouTube Video ────────────────────────────────────────────
 
 export function loadYouTubeVideo(
@@ -323,13 +326,14 @@ function updateYouTubeUI(): void {
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
+    }
 
-      // Update track title when YouTube auto-advances within a playlist
-      if (player.getVideoData) {
-        const vData = player.getVideoData();
-        if (vData?.title) {
-          bus.emit('player:metadata-update', { title: vData.title });
-        }
+    // Update track title whenever YouTube video title changes
+    if (player.getVideoData) {
+      const vData = player.getVideoData();
+      if (vData?.title && vData.title !== _lastYtVideoTitle) {
+        _lastYtVideoTitle = vData.title;
+        bus.emit('player:metadata-update', { title: vData.title });
       }
     }
 

@@ -11,7 +11,7 @@
  * - Seek slider interaction
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import { createHostGuestContexts, cleanupContexts, getPageErrors, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import { waitForPlaylistCount, readState } from './helpers/wait.ts';
@@ -24,7 +24,12 @@ test.describe('Advanced Playback', () => {
   });
 
   test.afterEach(async () => {
+    // Fail test if any uncaught JS errors occurred during the test
+    const hostErrors = getPageErrors(pair.hostPage);
+    const guestErrors = getPageErrors(pair.guestPage);
     await cleanupContexts(pair);
+    expect(hostErrors, 'Host page had uncaught JS errors').toHaveLength(0);
+    expect(guestErrors, 'Guest page had uncaught JS errors').toHaveLength(0);
   });
 
   // ── Repeat Mode Tests ────────────────────────────────────────

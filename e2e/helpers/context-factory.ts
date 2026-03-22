@@ -1,6 +1,7 @@
 /**
  * Creates isolated host + guest browser contexts for E2E tests.
  * Each context gets its own page with PeerJS server injection.
+ * Also provides runtime error tracking for all pages.
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './peer-server.ts';
@@ -10,6 +11,34 @@ export interface HostGuestPair {
   guestContext: BrowserContext;
   hostPage: Page;
   guestPage: Page;
+}
+
+// ─── Runtime Error Tracking ───────────────────────────────────────
+
+const _pageErrors = new WeakMap<Page, Error[]>();
+
+/**
+ * Attach a pageerror listener to track uncaught JS errors.
+ * Call this right after creating a page.
+ */
+export function trackPageErrors(page: Page): void {
+  const errors: Error[] = [];
+  _pageErrors.set(page, errors);
+  page.on('pageerror', (err) => errors.push(err));
+}
+
+/**
+ * Returns all uncaught JS errors collected since trackPageErrors() was called.
+ * Filters out known non-critical errors (e.g., service worker issues).
+ */
+export function getPageErrors(page: Page): Error[] {
+  const errors = _pageErrors.get(page) || [];
+  return errors.filter(
+    (e) =>
+      !e.message.includes('service-worker') &&
+      !e.message.includes('ServiceWorker') &&
+      !e.message.includes('ResizeObserver'),
+  );
 }
 
 export async function createHostGuestContexts(browser: Browser): Promise<HostGuestPair> {
@@ -26,6 +55,10 @@ export async function createHostGuestContexts(browser: Browser): Promise<HostGue
     hostContext.newPage(),
     guestContext.newPage(),
   ]);
+
+  // Track runtime errors on all pages
+  trackPageErrors(hostPage);
+  trackPageErrors(guestPage);
 
   // Inject PeerJS server config before any navigation
   await Promise.all([

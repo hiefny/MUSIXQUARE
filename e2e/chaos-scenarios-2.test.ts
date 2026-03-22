@@ -27,6 +27,7 @@
 import { test, expect } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
+import { trackPageErrors, getPageErrors } from './helpers/context-factory.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
@@ -51,6 +52,7 @@ async function createChaosSetup(browser: Browser, guestCount: number): Promise<C
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const hostPage = await hostContext.newPage();
+  trackPageErrors(hostPage);
   await injectPeerServer(hostPage);
 
   const guestContexts: BrowserContext[] = [];
@@ -61,6 +63,7 @@ async function createChaosSetup(browser: Browser, guestCount: number): Promise<C
       permissions: ['clipboard-read', 'clipboard-write'],
     });
     const page = await ctx.newPage();
+    trackPageErrors(page);
     await injectPeerServer(page);
     guestContexts.push(ctx);
     guestPages.push(page);
@@ -69,7 +72,21 @@ async function createChaosSetup(browser: Browser, guestCount: number): Promise<C
   return { hostContext, hostPage, guestContexts, guestPages };
 }
 
+function assertNoPageErrors(setup: ChaosSetup): void {
+  const hostErrors = getPageErrors(setup.hostPage);
+  if (hostErrors.length > 0) {
+    throw new Error(`Host page had uncaught JS errors: ${hostErrors.map(e => e.message).join(', ')}`);
+  }
+  for (let i = 0; i < setup.guestPages.length; i++) {
+    const guestErrors = getPageErrors(setup.guestPages[i]);
+    if (guestErrors.length > 0) {
+      throw new Error(`Guest ${i} had uncaught JS errors: ${guestErrors.map(e => e.message).join(', ')}`);
+    }
+  }
+}
+
 async function cleanupChaosSetup(setup: ChaosSetup): Promise<void> {
+  assertNoPageErrors(setup);
   for (const ctx of setup.guestContexts) {
     await ctx.close().catch(() => {});
   }

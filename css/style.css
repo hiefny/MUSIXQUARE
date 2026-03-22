@@ -3749,7 +3749,7 @@ body.overlay-open .bottom-nav {
 .chat-drawer.open {
     transform: translateY(0);
     visibility: visible;
-    transition: transform 0.6s cubic-bezier(0.08, 0.82, 0.17, 1),
+    transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
                 visibility 0s 0s;
 }
 

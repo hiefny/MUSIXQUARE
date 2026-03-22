@@ -409,6 +409,8 @@ export function handleEnded(): void {
 export function togglePlay(): void {
   if (isGuestBlocked()) return;
 
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
   const currentState = getState('appState');
 
   // YouTube mode

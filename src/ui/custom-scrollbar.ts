@@ -30,15 +30,19 @@ function updateThumb(state: ScrollbarState): void {
   }
   thumb.style.display = '';
 
-  // Position track to match container's position within parent
-  track.style.top = `${container.offsetTop}px`;
-  track.style.height = `${clientHeight}px`;
+  // Position track to match container's visible area (exclude nav bar area only)
+  const navHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) || 0;
+  const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+  const visibleHeight = isDesktop ? clientHeight : clientHeight - navHeight;
 
-  const ratio = clientHeight / scrollHeight;
-  const thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * clientHeight);
+  track.style.top = `${container.offsetTop}px`;
+  track.style.height = `${visibleHeight}px`;
+
+  const ratio = visibleHeight / scrollHeight;
+  const thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);
   const maxScroll = scrollHeight - clientHeight;
   const thumbTop = maxScroll > 0
-    ? (scrollTop / maxScroll) * (clientHeight - thumbHeight)
+    ? (scrollTop / maxScroll) * (visibleHeight - thumbHeight)
     : 0;
 
   thumb.style.height = `${thumbHeight}px`;

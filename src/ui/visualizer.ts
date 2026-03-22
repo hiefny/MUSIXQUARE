@@ -107,9 +107,9 @@ export function startVisualizer(): void {
   let smoothedHigh = 0;
 
   // Canvas scale (High DPI)
-  const wrapper = document.querySelector('.vinyl-wrapper');
-  const logicalSize = (wrapper && (wrapper as HTMLElement).clientWidth > 10)
-    ? (wrapper as HTMLElement).clientWidth : 240;
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  const rawSize = wrapper ? Math.min(wrapper.clientWidth, wrapper.clientHeight) : 0;
+  const logicalSize = rawSize > 10 ? rawSize : 240;
   const dpr = window.devicePixelRatio || 1;
   if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
     canvas.width = logicalSize * dpr;
@@ -221,9 +221,9 @@ export function drawIdleVisualizer(): void {
   if (!_ctx2) return;
   const ctx: CanvasRenderingContext2D = _ctx2;
 
-  const wrapper = document.querySelector('.vinyl-wrapper');
-  const rawWidth = wrapper ? (wrapper as HTMLElement).clientWidth : 0;
-  const logicalSize = rawWidth > 10 ? rawWidth : 240;
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  const rawSize = wrapper ? Math.min(wrapper.clientWidth, wrapper.clientHeight) : 0;
+  const logicalSize = rawSize > 10 ? rawSize : 240;
   const dpr = window.devicePixelRatio || 1;
   if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
     canvas.width = logicalSize * dpr;

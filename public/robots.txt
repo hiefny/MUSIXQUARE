@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://mxqr.netlify.app/sitemap.xml
+Sitemap: https://musixquare.com/sitemap.xml

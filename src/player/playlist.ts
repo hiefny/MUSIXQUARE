@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
+import { MSG, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
@@ -646,7 +646,7 @@ async function loadDemoMedia(): Promise<void> {
       type: 'file',
       file,
       name: file.name,
-      title: DEMO_TITLE,
+      title: file.name.replace(/\.[^/.]+$/, ''),
       videoId: null,
       playlistId: null,
     };

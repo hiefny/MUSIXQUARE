@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME, DEMO_TITLE } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
@@ -84,7 +84,7 @@ async function fetchDemoFromServer(index: number): Promise<void> {
 
     // Use the preload path for seamless playback
     setState('preload.nextFileBlob', file);
-    setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_TITLE, index, size: file.size, mime: 'audio/mpeg' });
+    setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''), index, size: file.size, mime: 'audio/mpeg' });
     bus.emit('ui:show-loader', false);
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {

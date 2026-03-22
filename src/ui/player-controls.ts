@@ -19,6 +19,7 @@ import { switchTab } from './tabs.ts';
 import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { fmtTime, getTrackPosition, togglePlay, play } from '../player/playback.ts';
+import { getAnalyser } from '../audio/engine.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused, getVideoElement } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
@@ -812,6 +813,87 @@ export function initPlayerControls(): void {
     }
     if (tc && !isSeeking) tc.innerText = currentFormatted;
     if (tt) tt.innerText = totalFormatted;
+  });
+
+  // ── Tab Title Marquee ───────────────────────────────────────────
+
+  const DEFAULT_TITLE = 'MUSIXQUARE - 뮤직스퀘어';
+  const MARQUEE_PAUSE_START = 3; // 3s pause at start
+  const MARQUEE_PAUSE_END = 1;   // 1s pause at end
+  let _tabTitleTrack = '';
+  let _tabTitleInterval: ReturnType<typeof setInterval> | null = null;
+
+  function startTabTitleMarquee(): void {
+    if (_tabTitleInterval) return;
+
+    let scrollPos = 0;
+    let startPause = 0;
+    let endPause = 0;
+
+    _tabTitleInterval = setInterval(() => {
+      const state = getState('appState');
+      if (state === APP_STATE.IDLE) {
+        stopTabTitleMarquee();
+        return;
+      }
+
+      const name = _tabTitleTrack || 'MUSIXQUARE';
+      if (state === APP_STATE.PAUSED) {
+        stopTabTitleMarquee();
+        document.title = `${name} | MUSIXQUARE`.replace(/ /g, '\u00A0');
+        return;
+      }
+
+      const suffix = ' | MUSIXQUARE';
+      const full = name + suffix;
+
+      // Phase 1: start pause (3s)
+      if (scrollPos === 0 && startPause < MARQUEE_PAUSE_START) {
+        document.title = full.replace(/ /g, '\u00A0');
+        startPause++;
+        return;
+      }
+
+      // Phase 3: end pause (1s)
+      const maxScroll = name.length + 3; // " | " length
+      if (scrollPos >= maxScroll) {
+        if (endPause < MARQUEE_PAUSE_END) {
+          document.title = 'MUSIXQUARE';
+          endPause++;
+          return;
+        }
+        scrollPos = 0;
+        startPause = 0;
+        endPause = 0;
+        return;
+      }
+
+      // Phase 2: scrolling
+      document.title = full.slice(scrollPos).replace(/ /g, '\u00A0');
+      scrollPos++;
+    }, 1000);
+  }
+
+  function stopTabTitleMarquee(): void {
+    if (_tabTitleInterval) {
+      clearInterval(_tabTitleInterval);
+      _tabTitleInterval = null;
+    }
+    document.title = _tabTitleTrack
+      ? `${_tabTitleTrack} | MUSIXQUARE`.replace(/ /g, '\u00A0')
+      : DEFAULT_TITLE;
+  }
+
+  bus.on('player:metadata-update', (item) => {
+    if (item) _tabTitleTrack = item.title || item.name || '';
+  });
+
+  bus.on('player:state-changed', (state) => {
+    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE) {
+      startTabTitleMarquee();
+    } else {
+      stopTabTitleMarquee();
+    }
   });
 
   log.info('[PlayerControls] Initialized');

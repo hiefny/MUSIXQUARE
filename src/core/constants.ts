@@ -166,4 +166,3 @@ export const RESERVED_NAMES = [
 
 // ─── Misc ──────────────────────────────────────────────────────────
 export const DEMO_FILE_NAME = 'demo_track.mp3';
-export const DEMO_TITLE = 'AI Generated Music';

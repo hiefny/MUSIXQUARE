@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -253,7 +253,6 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
   if (!playlistId || subIdx === undefined || !title) return;
 
   updateSubItemTitle(playlistId, subIdx, title);
-  bus.emit('ui:update-playlist');
 
   const playlist = getState('playlist.items') || [];
   const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -279,7 +278,6 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   if (!playlistId) return;
 
   setSubItemsData(playlistId, ids, titles);
-  bus.emit('ui:update-playlist');
 
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {

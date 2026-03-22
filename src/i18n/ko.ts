@@ -425,7 +425,7 @@ const ko = {
   'setup.how_to_connect_html': '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인 → \u201C시작할래요!\u201D</li><li><strong>참가자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li><li>연결할 수 있는 기기는 <strong>방장 제외 최대 3대</strong>예요.</li></ul>',
   'player.play_speakers_html': '참가자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html': '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기 파일에서 음악/영상을 선택</li><li><strong>유튜브(채널분리 미지원):</strong> 링크를 붙여넣어 재생 목록에 추가</li><li><strong>앱 체험하기:</strong> 데모 미디어로 프로그램 테스트</li></ul>',
-  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>데모 트랙 정보:</strong> AI Generated Music</li><li><strong>기타 문의:</strong> musixentre@gmail.com</li></ul>',
+  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>데모 트랙 정보:</strong> AI Generated Music</li><li><strong>기타 문의:</strong> contact@musixquare.com</li></ul>',
   'chat.peer_connected': '{{name}} 님이 접속했습니다',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했습니다',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',

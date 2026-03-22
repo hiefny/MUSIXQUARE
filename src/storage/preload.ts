@@ -700,7 +700,6 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', index);
     }
-    bus.emit('ui:update-playlist');
 
     // Update metadata for UI title display
     const playlist = getState('playlist.items') || [];

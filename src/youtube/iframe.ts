@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';

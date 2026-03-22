@@ -162,6 +162,7 @@ export function startVisualizer(): void {
       smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
       let bassPunch = Math.pow(smoothedBass / 255, 2.5);
       if (!isFinite(bassPunch)) bassPunch = 0;
+      const bassPunchOpacity = Math.pow(smoothedBass / 255, 1.5);
 
       // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
       let highSum = 0;
@@ -177,25 +178,25 @@ export function startVisualizer(): void {
       let highPunch = smoothedHigh / 255;
       if (!isFinite(highPunch)) highPunch = 0;
 
-      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
       ctx.shadowBlur = 0;
 
-      // Circle 1: Bass
+      // Circle 1: Bass — always source-over (base layer)
+      ctx.globalCompositeOperation = 'source-over';
       const bassRadius = (55 + (bassPunch * 200)) * scale;
-      const bassLightness = 20 + (bassPunch * 60);
+      const bassOpacity = Math.min(0.75, 0.25 + (bassPunchOpacity * 0.75));
       ctx.fillStyle = _cachedIsLight
-        ? 'rgba(59, 130, 246, 0.6)'
-        : `hsla(217, 91%, ${bassLightness + 40}%, 0.4)`;
+        ? `rgba(66, 129, 241, ${bassOpacity})`
+        : `hsla(218, 86%, 60%, ${bassOpacity})`;
       ctx.beginPath();
       ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
       ctx.fill();
 
       // Circle 2: High
+      ctx.globalCompositeOperation = 'source-over';
       const highRadius = (40 + (highPunch * 130)) * scale;
-      const highLightness = 40 + (highPunch * 60);
       ctx.fillStyle = _cachedIsLight
-        ? 'rgba(96, 165, 250, 0.6)'
-        : `hsla(217, 100%, ${highLightness + 30}%, 0.4)`;
+        ? 'rgba(66, 129, 241, 1.0)'
+        : 'hsla(218, 86%, 60%, 1.0)';
       ctx.beginPath();
       ctx.arc(centerX, centerY, highRadius, 0, twoPi);
       ctx.fill();
@@ -239,23 +240,22 @@ export function drawIdleVisualizer(): void {
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, logicalSize, logicalSize);
-  ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
   ctx.shadowBlur = 0;
 
   const centerX = logicalSize / 2;
   const centerY = logicalSize / 2;
   const scale = logicalSize / 240;
 
-  // Bass circle (static)
+  // Bass circle (static) — matches idle bassPunch=0: opacity 25%
   const bassRadius = 55 * scale;
-  ctx.fillStyle = isLight ? 'rgba(59, 130, 246, 0.6)' : 'hsla(217, 91%, 60%, 0.4)';
+  ctx.fillStyle = isLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
   ctx.beginPath();
   ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
   ctx.fill();
 
-  // High circle (static)
+  // High circle (static) — opacity 100%
   const highRadius = 40 * scale;
-  ctx.fillStyle = isLight ? 'rgba(96, 165, 250, 0.6)' : 'hsla(217, 100%, 70%, 0.4)';
+  ctx.fillStyle = isLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
   ctx.beginPath();
   ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
   ctx.fill();

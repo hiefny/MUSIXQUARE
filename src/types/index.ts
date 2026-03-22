@@ -409,7 +409,6 @@ interface BaseEventMap {
   'ui:show-toast': [message: string];
   'ui:show-loader': [visible: boolean, label?: string];
   'ui:update-loader': [percent: number];
-  'ui:update-playlist': [];
   'ui:play-btn-state': [enabled: boolean];
   'ui:update-play-state': [playing: boolean];
   'ui:duration-update': [duration: number];

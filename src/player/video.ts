@@ -80,8 +80,6 @@ export function setEngineMode(mode: string): void {
   const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
   setState('appState', finalState);
   bus.emit('player:state-changed', finalState);
-
-  bus.emit('ui:update-playlist');
 }
 
 // ─── Body Mode Class ──────────────────────────────────────────────

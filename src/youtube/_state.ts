@@ -8,7 +8,6 @@
 
 import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
-import { bus } from '../core/events.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
 
@@ -125,7 +124,6 @@ export function setCachedYtPlaylistIdx(idx: number): void {
  */
 export function setYouTubeSubIndex(index: number): void {
   setState('youtube.currentSubIndex', index);
-  bus.emit('ui:update-playlist');
 }
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────

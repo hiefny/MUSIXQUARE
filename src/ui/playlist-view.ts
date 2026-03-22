@@ -30,7 +30,6 @@ function toggleExpansion(idx: number): void {
     bus.emit('youtube:populate-sub-items', updated[idx].playlistId, idx);
   }
 
-  bus.emit('ui:update-playlist'); // use bus for rAF debounce (avoids double render)
 }
 
 // ─── Remove Track Dialog ─────────────────────────────────────────
@@ -214,15 +213,19 @@ export function updatePlaylistUI(): void {
 let _pendingPlaylistUpdate = false;
 
 export function initPlaylistView(): void {
-  // Listen for playlist UI update events (debounced via rAF to batch rapid updates)
-  bus.on('ui:update-playlist', () => {
+  // Subscribe to playlist state changes (debounced via rAF to batch rapid updates)
+  const debouncedUpdate = () => {
     if (_pendingPlaylistUpdate) return;
     _pendingPlaylistUpdate = true;
     requestAnimationFrame(() => {
       _pendingPlaylistUpdate = false;
       updatePlaylistUI();
     });
-  });
+  };
+  bus.on('state:playlist.items', debouncedUpdate);
+  bus.on('state:playlist.currentTrackIndex', debouncedUpdate);
+  bus.on('state:youtube.currentSubIndex', debouncedUpdate);
+  bus.on('state:appState', debouncedUpdate);
 
   log.info('[PlaylistView] Initialized');
 }

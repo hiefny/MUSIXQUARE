@@ -87,7 +87,6 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     log.warn(`[Guest] Index mismatch: current=${currentTrackIndex}, play=${incomingIndex}`);
     setPendingPlayTime(time);
     setState('playlist.currentTrackIndex', incomingIndex);
-    bus.emit('ui:update-playlist');
 
     // Check if preloaded track matches
     const nextFileBlob = getState('preload.nextFileBlob');

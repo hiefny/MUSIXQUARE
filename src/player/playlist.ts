@@ -151,7 +151,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   if (index === nextTrackIndex && nextFileBlob && !hostConn) {
     log.debug('[Host] Using Preloaded Track:', index);
     setState('playlist.currentTrackIndex', index);
-    bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', playlist[index]);
 
     // Advance session ID for recovery
@@ -178,7 +177,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
   clearPreloadState();
   setState('playlist.currentTrackIndex', index);
-  bus.emit('ui:update-playlist');
 
   const item = playlist[index];
   bus.emit('player:metadata-update', item);
@@ -415,7 +413,6 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
     setState('playlist.currentTrackIndex', -1);
     stopAllMedia();
     clearPreloadState();
-    bus.emit('ui:update-playlist');
     return;
   }
 
@@ -459,8 +456,6 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
   if (idx < -1) idx = -1;
   if (idx === -1 && incoming.length > 0) idx = 0;
   setState('playlist.currentTrackIndex', idx);
-
-  bus.emit('ui:update-playlist');
 }
 
 function handleTrackChange(data: Record<string, unknown>, conn: DataConnection): void {
@@ -654,7 +649,6 @@ async function loadDemoMedia(): Promise<void> {
     const playlist = [...(getState('playlist.items') || [])];
     playlist.push(newTrack);
     setState('playlist.items', playlist);
-    bus.emit('ui:update-playlist');
 
     const metaList = playlist.map(item => ({
       type: item.type,
@@ -709,7 +703,6 @@ function handleFilesSelected(files: FileList | null): void {
   if (addedCount === 0) return;
 
   setState('playlist.items', playlist);
-  bus.emit('ui:update-playlist');
 
   const metaList = playlist.map(item => ({
     type: item.type,
@@ -845,7 +838,6 @@ export function initPlaylist(): void {
       list: metaList,
       currentTrackIndex: getState('playlist.currentTrackIndex'),
     });
-    bus.emit('ui:update-playlist');
   });
 
   // Host: Send playlist state to newly connected peer (late-join bootstrap)

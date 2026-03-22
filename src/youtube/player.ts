@@ -118,7 +118,6 @@ export function stopYouTubeMode(): void {
     }
   }
 
-  bus.emit('ui:update-playlist');
   log.debug('[YouTube] Mode stopped');
 }
 
@@ -322,7 +321,6 @@ export function initYouTube(): void {
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
-    bus.emit('ui:update-playlist');
     bus.emit('player:metadata-update', newTrack);
 
     // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
@@ -363,7 +361,6 @@ export function initYouTube(): void {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
         setState('playlist.items', updated);
-        bus.emit('ui:update-playlist');
         bus.emit('player:metadata-update', updated[newIndex]);
       }
     }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
@@ -480,8 +477,6 @@ export function initYouTube(): void {
         sendToHost({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
       }
     }
-
-    bus.emit('ui:update-playlist');
   });
 
   // YouTube load from chat message link

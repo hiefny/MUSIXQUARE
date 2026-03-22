@@ -19,7 +19,6 @@ import { switchTab } from './tabs.ts';
 import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { fmtTime, getTrackPosition, togglePlay, play } from '../player/playback.ts';
-import { getAnalyser } from '../audio/engine.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { isIdleOrPaused, getVideoElement } from '../player/video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
@@ -840,7 +839,7 @@ export function initPlayerControls(): void {
       const name = _tabTitleTrack || 'MUSIXQUARE';
       if (state === APP_STATE.PAUSED) {
         stopTabTitleMarquee();
-        document.title = `${name} | MUSIXQUARE`.replace(/ /g, '\u00A0');
+        document.title = `${name} | MUSIXQUARE`;
         return;
       }
 
@@ -849,7 +848,7 @@ export function initPlayerControls(): void {
 
       // Phase 1: start pause (3s)
       if (scrollPos === 0 && startPause < MARQUEE_PAUSE_START) {
-        document.title = full.replace(/ /g, '\u00A0');
+        document.title = full;
         startPause++;
         return;
       }
@@ -868,8 +867,10 @@ export function initPlayerControls(): void {
         return;
       }
 
-      // Phase 2: scrolling
-      document.title = full.slice(scrollPos).replace(/ /g, '\u00A0');
+      // Phase 2: scrolling — skip leading whitespace to prevent browser trimming
+      while (scrollPos < full.length && /\s/.test(full[scrollPos])) scrollPos++;
+      if (scrollPos >= maxScroll) { scrollPos = maxScroll; return; }
+      document.title = full.slice(scrollPos);
       scrollPos++;
     }, 1000);
   }
@@ -880,12 +881,14 @@ export function initPlayerControls(): void {
       _tabTitleInterval = null;
     }
     document.title = _tabTitleTrack
-      ? `${_tabTitleTrack} | MUSIXQUARE`.replace(/ /g, '\u00A0')
+      ? `${_tabTitleTrack} | MUSIXQUARE`
       : DEFAULT_TITLE;
   }
 
   bus.on('player:metadata-update', (item) => {
-    if (item) _tabTitleTrack = item.title || item.name || '';
+    if (item) {
+      _tabTitleTrack = item.title || item.name || '';
+    }
   });
 
   bus.on('player:state-changed', (state) => {
@@ -893,6 +896,18 @@ export function initPlayerControls(): void {
       startTabTitleMarquee();
     } else {
       stopTabTitleMarquee();
+    }
+  });
+
+  // YouTube pause/play doesn't change appState — handle via play-state event
+  bus.on('ui:update-play-state', (playing) => {
+    if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
+    if (playing) {
+      startTabTitleMarquee();
+    } else {
+      stopTabTitleMarquee();
+      const name = _tabTitleTrack || 'MUSIXQUARE';
+      document.title = `${name} | MUSIXQUARE`;
     }
   });
 

@@ -165,9 +165,9 @@ describe('setEngineMode', () => {
     expect(fn).toHaveBeenCalledWith(APP_STATE.PLAYING_YOUTUBE);
   });
 
-  it('emits ui:update-playlist event', () => {
+  it('emits state:appState on engine mode change', () => {
     const fn = vi.fn();
-    bus.on('ui:update-playlist', fn);
+    bus.on('state:appState', fn);
     resetState();
     setEngineMode('audio');
     expect(fn).toHaveBeenCalled();

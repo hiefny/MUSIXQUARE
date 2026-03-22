@@ -104,7 +104,6 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
     const playlist = getState('playlist.items') || [];
     if (Number.isFinite(idx) && idx >= 0 && idx < playlist.length) {
       setState('playlist.currentTrackIndex', idx);
-      bus.emit('ui:update-playlist');
     }
   }
   bus.emit('player:metadata-update', {
@@ -130,7 +129,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', safeDemoIndex);
-      bus.emit('ui:update-playlist');
     }
     fetchDemoFromServer(safeDemoIndex);
     return;
@@ -203,7 +201,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);
     }
-    bus.emit('ui:update-playlist');
 
     setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
@@ -254,7 +251,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
       if (data.index !== undefined) {
         setState('playlist.currentTrackIndex', data.index as number);
-        bus.emit('ui:update-playlist');
       }
 
       // Preload Watchdog: If preloading fails to complete, recover after 10s
@@ -296,7 +292,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);
-      bus.emit('ui:update-playlist');
     }
     // Update meta
     setState('transfer.meta', {

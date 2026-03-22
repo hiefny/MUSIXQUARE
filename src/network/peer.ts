@@ -340,7 +340,6 @@ export function leaveSession(): void {
   });
 
   // ── 8. Reset UI ──
-  bus.emit('ui:update-playlist');
   bus.emit('player:state-changed', APP_STATE.IDLE);
 
   // Delayed reset: allow async close handlers to read the flag first

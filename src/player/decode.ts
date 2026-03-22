@@ -101,7 +101,6 @@ export async function loadAndBroadcastFile(
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
 
-    bus.emit('ui:update-playlist');
 
     if (videoElement) {
       const cleanupMeta = () => {

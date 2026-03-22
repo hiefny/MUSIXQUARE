@@ -7,8 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
-import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
@@ -258,9 +257,6 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
           updateSubItemTitle(playlistId, i, json.title);
 
           log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
-
-          // Debounced UI update to avoid rebuilding DOM per-title
-          setManagedTimer('yt-search-ui-update', () => bus.emit('ui:update-playlist'), 200);
 
           // Only Host broadcasts to peers
           const hostConn = getState('network.hostConn');

@@ -496,32 +496,6 @@
         justify-content: center;
     }
 
-    #setup-overlay .setup-mobile-view::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    #setup-overlay .setup-mobile-view::-webkit-scrollbar-track {
-        margin-top: 20px;
-        margin-bottom: 20px;
-        background: transparent;
-    }
-
-    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb {
-        background-color: var(--scrollbar-thumb);
-        border: 2px solid transparent;
-        border-radius: 10px;
-        background-clip: padding-box;
-    }
-
-    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb:hover {
-        background-color: var(--scrollbar-thumb-hover);
-    }
-
-    #setup-overlay .setup-mobile-view::-webkit-scrollbar-thumb:active {
-        background-color: var(--scrollbar-thumb-active);
-    }
-
     /* --- Onboarding slider: enlarged when inside left panel --- */
     .desktop-diagram-area #ob-slider-area {
         width: 100%;
@@ -681,37 +655,6 @@
     #youtube-url-overlay.active {
         display: flex;
         flex-direction: column;
-    }
-
-    #media-source-overlay::-webkit-scrollbar,
-    #youtube-url-overlay::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    #media-source-overlay::-webkit-scrollbar-track,
-    #youtube-url-overlay::-webkit-scrollbar-track {
-        margin-top: 20px;
-        margin-bottom: 20px;
-        background: transparent;
-    }
-
-    #media-source-overlay::-webkit-scrollbar-thumb,
-    #youtube-url-overlay::-webkit-scrollbar-thumb {
-        background-color: rgba(255, 255, 255, 0.15);
-        border: 2px solid transparent;
-        border-radius: 10px;
-        background-clip: padding-box;
-    }
-
-    #media-source-overlay::-webkit-scrollbar-thumb:hover,
-    #youtube-url-overlay::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(255, 255, 255, 0.35);
-    }
-
-    #media-source-overlay::-webkit-scrollbar-thumb:active,
-    #youtube-url-overlay::-webkit-scrollbar-thumb:active {
-        background-color: rgba(255, 255, 255, 0.55);
     }
 
     #media-source-overlay .setup-card.full-screen,
@@ -882,37 +825,9 @@
         margin: 0 16px;
     }
 
-    /* Restore scrollbars for desktop bodies */
+    /* Desktop tab-body scroll setup */
     .tab-body {
-        -ms-overflow-style: auto;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
-    }
-
-    .tab-body::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    .tab-body::-webkit-scrollbar-track {
-        margin-top: 10px;
-        margin-bottom: 20px;
-        background: transparent;
-    }
-
-    .tab-body::-webkit-scrollbar-thumb {
-        background-color: rgba(255, 255, 255, 0.15);
-        border: 2px solid transparent;
-        border-radius: 10px;
-        background-clip: padding-box;
-    }
-
-    .tab-body::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(255, 255, 255, 0.35);
-    }
-
-    .tab-body::-webkit-scrollbar-thumb:active {
-        background-color: rgba(255, 255, 255, 0.55);
+        overflow-y: auto;
     }
 
     /* Chat scroll wrapper: relative container for custom scrollbar overlay */
@@ -923,43 +838,19 @@
         overflow: hidden;
     }
 
-    /* Chat scroll: hide native scrollbar */
+    /* Chat scroll: desktop layout */
     .chat-drawer-messages {
         overflow-y: auto;
         overflow-x: hidden;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
         padding-left: 24px;
         padding-right: 16px;
         height: 100%;
-    }
-
-    .chat-drawer-messages::-webkit-scrollbar {
-        display: none;
-    }
-
-    /* Desktop: scrollbar drag support */
-    .chat-custom-scrollbar.dragging {
-        pointer-events: auto;
     }
 
     /* System messages: full-bleed override for desktop padding (24px left, 16px right) */
     .chat-group.system .chat-row {
         width: calc(100% + 40px);
         margin: 0 -16px 0 -24px;
-    }
-
-    /* Light mode: dark scrollbar thumbs on light background (tab-body only) */
-    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb {
-        background-color: rgba(0, 0, 0, 0.2);
-    }
-
-    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(0, 0, 0, 0.4);
-    }
-
-    [data-theme="light"] .tab-body::-webkit-scrollbar-thumb:active {
-        background-color: rgba(0, 0, 0, 0.6);
     }
 
     .track-item {

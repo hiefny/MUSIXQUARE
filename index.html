@@ -175,7 +175,7 @@
         <div class="tab-header play-header-desktop">
             <span class="tab-title" data-i18n="nav.home">메인</span>
         </div>
-        <div class="tab-body">
+        <div class="tab-body" data-custom-scroll>
             <div class="vinyl-wrapper">
                 <canvas id="visualizerCanvas" aria-label="" data-i18n-aria-label="player.visualizer"></canvas>
 
@@ -297,7 +297,7 @@
                 </button>
             </div>
         </div>
-        <div class="tab-body">
+        <div class="tab-body" data-custom-scroll>
             <ul class="playlist-ul" id="playlist-ui">
                 <li class="list-empty-state" data-i18n="playlist.empty_hint"></li>
             </ul>
@@ -317,7 +317,7 @@
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
             </div>
         </div>
-        <div class="tab-body">
+        <div class="tab-body" data-custom-scroll>
             <!-- QR Code -->
             <div class="section-group">
                 <div class="section-header-row">
@@ -378,7 +378,7 @@
             </div>
         </div>
 
-        <div class="tab-body">
+        <div class="tab-body" data-custom-scroll>
 
             <div class="help-block">
                 <div class="help-title">
@@ -462,7 +462,7 @@
             <button class="subtab-pill" data-subtab="help" data-i18n="settings.subtab.help">도움말</button>
         </div>
 
-        <div class="tab-body">
+        <div class="tab-body" data-custom-scroll>
             <!-- Sub-panel: General -->
             <div class="settings-subtab-panel active" data-panel="general">
             <div class="section-group">
@@ -912,11 +912,8 @@
             </button>
         </div>
         <div class="chat-scroll-wrapper">
-            <div class="chat-drawer-messages" id="chat-messages" role="log" aria-live="polite">
+            <div class="chat-drawer-messages" id="chat-messages" role="log" aria-live="polite" data-custom-scroll>
                 <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
-            </div>
-            <div class="chat-custom-scrollbar" id="chat-custom-scrollbar">
-                <div class="chat-scrollbar-thumb" id="chat-scrollbar-thumb"></div>
             </div>
         </div>
         <div class="chat-drawer-input">
@@ -992,7 +989,7 @@
             </div>
 
             <!-- Mobile UI / PC Right Panel Wrapper -->
-            <div class="setup-mobile-view">
+            <div class="setup-mobile-view" data-custom-scroll>
                 <div class="setup-header-pill" style="display:none;"></div>
                 <!-- Reserved for any extra header info -->
 

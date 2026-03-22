@@ -1036,83 +1036,9 @@ export function initChat(): void {
   });
 
   // Custom scrollbar (desktop only — floats above content)
-  initCustomScrollbar();
+  // Custom scrollbar now handled globally by custom-scrollbar.ts
 
   log.info('[Chat] Initialized');
 }
 
-// ─── Custom Scrollbar ────────────────────────────────────────────
-
-function initCustomScrollbar(): void {
-  const container = document.getElementById('chat-messages');
-  const scrollbar = document.getElementById('chat-custom-scrollbar');
-  const thumb = document.getElementById('chat-scrollbar-thumb');
-  if (!container || !scrollbar || !thumb) return;
-
-  let isDragging = false;
-  let dragStartY = 0;
-  let dragStartScroll = 0;
-
-  function updateThumb(): void {
-    const { scrollTop, scrollHeight, clientHeight } = container!;
-    if (scrollHeight <= clientHeight) {
-      scrollbar!.classList.remove('visible');
-      return;
-    }
-
-    const ratio = clientHeight / scrollHeight;
-    const thumbHeight = Math.max(30, ratio * clientHeight);
-    const maxScroll = scrollHeight - clientHeight;
-    const thumbTop = (scrollTop / maxScroll) * (clientHeight - thumbHeight);
-
-    thumb!.style.height = `${thumbHeight}px`;
-    thumb!.style.top = `${thumbTop}px`;
-
-    scrollbar!.classList.add('visible');
-  }
-
-  // Scroll event → update thumb position
-  container.addEventListener('scroll', updateThumb, { passive: true });
-
-  // Observe content changes → update thumb
-  const observer = new MutationObserver(updateThumb);
-  observer.observe(container, { childList: true, subtree: true });
-
-  // Drag to scroll
-  thumb.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    isDragging = true;
-    dragStartY = e.clientY;
-    dragStartScroll = container.scrollTop;
-    scrollbar!.classList.add('dragging');
-    document.body.style.userSelect = 'none';
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const { scrollHeight, clientHeight } = container;
-    const maxScroll = scrollHeight - clientHeight;
-    const thumbHeight = Math.max(30, (clientHeight / scrollHeight) * clientHeight);
-    const trackHeight = clientHeight - thumbHeight;
-
-    const deltaY = e.clientY - dragStartY;
-    const scrollDelta = (deltaY / trackHeight) * maxScroll;
-    container.scrollTop = dragStartScroll + scrollDelta;
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (!isDragging) return;
-    isDragging = false;
-    scrollbar!.classList.remove('dragging');
-    document.body.style.userSelect = '';
-    updateThumb();
-  });
-
-  // Click on track → jump to position
-  scrollbar!.addEventListener('mousedown', (e) => {
-    if (e.target === thumb) return;
-    const rect = scrollbar!.getBoundingClientRect();
-    const clickRatio = (e.clientY - rect.top) / rect.height;
-    container.scrollTop = clickRatio * (container.scrollHeight - container.clientHeight);
-  });
-}
+// Custom scrollbar is now handled by src/ui/custom-scrollbar.ts

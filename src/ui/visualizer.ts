@@ -137,7 +137,6 @@ export function startVisualizer(): void {
 
   function draw(): void {
     const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) { _animationId = null; return; }
     // YouTube/Video mode: analyser isn't connected or canvas is CSS-hidden, skip draw
     if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
 
@@ -353,7 +352,6 @@ function startSpectrumVisualizer(): void {
 
   function draw(): void {
     const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) { _animationId = null; return; }
     if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
 
     try {
@@ -551,7 +549,14 @@ export function initVisualizer(): void {
     if (currentState === APP_STATE.PAUSED) {
       // Keep last frame — do nothing
     } else if (currentState === APP_STATE.IDLE) {
-      drawIdleVisualizer();
+      if (!_animationId) {
+        const analyser = getAnalyser();
+        if (analyser) {
+          startVisualizer();
+        } else {
+          drawIdleVisualizer();
+        }
+      }
     } else {
       startVisualizer();
     }
@@ -564,7 +569,16 @@ export function initVisualizer(): void {
       // Keep last frame — only stop animation loop
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
     } else if (currentState === APP_STATE.IDLE) {
-      drawIdleVisualizer();
+      // Keep draw() loop running so analyser data decays naturally
+      // If no animation loop is active, start visualizer to keep it going
+      if (!_animationId) {
+        const analyser = getAnalyser();
+        if (analyser) {
+          startVisualizer();
+        } else {
+          drawIdleVisualizer();
+        }
+      }
     } else {
       startVisualizer();
     }

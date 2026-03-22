@@ -62,6 +62,7 @@ import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
+import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
@@ -287,6 +288,7 @@ function bootstrap(): void {
   safeInit('PlayerControls', initPlayerControls);
   safeInit('Settings', initSettings);
   safeInit('Connect', initConnect);
+  safeInit('CustomScrollbars', initAllCustomScrollbars);
   safeInit('Setup', initSetup);
 
   // 9. Service Worker

@@ -23,6 +23,7 @@ import {
   releasePeerSlot,
   broadcastDeviceList,
 } from './peer-state.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
 
@@ -178,7 +179,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       });
     } catch { /* noop */ }
 
-    bus.emit('ui:show-toast', t('toast.device_connected', { name: deviceName }));
+    showToast(t('toast.device_connected', { name: deviceName }));
     bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
 
     // Emit event for other modules to send late-join bootstrap data
@@ -265,7 +266,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', t('toast.device_disconnected', { name: deviceName }));
+      showToast(t('toast.device_disconnected', { name: deviceName }));
       bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
     }
     log.info(`[Host] ${deviceName} disconnected`);
@@ -302,7 +303,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      bus.emit('ui:show-toast', t('toast.device_conn_error', { name: deviceName }));
+      showToast(t('toast.device_conn_error', { name: deviceName }));
       bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
     }
     try { conn.close(); } catch { /* noop */ }
@@ -337,7 +338,7 @@ bus.on('network:toggle-operator', (peerId) => {
       log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
     }
     broadcastDeviceList();
-    bus.emit('ui:show-toast', t('toast.op_status', { label: p.label, status: newOp ? t('common.granted') : t('common.revoked') }));
+    showToast(t('toast.op_status', { label: p.label, status: newOp ? t('common.granted') : t('common.revoked') }));
   }
 });
 
@@ -363,7 +364,7 @@ bus.on('network:kick-device', (peerId) => {
   }
 
   log.info(`[Host] Kicked peer ${target.label || peerId}`);
-  bus.emit('ui:show-toast', t('toast.device_kicked', { name: target.label || peerId }));
+  showToast(t('toast.device_kicked', { name: target.label || peerId }));
 });
 
 // Expose toggleOperator globally for device-list UI buttons

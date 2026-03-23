@@ -17,6 +17,7 @@ import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
+import { showLoader, updateLoader } from '../ui/toast.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -384,7 +385,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   // Show loader only if main transfer is not in progress
   const transferState = getState('transfer.state');
   if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
-    bus.emit('ui:show-loader', true, t('toast.preparing_next', { name: data.name as string }));
+    showLoader(true, t('toast.preparing_next', { name: data.name as string }));
   }
 
   // Initialize session state
@@ -440,7 +441,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   clearManagedTimer('preloadWatchdog');
   setManagedTimer('preloadWatchdog', () => {
     log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
     setState('transfer.waitingForPreload', false);
     // If main transfer is still in progress, restore its loader
     const transferState = getState('transfer.state');
@@ -450,7 +451,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
       const total = (meta?.total as number) || 0;
       if (total > 0) {
         const pct = Math.round((receivedCount / total) * 100);
-        bus.emit('ui:update-loader', pct);
+        updateLoader(pct);
       }
     }
   }, 30000);
@@ -516,8 +517,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
-      bus.emit('ui:show-loader', true, t('toast.preparing_next_pct', { pct }));
-      bus.emit('ui:update-loader', pct);
+      showLoader(true, t('toast.preparing_next_pct', { pct }));
+      updateLoader(pct);
     }
   }
 
@@ -528,7 +529,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     setManagedTimer('preloadWatchdog', () => {
       const transferState = getState('transfer.state');
       if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
-        bus.emit('ui:show-loader', false);
+        showLoader(false);
       }
     }, 15000);
   }
@@ -744,7 +745,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     // Preload in progress — retry after delay (up to 4 attempts = 2s total)
     log.debug(`[PlayPreloaded] Preload in progress. Retrying... (${retryAttempt + 1}/4)`);
     if (retryAttempt === 0) {
-      bus.emit('ui:show-loader', true, t('transfer.download_finishing'));
+      showLoader(true, t('transfer.download_finishing'));
     }
     setManagedTimer('preload-play-retry', () => {
       handlePlayPreloaded({ ...data, retryAttempt: retryAttempt + 1 });
@@ -761,7 +762,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   setState('transfer.waitingForPreload', false);
   setState('recovery.pendingFileIndex', index);
   setState('recovery.pendingFileName', name);
-  bus.emit('ui:show-loader', true, t('transfer.file_requesting'));
+  showLoader(true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');
   const playlist = getState('playlist.items') || [];
@@ -785,7 +786,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
       const currentTrackIndex = getState('playlist.currentTrackIndex');
       if (currentTrackIndex !== index) {
         log.debug(`[Guest] Track already changed (${currentTrackIndex} != ${index}), skipping recovery request`);
-        bus.emit('ui:show-loader', false);
+        showLoader(false);
         return;
       }
 
@@ -865,7 +866,7 @@ export function initPreload(): void {
       }
 
       // Hide preload loader (background preload complete)
-      bus.emit('ui:show-loader', false);
+      showLoader(false);
 
       // If guest was waiting for this preloaded file, trigger playback
       const waitingForPreload = getState('transfer.waitingForPreload');

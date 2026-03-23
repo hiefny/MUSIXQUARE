@@ -14,6 +14,7 @@ import { t } from '../i18n/index.ts';
 import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '../ui/chat.ts';
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -427,7 +428,7 @@ function cmdDebug(): void {
   // Auto-copy to clipboard
   try {
     navigator.clipboard.writeText(debugText).then(() => {
-      bus.emit('ui:show-toast', t('chat.debug_copied'));
+      showToast(t('chat.debug_copied'));
     }).catch(() => { /* clipboard not available */ });
   } catch { /* ignore */ }
 }

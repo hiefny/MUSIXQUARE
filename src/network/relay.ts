@@ -29,6 +29,7 @@ import { registerHandlers } from './protocol.ts';
 import { getPeer, safeSend, sendToHost } from './peer.ts';
 import { unicastFile } from '../storage/transfer.ts';
 import { ensureNamedFile, postWorkerCommand } from '../storage/opfs.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
 const RELAY_CONN_TIMER = 'relayConnTimeout';
@@ -224,7 +225,7 @@ export function connectToRelay(targetId: string): void {
   setManagedTimer(RELAY_CONN_TIMER, () => {
     if (!conn.open) {
       log.warn('[Relay] Connect Timeout');
-      bus.emit('ui:show-toast', t('network.relay_timeout'));
+      showToast(t('network.relay_timeout'));
       conn.close();
       setState('relay.upstreamDataConn', null);
 
@@ -263,7 +264,7 @@ export function connectToRelay(targetId: string): void {
     clearManagedTimer(RELAY_CONN_TIMER);
     setState('relay.upstreamDataConn', conn);
     log.info('[Relay] Connected to upstream relay');
-    bus.emit('ui:show-toast', t('network.relay_connected'));
+    showToast(t('network.relay_connected'));
 
     // Request current file from relay
     safeSend(conn, { type: MSG.REQUEST_CURRENT_FILE });
@@ -285,7 +286,7 @@ export function connectToRelay(targetId: string): void {
     if (currentUpstream !== conn) return;
 
     setState('relay.upstreamDataConn', null);
-    bus.emit('ui:show-toast', t('network.relay_disconnected'));
+    showToast(t('network.relay_disconnected'));
 
     const transferState = getState('transfer.state');
     if (transferState !== TRANSFER_STATE.RECEIVING) return;

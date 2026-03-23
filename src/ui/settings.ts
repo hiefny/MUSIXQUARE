@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
+import { showToast } from './toast.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -23,7 +24,7 @@ function _isGuestLocked(): boolean {
 /** Show toast + return true if guest is locked */
 function _guardHostCtrl(): boolean {
   if (_isGuestLocked()) {
-    bus.emit('ui:show-toast', t('toast.operator_required'));
+    showToast(t('toast.operator_required'));
     return true;
   }
   return false;
@@ -93,7 +94,7 @@ function setChannel(mode: number): void {
   bus.emit('audio:set-channel-mode', mode);
 
   const preset = getStandardRolePreset(mode);
-  bus.emit('ui:show-toast', t(preset.placementToastKey));
+  showToast(t(preset.placementToastKey));
 }
 
 // ─── Value Display Helpers ────────────────────────────────────────
@@ -331,7 +332,7 @@ function setSurroundOn(on: boolean): void {
   document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
-  if (on) bus.emit('ui:show-toast', t('toast.distortion_warn'));
+  if (on) showToast(t('toast.distortion_warn'));
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
@@ -347,7 +348,7 @@ function setVBassOn(on: boolean): void {
   document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 60%, OFF: 0%
   bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
-  if (on) bus.emit('ui:show-toast', t('toast.distortion_warn'));
+  if (on) showToast(t('toast.distortion_warn'));
 }
 
 // ─── Device List ─────────────────────────────────────────────────

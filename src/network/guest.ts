@@ -21,6 +21,7 @@ import {
   getPeer,
   detectConnectionType,
 } from './peer-state.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -287,14 +288,14 @@ function handleForceCloseDuplicate(): void {
 
 function handleOperatorGrant(): void {
   setState('network.isOperator', true);
-  bus.emit('ui:show-toast', t('network.op_granted'));
+  showToast(t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
 
 function handleOperatorRevoke(): void {
   setState('network.isOperator', false);
-  bus.emit('ui:show-toast', t('network.op_revoked'));
+  showToast(t('network.op_revoked'));
   bus.emit('ui:play-btn-state', false);
   bus.emit('network:role-badge-update');
 }

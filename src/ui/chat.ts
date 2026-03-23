@@ -20,6 +20,7 @@ import { parseCommand, executeCommand, getAvailableCommands, getCommandArgHint }
 import { filterProfanity } from '../chat/profanity.ts';
 import { seekTo } from '../player/transport.ts';
 import type { DataConnection } from '../types/index.ts';
+import { showToast } from './toast.ts';
 
 const MAX_CHAT_MESSAGES = 200;
 
@@ -287,7 +288,7 @@ export function sendChatMessage(): void {
 
   if (text.length > MAX_MSG_LENGTH) {
     text = text.substring(0, MAX_MSG_LENGTH);
-    bus.emit('ui:show-toast', t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
+    showToast(t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
   }
 
   // ── Profanity filter (own messages too) ──

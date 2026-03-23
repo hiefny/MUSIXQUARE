@@ -30,6 +30,7 @@ import {
 } from './_state.ts';
 
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Format Helpers ────────────────────────────────────────────────
 
@@ -292,7 +293,7 @@ async function _internalPlay(offset: number): Promise<void> {
     await initAudio();
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
-    bus.emit('ui:show-toast', t('error.audio_engine_prepare'));
+    showToast(t('error.audio_engine_prepare'));
     return;
   }
 
@@ -398,7 +399,7 @@ export function pause(forcedTime?: number): void {
 
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
-  bus.emit('ui:show-toast', t('common.pause'));
+  showToast(t('common.pause'));
   bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
 }
 
@@ -466,7 +467,7 @@ export function togglePlay(): void {
   // Cancel pending auto-play (with user feedback)
   if (!hostConn && getManagedTimer('autoPlayTimer')) {
     clearManagedTimer('autoPlayTimer');
-    bus.emit('ui:show-toast', t('toast.auto_play_canceled'));
+    showToast(t('toast.auto_play_canceled'));
   }
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
@@ -499,7 +500,7 @@ export function stopPlayback(): void {
   if (hostConn && isOperator) {
     try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch { /* noop */ }
     try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch { /* noop */ }
-    bus.emit('ui:show-toast', t('toast.stop_sent'));
+    showToast(t('toast.stop_sent'));
     return;
   }
 
@@ -523,7 +524,7 @@ export function stopPlayback(): void {
   bus.emit('ui:seek-reset');
 
   if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0 });
-  bus.emit('ui:show-toast', t('common.stop'));
+  showToast(t('common.stop'));
 }
 
 // ─── Skip Time ─────────────────────────────────────────────────────

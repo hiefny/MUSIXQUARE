@@ -17,6 +17,7 @@ import { registerHandlers } from '../network/protocol.ts';
 import { isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
+import { showToast, showLoader } from '../ui/toast.ts';
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
 
@@ -30,8 +31,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     log.info('[Recovery] Remote guest without relay — skipping recovery, showing WiFi guidance');
     clearManagedTimer('chunkWatchdog');
     setState('transfer.state', TRANSFER_STATE.IDLE);
-    bus.emit('ui:show-loader', false);
-    bus.emit('ui:show-toast', t('toast.same_wifi_only'));
+    showLoader(false);
+    showToast(t('toast.same_wifi_only'));
     setState('player.currentTrackMeta', {
       type: 'file',
       title: t('toast.same_wifi_file_title'),
@@ -55,8 +56,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('recovery.pending', false);
     setState('recovery.retryCount', 0);
-    bus.emit('ui:show-loader', false);
-    bus.emit('ui:show-toast', t('transfer.recovery_failed'));
+    showLoader(false);
+    showToast(t('transfer.recovery_failed'));
     return;
   }
 

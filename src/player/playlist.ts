@@ -26,6 +26,7 @@ import { isGuestBlocked } from '../network/guards.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
@@ -52,12 +53,12 @@ export function setRepeatMode(mode: number, notify = true): void {
   btn.classList.remove('active', 'active-one');
   if (mode === 1) {
     btn.classList.add('active');
-    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_all'));
+    if (notify) showToast(t('playlist.repeat_all'));
   } else if (mode === 2) {
     btn.classList.add('active-one');
-    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_one'));
+    if (notify) showToast(t('playlist.repeat_one'));
   } else {
-    if (notify) bus.emit('ui:show-toast', t('playlist.repeat_off'));
+    if (notify) showToast(t('playlist.repeat_off'));
   }
 }
 
@@ -80,7 +81,7 @@ export function setShuffle(enabled: boolean, notify = true): void {
   setState('playlist.isShuffle', enabled);
   const btn = document.getElementById('btn-shuffle');
   if (btn) btn.classList.toggle('active', enabled);
-  if (notify) bus.emit('ui:show-toast', enabled ? t('playlist.shuffle_on') : t('playlist.shuffle_off'));
+  if (notify) showToast(enabled ? t('playlist.shuffle_on') : t('playlist.shuffle_off'));
 }
 
 // ─── Clear Preload State ───────────────────────────────────────────
@@ -125,7 +126,7 @@ export function clearPreloadState(): void {
 export async function playTrack(index: number, subIndex?: number): Promise<void> {
   const playlist = getState('playlist.items') || [];
   if (index < 0 || index >= playlist.length) {
-    if (playlist.length === 0) bus.emit('ui:show-toast', t('toast.no_tracks'));
+    if (playlist.length === 0) showToast(t('toast.no_tracks'));
     return;
   }
 
@@ -203,10 +204,10 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       if (isFirstTrackLoad) {
         setState('player.isFirstTrackLoad', false);
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
-        bus.emit('ui:show-toast', t('youtube.ready'));
+        showToast(t('youtube.ready'));
       } else {
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
-        bus.emit('ui:show-toast', t('youtube.playing_in_3s'));
+        showToast(t('youtube.playing_in_3s'));
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
         }, 3000);
@@ -234,9 +235,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);
-      bus.emit('ui:show-toast', t('toast.file_ready'));
+      showToast(t('toast.file_ready'));
     } else {
-      bus.emit('ui:show-toast', t('toast.playing_in_3s'));
+      showToast(t('toast.playing_in_3s'));
       setManagedTimer('autoPlayTimer', () => {
         play(0);
         const currentIdx = getState('playlist.currentTrackIndex');
@@ -600,13 +601,13 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 async function loadDemoMedia(): Promise<void> {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', t('toast.host_only'));
+    showToast(t('toast.host_only'));
     return;
   }
 
   try {
-    bus.emit('ui:show-loader', true, t('transfer.demo_loading_short'));
-    bus.emit('ui:update-loader', 0);
+    showLoader(true, t('transfer.demo_loading_short'));
+    updateLoader(0);
 
     const blob: Blob = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -616,7 +617,7 @@ async function loadDemoMedia(): Promise<void> {
       xhr.onprogress = (event) => {
         if (event.lengthComputable) {
           const percent = Math.round((event.loaded / event.total) * 100);
-          bus.emit('ui:update-loader', percent);
+          updateLoader(percent);
         }
       };
 
@@ -658,14 +659,14 @@ async function loadDemoMedia(): Promise<void> {
     }));
     broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-    bus.emit('ui:show-toast', t('transfer.demo_loaded'));
-    bus.emit('ui:show-loader', false);
+    showToast(t('transfer.demo_loaded'));
+    showLoader(false);
 
     playTrack(playlist.length - 1);
   } catch (e: unknown) {
     log.error('Demo load failed:', e);
-    bus.emit('ui:show-toast', `${t('transfer.demo_load_fail')} ${(e as Error).message}`);
-    bus.emit('ui:show-loader', false);
+    showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message}`);
+    showLoader(false);
   }
 }
 
@@ -676,7 +677,7 @@ function handleFilesSelected(files: FileList | null): void {
 
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    bus.emit('ui:show-toast', t('toast.host_only_file'));
+    showToast(t('toast.host_only_file'));
     return;
   }
 
@@ -712,7 +713,7 @@ function handleFilesSelected(files: FileList | null): void {
   }));
   broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-  bus.emit('ui:show-toast', t('toast.added_tracks', { count: addedCount }));
+  showToast(t('toast.added_tracks', { count: addedCount }));
 
   // Auto-play first added file if nothing is playing
   const currentState = getState('appState');

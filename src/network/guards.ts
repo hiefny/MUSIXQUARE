@@ -5,9 +5,9 @@
  * across player, playlist, and UI modules.
  */
 
-import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
+import { showToast } from '../ui/toast.ts';
 
 /**
  * Returns true if the current user is a guest without operator privileges.
@@ -23,7 +23,7 @@ export function isGuestBlocked(): boolean {
   if (!hostConn) return false; // Host — always allowed
   const isOperator = getState('network.isOperator');
   if (isOperator) return false; // Operator — allowed
-  bus.emit('ui:show-toast', t('toast.host_only_control'));
+  showToast(t('toast.host_only_control'));
   return true;
 }
 

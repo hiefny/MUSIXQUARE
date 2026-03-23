@@ -29,6 +29,7 @@ import {
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
 } from './_state.ts';
+import { showToast, showLoader } from '../ui/toast.ts';
 
 declare const YT: any;
 
@@ -66,7 +67,7 @@ export function loadYouTubeVideo(
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
 
-  bus.emit('ui:show-toast', t('youtube.effects_disabled'));
+  showToast(t('youtube.effects_disabled'));
 
   const wrapper = document.querySelector('.video-wrapper');
   if (!wrapper) {
@@ -99,7 +100,7 @@ export function loadYouTubeVideo(
         setYtScriptLoading(false);
         setYtLoadInProgress(false);
         tag.remove(); // Remove broken script tag so retry can re-insert
-        bus.emit('ui:show-toast', t('youtube.load_fail'));
+        showToast(t('youtube.load_fail'));
       };
       document.head.appendChild(tag);
     }
@@ -122,8 +123,8 @@ export function loadYouTubeVideo(
     if (getCurrentSessionId() === sessionId && !scope.aborted && !getYouTubePlayer()) {
       log.warn('[YouTube] Load timeout triggered.');
       setYtLoadInProgress(false);
-      bus.emit('ui:show-loader', false);
-      bus.emit('ui:show-toast', t('youtube.load_timeout'));
+      showLoader(false);
+      showToast(t('youtube.load_timeout'));
     }
   }, 15000);
 
@@ -246,8 +247,8 @@ function onYouTubePlayerReady(): void {
 function onYouTubePlayerError(event: { data: number }): void {
   log.error('[YouTube] Player error:', event.data);
   setYtLoadInProgress(false);
-  bus.emit('ui:show-loader', false);
-  bus.emit('ui:show-toast', t('youtube.load_fail'));
+  showLoader(false);
+  showToast(t('youtube.load_fail'));
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {

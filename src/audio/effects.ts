@@ -27,6 +27,7 @@ import {
   getVbGain,
 } from './engine.ts';
 import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
@@ -263,9 +264,9 @@ function _broadcastOrRequestSetting(msgType: string, value: number | string): vo
     if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
     } else if (!isOperator) {
-      bus.emit('ui:show-toast', t('toast.operator_required'));
+      showToast(t('toast.operator_required'));
     } else {
-      bus.emit('ui:show-toast', t('toast.connection_closing'));
+      showToast(t('toast.connection_closing'));
     }
   }
 }
@@ -279,9 +280,9 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
     if (isOperator && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     } else if (!isOperator) {
-      bus.emit('ui:show-toast', t('toast.operator_required'));
+      showToast(t('toast.operator_required'));
     } else {
-      bus.emit('ui:show-toast', t('toast.connection_closing'));
+      showToast(t('toast.connection_closing'));
     }
   }
 }
@@ -415,7 +416,7 @@ function handleVolume(data: Record<string, unknown>): void {
   if (!Number.isFinite(vol)) return;
   bus.emit('audio:set-volume', vol);
   if (!data._bootstrap) {
-    bus.emit('ui:show-toast', `Volume: ${Math.round(vol * 100)}%`);
+    showToast(`Volume: ${Math.round(vol * 100)}%`);
   }
 }
 
@@ -439,7 +440,7 @@ function handlePreampMsg(data: Record<string, unknown>): void {
 function _notifyHostChanged(): void {
   if (!getState('network.hostConn')) return;
   setManagedTimer('host-change-toast', () => {
-    bus.emit('ui:show-toast', t('toast.host_changed_setting'));
+    showToast(t('toast.host_changed_setting'));
   }, 300);
 }
 

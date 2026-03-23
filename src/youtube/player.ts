@@ -44,6 +44,7 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
+import { showToast } from '../ui/toast.ts';
 
 declare const YT: any;
 
@@ -372,7 +373,7 @@ export function initYouTube(): void {
     if (!input) return;
     const url = (input.textContent || '').trim();
     if (!url) {
-      bus.emit('ui:show-toast', t('youtube.enter_link_toast'));
+      showToast(t('youtube.enter_link_toast'));
       return;
     }
 
@@ -380,7 +381,7 @@ export function initYouTube(): void {
     const playlistId = extractYouTubePlaylistId(url);
 
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', t('youtube.not_valid_link'));
+      showToast(t('youtube.not_valid_link'));
       return;
     }
 
@@ -486,14 +487,14 @@ export function initYouTube(): void {
     // Host-only guard
     const hostConn = getState('network.hostConn');
     if (hostConn) {
-      bus.emit('ui:show-toast', t('toast.host_only_youtube'));
+      showToast(t('toast.host_only_youtube'));
       return;
     }
 
     const videoId = extractYouTubeVideoId(url);
     const playlistId = extractYouTubePlaylistId(url);
     if (!videoId && !playlistId) {
-      bus.emit('ui:show-toast', t('youtube.invalid_link'));
+      showToast(t('youtube.invalid_link'));
       return;
     }
 

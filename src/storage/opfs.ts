@@ -12,6 +12,7 @@ import { TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
+import { showLoader } from '../ui/toast.ts';
 
 // ─── Worker References ──────────────────────────────────────────────
 let _transferWorker: Worker | null = null;
@@ -193,7 +194,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
             log.warn(`[OPFS] Start/lock failed — resetting stuck ${transferState} state`);
             setState('transfer.state', TRANSFER_STATE.IDLE);
-            bus.emit('ui:show-loader', false);
+            showLoader(false);
           }
         }
       }
@@ -215,7 +216,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           if (transferState === TRANSFER_STATE.PROCESSING) {
             log.warn('[OPFS] OPFS_END dropped — resetting stuck PROCESSING state');
             setState('transfer.state', TRANSFER_STATE.READY);
-            bus.emit('ui:show-loader', false);
+            showLoader(false);
           }
         }
       }

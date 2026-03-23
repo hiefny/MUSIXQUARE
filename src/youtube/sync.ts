@@ -14,6 +14,7 @@ import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
+import { showToast } from '../ui/toast.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
@@ -121,7 +122,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           if (!_hostAdPauseActive) {
             _hostAdPauseActive = true;
             if (player.pauseVideo) player.pauseVideo();
-            bus.emit('ui:show-toast', t('toast.host_ad'));
+            showToast(t('toast.host_ad'));
             log.debug('[YouTube Sync] Host ad detected — pausing guest');
           }
           _lastHostSyncTime = hostTime;

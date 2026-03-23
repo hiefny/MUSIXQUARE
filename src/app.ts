@@ -69,6 +69,7 @@ import { initSetup } from './ui/setup.ts';
 
 // ── Service Worker ──
 import { registerServiceWorker } from './sw-register.ts';
+import { showToast } from './ui/toast.ts';
 
 // ── System Compatibility Check ──
 
@@ -78,14 +79,14 @@ function checkSystemCompatibility(): void {
   // HTTPS check
   if (!window.isSecureContext) {
     allPassed = false;
-    bus.emit('ui:show-toast', t('error.https_required'));
+    showToast(t('error.https_required'));
     log.warn('[App] Not a secure context');
   }
 
   // OPFS support check
   if (!(navigator.storage && navigator.storage.getDirectory)) {
     allPassed = false;
-    bus.emit('ui:show-toast', t('error.browser_update'));
+    showToast(t('error.browser_update'));
     log.warn('[App] OPFS not supported');
   }
 

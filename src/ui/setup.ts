@@ -15,7 +15,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
-import { showToast } from './toast.ts';
+import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
 import { leaveSession, joinSession } from '../network/peer.ts';
@@ -279,7 +279,7 @@ export function initSetup(): void {
 
     // Always hide loader — auto-reconnect flow shows loader before joinSession,
     // so we must hide it on failure to prevent permanent loader display (#103).
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
 
     setupRenderActions([
       { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
@@ -360,7 +360,7 @@ export function initSetup(): void {
             setState('preload.isPreloading', false);
             setState('preload.nextFileBlob', null);
             setState('preload.meta', null);
-            bus.emit('ui:show-loader', true, t('setup.joining'));
+            showLoader(true, t('setup.joining'));
 
             // Note: isConnecting is set inside joinSession() — do NOT pre-set here
             joinSession(lastCode);

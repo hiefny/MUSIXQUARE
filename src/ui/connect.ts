@@ -13,6 +13,7 @@ import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/
 import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { containsProfanity } from '../chat/profanity.ts';
+import { showToast, showLoader } from './toast.ts';
 
 let _langObserver: MutationObserver | null = null;
 
@@ -26,7 +27,7 @@ function _isGuestLocked(): boolean {
 
 function _guardHostCtrl(): boolean {
   if (_isGuestLocked()) {
-    bus.emit('ui:show-toast', t('toast.operator_required'));
+    showToast(t('toast.operator_required'));
     return true;
   }
   return false;
@@ -93,9 +94,9 @@ async function generateQR(containerId: string): Promise<void> {
     copyBtn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(url);
-        bus.emit('ui:show-toast', t('connect.link_copied'));
+        showToast(t('connect.link_copied'));
       } catch {
-        bus.emit('ui:show-toast', t('toast.copy_failed'));
+        showToast(t('toast.copy_failed'));
       }
     });
     container.appendChild(copyBtn);
@@ -126,7 +127,7 @@ function _applyValue(value: number): void {
   const allPeers = getState('network.connectedPeers') || [];
   const peers = allPeers.filter(p => p.conn?.open !== false);
   if (clamped < peers.length && clamped < cur) {
-    bus.emit('ui:show-toast', t('connect.cannot_reduce', { count: peers.length }));
+    showToast(t('connect.cannot_reduce', { count: peers.length }));
     syncAllValues(cur);  // revert display
     return;
   }
@@ -367,7 +368,7 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     }).then(res => {
       if (res && res.action === 'ok') {
-        bus.emit('ui:show-loader', true, t('dialog.leaving_session'));
+        showLoader(true, t('dialog.leaving_session'));
         setTimeout(() => window.location.reload(), 300);
       }
     });
@@ -424,7 +425,7 @@ export function initConnect(): void {
     const newName = (result.inputValue || '').trim();
     if (!newName || newName.length > 20) return;
     bus.emit('network:rename-device', newName);
-    bus.emit('ui:show-toast', t('chat.cmd_nick_changed', { name: newName }));
+    showToast(t('chat.cmd_nick_changed', { name: newName }));
   };
   document.getElementById('btn-rename-device')?.addEventListener('click', renameHandler);
   document.getElementById('desktop-btn-rename-device')?.addEventListener('click', renameHandler);

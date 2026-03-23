@@ -45,6 +45,7 @@ import {
   loadPreloadedTrack,
   clearPreviousTrackState, finalizeGuestFile,
 } from './decode.ts';
+import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
@@ -101,7 +102,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         videoId: null,
         playlistId: null,
       });
-      bus.emit('ui:show-loader', false);
+      showLoader(false);
       log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
       return;
     }
@@ -161,7 +162,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         videoId: null,
         playlistId: null,
       });
-      bus.emit('ui:show-loader', false);
+      showLoader(false);
       log.info('[Guest] Remote guest — no file will arrive, showing guide');
       return;
     }
@@ -329,7 +330,7 @@ export function initPlayback(): void {
     }
 
     const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
-    bus.emit('ui:show-toast', `${t('toast.sync_done')}${rttLabel}`);
+    showToast(`${t('toast.sync_done')}${rttLabel}`);
   });
 
   // Disconnect playerNode from surround splitter (called when surround mode turns off)
@@ -374,7 +375,7 @@ export function initPlayback(): void {
     const file = await readFileFromOpfs(filename, false);
     if (!file) {
       log.error('[Playback] Failed to read OPFS file:', filename);
-      bus.emit('ui:show-loader', false);
+      showLoader(false);
       return;
     }
 
@@ -413,11 +414,11 @@ export function initPlayback(): void {
         log.warn('[Preload] Preloaded blob not available within timeout');
         setState('transfer.waitingForPreload', false);
         setState('transfer.skipIncomingFile', false);
-        bus.emit('ui:show-loader', false);
+        showLoader(false);
         // Fallback: request file from host
         const hostConn = getState('network.hostConn');
         if (hostConn?.open) {
-          bus.emit('ui:show-loader', true, t('transfer.file_requesting'));
+          showLoader(true, t('transfer.file_requesting'));
           sendToHost({
             type: MSG.REQUEST_DATA_RECOVERY,
             nextChunk: 0,
@@ -431,8 +432,8 @@ export function initPlayback(): void {
 
   // Transfer progress (update loader UI)
   bus.on('storage:transfer-progress', (progress, _total) => {
-    bus.emit('ui:show-loader', true, t('toast.receiving_pct', { pct: String(progress) }));
-    bus.emit('ui:update-loader', progress);
+    showLoader(true, t('toast.receiving_pct', { pct: String(progress) }));
+    updateLoader(progress);
   });
 
   // Host: Send playback state to newly connected peer (late-join bootstrap)

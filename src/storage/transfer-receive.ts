@@ -16,6 +16,7 @@ import { t } from '../i18n/index.ts';
 import { safeSend, sendToHost, isRemoteGuest, hasActiveRelay, waitForGuestConnectionType } from '../network/peer.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
+import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -53,8 +54,8 @@ function startChunkWatchdog(): void {
 // ─── Internal Helpers ────────────────────────────────────────────────
 
 async function fetchDemoFromServer(index: number): Promise<void> {
-  bus.emit('ui:show-loader', true, t('transfer.demo_loading'));
-  bus.emit('ui:update-loader', 0);
+  showLoader(true, t('transfer.demo_loading'));
+  updateLoader(0);
 
   try {
     const blob: Blob = await new Promise((resolve, reject) => {
@@ -64,7 +65,7 @@ async function fetchDemoFromServer(index: number): Promise<void> {
       xhr.onprogress = (event) => {
         if (event.lengthComputable) {
           const percent = Math.round((event.loaded / event.total) * 100);
-          bus.emit('ui:update-loader', percent);
+          updateLoader(percent);
         }
       };
       xhr.onload = () => {
@@ -85,12 +86,12 @@ async function fetchDemoFromServer(index: number): Promise<void> {
     // Use the preload path for seamless playback
     setState('preload.nextFileBlob', file);
     setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''), index, size: file.size, mime: 'audio/mpeg' });
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
-    bus.emit('ui:show-toast', t('transfer.demo_load_fail'));
-    bus.emit('ui:show-loader', false);
+    showToast(t('transfer.demo_load_fail'));
+    showLoader(false);
     // Fallback: allow normal P2P transfer
     setState('transfer.skipIncomingFile', false);
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: DEMO_FILE_NAME, index });
@@ -113,8 +114,8 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
     videoId: null,
     playlistId: null,
   });
-  bus.emit('ui:show-loader', false);
-  bus.emit('ui:show-toast', t('toast.same_wifi_only'));
+  showLoader(false);
+  showToast(t('toast.same_wifi_only'));
   log.info('[Transfer] Remote guest — file transfer skipped');
 }
 
@@ -139,11 +140,11 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
-      bus.emit('ui:show-loader', true, t('transfer.check_conn_type'));
+      showLoader(true, t('transfer.check_conn_type'));
       const resolved = await waitForGuestConnectionType(3000);
       if (resolved === 'local') {
         log.info(`[Transfer] connectionType resolved: local — proceeding`);
-        bus.emit('ui:show-loader', false);
+        showLoader(false);
         // Fall through to normal handling below
       } else {
         showRemoteGuideUI(data);
@@ -193,7 +194,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
-    bus.emit('ui:show-toast', t('transfer.preload_done'));
+    showToast(t('transfer.preload_done'));
 
     // Stop old media right before loading preloaded track (minimizes audio gap)
     bus.emit('player:stop-all-media');
@@ -205,7 +206,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
 
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
     return;
   }
 
@@ -219,7 +220,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName)) {
     log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
     setState('transfer.skipIncomingFile', true);
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
     bus.emit('playback:replay-current');
     return;
   }
@@ -242,7 +243,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
-      bus.emit('ui:show-loader', true, t('transfer.preload_pending', { name: data.name as string }));
+      showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
       setState('recovery.pendingFileName', data.name as string || '');
       setState('recovery.pendingFileIndex', data.index as number);
@@ -258,7 +259,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
         if (getState('transfer.waitingForPreload')) {
           log.warn('[Guest] Preload wait timed out. Force recovering...');
           setState('transfer.waitingForPreload', false);
-          bus.emit('ui:show-loader', false);
+          showLoader(false);
           setState('transfer.skipIncomingFile', false);
 
           sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name as string | undefined, index: data.index as number | undefined });
@@ -287,7 +288,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
-    bus.emit('ui:show-loader', true, t('transfer.waiting_recovery', { name: data.name as string }));
+    showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
@@ -310,7 +311,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       bus.emit('youtube:stop-mode');
     }
 
-    bus.emit('ui:show-loader', true, t('transfer.preparing_name', { name: data.name as string }));
+    showLoader(true, t('transfer.preparing_name', { name: data.name as string }));
   }
 
   // Prepare watchdog with jitter recovery
@@ -320,7 +321,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     const rc = getState('transfer.receivedCount');
     if (transferState === TRANSFER_STATE.IDLE || rc === 0) {
       log.warn('[Prepare Watchdog] Timeout waiting for data start!');
-      bus.emit('ui:show-toast', t('transfer.preparation_delayed'));
+      showToast(t('transfer.preparation_delayed'));
 
       const hostConn = getState('network.hostConn');
       if (hostConn && hostConn.open) {
@@ -421,7 +422,7 @@ export function handleFileStart(data: Record<string, unknown>): void {
   const downstreamPeers = getState('relay.downstreamDataPeers');
   downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
-  bus.emit('ui:show-loader', true, t('transfer.receiving_0pct'));
+  showLoader(true, t('transfer.receiving_0pct'));
 }
 
 export function handleFileResume(data: Record<string, unknown>): void {
@@ -745,7 +746,7 @@ export function handleFileEnd(data: Record<string, unknown>): void {
 
 export function handleFileWait(): void {
   log.debug('[Guest] Relay has no data yet, waiting for forwarded data...');
-  bus.emit('ui:show-toast', t('transfer.relay_wait'));
+  showToast(t('transfer.relay_wait'));
 
   clearManagedTimer('relayWaitTimeout');
   setManagedTimer('relayWaitTimeout', () => {
@@ -770,7 +771,7 @@ export function handleFileWait(): void {
         return;
       }
 
-      bus.emit('ui:show-toast', t('transfer.relay_no_response'));
+      showToast(t('transfer.relay_no_response'));
 
       // Request file from Host
       const hostConn = getState('network.hostConn');
@@ -784,7 +785,7 @@ export function handleFileWait(): void {
         // Validation: Don't send recovery with invalid index
         if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
           log.warn('[file-wait timeout] Invalid index, skipping recovery:', recoveryIndex);
-          bus.emit('ui:show-loader', false);
+          showLoader(false);
           return;
         }
 
@@ -792,7 +793,7 @@ export function handleFileWait(): void {
         const preloadMeta = getState('preload.meta');
         if (preloadMeta && preloadMeta.index === recoveryIndex) {
           log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
-          bus.emit('ui:show-toast', t('transfer.preload_waiting'));
+          showToast(t('transfer.preload_waiting'));
           return;
         }
 

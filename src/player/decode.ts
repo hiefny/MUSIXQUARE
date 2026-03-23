@@ -33,6 +33,7 @@ import {
 import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
+import { showToast, showLoader } from '../ui/toast.ts';
 
 // ─── Load And Broadcast File (Host) ────────────────────────────────
 
@@ -46,7 +47,7 @@ export async function loadAndBroadcastFile(
   replaceLoadScope();
   const myToken = loadToken ?? getLoadToken();
 
-  bus.emit('ui:show-loader', true, t('toast.preparing', { name: file.name }));
+  showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
 
   try {
@@ -57,7 +58,7 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', file);
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
-    bus.emit('ui:show-toast', t('toast.hprecision_sync'));
+    showToast(t('toast.hprecision_sync'));
 
     // Decode audio
     const arrayBuffer = await file.arrayBuffer();
@@ -67,7 +68,7 @@ export async function loadAndBroadcastFile(
     if (loadToken !== undefined && getLoadToken() !== myToken) {
       if (myLoadId === getActiveLoadSessionId()) {
         log.warn('[Load] Token mismatch after decode. Aborting stale load.');
-        bus.emit('ui:show-loader', false);
+        showLoader(false);
       }
       return;
     }
@@ -136,7 +137,7 @@ export async function loadAndBroadcastFile(
     // Broadcast file to peers
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId !== null) {
-      bus.emit('ui:show-toast', t('transfer.file_sending'));
+      showToast(t('transfer.file_sending'));
       broadcastFile(file, sessionId)
         .catch(e => log.error('[Host] broadcastFile failed:', e));
     }
@@ -148,10 +149,10 @@ export async function loadAndBroadcastFile(
     log.error(err);
     // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
     setState('files.currentFileBlob', null);
-    bus.emit('ui:show-toast', `Load Failed: ${(err as Error).message}`);
+    showToast(`Load Failed: ${(err as Error).message}`);
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {
-      bus.emit('ui:show-loader', false);
+      showLoader(false);
       setState('player.pausedAt', 0);
     }
 
@@ -199,7 +200,7 @@ export async function loadPreloadedTrack(
     }
 
     log.debug('[Preload] Decoding audio for Buffer Mode...');
-    bus.emit('ui:show-toast', t('toast.decoding_audio'));
+    showToast(t('toast.decoding_audio'));
 
     const arrayBuffer = await localBlob.arrayBuffer();
     const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
@@ -286,8 +287,8 @@ export async function loadPreloadedTrack(
     setPlayPreloadedInProgress(false);
     setPendingPlayTime(undefined);
     log.error('[Preload] Activation failed:', e);
-    bus.emit('ui:show-loader', false);
-    bus.emit('ui:show-toast', t('transfer.preload_fail'));
+    showLoader(false);
+    showToast(t('transfer.preload_fail'));
 
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -387,7 +388,7 @@ export function clearPreviousTrackState(reason = ''): void {
 export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   log.debug('[Guest] Finalizing with Buffer Mode...');
   const myLoadId = incrementLoadSessionId();
-  bus.emit('ui:show-loader', true, t('error.audio_memory'));
+  showLoader(true, t('error.audio_memory'));
 
   try {
     await initAudio();
@@ -471,7 +472,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Guest] Decoding failed', err);
-    bus.emit('ui:show-toast', t('error.audio_decode_fail'));
+    showToast(t('error.audio_decode_fail'));
 
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
     setState('transfer.state', TRANSFER_STATE.IDLE);
@@ -480,6 +481,6 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     // Use recovery with retry limit (3 attempts + backoff) instead of unlimited sendToHost
     sendRecoveryRequest(0);
   } finally {
-    bus.emit('ui:show-loader', false);
+    showLoader(false);
   }
 }

@@ -6,8 +6,8 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { APP_STATE } from '../../core/constants.ts';
 
-// Mock playback.ts to avoid Tone.js
-vi.mock('../playback.ts', () => ({
+// Mock transport.ts to avoid Tone.js
+vi.mock('../transport.ts', () => ({
   togglePlay: vi.fn(),
   stopPlayback: vi.fn(),
   skipTime: vi.fn(),

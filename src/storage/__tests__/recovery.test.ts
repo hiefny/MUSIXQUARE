@@ -30,6 +30,12 @@ vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
 }));
 
+vi.mock('../../ui/toast.ts', () => ({
+  showToast: vi.fn(),
+  showLoader: vi.fn(),
+  updateLoader: vi.fn(),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

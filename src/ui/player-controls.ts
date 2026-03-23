@@ -653,6 +653,8 @@ export function initPlayerControls(): void {
     const tc = document.getElementById('time-curr');
     if (slider) { slider.value = '0'; }
     if (tc) tc.innerText = '0:00';
+    clearManagedTimer('time-update-loop');
+    _stopSeekRaf();
   });
 
   // UI loop (seek bar + time update during playback)

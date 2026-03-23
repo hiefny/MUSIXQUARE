@@ -179,6 +179,10 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // Reset master clock
   setState('player.startedAt', 0);
   setState('player.pausedAt', 0);
+
+  // Stop seekbar animation (silent mode leaves appState as PLAYING,
+  // but audio is stopped — rAF must not interpolate stale positions)
+  bus.emit('ui:seek-reset');
 }
 
 // ─── Play ──────────────────────────────────────────────────────────

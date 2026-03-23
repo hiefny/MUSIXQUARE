@@ -55,7 +55,7 @@ globalThis.MediaMetadata = class MediaMetadata {
 } as unknown as typeof MediaMetadata;
 
 import { updateMediaSessionMetadata, initMediaSession } from '../media-session.ts';
-import { togglePlay, stopPlayback, skipTime } from '../playback.ts';
+import { togglePlay, stopPlayback, skipTime } from '../transport.ts';
 
 beforeEach(() => {
   resetState();
@@ -193,9 +193,9 @@ describe('initMediaSession', () => {
     expect(stopPlayback).toHaveBeenCalled();
   });
 
-  it('responds to player:metadata-update bus event', () => {
+  it('responds to state:player.currentTrackMeta change', () => {
     const item = { name: 'Bus Track', type: 'file' as const };
-    bus.emit('player:metadata-update', item);
+    setState('player.currentTrackMeta', item);
     expect(navigator.mediaSession.metadata).not.toBeNull();
     expect(navigator.mediaSession.metadata!.title).toBe('Bus Track');
   });

@@ -18,6 +18,7 @@ import { getRoleLabelByChannelMode } from './player-controls.ts';
 import { fetchOEmbedTitle } from '../youtube/search.ts';
 import { parseCommand, executeCommand, getAvailableCommands, getCommandArgHint } from '../chat/commands.ts';
 import { filterProfanity } from '../chat/profanity.ts';
+import { seekTo } from '../player/transport.ts';
 import type { DataConnection } from '../types/index.ts';
 
 const MAX_CHAT_MESSAGES = 200;
@@ -735,7 +736,7 @@ function initChatEventDelegation(): void {
     const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
     if (!target) return;
     const sec = Number(target.getAttribute('data-seek'));
-    if (Number.isFinite(sec)) bus.emit('player:seek-to-time', sec);
+    if (Number.isFinite(sec)) seekTo(sec);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -745,7 +746,7 @@ function initChatEventDelegation(): void {
     e.preventDefault();
     e.stopPropagation();
     const sec = Number(target.getAttribute('data-seek'));
-    if (Number.isFinite(sec)) bus.emit('player:seek-to-time', sec);
+    if (Number.isFinite(sec)) seekTo(sec);
   });
 
   // YouTube button in chat

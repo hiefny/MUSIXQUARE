@@ -29,6 +29,7 @@ function createInitialState(): StateTree {
       pausedAt: 0,
       isSeeking: false,
       isFirstTrackLoad: true,
+      currentTrackMeta: null,
     },
 
     transfer: {

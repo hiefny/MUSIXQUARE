@@ -563,7 +563,7 @@ export function initVisualizer(): void {
   });
 
   // Listen for playback state changes
-  bus.on('player:state-changed', () => {
+  bus.on('state:appState', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       // Keep last frame — only stop animation loop

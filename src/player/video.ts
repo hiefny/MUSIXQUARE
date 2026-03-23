@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
-import { getCurrentAudioBuffer } from './playback.ts';
+import { getCurrentAudioBuffer } from './_state.ts';
 import { setVideoElement } from '../core/blob-manager.ts';
 
 // ─── Video Element ─────────────────────────────────────────────────
@@ -79,7 +79,6 @@ export function setEngineMode(mode: string): void {
   // For YouTube, always set the target state so body class is applied
   const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
   setState('appState', finalState);
-  bus.emit('player:state-changed', finalState);
 }
 
 // ─── Body Mode Class ──────────────────────────────────────────────
@@ -177,8 +176,8 @@ export function initVideo(): void {
   setVideoElement(_videoElement);
 
   // Sync body mode class with app state changes
-  bus.on('player:state-changed', (state: string) => {
-    updateBodyModeClass(state);
+  bus.on('state:appState', () => {
+    updateBodyModeClass(getState('appState'));
   });
 
   // Sync video element volume with master volume

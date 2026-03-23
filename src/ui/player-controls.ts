@@ -7,10 +7,10 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -18,12 +18,10 @@ import { showLoader, updateLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
 import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
 import { showDialog } from './dialog.ts';
-import { fmtTime, getTrackPosition, togglePlay, play } from '../player/playback.ts';
+import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
-import { isIdleOrPaused, getVideoElement } from '../player/video.ts';
-import { broadcast, sendToHost } from '../network/peer.ts';
-import { requestGlobalResyncDelayed } from '../network/sync.ts';
 import { clearPreviewDebounce } from '../youtube/search.ts';
+import { initSeekBar } from './seekbar.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -352,65 +350,7 @@ function installAndroidRangeScrollFix(): void {
   }
 }
 
-// ─── Seek Bar ────────────────────────────────────────────────────
-
-function initSeekBar(): void {
-  const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-  if (!slider) {
-    log.warn('[UI] #seek-slider not found');
-    return;
-  }
-
-  slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
-  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), { passive: true });
-  slider.addEventListener('input', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
-    const formatted = fmtTime(parseFloat(slider.value));
-    const tc = document.getElementById('time-curr');
-    if (tc) tc.innerText = formatted;
-    slider.setAttribute('aria-valuetext', formatted);
-  });
-
-  slider.addEventListener('change', () => {
-    setState('player.isSeeking', false);
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
-    const seekTime = parseFloat(slider.value);
-
-    const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-
-    // Guest (non-OP): blocked
-    if (hostConn && !isOperator) return;
-
-    // OP: request Host to seek
-    if (hostConn && isOperator) {
-      sendToHost({ type: MSG.REQUEST_SEEK, time: seekTime });
-      return;
-    }
-
-    // YouTube mode: seek via YouTube API
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-      bus.emit('youtube:seek-to', seekTime);
-      return;
-    }
-
-    // Host: execute directly (playing or paused)
-    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-      bus.emit('player:seek', seekTime);
-    } else {
-      // Paused state: just update position
-      bus.emit('player:seek-to-time', seekTime);
-    }
-  });
-
-  slider.addEventListener('mouseup', () => setState('player.isSeeking', false));
-  slider.addEventListener('touchend', () => setState('player.isSeeking', false), { passive: true });
-  slider.addEventListener('touchcancel', () => setState('player.isSeeking', false), { passive: true });
-  // Right-click during drag can steal mouseup — contextmenu resets as safety net
-  slider.addEventListener('contextmenu', () => setState('player.isSeeking', false));
-}
+// ─── Seek Bar (extracted to src/ui/seekbar.ts) ──────────────────
 
 // ─── Volume Sync ─────────────────────────────────────────────────
 
@@ -639,138 +579,9 @@ export function initPlayerControls(): void {
     }
   });
 
-  // Duration update
-  bus.on('ui:duration-update', (duration) => {
-    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-    const tTotal = document.getElementById('time-dur');
-    if (slider) { slider.max = String(duration); }
-    if (tTotal) tTotal.innerText = fmtTime(duration);
-  });
-
-  // Seek reset
-  bus.on('ui:seek-reset', () => {
-    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-    const tc = document.getElementById('time-curr');
-    if (slider) { slider.value = '0'; }
-    if (tc) tc.innerText = '0:00';
-    clearManagedTimer('time-update-loop');
-    _stopSeekRaf();
-  });
-
-  // UI loop (seek bar + time update during playback)
-  // Uses rAF interpolation for smooth 60fps slider movement,
-  // with 250ms polling for authoritative position correction + ended check.
-  let _rafId = 0;
-  let _rafAnchorTime = 0;   // last authoritative position (seconds)
-  let _rafAnchorTs = 0;     // performance.now() when anchor was set
-  let _rafLastFmtSec = -1;  // last formatted second (avoid redundant DOM writes)
-
-  function _seekRafLoop(now: number): void {
-    const isSeeking = getState('player.isSeeking');
-    if (!isSeeking) {
-      const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-      const tc = document.getElementById('time-curr');
-      if (slider) {
-        const dt = (now - _rafAnchorTs) / 1000;
-        const interpolated = Math.min(_rafAnchorTime + dt, parseFloat(slider.max) || 0);
-        slider.value = String(interpolated);
-
-        // Only update text + aria when the displayed second changes (perf)
-        const sec = Math.floor(interpolated);
-        if (sec !== _rafLastFmtSec) {
-          _rafLastFmtSec = sec;
-          const fmt = fmtTime(interpolated);
-          slider.setAttribute('aria-valuetext', fmt);
-          if (tc) tc.innerText = fmt;
-        }
-      }
-    }
-    _rafId = requestAnimationFrame(_seekRafLoop);
-  }
-
-  function _startSeekRaf(): void {
-    if (_rafId) return; // already running
-    _rafAnchorTime = getTrackPosition();
-    _rafAnchorTs = performance.now();
-    _rafLastFmtSec = -1;
-    _rafId = requestAnimationFrame(_seekRafLoop);
-  }
-
-  function _stopSeekRaf(): void {
-    if (_rafId) {
-      cancelAnimationFrame(_rafId);
-      _rafId = 0;
-    }
-  }
-
-  let _endedCheckCounter = 0;
-  bus.on('ui:loop-start', () => {
-    _endedCheckCounter = 0;
-    _startSeekRaf();
-
-    // 250ms authoritative correction + ended check (lightweight — no DOM writes)
-    setManagedTimer('time-update-loop', () => {
-      const currentState = getState('appState');
-      if (isIdleOrPaused(currentState)) {
-        clearManagedTimer('time-update-loop');
-        _stopSeekRaf();
-        return;
-      }
-
-      // Correct rAF anchor to real position (prevents drift)
-      _rafAnchorTime = getTrackPosition();
-      _rafAnchorTs = performance.now();
-
-      // Safety polling: check if track ended (every ~500ms)
-      _endedCheckCounter++;
-      if (_endedCheckCounter >= 2) {
-        _endedCheckCounter = 0;
-        bus.emit('player:check-ended');
-      }
-    }, 250, { interval: true });
-  });
-
-  // Clean up UI loop when playback stops entirely (session leave, etc.)
-  bus.on('player:stop-all-media', () => {
-    clearManagedTimer('time-update-loop');
-    _stopSeekRaf();
-  });
-
   // Player actions
   bus.on('player:toggle-play', () => {
     togglePlay();
-  });
-
-  bus.on('player:seek', (time) => {
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      play(time);
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-      broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
-      requestGlobalResyncDelayed();
-    }
-  });
-
-  bus.on('player:seek-to-time', (time) => {
-    const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    if (hostConn && isOperator) {
-      sendToHost({ type: MSG.REQUEST_SEEK, time });
-    } else if (!hostConn) {
-      const currentState = getState('appState');
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-      if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
-        play(time);
-        broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
-        requestGlobalResyncDelayed();
-      } else {
-        setState('player.pausedAt', time);
-        const videoElement = getVideoElement();
-        if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
-        // Broadcast paused seek to peers so they stay in sync
-        broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
-      }
-    }
   });
 
   // Playlist actions
@@ -783,7 +594,8 @@ export function initPlayerControls(): void {
   });
 
   // Metadata update (track title in player UI)
-  bus.on('player:metadata-update', (item) => {
+  bus.on('state:player.currentTrackMeta', () => {
+    const item = getState('player.currentTrackMeta');
     if (!item) return;
     const title = item.title || item.name || t('common.unknown');
     updateTitleWithMarquee(title);
@@ -798,23 +610,7 @@ export function initPlayerControls(): void {
     if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
   });
 
-  // YouTube time update (seek bar + time display)
-  bus.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
-    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-    const tc = document.getElementById('time-curr');
-    const tt = document.getElementById('time-dur');
-    const isSeeking = getState('player.isSeeking');
-
-    if (slider && duration > 0) {
-      slider.max = String(duration);
-      if (!isSeeking) {
-        slider.value = String(currentTime);
-        slider.setAttribute('aria-valuetext', currentFormatted);
-      }
-    }
-    if (tc && !isSeeking) tc.innerText = currentFormatted;
-    if (tt) tt.innerText = totalFormatted;
-  });
+  // YouTube time update — handled by seekbar.ts
 
   // ── Tab Title Marquee ───────────────────────────────────────────
 
@@ -887,13 +683,15 @@ export function initPlayerControls(): void {
       : DEFAULT_TITLE;
   }
 
-  bus.on('player:metadata-update', (item) => {
+  bus.on('state:player.currentTrackMeta', () => {
+    const item = getState('player.currentTrackMeta');
     if (item) {
       _tabTitleTrack = item.title || item.name || '';
     }
   });
 
-  bus.on('player:state-changed', (state) => {
+  bus.on('state:appState', () => {
+    const state = getState('appState');
     if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE) {
       startTabTitleMarquee();
     } else {

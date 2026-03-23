@@ -242,7 +242,7 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 export interface StateTree {
   appState: AppStateValue;
   setup: { sessionStarted: boolean };
-  player: { startedAt: number; pausedAt: number; isSeeking: boolean; isFirstTrackLoad: boolean };
+  player: { startedAt: number; pausedAt: number; isSeeking: boolean; isFirstTrackLoad: boolean; currentTrackMeta: Partial<PlaylistItem> | null };
   transfer: {
     state: TransferStateValue;
     receivedCount: number;
@@ -382,13 +382,9 @@ interface BaseEventMap {
 
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];
-  'player:state-changed': [state: AppStateValue];
   'player:toggle-play': [];
-  'player:seek': [time: number];
-  'player:seek-to-time': [time: number];
   'player:stop-all-media': [];
   'playback:replay-current': [];
-  'player:metadata-update': [item: Partial<PlaylistItem>];
   'player:sync-video-volume': [volume: number];
   'player:check-ended': [];
 

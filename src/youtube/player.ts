@@ -321,7 +321,7 @@ export function initYouTube(): void {
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
-    bus.emit('player:metadata-update', newTrack);
+    setState('player.currentTrackMeta', newTrack);
 
     // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
     // a window where index points to new track while old media is active.
@@ -361,7 +361,7 @@ export function initYouTube(): void {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
         setState('playlist.items', updated);
-        bus.emit('player:metadata-update', updated[newIndex]);
+        setState('player.currentTrackMeta', updated[newIndex]);
       }
     }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
   }

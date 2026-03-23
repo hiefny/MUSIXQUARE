@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
-import { togglePlay, stopPlayback, skipTime } from './playback.ts';
+import { togglePlay, stopPlayback, skipTime } from './transport.ts';
 import { isIdleOrPaused } from './video.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
@@ -117,9 +117,10 @@ export function initMediaSession(): void {
     log.debug('[MediaSession] Handler setup skipped:', (e as Error).message);
   }
 
-  // Listen for metadata update events from playlist module
-  bus.on('player:metadata-update', (item: Partial<PlaylistItem>) => {
-    updateMediaSessionMetadata(item);
+  // Listen for metadata updates via state subscription
+  bus.on('state:player.currentTrackMeta', () => {
+    const meta = getState('player.currentTrackMeta');
+    updateMediaSessionMetadata(meta ?? null);
   });
 
   // ⚠️ CRITICAL — DO NOT REMOVE
@@ -131,8 +132,9 @@ export function initMediaSession(): void {
   // the background or the screen turns off, killing audio immediately.
   // (Tone.js / Web Audio apps need this because the browser can't
   // infer playback state from an <audio> element.)
-  bus.on('player:state-changed', (state: string) => {
+  bus.on('state:appState', () => {
     if (!('mediaSession' in navigator)) return;
+    const state = getState('appState');
     navigator.mediaSession.playbackState =
       state === APP_STATE.IDLE ? 'none'
         : state === APP_STATE.PAUSED ? 'paused'

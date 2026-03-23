@@ -12,10 +12,9 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import {
-  play, stopAllMedia, loadAndBroadcastFile, loadPreloadedTrack,
-  getTrackPosition, incrementLoadToken,
-} from './playback.ts';
+import { play, stopAllMedia, getTrackPosition } from './transport.ts';
+import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
+import { incrementLoadToken } from './_state.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
@@ -151,7 +150,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   if (index === nextTrackIndex && nextFileBlob && !hostConn) {
     log.debug('[Host] Using Preloaded Track:', index);
     setState('playlist.currentTrackIndex', index);
-    bus.emit('player:metadata-update', playlist[index]);
+    setState('player.currentTrackMeta', playlist[index]);
 
     // Advance session ID for recovery
     const nextMeta = getState('preload.meta');
@@ -179,7 +178,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   setState('playlist.currentTrackIndex', index);
 
   const item = playlist[index];
-  bus.emit('player:metadata-update', item);
+  setState('player.currentTrackMeta', item);
 
   // YouTube
   if (item.type === 'youtube') {

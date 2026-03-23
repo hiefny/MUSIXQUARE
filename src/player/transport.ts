@@ -43,13 +43,11 @@ export function fmtTime(s: number): string {
 // ─── App State Helper ─────────────────────────────────────────────
 
 /**
- * Central function: update appState + emit player:state-changed.
- * All code paths that change the app state MUST use this instead of
- * calling setState('appState') directly.
+ * Central function: update appState.
+ * Subscribers listen via bus.on('state:appState', ...).
  */
 export function setAppState(newState: AppStateValue): void {
   setState('appState', newState);
-  bus.emit('player:state-changed', newState);
 }
 
 // ─── Track Position ────────────────────────────────────────────────
@@ -183,6 +181,47 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // Stop seekbar animation (silent mode leaves appState as PLAYING,
   // but audio is stopped — rAF must not interpolate stale positions)
   bus.emit('ui:seek-reset');
+}
+
+// ─── Seek ──────────────────────────────────────────────────────────
+
+/**
+ * Unified seek handler. Replaces player:seek + player:seek-to-time events.
+ * Handles all roles (host, OP guest, regular guest) and modes (audio, video, YouTube).
+ */
+export function seekTo(time: number): void {
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
+
+  // Guest (non-OP): blocked
+  if (hostConn && !isOperator) return;
+
+  // OP guest: request host to seek
+  if (hostConn && isOperator) {
+    sendToHost({ type: MSG.REQUEST_SEEK, time });
+    return;
+  }
+
+  // YouTube mode
+  const currentState = getState('appState');
+  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    bus.emit('youtube:seek-to', time);
+    return;
+  }
+
+  // Host: playing → seek + broadcast
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+    play(time);
+    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
+    requestGlobalResyncDelayed();
+  } else {
+    // Paused: update position + broadcast
+    setState('player.pausedAt', time);
+    const videoElement = getVideoElement();
+    if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
+    broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
+  }
 }
 
 // ─── Play ──────────────────────────────────────────────────────────

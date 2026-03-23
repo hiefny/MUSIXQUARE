@@ -10,10 +10,12 @@ import {
   incrementLoadToken,
   getPendingPlayTime,
   setPendingPlayTime,
+} from '../_state.ts';
+import {
   stopPlayerNode,
   stopAllMedia,
   updatePlayState,
-} from '../playback.ts';
+} from '../transport.ts';
 
 beforeEach(() => {
   resetState();

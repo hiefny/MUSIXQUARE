@@ -32,7 +32,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     setState('transfer.state', TRANSFER_STATE.IDLE);
     bus.emit('ui:show-loader', false);
     bus.emit('ui:show-toast', t('toast.same_wifi_only'));
-    bus.emit('player:metadata-update', {
+    setState('player.currentTrackMeta', {
       type: 'file',
       title: t('toast.same_wifi_file_title'),
       name: '',

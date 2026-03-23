@@ -9,12 +9,12 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
-import { fmtTime } from '../player/playback.ts';
+import { fmtTime } from '../player/transport.ts';
 import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import {
@@ -334,7 +334,7 @@ function updateYouTubeUI(): void {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _lastYtVideoTitle) {
         _lastYtVideoTitle = vData.title;
-        bus.emit('player:metadata-update', { title: vData.title });
+        setState('player.currentTrackMeta', { title: vData.title });
       }
     }
 

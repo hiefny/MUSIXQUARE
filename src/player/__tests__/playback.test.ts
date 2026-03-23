@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
-import { fmtTime } from '../playback.ts';
+import { fmtTime } from '../transport.ts';
 
 describe('fmtTime', () => {
   it('formats 0 seconds', () => {

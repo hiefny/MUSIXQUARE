@@ -106,7 +106,7 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
       setState('playlist.currentTrackIndex', idx);
     }
   }
-  bus.emit('player:metadata-update', {
+  setState('player.currentTrackMeta', {
     type: 'file',
     title: t('toast.same_wifi_file_title'),
     name: (data.name as string) || '',

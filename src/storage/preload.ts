@@ -704,7 +704,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     // Update metadata for UI title display
     const playlist = getState('playlist.items') || [];
     if (playlist[index]) {
-      bus.emit('player:metadata-update', playlist[index]);
+      setState('player.currentTrackMeta', playlist[index]);
     }
   }
 

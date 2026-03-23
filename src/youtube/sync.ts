@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -73,7 +73,7 @@ export function broadcastYouTubeSync(): void {
           }
         }
 
-        bus.emit('player:metadata-update', playlist[currentTrackIndex]);
+        setState('player.currentTrackMeta', playlist[currentTrackIndex]);
       }
     }
 
@@ -167,7 +167,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
       const playlist = getState('playlist.items') || [];
       const currentTrackIndex = getState('playlist.currentTrackIndex');
-      bus.emit('player:metadata-update', playlist[currentTrackIndex]);
+      setState('player.currentTrackMeta', playlist[currentTrackIndex]);
     }
 
     // Drift correction
@@ -259,7 +259,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
   const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    bus.emit('player:metadata-update', currentItem);
+    setState('player.currentTrackMeta', currentItem);
   }
 }
 

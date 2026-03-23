@@ -340,7 +340,7 @@ export function leaveSession(): void {
   });
 
   // ── 8. Reset UI ──
-  bus.emit('player:state-changed', APP_STATE.IDLE);
+  setState('appState', APP_STATE.IDLE);
 
   // Delayed reset: allow async close handlers to read the flag first
   setManagedTimer('intentional-disconnect-reset', () => setState('network.isIntentionalDisconnect', false), 200);

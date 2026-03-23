@@ -157,12 +157,10 @@ describe('setEngineMode', () => {
     expect(getState('appState')).toBe(APP_STATE.PAUSED);
   });
 
-  it('emits player:state-changed event', () => {
-    const fn = vi.fn();
-    bus.on('player:state-changed', fn);
+  it('updates appState on engine mode change', () => {
     resetState();
     setEngineMode('youtube');
-    expect(fn).toHaveBeenCalledWith(APP_STATE.PLAYING_YOUTUBE);
+    expect(getState('appState')).toBe(APP_STATE.PLAYING_YOUTUBE);
   });
 
   it('emits state:appState on engine mode change', () => {

@@ -490,7 +490,7 @@ export function initSync(): void {
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
     // Dynamic import to avoid circular dependency
-    import('../player/playback.ts').then(mod => mod.adjustSync(ms / 1000));
+    import('../player/transport.ts').then(mod => mod.adjustSync(ms / 1000));
   });
 
   bus.on('sync:auto-sync', () => {

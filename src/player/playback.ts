@@ -49,24 +49,7 @@ import {
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
 
-export {
-  // _state.ts
-  getCurrentAudioBuffer, setCurrentAudioBuffer,
-  incrementLoadToken, getLoadToken,
-  setPendingPlayTime, getPendingPlayTime,
-} from './_state.ts';
-
-export {
-  // transport.ts
-  fmtTime, getTrackPosition, updatePlayState, stopPlayerNode,
-  stopAllMedia, play, pause, handleEnded,
-  togglePlay, stopPlayback, skipTime, adjustSync, checkVideoSync,
-} from './transport.ts';
-
-export {
-  // decode.ts
-  loadAndBroadcastFile, loadPreloadedTrack,
-} from './decode.ts';
+// Note: Re-exports removed. Import directly from transport.ts, decode.ts, _state.ts.
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
@@ -111,7 +94,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || '';
-      bus.emit('player:metadata-update', {
+      setState('player.currentTrackMeta', {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
         name,
@@ -171,7 +154,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // Remote guest: no file will arrive, show guide (transport guard)
     if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist2 = getState('playlist.items') || [];
-      bus.emit('player:metadata-update', {
+      setState('player.currentTrackMeta', {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
         name: playlist2[currentTrackIndex]?.name || '',

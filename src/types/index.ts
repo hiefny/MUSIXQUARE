@@ -388,7 +388,7 @@ interface BaseEventMap {
   'player:seek-to-time': [time: number];
   'player:stop-all-media': [];
   'playback:replay-current': [];
-  'player:metadata-update': [item: PlaylistItem];
+  'player:metadata-update': [item: Partial<PlaylistItem>];
   'player:sync-video-volume': [volume: number];
   'player:check-ended': [];
 

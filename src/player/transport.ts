@@ -10,6 +10,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
+import type { AppStateValue } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -46,7 +47,7 @@ export function fmtTime(s: number): string {
  * All code paths that change the app state MUST use this instead of
  * calling setState('appState') directly.
  */
-export function setAppState(newState: string): void {
+export function setAppState(newState: AppStateValue): void {
   setState('appState', newState);
   bus.emit('player:state-changed', newState);
 }

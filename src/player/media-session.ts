@@ -15,7 +15,7 @@ import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Metadata Update ───────────────────────────────────────────────
 
-export function updateMediaSessionMetadata(item: PlaylistItem | null): void {
+export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): void {
   if (!('mediaSession' in navigator) || !item) return;
 
   let title = item.name || item.title || 'Unknown Track';
@@ -118,7 +118,7 @@ export function initMediaSession(): void {
   }
 
   // Listen for metadata update events from playlist module
-  bus.on('player:metadata-update', (item: PlaylistItem) => {
+  bus.on('player:metadata-update', (item: Partial<PlaylistItem>) => {
     updateMediaSessionMetadata(item);
   });
 

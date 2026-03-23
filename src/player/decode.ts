@@ -30,7 +30,7 @@ import {
   replaceLoadScope,
 } from './_state.ts';
 
-import { play, stopAllMedia, stopPlayerNode, updatePlayState, setAppState } from './transport.ts';
+import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 
@@ -153,7 +153,6 @@ export async function loadAndBroadcastFile(
     if (myLoadId === getActiveLoadSessionId()) {
       bus.emit('ui:show-loader', false);
       setState('player.pausedAt', 0);
-      updatePlayState(false);
     }
 
     const hostConn = getState('network.hostConn');

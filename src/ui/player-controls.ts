@@ -568,14 +568,27 @@ export function initPlayerControls(): void {
     }
   });
 
-  // Play/Pause visual state
-  bus.on('ui:update-play-state', (playing) => {
+  // Play/Pause visual state — derived from appState + YouTube play event
+  function updatePlayIcon(playing: boolean): void {
     const btn = document.getElementById('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
       icon.setAttribute('d', playing
         ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z'  // pause icon
         : 'M8 5v14l11-7z');                    // play icon
+    }
+  }
+
+  bus.on('state:appState', () => {
+    const state = getState('appState');
+    const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE;
+    updatePlayIcon(playing);
+  });
+
+  // YouTube pause/play doesn't change appState — still need this event
+  bus.on('ui:update-play-state', (playing) => {
+    if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+      updatePlayIcon(playing);
     }
   });
 

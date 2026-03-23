@@ -166,7 +166,6 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
     setAppState(APP_STATE.IDLE);
   }
-  updatePlayState(false);
 
   // Stop background sync timers
   bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
@@ -363,8 +362,6 @@ async function _internalPlay(offset: number): Promise<void> {
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
 
-  updatePlayState(true);
-
   const meta = getState('transfer.meta');
   const currentFileBlob = getState('files.currentFileBlob');
   const isVideo = isMediaVideo(currentFileBlob, meta);
@@ -401,7 +398,6 @@ export function pause(forcedTime?: number): void {
 
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
-  updatePlayState(false);
   bus.emit('ui:show-toast', t('common.pause'));
   bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
 }
@@ -520,7 +516,6 @@ export function stopPlayback(): void {
     clearManagedTimer('ended-advance-retry');
     clearManagedTimer('ended-advance-next');
     setState('player.pausedAt', 0);
-    updatePlayState(false);
     return;
   }
 

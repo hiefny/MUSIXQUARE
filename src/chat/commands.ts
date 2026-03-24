@@ -31,8 +31,8 @@ interface CommandDef {
   execute: (args: string[], rawArgs: string) => void;
   usage: string;
   description: string;
-  hidden?: boolean;       // /help 출력 목록에서 숨김
-  hideFromSuggest?: boolean; // 자동완성 드롭다운에서 숨김
+  hidden?: boolean;       // Hidden from /help output
+  hideFromSuggest?: boolean; // Hidden from autocomplete dropdown
 }
 
 // ─── Target Resolution ──────────────────────────────────────────
@@ -41,7 +41,7 @@ function resolveTarget(arg: string): { peerId: string; label: string } | null {
   if (!arg) return null;
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
 
-  // #번호 방식
+  // By join-order number (#N)
   if (arg.startsWith('#')) {
     const order = parseInt(arg.slice(1), 10);
     if (!isNaN(order)) {
@@ -51,7 +51,7 @@ function resolveTarget(arg: string): { peerId: string; label: string } | null {
     return null;
   }
 
-  // 닉네임 방식 (대소문자 무시)
+  // By nickname (case-insensitive)
   const lower = arg.toLowerCase();
   const peer = peers.find(p => p.label.toLowerCase() === lower);
   if (peer) return { peerId: peer.id, label: peer.label };

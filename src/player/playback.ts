@@ -303,8 +303,8 @@ export function initPlayback(): void {
   // Sync: handle sync response from host (apply time + play/pause)
   bus.on('sync:response', (hostTime, isPlaying, oneWayLatency) => {
     const localOffset = getState('sync.localOffset') || 0;
-    // oneWayLatency는 extrapolatedTime 계산에 이미 반영됨 (elapsed에서 rtt/2 차감)
-    // 여기서 또 더하면 이중 보정 → 게스트가 호스트보다 앞서감
+    // oneWayLatency is already factored into extrapolatedTime (elapsed subtracts rtt/2)
+    // Adding it again here would double-compensate, making the guest run ahead of host
     const compensatedTime = hostTime + localOffset;
 
     if (isPlaying) {

@@ -123,7 +123,7 @@ export function initMediaSession(): void {
     updateMediaSessionMetadata(meta ?? null);
   });
 
-  // ⚠️ CRITICAL — DO NOT REMOVE
+  // !! CRITICAL — DO NOT REMOVE
   // Sync playbackState with app state. This explicitly tells the OS
   // that media is playing, which has a crucial side effect on iOS PWA:
   // iOS keeps the AudioContext alive in the background when

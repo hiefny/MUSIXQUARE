@@ -161,7 +161,7 @@ function applyBestSample(): void {
 
   log.debug(`[Sync] Best sample: RTT=${best.rtt}ms, hostTime=${best.hostTime.toFixed(2)}s, elapsed=${elapsed.toFixed(3)}s`);
 
-  // Latency compensation — remote + unknown (ICE 판정 전에도 보정 적용)
+  // Latency compensation — remote + unknown (applied even before ICE classification)
   let oneWayLatencySeconds = 0;
   if (getState('network.connectionType') !== 'local') {
     if (best.rtt > 0 && best.rtt < Infinity) {

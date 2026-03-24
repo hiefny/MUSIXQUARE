@@ -16,6 +16,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:report": "playwright test --reporter=./e2e/live-reporter.ts,line",
+    "test:report-viewer": "npx serve . -p 3333 -s",
     "test:all": "vitest run && npm run build && playwright test"
   },
   "devDependencies": {

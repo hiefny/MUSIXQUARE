@@ -15,7 +15,14 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import {
+  readState,
+  navigateToTab,
+  waitForClass,
+  openChatDrawer,
+  isVisible,
+  waitForChatMessage,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -37,8 +44,7 @@ test.describe('Comprehensive UI', () => {
     for (const tab of tabs) {
       const navItem = pair.hostPage.locator(`.nav-item[data-tab="${tab}"]`);
       if (await navItem.isVisible()) {
-        await navItem.click();
-        await pair.hostPage.waitForTimeout(300);
+        await navigateToTab(pair.hostPage, tab);
 
         const panel = pair.hostPage.locator(`#tab-${tab}`);
         const isActive = await panel.evaluate(el => el.classList.contains('active'));
@@ -53,8 +59,7 @@ test.describe('Comprehensive UI', () => {
     // Go to settings
     const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
     if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(300);
+      await navigateToTab(pair.hostPage, 'settings');
 
       const playActive = await pair.hostPage.locator('#tab-play').evaluate(el => el.classList.contains('active'));
       const settingsActive = await pair.hostPage.locator('#tab-settings').evaluate(el => el.classList.contains('active'));
@@ -72,13 +77,10 @@ test.describe('Comprehensive UI', () => {
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
     if (await mediaBtn.isVisible()) {
       await mediaBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
 
-      const overlay = pair.hostPage.locator('#media-source-overlay');
-      const isVisible = await overlay.evaluate(el =>
-        el.classList.contains('active') || getComputedStyle(el).display !== 'none',
-      ).catch(() => false);
-      expect(isVisible).toBe(true);
+      const overlayVisible = await isVisible(pair.hostPage, '#media-source-overlay');
+      expect(overlayVisible).toBe(true);
     }
   });
 
@@ -88,7 +90,7 @@ test.describe('Comprehensive UI', () => {
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
     if (await mediaBtn.isVisible()) {
       await mediaBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
 
       // YouTube button should exist
       await expect(pair.hostPage.locator('#btn-youtube-source')).toBeAttached();
@@ -102,11 +104,9 @@ test.describe('Comprehensive UI', () => {
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await openChatDrawer(pair.hostPage);
 
-      const drawer = pair.hostPage.locator('#chat-drawer');
-      const isOpen = await drawer.evaluate(el => el.classList.contains('open'));
+      const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(el => el.classList.contains('open'));
       expect(isOpen).toBe(true);
     }
   });
@@ -117,17 +117,15 @@ test.describe('Comprehensive UI', () => {
     // Open chat
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await openChatDrawer(pair.hostPage);
 
       // Close chat
       const closeBtn = pair.hostPage.locator('#btn-chat-close');
       if (await closeBtn.isVisible()) {
         await closeBtn.click();
-        await pair.hostPage.waitForTimeout(500);
+        await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
 
-        const drawer = pair.hostPage.locator('#chat-drawer');
-        const isOpen = await drawer.evaluate(el => el.classList.contains('open'));
+        const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(el => el.classList.contains('open'));
         expect(isOpen).toBe(false);
       }
     }
@@ -138,8 +136,7 @@ test.describe('Comprehensive UI', () => {
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await openChatDrawer(pair.hostPage);
 
       await expect(pair.hostPage.locator('#chat-input')).toBeVisible();
       await expect(pair.hostPage.locator('#btn-chat-send')).toBeVisible();
@@ -151,13 +148,12 @@ test.describe('Comprehensive UI', () => {
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await openChatDrawer(pair.hostPage);
 
       const chatInput = pair.hostPage.locator('#chat-input');
       await chatInput.fill('Test message from host');
       await pair.hostPage.locator('#btn-chat-send').click();
-      await pair.hostPage.waitForTimeout(1000);
+      await waitForChatMessage(pair.hostPage, 'Test message from host');
 
       const msgText = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
@@ -312,10 +308,13 @@ test.describe('Mobile UI', () => {
       const count = await navItems.count();
       expect(count).toBeGreaterThanOrEqual(3);
 
-      // Tap each
+      // Tap each and wait for corresponding tab to become active
       for (let i = 0; i < count; i++) {
+        const tabName = await navItems.nth(i).getAttribute('data-tab');
         await navItems.nth(i).click();
-        await pair.hostPage.waitForTimeout(200);
+        if (tabName) {
+          await pair.hostPage.locator(`#tab-${tabName}`).waitFor({ state: 'visible', timeout: 5_000 });
+        }
       }
     } finally {
       await cleanupContexts(pair);
@@ -329,8 +328,7 @@ test.describe('Mobile UI', () => {
 
       const chatBtn = pair.hostPage.locator('#chat-preview-btn');
       if (await chatBtn.isVisible()) {
-        await chatBtn.click();
-        await pair.hostPage.waitForTimeout(500);
+        await openChatDrawer(pair.hostPage);
 
         const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(
           el => el.classList.contains('open'),

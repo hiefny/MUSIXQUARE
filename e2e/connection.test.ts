@@ -85,8 +85,10 @@ test.describe('Host-Guest Connection', () => {
     await pair.guestPage.fill('#setup-join-code', '999999');
     await pair.guestPage.click('#btn-setup-confirm');
 
-    // Should remain on setup overlay (connection failed)
-    await pair.guestPage.waitForTimeout(5000);
+    // Should remain on setup overlay (connection failed).
+    // Brief wait is intentional: we're asserting that the overlay does NOT close,
+    // so there's no DOM event to await — we just verify it's still active after a delay.
+    await pair.guestPage.waitForTimeout(2_000);
     const overlayStillActive = await pair.guestPage.evaluate(() =>
       document.getElementById('setup-overlay')?.classList.contains('active'),
     );

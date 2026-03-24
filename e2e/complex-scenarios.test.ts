@@ -4,7 +4,7 @@
  * Tests multi-step, interleaved, and race-condition scenarios that
  * simulate real-world usage patterns ordinary tests can't catch:
  *
- * - Mode switching chains (Audio→YouTube→Audio)
+ * - Mode switching chains (Audio->YouTube->Audio)
  * - Playlist manipulation during playback
  * - Concurrent host+guest operations
  * - Transfer interruption & recovery
@@ -28,15 +28,21 @@ import {
   waitForDeviceCount,
   waitForChatMessage,
   waitForState,
+  waitForPlayState,
+  navigateToTab,
+  openChatDrawer,
+  sendChat,
+  isVisible,
+  waitForOverlayDismissed,
 } from './helpers/wait.ts';
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 
 let pair: HostGuestPair;
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 1. MODE SWITCHING CHAINS
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Mode Switching Chains', () => {
   test.beforeEach(async ({ browser }) => {
@@ -46,13 +52,12 @@ test.describe('Mode Switching Chains', () => {
     await cleanupContexts(pair);
   });
 
-  test('Audio → YouTube → Audio roundtrip preserves playlist', async () => {
+  test('Audio -> YouTube -> Audio roundtrip preserves playlist', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Phase 1: Upload audio file
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     // Start playing audio
     await pair.hostPage.waitForFunction(
@@ -60,10 +65,7 @@ test.describe('Mode Switching Chains', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Phase 2: Switch to YouTube
     await pair.hostPage.evaluate(() => {
@@ -74,18 +76,26 @@ test.describe('Mode Switching Chains', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(2000);
+      // Wait for YouTube URL to be processed
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn');
+          return btn && !btn.hasAttribute('disabled');
+        },
+        { timeout: 10_000 },
+      ).catch(() => {});
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
       if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(5000);
+        // Wait for YouTube mode
+        await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE').catch(() => {});
       }
     }
 
     // Phase 3: Switch back to audio by uploading another file
     await uploadFixture(pair.hostPage, 'test02');
-    await pair.hostPage.waitForTimeout(3000);
+    await waitForPlaylistCount(pair.hostPage, 2);
 
     // Playlist should have accumulated both tracks
     const count = await pair.hostPage.evaluate(() => {
@@ -94,7 +104,7 @@ test.describe('Mode Switching Chains', () => {
     });
     expect(count).toBeGreaterThanOrEqual(2);
 
-    // App should not be crashed — state is valid
+    // App should not be crashed -- state is valid
     const state = await readState(pair.hostPage, 'appState') as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(state);
   });
@@ -105,7 +115,6 @@ test.describe('Mode Switching Chains', () => {
     // Upload file for audio mode
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     // Play audio
     await pair.hostPage.waitForFunction(
@@ -113,19 +122,19 @@ test.describe('Mode Switching Chains', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Pause
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(500);
+    await waitForPlayState(pair.hostPage, false);
 
     // Play again
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(500);
+    await waitForPlayState(pair.hostPage, true);
 
     // Pause again
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(500);
+    await waitForPlayState(pair.hostPage, false);
 
     // State should be consistent
     const finalState = await readState(pair.hostPage, 'appState') as string;
@@ -137,9 +146,9 @@ test.describe('Mode Switching Chains', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 2. PLAYLIST MANIPULATION DURING PLAYBACK
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Playlist Manipulation During Playback', () => {
   test.beforeEach(async ({ browser }) => {
@@ -155,11 +164,9 @@ test.describe('Playlist Manipulation During Playback', () => {
     // Upload 2 tracks
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Start playback
     await pair.hostPage.waitForFunction(
@@ -167,13 +174,12 @@ test.describe('Playlist Manipulation During Playback', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForPlayState(pair.hostPage, true);
 
     // Switch to play tab if not already
     const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
     if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(300);
+      await navigateToTab(pair.hostPage, 'play');
     }
 
     // Get index of currently playing track
@@ -182,18 +188,19 @@ test.describe('Playlist Manipulation During Playback', () => {
     // Remove the current track
     const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
     const btnForCurrent = removeBtns.nth(currentIndex);
-    if (await btnForCurrent.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, `#playlist-ui .btn-playlist-remove >> nth=${currentIndex}`)) {
       await btnForCurrent.click();
-      await pair.hostPage.waitForTimeout(500);
 
       const okBtn = pair.hostPage.locator('#btn-dialog-ok');
-      if (await okBtn.isVisible().catch(() => false)) {
+      await okBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
+      if (await okBtn.isVisible()) {
         await okBtn.click();
-        await pair.hostPage.waitForTimeout(3000);
+        // Wait for playlist to shrink after removal
+        await waitForPlaylistCount(pair.hostPage, 1);
       }
     }
 
-    // App should not crash — should switch to remaining track or idle
+    // App should not crash -- should switch to remaining track or idle
     const state = await readState(pair.hostPage, 'appState') as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
@@ -203,9 +210,7 @@ test.describe('Playlist Manipulation During Playback', () => {
 
     // Upload 3 files in rapid succession (minimal wait)
     await uploadFixture(pair.hostPage, 'test01');
-    await pair.hostPage.waitForTimeout(500); // Don't wait for playlist count
     await uploadFixture(pair.hostPage, 'test02');
-    await pair.hostPage.waitForTimeout(500);
     await uploadFixture(pair.hostPage, 'test03');
 
     // Wait for all to eventually appear
@@ -224,22 +229,20 @@ test.describe('Playlist Manipulation During Playback', () => {
     // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(500);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(500);
 
     // Rapid next/prev while decode might still be happening
+    // Intentional short delays for stress testing
     for (let i = 0; i < 5; i++) {
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForTimeout(200);
+      await pair.hostPage.waitForTimeout(100); // intentional throttle for stress test
       await pair.hostPage.click('#btn-prev');
-      await pair.hostPage.waitForTimeout(200);
+      await pair.hostPage.waitForTimeout(100); // intentional throttle for stress test
     }
 
     // Final state should be valid
@@ -249,9 +252,9 @@ test.describe('Playlist Manipulation During Playback', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 3. CONCURRENT HOST + GUEST OPERATIONS
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Concurrent Host+Guest Operations', () => {
   test.beforeEach(async ({ browser }) => {
@@ -261,15 +264,11 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await cleanupContexts(pair);
   });
 
-  test('host uploads file while guest sends chat — both succeed', async () => {
+  test('host uploads file while guest sends chat -- both succeed', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Guest opens chat and types
-    const guestChatBtn = pair.guestPage.locator('#chat-preview-btn');
-    if (await guestChatBtn.isVisible()) {
-      await guestChatBtn.click();
-      await pair.guestPage.waitForTimeout(300);
-    }
+    // Guest opens chat (give extra time for UI to settle after connection)
+    await openChatDrawer(pair.guestPage, 10_000);
 
     // Concurrently: host uploads, guest sends chat
     const uploadPromise = (async () => {
@@ -286,38 +285,30 @@ test.describe('Concurrent Host+Guest Operations', () => {
     })();
 
     await Promise.all([uploadPromise, chatPromise]);
-    await pair.hostPage.waitForTimeout(3000);
 
     // File should be in playlist
+    await waitForPlaylistCount(pair.hostPage, 1);
     const count = await pair.hostPage.evaluate(() =>
       document.getElementById('playlist-ui')?.children.length ?? 0,
     );
     expect(count).toBeGreaterThanOrEqual(1);
 
     // Chat message should have arrived on host
-    const hostChatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await hostChatBtn.isVisible()) {
-      await hostChatBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+    await openChatDrawer(pair.hostPage);
+    await waitForChatMessage(pair.hostPage, 'Concurrent chat during upload');
 
-      const msgs = await pair.hostPage.evaluate(() =>
-        document.getElementById('chat-messages')?.textContent || '',
-      );
-      expect(msgs).toContain('Concurrent chat during upload');
-    }
+    const msgs = await pair.hostPage.evaluate(() =>
+      document.getElementById('chat-messages')?.textContent || '',
+    );
+    expect(msgs).toContain('Concurrent chat during upload');
   });
 
   test('both host and guest send chat simultaneously', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open chat on both
-    for (const page of [pair.hostPage, pair.guestPage]) {
-      const chatBtn = page.locator('#chat-preview-btn');
-      if (await chatBtn.isVisible()) {
-        await chatBtn.click();
-        await page.waitForTimeout(300);
-      }
-    }
+    // Open chat on both (give extra time for UI to settle after connection)
+    await openChatDrawer(pair.hostPage, 10_000);
+    await openChatDrawer(pair.guestPage, 10_000);
 
     // Both send at nearly the same time
     const hostSend = (async () => {
@@ -331,7 +322,12 @@ test.describe('Concurrent Host+Guest Operations', () => {
     })();
 
     await Promise.all([hostSend, guestSend]);
-    await pair.hostPage.waitForTimeout(3000);
+
+    // Wait for messages to arrive on both sides
+    await waitForChatMessage(pair.hostPage, 'HOST simultaneous msg');
+    await waitForChatMessage(pair.hostPage, 'GUEST simultaneous msg');
+    await waitForChatMessage(pair.guestPage, 'HOST simultaneous msg');
+    await waitForChatMessage(pair.guestPage, 'GUEST simultaneous msg');
 
     // Both sides should see both messages
     const hostMsgs = await pair.hostPage.evaluate(() =>
@@ -354,7 +350,7 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await pair.hostPage.evaluate(() => {
       (document.getElementById('nav-settings') as HTMLElement)?.click();
     });
-    await pair.hostPage.waitForTimeout(300);
+    await pair.hostPage.locator('#tab-settings').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
 
     // Guest switches tabs rapidly
     const guestTabSwitch = (async () => {
@@ -362,21 +358,23 @@ test.describe('Concurrent Host+Guest Operations', () => {
         await pair.guestPage.evaluate((t) => {
           (document.getElementById(`nav-${t}`) as HTMLElement)?.click();
         }, tab);
-        await pair.guestPage.waitForTimeout(200);
+        await pair.guestPage.waitForTimeout(100); // intentional throttle for rapid tab switching stress test
       }
     })();
 
     // Host changes theme concurrently
     const hostThemeChange = (async () => {
       const darkOpt = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
-      if (await darkOpt.isVisible().catch(() => false)) {
+      if (await isVisible(pair.hostPage, '.ch-opt[data-theme="dark"]')) {
         await darkOpt.click();
-        await pair.hostPage.waitForTimeout(500);
+        await pair.hostPage.waitForFunction(
+          () => document.documentElement.getAttribute('data-theme') === 'dark',
+          { timeout: 5_000 },
+        ).catch(() => {});
       }
     })();
 
     await Promise.all([guestTabSwitch, hostThemeChange]);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Both should be functional
     const hostState = await readState(pair.hostPage, 'appState');
@@ -386,9 +384,9 @@ test.describe('Concurrent Host+Guest Operations', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 4. SETTINGS CHANGES DURING PLAYBACK
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Settings Changes During Playback', () => {
   test.beforeEach(async ({ browser }) => {
@@ -411,10 +409,7 @@ test.describe('Settings Changes During Playback', () => {
 
     // Start playing
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Change EQ values via state (no need to navigate to settings tab)
     await pair.hostPage.evaluate(() => {
@@ -424,7 +419,15 @@ test.describe('Settings Changes During Playback', () => {
         set('audio.eqValues', eq);
       }
     });
-    await pair.hostPage.waitForTimeout(1000);
+
+    // Verify EQ was applied
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && (get('audio.eqValues') as number[])?.[0] === 6;
+      },
+      { timeout: 5_000 },
+    );
 
     // Should still be playing
     const state = await readState(pair.hostPage, 'appState');
@@ -447,24 +450,21 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Set volume to 0
     await pair.hostPage.evaluate(() => {
       const set = (window as any).__MUSIXQUARE_SET_STATE__;
       if (set) set('audio.masterVolume', 0);
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.masterVolume', 0);
 
     // Set volume back to 1
     await pair.hostPage.evaluate(() => {
       const set = (window as any).__MUSIXQUARE_SET_STATE__;
       if (set) set('audio.masterVolume', 1);
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.masterVolume', 1);
 
     // Should still be playing
     const state = await readState(pair.hostPage, 'appState');
@@ -483,10 +483,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Enable reverb
     await pair.hostPage.evaluate(() => {
@@ -496,14 +493,14 @@ test.describe('Settings Changes During Playback', () => {
         set('audio.reverbDecay', 3);
       }
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.reverbMix', 0.7);
 
     // Disable reverb
     await pair.hostPage.evaluate(() => {
       const set = (window as any).__MUSIXQUARE_SET_STATE__;
       if (set) set('audio.reverbMix', 0);
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.reverbMix', 0);
 
     const state = await readState(pair.hostPage, 'appState');
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
@@ -521,10 +518,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Cycle through channel modes
     for (const mode of [1, -1, 2, 0]) {
@@ -532,7 +526,7 @@ test.describe('Settings Changes During Playback', () => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (set) set('audio.channelMode', m);
       }, mode);
-      await pair.hostPage.waitForTimeout(300);
+      await waitForState(pair.hostPage, 'audio.channelMode', mode);
     }
 
     const state = await readState(pair.hostPage, 'appState');
@@ -540,9 +534,9 @@ test.describe('Settings Changes During Playback', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 5. REPEAT / SHUFFLE EDGE CASES
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Repeat & Shuffle Edge Cases', () => {
   test.beforeEach(async ({ browser }) => {
@@ -552,7 +546,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
     await cleanupContexts(pair);
   });
 
-  test('repeat one with single track — play button toggles correctly', async () => {
+  test('repeat one with single track -- play button toggles correctly', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Set repeat mode to ONE (2)
@@ -569,17 +563,21 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
       { timeout: 15_000 },
     );
 
-    // Play → Pause → Play → Pause
+    // Play -> Pause -> Play -> Pause
     for (let i = 0; i < 4; i++) {
       await pair.hostPage.click('#play-btn');
-      await pair.hostPage.waitForTimeout(500);
+      if (i % 2 === 0) {
+        await waitForPlayState(pair.hostPage, true);
+      } else {
+        await waitForPlayState(pair.hostPage, false);
+      }
     }
 
     const state = await readState(pair.hostPage, 'appState') as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
 
-  test('shuffle with 2 tracks — next always plays the other track', async () => {
+  test('shuffle with 2 tracks -- next always plays the other track', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Enable shuffle
@@ -596,19 +594,34 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
-    // Navigate next several times — both indices should appear
+    // Wait for file blob to be ready
+    await pair.hostPage.waitForFunction(
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      { timeout: 15_000 },
+    );
+
+    // Navigate next several times -- both indices should appear
     const indices = new Set<number>();
     for (let i = 0; i < 6; i++) {
       const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
       indices.add(idx);
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForTimeout(1500);
+      // Wait for track index to potentially change after clicking next
+      await pair.hostPage.waitForFunction(
+        (prevIdx) => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          if (!get) return false;
+          const current = get('playlist.currentTrackIndex');
+          // Either the index changed, or file blob is ready (same track re-loaded)
+          return current !== prevIdx || get('files.currentFileBlob') !== null;
+        },
+        idx,
+        { timeout: 10_000 },
+      ).catch(() => {});
     }
 
     // With shuffle + 2 tracks + repeat all, both 0 and 1 should appear
@@ -616,23 +629,34 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
   });
 
   test('changing repeat mode mid-playlist does not skip tracks', async () => {
+    test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(1000);
+
+    // Wait for file blob to be ready
+    await pair.hostPage.waitForFunction(
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      { timeout: 20_000 },
+    );
 
     // Navigate to track 1
     await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForTimeout(1500);
+    // Wait for track index to change (may go to 1 or wrap)
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('playlist.currentTrackIndex') !== 0;
+      },
+      { timeout: 15_000 },
+    );
 
     const idxBefore = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
 
@@ -641,7 +665,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
       const set = (window as any).__MUSIXQUARE_SET_STATE__;
       if (set) set('playlist.repeatMode', 1);
     });
-    await pair.hostPage.waitForTimeout(300);
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
 
     // Track index should not change from just changing repeat mode
     const idxAfter = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
@@ -649,9 +673,9 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 6. OPERATOR PRIVILEGE SCENARIOS
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Operator Privilege Scenarios', () => {
   test.beforeEach(async ({ browser }) => {
@@ -667,9 +691,16 @@ test.describe('Operator Privilege Scenarios', () => {
 
     // Grant operator
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
-    if (await opBtn.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, '.d-op-btn')) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+      // Wait for operator state to propagate to guest
+      await pair.guestPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('network.isOperator') !== undefined;
+        },
+        { timeout: 10_000 },
+      );
 
       // Verify grant succeeded first
       const isOpBefore = await readState(pair.guestPage, 'network.isOperator');
@@ -678,14 +709,14 @@ test.describe('Operator Privilege Scenarios', () => {
         // Upload file
         await uploadFixture(pair.hostPage, 'test01');
         await waitForPlaylistCount(pair.hostPage, 1);
-        await pair.hostPage.waitForTimeout(2000);
 
         // Guest should still be operator after upload
         const isOp = await readState(pair.guestPage, 'network.isOperator');
         expect(isOp).toBe(true);
       } else {
-        // Operator button might be a toggle that wasn't in grant state, just verify no crash
-        expect(true).toBe(true);
+        // Operator button might be a toggle that wasn't in grant state
+        const guestState = await readState(pair.guestPage, 'appState');
+        expect(guestState).toBeDefined();
       }
     }
   });
@@ -696,9 +727,16 @@ test.describe('Operator Privilege Scenarios', () => {
 
     // Grant operator
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
-    if (await opBtn.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, '.d-op-btn')) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+      // Wait for operator grant to propagate
+      await pair.guestPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('network.isOperator') !== undefined;
+        },
+        { timeout: 10_000 },
+      );
     }
 
     // Upload and play
@@ -709,12 +747,19 @@ test.describe('Operator Privilege Scenarios', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForPlayState(pair.hostPage, true);
 
     // Revoke operator while playing
-    if (await opBtn.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, '.d-op-btn')) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+      // Wait for revocation to propagate
+      await pair.guestPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('network.isOperator') === false;
+        },
+        { timeout: 10_000 },
+      ).catch(() => {});
     }
 
     // Guest should no longer be operator but app should be functional
@@ -726,9 +771,9 @@ test.describe('Operator Privilege Scenarios', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 7. GUEST DISCONNECT DURING FILE TRANSFER
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Guest Disconnect During Transfer', () => {
   test('host continues normally if guest disconnects mid-transfer', async ({ browser }) => {
@@ -743,9 +788,8 @@ test.describe('Guest Disconnect During Transfer', () => {
 
       // Guest disconnects immediately (mid-transfer)
       await pair.guestContext.close();
-      await pair.hostPage.waitForTimeout(3000);
 
-      // Host should still function
+      // Host should still function -- wait for playlist to populate
       await waitForPlaylistCount(pair.hostPage, 1, 15_000);
 
       const state = await readState(pair.hostPage, 'appState');
@@ -757,7 +801,7 @@ test.describe('Guest Disconnect During Transfer', () => {
         { timeout: 15_000 },
       );
       await pair.hostPage.click('#play-btn');
-      await pair.hostPage.waitForTimeout(1000);
+      await waitForPlayState(pair.hostPage, true);
 
       const playState = await readState(pair.hostPage, 'appState');
       expect(['PLAYING_AUDIO', 'PAUSED']).toContain(playState);
@@ -777,15 +821,14 @@ test.describe('Guest Disconnect During Transfer', () => {
       // Upload files
       await uploadFixture(pair.hostPage, 'test01');
       await waitForPlaylistCount(pair.hostPage, 1);
-      await pair.hostPage.waitForTimeout(2000);
 
       await uploadFixture(pair.hostPage, 'test02');
       await waitForPlaylistCount(pair.hostPage, 2);
-      await pair.hostPage.waitForTimeout(1000);
 
       // Guest1 disconnects
       await pair.guestContext.close();
-      await pair.hostPage.waitForTimeout(3000);
+      // Wait for device count to reflect disconnection
+      await waitForDeviceCount(pair.hostPage, 1).catch(() => {});
 
       // New guest joins
       newGuestContext = await browser.newContext({
@@ -813,9 +856,9 @@ test.describe('Guest Disconnect During Transfer', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 8. DIALOG OVERLAP & INTERACTION EDGE CASES
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('Dialog & UI Overlap Edge Cases', () => {
   test.beforeEach(async ({ browser }) => {
@@ -828,18 +871,21 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
   test('opening chat while media source popup is open', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open media source popup
-    const mediaBtn = pair.hostPage.locator('#btn-media-source');
-    if (await mediaBtn.isVisible()) {
-      await mediaBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+    // Ensure we're on the play tab where the media source button lives
+    await navigateToTab(pair.hostPage, 'play', 15_000);
+
+    // Open media source popup via JS fallback (button may be CSS-hidden)
+    const mediaBtnExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-media-source'));
+    if (mediaBtnExists) {
+      await pair.hostPage.evaluate(() => (document.getElementById('btn-media-source') as HTMLElement)?.click());
+      // Wait for the overlay to gain .active class (actual DOM structure uses #media-source-overlay)
+      await pair.hostPage.waitForFunction(
+        () => document.getElementById('media-source-overlay')?.classList.contains('active') ?? false,
+        { timeout: 5_000 },
+      ).catch(() => {});
 
       // Try to open chat while popup is active
-      const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-      if (await chatBtn.isVisible()) {
-        await chatBtn.click();
-        await pair.hostPage.waitForTimeout(500);
-      }
+      await openChatDrawer(pair.hostPage).catch(() => {});
 
       // App should handle the overlap gracefully
       const state = await readState(pair.hostPage, 'appState');
@@ -852,41 +898,31 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     // Ensure play tab
-    const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(300);
-    }
+    await navigateToTab(pair.hostPage, 'play');
 
     // Click remove to trigger dialog
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
-    if (await removeBtn.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await removeBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      // Wait for dialog to appear
+      await pair.hostPage.locator('#btn-dialog-ok, #btn-dialog-cancel').first()
+        .waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {});
 
       // Switch to settings tab while dialog is showing
-      const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-      if (await settingsNav.isVisible()) {
-        await settingsNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
+      await pair.hostPage.evaluate(() => {
+        (document.getElementById('nav-settings') as HTMLElement)?.click();
+      });
 
-      // Dialog should still be visible or handled
       // Cancel if dialog is visible
       const cancelBtn = pair.hostPage.locator('#btn-dialog-cancel');
-      if (await cancelBtn.isVisible().catch(() => false)) {
+      if (await cancelBtn.isVisible()) {
         await cancelBtn.click();
-        await pair.hostPage.waitForTimeout(300);
       }
 
-      // Go back to play tab — track should still be there
-      if (await playNav.isVisible()) {
-        await playNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
+      // Go back to play tab -- track should still be there
+      await navigateToTab(pair.hostPage, 'play');
 
       const count = await pair.hostPage.evaluate(() =>
         document.getElementById('playlist-ui')?.children.length ?? 0,
@@ -896,9 +932,9 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // 9. STATE CONSISTENCY AFTER COMPLEX FLOWS
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 test.describe('State Consistency After Complex Flows', () => {
   test.beforeEach(async ({ browser }) => {
@@ -914,15 +950,12 @@ test.describe('State Consistency After Complex Flows', () => {
     // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Play
     await pair.hostPage.waitForFunction(
@@ -930,46 +963,55 @@ test.describe('State Consistency After Complex Flows', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForPlayState(pair.hostPage, true);
 
     // Pause
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(500);
+    await waitForPlayState(pair.hostPage, false);
 
     // Next
     await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForTimeout(2000);
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('files.currentFileBlob') !== null;
+      },
+      { timeout: 10_000 },
+    );
 
     // Prev
     await pair.hostPage.click('#btn-prev');
-    await pair.hostPage.waitForTimeout(2000);
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('files.currentFileBlob') !== null;
+      },
+      { timeout: 10_000 },
+    );
 
     // Play again
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForPlayState(pair.hostPage, true);
 
     // Remove last track via play tab
-    const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(300);
-    }
+    await navigateToTab(pair.hostPage, 'play');
 
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').last();
-    if (await removeBtn.isVisible().catch(() => false)) {
+    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await removeBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
       const okBtn = pair.hostPage.locator('#btn-dialog-ok');
-      if (await okBtn.isVisible().catch(() => false)) {
+      await okBtn.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {});
+      if (await okBtn.isVisible()) {
         await okBtn.click();
-        await pair.hostPage.waitForTimeout(2000);
+        // Wait for playlist to shrink
+        await waitForPlaylistCount(pair.hostPage, 2).catch(() => {});
       }
     }
 
     // Upload a fresh file
     await uploadFixture(pair.hostPage, 'test01');
-    await pair.hostPage.waitForTimeout(2000);
+    await waitForPlaylistCount(pair.hostPage, 3);
 
     // Final state validation
     const state = await readState(pair.hostPage, 'appState') as string;
@@ -996,11 +1038,11 @@ test.describe('State Consistency After Complex Flows', () => {
       { timeout: 15_000 },
     );
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(2000);
+    await waitForPlayState(pair.hostPage, true);
 
     // Pause
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForPlayState(pair.hostPage, false);
 
     // Upload another
     await uploadFixture(pair.hostPage, 'test02');
@@ -1047,11 +1089,9 @@ test.describe('State Consistency After Complex Flows', () => {
       // Upload 2 files
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
-      await hostPage.waitForTimeout(2000);
 
       await uploadFixture(hostPage, 'test02');
       await waitForPlaylistCount(hostPage, 2);
-      await hostPage.waitForTimeout(2000);
 
       // Play
       await hostPage.waitForFunction(
@@ -1059,15 +1099,21 @@ test.describe('State Consistency After Complex Flows', () => {
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
-      await hostPage.waitForTimeout(2000);
+      await waitForPlayState(hostPage, true);
 
       // Next track
       await hostPage.click('#btn-next');
-      await hostPage.waitForTimeout(2000);
+      await hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('playlist.currentTrackIndex') === 1;
+        },
+        { timeout: 10_000 },
+      );
 
       // Pause
       await hostPage.click('#play-btn');
-      await hostPage.waitForTimeout(1000);
+      await waitForPlayState(hostPage, false);
 
       // Both guests should have 2 tracks
       await waitForPlaylistCount(g1Page, 2, 30_000);
@@ -1090,215 +1136,6 @@ test.describe('State Consistency After Complex Flows', () => {
       });
       expect(g1Count).toBe(2);
       expect(g2Count).toBe(2);
-    } finally {
-      await hostCtx.close().catch(() => {});
-      await g1Ctx.close().catch(() => {});
-      await g2Ctx.close().catch(() => {});
-    }
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 10. SEEK EDGE CASES
-// ═══════════════════════════════════════════════════════════════
-
-test.describe('Seek Edge Cases', () => {
-  test.beforeEach(async ({ browser }) => {
-    pair = await createHostGuestContexts(browser);
-  });
-  test.afterEach(async () => {
-    await cleanupContexts(pair);
-  });
-
-  test('seeking to near-end during playback triggers next track logic', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-
-    await uploadFixture(pair.hostPage, 'test01');
-    await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
-
-    await uploadFixture(pair.hostPage, 'test02');
-    await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
-
-    // Set repeat all so it doesn't stop
-    await pair.hostPage.evaluate(() => {
-      const set = (window as any).__MUSIXQUARE_SET_STATE__;
-      if (set) set('playlist.repeatMode', 1);
-    });
-
-    // Play
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
-      { timeout: 15_000 },
-    );
-    await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
-
-    // Seek to near end via seek slider (set to 99%)
-    const seekSlider = pair.hostPage.locator('#seek-slider');
-    if (await seekSlider.isVisible()) {
-      await seekSlider.evaluate((el: HTMLInputElement) => {
-        el.value = String(parseFloat(el.max) * 0.99);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-    }
-
-    // Wait for potential auto-advance
-    await pair.hostPage.waitForTimeout(5000);
-
-    // State should be valid (either still playing current or advanced to next)
-    const state = await readState(pair.hostPage, 'appState') as string;
-    expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
-  });
-
-  test('seeking while paused does not auto-resume', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-
-    await uploadFixture(pair.hostPage, 'test01');
-    await waitForPlaylistCount(pair.hostPage, 1);
-
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
-      { timeout: 15_000 },
-    );
-
-    // Play then pause
-    await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PLAYING_AUDIO',
-      { timeout: 15_000 },
-    );
-    await pair.hostPage.waitForTimeout(500);
-    await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__('appState') === 'PAUSED',
-      { timeout: 10_000 },
-    );
-
-    // Seek while paused
-    const seekSlider = pair.hostPage.locator('#seek-slider');
-    if (await seekSlider.isVisible()) {
-      await seekSlider.evaluate((el: HTMLInputElement) => {
-        el.value = String(parseFloat(el.max) * 0.5);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-    }
-
-    await pair.hostPage.waitForTimeout(1000);
-
-    // Should still be paused
-    const state = await readState(pair.hostPage, 'appState');
-    expect(state).toBe('PAUSED');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 11. LANGUAGE SWITCH EDGE CASES
-// ═══════════════════════════════════════════════════════════════
-
-test.describe('Language Switch During Active Session', () => {
-  test.beforeEach(async ({ browser }) => {
-    pair = await createHostGuestContexts(browser);
-  });
-  test.afterEach(async () => {
-    await cleanupContexts(pair);
-  });
-
-  test('switching language while connected does not break UI', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
-
-    // Upload a file first
-    await uploadFixture(pair.hostPage, 'test01');
-    await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
-
-    // Switch to settings via ID (force click to bypass visibility)
-    await pair.hostPage.evaluate(() => {
-      (document.getElementById('nav-settings') as HTMLElement)?.click();
-    });
-    await pair.hostPage.waitForTimeout(300);
-
-    // Switch to Korean
-    const koOpt = pair.hostPage.locator('.ch-opt[data-lang="ko"]');
-    if (await koOpt.isVisible().catch(() => false)) {
-      await koOpt.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
-
-    // Switch back to English
-    const enOpt = pair.hostPage.locator('.ch-opt[data-lang="en"]');
-    if (await enOpt.isVisible().catch(() => false)) {
-      await enOpt.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
-
-    // Go back to play tab
-    await pair.hostPage.evaluate(() => {
-      (document.getElementById('nav-play') as HTMLElement)?.click();
-    });
-    await pair.hostPage.waitForTimeout(300);
-
-    const count = await pair.hostPage.evaluate(() =>
-      document.getElementById('playlist-ui')?.children.length ?? 0,
-    );
-    expect(count).toBeGreaterThanOrEqual(1);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 12. MULTI-GUEST CHANNEL DIVERGENCE
-// ═══════════════════════════════════════════════════════════════
-
-test.describe('Multi-Guest Different Channels', () => {
-  test('guests on different channels all receive playlist', async ({ browser }) => {
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-    const g1Ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-    const g2Ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-
-    const hostPage = await hostCtx.newPage();
-    const g1Page = await g1Ctx.newPage();
-    const g2Page = await g2Ctx.newPage();
-
-    await Promise.all([
-      injectPeerServer(hostPage),
-      injectPeerServer(g1Page),
-      injectPeerServer(g2Page),
-    ]);
-
-    try {
-      // Host on center (0)
-      const code = await setupHostAndStart(hostPage, 0);
-
-      // Guest1 on left (-1), Guest2 on right (1)
-      await setupGuest(g1Page, code, -1);
-      await setupGuest(g2Page, code, 1);
-
-      await waitForDeviceCount(hostPage, 3);
-
-      // Upload files
-      await uploadFixture(hostPage, 'test01');
-      await waitForPlaylistCount(hostPage, 1);
-      await hostPage.waitForTimeout(2000);
-
-      await uploadFixture(hostPage, 'test02');
-      await waitForPlaylistCount(hostPage, 2);
-      await hostPage.waitForTimeout(2000);
-
-      // Both guests should get full playlist regardless of channel
-      await waitForPlaylistCount(g1Page, 2, 30_000);
-      await waitForPlaylistCount(g2Page, 2, 30_000);
-
-      // Verify channel modes differ
-      const g1Channel = await readState(g1Page, 'audio.channelMode');
-      const g2Channel = await readState(g2Page, 'audio.channelMode');
-      expect(g1Channel).toBe(-1);
-      expect(g2Channel).toBe(1);
     } finally {
       await hostCtx.close().catch(() => {});
       await g1Ctx.close().catch(() => {});

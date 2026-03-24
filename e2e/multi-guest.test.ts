@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, waitForDeviceCount, waitForChatMessage } from './helpers/wait.ts';
+import { waitForPlaylistCount, waitForDeviceCount, waitForChatMessage, isVisible, navigateToTab } from './helpers/wait.ts';
 import type { Page, BrowserContext, Browser } from '@playwright/test';
 
 interface MultiGuestSetup {
@@ -110,7 +110,6 @@ test.describe('Multi-Guest', () => {
     // Upload 2 files
     await uploadFixture(setup.hostPage, 'test01');
     await waitForPlaylistCount(setup.hostPage, 1);
-    await setup.hostPage.waitForTimeout(1000);
 
     await uploadFixture(setup.hostPage, 'test02');
     await waitForPlaylistCount(setup.hostPage, 2);
@@ -141,7 +140,6 @@ test.describe('Multi-Guest', () => {
     if (await chatInput.isVisible()) {
       await chatInput.fill('Hello all guests!');
       await setup.hostPage.locator('#btn-chat-send').click();
-      await setup.hostPage.waitForTimeout(3000);
 
       // Both guests should receive
       for (const guestPage of setup.guestPages) {
@@ -163,7 +161,7 @@ test.describe('Multi-Guest', () => {
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
-      await setup.hostPage.waitForTimeout(500);
+      await setup.hostPage.locator('#tab-connect').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
     }
 
     // Kick first guest
@@ -172,13 +170,21 @@ test.describe('Multi-Guest', () => {
       await kickBtn.click();
 
       const confirmBtn = setup.hostPage.locator('#btn-dialog-ok');
-      if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isVisible(setup.hostPage, '#btn-dialog-ok', 3000)) {
         await confirmBtn.click();
       }
 
-      await setup.hostPage.waitForTimeout(3000);
+      // Wait for peer count to decrease to 1
+      await setup.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          if (!get) return false;
+          const peers = get('network.connectedPeers') as unknown[];
+          return peers && peers.length === 1;
+        },
+        { timeout: 15_000 },
+      );
 
-      // Host should now have 2 devices (self + 1 remaining guest)
       const peerCount = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         if (!get) return 0;
@@ -208,7 +214,7 @@ test.describe('Multi-Guest', () => {
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
-      await setup.hostPage.waitForTimeout(500);
+      await setup.hostPage.locator('#tab-connect').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
     }
 
     const deviceRows = await setup.hostPage.evaluate(() => {

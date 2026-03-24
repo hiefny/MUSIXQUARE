@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState } from './helpers/wait.ts';
+import { waitForPlaylistCount, readState, waitForState } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -40,13 +40,20 @@ test.describe('Preload System', () => {
     // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000); // Wait for playTrack + schedulePreload
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Wait for preload to potentially schedule
-    await pair.hostPage.waitForTimeout(3000);
+    // Wait for preload state to potentially update (nextTrackIndex or isPreloading should change)
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        const items = get('playlist.items') as unknown[];
+        return items && items.length === 2;
+      },
+      { timeout: 10_000 },
+    );
 
     // Verify playlist has 2 items
     const playlist = await pair.hostPage.evaluate(() => {
@@ -65,29 +72,43 @@ test.describe('Preload System', () => {
     // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(2000);
 
-    // Navigate forward
-    await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForTimeout(2000);
+    // Auto-play on upload may have advanced currentTrackIndex to the last file.
+    // Reset to index 0 so "next" has room to advance.
+    await pair.hostPage.evaluate(() => {
+      const set = (window as any).__MUSIXQUARE_SET_STATE__;
+      if (set) set('playlist.currentTrackIndex', 0);
+    });
 
-    // Navigate backward
-    await pair.hostPage.click('#btn-prev');
-    await pair.hostPage.waitForTimeout(2000);
+    // Navigate forward via JS fallback (button may be CSS-hidden)
+    await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
+    await pair.hostPage.waitForFunction(
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') !== 0,
+      { timeout: 15_000 },
+    );
+
+    const afterNext = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    expect(afterNext).toBe(1);
+
+    // Navigate backward via JS fallback
+    // playPrevTrack restarts current track if position > 3s; position is 0 here
+    // so it goes to the previous track (index 0).
+    await pair.hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
+    await pair.hostPage.waitForFunction(
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') === 0,
+      { timeout: 15_000 },
+    );
 
     // After backward nav, preload state should be cleared/reset
-    // (preload.nextFileBlob should be null after clearPreloadState)
     const nextBlob = await readState(pair.hostPage, 'preload.nextFileBlob');
-    // Should be null or freshly set for new preload
-    // The important thing is the system doesn't crash
-    expect(true).toBe(true); // If we got here, no crash occurred
+    // nextFileBlob should be null after clearPreloadState
+    expect(nextBlob).toBeNull();
   });
 
   test('guest receives playlist update with track metadata', async () => {

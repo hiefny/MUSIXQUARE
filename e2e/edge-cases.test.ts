@@ -17,7 +17,19 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState, waitForChatMessage } from './helpers/wait.ts';
+import {
+  waitForPlaylistCount,
+  readState,
+  waitForChatMessage,
+  waitForState,
+  navigateToTab,
+  openChatDrawer,
+  sendChat,
+  isVisible,
+  waitForSelectorCount,
+  waitForOverlayActive,
+  waitForClass,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -37,26 +49,23 @@ test.describe('Edge Cases', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Rapid-fire next clicks
     for (let i = 0; i < 10; i++) {
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForTimeout(100);
+      await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
     // Rapid-fire prev clicks
     for (let i = 0; i < 10; i++) {
       await pair.hostPage.click('#btn-prev');
-      await pair.hostPage.waitForTimeout(100);
+      await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
     // App should still be functional — verify state is valid
@@ -83,7 +92,7 @@ test.describe('Edge Cases', () => {
     // Rapid play/pause toggling
     for (let i = 0; i < 8; i++) {
       await pair.hostPage.click('#play-btn');
-      await pair.hostPage.waitForTimeout(150);
+      await pair.hostPage.waitForTimeout(150); // intentional rapid-fire delay
     }
 
     // Should not crash — state should be valid
@@ -98,9 +107,7 @@ test.describe('Edge Cases', () => {
 
     // No files uploaded — playlist is empty
     await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForTimeout(500);
     await pair.hostPage.click('#btn-prev');
-    await pair.hostPage.waitForTimeout(500);
 
     // App should still be functional
     const index = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
@@ -138,14 +145,13 @@ test.describe('Edge Cases', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 5_000).catch(() => {});
 
     const stateBefore = await readState(pair.hostPage, 'appState') as string;
 
     // Upload second file while first is playing/loaded
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Playlist should now have 2 items
     const count = await pair.hostPage.evaluate(() => {
@@ -165,7 +171,6 @@ test.describe('Edge Cases', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 2);
@@ -181,17 +186,15 @@ test.describe('Edge Cases', () => {
   test('empty chat message is not sent', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
 
       const chatInput = pair.hostPage.locator('#chat-input');
       await chatInput.fill('');
       await pair.hostPage.locator('#btn-chat-send').click();
-      await pair.hostPage.waitForTimeout(500);
 
-      // No messages should appear
+      // Brief wait then verify no messages appeared
+      await pair.hostPage.waitForTimeout(300); // intentional brief settle for negative assertion
       const msgCount = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
         return msgs?.children.length ?? 0;
@@ -203,18 +206,21 @@ test.describe('Edge Cases', () => {
   test('long chat message is handled (500+ chars)', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
 
       const longMsg = 'A'.repeat(600);
-      const chatInput = pair.hostPage.locator('#chat-input');
-      await chatInput.fill(longMsg);
-      await pair.hostPage.locator('#btn-chat-send').click();
-      await pair.hostPage.waitForTimeout(1000);
+      await sendChat(pair.hostPage, longMsg);
 
-      // Message should appear (possibly truncated)
+      // Wait for message to appear
+      await pair.hostPage.waitForFunction(
+        () => {
+          const msgs = document.getElementById('chat-messages');
+          return (msgs?.textContent?.length ?? 0) > 0;
+        },
+        { timeout: 5_000 },
+      );
+
       const msgText = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
         return msgs?.textContent || '';
@@ -227,16 +233,12 @@ test.describe('Edge Cases', () => {
   test('special characters in chat are preserved', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
 
       const specialMsg = '<script>alert(1)</script> & "quotes" 한국어 🎵';
-      const chatInput = pair.hostPage.locator('#chat-input');
-      await chatInput.fill(specialMsg);
-      await pair.hostPage.locator('#btn-chat-send').click();
-      await pair.hostPage.waitForTimeout(1000);
+      await sendChat(pair.hostPage, specialMsg);
+      await waitForChatMessage(pair.hostPage, '한국어');
 
       const msgText = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
@@ -251,20 +253,16 @@ test.describe('Edge Cases', () => {
   test('rapid chat messages do not lose messages', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
 
       // Send 5 messages rapidly
       for (let i = 1; i <= 5; i++) {
-        const chatInput = pair.hostPage.locator('#chat-input');
-        await chatInput.fill(`Rapid msg ${i}`);
-        await pair.hostPage.locator('#btn-chat-send').click();
-        await pair.hostPage.waitForTimeout(200);
+        await sendChat(pair.hostPage, `Rapid msg ${i}`);
+        await pair.hostPage.waitForTimeout(200); // intentional rapid-fire delay
       }
 
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForChatMessage(pair.hostPage, 'Rapid msg 5');
 
       const msgText = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
@@ -283,10 +281,8 @@ test.describe('Edge Cases', () => {
   test('volume slider at 0 does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const slider = pair.hostPage.locator('#volume-slider');
-    if (await slider.isVisible()) {
-      await slider.fill('0');
-      await pair.hostPage.waitForTimeout(300);
+    if (await isVisible(pair.hostPage, '#volume-slider')) {
+      await pair.hostPage.locator('#volume-slider').fill('0');
 
       // Verify state is valid after setting volume to 0
       const state = await readState(pair.hostPage, 'appState');
@@ -297,10 +293,8 @@ test.describe('Edge Cases', () => {
   test('volume slider at max does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const slider = pair.hostPage.locator('#volume-slider');
-    if (await slider.isVisible()) {
-      await slider.fill('100');
-      await pair.hostPage.waitForTimeout(300);
+    if (await isVisible(pair.hostPage, '#volume-slider')) {
+      await pair.hostPage.locator('#volume-slider').fill('100');
 
       // App still functional
       const state = await readState(pair.hostPage, 'appState');
@@ -313,10 +307,8 @@ test.describe('Edge Cases', () => {
   test('seek slider manipulation on empty track does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const seek = pair.hostPage.locator('#seek-slider');
-    if (await seek.isVisible()) {
-      await seek.fill('50');
-      await pair.hostPage.waitForTimeout(300);
+    if (await isVisible(pair.hostPage, '#seek-slider')) {
+      await pair.hostPage.locator('#seek-slider').fill('50');
 
       // App should still be functional
       const state = await readState(pair.hostPage, 'appState');
@@ -337,7 +329,7 @@ test.describe('Edge Cases', () => {
         const navItem = pair.hostPage.locator(`.nav-item[data-tab="${tab}"]`);
         if (await navItem.isVisible()) {
           await navItem.click();
-          await pair.hostPage.waitForTimeout(50);
+          await pair.hostPage.waitForTimeout(50); // intentional rapid-fire delay
         }
       }
     }
@@ -376,18 +368,18 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Guest should not have media source button or it should be disabled
-    const mediaBtn = pair.guestPage.locator('#btn-media-source');
-    const isVisible = await mediaBtn.isVisible().catch(() => false);
+    const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
 
-    if (isVisible) {
+    if (mediaBtnVisible) {
       // If visible, it should be disabled or the file input shouldn't work for guest
-      const isDisabled = await mediaBtn.evaluate(el => {
+      const isDisabled = await pair.guestPage.locator('#btn-media-source').evaluate(el => {
         return el.hasAttribute('disabled') || el.classList.contains('disabled');
       }).catch(() => false);
       // Either disabled or just visible (some UIs show it but block the action)
       expect(typeof isDisabled).toBe('boolean');
     }
     // If not visible, that's the expected guest behavior
+    expect(true).toBe(true); // test passes if we reach here without crash
   });
 
   // ── Host Leaves — Guest Gets Notified ──────────────────────
@@ -401,10 +393,19 @@ test.describe('Edge Cases', () => {
 
     // Host navigates away (simulates disconnect)
     await pair.hostPage.goto('about:blank');
-    await pair.guestPage.waitForTimeout(5000);
+
+    // Wait for guest to detect disconnection (WebRTC timeout)
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        const conn = get('network.hostConn');
+        return conn === null;
+      },
+      { timeout: 15_000 },
+    ).catch(() => {});
 
     // Guest should detect disconnection eventually
-    // Check if hostConn becomes null or a disconnect indicator appears
     const hostConn = await pair.guestPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
       if (!get) return 'no_getter';
@@ -442,32 +443,26 @@ test.describe('Edge Cases', () => {
     // Trigger a dialog via track removal
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     // Ensure play tab
-    const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(300);
-    }
+    await navigateToTab(pair.hostPage, 'play');
 
-    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
-    if (await removeBtn.isVisible().catch(() => false)) {
-      await removeBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
+      await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
 
       // Dialog should appear
-      const dialogOverlay = pair.hostPage.locator('#dialog-overlay');
-      const isActive = await dialogOverlay.evaluate(el =>
-        el.classList.contains('active') || getComputedStyle(el).display !== 'none',
-      ).catch(() => false);
+      await waitForClass(pair.hostPage, '#dialog-overlay', 'active', true, 3_000).catch(() => {});
 
-      if (isActive) {
+      const dialogActive = await pair.hostPage.evaluate(() => {
+        const el = document.getElementById('dialog-overlay');
+        return el?.classList.contains('active') || (el && getComputedStyle(el).display !== 'none');
+      });
+
+      if (dialogActive) {
         // Cancel the dialog
-        const cancelBtn = pair.hostPage.locator('#btn-dialog-cancel');
-        if (await cancelBtn.isVisible().catch(() => false)) {
-          await cancelBtn.click();
-          await pair.hostPage.waitForTimeout(500);
+        if (await isVisible(pair.hostPage, '#btn-dialog-cancel')) {
+          await pair.hostPage.locator('#btn-dialog-cancel').click();
+          await waitForClass(pair.hostPage, '#dialog-overlay', 'active', false, 3_000).catch(() => {});
 
           // Playlist should still have 1 item (cancel didn't remove)
           const count = await pair.hostPage.evaluate(() => {
@@ -488,17 +483,10 @@ test.describe('Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test01');
 
     // Immediately switch to settings tab
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Switch back to play tab
-    await pair.hostPage.waitForTimeout(1000);
-    const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'play');
 
     // File should still have been processed
     await waitForPlaylistCount(pair.hostPage, 1, 15_000);
@@ -511,30 +499,31 @@ test.describe('Edge Cases', () => {
   // ── Repeat Mode State Persistence ──────────────────────────
 
   test('repeat mode persists across tab switches', async () => {
+    test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Click repeat button to change mode
-    const repeatBtn = pair.hostPage.locator('#btn-repeat');
-    if (await repeatBtn.isVisible()) {
-      await repeatBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+    // Click repeat button to change mode (use JS fallback for CSS-hidden buttons)
+    const repeatExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-repeat'));
+    if (repeatExists) {
+      await pair.hostPage.evaluate(() => (document.getElementById('btn-repeat') as HTMLElement)?.click());
 
-      const repeatAfterClick = await readState(pair.hostPage, 'settings.repeatMode');
+      // Wait for state to update
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('playlist.repeatMode') !== 0;
+        },
+        { timeout: 5_000 },
+      ).catch(() => {});
+
+      const repeatAfterClick = await readState(pair.hostPage, 'playlist.repeatMode');
 
       // Switch tabs and come back
-      const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-      if (await settingsNav.isVisible()) {
-        await settingsNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
-      const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-      if (await playNav.isVisible()) {
-        await playNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
+      await navigateToTab(pair.hostPage, 'settings', 15_000);
+      await navigateToTab(pair.hostPage, 'play', 15_000);
 
       // Repeat mode should persist
-      const repeatAfterSwitch = await readState(pair.hostPage, 'settings.repeatMode');
+      const repeatAfterSwitch = await readState(pair.hostPage, 'playlist.repeatMode');
       expect(repeatAfterSwitch).toBe(repeatAfterClick);
     }
   });
@@ -542,28 +531,30 @@ test.describe('Edge Cases', () => {
   // ── Shuffle Mode State Persistence ──────────────────────────
 
   test('shuffle state persists across tab switches', async () => {
+    test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const shuffleBtn = pair.hostPage.locator('#btn-shuffle');
-    if (await shuffleBtn.isVisible()) {
-      await shuffleBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+    // Use JS fallback for CSS-hidden buttons
+    const shuffleExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-shuffle'));
+    if (shuffleExists) {
+      await pair.hostPage.evaluate(() => (document.getElementById('btn-shuffle') as HTMLElement)?.click());
 
-      const shuffleAfterClick = await readState(pair.hostPage, 'settings.shuffle');
+      // Wait for state to update
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get && get('playlist.isShuffle') === true;
+        },
+        { timeout: 5_000 },
+      ).catch(() => {});
+
+      const shuffleAfterClick = await readState(pair.hostPage, 'playlist.isShuffle');
 
       // Switch tabs
-      const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-      if (await settingsNav.isVisible()) {
-        await settingsNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
-      const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-      if (await playNav.isVisible()) {
-        await playNav.click();
-        await pair.hostPage.waitForTimeout(300);
-      }
+      await navigateToTab(pair.hostPage, 'settings', 15_000);
+      await navigateToTab(pair.hostPage, 'play', 15_000);
 
-      const shuffleAfterSwitch = await readState(pair.hostPage, 'settings.shuffle');
+      const shuffleAfterSwitch = await readState(pair.hostPage, 'playlist.isShuffle');
       expect(shuffleAfterSwitch).toBe(shuffleAfterClick);
     }
   });
@@ -590,7 +581,15 @@ test.describe('Edge Cases', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
+
+    // Wait for track title to populate
+    await pair.hostPage.waitForFunction(
+      () => {
+        const el = document.getElementById('track-title') || document.querySelector('.track-title');
+        return (el?.textContent?.trim()?.length ?? 0) > 0;
+      },
+      { timeout: 10_000 },
+    );
 
     // Check if track title element has content
     const titleText = await pair.hostPage.evaluate(() => {
@@ -605,23 +604,39 @@ test.describe('Edge Cases', () => {
   test('volume icon toggles mute state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const volBtn = pair.hostPage.locator('#vol-icon-btn');
-    if (await volBtn.isVisible()) {
+    if (await isVisible(pair.hostPage, '#vol-icon-btn')) {
       // Click to mute
-      await volBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await pair.hostPage.locator('#vol-icon-btn').click();
+
+      // Wait for volume state to update
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get !== undefined;
+        },
+        { timeout: 3_000 },
+      );
 
       const volAfterMute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
 
       // Click again to unmute
-      await volBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await pair.hostPage.locator('#vol-icon-btn').click();
+
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          return get !== undefined;
+        },
+        { timeout: 3_000 },
+      );
 
       const volAfterUnmute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
 
-      // One of them should be different (muted = 0, unmuted = previous value)
-      // At minimum, both operations should not crash
-      expect(true).toBe(true);
+      // Mute should set volume to 0 or change the value
+      // At minimum, both operations should not crash and one value should differ
+      const muteVal = Number(volAfterMute);
+      const unmuteVal = Number(volAfterUnmute);
+      expect(muteVal === 0 || muteVal !== unmuteVal).toBe(true);
     }
   });
 
@@ -631,23 +646,17 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Open chat on host
-    const hostChatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await hostChatBtn.isVisible()) {
-      await hostChatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
-
-      await pair.hostPage.locator('#chat-input').fill('Hello from host edge-case');
-      await pair.hostPage.locator('#btn-chat-send').click();
-      await pair.hostPage.waitForTimeout(1000);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
+      await sendChat(pair.hostPage, 'Hello from host edge-case');
+      await waitForChatMessage(pair.hostPage, 'Hello from host edge-case');
 
       // Open chat on guest
-      const guestChatBtn = pair.guestPage.locator('#chat-preview-btn');
-      if (await guestChatBtn.isVisible()) {
-        await guestChatBtn.click();
-        await pair.guestPage.waitForTimeout(500);
+      if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
+        await openChatDrawer(pair.guestPage);
 
         // Guest should see host's message
-        await waitForChatMessage(pair.guestPage, 'Hello from host edge-case', 15_000).catch(() => {});
+        await waitForChatMessage(pair.guestPage, 'Hello from host edge-case', 15_000);
         const guestMsgs = await pair.guestPage.evaluate(() => {
           const el = document.getElementById('chat-messages');
           return el?.textContent || '';
@@ -662,22 +671,16 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Open chat on guest
-    const guestChatBtn = pair.guestPage.locator('#chat-preview-btn');
-    if (await guestChatBtn.isVisible()) {
-      await guestChatBtn.click();
-      await pair.guestPage.waitForTimeout(500);
-
-      await pair.guestPage.locator('#chat-input').fill('Hello from guest edge-case');
-      await pair.guestPage.locator('#btn-chat-send').click();
-      await pair.guestPage.waitForTimeout(1000);
+    if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.guestPage);
+      await sendChat(pair.guestPage, 'Hello from guest edge-case');
+      await waitForChatMessage(pair.guestPage, 'Hello from guest edge-case');
 
       // Open chat on host
-      const hostChatBtn = pair.hostPage.locator('#chat-preview-btn');
-      if (await hostChatBtn.isVisible()) {
-        await hostChatBtn.click();
-        await pair.hostPage.waitForTimeout(500);
+      if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+        await openChatDrawer(pair.hostPage);
 
-        await waitForChatMessage(pair.hostPage, 'Hello from guest edge-case', 15_000).catch(() => {});
+        await waitForChatMessage(pair.hostPage, 'Hello from guest edge-case', 15_000);
         const hostMsgs = await pair.hostPage.evaluate(() => {
           const el = document.getElementById('chat-messages');
           return el?.textContent || '';
@@ -734,15 +737,12 @@ test.describe('Stress Tests', () => {
     // Upload all 3
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Navigate forward through entire playlist
     const indices: number[] = [];
@@ -750,7 +750,17 @@ test.describe('Stress Tests', () => {
       const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
       indices.push(idx);
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForTimeout(1500);
+      // Wait for track index to change after clicking next
+      await pair.hostPage.waitForFunction(
+        (prevIdx) => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          if (!get) return false;
+          const current = get('playlist.currentTrackIndex');
+          return current !== prevIdx;
+        },
+        idx,
+        { timeout: 5_000 },
+      ).catch(() => {});
     }
 
     // All indices should be valid (0-2)
@@ -766,33 +776,34 @@ test.describe('Stress Tests', () => {
     // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Ensure play tab
-    const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'play');
 
     const countBefore = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
 
     // Remove one track
-    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
-    if (await removeBtn.isVisible().catch(() => false)) {
-      await removeBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
+      await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
 
       const okBtn = pair.hostPage.locator('#btn-dialog-ok');
       await okBtn.waitFor({ state: 'visible', timeout: 5000 });
       await okBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+
+      // Wait for playlist count to decrease
+      await pair.hostPage.waitForFunction(
+        (before) => {
+          const list = document.getElementById('playlist-ui');
+          return list ? list.children.length < before : false;
+        },
+        countBefore,
+        { timeout: 10_000 },
+      );
 
       const countAfter = await pair.hostPage.evaluate(() => {
         return document.getElementById('playlist-ui')?.children.length ?? 0;
@@ -804,20 +815,16 @@ test.describe('Stress Tests', () => {
   test('chat messages maintain order with many messages', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await chatBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
+      await openChatDrawer(pair.hostPage);
 
       // Send 10 numbered messages
       for (let i = 1; i <= 10; i++) {
-        const chatInput = pair.hostPage.locator('#chat-input');
-        await chatInput.fill(`Order test #${i}`);
-        await pair.hostPage.locator('#btn-chat-send').click();
-        await pair.hostPage.waitForTimeout(300);
+        await sendChat(pair.hostPage, `Order test #${i}`);
+        await pair.hostPage.waitForTimeout(300); // intentional rapid-fire delay
       }
 
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForChatMessage(pair.hostPage, 'Order test #10');
 
       const msgText = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');

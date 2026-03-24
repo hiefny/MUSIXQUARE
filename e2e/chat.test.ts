@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { waitForChatMessage } from './helpers/wait.ts';
+import { waitForChatMessage, openChatDrawer, sendChat } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -22,29 +22,6 @@ test.describe('Chat System', () => {
     await cleanupContexts(pair);
   });
 
-  async function openChatDrawer(page: import('@playwright/test').Page): Promise<void> {
-    // Look for chat preview button or chat tab
-    const chatBtn = page.locator('#chat-preview-btn, .nav-item[data-tab="chat"]').first();
-    if (await chatBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await chatBtn.click();
-      await page.waitForTimeout(300);
-    }
-    // If chat drawer is not open, try clicking the chat nav item
-    const drawer = page.locator('#chat-drawer');
-    if (!(await drawer.evaluate(el => el.classList.contains('open')).catch(() => false))) {
-      const navChat = page.locator('.nav-item[data-tab="chat"]');
-      if (await navChat.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await navChat.click();
-      }
-    }
-  }
-
-  async function sendChatMessage(page: import('@playwright/test').Page, text: string): Promise<void> {
-    const chatInput = page.locator('#chat-input');
-    await chatInput.fill(text);
-    await page.click('#btn-chat-send');
-  }
-
   test('host sends chat message and guest receives it', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
@@ -52,7 +29,7 @@ test.describe('Chat System', () => {
     await openChatDrawer(pair.hostPage);
 
     // Send message from host
-    await sendChatMessage(pair.hostPage, 'Hello from host!');
+    await sendChat(pair.hostPage, 'Hello from host!');
 
     // Verify message appears on host side
     await waitForChatMessage(pair.hostPage, 'Hello from host!');
@@ -70,7 +47,7 @@ test.describe('Chat System', () => {
     await openChatDrawer(pair.guestPage);
 
     // Guest sends message
-    await sendChatMessage(pair.guestPage, 'Reply from guest!');
+    await sendChat(pair.guestPage, 'Reply from guest!');
 
     // Verify on guest side
     await waitForChatMessage(pair.guestPage, 'Reply from guest!');
@@ -86,15 +63,15 @@ test.describe('Chat System', () => {
     await openChatDrawer(pair.guestPage);
 
     // Host sends
-    await sendChatMessage(pair.hostPage, 'Message 1 from host');
+    await sendChat(pair.hostPage, 'Message 1 from host');
     await waitForChatMessage(pair.guestPage, 'Message 1 from host');
 
     // Guest replies
-    await sendChatMessage(pair.guestPage, 'Message 2 from guest');
+    await sendChat(pair.guestPage, 'Message 2 from guest');
     await waitForChatMessage(pair.hostPage, 'Message 2 from guest');
 
     // Host sends again
-    await sendChatMessage(pair.hostPage, 'Message 3 from host');
+    await sendChat(pair.hostPage, 'Message 3 from host');
     await waitForChatMessage(pair.guestPage, 'Message 3 from host');
 
     // Verify all messages are present

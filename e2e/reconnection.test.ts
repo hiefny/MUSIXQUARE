@@ -10,7 +10,7 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { waitForDeviceCount, readState } from './helpers/wait.ts';
+import { waitForDeviceCount, readState, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -58,7 +58,16 @@ test.describe('Reconnection & Disconnect', () => {
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
 
-    await pair.hostPage.waitForTimeout(5000);
+    // Wait for host to detect disconnect
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        const peers = get('network.connectedPeers') as unknown[];
+        return peers && peers.length === 0;
+      },
+      { timeout: 20_000 },
+    );
 
     // Host should still have a valid session
     const appRole = await readState(pair.hostPage, 'network.appRole');
@@ -74,7 +83,6 @@ test.describe('Reconnection & Disconnect', () => {
 
     // Upload file while connected
     const { uploadFixture } = await import('./helpers/file-upload.ts');
-    const { waitForPlaylistCount } = await import('./helpers/wait.ts');
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
@@ -82,7 +90,17 @@ test.describe('Reconnection & Disconnect', () => {
     // Disconnect guest
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
-    await pair.hostPage.waitForTimeout(3000);
+
+    // Wait for host to detect disconnect
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        const peers = get('network.connectedPeers') as unknown[];
+        return peers && peers.length === 0;
+      },
+      { timeout: 20_000 },
+    );
 
     // Host playlist should still have the file
     const playlistCount = await pair.hostPage.evaluate(() => {
@@ -102,7 +120,17 @@ test.describe('Reconnection & Disconnect', () => {
     // Disconnect first guest
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
-    await pair.hostPage.waitForTimeout(3000);
+
+    // Wait for host to detect disconnect
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        const peers = get('network.connectedPeers') as unknown[];
+        return peers && peers.length === 0;
+      },
+      { timeout: 20_000 },
+    );
 
     // Create new guest
     const { injectPeerServer } = await import('./helpers/peer-server.ts');

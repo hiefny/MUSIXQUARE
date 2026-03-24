@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
-import { waitForDeviceCount } from './helpers/wait.ts';
+import { waitForDeviceCount, isVisible } from './helpers/wait.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 
 let pair: HostGuestPair;
@@ -71,7 +71,7 @@ test.describe('Device Management', () => {
 
       // Confirm kick dialog if present
       const confirmBtn = pair.hostPage.locator('#btn-dialog-ok');
-      if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#btn-dialog-ok', 3000)) {
         await confirmBtn.click();
       }
 

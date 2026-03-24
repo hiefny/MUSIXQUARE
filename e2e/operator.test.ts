@@ -10,7 +10,7 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { waitForDeviceCount, readState } from './helpers/wait.ts';
+import { navigateToTab, waitForDeviceCount, waitForState, readState } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -34,10 +34,7 @@ test.describe('Operator Mode', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Navigate to connect tab
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'connect');
 
     await waitForDeviceCount(pair.hostPage, 2);
 
@@ -45,7 +42,7 @@ test.describe('Operator Mode', () => {
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForState(pair.guestPage, 'network.isOperator', true);
 
       // Guest should now be operator
       const isOp = await readState(pair.guestPage, 'network.isOperator');
@@ -56,10 +53,7 @@ test.describe('Operator Mode', () => {
   test('host can revoke operator from guest', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'connect');
 
     await waitForDeviceCount(pair.hostPage, 2);
 
@@ -67,11 +61,11 @@ test.describe('Operator Mode', () => {
     if (await opBtn.isVisible()) {
       // Grant
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+      await waitForState(pair.guestPage, 'network.isOperator', true);
 
       // Revoke
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForState(pair.guestPage, 'network.isOperator', false);
 
       const isOp = await readState(pair.guestPage, 'network.isOperator');
       expect(isOp).toBe(false);
@@ -81,17 +75,14 @@ test.describe('Operator Mode', () => {
   test('operator badge appears in device list after grant', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'connect');
 
     await waitForDeviceCount(pair.hostPage, 2);
 
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForState(pair.guestPage, 'network.isOperator', true);
 
       // Check for OP badge in device list
       const hasBadge = await pair.hostPage.evaluate(() => {
@@ -106,10 +97,7 @@ test.describe('Operator Mode', () => {
   test('guest role badge shows OP after operator grant', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
+    await navigateToTab(pair.hostPage, 'connect');
 
     await waitForDeviceCount(pair.hostPage, 2);
 
@@ -117,7 +105,7 @@ test.describe('Operator Mode', () => {
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
       await opBtn.click();
-      await pair.hostPage.waitForTimeout(2000);
+      await waitForState(pair.guestPage, 'network.isOperator', true);
 
       // Guest's role badge should show OP
       const guestRoleText = await pair.guestPage.evaluate(() => {

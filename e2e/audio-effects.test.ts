@@ -13,7 +13,15 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState } from './helpers/wait.ts';
+import {
+  waitForPlaylistCount,
+  readState,
+  navigateToTab,
+  navigateToSubtab,
+  waitForState,
+  isVisible,
+  clickAndWaitActive,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -32,17 +40,11 @@ test.describe('Audio Effects', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Navigate to settings → audio subtab
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Navigate to audio subtab if it exists
-    const audioSubtab = pair.hostPage.locator('.subtab-pill[data-subtab="audio"]');
-    if (await audioSubtab.isVisible().catch(() => false)) {
-      await audioSubtab.click();
-      await pair.hostPage.waitForTimeout(500);
+    if (await isVisible(pair.hostPage, '.subtab-pill[data-subtab="audio"]')) {
+      await navigateToSubtab(pair.hostPage, 'audio');
     }
 
     // Check EQ sliders exist
@@ -57,7 +59,9 @@ test.describe('Audio Effects', () => {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    await pair.hostPage.waitForTimeout(500);
+
+    // Wait for state to reflect the slider change
+    await waitForState(pair.hostPage, 'audio.eqValues', [6, 0, 0, 0, 0]);
 
     // Verify state updated
     const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
@@ -67,19 +71,15 @@ test.describe('Audio Effects', () => {
   test('EQ preset "bright" applies correct values', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Click "Bright" preset
     const brightBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="bright"]');
     if (await brightBtn.isVisible()) {
       await brightBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
       // Bright preset: [0, -2, 0, 4, 6]
+      await waitForState(pair.hostPage, 'audio.eqValues', [0, -2, 0, 4, 6]);
       const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
       expect(eqValues).toEqual([0, -2, 0, 4, 6]);
     }
@@ -88,18 +88,14 @@ test.describe('Audio Effects', () => {
   test('EQ preset "warm" applies correct values', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     const warmBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="warm"]');
     if (await warmBtn.isVisible()) {
       await warmBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
       // Warm preset: [5, 3, 0, -2, -3]
+      await waitForState(pair.hostPage, 'audio.eqValues', [5, 3, 0, -2, -3]);
       const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
       expect(eqValues).toEqual([5, 3, 0, -2, -3]);
     }
@@ -108,25 +104,21 @@ test.describe('Audio Effects', () => {
   test('EQ preset "off" resets all bands to 0', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // First set to bright
     const brightBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="bright"]');
     if (await brightBtn.isVisible()) {
       await brightBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await waitForState(pair.hostPage, 'audio.eqValues', [0, -2, 0, 4, 6]);
     }
 
     // Then reset to off
     const offBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.eqValues', [0, 0, 0, 0, 0]);
       const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
       expect(eqValues).toEqual([0, 0, 0, 0, 0]);
     }
@@ -135,17 +127,12 @@ test.describe('Audio Effects', () => {
   test('EQ value display updates with slider', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Need to be in advanced mode to see sliders
     const advBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="advanced"]');
     if (await advBtn.isVisible()) {
-      await advBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await clickAndWaitActive(pair.hostPage, '#grid-eq .ch-opt[data-eq-type="advanced"]');
     }
 
     // Set slider to -8
@@ -153,7 +140,11 @@ test.describe('Audio Effects', () => {
     if (await eqSlider2.isVisible()) {
       await eqSlider2.fill('-8');
       await eqSlider2.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(300);
+
+      // Wait for value display to update
+      await pair.hostPage.waitForFunction(
+        () => document.getElementById('eq-val-2')?.textContent?.includes('-8') ?? false,
+      );
 
       // Check value display
       const valText = await pair.hostPage.locator('#eq-val-2').textContent();
@@ -166,25 +157,20 @@ test.describe('Audio Effects', () => {
   test('reverb mix slider changes state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Need advanced reverb mode
     const advBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="advanced"]');
     if (await advBtn.isVisible()) {
-      await advBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await clickAndWaitActive(pair.hostPage, '#grid-reverb .ch-opt[data-rvb-type="advanced"]');
     }
 
     const reverbSlider = pair.hostPage.locator('#reverb-slider');
     if (await reverbSlider.isVisible()) {
       await reverbSlider.fill('50');
       await reverbSlider.dispatchEvent('change');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.reverbMix', 0.5);
       const reverbMix = await readState(pair.hostPage, 'audio.reverbMix') as number;
       expect(reverbMix).toBeCloseTo(0.5, 1);
     }
@@ -193,16 +179,23 @@ test.describe('Audio Effects', () => {
   test('reverb preset "studio" applies settings', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     const studioBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="studio"]');
     if (await studioBtn.isVisible()) {
       await studioBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+
+      // Wait for reverbMix to become > 0
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.reverbMix') as number) > 0;
+        },
+        { timeout: 5_000 },
+      );
 
       const reverbMix = await readState(pair.hostPage, 'audio.reverbMix') as number;
       expect(reverbMix).toBeGreaterThan(0);
@@ -212,23 +205,30 @@ test.describe('Audio Effects', () => {
   test('reverb preset "off" resets mix to 0', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Set studio first
     const studioBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="studio"]');
-    if (await studioBtn.isVisible()) await studioBtn.click();
-    await pair.hostPage.waitForTimeout(300);
+    if (await studioBtn.isVisible()) {
+      await studioBtn.click();
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.reverbMix') as number) > 0;
+        },
+        { timeout: 5_000 },
+      );
+    }
 
     // Reset
     const offBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.reverbMix', 0);
       const reverbMix = await readState(pair.hostPage, 'audio.reverbMix') as number;
       expect(reverbMix).toBe(0);
     }
@@ -237,24 +237,19 @@ test.describe('Audio Effects', () => {
   test('reverb decay slider adjusts decay time', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     const advBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="advanced"]');
     if (await advBtn.isVisible()) {
-      await advBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+      await clickAndWaitActive(pair.hostPage, '#grid-reverb .ch-opt[data-rvb-type="advanced"]');
     }
 
     const decaySlider = pair.hostPage.locator('#reverb-decay-slider');
     if (await decaySlider.isVisible()) {
       await decaySlider.fill('15');
       await decaySlider.dispatchEvent('change');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.reverbDecay', 15);
       const decay = await readState(pair.hostPage, 'audio.reverbDecay') as number;
       expect(decay).toBe(15);
     }
@@ -265,18 +260,26 @@ test.describe('Audio Effects', () => {
   test('stereo width toggle changes state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     const initialWidth = await readState(pair.hostPage, 'audio.stereoWidth') as number;
 
     const onBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]');
     if (await onBtn.isVisible()) {
       await onBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+
+      // Wait for stereo width to change from initial value
+      await pair.hostPage.waitForFunction(
+        (initial) => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.stereoWidth') as number) !== initial;
+        },
+        initialWidth,
+        { timeout: 5_000 },
+      );
 
       const newWidth = await readState(pair.hostPage, 'audio.stereoWidth') as number;
       expect(newWidth).not.toBe(initialWidth);
@@ -287,23 +290,30 @@ test.describe('Audio Effects', () => {
   test('stereo width off resets to 1.0', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Enable first
     const onBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]');
-    if (await onBtn.isVisible()) await onBtn.click();
-    await pair.hostPage.waitForTimeout(300);
+    if (await onBtn.isVisible()) {
+      await onBtn.click();
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.stereoWidth') as number) > 1;
+        },
+        { timeout: 5_000 },
+      );
+    }
 
     // Disable
     const offBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.stereoWidth', 1);
       const width = await readState(pair.hostPage, 'audio.stereoWidth') as number;
       expect(width).toBe(1);
     }
@@ -314,16 +324,23 @@ test.describe('Audio Effects', () => {
   test('virtual bass toggle enables enhancement', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     const onBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="on"]');
     if (await onBtn.isVisible()) {
       await onBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+
+      // Wait for virtualBass to become > 0
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.virtualBass') as number) > 0;
+        },
+        { timeout: 5_000 },
+      );
 
       const vbass = await readState(pair.hostPage, 'audio.virtualBass') as number;
       expect(vbass).toBeGreaterThan(0);
@@ -333,23 +350,30 @@ test.describe('Audio Effects', () => {
   test('virtual bass off resets to 0', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // Enable
     const onBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="on"]');
-    if (await onBtn.isVisible()) await onBtn.click();
-    await pair.hostPage.waitForTimeout(300);
+    if (await onBtn.isVisible()) {
+      await onBtn.click();
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+            | ((p: string) => unknown)
+            | undefined;
+          if (!get) return false;
+          return (get('audio.virtualBass') as number) > 0;
+        },
+        { timeout: 5_000 },
+      );
+    }
 
     // Disable
     const offBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.virtualBass', 0);
       const vbass = await readState(pair.hostPage, 'audio.virtualBass') as number;
       expect(vbass).toBe(0);
     }
@@ -364,8 +388,8 @@ test.describe('Audio Effects', () => {
     if (await volumeSlider.isVisible()) {
       await volumeSlider.fill('50');
       await volumeSlider.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.masterVolume', 0.5);
       const volume = await readState(pair.hostPage, 'audio.masterVolume') as number;
       expect(volume).toBeCloseTo(0.5, 1);
     }
@@ -378,8 +402,8 @@ test.describe('Audio Effects', () => {
     if (await volumeSlider.isVisible()) {
       await volumeSlider.fill('0');
       await volumeSlider.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.masterVolume', 0);
       const volume = await readState(pair.hostPage, 'audio.masterVolume') as number;
       expect(volume).toBe(0);
     }
@@ -392,8 +416,8 @@ test.describe('Audio Effects', () => {
     if (await volumeSlider.isVisible()) {
       await volumeSlider.fill('100');
       await volumeSlider.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.masterVolume', 1);
       const volume = await readState(pair.hostPage, 'audio.masterVolume') as number;
       expect(volume).toBe(1);
     }
@@ -409,7 +433,7 @@ test.describe('Audio Effects', () => {
       const setState = (window as any).__MUSIXQUARE_SET_STATE__;
       if (setState) setState('audio.channelMode', 2);
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.channelMode', 2);
 
     // Check cutoff slider visibility or existence
     const cutoffSlider = pair.hostPage.locator('#cutoff-slider');
@@ -424,14 +448,14 @@ test.describe('Audio Effects', () => {
       const setState = (window as any).__MUSIXQUARE_SET_STATE__;
       if (setState) setState('audio.channelMode', 2);
     });
-    await pair.hostPage.waitForTimeout(500);
+    await waitForState(pair.hostPage, 'audio.channelMode', 2);
 
     const cutoffSlider = pair.hostPage.locator('#cutoff-slider');
     if (await cutoffSlider.isVisible()) {
       await cutoffSlider.fill('200');
       await cutoffSlider.dispatchEvent('change');
-      await pair.hostPage.waitForTimeout(500);
 
+      await waitForState(pair.hostPage, 'audio.subFreq', 200);
       const subFreq = await readState(pair.hostPage, 'audio.subFreq') as number;
       expect(subFreq).toBe(200);
     }

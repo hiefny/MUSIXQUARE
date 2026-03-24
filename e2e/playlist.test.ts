@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState } from './helpers/wait.ts';
+import { navigateToTab, waitForPlaylistCount, readState } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -46,39 +46,68 @@ test.describe('Playlist Management', () => {
     // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(2000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
-    await pair.hostPage.waitForTimeout(1000);
 
-    // Get initial track index
+    // Auto-play on upload may have advanced currentTrackIndex to the last file.
+    // Reset to index 0 so "next" has room to advance without hitting end-of-playlist.
+    await pair.hostPage.evaluate(() => {
+      const set = (window as any).__MUSIXQUARE_SET_STATE__;
+      if (set) set('playlist.currentTrackIndex', 0);
+    });
+
     const initialIndex = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
-    expect(initialIndex).toBeGreaterThanOrEqual(0);
+    expect(initialIndex).toBe(0);
 
-    // Click next track — should cycle
-    await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForTimeout(2000);
+    // Click next track via JS fallback (button may be CSS-hidden)
+    await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
+    await pair.hostPage.waitForFunction(
+      (prev) => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        return get('playlist.currentTrackIndex') !== prev;
+      },
+      initialIndex,
+      { timeout: 15_000 },
+    );
 
     const afterNext = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
-    // After clicking next, the index should change (either wrap or advance)
-    // With 3 tracks and starting at some index, next should produce a different index
-    // (unless we're at the last track and it wraps to 0 which equals initial if initial was also 0 from a race)
-    // Just verify the navigation didn't crash and index is valid
-    expect(afterNext).toBeGreaterThanOrEqual(0);
-    expect(afterNext).toBeLessThan(3);
+    expect(afterNext).toBe(1);
 
-    // Click prev track
-    await pair.hostPage.click('#btn-prev');
-    await pair.hostPage.waitForTimeout(2000);
+    // Click next again to go to index 2 (so prev can go back to 1)
+    await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
+    await pair.hostPage.waitForFunction(
+      (prev) => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        return get('playlist.currentTrackIndex') !== prev;
+      },
+      afterNext,
+      { timeout: 15_000 },
+    );
+    const afterNext2 = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    expect(afterNext2).toBe(2);
+
+    // Click prev track via JS fallback
+    // playPrevTrack restarts current track if position > 3s; since we haven't
+    // actually played audio, position is 0 so it goes to the previous track.
+    await pair.hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
+    await pair.hostPage.waitForFunction(
+      (prev) => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        if (!get) return false;
+        return get('playlist.currentTrackIndex') !== prev;
+      },
+      afterNext2,
+      { timeout: 15_000 },
+    );
 
     const afterPrev = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
-    expect(afterPrev).toBeGreaterThanOrEqual(0);
-    expect(afterPrev).toBeLessThan(3);
+    expect(afterPrev).toBe(1);
   });
 
   test('host can remove tracks from playlist', async () => {
@@ -87,17 +116,14 @@ test.describe('Playlist Management', () => {
     // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
-    await pair.hostPage.waitForTimeout(1000);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
-    await pair.hostPage.waitForTimeout(1000);
 
     // Ensure play tab is visible
     const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
     if (await playNav.isVisible()) {
-      await playNav.click();
-      await pair.hostPage.waitForTimeout(500);
+      await navigateToTab(pair.hostPage, 'play');
     }
 
     // Click remove button on the last track
@@ -111,9 +137,16 @@ test.describe('Playlist Management', () => {
       const okBtn = pair.hostPage.locator('#btn-dialog-ok');
       await okBtn.waitFor({ state: 'visible', timeout: 5000 });
       await okBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
 
-      // Playlist should now have 1 item
+      // Wait for playlist count to actually drop below 2
+      await pair.hostPage.waitForFunction(
+        () => {
+          const list = document.getElementById('playlist-ui');
+          return list ? list.children.length < 2 : false;
+        },
+        { timeout: 10_000 },
+      );
+
       const countAfter = await pair.hostPage.evaluate(() => {
         const list = document.getElementById('playlist-ui');
         return list?.children.length ?? 0;

@@ -13,7 +13,7 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState } from './helpers/wait.ts';
+import { waitForPlaylistCount, readState, waitForState } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -66,7 +66,15 @@ test.describe('Playback Sync', () => {
 
     // Click play
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(1000);
+
+    // Wait for state to change from IDLE
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('appState') !== 'IDLE';
+      },
+      { timeout: 10_000 },
+    );
 
     // Host appState should change from IDLE
     const hostState = await readState(pair.hostPage, 'appState');
@@ -110,19 +118,35 @@ test.describe('Playback Sync', () => {
 
     // Play
     await pair.hostPage.click('#play-btn');
-    await pair.hostPage.waitForTimeout(500);
 
-    // Check state changed
+    // Wait for state to change from IDLE
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('appState') !== 'IDLE';
+      },
+      { timeout: 10_000 },
+    );
+
     const stateAfterPlay = await readState(pair.hostPage, 'appState');
 
     // Only test pause if play succeeded
     if (stateAfterPlay !== 'IDLE') {
       // Click play again to pause
       await pair.hostPage.click('#play-btn');
-      await pair.hostPage.waitForTimeout(500);
+
+      // Wait for state to change to PAUSED or IDLE
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          if (!get) return false;
+          const state = get('appState');
+          return state === 'PAUSED' || state === 'IDLE';
+        },
+        { timeout: 10_000 },
+      );
 
       const stateAfterPause = await readState(pair.hostPage, 'appState');
-      // Should be PAUSED or IDLE (if audio wasn't playing)
       expect(['PAUSED', 'IDLE']).toContain(stateAfterPause);
     }
   });

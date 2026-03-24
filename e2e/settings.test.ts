@@ -11,7 +11,15 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import {
+  readState,
+  navigateToTab,
+  navigateToSubtab,
+  clickAndWaitActive,
+  waitForTheme,
+  waitForLang,
+  waitForState,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -29,67 +37,44 @@ test.describe('Settings Panel', () => {
   test('switching to dark theme applies data-theme attribute', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const darkBtn = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
-    if (await darkBtn.isVisible()) {
-      await darkBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="dark"]');
+    await waitForTheme(pair.hostPage, 'dark');
 
-      const theme = await pair.hostPage.evaluate(() =>
-        document.documentElement.getAttribute('data-theme'),
-      );
-      expect(theme).toBe('dark');
-    }
+    const theme = await pair.hostPage.evaluate(() =>
+      document.documentElement.getAttribute('data-theme'),
+    );
+    expect(theme).toBe('dark');
   });
 
   test('switching to light theme applies data-theme attribute', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
     // First set dark, then switch to light
-    const darkBtn = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
-    if (await darkBtn.isVisible()) await darkBtn.click();
-    await pair.hostPage.waitForTimeout(300);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="dark"]');
+    await waitForTheme(pair.hostPage, 'dark');
 
-    const lightBtn = pair.hostPage.locator('.ch-opt[data-theme="light"]');
-    if (await lightBtn.isVisible()) {
-      await lightBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="light"]');
+    await waitForTheme(pair.hostPage, 'light');
 
-      const theme = await pair.hostPage.evaluate(() =>
-        document.documentElement.getAttribute('data-theme'),
-      );
-      expect(theme).toBe('light');
-    }
+    const theme = await pair.hostPage.evaluate(() =>
+      document.documentElement.getAttribute('data-theme'),
+    );
+    expect(theme).toBe('light');
   });
 
   test('theme selection persists with active class', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const darkBtn = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
-    if (await darkBtn.isVisible()) {
-      await darkBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="dark"]');
 
-      const hasActive = await darkBtn.evaluate(el => el.classList.contains('active'));
-      expect(hasActive).toBe(true);
-    }
+    const hasActive = await pair.hostPage.locator('.ch-opt[data-theme="dark"]').evaluate(el => el.classList.contains('active'));
+    expect(hasActive).toBe(true);
   });
 
   // ── Language Tests ──────────────────────────────────────────
@@ -97,83 +82,58 @@ test.describe('Settings Panel', () => {
   test('switching to English changes i18n text', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const enBtn = pair.hostPage.locator('.ch-opt[data-lang="en"]');
-    if (await enBtn.isVisible()) {
-      await enBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="en"]');
+    await waitForLang(pair.hostPage, 'en');
 
-      // Some element should now have English text
-      const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
-      // English UI should have common English words
-      expect(bodyText.toLowerCase()).toMatch(/settings|audio|connect|play/);
-    }
+    // Some element should now have English text
+    const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
+    // English UI should have common English words
+    expect(bodyText.toLowerCase()).toMatch(/settings|audio|connect|play/);
   });
 
   test('switching to Korean changes i18n text', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const koBtn = pair.hostPage.locator('.ch-opt[data-lang="ko"]');
-    if (await koBtn.isVisible()) {
-      await koBtn.click();
-      await pair.hostPage.waitForTimeout(1000);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="ko"]');
+    await waitForLang(pair.hostPage, 'ko');
 
-      // Some element should have Korean text
-      const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
-      // Korean UI should have Korean characters
-      expect(bodyText).toMatch(/[\uAC00-\uD7A3]/); // Hangul range
-    }
+    // Some element should have Korean text
+    const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
+    // Korean UI should have Korean characters
+    expect(bodyText).toMatch(/[\uAC00-\uD7A3]/); // Hangul range
   });
 
   test('language selection shows active class', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const enBtn = pair.hostPage.locator('.ch-opt[data-lang="en"]');
-    if (await enBtn.isVisible()) {
-      await enBtn.click();
-      await pair.hostPage.waitForTimeout(300);
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="en"]');
 
-      const hasActive = await enBtn.evaluate(el => el.classList.contains('active'));
-      expect(hasActive).toBe(true);
-    }
+    const hasActive = await pair.hostPage.locator('.ch-opt[data-lang="en"]').evaluate(el => el.classList.contains('active'));
+    expect(hasActive).toBe(true);
   });
 
-  // ── Battery Saver Tests ──────────────────────────────────────
+  // ── Virtual Surround Toggle Tests ──────────────────────────────────────
 
   test('battery saver toggle enables/disables', async () => {
+    test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings', 15_000);
 
-    const onBtn = pair.hostPage.locator('#grid-battery .ch-opt[data-toggle="on"]');
-    if (await onBtn.isVisible()) {
-      await onBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+    // Navigate to audio subtab where surround toggle lives
+    await navigateToSubtab(pair.hostPage, 'audio');
 
-      const hasActive = await onBtn.evaluate(el => el.classList.contains('active'));
-      expect(hasActive).toBe(true);
-    }
+    // Use #grid-surround as the on/off toggle (battery saver grid was removed)
+    await clickAndWaitActive(pair.hostPage, '#grid-surround .ch-opt[data-toggle="on"]');
+
+    const hasActive = await pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]').evaluate(el => el.classList.contains('active'));
+    expect(hasActive).toBe(true);
   });
 
   // ── Settings Subtab Tests ────────────────────────────────────
@@ -181,83 +141,60 @@ test.describe('Settings Panel', () => {
   test('settings subtab pills navigate between panels', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    // Check subtab pills exist
-    const generalPill = pair.hostPage.locator('.subtab-pill[data-subtab="general"]');
-    const audioPill = pair.hostPage.locator('.subtab-pill[data-subtab="audio"]');
+    // Click audio subtab
+    await navigateToSubtab(pair.hostPage, 'audio');
 
-    if (await generalPill.isVisible()) {
-      // Click audio subtab
-      if (await audioPill.isVisible()) {
-        await audioPill.click();
-        await pair.hostPage.waitForTimeout(300);
+    const audioActive = await pair.hostPage.locator('.subtab-pill[data-subtab="audio"]').evaluate(el => el.classList.contains('active'));
+    expect(audioActive).toBe(true);
 
-        const audioActive = await audioPill.evaluate(el => el.classList.contains('active'));
-        expect(audioActive).toBe(true);
-      }
+    // Click back to general
+    await navigateToSubtab(pair.hostPage, 'general');
 
-      // Click back to general
-      await generalPill.click();
-      await pair.hostPage.waitForTimeout(300);
-
-      const generalActive = await generalPill.evaluate(el => el.classList.contains('active'));
-      expect(generalActive).toBe(true);
-    }
+    const generalActive = await pair.hostPage.locator('.subtab-pill[data-subtab="general"]').evaluate(el => el.classList.contains('active'));
+    expect(generalActive).toBe(true);
   });
 
   test('connect subtab shows device management', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    await navigateToTab(pair.hostPage, 'settings');
 
-    const connectPill = pair.hostPage.locator('.subtab-pill[data-subtab="connect"]');
-    if (await connectPill.isVisible()) {
-      await connectPill.click();
-      await pair.hostPage.waitForTimeout(300);
+    await navigateToSubtab(pair.hostPage, 'connect');
 
-      // Should show device list or connect panel
-      const connectPanel = pair.hostPage.locator('.settings-subtab-panel[data-panel="connect"]');
-      const isActive = await connectPanel.evaluate(el => el.classList.contains('active'));
-      expect(isActive).toBe(true);
-    }
+    // Should show device list or connect panel
+    const connectPanel = pair.hostPage.locator('.settings-subtab-panel[data-panel="connect"]');
+    const isActive = await connectPanel.evaluate(el => el.classList.contains('active'));
+    expect(isActive).toBe(true);
   });
 
   // ── Max Guest Slots Tests ────────────────────────────────────
 
   test('max guest slots stepper changes value', async () => {
+    test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate to connect tab or settings connect subtab
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-      await pair.hostPage.waitForTimeout(500);
-    }
+    // Try connect tab first (mobile layout), fall back to settings > connect subtab (desktop)
+    await navigateToTab(pair.hostPage, 'connect', 15_000).catch(async () => {
+      await navigateToTab(pair.hostPage, 'settings', 15_000);
+      await navigateToSubtab(pair.hostPage, 'connect');
+    });
 
-    // Check stepper exists
-    const stepper = pair.hostPage.locator('#max-device-stepper, #desktop-max-device-stepper');
-    if (await stepper.first().isVisible()) {
-      // Read current value
-      const initialSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
+    // Read current value
+    const initialSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
 
-      // Click plus button (stepper typically has +/- buttons)
-      const plusBtn = pair.hostPage.locator('#max-device-stepper .stepper-btn:last-child, #desktop-max-device-stepper .stepper-btn:last-child');
-      if (await plusBtn.first().isVisible()) {
-        await plusBtn.first().click();
-        await pair.hostPage.waitForTimeout(500);
+    // Click plus button via JS fallback (stepper may be CSS-hidden)
+    await pair.hostPage.evaluate(() => {
+      const stepper = document.getElementById('max-device-stepper')
+        || document.getElementById('desktop-max-device-stepper');
+      if (!stepper) return;
+      const plusBtn = stepper.querySelector('.stepper-btn[data-dir="1"]') as HTMLElement;
+      plusBtn?.click();
+    });
+    await waitForState(pair.hostPage, 'network.maxGuestSlots', initialSlots + 1, 10_000);
 
-        const newSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
-        expect(newSlots).toBe(initialSlots + 1);
-      }
-    }
+    const newSlots = await readState(pair.hostPage, 'network.maxGuestSlots') as number;
+    expect(newSlots).toBe(initialSlots + 1);
   });
 });

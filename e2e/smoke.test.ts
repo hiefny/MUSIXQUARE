@@ -4,8 +4,8 @@ import { test, expect } from '@playwright/test';
 async function waitForAppReady(page: import('@playwright/test').Page) {
   await page.goto('/');
   await page.waitForLoadState('networkidle');
-  // Wait a bit for JS bootstrap to finish
-  await page.waitForTimeout(500);
+  // Wait for app bootstrap to finish — setup overlay button is rendered by JS
+  await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 5_000 });
 
   // Dismiss setup overlay if present
   await page.evaluate(() => {
@@ -54,7 +54,7 @@ test.describe('MUSIXQUARE Smoke Test', () => {
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5_000 });
 
     // Filter out known non-critical errors (e.g. service worker in preview mode)
     const critical = errors.filter(

@@ -8,7 +8,7 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import { readState, waitForClass, isVisible } from './helpers/wait.ts';
 
 const YT_VIDEO_1 = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/OALIXy23HvI';
@@ -32,7 +32,7 @@ test.describe('YouTube Integration', () => {
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
     if (await mediaBtn.isVisible()) {
       await mediaBtn.click();
-      await pair.hostPage.waitForTimeout(500);
+      await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
     }
 
     // Click YouTube source button
@@ -55,7 +55,7 @@ test.describe('YouTube Integration', () => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
     });
-    await pair.hostPage.waitForTimeout(300);
+    await waitForClass(pair.hostPage, '#youtube-url-overlay', 'active');
 
     const ytInput = pair.hostPage.locator('#youtube-url-input');
     if (await ytInput.isVisible()) {
@@ -64,7 +64,15 @@ test.describe('YouTube Integration', () => {
       await ytInput.dispatchEvent('input');
 
       // Wait for preview to potentially load (oEmbed fetch)
-      await pair.hostPage.waitForTimeout(3000);
+      await pair.hostPage.waitForFunction(
+        () => {
+          const preview = document.getElementById('youtube-preview');
+          const status = document.getElementById('youtube-preview-status');
+          return (preview?.style.display === 'block' || preview?.style.display === 'flex') ||
+                 (status?.textContent?.trim()?.length ?? 0) > 0;
+        },
+        { timeout: 10_000 },
+      );
 
       // Preview container should appear or status should update
       const previewVisible = await pair.hostPage.evaluate(() => {
@@ -91,14 +99,15 @@ test.describe('YouTube Integration', () => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
     });
-    await pair.hostPage.waitForTimeout(300);
+    await waitForClass(pair.hostPage, '#youtube-url-overlay', 'active');
 
     const cancelBtn = pair.hostPage.locator('#btn-yt-cancel');
     if (await cancelBtn.isVisible()) {
       await cancelBtn.click();
-      await pair.hostPage.waitForTimeout(500);
 
       // Overlay should be dismissed
+      await waitForClass(pair.hostPage, '#youtube-url-overlay', 'active', false);
+
       const isActive = await pair.hostPage.evaluate(() =>
         document.getElementById('youtube-url-overlay')?.classList.contains('active'),
       );
@@ -119,15 +128,27 @@ test.describe('YouTube Integration', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(2000);
+
+      // Wait for preview/play button to become enabled
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       // Click play button
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(5000);
 
         // appState should change to PLAYING_YOUTUBE
+        await pair.hostPage.waitForFunction(
+          () => (window as any).__MUSIXQUARE_GET_STATE__?.('appState') === 'PLAYING_YOUTUBE',
+          { timeout: 15_000 },
+        );
+
         const appState = await readState(pair.hostPage, 'appState');
         expect(appState).toBe('PLAYING_YOUTUBE');
       }
@@ -147,12 +168,28 @@ test.describe('YouTube Integration', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(2000);
+
+      // Wait for play button to become enabled
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(8000);
+
+        // Wait for state to settle
+        await pair.hostPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+          },
+          { timeout: 15_000 },
+        );
 
         const appState = await readState(pair.hostPage, 'appState');
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(appState);
@@ -173,16 +210,39 @@ test.describe('YouTube Integration', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(2000);
+
+      // Wait for play button to become enabled
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(8000);
+
+        // Wait for host state to settle
+        await pair.hostPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+          },
+          { timeout: 15_000 },
+        );
 
         // Guest should receive YouTube mode
+        await pair.guestPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+          },
+          { timeout: 15_000 },
+        );
+
         const guestState = await readState(pair.guestPage, 'appState');
-        // Guest may be PLAYING_YOUTUBE or still loading
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(guestState);
       }
     }
@@ -200,14 +260,31 @@ test.describe('YouTube Integration', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_PLAYLIST);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(3000);
+
+      // Wait for play button to become enabled
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(8000);
 
-        // Playlist should be added
+        // Wait for playlist to be populated
+        await pair.hostPage.waitForFunction(
+          () => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            if (!get) return false;
+            const items = get('playlist.items') as unknown[];
+            return items && items.length >= 1;
+          },
+          { timeout: 15_000 },
+        );
+
         const playlistCount = await pair.hostPage.evaluate(() => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
           return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
@@ -230,14 +307,29 @@ test.describe('YouTube Integration', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForTimeout(2000);
+
+      // Wait for play button to become enabled
+      await pair.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await pair.hostPage.waitForTimeout(5000);
 
-        // Verify YouTube is playing
+        // Wait for YouTube state
+        await pair.hostPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+          },
+          { timeout: 15_000 },
+        );
+
         const ytState = await readState(pair.hostPage, 'appState');
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(ytState);
 
@@ -248,10 +340,16 @@ test.describe('YouTube Integration', () => {
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
         const fixturePath = path.resolve(__dirname, 'fixtures', 'test-01.mp3');
         await fileInput.setInputFiles(fixturePath);
-        await pair.hostPage.waitForTimeout(5000);
 
-        // State should change (might go to IDLE or PLAYING_AUDIO, or stay PLAYING_YOUTUBE
-        // depending on whether audio file triggers a mode switch)
+        // Wait for state to settle after file upload
+        await pair.hostPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state !== undefined;
+          },
+          { timeout: 10_000 },
+        );
+
         const appState = await readState(pair.hostPage, 'appState');
         expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(appState);
       }

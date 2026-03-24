@@ -15,7 +15,7 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState, waitForDeviceCount } from './helpers/wait.ts';
+import { waitForPlaylistCount, readState, waitForDeviceCount, waitForState, isVisible, waitForClass, openChatDrawer, sendChat, waitForChatMessage } from './helpers/wait.ts';
 
 // YouTube test URLs
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
@@ -66,11 +66,9 @@ test.describe('Late-Join: Guest joins after file upload', () => {
     // Host uploads 2 files BEFORE any guest connects
     await uploadFixture(host.hostPage, 'test01');
     await waitForPlaylistCount(host.hostPage, 1);
-    await host.hostPage.waitForTimeout(2000);
 
     await uploadFixture(host.hostPage, 'test02');
     await waitForPlaylistCount(host.hostPage, 2);
-    await host.hostPage.waitForTimeout(1000);
 
     // NOW guest joins
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -95,19 +93,23 @@ test.describe('Late-Join: Guest joins after file upload', () => {
     // Upload 3 files and navigate to track 2
     await uploadFixture(host.hostPage, 'test01');
     await waitForPlaylistCount(host.hostPage, 1);
-    await host.hostPage.waitForTimeout(2000);
 
     await uploadFixture(host.hostPage, 'test02');
     await waitForPlaylistCount(host.hostPage, 2);
-    await host.hostPage.waitForTimeout(1000);
 
     await uploadFixture(host.hostPage, 'test03');
     await waitForPlaylistCount(host.hostPage, 3);
-    await host.hostPage.waitForTimeout(1000);
 
     // Navigate to next track
     await host.hostPage.click('#btn-next');
-    await host.hostPage.waitForTimeout(2000);
+    // Wait for track index to change from 0
+    await host.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get && get('playlist.currentTrackIndex') !== 0;
+      },
+      { timeout: 10_000 },
+    );
 
     const hostIndex = await readState(host.hostPage, 'playlist.currentTrackIndex') as number;
 
@@ -130,20 +132,21 @@ test.describe('Late-Join: Guest joins after file upload', () => {
 
     await uploadFixture(host.hostPage, 'test01');
     await waitForPlaylistCount(host.hostPage, 1);
-    await host.hostPage.waitForTimeout(3000);
 
-    // Verify host has a track title
-    const hostTitle = await host.hostPage.evaluate(() => {
-      const el = document.getElementById('track-title') || document.querySelector('.track-title');
-      return el?.textContent?.trim() || '';
-    });
+    // Wait for track title to appear on host
+    await host.hostPage.waitForFunction(
+      () => {
+        const el = document.getElementById('track-title') || document.querySelector('.track-title');
+        return el && el.textContent && el.textContent.trim().length > 0;
+      },
+      { timeout: 10_000 },
+    );
 
     // NOW guest joins
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
 
     try {
       await waitForPlaylistCount(guestPage, 1, 20_000);
-      await guestPage.waitForTimeout(2000);
 
       // Guest should have playlist entry with track metadata
       const guestPlaylist = await guestPage.evaluate(() => {
@@ -188,9 +191,16 @@ test.describe('Late-Join: Guest joins during playback', () => {
 
     try {
       await waitForPlaylistCount(guestPage, 1, 20_000);
-      await guestPage.waitForTimeout(3000);
 
-      // Guest should know host is playing
+      // Wait for guest state to settle
+      await guestPage.waitForFunction(
+        () => {
+          const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+          return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
+        },
+        { timeout: 10_000 },
+      );
+
       const guestState = await readState(guestPage, 'appState');
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
     } finally {
@@ -216,7 +226,6 @@ test.describe('Late-Join: Guest joins during playback', () => {
       { timeout: 15_000 },
     );
 
-    await host.hostPage.waitForTimeout(1000);
     await host.hostPage.click('#play-btn'); // pause
 
     await host.hostPage.waitForFunction(
@@ -229,7 +238,15 @@ test.describe('Late-Join: Guest joins during playback', () => {
 
     try {
       await waitForPlaylistCount(guestPage, 1, 20_000);
-      await guestPage.waitForTimeout(3000);
+
+      // Wait for guest state to settle
+      await guestPage.waitForFunction(
+        () => {
+          const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+          return state === 'PAUSED' || state === 'IDLE';
+        },
+        { timeout: 10_000 },
+      );
 
       const guestState = await readState(guestPage, 'appState');
       expect(['PAUSED', 'IDLE']).toContain(guestState);
@@ -259,12 +276,28 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO);
       await ytInput.dispatchEvent('input');
-      await host.hostPage.waitForTimeout(2000);
+
+      // Wait for play button to become enabled
+      await host.hostPage.waitForFunction(
+        () => {
+          const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+          return btn && !btn.disabled;
+        },
+        { timeout: 10_000 },
+      );
 
       const playBtn = host.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisible(host.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
-        await host.hostPage.waitForTimeout(8000);
+
+        // Wait for host state to settle
+        await host.hostPage.waitForFunction(
+          () => {
+            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+          },
+          { timeout: 15_000 },
+        );
 
         const hostState = await readState(host.hostPage, 'appState');
         if (hostState === 'PLAYING_YOUTUBE') {
@@ -272,7 +305,14 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
           const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
 
           try {
-            await guestPage.waitForTimeout(5000);
+            // Wait for guest to receive YouTube state
+            await guestPage.waitForFunction(
+              () => {
+                const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+                return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
+              },
+              { timeout: 15_000 },
+            );
 
             const guestState = await readState(guestPage, 'appState');
             expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(guestState);
@@ -294,9 +334,6 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
 
   test('guest joins and sees host device in connect list', async ({ browser }) => {
     host = await setupHostOnly(browser);
-
-    // Host has been running solo for a bit
-    await host.hostPage.waitForTimeout(2000);
 
     // Guest joins
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -326,7 +363,10 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
     const repeatBtn = host.hostPage.locator('#btn-repeat');
     if (await repeatBtn.isVisible()) {
       await repeatBtn.click();
-      await host.hostPage.waitForTimeout(300);
+      await host.hostPage.waitForFunction(
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.repeatMode') !== 0,
+        { timeout: 5_000 },
+      );
     }
 
     const hostRepeat = await readState(host.hostPage, 'settings.repeatMode');
@@ -335,7 +375,8 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
 
     try {
-      await guestPage.waitForTimeout(3000);
+      // Wait for guest to be connected and have state
+      await waitForDeviceCount(host.hostPage, 2);
 
       // Guest's settings are local, but host repeat mode should not affect guest crash
       const guestState = await readState(guestPage, 'appState');
@@ -359,7 +400,6 @@ test.describe('Late-Join: Multiple guests join at different times', () => {
     // Upload file
     await uploadFixture(host.hostPage, 'test01');
     await waitForPlaylistCount(host.hostPage, 1);
-    await host.hostPage.waitForTimeout(2000);
 
     // First guest joins
     const guest1 = await joinAsGuest(browser, host.sessionCode);
@@ -370,11 +410,9 @@ test.describe('Late-Join: Multiple guests join at different times', () => {
       // Host uploads more files while guest1 is connected
       await uploadFixture(host.hostPage, 'test02');
       await waitForPlaylistCount(host.hostPage, 2);
-      await host.hostPage.waitForTimeout(2000);
 
       await uploadFixture(host.hostPage, 'test03');
       await waitForPlaylistCount(host.hostPage, 3);
-      await host.hostPage.waitForTimeout(1000);
 
       // Guest1 should have all 3
       await waitForPlaylistCount(guest1.guestPage, 3, 20_000);
@@ -409,20 +447,18 @@ test.describe('Late-Join: Multiple guests join at different times', () => {
 
       // Host kicks guest1
       const kickBtn = host.hostPage.locator('.d-kick-btn').first();
-      if (await kickBtn.isVisible().catch(() => false)) {
+      if (await isVisible(host.hostPage, '.d-kick-btn')) {
         await kickBtn.click();
-        await host.hostPage.waitForTimeout(3000);
+        // Wait for device count to drop
+        await waitForDeviceCount(host.hostPage, 1);
       }
     } finally {
       await guest1.guestContext.close();
     }
 
-    await host.hostPage.waitForTimeout(2000);
-
     // Upload a file after kick
     await uploadFixture(host.hostPage, 'test01');
     await waitForPlaylistCount(host.hostPage, 1);
-    await host.hostPage.waitForTimeout(2000);
 
     // New guest joins — should get full state
     const guest2 = await joinAsGuest(browser, host.sessionCode);
@@ -452,11 +488,17 @@ test.describe('Late-Join: Chat history', () => {
     const chatBtn = host.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
       await chatBtn.click();
-      await host.hostPage.waitForTimeout(500);
+      await host.hostPage.waitForFunction(
+        () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+        { timeout: 5_000 },
+      );
 
       await host.hostPage.locator('#chat-input').fill('Message before guest');
       await host.hostPage.locator('#btn-chat-send').click();
-      await host.hostPage.waitForTimeout(1000);
+      await host.hostPage.waitForFunction(
+        () => document.getElementById('chat-messages')?.textContent?.includes('Message before guest') ?? false,
+        { timeout: 5_000 },
+      );
     }
 
     // Guest joins late
@@ -467,7 +509,10 @@ test.describe('Late-Join: Chat history', () => {
       const guestChatBtn = guestPage.locator('#chat-preview-btn');
       if (await guestChatBtn.isVisible()) {
         await guestChatBtn.click();
-        await guestPage.waitForTimeout(1000);
+        await guestPage.waitForFunction(
+          () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+          { timeout: 5_000 },
+        );
 
         const guestMsgs = await guestPage.evaluate(() => {
           const el = document.getElementById('chat-messages');
@@ -490,24 +535,27 @@ test.describe('Late-Join: Chat history', () => {
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
 
     try {
-      await guestPage.waitForTimeout(1000);
+      // Wait for connection to be established
+      await waitForDeviceCount(host.hostPage, 2);
 
       // Host sends message AFTER guest joined
       const chatBtn = host.hostPage.locator('#chat-preview-btn');
       if (await chatBtn.isVisible()) {
         await chatBtn.click();
-        await host.hostPage.waitForTimeout(500);
+        await host.hostPage.waitForFunction(
+          () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+          { timeout: 5_000 },
+        );
 
         await host.hostPage.locator('#chat-input').fill('Message after guest joined');
         await host.hostPage.locator('#btn-chat-send').click();
-        await host.hostPage.waitForTimeout(2000);
       }
 
-      // Open guest chat
+      // Open guest chat and wait for message
       const guestChatBtn = guestPage.locator('#chat-preview-btn');
       if (await guestChatBtn.isVisible()) {
         await guestChatBtn.click();
-        await guestPage.waitForTimeout(2000);
+        await waitForChatMessage(guestPage, 'Message after guest joined');
 
         const guestMsgs = await guestPage.evaluate(() => {
           const el = document.getElementById('chat-messages');

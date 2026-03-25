@@ -40,23 +40,13 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 
 ---
 
-## 🚀 Getting Started (Local Dev)
+## 🚀 Try It Out
 
-> Opening via `file://` may break features (Service Worker / OPFS / WebRTC).
+We highly recommend trying out the live version of MUSIXQUARE instead of running it locally. 
 
-### Option A) Python
+**👉 Play now at: [https://musixquare.com](https://musixquare.com)**
 
-```bash
-python -m http.server 5173
-```
-
-Open:
-
-- `http://localhost:5173/`
-
-### Option B) VSCode Live Server
-
-Use the VSCode **Live Server** extension.
+> **Note for Developers**: If you really need to run this project locally, a local web server is required (e.g., `python -m http.server 5173` or VSCode Live Server). Opening the `index.html` file directly via `file://` will break core features like Service Workers, OPFS, and WebRTC.
 
 ---
 

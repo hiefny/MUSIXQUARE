@@ -8,7 +8,7 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 > - **No external link/QR onboarding**
 > - **Local network only (no TURN / no relay)**
 > - **Short 6‑digit code** to connect
-> - **Direct host connections only (max 3 guest devices)**
+> - **Direct host connections only (configurable guest device limit)**
 
 ---
 
@@ -16,7 +16,7 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 
 - **🔢 Short Code Join (In‑App Safe)**: Guests type a **6‑digit code** shown on the host device.
 - **📡 Local Network Only**: Designed for **same Wi‑Fi / same hotspot**.
-- **🔌 Direct Host Connections (Stable)**: Host connects directly to up to **3 guest devices**.
+- **🔌 Direct Host Connections (Stable)**: Host connects directly to multiple guest devices (configurable in Settings/Connect tab).
 - **🔊 Role‑based Routing**: Guests choose their output role when joining (Original / Left / Right / Woofer).
 - **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
 - **🛠️ Pro Audio Engine**: Mixing / FX powered by Tone.js.

@@ -62,21 +62,21 @@ Use the VSCode **Live Server** extension.
 
 ## 📖 How to Use
 
-> NOTE: 데모 음원 파일명은 URL/서버 호환성을 위해 `demo_track.mp3` 로 포함되어 있습니다.
+> NOTE: The demo track filename is provided as `demo_track.mp3` for URL and server compatibility.
 
-### Host (방장)
+### Host
 
-1. Open the app and tap **“제가 방장할래요”**
+1. Open the app and tap **“I'll host”**
 2. The app shows a **6‑digit code**
 3. Guests enter the code, then select their role on their device (Original / Left / Right / Woofer).
 4. Once ready, the host immediately sees 3 options:
-   - **로컬파일 불러오기**
-   - **유튜브 링크 추가하기**
-   - **앱 체험하기**
+   - **Load local file**
+   - **Enter YouTube link**
+   - **Try it (Demo)**
 
-### Guest (참가자)
+### Guest
 
-1. Open the app and tap **“모임에 참가할래요”**
+1. Open the app and tap **“Join a session”**
 2. Enter the **6‑digit code** shown on the host
 3. Wait until the system starts (host finishes connecting devices)
 

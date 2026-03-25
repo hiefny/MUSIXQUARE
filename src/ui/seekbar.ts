@@ -31,8 +31,16 @@ function initSeekBarInput(): void {
     slider.setAttribute('aria-valuetext', formatted);
   });
 
-  slider.addEventListener('change', () => {
+  function releaseSeek() {
+    if (slider) {
+      _rafAnchorTime = parseFloat(slider.value) || 0;
+      _rafAnchorTs = performance.now();
+    }
     setState('player.isSeeking', false);
+  }
+
+  slider.addEventListener('change', () => {
+    releaseSeek();
     const currentState = getState('appState');
     if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
     const seekTime = parseFloat(slider.value);
@@ -40,10 +48,10 @@ function initSeekBarInput(): void {
     seekTo(seekTime);
   });
 
-  slider.addEventListener('mouseup', () => setState('player.isSeeking', false));
-  slider.addEventListener('touchend', () => setState('player.isSeeking', false), { passive: true });
-  slider.addEventListener('touchcancel', () => setState('player.isSeeking', false), { passive: true });
-  slider.addEventListener('contextmenu', () => setState('player.isSeeking', false));
+  slider.addEventListener('mouseup', releaseSeek);
+  slider.addEventListener('touchend', releaseSeek, { passive: true });
+  slider.addEventListener('touchcancel', releaseSeek, { passive: true });
+  slider.addEventListener('contextmenu', releaseSeek);
 }
 
 // ─── rAF Interpolation Loop ─────────────────────────────────────

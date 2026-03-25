@@ -1,14 +1,8 @@
 # MUSIXQUARE 🎵
 
-**Multi‑Device Synchronized Surround Audio (Toss In‑App Build)**
+**Multi‑Device Synchronized Surround Audio**
 
 MUSIXQUARE is a web-based party app that turns multiple devices on the **same local network (same Wi‑Fi / hotspot)** into a single synchronized audio system.
-
-> This repository version is refactored for **Toss In‑App** release constraints:
-> - **No external link/QR onboarding**
-> - **Local network only (no TURN / no relay)**
-> - **Short 6‑digit code** to connect
-> - **Direct host connections only (configurable guest device limit)**
 
 ---
 

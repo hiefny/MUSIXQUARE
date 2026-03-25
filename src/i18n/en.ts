@@ -309,7 +309,7 @@ const en: Record<I18nKey, string> = {
   'network.cant_join': "Can't join",
   'network.cant_join_wifi': "Couldn't join. Make sure you're connected to the same Wi\u2011Fi.",
   'network.session_full': 'Session is full',
-  'network.session_full_detail': 'You\'ve reached the device limit.\nUp to 3 devices can connect per session (excluding the host).',
+  'network.session_full_detail': 'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
   'network.relay_timeout': 'Relay connection timed out',
   'network.relay_connected': 'Relay connected',
   'network.relay_disconnected': 'Relay disconnected',
@@ -424,7 +424,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.local_recommended_html': 'All features are available when connected to the same network.<ul class="help-list"><li>Connect all devices to the <strong>same Wi\u2011Fi</strong>.</li><li>A VPN or corporate firewall may block the connection.</li><li>If it doesn\'t connect, join the host\'s hotspot and refresh the app.</li></ul>',
-  'setup.how_to_connect_html': 'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 check code \u2192 \u201CLet\'s go!\u201D</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 enter code \u2192 choose role (Original/Left/Right/Bass)</li><li>Up to <strong>3 devices</strong> can connect (excluding the host).</li></ul>',
+  'setup.how_to_connect_html': 'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 check code \u2192 \u201CLet\'s go!\u201D</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 enter code \u2192 choose role (Original/Left/Right/Bass)</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
   'player.play_speakers_html': 'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html': 'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music/video from your device</li><li><strong>YouTube (no channel split):</strong> Paste a link to add to the playlist</li><li><strong>Try the app:</strong> Test with a demo track</li></ul>',
   'help.need_help_html': '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Demo track info:</strong> AI Generated Music</li><li><strong>Other inquiries:</strong> contact@musixquare.com</li></ul>',

@@ -652,6 +652,9 @@
         /* Parent no longer scrolls directly */
         overscroll-behavior-y: contain;
         padding-top: var(--header-height);
+        /* Notch protection for all tabs in landscape */
+        padding-left: var(--safe-left);
+        padding-right: var(--safe-right);
     }
 
     /* Mobile/Tablet: no padding on .tab-content — the scroll container (.tab-body)
@@ -838,6 +841,7 @@
     #tab-play {
         justify-content: flex-start;
         padding-top: calc(var(--header-height) + 10px);
+        box-sizing: border-box;
     }
 
     #tab-play .tab-body {
@@ -900,6 +904,8 @@
         box-shadow: none;
         position: relative;
         transition: opacity 0.3s;
+        /* Prevent flex-shrink from crushing the video in short viewports (landscape) */
+        flex-shrink: 0;
     }
 
     .video-screen {
@@ -3461,16 +3467,44 @@
         border-bottom-left-radius: 14px;
     }
 
-    /* Redesign: When bubble contains YouTube, strip its own background/padding */
-    .chat-bubble:has(.chat-youtube-btn) {
-        background: transparent;
-        padding: 0;
+    /* ── Grouped YouTube Bubble Tail Logic ───────────────────────── */
+    .chat-group.mine .chat-row+.chat-row .chat-youtube-btn {
+        border-top-right-radius: 4px;
     }
 
-    /* Fallback for browsers without :has() */
+    .chat-group.mine .chat-row+.chat-row:not(:last-child) .chat-youtube-btn {
+        border-bottom-right-radius: 4px;
+    }
+
+    .chat-group.mine .chat-row+.chat-row:last-child .chat-youtube-btn {
+        border-bottom-right-radius: 14px;
+    }
+
+    .chat-group.others .chat-row+.chat-row .chat-youtube-btn {
+        border-top-left-radius: 4px;
+    }
+
+    .chat-group.others .chat-row+.chat-row:not(:last-child) .chat-youtube-btn {
+        border-bottom-left-radius: 4px;
+    }
+
+    .chat-group.others .chat-row+.chat-row:last-child .chat-youtube-btn {
+        border-bottom-left-radius: 14px;
+    }
+
+    /* Redesign: When bubble contains YouTube, strip its own background/padding */
+    .chat-bubble:has(.chat-youtube-btn),
     .chat-bubble.has-youtube {
         background: transparent;
         padding: 0;
+        display: block;
+        line-height: 0;
+    }
+
+    .chat-bubble.has-youtube .chat-text {
+        display: flex;
+        flex-direction: column;
+        line-height: 0;
     }
 
     /* Whisper bubble */
@@ -3888,6 +3922,9 @@
         flex-direction: column;
         /* Prevent sub-pixel "peek" in iOS safe-area (viewport-fit=cover) */
         visibility: hidden;
+        /* Notch protection for chat drawer */
+        padding-left: var(--safe-left);
+        padding-right: var(--safe-right);
     }
 
     [data-theme="light"] .chat-drawer {
@@ -3996,20 +4033,19 @@
 
     /* ── Universal Custom Scrollbar ── */
     .cscroll-track {
-        position: absolute;
+        position: fixed;
         top: 0;
         right: 0;
         width: 8px;
         pointer-events: auto;
         opacity: 1;
-        z-index: 10;
+        z-index: 95;
     }
 
     .cscroll-thumb {
         position: absolute;
         right: 0;
         width: 100%;
-        min-height: 30px;
         background-color: var(--scrollbar-thumb);
         border: 2px solid transparent;
         border-radius: 10px;
@@ -4059,14 +4095,14 @@
         display: flex;
         flex-direction: column;
         align-items: flex-start;
-        gap: 8px;
+        gap: 7px;
         background: #FF0000;
         /* Clean YouTube Red */
         border: none;
         color: #ffffff;
         /* Solid white text */
-        padding: 14px 16px;
-        /* Proper bubble padding */
+        padding: 14px;
+        /* Goldilocks zone for visual weight */
         border-radius: 14px;
         font-size: 13px;
         cursor: pointer;
@@ -4075,6 +4111,12 @@
         width: 100%;
         max-width: 260px;
         box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
+        appearance: none;
+        -webkit-appearance: none;
+        outline: none;
+        text-align: left;
+        font-family: inherit;
+        box-sizing: border-box;
     }
 
     /* Match the tail of the bubble depending on who sent it */
@@ -4088,13 +4130,31 @@
 
     .chat-yt-play-row {
         display: flex;
+        width: 100%;
         align-items: center;
+        justify-content: flex-start;
         gap: 6px;
-        font-weight: 800;
         color: #ffffff;
-        font-size: 14px;
         font-family: 'Pretendard', sans-serif;
+        line-height: normal;
+    }
+
+    .chat-yt-play-row svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        display: block;
+        margin: 0;
+    }
+
+    .chat-yt-label {
+        font-size: 14px;
+        font-weight: 800;
         letter-spacing: -0.3px;
+        line-height: 16px;
+        /* Match SVG height exactly */
+        height: 16px;
+        display: inline-block;
     }
 
     .chat-yt-title {
@@ -4412,6 +4472,46 @@
         }
     }
 
+    /* ─── Mobile Landscape Fixes ───────────────────────────────── */
+    @media (max-width: 950px) and (orientation: landscape) {
+        .tab-content.active {
+            overflow-y: auto !important;
+            display: block !important;
+            position: fixed !important;
+            top: var(--header-height) !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: calc(100vh - var(--header-height)) !important;
+            z-index: 90 !important;
+            background: var(--bg);
+            /* Standard safe area + internal margins for landscape */
+            padding-left: calc(16px + var(--safe-left)) !important;
+            padding-right: calc(16px + var(--safe-right)) !important;
+            padding-top: 0 !important;
+            padding-bottom: 20px !important;
+            box-sizing: border-box;
+        }
+
+        .video-wrapper {
+            max-width: calc(50vh * 1.77);
+            /* calc(50vh * 16 / 9) - Don't grow larger than 50% of viewport height */
+            margin-bottom: 20px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .vinyl-wrapper {
+            margin-bottom: 20px;
+        }
+
+        .track-box {
+            margin: 16px 0;
+        }
+
+        .controls-area {
+            padding-bottom: 40px;
+        }
+    }
 }
 
 /* end @layer base */

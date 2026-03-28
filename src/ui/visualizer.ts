@@ -70,6 +70,43 @@ function getAnalyser(): AnalyserNode | null {
   return getEngineAnalyser();
 }
 
+/**
+ * Unified sizing helper to ensure canvas matches the parent container perfectly (High DPI).
+ * Returns the logical size of the container for drawing calculations.
+ */
+function syncCanvasSize(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, wrapper: HTMLElement | null): number {
+  const rawW = wrapper ? wrapper.clientWidth : 0;
+  const rawH = wrapper ? wrapper.clientHeight : 0;
+  
+  // For circular mode, we want a square fit
+  if (_vizMode === 'circular') {
+    const rawSize = Math.min(rawW, rawH);
+    const logicalSize = rawSize > 10 ? rawSize : 240;
+    const dpr = window.devicePixelRatio || 1;
+    
+    if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
+      canvas.width = logicalSize * dpr;
+      canvas.height = logicalSize * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+    }
+    return logicalSize;
+  } else {
+    // For spectrum mode, we use the full rectangular container
+    const logicalW = rawW > 10 ? rawW : 400;
+    const logicalH = rawH > 10 ? rawH : 240;
+    const dpr = window.devicePixelRatio || 1;
+    
+    if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
+      canvas.width = logicalW * dpr;
+      canvas.height = logicalH * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+    }
+    return logicalW; // Return width for spectrum logic indexing if needed, though they usually use W/H directly
+  }
+}
+
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
@@ -91,8 +128,9 @@ export function startVisualizer(): void {
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries');
+      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries — using idle view');
       _visualizerRetryCount = 0;
+      drawIdleVisualizer();
       return;
     }
     setManagedTimer('viz-retry', startVisualizer, 100);
@@ -106,23 +144,11 @@ export function startVisualizer(): void {
   let smoothedBass = 0;
   let smoothedHigh = 0;
 
-  // Canvas scale (High DPI)
+  // Initial Sync
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  const rawSize = wrapper ? Math.min(wrapper.clientWidth, wrapper.clientHeight) : 0;
-  const logicalSize = rawSize > 10 ? rawSize : 240;
-  const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
-    canvas.width = logicalSize * dpr;
-    canvas.height = logicalSize * dpr;
-    canvas.style.width = '';
-    canvas.style.height = '';
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-  }
+  const logicalSize = syncCanvasSize(canvas, ctx, wrapper);
 
   // Pre-compute constants outside draw loop
-  const centerX = logicalSize / 2;
-  const centerY = logicalSize / 2;
   const scale = logicalSize / 240;
   const twoPi = 2 * Math.PI;
   const highStart = Math.floor(bufferLength * 0.7);
@@ -177,9 +203,12 @@ export function startVisualizer(): void {
       let highPunch = smoothedHigh / 255;
       if (!isFinite(highPunch)) highPunch = 0;
 
+      const centerX = logicalSize / 2;
+      const centerY = logicalSize / 2;
+
       ctx.shadowBlur = 0;
 
-      // Circle 1: Bass — always source-over (base layer)
+      // Circle 1: Bass
       ctx.globalCompositeOperation = 'source-over';
       const bassRadius = (55 + (bassPunch * 200)) * scale;
       const bassOpacity = Math.min(0.75, 0.25 + (bassPunchOpacity * 0.75));
@@ -191,7 +220,6 @@ export function startVisualizer(): void {
       ctx.fill();
 
       // Circle 2: High
-      ctx.globalCompositeOperation = 'source-over';
       const highRadius = (40 + (highPunch * 130)) * scale;
       ctx.fillStyle = _cachedIsLight
         ? 'rgba(66, 129, 241, 1.0)'
@@ -200,7 +228,6 @@ export function startVisualizer(): void {
       ctx.arc(centerX, centerY, highRadius, 0, twoPi);
       ctx.fill();
 
-      // Schedule next frame only after successful draw
       _animationId = requestAnimationFrame(draw);
     } catch (e) {
       log.warn('[Visualizer] draw() error — stopping animation loop:', e);
@@ -214,47 +241,39 @@ export function startVisualizer(): void {
 // ─── Idle Visualizer ─────────────────────────────────────────────
 
 export function drawIdleVisualizer(): void {
-  if (_vizMode === 'spectrum') { drawIdleSpectrum(); return; }
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
-  const _ctx2 = canvas.getContext('2d');
-  if (!_ctx2) return;
-  const ctx: CanvasRenderingContext2D = _ctx2;
-
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  const rawSize = wrapper ? Math.min(wrapper.clientWidth, wrapper.clientHeight) : 0;
-  const logicalSize = rawSize > 10 ? rawSize : 240;
-  const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
-    canvas.width = logicalSize * dpr;
-    canvas.height = logicalSize * dpr;
-    canvas.style.width = '';
-    canvas.style.height = '';
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-  }
-
-  const theme = document.documentElement.getAttribute('data-theme');
-  const isLight = (theme === 'light');
-
+  // Always sync before drawing idle state
+  const logicalSize = syncCanvasSize(canvas, ctx, wrapper);
+  
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, logicalSize, logicalSize);
-  ctx.shadowBlur = 0;
+  
+  if (_vizMode === 'spectrum') {
+    // Spectrum idle: just grid
+    drawSpectrumGrid(ctx, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1), 4, 8, _cachedIsLight);
+    return;
+  }
 
+  // Circular idle: matches silence (bassRadius=55, highRadius=40)
   const centerX = logicalSize / 2;
   const centerY = logicalSize / 2;
   const scale = logicalSize / 240;
-
-  // Bass circle (static) — matches idle bassPunch=0: opacity 25%
+  
+  // Base Bass (25% opacity)
   const bassRadius = 55 * scale;
-  ctx.fillStyle = isLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
+  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
   ctx.beginPath();
   ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
   ctx.fill();
 
-  // High circle (static) — opacity 100%
+  // Base High (100% opacity)
   const highRadius = 40 * scale;
-  ctx.fillStyle = isLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
+  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
   ctx.beginPath();
   ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
   ctx.fill();
@@ -315,39 +334,23 @@ function startSpectrumVisualizer(): void {
 
   const analyser = getAnalyser();
   if (!analyser) {
-    if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      _visualizerRetryCount = 0;
-      return;
-    }
-    setManagedTimer('viz-retry', () => { if (_vizMode === 'spectrum') startSpectrumVisualizer(); else startVisualizer(); }, 100);
+    drawIdleVisualizer(); // Fallback to idle (grid only)
     return;
   }
-  _visualizerRetryCount = 0;
 
-  // Set higher smoothing for spectrum mode
   analyser.smoothingTimeConstant = 0.8;
-
   const bufferLength = analyser.frequencyBinCount;
   const freqData = new Float32Array(bufferLength);
   const sampleRate = analyser.context.sampleRate;
 
-  // Canvas sizing (non-square for spectrum)
+  // Sync size
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  const logicalW = wrapper && wrapper.clientWidth > 10 ? wrapper.clientWidth : 400;
-  const logicalH = wrapper && wrapper.clientHeight > 10 ? wrapper.clientHeight : 240;
-  const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
-    canvas.width = logicalW * dpr;
-    canvas.height = logicalH * dpr;
-    canvas.style.width = '';
-    canvas.style.height = '';
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-  }
+  syncCanvasSize(canvas, ctx, wrapper);
+  const logicalW = canvas.width / (window.devicePixelRatio || 1);
+  const logicalH = canvas.height / (window.devicePixelRatio || 1);
 
   const padX = 4;
   const padY = 8;
-
   refreshThemeCache();
 
   function draw(): void {
@@ -356,168 +359,59 @@ function startSpectrumVisualizer(): void {
 
     try {
       analyser!.getFloatFrequencyData(freqData);
-
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalW, logicalH);
-
-      // Grid
       drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
-
-      // Build points with variable step
+      
       const points: { x: number; y: number }[] = [];
-      let firstX = -1;
-
       for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
         const freq = (i * sampleRate) / (bufferLength * 2);
         if (freq < MIN_FREQ) continue;
         if (freq > MAX_FREQ) break;
-
-        const rawDb = freqData[i];
-        const compensated = rawDb + slopeCompensation(freq);
         const x = freqToX(freq, logicalW, padX);
-        const y = dbToY(compensated, logicalH, padY);
-
-        if (firstX < 0) firstX = x;
+        const y = dbToY(freqData[i] + slopeCompensation(freq), logicalH, padY);
         points.push({ x, y });
       }
 
-      if (points.length < 2) { _animationId = requestAnimationFrame(draw); return; }
+      if (points.length >= 2) {
+        ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
+        const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
+        grad.addColorStop(0, _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
+        grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(padX, logicalH - padY);
+        ctx.lineTo(padX, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const mx = (points[i].x + points[i + 1].x) / 2;
+          const my = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+        }
+        const last = points[points.length - 1];
+        ctx.lineTo(last.x, last.y);
+        ctx.lineTo(last.x, logicalH - padY);
+        ctx.closePath();
+        ctx.fill();
 
-      // Stroke color
-      const strokeColor = 'rgba(59, 130, 246, 0.9)';
-      const fillColorTop = _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)';
-      const fillColorBot = 'rgba(59, 130, 246, 0.0)';
-
-      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
-
-      // Fill gradient path
-      const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-      grad.addColorStop(0, fillColorTop);
-      grad.addColorStop(1, fillColorBot);
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      // Start from bottom-left, go up to first point
-      ctx.moveTo(padX, logicalH - padY);
-      ctx.lineTo(padX, points[0].y);
-
-      // Bezier curve through all points
-      for (let i = 0; i < points.length - 1; i++) {
-        const midX = (points[i].x + points[i + 1].x) / 2;
-        const midY = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(padX, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const mx = (points[i].x + points[i + 1].x) / 2;
+          const my = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+        }
+        ctx.lineTo(last.x, last.y);
+        ctx.stroke();
       }
-      // Last point
-      const last = points[points.length - 1];
-      ctx.lineTo(last.x, last.y);
-      ctx.lineTo(last.x, logicalH - padY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Stroke line
-      ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(padX, points[0].y);
-      for (let i = 0; i < points.length - 1; i++) {
-        const midX = (points[i].x + points[i + 1].x) / 2;
-        const midY = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
-      }
-      ctx.lineTo(last.x, last.y);
-      ctx.stroke();
-
       _animationId = requestAnimationFrame(draw);
     } catch (e) {
       log.warn('[Visualizer] spectrum draw() error:', e);
       _animationId = null;
     }
   }
-
   draw();
-}
-
-// ─── Idle Spectrum ──────────────────────────────────────────────
-
-function drawIdleSpectrum(): void {
-  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const _ctx = canvas.getContext('2d');
-  if (!_ctx) return;
-  const ctx: CanvasRenderingContext2D = _ctx;
-
-  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  const logicalW = wrapper && wrapper.clientWidth > 10 ? wrapper.clientWidth : 400;
-  const logicalH = wrapper && wrapper.clientHeight > 10 ? wrapper.clientHeight : 240;
-  const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
-    canvas.width = logicalW * dpr;
-    canvas.height = logicalH * dpr;
-    canvas.style.width = '';
-    canvas.style.height = '';
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-  }
-
-  const theme = document.documentElement.getAttribute('data-theme');
-  const isLight = (theme === 'light');
-
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.clearRect(0, 0, logicalW, logicalH);
-
-  const padX = 4;
-  const padY = 8;
-  drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, isLight);
-
-  // Silent spectrum curve (all at MIN_DB + slope compensation)
-  const points: { x: number; y: number }[] = [];
-  const numPoints = 64;
-  for (let i = 0; i < numPoints; i++) {
-    const f = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, i / (numPoints - 1));
-    const compensated = -Infinity + slopeCompensation(f);
-    points.push({
-      x: freqToX(f, logicalW, padX),
-      y: dbToY(compensated, logicalH, padY),
-    });
-  }
-
-  if (points.length < 2) return;
-
-  const strokeColor = 'rgba(59, 130, 246, 0.9)';
-  const fillColorTop = isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)';
-
-  // Fill
-  const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-  grad.addColorStop(0, fillColorTop);
-  grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.moveTo(padX, logicalH - padY);
-  ctx.lineTo(padX, points[0].y);
-  for (let i = 0; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-  }
-  const last = points[points.length - 1];
-  ctx.lineTo(last.x, last.y);
-  ctx.lineTo(last.x, logicalH - padY);
-  ctx.closePath();
-  ctx.fill();
-
-  // Stroke
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(padX, points[0].y);
-  for (let i = 0; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-  }
-  ctx.lineTo(last.x, last.y);
-  ctx.stroke();
 }
 
 // ─── Init ────────────────────────────────────────────────────────
@@ -525,13 +419,27 @@ function drawIdleSpectrum(): void {
 export function initVisualizer(): void {
   refreshThemeCache();
   _initThemeListeners();
-  drawIdleVisualizer();
+  
+  // Try to start the real engine immediately, fall back to idle if no analyser
+  const analyser = getAnalyser();
+  if (analyser) {
+    startVisualizer();
+  } else {
+    drawIdleVisualizer();
+  }
 
   if (!_resizeListenerAdded) {
     _resizeListenerAdded = true;
     window.addEventListener('resize', () => {
+      // For responsiveness, we can sync size immediately and THEN throttle the expensive draw
+      const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+      const ctx = canvas?.getContext('2d');
+      const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+      if (canvas && ctx && wrapper) {
+        syncCanvasSize(canvas, ctx, wrapper);
+      }
+
       setManagedTimer('viz-resize', () => {
-        const wrapper = document.querySelector('.vinyl-wrapper');
         if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
         const currentState = getState('appState');
         if (isIdleOrPaused(currentState)) {
@@ -539,7 +447,7 @@ export function initVisualizer(): void {
         } else {
           startVisualizer();
         }
-      }, 250);
+      }, 100); // Reduced delay to 100ms for better perceived performance
     });
   }
 
@@ -547,15 +455,11 @@ export function initVisualizer(): void {
   bus.on('ui:visualizer-check', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
-      // Keep last frame — do nothing
+      // Keep last frame
     } else if (currentState === APP_STATE.IDLE) {
       if (!_animationId) {
         const analyser = getAnalyser();
-        if (analyser) {
-          startVisualizer();
-        } else {
-          drawIdleVisualizer();
-        }
+        if (analyser) startVisualizer(); else drawIdleVisualizer();
       }
     } else {
       startVisualizer();
@@ -566,18 +470,11 @@ export function initVisualizer(): void {
   bus.on('state:appState', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
-      // Keep last frame — only stop animation loop
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
     } else if (currentState === APP_STATE.IDLE) {
-      // Keep draw() loop running so analyser data decays naturally
-      // If no animation loop is active, start visualizer to keep it going
       if (!_animationId) {
         const analyser = getAnalyser();
-        if (analyser) {
-          startVisualizer();
-        } else {
-          drawIdleVisualizer();
-        }
+        if (analyser) startVisualizer(); else drawIdleVisualizer();
       }
     } else {
       startVisualizer();
@@ -595,22 +492,15 @@ export function initVisualizer(): void {
     document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
     document.body.classList.toggle('viz-circular', mode === 'circular');
 
-    // Stop current animation
     if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
 
-    // Reset smoothingTimeConstant when switching back to circular
     const analyser = getAnalyser();
     if (analyser) {
       analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
     }
 
-    // Redraw
     const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) {
-      drawIdleVisualizer();
-    } else {
-      startVisualizer();
-    }
+    if (isIdleOrPaused(currentState)) drawIdleVisualizer(); else startVisualizer();
   });
 
   log.info('[Visualizer] Initialized');

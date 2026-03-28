@@ -12,6 +12,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { analyzeFullBuffer } from 'realtime-bpm-analyzer';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
@@ -42,7 +43,7 @@ export function initBeatDetector(): void {
   bus.on('state:appState', (value) => {
     const state = value as string;
     if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
-      analyzeAndStart();
+      void analyzeAndStart();
     } else {
       stopBeatLoop();
     }
@@ -56,7 +57,7 @@ export function initBeatDetector(): void {
   bus.on('player:buffer-changed', () => {
     const state = getState('appState') as string;
     if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
-      analyzeAndStart();
+      void analyzeAndStart();
     }
   });
 
@@ -65,7 +66,7 @@ export function initBeatDetector(): void {
 
 // ─── Analysis (original v2 algorithm — verbatim) ────────────────
 
-function analyzeAndStart(): void {
+async function analyzeAndStart(): Promise<void> {
   const buf = getCurrentAudioBuffer();
   if (!buf) return;
 
@@ -76,24 +77,44 @@ function analyzeAndStart(): void {
   }
 
   const t0 = performance.now();
-  const result = detectBPM_V2(buf);
-  const ms = performance.now() - t0;
+  
+  try {
+    // 1) Use the robust library for BPM
+    const candidates = await analyzeFullBuffer(buf);
+    
+    // Sort candidates by frequency (count)
+    candidates.sort((a, b) => b.count - a.count);
+    let topBPM = candidates[0]?.tempo || 0;
 
-  // >200 BPM → halve (original v2 behavior)
-  let finalBPM = result.bpm;
-  if (finalBPM > 200) finalBPM /= 2;
+    // 2) Use our V2 logic just for Phase detection (library doesn't give phase)
+    const v2Result = detectBPM_V2(buf);
+    
+    const ms = performance.now() - t0;
 
-  _bpm = Math.round(finalBPM);
-  _phase = result.phase;
-  _beatDuration = 60 / _bpm;
-  _analysedBuffer = buf;
+    // >200 BPM → halve
+    if (topBPM > 200) topBPM /= 2;
 
-  setState('audio.detectedBPM', _bpm);
+    _bpm = Math.round(topBPM);
+    _phase = v2Result.phase; // Use custom phase logic
+    _beatDuration = 60 / _bpm;
+    _analysedBuffer = buf;
 
-  log.info(`[BeatDetector] ${_bpm} BPM (raw ${result.bpm.toFixed(1)}) in ${ms.toFixed(0)}ms`);
-  bus.emit('beat:detected', _bpm, _phase);
+    setState('audio.detectedBPM', _bpm);
 
-  startBeatLoop();
+    log.info(`[BeatDetector] ${_bpm} BPM via library in ${ms.toFixed(0)}ms`);
+    bus.emit('beat:detected', _bpm, _phase);
+
+    startBeatLoop();
+  } catch (err) {
+    log.error('[BeatDetector] Analysis failed', err);
+    // Fallback to V2 if library fails
+    const v2 = detectBPM_V2(buf);
+    _bpm = Math.round(v2.bpm);
+    _phase = v2.phase;
+    _beatDuration = 60 / _bpm;
+    _analysedBuffer = buf;
+    startBeatLoop();
+  }
 }
 
 /**
@@ -144,27 +165,51 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
       refinedLag = allScores[bestIdx].lag + 0.5 * (s0 - s2) / denom;
     }
   }
-
-  // 4) Phase (first beat offset)
-  let maxEnergy = 0;
-  for (let i = 0; i < energyMap.length; i++) {
-    if (energyMap[i] > maxEnergy) maxEnergy = energyMap[i];
-  }
-  const threshold = maxEnergy * 0.4;
-  let firstBeatOffset = 0;
-  for (let i = 0; i < Math.min(energyMap.length, 1000); i++) {
-    if (energyMap[i] > threshold) { firstBeatOffset = i / actualFreq; break; }
-  }
-
   const finalBPM = (60 * actualFreq) / refinedLag;
-  return { bpm: finalBPM, phase: firstBeatOffset };
+
+  // 4) Phase (Global Phase Alignment — Comb Filter approach)
+  // Instead of the first peak, we find the offset (0..1 beat) that maximizes 
+  // alignment with the energy map over the first 15 seconds.
+  const beatDurationFrames = actualFreq * (60 / finalBPM);
+  const searchLimitFrames = Math.floor(actualFreq * 15); // Check first 15 seconds
+  const framesToScan = Math.min(energyMap.length, searchLimitFrames);
+  
+  let bestOffsetFrames = 0;
+  let maxAlignmentScore = -1;
+
+  // Scan every possible offset within one beat (1 frame resolution = 5ms)
+  for (let offset = 0; offset < beatDurationFrames; offset++) {
+    let score = 0;
+    let count = 0;
+    
+    // Sum energy at every beat position for this offset candidate
+    for (let t = offset; t < framesToScan; t += beatDurationFrames) {
+      const idx = Math.floor(t);
+      if (idx < framesToScan) {
+        // Use squared energy for better peak emphasis
+        score += energyMap[idx] * energyMap[idx];
+        count++;
+      }
+    }
+    
+    if (count > 0) {
+      score /= count;
+      if (score > maxAlignmentScore) {
+        maxAlignmentScore = score;
+        bestOffsetFrames = offset;
+      }
+    }
+  }
+
+  const finalPhaseS = bestOffsetFrames / actualFreq;
+  return { bpm: finalBPM, phase: finalPhaseS };
 }
 
 // ─── Beat Loop (rAF + audioCtx.currentTime) ─────────────────────
 
 // Compensate for rAF polling delay + DOM render/perception latency.
 // Fires beat:pulse slightly early so visual effects land on time.
-const VISUAL_LOOKAHEAD_S = 0.030; // 30ms
+const VISUAL_LOOKAHEAD_S = 0.000; // No lookahead (raw sync)
 
 function startBeatLoop(): void {
   stopBeatLoop();
@@ -181,9 +226,15 @@ function stopBeatLoop(): void {
 }
 
 function tick(): void {
+  _animId = requestAnimationFrame(tick);
+
   const state = getState('appState');
-  if (state !== APP_STATE.PLAYING_AUDIO && state !== APP_STATE.PLAYING_VIDEO) return;
-  if (_bpm <= 0) return;
+  if (state !== APP_STATE.PLAYING_AUDIO && state !== APP_STATE.PLAYING_VIDEO) {
+    _lastBeatIdx = -1;
+    return;
+  }
+
+  if (_bpm <= 0 || _beatDuration <= 0) return;
 
   const startedAt = getState('player.startedAt') as number || 0;
   const localOffset = (getState('sync.localOffset') as number) || 0;
@@ -197,6 +248,4 @@ function tick(): void {
     _lastBeatIdx = beatIdx;
     bus.emit('beat:pulse', _bpm, beatIdx);
   }
-
-  _animId = requestAnimationFrame(tick);
 }

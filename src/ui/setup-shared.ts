@@ -66,7 +66,8 @@ let _desktopSyncedDiagramParent: HTMLElement | null = null;
 let _desktopSyncedDiagramNextSibling: Node | null = null;
 
 function isDesktopLayout(): boolean {
-  return window.matchMedia('(min-width: 1280px)').matches;
+  return window.matchMedia('(min-width: 1280px)').matches
+    || window.matchMedia('(max-width: 950px) and (orientation: landscape)').matches;
 }
 
 function _restoreDesktopDiagram(): void {

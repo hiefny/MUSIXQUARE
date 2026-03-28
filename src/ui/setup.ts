@@ -196,10 +196,12 @@ setGuestGoBack(initSetupOverlay);
 // ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
-  // Desktop layout listener
+  // Desktop / landscape layout listener
   try {
-    const mql = window.matchMedia('(min-width: 1280px)');
-    mql.addEventListener('change', () => syncDesktopLeftPanel());
+    const mqlDesktop = window.matchMedia('(min-width: 1280px)');
+    const mqlLandscape = window.matchMedia('(max-width: 950px) and (orientation: landscape)');
+    mqlDesktop.addEventListener('change', () => syncDesktopLeftPanel());
+    mqlLandscape.addEventListener('change', () => syncDesktopLeftPanel());
   } catch { /* ignore */ }
 
   // Role grid click handler (event delegation)

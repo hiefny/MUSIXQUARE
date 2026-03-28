@@ -62,6 +62,37 @@ function updateVolumeIcon(): void {
   }
 }
 
+/** Refresh the track title in the UI, considering network restrictions for remote guests. */
+function refreshTrackTitle(): void {
+  const item = getState('player.currentTrackMeta');
+  if (!item) return;
+
+  let title = item.title || item.name || t('common.unknown');
+
+  // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title
+  const isRemote = getState('network.connectionType') === 'remote';
+  const isLocalFile = item.type === 'file';
+  const hasNoBlob = !getState('files.currentFileBlob');
+  const isGuest = !!getState('network.hostConn');
+
+  if (isGuest && isRemote && isLocalFile && hasNoBlob) {
+    title = t('toast.same_wifi_file_title');
+  }
+
+  updateTitleWithMarquee(title);
+
+  // Also update Artist
+  const artistEl = document.getElementById('track-artist');
+  if (artistEl) {
+    if (item.artist) {
+      artistEl.innerText = item.artist;
+    } else {
+      const idx = getState('playlist.currentTrackIndex');
+      artistEl.innerText = (item.type === 'youtube') ? t('common.youtube_video') : t('playlist.track_fallback', { idx: idx + 1 });
+    }
+  }
+}
+
 function onVolInput(val: number): void {
   bus.emit('audio:set-volume', val / 100);
 }
@@ -495,6 +526,11 @@ export function initPlayerControls(): void {
     updateRoleBadge();
   });
 
+  // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
+  bus.on('state:network.connectionType', () => {
+    refreshTrackTitle();
+  });
+
   // Peer disconnected: update UI
   bus.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
@@ -608,10 +644,7 @@ export function initPlayerControls(): void {
 
   // Metadata update (track title in player UI)
   bus.on('state:player.currentTrackMeta', () => {
-    const item = getState('player.currentTrackMeta');
-    if (!item) return;
-    const title = item.title || item.name || t('common.unknown');
-    updateTitleWithMarquee(title);
+    refreshTrackTitle();
   });
 
   // Sync display update (manual-sync-value element)

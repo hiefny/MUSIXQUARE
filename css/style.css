@@ -4033,6 +4033,13 @@
         padding-bottom: calc(10px + var(--safe-nav-bottom, 0px));
     }
 
+    /* iOS PWA: switch header from fixed to absolute so it scrolls naturally
+       with the document when iOS pushes the page up for the keyboard,
+       instead of staying fixed and creating a visible gap above it. */
+    html.keyboard-open header {
+        position: absolute;
+    }
+
 
     /* Chat YouTube Play Button (Acts as the bubble itself) */
     .chat-youtube-btn {

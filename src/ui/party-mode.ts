@@ -14,7 +14,7 @@ const FLASH_OPACITY = 0.12;
 const FADE_MS = 300;
 
 // High-speed spring physical constants (Pulse Only)
-const JOLT_SCALE = 1.01;      // Subtle constant pulse factor
+const JOLT_SCALE = 1.02;      // Strong constant pulse factor
 const JOLT_DURATION_MS = 160; // Settle time
 const JOLT_BEZIER = 'cubic-bezier(.17, .89, .32, 1.27)'; // "Back" easing for bouncy feels
 

@@ -785,12 +785,20 @@ export function initChat(): void {
 
   // Wire up UI buttons
   const sendBtn = document.getElementById('btn-chat-send');
-  if (sendBtn) sendBtn.addEventListener('click', () => {
-    sendChatMessage();
-    // Re-focus input to keep mobile keyboard open
-    const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
-    if (chatInput) chatInput.focus();
-  });
+  if (sendBtn) {
+    const handleSend = (e: Event) => {
+      e.preventDefault(); // Prevent input blur
+      sendChatMessage();
+      const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
+      if (chatInput) chatInput.focus();
+    };
+    sendBtn.addEventListener('pointerdown', handleSend);
+    sendBtn.addEventListener('click', (e) => {
+      // Fallback for keyboard accessibility (Space/Enter on button)
+      if (e.detail !== 0) return; // Ignore if triggered by mouse/touch pointerdown
+      handleSend(e);
+    });
+  }
 
   const closeBtn = document.getElementById('btn-chat-close');
   if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer);
@@ -996,19 +1004,12 @@ export function initChat(): void {
     new MutationObserver(() => updateGhost()).observe(
       document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
-    // Handle iOS PWA keyboard safe-area gap
-    let _keyboardFocusTimer = 0;
+    // Handle iOS PWA keyboard safe-area gap inherently with focus state
     chatInput.addEventListener('focus', () => {
-      window.clearTimeout(_keyboardFocusTimer);
       document.documentElement.classList.add('keyboard-open');
     });
-    chatInput.addEventListener('focusout', () => {
-      window.clearTimeout(_keyboardFocusTimer);
-      _keyboardFocusTimer = window.setTimeout(() => {
-        if (document.activeElement !== chatInput) {
-          document.documentElement.classList.remove('keyboard-open');
-        }
-      }, 150);
+    chatInput.addEventListener('blur', () => {
+      document.documentElement.classList.remove('keyboard-open');
     });
   }
 

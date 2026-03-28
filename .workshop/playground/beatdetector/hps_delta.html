@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HPS + Delta: Kick Drum Sniper Mode</title>
+    <style>
+        :root {
+            --bg: #030303; --fg: #fff; --hl: #00ffaa; --hl2: #ff00ff; --hl3: #ffff00;
+            --ui-bg: rgba(12, 12, 12, 0.99);
+        }
+        body { margin: 0; background: var(--bg); color: var(--fg); font-family: 'Inter', sans-serif; height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; letter-spacing: -0.5px; }
+        #ui { position: absolute; left: 15px; top: 15px; background: var(--ui-bg); padding: 22px; display: flex; flex-direction: column; gap: 8px; z-index: 100; width: 290px; border: 1px solid #252525; }
+        .control-group { display: flex; flex-direction: column; gap: 2px; }
+        label { font-size: 8px; text-transform: uppercase; color: #555; font-weight: 900; letter-spacing: 0.8px; }
+        .val-display { color: #eee; font-size: 10px; float: right; font-family: 'JetBrains Mono', monospace; }
+        input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--hl); margin: 3px 0; }
+        select { background:#151515; color:white; border:1px solid #333; font-size:10px; padding:4px; outline:none; }
+
+        #lamp { position: absolute; top: 0; width: 100%; height: 12px; background: #080808; z-index: 101; transition: background 0.05s; }
+        #lamp.active { background: var(--hl); box-shadow: 0 0 30px var(--hl); }
+
+        #viz-container { position: relative; width: 450px; height: 450px; display: flex; align-items: center; justify-content: center; }
+        #main-circle { width: 110px; height: 110px; background: #fff; border-radius: 50%; z-index: 10; transition: transform 0.03s cubic-bezier(0, 0, 0.2, 1); }
+        #barrier-ring { position: absolute; width: 110px; height: 110px; border: 2.5px dashed var(--hl); border-radius: 50%; z-index: 5; opacity: 0.5; }
+        #delta-ring { position: absolute; width: 110px; height: 110px; border: 1.5px solid var(--hl3); border-radius: 50%; z-index: 4; opacity: 0; transform: scale(1); }
+        #delta-ring.pulse { opacity: 0.8; transition: none; }
+
+        #monitor-group { position: absolute; bottom: 20px; left: 20px; display: flex; flex-direction: column; gap: 12px; pointer-events: none; }
+        .label-tag { font-size: 8px; color: #444; text-transform: uppercase; margin-bottom: 2px; font-weight: bold; }
+        .monitor { display: flex; align-items: flex-end; gap: 1px; height: 35px; background: rgba(255,255,255,0.01); padding: 5px; min-width: 200px; }
+        .bar { width: 2px; background: #1a1a1a; }
+        .bar.p { background: var(--hl); } /* Percussive */
+        
+        #sniper-log { color: #444; font-size: 8px; font-family: monospace; position: absolute; bottom: 20px; right: 20px; text-transform: uppercase; }
+        #sniper-log.active { color: var(--hl); }
+    </style>
+</head>
+<body>
+    <div id="lamp"></div>
+    <div id="ui">
+        <label style="color:var(--hl); border-bottom: 2px solid var(--hl); padding-bottom: 6px; margin-bottom: 6px; font-size: 11px;">Kick Sniper Engine (v2)</label>
+        <div class="control-group"><label>Source</label><input type="file" id="audioInput" accept="audio/*"></div>
+        <div class="control-group">
+            <label>FFT & Mode</label>
+            <div style="display:flex; gap:5px;">
+                <select id="fftSelect" style="flex:1;">
+                    <option value="512">512</option><option value="1024" selected>1024</option>
+                    <option value="2048">2048</option><option value="4096">4096</option>
+                    <option value="8192">8192</option>
+                </select>
+                <div style="background:#222; padding:4px; font-size:8px; display:flex; align-items:center;">
+                    <label style="margin:0; color:var(--hl3);">LPF ACTIVE</label>
+                </div>
+            </div>
+        </div>
+        <div class="control-group">
+            <label>Kick Range (Hz) <span class="val-display" id="hzVal">40-100Hz</span></label>
+            <div style="display:flex; gap:10px;">
+                <input type="range" id="minHzRange" min="0" max="300" step="1" value="40"><input type="range" id="maxHzRange" min="20" max="800" step="1" value="100">
+            </div>
+        </div>
+        <div class="control-group">
+            <label style="color:var(--hl2);">Anti-Snare Inhibitor <span class="val-display" id="inhibitVal">1.5x</span></label>
+            <input type="range" id="inhibitRange" min="0.1" max="10.0" step="0.1" value="1.5">
+            <div style="font-size:7px; color:#444;">고음 대비 저음 비율 (높을수록 킥만 골라냄)</div>
+        </div>
+        <div class="control-group">
+            <label style="color:var(--hl3);">Delta Sensitivity <span class="val-display" id="deltaVal">2.5</span></label>
+            <input type="range" id="deltaRange" min="0.1" max="15.0" step="0.1" value="2.5">
+        </div>
+        <div class="control-group">
+            <label>Barrier Lag & Margin</label>
+            <div style="display:flex; gap:10px;">
+                <input type="range" id="lagRange" min="1" max="100" step="1" value="8">
+                <input type="range" id="forceRange" min="1" max="150" step="1" value="15">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>Gain <span class="val-display" id="sensVal">5.0</span></label>
+            <input type="range" id="sensRange" min="1" max="30" step="0.5" value="5">
+        </div>
+    </div>
+
+    <div id="viz-container">
+        <div id="delta-ring"></div>
+        <div id="barrier-ring"></div>
+        <div id="main-circle"></div>
+    </div>
+
+    <div id="monitor-group">
+        <div><div class="label-tag" style="color:var(--hl2);">Filter-Cut Input (LPF applied)</div><div id="raw-monitor" class="monitor"></div></div>
+        <div><div class="label-tag" style="color:var(--hl);">Isolated Kick Energy</div><div id="hps-monitor" class="monitor"></div></div>
+    </div>
+
+    <div id="sniper-log">Locking Kick...</div>
+
+    <script>
+        const audioInput = document.getElementById('audioInput'), lamp = document.getElementById('lamp'), mainCircle = document.getElementById('main-circle'), barrierRing = document.getElementById('barrier-ring'), deltaRing = document.getElementById('delta-ring'), sniperLog = document.getElementById('sniper-log');
+        const rawMonitor = document.getElementById('raw-monitor'), hpsMonitor = document.getElementById('hps-monitor');
+        const s = { fft: 1024, hpsBufSize: 12, minHz: 40, maxHz: 100, lag: 0.08, force: 15, sens: 5, deltaSens: 2.5, inhibit: 1.5 };
+        
+        let audioCtx, analyser, dataArray, source, lowPass, spectrogram = [], isLooping = false;
+        let currentPeakEnergy = 0, smoothedBarrier = 0, lastPercussiveEnergy = 0;
+
+        document.querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('input', (e) => {
+                const id = e.target.id, val = parseFloat(e.target.value);
+                if(id==='fftSelect') { s.fft = val; if(analyser) { analyser.fftSize = val; dataArray = new Uint8Array(analyser.frequencyBinCount); createMonitors(); spectrogram=[]; } }
+                if(id==='minHzRange') { s.minHz = val; updateHzVal(); }
+                if(id==='maxHzRange') { s.maxHz = val; updateHzVal(); }
+                if(id==='inhibitRange') { s.inhibit = val; document.getElementById('inhibitVal').textContent = val.toFixed(1) + "x"; }
+                if(id==='deltaRange') { s.deltaSens = val; document.getElementById('deltaVal').textContent = val.toFixed(1); }
+                if(id==='lagRange') { s.lag = val/100; }
+                if(id==='forceRange') { s.force = val; }
+                if(id==='sensRange') { s.sens = val; document.getElementById('sensVal').textContent = val.toFixed(1); }
+            });
+        });
+        function updateHzVal() { document.getElementById('hzVal').textContent = s.minHz + "-" + s.maxHz + "Hz"; }
+
+        audioInput.onchange = function() {
+            if(!this.files.length) return;
+            if(!audioCtx) { 
+                audioCtx = new AudioContext(); 
+                // 1. 하드웨어 로우패스 필터 (Kick 주파수 보전을 위해 150Hz 컷)
+                lowPass = audioCtx.createBiquadFilter(); 
+                lowPass.type = 'lowpass'; lowPass.frequency.value = 150; lowPass.Q.value = 1;
+                
+                analyser = audioCtx.createAnalyser(); analyser.fftSize = s.fft; analyser.smoothingTimeConstant = 0.1;
+                dataArray = new Uint8Array(analyser.frequencyBinCount); createMonitors(); 
+            }
+            const reader = new FileReader(); reader.onload = (e) => { audioCtx.decodeAudioData(e.target.result, (buf) => { if(source) source.stop(); source = audioCtx.createBufferSource(); source.buffer = buf; source.connect(lowPass); lowPass.connect(analyser); analyser.connect(audioCtx.destination); source.start(0); if(!isLooping) { isLooping=true; update(); } }); }; reader.readAsArrayBuffer(this.files[0]);
+        };
+
+        function createMonitors() {
+            rawMonitor.innerHTML = hpsMonitor.innerHTML = '';
+            for(let i=0; i<64; i++) {
+                const b1 = document.createElement('div'); b1.className = 'bar'; rawMonitor.appendChild(b1);
+                const b2 = document.createElement('div'); b2.className = 'bar p'; hpsMonitor.appendChild(b2);
+            }
+        }
+
+        function getMedian(arr) { const sorted = [...arr].sort((a, b) => a - b); return sorted[Math.floor(sorted.length / 2)]; }
+
+        function update() {
+            requestAnimationFrame(update); if(!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            // 1. HPS Process (Isolated Percussive)
+            spectrogram.push(new Uint8Array(dataArray));
+            if(spectrogram.length > s.hpsBufSize) spectrogram.shift();
+            const percussiveSpectrum = new Uint8Array(dataArray.length);
+            if(spectrogram.length >= 2) {
+                for(let k=0; k<dataArray.length; k++) {
+                    const m = getMedian(spectrogram.map(f => f[k]));
+                    percussiveSpectrum[k] = Math.max(0, dataArray[k] - m);
+                }
+            }
+
+            // 2. Monitoring & Sniper Logic
+            const binHz = audioCtx.sampleRate / s.fft;
+            const minB = Math.floor(s.minHz / binHz), maxB = Math.floor(s.maxHz / binHz);
+            const midB_start = Math.floor(1000 / binHz), midB_end = Math.floor(8000 / binHz); // Snare/Hihat 감시자
+            
+            let kickEnergySum = 0, snareEnergySum = 0;
+            const rBars = rawMonitor.children, pBars = hpsMonitor.children;
+            
+            for(let i=0; i<rBars.length; i++) {
+                if(rBars[i]) rBars[i].style.height = (dataArray[i]/255*35)+'px';
+                if(pBars[i]) pBars[i].style.height = (percussiveSpectrum[i]/255*60)+'px';
+                
+                // Kick 대역 에너지
+                if(i >= minB && i <= maxB) kickEnergySum += percussiveSpectrum[i];
+                // 고음/스네어 대역 에너지 모니터링
+                if(i >= midB_start && i <= midB_end) snareEnergySum += percussiveSpectrum[i];
+            }
+
+            const kickEnergy = kickEnergySum / (maxB - minB + 1);
+            const snareEnergy = snareEnergySum / (midB_end - midB_start + 1);
+            
+            // 3. Delta
+            let deltaKickEnergy = Math.max(0, kickEnergy - lastPercussiveEnergy);
+            lastPercussiveEnergy = kickEnergy;
+
+            // 4. Threshold & Barrier
+            currentPeakEnergy = Math.max(currentPeakEnergy * 0.95, kickEnergy);
+            const targetBarrier = currentPeakEnergy * (1 + s.force / 100);
+            smoothedBarrier += (targetBarrier - smoothedBarrier) * s.lag;
+
+            // 5. 시각화
+            const coreScale = 1 + (kickEnergy / 255) * s.sens;
+            const barrierScale = 1 + (smoothedBarrier / 255) * s.sens;
+            const deltaPulse = Math.min(1.5, (deltaKickEnergy * s.deltaSens) / 20);
+            mainCircle.style.transform = `scale(${coreScale})`;
+            barrierRing.style.transform = `scale(${barrierScale})`;
+            
+            if(deltaKickEnergy * s.deltaSens > 5) {
+                deltaRing.style.opacity = "0.8"; deltaRing.style.transform = `scale(${coreScale + deltaPulse})`; deltaRing.style.transition = "none";
+            } else {
+                deltaRing.style.opacity = "0"; deltaRing.style.transform = `scale(${coreScale})`; deltaRing.style.transition = "opacity 0.3s ease-out";
+            }
+
+            // *** 6. FINAL SNIPER TRIGGER ***
+            // 킥 에너지가 장벽을 뚫고 + 델타 가속도가 붙었으며 + [중요] 저음/고음 비율이 저격 기준보다 높을 때만!
+            const hitThreshold = kickEnergy > smoothedBarrier && deltaKickEnergy * s.deltaSens > 2;
+            const sniped = kickEnergy > (snareEnergy * s.inhibit); // Anti-Snare Check
+
+            if(hitThreshold && sniped) {
+                lamp.classList.add('active'); sniperLog.classList.add('active'); sniperLog.textContent = "KICK SNIPED!";
+            } else {
+                lamp.classList.remove('active'); sniperLog.classList.remove('active'); sniperLog.textContent = "Locking Kick...";
+            }
+        }
+    </script>
+</body>
+</html>

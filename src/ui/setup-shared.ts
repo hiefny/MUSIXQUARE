@@ -149,18 +149,18 @@ export function showSetupOverlay(): void {
 export function hideSetupOverlay(): void {
   activateNoSleep();
   if (_setupOverlayAbort) { _setupOverlayAbort.abort(); _setupOverlayAbort = null; }
-  animateTransition(() => {
-    const overlay = setupEl('setup-overlay');
-    if (overlay) overlay.classList.remove('active');
-    updateOverlayOpenClass();
-    stopObAutoSlide();
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
-    try {
-      requestAnimationFrame(() => {
-        try { void document.documentElement.offsetHeight; } catch { /* ignore */ }
-      });
-    } catch { /* ignore */ }
-  });
+  
+  const overlay = setupEl('setup-overlay');
+  if (overlay) overlay.classList.remove('active');
+  updateOverlayOpenClass();
+  stopObAutoSlide();
+  try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
+  try {
+    requestAnimationFrame(() => {
+      try { void document.documentElement.offsetHeight; } catch { /* ignore */ }
+    });
+  } catch { /* ignore */ }
+
   // Trigger entrance OUTSIDE animateTransition so CSS transitions work
   // (startViewTransition snapshots can swallow CSS transitions)
   requestAnimationFrame(() => bus.emit('setup:app-entrance'));

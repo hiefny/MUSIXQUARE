@@ -87,7 +87,9 @@
     <!-- FOUC guard: hide body until stylesheets are parsed.
          Removed by the rAF poll below (checks for --bg CSS variable from style.css). -->
     <style id="fouc-guard">
-        body { opacity: 0 !important; }
+        body {
+            opacity: 0 !important;
+        }
     </style>
 
     <!-- Web font: Pretendard (consistent across Windows / Android / iOS / macOS) -->
@@ -158,8 +160,30 @@
         <div class="header-progress-bg" id="header-progress-bg"></div>
 
         <div class="header-content-wrapper">
-            <div class="app-logo header-default-content" id="app-logo" role="button" tabindex="0"
-                aria-label="" data-i18n-aria-label="nav.go_home"><svg class="logo-svg logo-header" viewBox="43 12 214 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/><polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/><polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/><rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"/><polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"/><path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"/><polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"/><path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"/><path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"/><rect x="237.2284599" y="12.7587935" width="18" height="4.5"/><rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"/><rect x="237.2337931" y="30.7587928" width="18" height="4.5"/></svg></div>
+            <div class="app-logo header-default-content" id="app-logo" role="button" tabindex="0" aria-label=""
+                data-i18n-aria-label="nav.go_home"><svg class="logo-svg logo-header" viewBox="43 12 214 24"
+                    fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <polygon
+                        points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
+                    <polygon
+                        points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277" />
+                    <polygon
+                        points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611" />
+                    <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5" />
+                    <polygon
+                        points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706" />
+                    <path
+                        d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z" />
+                    <polygon
+                        points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626" />
+                    <path
+                        d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z" />
+                    <path
+                        d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z" />
+                    <rect x="237.2284599" y="12.7587935" width="18" height="4.5" />
+                    <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
+                    <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
+                </svg></div>
             <div class="header-loading-text" id="header-loading-text">Loading...</div>
         </div>
 
@@ -183,7 +207,8 @@
 
             <div class="video-wrapper">
                 <video id="main-video" class="video-screen" playsinline webkit-playsinline></video>
-                <button class="fullscreen-btn" id="btn-fullscreen" aria-label="" data-i18n-aria-label="player.fullscreen">
+                <button class="fullscreen-btn" id="btn-fullscreen" aria-label=""
+                    data-i18n-aria-label="player.fullscreen">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
                     </svg>
@@ -194,12 +219,14 @@
                 <div class="track-title-wrapper">
                     <div class="track-title" id="track-title" data-i18n="player.no_media">미디어 없음</div>
                 </div>
-                <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">파일을 선택하거나 플레이리스트를 확인하세요</div>
+                <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">파일을 선택하거나 플레이리스트를 확인하세요
+                </div>
             </div>
 
             <div class="controls-area">
                 <div class="progress-bar">
-                    <input type="range" id="seek-slider" min="0" max="100" value="0" step="0.1" aria-label="" data-i18n-aria-label="player.seek">
+                    <input type="range" id="seek-slider" min="0" max="100" value="0" step="0.1" aria-label=""
+                        data-i18n-aria-label="player.seek">
                     <div class="time-info">
                         <span id="time-curr">0:00</span>
                         <span id="time-dur">0:00</span>
@@ -213,7 +240,8 @@
                                 <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
                             </svg>
                         </button>
-                        <button class="play-fab" id="play-btn" aria-label="" data-i18n-aria-label="player.play_pause" disabled>
+                        <button class="play-fab" id="play-btn" aria-label="" data-i18n-aria-label="player.play_pause"
+                            disabled>
                             <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M8 5v14l11-7z" />
                             </svg>
@@ -229,16 +257,19 @@
                     </div>
 
                     <div class="vol-group-playback">
-                        <svg id="vol-icon-btn" viewBox="0 0 24 24" style="cursor: pointer" role="button" aria-label="음소거 전환" data-i18n-aria-label="player.toggle_mute" tabindex="0">
+                        <svg id="vol-icon-btn" viewBox="0 0 24 24" style="cursor: pointer" role="button"
+                            aria-label="음소거 전환" data-i18n-aria-label="player.toggle_mute" tabindex="0">
                             <path
                                 d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
                         </svg>
-                        <input type="range" id="volume-slider" min="0" max="100" value="100" aria-label="" data-i18n-aria-label="player.volume">
+                        <input type="range" id="volume-slider" min="0" max="100" value="100" aria-label=""
+                            data-i18n-aria-label="player.volume">
                     </div>
                 </div>
 
                 <!-- Chat Preview Button -->
-                <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label="" data-i18n-aria-label="chat.open">
+                <button type="button" class="chat-preview-btn" id="chat-preview-btn" aria-label=""
+                    data-i18n-aria-label="chat.open">
                     <div class="chat-preview-left">
                         <div class="chat-icon-wrapper">
                             <svg viewBox="0 0 24 24" class="chat-preview-icon">
@@ -270,7 +301,8 @@
                 </div>
 
                 <input type="file" id="file-input" multiple aria-label="" data-i18n-aria-label="help.local_file"
-                    accept=".mp3, .wav, .ogg, .flac, .m4a, .aac, .mp4, .webm, .mkv, audio/*, video/*" style="display:none">
+                    accept=".mp3, .wav, .ogg, .flac, .m4a, .aac, .mp4, .webm, .mkv, audio/*, video/*"
+                    style="display:none">
             </div>
         </div>
     </div>
@@ -284,7 +316,8 @@
                         <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
                     </svg>
                 </button>
-                <button class="tab-action-btn" id="btn-shuffle" aria-label="" data-i18n-aria-label="player.shuffle_mode">
+                <button class="tab-action-btn" id="btn-shuffle" aria-label=""
+                    data-i18n-aria-label="player.shuffle_mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
                             d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
@@ -310,8 +343,7 @@
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div
-                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
@@ -348,13 +380,15 @@
                 <div id="connect-device-list" class="device-list"></div>
                 <button class="rename-device-btn" id="btn-rename-device">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                        <path
+                            d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
                     </svg>
                     <span data-i18n="connect.rename_device">이 기기 이름 변경하기</span>
                 </button>
                 <button class="leave-session-btn" id="btn-leave-session">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                        <path
+                            d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
                     </svg>
                     <span data-i18n="settings.leave_session">이 세션 나가기</span>
                 </button>
@@ -370,8 +404,7 @@
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div
-                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
@@ -446,8 +479,7 @@
             <div class="settings-invite-wrapper invite-code-container"
                 style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div
-                    style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
                     style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
@@ -465,321 +497,347 @@
         <div class="tab-body" data-custom-scroll>
             <!-- Sub-panel: General -->
             <div class="settings-subtab-panel active" data-panel="general">
-            <div class="section-group">
-                <div class="section-header-row">
-                    <span class="section-title" data-i18n="settings.language"></span>
-                </div>
-                <div class="channel-grid" id="grid-lang">
-                    <div class="ch-opt" data-lang="ko">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <text x="12" y="17" text-anchor="middle" font-size="16" font-weight="bold" fill="currentColor">가</text>
-                        </svg>
-                        <span>한국어</span>
+                <div class="section-group">
+                    <div class="section-header-row">
+                        <span class="section-title" data-i18n="settings.language"></span>
                     </div>
-                    <div class="ch-opt" data-lang="en">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <text x="12" y="17" text-anchor="middle" font-size="16" font-weight="bold" fill="currentColor">A</text>
-                        </svg>
-                        <span>English</span>
+                    <div class="channel-grid" id="grid-lang">
+                        <div class="ch-opt" data-lang="ko">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <text x="12" y="17" text-anchor="middle" font-size="16" font-weight="bold"
+                                    fill="currentColor">가</text>
+                            </svg>
+                            <span>한국어</span>
+                        </div>
+                        <div class="ch-opt" data-lang="en">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <text x="12" y="17" text-anchor="middle" font-size="16" font-weight="bold"
+                                    fill="currentColor">A</text>
+                            </svg>
+                            <span>English</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="section-group" id="theme-section">
-                <div class="section-header-row">
-                    <span class="section-title" data-i18n="settings.theme"></span>
-                </div>
-                <div class="channel-grid" id="grid-theme">
-                    <div class="ch-opt" data-theme="light">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
-                        </svg>
-                        <span data-i18n="settings.light">라이트</span>
+                <div class="section-group" id="theme-section">
+                    <div class="section-header-row">
+                        <span class="section-title" data-i18n="settings.theme"></span>
                     </div>
-                    <div class="ch-opt" data-theme="dark">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/>
-                        </svg>
-                        <span data-i18n="settings.dark">다크</span>
+                    <div class="channel-grid" id="grid-theme">
+                        <div class="ch-opt" data-theme="light">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z" />
+                            </svg>
+                            <span data-i18n="settings.light">라이트</span>
+                        </div>
+                        <div class="ch-opt" data-theme="dark">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z" />
+                            </svg>
+                            <span data-i18n="settings.dark">다크</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Visualizer Mode -->
-            <div class="section-group">
-                <div class="section-header-row">
-                    <span class="section-title" data-i18n="settings.visualizer">비주얼라이저</span>
-                </div>
-                <div class="channel-grid" id="grid-visualizer">
-                    <div class="ch-opt active" data-viz="circular">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-                            <circle cx="12" cy="12" r="4" fill="currentColor"/>
-                        </svg>
-                        <span data-i18n="settings.viz_circular">원형</span>
+                <!-- Visualizer Mode -->
+                <div class="section-group">
+                    <div class="section-header-row">
+                        <span class="section-title" data-i18n="settings.visualizer">비주얼라이저</span>
                     </div>
-                    <div class="ch-opt" data-viz="spectrum">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <polyline points="2,20 5,16 8,18 11,10 14,14 17,6 20,12 22,8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                        <span data-i18n="settings.viz_spectrum">스펙트럼</span>
+                    <div class="channel-grid" id="grid-visualizer">
+                        <div class="ch-opt active" data-viz="circular">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+                                <circle cx="12" cy="12" r="4" fill="currentColor" />
+                            </svg>
+                            <span data-i18n="settings.viz_circular">원형</span>
+                        </div>
+                        <div class="ch-opt" data-viz="spectrum">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <polyline points="2,20 5,16 8,18 11,10 14,14 17,6 20,12 22,8" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            <span data-i18n="settings.viz_spectrum">스펙트럼</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
             </div>
 
             <!-- Sub-panel: Audio -->
             <div class="settings-subtab-panel" data-panel="audio">
-            <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
-            <div class="youtube-settings-note" id="youtube-settings-note" role="note" data-i18n="help.youtube_no_effects">
-            </div>
-
-            <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
-            <div id="youtube-settings-disabled-wrap">
-
-                <!-- 1. Speaker Role -->
-                <div class="section-group">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="setup.set_role"></span>
-                        <span class="badge-host-ctrl" data-i18n="settings.self_ctrl"></span>
-                    </div>
-
-                    <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
-                    <div class="channel-grid" id="grid-standard">
-                        <div class="ch-opt" data-ch="-1">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-                            </svg><span data-i18n="role.left"></span>
-                        </div>
-                        <div class="ch-opt" data-ch="1">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                            </svg><span data-i18n="role.right"></span>
-                        </div>
-                        <div class="ch-opt" data-ch="2">
-                            <svg viewBox="0 0 24 24">
-                                <path
-                                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
-                                <circle cx="12" cy="12" r="3" />
-                            </svg><span data-i18n="role.subwoofer"></span>
-                        </div>
-                        <div class="ch-opt" data-ch="0">
-                            <svg viewBox="0 0 24 24">
-                                <path
-                                    d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
-                            </svg><span data-i18n="role.center"></span>
-                        </div>
-                    </div>
-                    <!-- Woofer Control -->
-                    <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span data-i18n="settings.subwoofer_adjust"></span>
-                                <span class="val-disp" id="val-cutoff">120 Hz</span>
-                            </div>
-                            <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label="" data-i18n-aria-label="settings.subwoofer_cutoff">
-                        </div>
-                    </div>
+                <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
+                <div class="youtube-settings-note" id="youtube-settings-note" role="note"
+                    data-i18n="help.youtube_no_effects">
                 </div>
 
-                <!-- 2. Reverb -->
-                <div class="section-group">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="settings.reverb_title"></span>
-                        <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
-                    </div>
-                    <div class="channel-grid" id="grid-reverb">
-                        <div class="ch-opt" data-rvb-type="studio">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z" />
-                            </svg><span data-i18n="settings.rvb_studio">스튜디오</span>
+                <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
+                <div id="youtube-settings-disabled-wrap">
+
+                    <!-- 1. Speaker Role -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="setup.set_role"></span>
+                            <span class="badge-host-ctrl" data-i18n="settings.self_ctrl"></span>
                         </div>
-                        <div class="ch-opt" data-rvb-type="arena">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z" />
-                            </svg><span data-i18n="settings.rvb_arena">공연장</span>
-                        </div>
-                        <div class="ch-opt" data-rvb-type="advanced">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                            </svg><span data-i18n="settings.rvb_advanced">고급</span>
-                        </div>
-                        <div class="ch-opt active" data-rvb-type="off">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="settings.rvb_off">끄기</span>
-                        </div>
-                    </div>
-                    <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span><span data-i18n="common.mix"></span> <span
-                                        style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_0pct"></span></span>
-                                <span class="val-disp" id="val-reverb">0%</span>
+
+                        <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
+                        <div class="channel-grid" id="grid-standard">
+                            <div class="ch-opt" data-ch="-1">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                                </svg><span data-i18n="role.left"></span>
                             </div>
-                            <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label="" data-i18n-aria-label="settings.reverb_mix">
-                        </div>
-
-                        <!-- Decay Slider -->
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span><span data-i18n="settings.decay_time"></span> <span
-                                        style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_5s"></span></span>
-                                <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                            <div class="ch-opt" data-ch="1">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                                </svg><span data-i18n="role.right"></span>
                             </div>
-                            <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
-                                aria-label="" data-i18n-aria-label="settings.reverb_decay">
-                        </div>
-
-                        <!-- Pre-Delay Slider -->
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span><span data-i18n="settings.predelay"></span> <span
-                                        style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_01s"></span></span>
-                                <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                            <div class="ch-opt" data-ch="2">
+                                <svg viewBox="0 0 24 24">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg><span data-i18n="role.subwoofer"></span>
                             </div>
-                            <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1"
-                                aria-label="" data-i18n-aria-label="settings.reverb_predelay">
-                        </div>
-
-                        <!-- Low Cut Slider -->
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span><span data-i18n="settings.highpass"></span> <span
-                                        style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_20hz"></span></span>
-                                <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                            <div class="ch-opt" data-ch="0">
+                                <svg viewBox="0 0 24 24">
+                                    <path
+                                        d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
+                                </svg><span data-i18n="role.center"></span>
                             </div>
-                            <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
-                                aria-label="" data-i18n-aria-label="settings.reverb_lowcut">
                         </div>
-
-                        <!-- High Cut Slider -->
-                        <div class="slider-wrap">
-                            <div class="slider-header">
-                                <span><span data-i18n="settings.lowpass"></span> <span
-                                        style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;" data-i18n="settings.default_20khz"></span></span>
-                                <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                        <!-- Woofer Control -->
+                        <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span data-i18n="settings.subwoofer_adjust"></span>
+                                    <span class="val-disp" id="val-cutoff">120 Hz</span>
+                                </div>
+                                <input type="range" id="cutoff-slider" min="60" max="200" value="120" aria-label=""
+                                    data-i18n-aria-label="settings.subwoofer_cutoff">
                             </div>
-                            <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
-                                aria-label="" data-i18n-aria-label="settings.reverb_highcut">
                         </div>
                     </div>
-                </div>
 
-                <!-- 3. Equalizer -->
-                <div class="section-group">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="settings.eq_title"></span>
-                        <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
-                    </div>
-                    <div class="channel-grid" id="grid-eq">
-                        <div class="ch-opt" data-eq-type="bright">
-                            <svg viewBox="0 -960 960 960" aria-hidden="true">
-                                <path d="M640-160v-440h160v440H640ZM400-160v-320h160v320H400ZM160-160v-200h160v200H160Z" />
-                            </svg><span data-i18n="settings.eq_bright">선명함</span>
+                    <!-- 2. Reverb -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="settings.reverb_title"></span>
+                            <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
                         </div>
-                        <div class="ch-opt" data-eq-type="warm">
-                            <svg viewBox="0 -960 960 960" aria-hidden="true">
-                                <path d="M160-160v-440h160v440H160ZM400-160v-320h160v320H400ZM640-160v-200h160v200H640Z" />
-                            </svg><span data-i18n="settings.eq_warm">따뜻함</span>
+                        <div class="channel-grid" id="grid-reverb">
+                            <div class="ch-opt" data-rvb-type="studio">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z" />
+                                </svg><span data-i18n="settings.rvb_studio">스튜디오</span>
+                            </div>
+                            <div class="ch-opt" data-rvb-type="arena">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z" />
+                                </svg><span data-i18n="settings.rvb_arena">공연장</span>
+                            </div>
+                            <div class="ch-opt" data-rvb-type="advanced">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+                                </svg><span data-i18n="settings.rvb_advanced">고급</span>
+                            </div>
+                            <div class="ch-opt active" data-rvb-type="off">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
+                                </svg><span data-i18n="settings.rvb_off">끄기</span>
+                            </div>
                         </div>
-                        <div class="ch-opt" data-eq-type="advanced">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                            </svg><span data-i18n="settings.eq_advanced">고급</span>
-                        </div>
-                        <div class="ch-opt active" data-eq-type="off">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="settings.eq_off">끄기</span>
-                        </div>
-                    </div>
-                    <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
-                    <div class="eq-container">
-                        <div class="eq-band">
-                            <span class="eq-val" id="eq-val-0">0</span>
-                            <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-0"
-                                aria-label="EQ 60Hz">
-                            <span class="eq-label">60</span>
-                        </div>
-                        <div class="eq-band">
-                            <span class="eq-val" id="eq-val-1">0</span>
-                            <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-1"
-                                aria-label="EQ 230Hz">
-                            <span class="eq-label">230</span>
-                        </div>
-                        <div class="eq-band">
-                            <span class="eq-val" id="eq-val-2">0</span>
-                            <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-2"
-                                aria-label="EQ 910Hz">
-                            <span class="eq-label">910</span>
-                        </div>
-                        <div class="eq-band">
-                            <span class="eq-val" id="eq-val-3">0</span>
-                            <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-3"
-                                aria-label="EQ 3.6kHz">
-                            <span class="eq-label">3.6k</span>
-                        </div>
-                        <div class="eq-band">
-                            <span class="eq-val" id="eq-val-4">0</span>
-                            <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-4"
-                                aria-label="EQ 14kHz">
-                            <span class="eq-label">14k</span>
-                        </div>
-                    </div>
-                    </div>
-                </div>
+                        <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span><span data-i18n="common.mix"></span> <span
+                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            data-i18n="settings.default_0pct"></span></span>
+                                    <span class="val-disp" id="val-reverb">0%</span>
+                                </div>
+                                <input type="range" id="reverb-slider" min="0" max="100" value="0" aria-label=""
+                                    data-i18n-aria-label="settings.reverb_mix">
+                            </div>
 
-                <!-- 4. Virtual Surround -->
-                <div class="section-group">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="settings.surround_title"></span>
-                        <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
-                    </div>
-                    <div class="channel-grid" id="grid-surround">
-                        <div class="ch-opt" data-toggle="on">
-                            <svg viewBox="0 -960 960 960" aria-hidden="true">
-                                <path d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z" />
-                            </svg><span data-i18n="common.on">켜기</span>
-                        </div>
-                        <div class="ch-opt active" data-toggle="off">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="common.off">끄기</span>
-                        </div>
-                    </div>
-                </div>
+                            <!-- Decay Slider -->
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span><span data-i18n="settings.decay_time"></span> <span
+                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            data-i18n="settings.default_5s"></span></span>
+                                    <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                                </div>
+                                <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0"
+                                    aria-label="" data-i18n-aria-label="settings.reverb_decay">
+                            </div>
 
-                <!-- 5. Virtual Bass -->
-                <div class="section-group" id="last-setting-section">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="settings.bass_title"></span>
-                        <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
-                    </div>
-                    <div class="channel-grid" id="grid-vbass">
-                        <div class="ch-opt" data-toggle="on">
-                            <svg viewBox="0 -960 960 960" aria-hidden="true">
-                                <path d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z" />
-                            </svg><span data-i18n="common.on">켜기</span>
-                        </div>
-                        <div class="ch-opt active" data-toggle="off">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
-                            </svg><span data-i18n="common.off">끄기</span>
-                        </div>
-                    </div>
-                </div>
+                            <!-- Pre-Delay Slider -->
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span><span data-i18n="settings.predelay"></span> <span
+                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            data-i18n="settings.default_01s"></span></span>
+                                    <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                                </div>
+                                <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01"
+                                    value="0.1" aria-label="" data-i18n-aria-label="settings.reverb_predelay">
+                            </div>
 
-                <!-- 6. Connected Devices (desktop only — mobile uses #tab-connect) -->
-                <div class="section-group settings-device-section">
-                    <div class="section-header-row">
-                        <span class="section-title" data-i18n="settings.devices_title"></span>
-                    </div>
-                    <div id="device-list"></div>
-                </div>
+                            <!-- Low Cut Slider -->
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span><span data-i18n="settings.highpass"></span> <span
+                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            data-i18n="settings.default_20hz"></span></span>
+                                    <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                                </div>
+                                <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0"
+                                    aria-label="" data-i18n-aria-label="settings.reverb_lowcut">
+                            </div>
 
-            </div> <!-- End of youtube-settings-disabled-wrap -->
+                            <!-- High Cut Slider -->
+                            <div class="slider-wrap">
+                                <div class="slider-header">
+                                    <span><span data-i18n="settings.lowpass"></span> <span
+                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            data-i18n="settings.default_20khz"></span></span>
+                                    <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                                </div>
+                                <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0"
+                                    aria-label="" data-i18n-aria-label="settings.reverb_highcut">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Equalizer -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="settings.eq_title"></span>
+                            <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
+                        </div>
+                        <div class="channel-grid" id="grid-eq">
+                            <div class="ch-opt" data-eq-type="bright">
+                                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                    <path
+                                        d="M640-160v-440h160v440H640ZM400-160v-320h160v320H400ZM160-160v-200h160v200H160Z" />
+                                </svg><span data-i18n="settings.eq_bright">선명함</span>
+                            </div>
+                            <div class="ch-opt" data-eq-type="warm">
+                                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                    <path
+                                        d="M160-160v-440h160v440H160ZM400-160v-320h160v320H400ZM640-160v-200h160v200H640Z" />
+                                </svg><span data-i18n="settings.eq_warm">따뜻함</span>
+                            </div>
+                            <div class="ch-opt" data-eq-type="advanced">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+                                </svg><span data-i18n="settings.eq_advanced">고급</span>
+                            </div>
+                            <div class="ch-opt active" data-eq-type="off">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
+                                </svg><span data-i18n="settings.eq_off">끄기</span>
+                            </div>
+                        </div>
+                        <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
+                            <div class="eq-container">
+                                <div class="eq-band">
+                                    <span class="eq-val" id="eq-val-0">0</span>
+                                    <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-0"
+                                        aria-label="EQ 60Hz">
+                                    <span class="eq-label">60</span>
+                                </div>
+                                <div class="eq-band">
+                                    <span class="eq-val" id="eq-val-1">0</span>
+                                    <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-1"
+                                        aria-label="EQ 230Hz">
+                                    <span class="eq-label">230</span>
+                                </div>
+                                <div class="eq-band">
+                                    <span class="eq-val" id="eq-val-2">0</span>
+                                    <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-2"
+                                        aria-label="EQ 910Hz">
+                                    <span class="eq-label">910</span>
+                                </div>
+                                <div class="eq-band">
+                                    <span class="eq-val" id="eq-val-3">0</span>
+                                    <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-3"
+                                        aria-label="EQ 3.6kHz">
+                                    <span class="eq-label">3.6k</span>
+                                </div>
+                                <div class="eq-band">
+                                    <span class="eq-val" id="eq-val-4">0</span>
+                                    <input type="range" class="eq-slider" min="-12" max="12" value="0" id="eq-slider-4"
+                                        aria-label="EQ 14kHz">
+                                    <span class="eq-label">14k</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Virtual Surround -->
+                    <div class="section-group">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="settings.surround_title"></span>
+                            <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
+                        </div>
+                        <div class="channel-grid" id="grid-surround">
+                            <div class="ch-opt" data-toggle="on">
+                                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                    <path
+                                        d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z" />
+                                </svg><span data-i18n="common.on">켜기</span>
+                            </div>
+                            <div class="ch-opt active" data-toggle="off">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
+                                </svg><span data-i18n="common.off">끄기</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Virtual Bass -->
+                    <div class="section-group" id="last-setting-section">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="settings.bass_title"></span>
+                            <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
+                        </div>
+                        <div class="channel-grid" id="grid-vbass">
+                            <div class="ch-opt" data-toggle="on">
+                                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                                    <path
+                                        d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z" />
+                                </svg><span data-i18n="common.on">켜기</span>
+                            </div>
+                            <div class="ch-opt active" data-toggle="off">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z" />
+                                </svg><span data-i18n="common.off">끄기</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 6. Connected Devices (desktop only — mobile uses #tab-connect) -->
+                    <div class="section-group settings-device-section">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="settings.devices_title"></span>
+                        </div>
+                        <div id="device-list"></div>
+                    </div>
+
+                </div> <!-- End of youtube-settings-disabled-wrap -->
             </div> <!-- End of sub-panel: Audio -->
 
             <!-- Sub-panel: Connect (desktop only, mirrors #tab-connect) -->
@@ -815,13 +873,15 @@
                         <div id="desktop-device-list" class="device-list"></div>
                         <button class="rename-device-btn" id="desktop-btn-rename-device">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                <path
+                                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
                             </svg>
                             <span data-i18n="connect.rename_device">이 기기 이름 변경하기</span>
                         </button>
                         <button class="leave-session-btn" id="desktop-btn-leave-session">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                                <path
+                                    d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
                             </svg>
                             <span data-i18n="settings.leave_session">이 세션 나가기</span>
                         </button>
@@ -831,67 +891,67 @@
 
             <!-- Sub-panel: Help -->
             <div class="settings-subtab-panel" data-panel="help">
-            <div class="desktop-help-section">
+                <div class="desktop-help-section">
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
-                        </svg>
-                        <span data-i18n="help.local_recommended"></span>
+                    <div class="help-block">
+                        <div class="help-title">
+                            <svg viewBox="0 0 24 24">
+                                <path
+                                    d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+                            </svg>
+                            <span data-i18n="help.local_recommended"></span>
+                        </div>
+                        <div class="help-desc" data-i18n-html="help.local_recommended_html">
+                        </div>
                     </div>
-                    <div class="help-desc" data-i18n-html="help.local_recommended_html">
-                    </div>
-                </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
-                        </svg>
-                        <span data-i18n="setup.how_to_connect"></span>
+                    <div class="help-block">
+                        <div class="help-title">
+                            <svg viewBox="0 0 24 24">
+                                <path
+                                    d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                            </svg>
+                            <span data-i18n="setup.how_to_connect"></span>
+                        </div>
+                        <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
+                        </div>
                     </div>
-                    <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
-                    </div>
-                </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                        </svg>
-                        <span data-i18n="player.play_speakers"></span>
+                    <div class="help-block">
+                        <div class="help-title">
+                            <svg viewBox="0 0 24 24">
+                                <path
+                                    d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                            </svg>
+                            <span data-i18n="player.play_speakers"></span>
+                        </div>
+                        <div class="help-desc" data-i18n-html="player.play_speakers_html">
+                        </div>
                     </div>
-                    <div class="help-desc" data-i18n-html="player.play_speakers_html">
-                    </div>
-                </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
-                        </svg>
-                        <span data-i18n="player.play_media_action"></span>
+                    <div class="help-block">
+                        <div class="help-title">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+                            </svg>
+                            <span data-i18n="player.play_media_action"></span>
+                        </div>
+                        <div class="help-desc" data-i18n-html="player.play_media_action_html">
+                        </div>
                     </div>
-                    <div class="help-desc" data-i18n-html="player.play_media_action_html">
-                    </div>
-                </div>
 
-                <div class="help-block">
-                    <div class="help-title">
-                        <svg viewBox="0 0 24 24">
-                            <path
-                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
-                        </svg>
-                        <span data-i18n="help.need_help"></span>
-                    </div>
-                    <div class="help-desc" data-i18n-html="help.need_help_html">
-                    </div>
-                </div> <!-- Ends help-block -->
-            </div> <!-- Ends desktop-help-section -->
+                    <div class="help-block">
+                        <div class="help-title">
+                            <svg viewBox="0 0 24 24">
+                                <path
+                                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z" />
+                            </svg>
+                            <span data-i18n="help.need_help"></span>
+                        </div>
+                        <div class="help-desc" data-i18n-html="help.need_help_html">
+                        </div>
+                    </div> <!-- Ends help-block -->
+                </div> <!-- Ends desktop-help-section -->
             </div> <!-- Ends sub-panel: Help -->
         </div> <!-- Ends tab-body -->
     </div> <!-- Ends tab-settings -->
@@ -918,11 +978,10 @@
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">
-                <div class="chat-input" id="chat-input" contenteditable="true" role="textbox"
-                    aria-label="" data-i18n-aria-label="chat.input_label"
-                    data-placeholder="메시지 입력..." data-i18n-data-placeholder="chat.placeholder"
-                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                    inputmode="text"></div>
+                <div class="chat-input" id="chat-input" contenteditable="true" role="textbox" aria-label=""
+                    data-i18n-aria-label="chat.input_label" data-placeholder="메시지 입력..."
+                    data-i18n-data-placeholder="chat.placeholder" autocomplete="off" autocorrect="off"
+                    autocapitalize="off" spellcheck="false" inputmode="text"></div>
                 <button class="chat-send-btn" id="btn-chat-send" aria-label="" data-i18n-aria-label="chat.send">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
@@ -936,34 +995,40 @@
     <div class="nav-blur-halo" aria-hidden="true"></div>
 
     <nav class="bottom-nav" role="tablist">
-        <button class="nav-item active" id="nav-play" data-tab="play" role="tab" aria-selected="true" aria-controls="tab-play">
+        <button class="nav-item active" id="nav-play" data-tab="play" role="tab" aria-selected="true"
+            aria-controls="tab-play">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z" />
             </svg>
             <span data-i18n="nav.home"></span>
         </button>
-        <button class="nav-item" id="nav-playlist" data-tab="playlist" role="tab" aria-selected="false" aria-controls="tab-playlist">
+        <button class="nav-item" id="nav-playlist" data-tab="playlist" role="tab" aria-selected="false"
+            aria-controls="tab-playlist">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
                     d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
             </svg>
             <span data-i18n="nav.playlist"></span>
         </button>
-        <button class="nav-item" id="nav-connect" data-tab="connect" role="tab" aria-selected="false" aria-controls="tab-connect">
+        <button class="nav-item" id="nav-connect" data-tab="connect" role="tab" aria-selected="false"
+            aria-controls="tab-connect">
             <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                <path
+                    d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
             </svg>
             <span data-i18n="nav.connect"></span>
         </button>
-        <button class="nav-item" id="nav-settings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
+        <button class="nav-item" id="nav-settings" data-tab="settings" role="tab" aria-selected="false"
+            aria-controls="tab-settings">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
                     d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
             </svg>
             <span data-i18n="nav.settings"></span>
         </button>
-        <button class="nav-item" id="nav-guide" data-tab="guide" role="tab" aria-selected="false" aria-controls="tab-guide">
+        <button class="nav-item" id="nav-guide" data-tab="guide" role="tab" aria-selected="false"
+            aria-controls="tab-guide">
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
                     d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
@@ -979,7 +1044,29 @@
             <!-- PC Desktop Brand Section -->
             <div id="setup-desktop-brand" class="setup-desktop-brand">
                 <div class="brand-content">
-                    <svg class="logo-svg logo-brand" viewBox="43 12 214 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/><polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/><polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/><rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"/><polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"/><path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"/><polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"/><path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"/><path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"/><rect x="237.2284599" y="12.7587935" width="18" height="4.5"/><rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"/><rect x="237.2337931" y="30.7587928" width="18" height="4.5"/></svg>
+                    <svg class="logo-svg logo-brand" viewBox="43 12 214 24" fill="currentColor"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <polygon
+                            points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
+                        <polygon
+                            points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277" />
+                        <polygon
+                            points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611" />
+                        <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5" />
+                        <polygon
+                            points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706" />
+                        <path
+                            d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z" />
+                        <polygon
+                            points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626" />
+                        <path
+                            d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z" />
+                        <path
+                            d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z" />
+                        <rect x="237.2284599" y="12.7587935" width="18" height="4.5" />
+                        <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
+                        <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
+                    </svg>
                     <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html"></p>
                 </div>
                 <!-- Desktop: dynamic step header (mirrored from right panel via JS) -->
@@ -997,7 +1084,102 @@
                 <!-- Welcome Area (Header + Slider) -->
                 <div id="setup-welcome-area" style="width: 100%; display: flex; flex-direction: column; flex: 1;">
                     <div id="setup-welcome-header" class="setup-header-text">
-                        <svg class="logo-svg logo-welcome" viewBox="43 12 214 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><g class="wg"><polygon points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3"/><polygon points="86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8"/><polygon points="95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3"/><rect x="117.5" y="12.8" width="4.5" height="22.5"/><polygon points="139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8"/><path d="M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z"/><polygon points="183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8"/><path d="M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z"/><path d="M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z"/><rect x="237.2" y="12.8" width="18" height="4.5"/><rect x="237.2" y="21.8" width="13.5" height="4.5"/><rect x="237.2" y="30.8" width="18" height="4.5"/></g><!-- M --><rect class="wl wlr" x="45.5" y="12.8" width="22.5" height="4.5" style="--wt:0ms;--wd:1080ms"/><rect class="wl wtb" x="45.5" y="17.3" width="4.5" height="18" style="--wt:120ms;--wd:900ms"/><rect class="wl wtb" x="54.5" y="17.3" width="4.5" height="18" style="--wt:400ms;--wd:900ms"/><rect class="wl wtb" x="63.5" y="17.3" width="4.5" height="18" style="--wt:660ms;--wd:900ms"/><!-- U --><rect class="wl wtb" x="72.5" y="12.8" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="72.5" y="30.8" width="18" height="4.5" style="--wt:480ms;--wd:840ms"/><rect class="wl wbt" x="86" y="12.8" width="4.5" height="18" style="--wt:960ms;--wd:840ms"/><!-- S --><rect class="wl wrl" x="95" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wtb" x="95" y="17.3" width="4.5" height="4.5" style="--wt:360ms;--wd:300ms"/><rect class="wl wlr" x="95" y="21.8" width="18" height="4.5" style="--wt:540ms;--wd:600ms"/><rect class="wl wtb" x="108.5" y="26.3" width="4.5" height="4.5" style="--wt:900ms;--wd:300ms"/><rect class="wl wrl" x="95" y="30.8" width="18" height="4.5" style="--wt:1080ms;--wd:600ms"/><!-- I --><rect class="wl wtb" x="117.5" y="12.8" width="4.5" height="22.5" style="--wt:0ms;--wd:840ms"/><!-- X: / then \ --><polygon class="wl wtb" points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3" style="--wt:0ms;--wd:700ms"/><polygon class="wl wtb" points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3" style="--wt:400ms;--wd:700ms"/><!-- Q --><rect class="wl wrl" x="147.2" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wtb" x="147.2" y="17.3" width="4.5" height="13.5" style="--wt:360ms;--wd:600ms"/><rect class="wl wlr" x="147.2" y="30.8" width="18" height="4.5" style="--wt:780ms;--wd:600ms"/><rect class="wl wbt" x="160.7" y="17.3" width="4.5" height="13.5" style="--wt:1200ms;--wd:600ms"/><rect class="wl wtb" x="154" y="28.5" width="4.5" height="2.3" style="--wt:1560ms;--wd:180ms"/><rect class="wl wtb" x="154" y="35.3" width="4.5" height="2.7" style="--wt:1660ms;--wd:300ms"/><!-- U --><rect class="wl wtb" x="169.7" y="12.8" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="169.7" y="30.8" width="18" height="4.5" style="--wt:480ms;--wd:840ms"/><rect class="wl wbt" x="183.2" y="12.8" width="4.5" height="18" style="--wt:960ms;--wd:840ms"/><!-- A --><rect class="wl wbt" x="192.2" y="17.3" width="4.5" height="18" style="--wt:0ms;--wd:840ms"/><rect class="wl wlr" x="192.2" y="12.8" width="18" height="4.5" style="--wt:480ms;--wd:600ms"/><rect class="wl wtb" x="205.7" y="17.3" width="4.5" height="18" style="--wt:840ms;--wd:840ms"/><rect class="wl wlr" x="196.7" y="21.8" width="9" height="4.5" style="--wt:1380ms;--wd:480ms"/><!-- R --><rect class="wl wtb" x="214.7" y="12.8" width="4.5" height="22.5" style="--wt:0ms;--wd:1020ms"/><rect class="wl wlr" x="219.2" y="12.8" width="13.5" height="4.5" style="--wt:600ms;--wd:540ms"/><rect class="wl wtb" x="228.2" y="17.3" width="4.5" height="4.5" style="--wt:960ms;--wd:240ms"/><rect class="wl wrl" x="219.2" y="21.8" width="13.5" height="4.5" style="--wt:1080ms;--wd:540ms"/><polygon class="wl wdiag" points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3" style="--wt:1440ms;--wd:600ms"/><!-- E --><rect class="wl wlr" x="237.2" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms"/><rect class="wl wlr" x="237.2" y="21.8" width="13.5" height="4.5" style="--wt:480ms;--wd:480ms"/><rect class="wl wlr" x="237.2" y="30.8" width="18" height="4.5" style="--wt:960ms;--wd:600ms"/></svg>
+                        <svg class="logo-svg logo-welcome" viewBox="43 12 214 24" fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <g class="wg">
+                                <polygon
+                                    points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3" />
+                                <polygon
+                                    points="86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8" />
+                                <polygon
+                                    points="95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3" />
+                                <rect x="117.5" y="12.8" width="4.5" height="22.5" />
+                                <polygon
+                                    points="139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8" />
+                                <path
+                                    d="M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z" />
+                                <polygon
+                                    points="183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8" />
+                                <path
+                                    d="M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z" />
+                                <path
+                                    d="M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z" />
+                                <rect x="237.2" y="12.8" width="18" height="4.5" />
+                                <rect x="237.2" y="21.8" width="13.5" height="4.5" />
+                                <rect x="237.2" y="30.8" width="18" height="4.5" />
+                            </g><!-- M -->
+                            <rect class="wl wlr" x="45.5" y="12.8" width="22.5" height="4.5"
+                                style="--wt:0ms;--wd:1080ms" />
+                            <rect class="wl wtb" x="45.5" y="17.3" width="4.5" height="18"
+                                style="--wt:120ms;--wd:900ms" />
+                            <rect class="wl wtb" x="54.5" y="17.3" width="4.5" height="18"
+                                style="--wt:400ms;--wd:900ms" />
+                            <rect class="wl wtb" x="63.5" y="17.3" width="4.5" height="18"
+                                style="--wt:660ms;--wd:900ms" /><!-- U -->
+                            <rect class="wl wtb" x="72.5" y="12.8" width="4.5" height="18"
+                                style="--wt:0ms;--wd:840ms" />
+                            <rect class="wl wlr" x="72.5" y="30.8" width="18" height="4.5"
+                                style="--wt:480ms;--wd:840ms" />
+                            <rect class="wl wbt" x="86" y="12.8" width="4.5" height="18"
+                                style="--wt:960ms;--wd:840ms" /><!-- S -->
+                            <rect class="wl wrl" x="95" y="12.8" width="18" height="4.5" style="--wt:0ms;--wd:600ms" />
+                            <rect class="wl wtb" x="95" y="17.3" width="4.5" height="4.5"
+                                style="--wt:360ms;--wd:300ms" />
+                            <rect class="wl wlr" x="95" y="21.8" width="18" height="4.5"
+                                style="--wt:540ms;--wd:600ms" />
+                            <rect class="wl wtb" x="108.5" y="26.3" width="4.5" height="4.5"
+                                style="--wt:900ms;--wd:300ms" />
+                            <rect class="wl wrl" x="95" y="30.8" width="18" height="4.5"
+                                style="--wt:1080ms;--wd:600ms" /><!-- I -->
+                            <rect class="wl wtb" x="117.5" y="12.8" width="4.5" height="22.5"
+                                style="--wt:0ms;--wd:840ms" /><!-- X: / then \ -->
+                            <polygon class="wl wtb" points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3"
+                                style="--wt:0ms;--wd:700ms" />
+                            <polygon class="wl wtb" points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3"
+                                style="--wt:400ms;--wd:700ms" /><!-- Q -->
+                            <rect class="wl wrl" x="147.2" y="12.8" width="18" height="4.5"
+                                style="--wt:0ms;--wd:600ms" />
+                            <rect class="wl wtb" x="147.2" y="17.3" width="4.5" height="13.5"
+                                style="--wt:360ms;--wd:600ms" />
+                            <rect class="wl wlr" x="147.2" y="30.8" width="18" height="4.5"
+                                style="--wt:780ms;--wd:600ms" />
+                            <rect class="wl wbt" x="160.7" y="17.3" width="4.5" height="13.5"
+                                style="--wt:1200ms;--wd:600ms" />
+                            <rect class="wl wtb" x="154" y="28.5" width="4.5" height="2.3"
+                                style="--wt:1560ms;--wd:180ms" />
+                            <rect class="wl wtb" x="154" y="35.3" width="4.5" height="2.7"
+                                style="--wt:1660ms;--wd:300ms" /><!-- U -->
+                            <rect class="wl wtb" x="169.7" y="12.8" width="4.5" height="18"
+                                style="--wt:0ms;--wd:840ms" />
+                            <rect class="wl wlr" x="169.7" y="30.8" width="18" height="4.5"
+                                style="--wt:480ms;--wd:840ms" />
+                            <rect class="wl wbt" x="183.2" y="12.8" width="4.5" height="18"
+                                style="--wt:960ms;--wd:840ms" /><!-- A -->
+                            <rect class="wl wbt" x="192.2" y="17.3" width="4.5" height="18"
+                                style="--wt:0ms;--wd:840ms" />
+                            <rect class="wl wlr" x="192.2" y="12.8" width="18" height="4.5"
+                                style="--wt:480ms;--wd:600ms" />
+                            <rect class="wl wtb" x="205.7" y="17.3" width="4.5" height="18"
+                                style="--wt:840ms;--wd:840ms" />
+                            <rect class="wl wlr" x="196.7" y="21.8" width="9" height="4.5"
+                                style="--wt:1380ms;--wd:480ms" /><!-- R -->
+                            <rect class="wl wtb" x="214.7" y="12.8" width="4.5" height="22.5"
+                                style="--wt:0ms;--wd:1020ms" />
+                            <rect class="wl wlr" x="219.2" y="12.8" width="13.5" height="4.5"
+                                style="--wt:600ms;--wd:540ms" />
+                            <rect class="wl wtb" x="228.2" y="17.3" width="4.5" height="4.5"
+                                style="--wt:960ms;--wd:240ms" />
+                            <rect class="wl wrl" x="219.2" y="21.8" width="13.5" height="4.5"
+                                style="--wt:1080ms;--wd:540ms" />
+                            <polygon class="wl wdiag" points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3"
+                                style="--wt:1440ms;--wd:600ms" /><!-- E -->
+                            <rect class="wl wlr" x="237.2" y="12.8" width="18" height="4.5"
+                                style="--wt:0ms;--wd:600ms" />
+                            <rect class="wl wlr" x="237.2" y="21.8" width="13.5" height="4.5"
+                                style="--wt:480ms;--wd:480ms" />
+                            <rect class="wl wlr" x="237.2" y="30.8" width="18" height="4.5"
+                                style="--wt:960ms;--wd:600ms" />
+                        </svg>
                         <p data-i18n="setup.hello_select_role"></p>
                     </div>
 
@@ -1056,7 +1238,8 @@
                         </div>
 
                         <div class="ob-nav-row">
-                            <button class="ob-nav-arrow ob-nav-prev" id="ob-prev" aria-label="" data-i18n-aria-label="common.previous">
+                            <button class="ob-nav-arrow ob-nav-prev" id="ob-prev" aria-label=""
+                                data-i18n-aria-label="common.previous">
                                 <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
                                     <path d="M8 1L3 6l5 5" fill="none" stroke="currentColor" stroke-width="1.8"
                                         stroke-linecap="round" stroke-linejoin="round" />
@@ -1068,7 +1251,8 @@
                                 <div class="ob-dot" data-idx="2"></div>
                                 <div class="ob-dot" data-idx="3"></div>
                             </div>
-                            <button class="ob-nav-arrow ob-nav-next" id="ob-next" aria-label="" data-i18n-aria-label="common.next_desc">
+                            <button class="ob-nav-arrow ob-nav-next" id="ob-next" aria-label=""
+                                data-i18n-aria-label="common.next_desc">
                                 <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
                                     <path d="M4 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"
                                         stroke-linecap="round" stroke-linejoin="round" />
@@ -1180,8 +1364,8 @@
                         <div class="setup-code-label" data-i18n="setup.enter_host_code"></div>
                         <input type="text" class="setup-join-input" id="setup-join-code" placeholder="000000"
                             inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"
-                            enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false"
-                            aria-label="" data-i18n-aria-label="setup.enter_code">
+                            enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label=""
+                            data-i18n-aria-label="setup.enter_code">
                     </div>
                 </div>
 
@@ -1331,7 +1515,8 @@
             aria-describedby="dialog-message">
             <div class="dialog-header">
                 <span class="dialog-title" id="dialog-title" data-i18n="common.info"></span>
-                <button type="button" class="dialog-close" id="btn-dialog-close" aria-label="" data-i18n-aria-label="common.close">
+                <button type="button" class="dialog-close" id="btn-dialog-close" aria-label=""
+                    data-i18n-aria-label="common.close">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
                             d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -1340,14 +1525,15 @@
             </div>
             <div class="dialog-message" id="dialog-message"></div>
             <div class="dialog-actions">
-                <button type="button" class="dialog-secondary" id="btn-dialog-secondary"
-                    style="display:none" data-i18n="common.cancel"></button>
+                <button type="button" class="dialog-secondary" id="btn-dialog-secondary" style="display:none"
+                    data-i18n="common.cancel"></button>
                 <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok"></button>
             </div>
         </div>
     </div>
 
-    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg" data-i18n="common.message"></span>
+    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><span id="toast-msg"
+            data-i18n="common.message"></span>
     </div>
 
     <!-- Manual Sync Overlay (Bug #1: was missing from HTML) -->
@@ -1406,7 +1592,8 @@
             </div>
 
             <div class="ob-actions">
-                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;" data-i18n="common.close"></button>
+                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;"
+                    data-i18n="common.close"></button>
             </div>
         </div>
     </div>
@@ -1421,9 +1608,8 @@
             </div>
 
             <div class="setup-join-area" style="margin-top: 0;">
-                <div contenteditable="true" id="youtube-url-input" class="setup-join-input" role="textbox"
-                    aria-label="" data-i18n-aria-label="youtube.enter_link"
-                    data-placeholder="https://youtube.com/..."
+                <div contenteditable="true" id="youtube-url-input" class="setup-join-input" role="textbox" aria-label=""
+                    data-i18n-aria-label="youtube.enter_link" data-placeholder="https://youtube.com/..."
                     style="font-size: 15px; font-weight: 500; letter-spacing: normal; padding: 12px 0;"></div>
 
                 <div id="youtube-preview"
@@ -1447,7 +1633,8 @@
 
             <div class="ob-actions" style="margin-top: 8px; display: flex; gap: 10px;">
                 <button class="btn-ob-secondary" id="btn-yt-cancel" style="flex: 1;" data-i18n="common.cancel"></button>
-                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;" data-i18n="player.play_start"></button>
+                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;"
+                    data-i18n="player.play_start"></button>
             </div>
         </div>
     </div>

@@ -122,7 +122,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
 export function startSessionFromHost(): void {
   const appRole = getState('network.appRole');
-  if (appRole !== 'host') return;
+  if (appRole !== 'host' || getState('setup.sessionStarted')) return;
 
   setState('setup.sessionStarted', true);
   hideSetupOverlay();

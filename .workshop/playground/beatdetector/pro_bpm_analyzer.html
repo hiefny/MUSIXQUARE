@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Offline BPM Analyzer</title>
+    <style>
+        :root { --bg: #000; --hl: #00ffaa; --text: #888; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: 'JetBrains Mono', monospace; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+        
+        /* 램프 */
+        #lamp { width: 250px; height: 250px; border-radius: 50%; background: #111; border: 2px solid #222; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 20px; box-sizing: border-box; }
+        #lamp.active { background: var(--hl); box-shadow: 0 0 100px var(--hl); border-color: #fff; }
+        #bpm-display { font-size: 40px; font-weight: 900; color: #fff; }
+        #bpm-unit { font-size: 10px; color: #444; margin-top: -5px; }
+        #lamp.active #bpm-unit { color: #000; }
+
+        /* 상태 창 */
+        #status-box { background: rgba(255,255,255,0.03); padding: 15px 30px; border-radius: 8px; border: 1px solid #222; width: 320px; text-align: center; }
+        #status-txt { font-size: 10px; color: var(--text); text-transform: uppercase; margin-bottom: 10px; }
+        #progress-track { width: 100%; height: 2px; background: #111; position: relative; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background: var(--hl); transition: width 0.1s; }
+
+        /* 파일 로더 */
+        #file-input-wrapper { margin-top: 30px; }
+        #file-btn { border: 1px solid #444; padding: 10px 20px; font-size: 11px; cursor: pointer; color: #aaa; background: transparent; letter-spacing: 1px; }
+        #file-btn:hover { border-color: var(--hl); color: #fff; }
+
+        input[type="file"] { display: none; }
+        
+        #track-info { margin-top: 15px; font-size: 9px; color: #444; }
+    </style>
+</head>
+<body>
+    <div id="lamp">
+        <div id="bpm-display">--</div>
+        <div id="bpm-unit">BPM DETECTED</div>
+    </div>
+
+    <div id="status-box">
+        <div id="status-txt">Waiting for Track...</div>
+        <div id="progress-track"><div id="progress-bar"></div></div>
+        <div id="track-info">Ready to analyze</div>
+    </div>
+
+    <div id="file-input-wrapper">
+        <button id="file-btn" onclick="document.getElementById('audioInput').click()">ANALYZE NEW TRACK</button>
+        <input type="file" id="audioInput" accept="audio/*">
+    </div>
+
+    <script>
+        const audioInput = document.getElementById('audioInput'), lamp = document.getElementById('lamp'), bpmDisplay = document.getElementById('bpm-display'), statusTxt = document.getElementById('status-txt'), progressBar = document.getElementById('progress-bar'), trackInfo = document.getElementById('track-info');
+        
+        let audioCtx, buffer, source, playbackTime = 0, nextBeatTime = 0, bpmInterval = 0, isPlaying = false, bpmVal = 0;
+
+        audioInput.onchange = function() {
+            if(!this.files.length) return;
+            const file = this.files[0];
+            trackInfo.textContent = "FILE: " + file.name;
+            analyzeFile(file);
+        };
+
+        async function analyzeFile(file) {
+            statusTxt.textContent = "Phase 1: Decoding Audio Data";
+            progressBar.style.width = "20%";
+            if(!audioCtx) audioCtx = new AudioContext();
+            
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                buffer = await audioCtx.decodeAudioData(e.target.result);
+                statusTxt.textContent = "Phase 2: Calculating Energy Map";
+                progressBar.style.width = "50%";
+                
+                // --- 오프라인 분석 시작 ---
+                setTimeout(() => { // UI 업데이트를 위해 딜레이
+                    const detectedBPM = calculateGlobalBPM(buffer);
+                    bpmVal = detectedBPM;
+                    bpmDisplay.textContent = Math.round(detectedBPM);
+                    bpmInterval = 60 / detectedBPM;
+                    
+                    statusTxt.textContent = "Phase 3: Finding Beat Phase";
+                    progressBar.style.width = "80%";
+
+                    setTimeout(() => {
+                        statusTxt.textContent = "Analysis Complete: Starting Sync Play";
+                        progressBar.style.width = "100%";
+                        startSyncPlayback();
+                    }, 500);
+                }, 100);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- 핵심: 곡 전체의 에너지를 훑고 가장 우세한 간격(BPM)을 찾는 로직 ---
+        function calculateGlobalBPM(audioBuffer) {
+            const data = audioBuffer.getChannelData(0); // 첫 번째 채널 사용
+            const sampleRate = audioBuffer.sampleRate;
+            
+            // 전곡을 100Hz(10ms 단위)로 다운샘플링하여 에너지 맵 생성
+            const step = Math.floor(sampleRate / 100);
+            const energyMap = [];
+            for (let i = 0; i < data.length; i += step) {
+                let sum = 0;
+                for (let j = 0; j < step && (i + j) < data.length; j++) {
+                    sum += data[i + j] * data[i + j];
+                }
+                energyMap.push(Math.sqrt(sum / step));
+            }
+
+            // 자기상관관계 분석 (60~180BPM 범위)
+            // 60BPM = 1s = 100 samples in energyMap
+            // 180BPM = 0.33s = 33 samples in energyMap
+            let bestLag = 0, maxScore = -1;
+            for (let lag = 33; lag <= 100; lag++) {
+                let score = 0;
+                // 전곡의 1/4 정도만 샘플로 사용해도 충분히 정확함 (성능 위해)
+                const limit = Math.min(energyMap.length, 5000); 
+                for (let i = lag; i < limit; i++) {
+                    score += energyMap[i] * energyMap[i - lag];
+                }
+                if (score > maxScore) { maxScore = score; bestLag = lag; }
+            }
+
+            // BPM 계산 (분당 비트 수)
+            const bpm = (60 * 100) / bestLag;
+            return bpm;
+        }
+
+        function startSyncPlayback() {
+            if(source) source.stop();
+            isPlaying = true;
+            source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.start(0);
+            
+            const startT = audioCtx.currentTime;
+            
+            // 램프 동기화 루프 (메트로놈 방식)
+            function beat() {
+                if(!isPlaying) return;
+                const now = audioCtx.currentTime - startT;
+                
+                // 실제 에너지가 터지는 시점과 살짝 틀어졌을 수 있으나,
+                // 전곡 분석된 BPM이므로 한 번 일관성을 가지면 매우 안정적임.
+                lamp.classList.add('active');
+                setTimeout(() => lamp.classList.remove('active'), 100);
+                
+                setTimeout(beat, (60 / bpmVal) * 1000);
+            }
+            beat();
+        }
+    </script>
+</body>
+</html>

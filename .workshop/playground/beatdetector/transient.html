@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional Transient Detector</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --fg: #ffffff;
+            --hl: #ff3c00;
+            --guide-inner: rgba(255, 255, 255, 0.1);
+            --guide-outer: rgba(255, 255, 255, 0.3);
+            --ui-bg: rgba(15, 15, 15, 0.98);
+        }
+        body {
+            margin: 0; background: var(--bg); color: var(--fg);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            height: 100vh; display: flex; align-items: center; justify-content: center;
+            overflow: hidden; letter-spacing: -0.5px;
+        }
+        
+        #ui {
+            position: absolute; left: 20px; top: 20px; background: var(--ui-bg);
+            padding: 24px; display: flex; flex-direction: column; gap: 10px;
+            z-index: 100; width: 280px; border: 1px solid #222;
+        }
+
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 9px; text-transform: uppercase; color: #555; font-weight: 800; letter-spacing: 1px; }
+        .val-display { color: #aaa; font-size: 10px; float: right; font-family: 'JetBrains Mono', monospace; }
+        
+        input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--hl); margin: 4px 0; }
+        select { background:#1a1a1a; color:white; border:1px solid #333; font-size: 10px; padding: 5px; outline: none; }
+
+        /* 메인 시각화 유닛 */
+        #viewport {
+            position: relative; width: 400px; height: 400px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* 트랜지언트 펄스 타일 (배경) */
+        #transient-pulse {
+            position: absolute; width: 200px; height: 200px;
+            background: var(--hl); transform: scale(0);
+            opacity: 0; transition: transform 0.05s ease-out, opacity 0.2s ease-out;
+            z-index: 0;
+        }
+        #transient-pulse.active { transform: scale(1.5); opacity: 0.4; transition: none; }
+
+        /* 가이드 원들 */
+        .ring { position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+        #core { width: 100px; height: 100px; background: var(--fg); z-index: 3; }
+        #peak-ring { width: 100px; height: 100px; border: 1px solid var(--guide-inner); z-index: 2; }
+        #barrier-ring { width: 100px; height: 100px; border: 1.5px dashed var(--guide-outer); z-index: 1; }
+
+        #monitor { position: absolute; bottom: 30px; left: 20px; display: flex; align-items: flex-end; gap: 2px; height: 40px; }
+        .bar { width: 4px; background: #1a1a1a; }
+        .bar.in-range { background: #444; }
+
+        .status-txt { position: absolute; top: -40px; font-size: 10px; color: var(--hl); font-weight: bold; text-transform: uppercase; opacity: 0; }
+        .status-txt.active { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <label style="color:var(--hl); border-bottom: 2px solid var(--hl); padding-bottom: 6px; margin-bottom: 6px; font-size: 11px;">Transient Detector Engine</label>
+        
+        <div class="control-group"><label>Source</label><input type="file" id="audioInput" accept="audio/*"></div>
+
+        <div class="control-group">
+            <label>FFT & Smooth <span class="val-display" id="fftVal">512 / 0.4</span></label>
+            <div style="display:flex; gap: 5px;">
+                <select id="fftSelect" style="flex:1;">
+                    <option value="128">128</option><option value="256">256</option>
+                    <option value="512" selected>512</option><option value="1024">1024</option>
+                    <option value="2048">2048</option><option value="4096">4096</option>
+                    <option value="8192">8192</option>
+                </select>
+                <input type="range" id="smoothRange" min="0" max="0.95" step="0.01" value="0.4" style="flex:1;">
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Peak Decay <span class="val-display" id="decayVal">0.960</span></label>
+            <input type="range" id="decayRange" min="0.85" max="0.999" step="0.001" value="0.960">
+        </div>
+
+        <div class="control-group">
+            <label>Frequency (Hz) <span class="val-display"><span id="minHzVal">0</span>-<span id="maxHzVal">180</span></span></label>
+            <div style="display:flex; gap:10px;">
+                <input type="range" id="minHzRange" min="0" max="400" step="1" value="0">
+                <input type="range" id="maxHzRange" min="1" max="1000" step="1" value="180">
+            </div>
+        </div>
+
+        <div class="control-group" style="padding-top: 5px; border-top: 1px solid #222;">
+            <label style="color:var(--hl);">Barrier Lag <span class="val-display" id="lagVal">15%</span></label>
+            <input type="range" id="lagRange" min="1" max="100" step="1" value="15">
+        </div>
+
+        <div class="control-group">
+            <label style="color:var(--hl);">Threshold Margin <span class="val-display" id="forceVal">15%</span></label>
+            <input type="range" id="forceRange" min="1" max="100" step="1" value="15">
+        </div>
+
+        <div class="control-group">
+            <label>Gain <span class="val-display" id="sensVal">4.0</span></label>
+            <input type="range" id="sensRange" min="0.5" max="20.0" step="0.1" value="4.0">
+        </div>
+    </div>
+
+    <div id="viewport">
+        <div id="transient-pulse"></div>
+        <div id="status-label" class="status-txt">Transient Detected</div>
+        <div id="barrier-ring" class="ring"></div>
+        <div id="peak-ring" class="ring"></div>
+        <div id="core" class="ring"></div>
+    </div>
+
+    <div id="monitor"></div>
+
+    <script>
+        const audioInput = document.getElementById('audioInput'), core = document.getElementById('core'), peakRing = document.getElementById('peak-ring'), barrierRing = document.getElementById('barrier-ring'), pulse = document.getElementById('transient-pulse'), statusLabel = document.getElementById('status-label'), monitor = document.getElementById('monitor');
+        const fftSelect = document.getElementById('fftSelect'), smoothRange = document.getElementById('smoothRange'), decayRange = document.getElementById('decayRange'), minHzRange = document.getElementById('minHzRange'), maxHzRange = document.getElementById('maxHzRange'), lagRange = document.getElementById('lagRange'), forceRange = document.getElementById('forceRange'), sensRange = document.getElementById('sensRange');
+        
+        let audioCtx, analyser, dataArray, source, isLooping = false, currentPeak = 0, smoothedBarrier = 0;
+        const s = { fft: 512, smooth: 0.4, decay: 0.96, minHz: 30, maxHz: 180, lag: 0.15, force: 15, sens: 4.0 };
+
+        // UI Link
+        fftSelect.onchange = (e) => { s.fft = parseInt(e.target.value); if(analyser) { analyser.fftSize = s.fft; dataArray = new Uint8Array(analyser.frequencyBinCount); } document.getElementById('fftVal').textContent = s.fft + " / " + s.smooth; };
+        smoothRange.oninput = (e) => { s.smooth = parseFloat(e.target.value); if(analyser) analyser.smoothingTimeConstant = s.smooth; document.getElementById('fftVal').textContent = s.fft + " / " + s.smooth; };
+        decayRange.oninput = (e) => { s.decay = parseFloat(e.target.value); document.getElementById('decayVal').textContent = s.decay.toFixed(3); };
+        minHzRange.oninput = (e) => { s.minHz = parseInt(e.target.value); document.getElementById('minHzVal').textContent = s.minHz; };
+        maxHzRange.oninput = (e) => { s.maxHz = parseInt(e.target.value); document.getElementById('maxHzVal').textContent = s.maxHz; };
+        lagRange.oninput = (e) => { s.lag = parseInt(e.target.value)/100; document.getElementById('lagVal').textContent = (s.lag*100).toFixed(0) + "%"; };
+        forceRange.oninput = (e) => { s.force = parseInt(e.target.value); document.getElementById('forceVal').textContent = s.force + "%"; };
+        sensRange.oninput = (e) => { s.sens = parseFloat(e.target.value); document.getElementById('sensVal').textContent = s.sens.toFixed(1); };
+
+        audioInput.onchange = function() {
+            if (!this.files.length) return;
+            if (!audioCtx) { 
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+                analyser = audioCtx.createAnalyser(); analyser.fftSize = s.fft; analyser.smoothingTimeConstant = s.smooth;
+                dataArray = new Uint8Array(analyser.frequencyBinCount); createMonitor();
+            }
+            const fr = new FileReader();
+            fr.onload = (e) => {
+                audioCtx.decodeAudioData(e.target.result, (buf) => {
+                    if (source) source.stop();
+                    source = audioCtx.createBufferSource(); source.buffer = buf; source.connect(analyser); analyser.connect(audioCtx.destination); source.start(0);
+                    if (!isLooping) { isLooping = true; update(); }
+                });
+            };
+            fr.readAsArrayBuffer(this.files[0]);
+        };
+
+        function createMonitor() { monitor.innerHTML = ''; for (let i = 0; i < 64; i++) { const b = document.createElement('div'); b.className = 'bar'; monitor.appendChild(b); } }
+
+        function update() {
+            requestAnimationFrame(update);
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            const bin = audioCtx.sampleRate / s.fft;
+            const minB = Math.floor(s.minHz / bin), maxB = Math.floor(s.maxHz / bin);
+            let sum = 0, count = 0;
+            const bars = monitor.children;
+            for (let i = 0; i < bars.length; i++) {
+                const v = dataArray[i]; if(bars[i]) bars[i].style.height = (v/255*40)+'px';
+                if(i >= minB && i <= maxB) { sum+=v; count++; if(bars[i]) bars[i].className='bar in-range'; }
+                else { if(bars[i]) bars[i].className='bar'; }
+            }
+
+            const energy = count > 0 ? sum / count : 0;
+            currentPeak = Math.max(currentPeak * s.decay, energy);
+            
+            const targetBarrier = currentPeak * (1 + s.force / 100);
+            smoothedBarrier += (targetBarrier - smoothedBarrier) * s.lag;
+
+            const coreS = 1 + (energy / 255) * s.sens;
+            const peakS = 1 + (currentPeak / 255) * s.sens;
+            const barS = 1 + (smoothedBarrier / 255) * s.sens;
+            
+            core.style.transform = `scale(${coreS})`;
+            peakRing.style.transform = `scale(${peakS})`;
+            barrierRing.style.transform = `scale(${barS})`;
+
+            if (energy > smoothedBarrier && energy > 20) {
+                pulse.classList.add('active');
+                statusLabel.classList.add('active');
+            } else {
+                pulse.classList.remove('active');
+                statusLabel.classList.remove('active');
+            }
+        }
+    </script>
+</body>
+</html>

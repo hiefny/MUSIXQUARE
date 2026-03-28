@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro BPM Analyzer v2 (Multi-Peak Voting)</title>
+    <style>
+        :root { --bg: #030303; --hl: #00ffaa; --text: #888; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: 'JetBrains Mono', monospace; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+        
+        /* 램프 */
+        #lamp { width: 250px; height: 250px; border-radius: 50%; background: #111; border: 2px solid #222; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 20px; box-sizing: border-box; }
+        #lamp.active { background: var(--hl); box-shadow: 0 0 100px var(--hl); border-color: #fff; }
+        #bpm-display { font-size: 50px; font-weight: 900; color: #fff; line-height: 1; }
+        #beat-counter { font-size: 14px; color: var(--hl); font-weight: 500; margin-top: 10px; opacity: 0.6; }
+        #bpm-unit { font-size: 10px; color: #444; margin-top: 5px; }
+        #lamp.active #bpm-unit { color: #000; }
+        #lamp.active #beat-counter { opacity: 1; color: #000; }
+
+        /* 상태 창 */
+        #status-box { background: rgba(255,255,255,0.03); padding: 15px 30px; border-radius: 8px; border: 1px solid #222; width: 320px; text-align: center; }
+        #status-txt { font-size: 10px; color: var(--text); text-transform: uppercase; margin-bottom: 10px; }
+        #progress-track { width: 100%; height: 2px; background: #111; position: relative; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background: var(--hl); transition: width 0.1s; }
+
+        /* 파일 로더 */
+        #file-input-wrapper { margin-top: 30px; }
+        #file-btn { border: 1px solid #444; padding: 10px 20px; font-size: 11px; cursor: pointer; color: #aaa; background: transparent; letter-spacing: 1px; }
+        #file-btn:hover { border-color: var(--hl); color: #fff; }
+
+        input[type="file"] { display: none; }
+        #track-info { margin-top: 15px; font-size: 9px; color: #444; }
+        #candidates { font-size: 8px; color: #333; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="lamp">
+        <div id="bpm-display">--</div>
+        <div id="beat-counter">0 / 0</div>
+        <div id="bpm-unit">FINAL ESTIMATE</div>
+    </div>
+
+    <div id="status-box">
+        <div id="status-txt">Waiting for Track...</div>
+        <div id="progress-track"><div id="progress-bar"></div></div>
+        <div id="candidates">RANKING TOP CANDIDATES...</div>
+    </div>
+
+    <div id="file-input-wrapper">
+        <button id="file-btn" onclick="document.getElementById('audioInput').click()">RUN V2 ANALYZER</button>
+        <input type="file" id="audioInput" accept="audio/*">
+    </div>
+
+    <script>
+        const audioInput = document.getElementById('audioInput'), lamp = document.getElementById('lamp'), bpmDisplay = document.getElementById('bpm-display'), statusTxt = document.getElementById('status-txt'), progressBar = document.getElementById('progress-bar'), trackInfo = document.getElementById('candidates'), beatCounter = document.getElementById('beat-counter');
+        
+        let audioCtx, buffer, source, bpmVal = 0, totalBeats = 0, isPlaying = false, beatTimeout = null, phaseTimeout = null;
+
+        audioInput.onchange = function() {
+            if(!this.files.length) return;
+            analyzeFile(this.files[0]);
+        };
+
+        async function analyzeFile(file) {
+            // 새 곡이 들어오면 모든 상태 초기화
+            if(source) source.stop();
+            isPlaying = false;
+            clearTimeout(beatTimeout);
+            clearTimeout(phaseTimeout);
+            lamp.classList.remove('active');
+
+            statusTxt.textContent = "DECODING AUDIO..."; progressBar.style.width = "20%";
+            if(!audioCtx) audioCtx = new AudioContext();
+            
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    // 브라우저 권한 정책으로 오디오가 멈춰있을 수 있으므로 강제 개시
+                    if(audioCtx.state === 'suspended') await audioCtx.resume();
+                    
+                    buffer = await audioCtx.decodeAudioData(e.target.result);
+                    statusTxt.textContent = "VOTING TOP CANDIDATES..."; progressBar.style.width = "50%";
+                    
+                    setTimeout(() => {
+                        try {
+                            const result = detectBPM_V2(buffer);
+                            
+                            // 200 BPM을 넘어가면 절반으로 보정
+                            let finalRawBPM = result.bpm;
+                            if (finalRawBPM > 200) finalRawBPM /= 2;
+
+                            bpmVal = Math.round(finalRawBPM);
+                            bpmDisplay.textContent = bpmVal; 
+                            bpmDisplay.style.color = "#fff";
+                            const phase = result.phase;
+                            
+                            statusTxt.textContent = "BPM & PHASE LOCKED"; progressBar.style.width = "100%";
+                            startSyncPlayback(phase);
+                        } catch (err) {
+                            console.error(err);
+                            statusTxt.textContent = "ERROR: Failed to analyze rhythm.";
+                            progressBar.style.backgroundColor = "red";
+                        }
+                    }, 100);
+                } catch (err) {
+                    console.error(err);
+                    statusTxt.textContent = "ERROR: Unsupported audio file format.";
+                    progressBar.style.backgroundColor = "red";
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function detectBPM_V2(audioBuffer) {
+            const data = audioBuffer.getChannelData(0);
+            const sampleRate = audioBuffer.sampleRate;
+            
+            // --- 1단계: 200Hz 주파수 지도로 1차 정수 스캔 ---
+            const targetFreq = 200; 
+            const step = Math.floor(sampleRate / targetFreq);
+            const actualFreq = sampleRate / step;
+            const energyMap = [];
+            for (let i = 0; i < data.length; i += step) {
+                let sum = 0;
+                for (let j = 0; j < step && (i + j) < data.length; j++) sum += data[i + j] * data[i + j];
+                energyMap.push(Math.sqrt(sum / step));
+            }
+
+            let allScores = [];
+            const minLag = Math.floor(actualFreq * (60 / 220)), maxLag = Math.ceil(actualFreq * (60 / 50));
+            
+            for (let lag = minLag; lag <= maxLag; lag++) {
+                let score = 0;
+                const limit = Math.min(energyMap.length, 12000); 
+                for (let i = lag; i < limit; i++) score += energyMap[i] * energyMap[i - lag];
+                score /= (limit - lag);
+                allScores.push({ lag, score });
+            }
+
+            // --- 2단계: 최상위 지점 근처에서 포물선 보간 (원본 순서 유지 필수) ---
+            let maxScore = -1, bestIdx = -1;
+            for(let i = 0; i < allScores.length; i++) {
+                if (allScores[i].score > maxScore) { maxScore = allScores[i].score; bestIdx = i; }
+            }
+            
+            let refinedLag = allScores[bestIdx].lag;
+            const idx = bestIdx;
+            if (idx > 0 && idx < allScores.length - 1) {
+                const s0 = allScores[idx - 1].score, s1 = allScores[idx].score, s2 = allScores[idx + 1].score;
+                const denom = s0 - 2 * s1 + s2;
+                if (Math.abs(denom) > 0.000001) refinedLag = allScores[idx].lag + 0.5 * (s0 - s2) / denom;
+            }
+
+            // --- 3단계: 첫 번째 비트의 위치(Phase) 정밀 추출 (안전한 루프 사용) ---
+            let firstBeatOffset = 0, maxEnergy = 0;
+            for(let i=0; i<energyMap.length; i++) if(energyMap[i] > maxEnergy) maxEnergy = energyMap[i];
+            const threshold = maxEnergy * 0.4;
+            for(let i = 0; i < Math.min(energyMap.length, 1000); i++) {
+                if (energyMap[i] > threshold) { firstBeatOffset = i / actualFreq; break; }
+            }
+
+            const finalBPM = (60 * actualFreq) / refinedLag;
+            trackInfo.textContent = "PRECISION ANALYZED: " + finalBPM.toFixed(2) + " BPM";
+            return { bpm: finalBPM, phase: firstBeatOffset }; 
+        }
+
+        function startSyncPlayback(firstBeatOffset) {
+            if(source) source.stop();
+            isPlaying = true;
+            source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            
+            const startT = audioCtx.currentTime;
+            source.start(0);
+            
+            const beatDuration = 60 / bpmVal; // 박자 하나당의 시간(초)
+            totalBeats = Math.floor((buffer.duration - firstBeatOffset) / beatDuration);
+
+            function syncBeat() {
+                if(!isPlaying) return;
+                
+                // 현재 오디오 재생 시간 (절대적인 기준)
+                const now = audioCtx.currentTime - startT;
+                
+                // 첫 박자 이후 몇 번의 비트가 지났는지 계산 (소수점 포함)
+                const beatsElapsed = (now - firstBeatOffset) / beatDuration;
+                
+                // 현재 몇 번째 비트인가?
+                const currentBeatNum = Math.floor(beatsElapsed) + 1;
+                if(currentBeatNum > 0) beatCounter.textContent = `${currentBeatNum} / ${totalBeats}`;
+
+                // 다음 박자가 올 "동네"를 찾은 뒤, 그 정확한 미래 시간을 계산
+                const nextBeatNum = Math.ceil(beatsElapsed);
+                const nextBeatTime = firstBeatOffset + (nextBeatNum * beatDuration);
+                
+                // 다음 비트까지 남은 시간 (밀리초)
+                let delay = (nextBeatTime - now) * 1000;
+                
+                // 만약 첫 비트 이전이라면 첫 비트까지 대기
+                if (now < firstBeatOffset) delay = (firstBeatOffset - now) * 1000;
+
+                beatTimeout = setTimeout(() => {
+                    // 비트 발광!
+                    lamp.classList.add('active');
+                    setTimeout(() => lamp.classList.remove('active'), 100);
+                    
+                    // 다음 루프도 음악 시간에 맞춰서 다시 호출 (재귀적 동기화)
+                    syncBeat();
+                }, Math.max(0, delay));
+            }
+
+            syncBeat();
+        }
+    </script>
+</body>
+</html>

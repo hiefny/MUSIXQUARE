@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Kick Sniper</title>
+    <style>
+        :root { --bg: #000; --hl: #ff0000; --fg: #333; }
+        body { 
+            margin: 0; background: var(--bg); color: #fff; 
+            font-family: -apple-system, sans-serif; 
+            height: 100vh; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; overflow: hidden;
+        }
+        
+        /* 거대한 킥 램프 */
+        #lamp {
+            width: 300px; height: 300px; 
+            background: #111; border-radius: 50%;
+            transition: background 0.05s ease-out, box-shadow 0.05s ease-out;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #lamp.active {
+            background: var(--hl);
+            box-shadow: 0 0 100px var(--hl), 0 0 200px rgba(255, 0, 0, 0.4);
+        }
+        #lamp::after {
+            content: 'KICK'; font-size: 14px; font-weight: 900; color: #000; opacity: 0;
+        }
+        #lamp.active::after { opacity: 0.3; }
+
+        /* 파일 입력창 (하단 고정) */
+        #audio-trigger {
+            position: absolute; bottom: 50px;
+            background: rgba(255,255,255,0.05); padding: 20px;
+            border-radius: 10px; border: 1px solid #222;
+        }
+        input[type="file"] { cursor: pointer; color: #666; font-size: 12px; }
+        
+        .hint { position: absolute; margin-top: 100px; color: #222; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+    <div id="lamp"></div>
+    <div class="hint">Precision Kick Detection Active</div>
+
+    <div id="audio-trigger">
+        <input type="file" id="audioInput" accept="audio/*">
+    </div>
+
+    <script>
+        const audioInput = document.getElementById('audioInput'), lamp = document.getElementById('lamp');
+        
+        // --- 킥 전용 정적 엔진 설정 (Hard-coded Optimized Values) ---
+        const S = {
+            fft: 2048, hpsBuf: 12, minHz: 35, maxHz: 95, 
+            lag: 0.08, force: 1.15, deltaSens: 3.0, inhibit: 1.7
+        };
+
+        let audioCtx, analyser, lowPass, dataArray, spectrogram = [], lastEnergy = 0, currentPeak = 0, smoothedBarrier = 0, isLooping = false;
+
+        audioInput.onchange = function() {
+            if(!this.files.length) return;
+            if(!audioCtx) {
+                audioCtx = new AudioContext();
+                lowPass = audioCtx.createBiquadFilter(); lowPass.type = 'lowpass'; lowPass.frequency.value = 160;
+                analyser = audioCtx.createAnalyser(); analyser.fftSize = S.fft; analyser.smoothingTimeConstant = 0.1;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                audioCtx.decodeAudioData(e.target.result, (buf) => {
+                    const source = audioCtx.createBufferSource(); source.buffer = buf;
+                    source.connect(lowPass); lowPass.connect(analyser); analyser.connect(audioCtx.destination);
+                    source.start(0);
+                    if(!isLooping) { isLooping = true; update(); }
+                });
+            };
+            reader.readAsArrayBuffer(this.files[0]);
+        };
+
+        function getMedian(arr) { const sorted = [...arr].sort((a,b)=>a-b); return sorted[Math.floor(sorted.length/2)]; }
+
+        function update() {
+            requestAnimationFrame(update);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 1. HPS Buffer
+            spectrogram.push(new Uint8Array(dataArray));
+            if(spectrogram.length > S.hpsBuf) spectrogram.shift();
+            
+            // 2. Frequency Range Logic (Kick vs Snare Check)
+            const binHz = audioCtx.sampleRate / S.fft;
+            const minB = Math.floor(S.minHz / binHz), maxB = Math.floor(S.maxHz / binHz);
+            const highB_start = Math.floor(2000 / binHz), highB_end = Math.floor(8000 / binHz);
+
+            let kSum = 0, hSum = 0, kCount = 0, hCount = 0;
+            
+            // HPS & Energy Collection
+            if(spectrogram.length >= 2) {
+                for(let k=0; k<dataArray.length; k++) {
+                    const m = getMedian(spectrogram.map(f => f[k]));
+                    const p = Math.max(0, dataArray[k] - m); // Percussive signal
+                    if(k >= minB && k <= maxB) { kSum += p; kCount++; }
+                    if(k >= highB_start && k <= highB_end) { hSum += p; hCount++; }
+                }
+            }
+
+            const kEnergy = kCount > 0 ? kSum / kCount : 0;
+            const hEnergy = hCount > 0 ? hSum / hCount : 0;
+            
+            // 3. Delta & Transient Logic
+            const delta = Math.max(0, kEnergy - lastEnergy);
+            lastEnergy = kEnergy;
+
+            // 4. Dynamic Barrier
+            currentPeak = Math.max(currentPeak * 0.95, kEnergy);
+            const targetBarrier = currentPeak * S.force;
+            smoothedBarrier += (targetBarrier - smoothedBarrier) * S.lag;
+
+            // 5. Final Trigger (The Sniper Mix)
+            const hit = kEnergy > smoothedBarrier && (delta * S.deltaSens) > 3;
+            const isKick = kEnergy > (hEnergy * S.inhibit); // Anti-Snare Rejector
+
+            if(hit && isKick && kEnergy > 10) {
+                lamp.classList.add('active');
+            } else {
+                lamp.classList.remove('active');
+            }
+        }
+    </script>
+</body>
+</html>

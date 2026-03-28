@@ -6,6 +6,7 @@
 
 import { log } from '../core/log.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { suppressViewTransitions } from './dom.ts';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
@@ -23,12 +24,17 @@ export function showLoader(show: boolean, txt?: string): void {
 
   if (show) {
     clearManagedTimer('loader-reset');
+    // Suppress View Transitions while the loading CSS transition plays
+    // (1s transform + buffer) to prevent snapshot-replay double-animation
+    suppressViewTransitions(1200);
     header?.classList.add('loading');
     if (txt && loadingText) loadingText.innerText = txt;
     if (progressBg && (!progressBg.style.width || progressBg.style.width === '0%' || progressBg.style.width === '0px')) {
       progressBg.style.width = '0%';
     }
   } else {
+    // Suppress through the reverse CSS transition as well
+    suppressViewTransitions(1200);
     header?.classList.remove('loading');
     setManagedTimer('loader-reset', () => {
       if (progressBg) progressBg.style.width = '0%';

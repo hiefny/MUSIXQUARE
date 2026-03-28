@@ -436,6 +436,7 @@
         transition: background-color 0.3s ease;
         transform: translateZ(0);
         will-change: transform;
+
     }
 
     /* Header Loading State - Progress Background */

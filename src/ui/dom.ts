@@ -14,10 +14,18 @@ import { IS_IOS } from '../core/platform.ts';
 
 let _batchedTransitionCb: (() => void) | null = null;
 
+let _suppressViewTransitionUntil = 0;
+
+/** Suppress View Transitions for the given duration (ms). */
+export function suppressViewTransitions(durationMs: number): void {
+  _suppressViewTransitionUntil = Date.now() + durationMs;
+}
+
 export function animateTransition(callback: () => void): void {
-  // iOS 18+ WebKit bug: startViewTransition interrupts and breaks running CSS animations
-  // (e.g. loading bar transitions). We fall back to native CSS transitions on iOS.
-  if (IS_IOS || !(document as unknown as Record<string, unknown>).startViewTransition) {
+  // Skip View Transitions while the header loading-bar CSS transition
+  // is in progress — startViewTransition snapshots replay CSS transitions,
+  // causing the loading animation to appear twice.
+  if (Date.now() < _suppressViewTransitionUntil || !(document as unknown as Record<string, unknown>).startViewTransition) {
     callback();
     return;
   }

@@ -67,10 +67,26 @@ function updateScroll(state: ScrollbarState): void {
   if (scrollHeight <= clientHeight + 1) return;
 
   const maxScroll = scrollHeight - clientHeight;
-  const thumbTop = maxScroll > 0
-    ? (scrollTop / maxScroll) * (visibleHeight - thumbHeight)
+  const maxThumbTop = visibleHeight - thumbHeight;
+  let thumbTop = maxScroll > 0
+    ? (scrollTop / maxScroll) * maxThumbTop
     : 0;
 
+  let h = thumbHeight;
+
+  // Overscroll top: clamp at 0, shrink thumb
+  if (thumbTop < 0) {
+    h = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight + thumbTop);
+    thumbTop = 0;
+  }
+  // Overscroll bottom: clamp at bottom edge, shrink thumb
+  else if (thumbTop > maxThumbTop) {
+    const overflow = thumbTop - maxThumbTop;
+    h = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight - overflow);
+    thumbTop = visibleHeight - h;
+  }
+
+  thumb.style.height = `${h}px`;
   // Use GPU-accelerated transform instead of style.top for 120fps scrolling
   thumb.style.transform = `translateY(${thumbTop}px)`;
 }

@@ -4024,6 +4024,7 @@
         /* Respect device safe areas + Android landscape system bar */
         padding-bottom: calc(10px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
         background: var(--surface-1);
+        transition: padding-bottom 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
         /* Match the drawer themed background */
     }
 

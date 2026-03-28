@@ -112,8 +112,16 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   thumb.style.top = '0px';
 
-  // Scroll → update thumb via highly optimized transform
-  container.addEventListener('scroll', () => updateScroll(state), { passive: true });
+  let ticking = false;
+  container.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        updateScroll(state);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }, { passive: true });
 
   // Content mutations → update layout
   state.observer = new MutationObserver(() => updateLayout(state));

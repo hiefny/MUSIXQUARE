@@ -181,8 +181,7 @@ export function toggleChatDrawer(): void {
     resetUnread();
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
-    const input = document.getElementById('chat-input') as HTMLDivElement | null;
-    if (input) setManagedTimer('chat-input-focus', () => input.focus(), 300);
+    // Removed automatic focus to prevent the keyboard from opening immediately.
   }
 }
 
@@ -996,6 +995,21 @@ export function initChat(): void {
     // Re-render ghost text on language change
     new MutationObserver(() => updateGhost()).observe(
       document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+
+    // Handle iOS PWA keyboard safe-area gap
+    let _keyboardFocusTimer = 0;
+    chatInput.addEventListener('focus', () => {
+      window.clearTimeout(_keyboardFocusTimer);
+      document.documentElement.classList.add('keyboard-open');
+    });
+    chatInput.addEventListener('focusout', () => {
+      window.clearTimeout(_keyboardFocusTimer);
+      _keyboardFocusTimer = window.setTimeout(() => {
+        if (document.activeElement !== chatInput) {
+          document.documentElement.classList.remove('keyboard-open');
+        }
+      }, 150);
+    });
   }
 
   // Bus event for toggling drawer from other modules

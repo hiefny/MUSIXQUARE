@@ -430,7 +430,8 @@ export function initVisualizer(): void {
 
   if (!_resizeListenerAdded) {
     _resizeListenerAdded = true;
-    window.addEventListener('resize', () => {
+
+    const handleResize = () => {
       // For responsiveness, we can sync size immediately and THEN throttle the expensive draw
       const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d');
@@ -447,7 +448,16 @@ export function initVisualizer(): void {
         } else {
           startVisualizer();
         }
-      }, 100); // Reduced delay to 100ms for better perceived performance
+      }, 100);
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    // Orientation change: CSS transitions need time to settle before re-measuring
+    const vizOrientationMql = window.matchMedia('(orientation: landscape)');
+    vizOrientationMql.addEventListener('change', () => {
+      handleResize();
+      setTimeout(handleResize, 350);
     });
   }
 

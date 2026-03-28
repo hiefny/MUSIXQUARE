@@ -861,6 +861,7 @@
         align-items: center;
         border-radius: 50%;
         background: transparent;
+        overflow: hidden;
     }
 
     #visualizerCanvas {
@@ -4651,10 +4652,6 @@
 
         /* Remove bottom-nav clearance padding in all tab bodies */
         .tab-body {
-            padding-bottom: 16px !important;
-        }
-
-        #tab-play .tab-body {
             padding-bottom: 8px !important;
         }
 
@@ -4672,6 +4669,10 @@
         .guide-section:last-child {
             margin-bottom: 0 !important;
             padding-bottom: 8px !important;
+        }
+
+        #tab-play .tab-body {
+            padding-bottom: 44px !important;
         }
 
         /* ── Chat drawer ── */
@@ -4713,6 +4714,11 @@
             width: calc(100% - (200px + var(--safe-right))) !important;
             padding-left: var(--safe-left) !important;
             padding-top: 8px !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+            min-height: 100vh !important;
+            overflow-y: auto !important;
+            background: var(--bg) !important;
         }
 
         #media-source-overlay .setup-header-text,
@@ -4802,7 +4808,7 @@
 
         #setup-overlay .setup-card.full-screen {
             display: grid !important;
-            grid-template-columns: 1fr calc(320px + var(--safe-right)) !important;
+            grid-template-columns: 1fr 320px !important;
             grid-template-rows: 1fr !important;
             overflow: hidden !important;
             border-radius: 0 !important;
@@ -4876,9 +4882,8 @@
 
         /* Right column: interactive panel */
         #setup-overlay .setup-mobile-view {
-            width: calc(320px + var(--safe-right)) !important;
-            min-width: calc(320px + var(--safe-right)) !important;
-            padding-right: var(--safe-right) !important;
+            width: 320px !important;
+            min-width: 320px !important;
             background: var(--surface-1) !important;
             height: 100% !important;
             padding: 0 !important;
@@ -4902,13 +4907,13 @@
         /* Content padding inside right panel */
         .setup-mobile-view > div:not(.ob-actions, .setup-header-pill) {
             padding-left: 28px !important;
-            padding-right: 20px !important;
+            padding-right: 28px !important;
         }
 
         /* Actions bar at bottom of right column */
         #setup-overlay .setup-mobile-view .ob-actions {
             background: var(--surface-1) !important;
-            padding: 8px 20px 16px 28px !important;
+            padding: 8px 28px 16px 28px !important;
             border-top: none !important;
             margin-top: auto !important;
             flex-shrink: 0 !important;
@@ -4927,7 +4932,7 @@
         }
 
         .desktop-diagram-area .setup-graphic-svg {
-            max-width: 420px !important;
+            max-width: 300px !important;
             width: 100% !important;
             height: auto !important;
         }
@@ -4937,13 +4942,14 @@
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
-            gap: 24px !important;
+            gap: 16px !important;
             margin: 0 !important;
+            margin-top: -20px !important;
         }
 
         .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-            max-width: 360px !important;
-            height: 100px !important;
+            max-width: 260px !important;
+            height: 80px !important;
         }
 
         /* Onboarding slider in left panel */
@@ -4960,7 +4966,42 @@
         }
 
         .desktop-diagram-area .ob-nav-row {
-            margin-top: 12px !important;
+            margin-top: 20px !important;
+        }
+
+        /* Shrink onboarding slides for landscape */
+        .desktop-diagram-area .ob-icon-circle {
+            width: 64px !important;
+            height: 64px !important;
+            margin-bottom: 3px !important;
+        }
+
+        .desktop-diagram-area .ob-icon-circle svg {
+            width: 30px !important;
+            height: 30px !important;
+        }
+
+        .desktop-diagram-area .ob-slide .ob-title {
+            font-size: 22px !important;
+            margin-bottom: 6px !important;
+        }
+
+        .desktop-diagram-area .ob-slide .ob-desc {
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+        }
+
+        .desktop-diagram-area .ob-nav-arrow {
+            display: none !important;
+        }
+
+        .desktop-diagram-area .ob-dot {
+            width: 8px !important;
+            height: 8px !important;
+        }
+
+        .desktop-diagram-area .ob-dot.active {
+            width: 24px !important;
         }
     }
 }

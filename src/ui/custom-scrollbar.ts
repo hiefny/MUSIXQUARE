@@ -162,6 +162,14 @@ export function initCustomScrollbar(container: HTMLElement): void {
   state.resizeObserver = new ResizeObserver(() => updateLayout(state));
   state.resizeObserver.observe(container);
 
+  // Orientation change → delayed re-layout (CSS transitions need time to settle)
+  const onOrientationChange = () => {
+    setTimeout(() => updateLayout(state), 350);
+    setTimeout(() => updateLayout(state), 700);
+  };
+  const orientationMql = window.matchMedia('(orientation: landscape)');
+  orientationMql.addEventListener('change', onOrientationChange);
+
   // Drag thumb to scroll
   thumb.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -223,6 +231,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => window.removeEventListener('touchmove', onTouchMove),
     () => window.removeEventListener('mouseup', onDragEnd),
     () => window.removeEventListener('touchend', onDragEnd),
+    () => orientationMql.removeEventListener('change', onOrientationChange),
   ];
 
   // Click on track → jump

@@ -4474,42 +4474,288 @@
 
     /* ─── Mobile Landscape Fixes ───────────────────────────────── */
     @media (max-width: 950px) and (orientation: landscape) {
+
+        /* ── Sidebar (header) ── */
+        header {
+            width: calc(200px + var(--safe-left)) !important;
+            height: 100vh !important;
+            left: 0 !important;
+            right: auto !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+            padding: 29px 16px 16px !important;
+            padding-left: calc(16px + var(--safe-left)) !important;
+            border-right: none !important;
+            background: var(--surface-1) !important;
+            z-index: 2501 !important;
+            border-bottom: none !important;
+            overflow: hidden !important;
+        }
+
+        /* Logo: compact, centered */
+        .header-content-wrapper {
+            width: 100% !important;
+            height: auto !important;
+            margin-bottom: 0 !important;
+            flex-shrink: 0 !important;
+            justify-content: center !important;
+            align-items: center !important;
+        }
+
+        /* Disable loading animation on role badge only */
+        header.loading .header-right.header-default-content {
+            transform: none !important;
+            opacity: 1 !important;
+        }
+
+        .header-right.header-default-content {
+            transition: none !important;
+        }
+
+        /* Role badge area: push to sidebar bottom */
+        .header-right.header-default-content {
+            margin-top: auto !important;
+            flex-shrink: 0 !important;
+            width: 100% !important;
+            padding-left: 13px !important; /* 29 - header 16px padding */
+            padding-bottom: 13px !important; /* 29 - header 16px padding */
+        }
+
+        #btn-logo-help {
+            display: none !important;
+        }
+
+        /* ── Tab navigation: centered between logo and role badge ── */
+        .bottom-nav {
+            position: fixed !important;
+            top: calc((45px + 100vh - 54px) / 2) !important;
+            transform: translateY(-50%) !important;
+            bottom: auto !important;
+            left: 0 !important;
+            width: calc(200px + var(--safe-left)) !important;
+            height: auto !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+            padding: 8px 29px 8px 12px !important;
+            padding-left: calc(20px + var(--safe-left)) !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            border: none !important;
+            z-index: 2502 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+        }
+
+        .bottom-nav::before {
+            display: none !important;
+        }
+
+        .bottom-nav button {
+            width: 100% !important;
+            height: 40px !important;
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            padding: 0 12px !important;
+            gap: 10px !important;
+            border-radius: 10px !important;
+            transform: none !important;
+            background: transparent !important;
+        }
+
+        .bottom-nav button.active {
+            background: transparent !important;
+            color: var(--primary) !important;
+        }
+
+        .bottom-nav button svg {
+            width: 18px !important;
+            height: 18px !important;
+        }
+
+        .bottom-nav button span {
+            display: block !important;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            color: inherit !important;
+        }
+
+        /* ── Content area ── */
         .tab-content.active {
             overflow-y: auto !important;
             display: block !important;
             position: fixed !important;
-            top: var(--header-height) !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: calc(100vh - var(--header-height)) !important;
+            top: 0 !important;
+            left: calc(200px + var(--safe-left)) !important;
+            width: calc(100% - (200px + var(--safe-left))) !important;
+            height: 100vh !important;
             z-index: 90 !important;
             background: var(--bg);
-            /* Standard safe area + internal margins for landscape */
-            padding-left: calc(16px + var(--safe-left)) !important;
-            padding-right: calc(16px + var(--safe-right)) !important;
-            padding-top: 0 !important;
-            padding-bottom: 20px !important;
+            padding: 16px 24px 12px 24px !important;
+            padding-right: calc(24px + var(--safe-right)) !important;
             box-sizing: border-box;
+            border-radius: 0 !important;
         }
 
-        .video-wrapper {
-            max-width: calc(50vh * 1.77);
-            /* calc(50vh * 16 / 9) - Don't grow larger than 50% of viewport height */
-            margin-bottom: 20px;
-            margin-left: auto;
-            margin-right: auto;
+        .video-wrapper, .vinyl-wrapper {
+            margin-top: 0 !important;
+            margin-bottom: 12px !important;
         }
 
         .vinyl-wrapper {
-            margin-bottom: 20px;
-        }
-
-        .track-box {
-            margin: 16px 0;
+            max-height: 40vh !important;
         }
 
         .controls-area {
-            padding-bottom: 40px;
+            padding-bottom: 8px !important;
+        }
+
+        /* Remove bottom-nav clearance padding in all tab bodies */
+        .tab-body {
+            padding-bottom: 16px !important;
+        }
+
+        #tab-play .tab-body {
+            padding-bottom: 8px !important;
+        }
+
+        /* Reduce bottom spacing in all tabs */
+        .tab-content.active {
+            padding-bottom: 8px !important;
+        }
+
+        /* Tighten section spacing */
+        .ob-actions {
+            padding-bottom: 8px !important;
+        }
+
+        .settings-section:last-child,
+        .guide-section:last-child {
+            margin-bottom: 0 !important;
+            padding-bottom: 8px !important;
+        }
+
+        /* ── Chat drawer ── */
+        .chat-drawer {
+            left: calc(200px + var(--safe-left)) !important;
+            width: calc(100% - (200px + var(--safe-left))) !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+            border-radius: 0 !important;
+            z-index: 3000 !important;
+            padding-right: var(--safe-right) !important;
+            bottom: 0 !important;
+        }
+
+        .chat-drawer.open {
+            transform: translateY(0) !important;
+        }
+
+        .chat-drawer-header {
+            display: flex !important;
+            justify-content: center !important;
+            padding: 16px 20px !important;
+        }
+
+        .chat-drawer-title, .chat-drawer-close {
+            display: none !important;
+        }
+
+        /* ── Scrollbar ── */
+        .cscroll-track {
+            left: auto !important;
+            right: var(--safe-right, 0px) !important;
+        }
+
+        /* ── Overlays: only cover content area, keep sidebar visible ── */
+        #media-source-overlay,
+        #youtube-url-overlay {
+            left: calc(200px + var(--safe-left)) !important;
+            width: calc(100% - (200px + var(--safe-left))) !important;
+            padding-right: var(--safe-right) !important;
+            padding-top: 8px !important;
+        }
+
+        #media-source-overlay .setup-header-text,
+        #youtube-url-overlay .setup-header-text {
+            margin-top: 0 !important;
+            margin-bottom: 12px !important;
+        }
+
+        /* Card grid: header row with close button aligned */
+        #media-source-overlay .onboarding-card {
+            display: grid !important;
+            grid-template-columns: 1fr auto !important;
+            grid-template-rows: auto 1fr !important;
+            align-items: start !important;
+        }
+
+        #media-source-overlay .setup-header-text {
+            grid-column: 1 !important;
+            grid-row: 1 !important;
+        }
+
+        #media-source-overlay .ob-actions {
+            grid-column: 2 !important;
+            grid-row: 1 !important;
+            padding: 0 28px 0 0 !important;
+            margin: 0 !important;
+            background: transparent !important;
+            border: none !important;
+            width: auto !important;
+            align-self: start !important;
+            margin-top: 0 !important;
+        }
+
+        #media-source-overlay .setup-slot-list {
+            grid-column: 1 / -1 !important;
+            grid-row: 2 !important;
+        }
+
+        #media-source-overlay #btn-close-media-popup {
+            width: 40px !important;
+            height: 40px !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            background: var(--surface-2) !important;
+            color: var(--text-sub) !important;
+            font-size: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            position: relative !important;
+            transition: background 0.15s, color 0.15s !important;
+        }
+
+        #media-source-overlay #btn-close-media-popup:hover {
+            background: var(--surface-3) !important;
+            color: var(--text-main) !important;
+        }
+
+        #media-source-overlay #btn-close-media-popup::after {
+            content: '✕' !important;
+            font-size: 16px !important;
+            font-weight: 600 !important;
+            line-height: 1 !important;
+        }
+
+        /* Keep sidebar & nav visible behind overlays */
+        body:has(#media-source-overlay.active) header,
+        body:has(#youtube-url-overlay.active) header {
+            z-index: 2501 !important;
+        }
+
+        body:has(#media-source-overlay.active) .bottom-nav,
+        body:has(#youtube-url-overlay.active) .bottom-nav {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            z-index: 2502 !important;
+            transform: translateY(-50%) !important;
         }
     }
 }

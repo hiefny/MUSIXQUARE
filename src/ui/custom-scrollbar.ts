@@ -33,14 +33,15 @@ function updateLayout(state: ScrollbarState): void {
   thumb.style.display = '';
 
   // Position track to match container's visible area
+  const containerRect = container.getBoundingClientRect();
   let visibleHeight = clientHeight;
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
-  
-  if (!isDesktop) {
+  const isLandscape = window.matchMedia('(max-width: 950px) and (orientation: landscape)').matches;
+
+  if (!isDesktop && !isLandscape) {
     const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
     if (bottomNav) {
       const navRect = bottomNav.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
       // Subtract if the container overlaps the bottom nav
       if (navRect.height > 0 && containerRect.bottom > navRect.top) {
         const overlap = containerRect.bottom - navRect.top;
@@ -50,7 +51,7 @@ function updateLayout(state: ScrollbarState): void {
   }
 
   state.visibleHeight = visibleHeight;
-  track.style.top = `${container.offsetTop}px`;
+  track.style.top = `${containerRect.top}px`;
   track.style.height = `${visibleHeight}px`;
 
   const ratio = visibleHeight / scrollHeight;

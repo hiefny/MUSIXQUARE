@@ -477,7 +477,7 @@
     /* We target .header-default-content for the up/down animation */
     .header-default-content {
         transition: transform 1s cubic-bezier(0.08, 0.82, 0.17, 1), opacity 0.5s ease;
-        transform: translateY(0);
+        transform: none;
         opacity: 1;
     }
 

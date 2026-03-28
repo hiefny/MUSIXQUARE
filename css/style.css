@@ -4506,6 +4506,13 @@
             align-items: center !important;
         }
 
+        /* Hide header behind setup overlay */
+        body:has(#setup-overlay.active) header,
+        body.overlay-open:has(#setup-overlay.active) header {
+            pointer-events: none !important;
+            opacity: 0 !important;
+        }
+
         /* Disable loading animation on role badge only */
         header.loading .header-right.header-default-content {
             transform: none !important;
@@ -4529,6 +4536,10 @@
             display: none !important;
         }
 
+        .header-loading-text {
+            padding-left: 13px !important; /* 29 - header 16px padding */
+        }
+
         /* ── Tab navigation: centered between logo and role badge ── */
         .bottom-nav {
             position: fixed !important;
@@ -4550,10 +4561,31 @@
             z-index: 2502 !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+            transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease !important;
         }
 
         .bottom-nav::before {
             display: none !important;
+        }
+
+        /* Override overlay hiding: keep sidebar position */
+        body:has(#setup-overlay.active) .bottom-nav,
+        body:has(#media-source-overlay.active) .bottom-nav,
+        body:has(#youtube-url-overlay.active) .bottom-nav,
+        body.overlay-open .bottom-nav {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: 2502 !important;
+            transform: translateY(-50%) translateX(30px) !important;
+        }
+
+        /* Override entrance animations: slide from right, keep Y centering */
+        .bottom-nav.app-entrance.app-entrance-up {
+            transform: translateY(-50%) translateX(30px) !important;
+        }
+
+        .bottom-nav.app-entrance.app-entered {
+            transform: translateY(-50%) !important;
         }
 
         .bottom-nav button {

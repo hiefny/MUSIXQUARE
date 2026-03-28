@@ -278,7 +278,6 @@ export interface StateTree {
     virtualBass: number;
     subFreq: number;
     userPreampGain: number;
-    detectedBPM: number;
   };
   sync: { localOffset: number; autoSyncOffset: number; lastLatencyMs: number; latencyHistory: number[] };
   network: {
@@ -380,10 +379,6 @@ interface BaseEventMap {
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];
   'audio:surround-toggled': [];
-
-  // ── Beat Detection ──────────────────────────────────────────────
-  'beat:detected': [bpm: number, phase: number];
-  'beat:pulse': [bpm: number, beatIndex: number];
 
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];

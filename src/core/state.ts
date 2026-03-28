@@ -69,7 +69,6 @@ function createInitialState(): StateTree {
       virtualBass: 0,
       subFreq: 120,
       userPreampGain: 1.0,
-      detectedBPM: 0,
     },
 
     sync: {

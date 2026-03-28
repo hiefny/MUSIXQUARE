@@ -5,6 +5,7 @@
  */
 
 const THUMB_MIN_HEIGHT = 30;
+const FADE_DELAY = 1200;
 
 interface ScrollbarState {
   container: HTMLElement;
@@ -18,6 +19,7 @@ interface ScrollbarState {
   cleanup: (() => void)[];
   visibleHeight: number;
   thumbHeight: number;
+  fadeTimer: number;
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
@@ -125,12 +127,24 @@ export function initCustomScrollbar(container: HTMLElement): void {
     cleanup: [],
     visibleHeight: 0,
     thumbHeight: 0,
+    fadeTimer: 0,
   };
 
   thumb.style.top = '0px';
+  track.style.opacity = '0';
+  track.style.transition = 'opacity 0.3s ease';
+
+  function showTrack(): void {
+    track.style.opacity = '1';
+    clearTimeout(state.fadeTimer);
+    state.fadeTimer = window.setTimeout(() => {
+      if (!state.isDragging) track.style.opacity = '0';
+    }, FADE_DELAY);
+  }
 
   let ticking = false;
   container.addEventListener('scroll', () => {
+    showTrack();
     if (!ticking) {
       window.requestAnimationFrame(() => {
         updateScroll(state);
@@ -157,12 +171,16 @@ export function initCustomScrollbar(container: HTMLElement): void {
     state.dragStartScroll = container.scrollTop;
     thumb.classList.add('dragging');
     document.body.style.userSelect = 'none';
+    clearTimeout(state.fadeTimer);
+    track.style.opacity = '1';
   });
 
   // Touch support for thumb drag
   thumb.addEventListener('touchstart', (e) => {
     e.stopPropagation();
     state.isDragging = true;
+    clearTimeout(state.fadeTimer);
+    track.style.opacity = '1';
     state.dragStartY = e.touches[0].clientY;
     state.dragStartScroll = container.scrollTop;
     thumb.classList.add('dragging');
@@ -192,6 +210,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
     updateScroll(state);
+    showTrack();
   };
 
   window.addEventListener('mousemove', onMouseMove);

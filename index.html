@@ -28,8 +28,8 @@
 
     <link rel="canonical" href="https://musixquare.com/">
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 
     <!-- Theme preflight (before CSS):
          - Prevent light-mode overlay scrollbars becoming white (invisible) on mobile/PWA
@@ -44,8 +44,8 @@
                 document.documentElement.setAttribute('data-theme', resolved);
                 document.documentElement.style.colorScheme = resolved;
 
-                // Match status-bar / address-bar color on first paint
-                var themeColor = (resolved === 'dark') ? '#000000' : '#f2f2f7';
+                // Match status-bar / address-bar color on first paint (header/nav solid resting colors)
+                var themeColor = (resolved === 'dark') ? '#212121' : '#ffffff';
                 var m = document.querySelector('meta[name="theme-color"]');
                 if (m) m.setAttribute('content', themeColor);
 

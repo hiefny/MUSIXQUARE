@@ -8,12 +8,16 @@
 import { log } from '../core/log.ts';
 import { setManagedTimer } from '../core/timers.ts';
 
+import { IS_IOS } from '../core/platform.ts';
+
 // ─── Batch View Transition ───────────────────────────────────────
 
 let _batchedTransitionCb: (() => void) | null = null;
 
 export function animateTransition(callback: () => void): void {
-  if (!(document as unknown as Record<string, unknown>).startViewTransition) {
+  // iOS 18+ WebKit bug: startViewTransition interrupts and breaks running CSS animations
+  // (e.g. loading bar transitions). We fall back to native CSS transitions on iOS.
+  if (IS_IOS || !(document as unknown as Record<string, unknown>).startViewTransition) {
     callback();
     return;
   }

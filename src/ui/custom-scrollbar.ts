@@ -16,13 +16,15 @@ interface ScrollbarState {
   observer: MutationObserver;
   resizeObserver: ResizeObserver;
   cleanup: (() => void)[];
+  visibleHeight: number;
+  thumbHeight: number;
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
 
-function updateThumb(state: ScrollbarState): void {
+function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
-  const { scrollTop, scrollHeight, clientHeight } = container;
+  const { scrollHeight, clientHeight } = container;
 
   if (scrollHeight <= clientHeight + 1) {
     thumb.style.display = 'none';
@@ -30,24 +32,47 @@ function updateThumb(state: ScrollbarState): void {
   }
   thumb.style.display = '';
 
-  // Position track to match container's visible area (exclude nav bar area only)
-  const navHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) || 0;
+  // Position track to match container's visible area
+  let visibleHeight = clientHeight;
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
-  const visibleHeight = isDesktop ? clientHeight : clientHeight - navHeight;
+  
+  if (!isDesktop) {
+    const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
+    if (bottomNav) {
+      const navRect = bottomNav.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      // Subtract if the container overlaps the bottom nav
+      if (navRect.height > 0 && containerRect.bottom > navRect.top) {
+        const overlap = containerRect.bottom - navRect.top;
+        visibleHeight = Math.max(0, clientHeight - overlap);
+      }
+    }
+  }
 
+  state.visibleHeight = visibleHeight;
   track.style.top = `${container.offsetTop}px`;
   track.style.height = `${visibleHeight}px`;
 
   const ratio = visibleHeight / scrollHeight;
-  const thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);
+  state.thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);
+  thumb.style.height = `${state.thumbHeight}px`;
+
+  updateScroll(state);
+}
+
+function updateScroll(state: ScrollbarState): void {
+  const { container, thumb, visibleHeight, thumbHeight } = state;
+  const { scrollTop, scrollHeight, clientHeight } = container;
+
+  if (scrollHeight <= clientHeight + 1) return;
+
   const maxScroll = scrollHeight - clientHeight;
   const thumbTop = maxScroll > 0
     ? (scrollTop / maxScroll) * (visibleHeight - thumbHeight)
     : 0;
 
-  thumb.style.height = `${thumbHeight}px`;
-  thumb.style.top = `${thumbTop}px`;
-
+  // Use GPU-accelerated transform instead of style.top for 120fps scrolling
+  thumb.style.transform = `translateY(${thumbTop}px)`;
 }
 
 export function initCustomScrollbar(container: HTMLElement): void {
@@ -81,17 +106,21 @@ export function initCustomScrollbar(container: HTMLElement): void {
     observer: null!,
     resizeObserver: null!,
     cleanup: [],
+    visibleHeight: 0,
+    thumbHeight: 0,
   };
 
-  // Scroll → update thumb
-  container.addEventListener('scroll', () => updateThumb(state), { passive: true });
+  thumb.style.top = '0px';
 
-  // Content mutations → update thumb
-  state.observer = new MutationObserver(() => updateThumb(state));
+  // Scroll → update thumb via highly optimized transform
+  container.addEventListener('scroll', () => updateScroll(state), { passive: true });
+
+  // Content mutations → update layout
+  state.observer = new MutationObserver(() => updateLayout(state));
   state.observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
 
-  // Resize → update thumb
-  state.resizeObserver = new ResizeObserver(() => updateThumb(state));
+  // Resize → update layout
+  state.resizeObserver = new ResizeObserver(() => updateLayout(state));
   state.resizeObserver.observe(container);
 
   // Drag thumb to scroll
@@ -118,8 +147,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (!state.isDragging) return;
     const { scrollHeight, clientHeight } = container;
     const maxScroll = scrollHeight - clientHeight;
-    const thumbHeight = Math.max(THUMB_MIN_HEIGHT, (clientHeight / scrollHeight) * clientHeight);
-    const trackHeight = clientHeight - thumbHeight;
+    const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
     container.scrollTop = state.dragStartScroll + ((e.clientY - state.dragStartY) / trackHeight) * maxScroll;
   };
@@ -128,8 +156,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (!state.isDragging) return;
     const { scrollHeight, clientHeight } = container;
     const maxScroll = scrollHeight - clientHeight;
-    const thumbHeight = Math.max(THUMB_MIN_HEIGHT, (clientHeight / scrollHeight) * clientHeight);
-    const trackHeight = clientHeight - thumbHeight;
+    const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
     container.scrollTop = state.dragStartScroll + ((e.touches[0].clientY - state.dragStartY) / trackHeight) * maxScroll;
   };
@@ -139,7 +166,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     state.isDragging = false;
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
-    updateThumb(state);
+    updateScroll(state);
   };
 
   window.addEventListener('mousemove', onMouseMove);
@@ -165,7 +192,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   _instances.set(container, state);
 
   // Initial update
-  updateThumb(state);
+  updateLayout(state);
 }
 
 /**

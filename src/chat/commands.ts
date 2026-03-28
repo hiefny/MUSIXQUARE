@@ -15,6 +15,7 @@ import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '.
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
+import { getDetectedBPM, setPartyMode } from '../audio/beat-detector.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -433,6 +434,25 @@ function cmdDebug(): void {
   } catch { /* ignore */ }
 }
 
+function cmdParty(args: string[]): void {
+  const flag = args[0]?.toLowerCase();
+  if (flag !== 'on' && flag !== 'off') {
+    addSystemChatMessage('/party on|off');
+    return;
+  }
+  const on = flag === 'on';
+  setPartyMode(on);
+
+  if (on) {
+    const bpm = getDetectedBPM();
+    addSystemChatMessage(bpm > 0
+      ? `🎉 Party mode ON — ${bpm} BPM`
+      : '🎉 Party mode ON — BPM detecting...');
+  } else {
+    addSystemChatMessage('Party mode OFF');
+  }
+}
+
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -453,6 +473,7 @@ const COMMANDS_DEF: Record<string, Omit<CommandDef, 'usage' | 'description'> & {
   unmute:   { permission: 'host+op', execute: cmdUnmute,   usageKey: 'chat.cmd_u_unmute',   descKey: 'chat.cmd_d_unmute' },
   whisper:  { permission: 'all',     execute: cmdWhisper,  usageKey: 'chat.cmd_u_whisper',  descKey: 'chat.cmd_d_w', hidden: true, hideFromSuggest: true },
   debug:    { permission: 'all',     execute: cmdDebug,    usageKey: 'chat.cmd_u_debug',    descKey: 'chat.cmd_d_debug' },
+  party:    { permission: 'all',     execute: cmdParty,    usageKey: 'chat.cmd_u_party',    descKey: 'chat.cmd_d_party',    hidden: true, hideFromSuggest: true },
 };
 
 // Resolve i18n at access time

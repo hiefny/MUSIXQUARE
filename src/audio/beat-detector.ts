@@ -32,6 +32,10 @@ let _analysedBuffer: AudioBuffer | null = null;   // avoid re-analysis of same b
 export function getDetectedBPM(): number { return _bpm; }
 export function getBeatPhase(): number { return _phase; }
 
+let _partyMode = false;
+export function isPartyMode(): boolean { return _partyMode; }
+export function setPartyMode(on: boolean): void { _partyMode = on; }
+
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initBeatDetector(): void {
@@ -46,6 +50,15 @@ export function initBeatDetector(): void {
 
   // Re-analyze when a new track loads (buffer changes while already playing)
   bus.on('player:ended', stopBeatLoop);
+
+  // Handle track change: when stopAllMedia({ silent: true }) keeps appState as PLAYING,
+  // state:appState won't fire again. Listen for buffer swaps to re-analyze BPM.
+  bus.on('player:buffer-changed', () => {
+    const state = getState('appState') as string;
+    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
+      analyzeAndStart();
+    }
+  });
 
   log.info('[BeatDetector] Initialized');
 }
@@ -88,9 +101,7 @@ function analyzeAndStart(): void {
  * Unchanged from the proven playground implementation.
  */
 function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } {
-  const data = audioBuffer.numberOfChannels > 1
-    ? mixToMono(audioBuffer)
-    : audioBuffer.getChannelData(0);
+  const data = audioBuffer.getChannelData(0);
   const sampleRate = audioBuffer.sampleRate;
 
   // 1) 200Hz energy map
@@ -149,15 +160,11 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
   return { bpm: finalBPM, phase: firstBeatOffset };
 }
 
-function mixToMono(buf: AudioBuffer): Float32Array {
-  const L = buf.getChannelData(0);
-  const R = buf.getChannelData(1);
-  const out = new Float32Array(L.length);
-  for (let i = 0; i < out.length; i++) out[i] = (L[i] + R[i]) * 0.5;
-  return out;
-}
-
 // ─── Beat Loop (rAF + audioCtx.currentTime) ─────────────────────
+
+// Compensate for rAF polling delay + DOM render/perception latency.
+// Fires beat:pulse slightly early so visual effects land on time.
+const VISUAL_LOOKAHEAD_S = 0.030; // 30ms
 
 function startBeatLoop(): void {
   stopBeatLoop();
@@ -181,7 +188,7 @@ function tick(): void {
   const startedAt = getState('player.startedAt') as number || 0;
   const localOffset = (getState('sync.localOffset') as number) || 0;
   const autoSyncOffset = (getState('sync.autoSyncOffset') as number) || 0;
-  const now = (getCurrentTime() - startedAt) + localOffset + autoSyncOffset;
+  const now = (getCurrentTime() - startedAt) + localOffset + autoSyncOffset + VISUAL_LOOKAHEAD_S;
 
   const beatsElapsed = (now - _phase) / _beatDuration;
   const beatIdx = Math.floor(beatsElapsed);

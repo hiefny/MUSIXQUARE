@@ -62,7 +62,7 @@ import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
 import { initVisualizer } from './ui/visualizer.ts';
-import { initBeatVibration } from './ui/beat-vibration.ts';
+import { initBeatVibration } from './ui/party-mode.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';

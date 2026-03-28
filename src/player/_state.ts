@@ -7,6 +7,7 @@
  */
 
 import { SessionScope } from '../core/session-scope.ts';
+import { bus } from '../core/events.ts';
 // ─── Module State ──────────────────────────────────────────────────
 
 let _playerNode: AudioBufferSourceNode | null = null;
@@ -36,7 +37,11 @@ export function getCurrentAudioBuffer(): AudioBuffer | null {
 }
 
 export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
+  const prev = _currentAudioBuffer;
   _currentAudioBuffer = buf;
+  if (buf && buf !== prev) {
+    bus.emit('player:buffer-changed');
+  }
 }
 
 // ─── Load Token ────────────────────────────────────────────────────

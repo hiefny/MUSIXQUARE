@@ -392,6 +392,7 @@ interface BaseEventMap {
   'playback:replay-current': [];
   'player:sync-video-volume': [volume: number];
   'player:check-ended': [];
+  'player:buffer-changed': [];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];

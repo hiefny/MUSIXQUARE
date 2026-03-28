@@ -679,8 +679,12 @@ export function initPlayerControls(): void {
       }
 
       // Phase 2: scrolling — skip leading whitespace to prevent browser trimming
-      while (scrollPos < full.length && scrollPos < maxScroll && /\s/.test(full[scrollPos])) scrollPos++;
-      if (scrollPos >= maxScroll) { scrollPos = maxScroll; return; }
+      while (scrollPos < full.length && /\s/.test(full[scrollPos])) scrollPos++;
+      if (scrollPos >= maxScroll) {
+        scrollPos = maxScroll;
+        document.title = 'MUSIXQUARE';
+        return;
+      }
       document.title = full.slice(scrollPos);
       scrollPos++;
     }, 1000);

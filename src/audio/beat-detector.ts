@@ -207,10 +207,6 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
 
 // ─── Beat Loop (rAF + audioCtx.currentTime) ─────────────────────
 
-// Compensate for rAF polling delay + DOM render/perception latency.
-// Fires beat:pulse slightly early so visual effects land on time.
-const VISUAL_LOOKAHEAD_S = 0.000; // No lookahead (raw sync)
-
 function startBeatLoop(): void {
   stopBeatLoop();
   _lastBeatIdx = -1;
@@ -239,7 +235,7 @@ function tick(): void {
   const startedAt = getState('player.startedAt') as number || 0;
   const localOffset = (getState('sync.localOffset') as number) || 0;
   const autoSyncOffset = (getState('sync.autoSyncOffset') as number) || 0;
-  const now = (getCurrentTime() - startedAt) + localOffset + autoSyncOffset + VISUAL_LOOKAHEAD_S;
+  const now = (getCurrentTime() - startedAt) + localOffset + autoSyncOffset;
 
   const beatsElapsed = (now - _phase) / _beatDuration;
   const beatIdx = Math.floor(beatsElapsed);

@@ -8,8 +8,6 @@
 import { log } from '../core/log.ts';
 import { setManagedTimer } from '../core/timers.ts';
 
-import { IS_IOS } from '../core/platform.ts';
-
 // ─── Batch View Transition ───────────────────────────────────────
 
 let _batchedTransitionCb: (() => void) | null = null;

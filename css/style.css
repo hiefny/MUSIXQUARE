@@ -434,7 +434,9 @@
         overflow: hidden;
         /* Important for masking animations */
         transition: background-color 0.3s ease;
+        /* iOS Safari: Force hardware acceleration to isolate from background video layers */
         transform: translateZ(0);
+        -webkit-transform: translateZ(0);
         will-change: transform;
 
     }
@@ -661,6 +663,10 @@
         opacity: 1;
         visibility: visible;
         pointer-events: auto;
+        z-index: 10;
+        position: relative;
+        /* Force independent compositor layer on iOS to isolate YouTube iframe rendering */
+        transform: translateZ(0);
     }
 
     .tab-body {
@@ -691,6 +697,9 @@
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
+        z-index: -1;
+        /* Ensure it's off the main compositor path */
+        transform: translate3d(-100vw, 0, -1px);
     }
 
     /* Play tab needs flex for centering content */
@@ -2277,6 +2286,9 @@
         box-shadow: none;
         border: none;
 
+        /* iOS Safari: Force hardware acceleration to isolate from background video layers */
+        transform: translateZ(0);
+        -webkit-transform: translateZ(0);
         transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 
         /* Prevent transparency flicker during View Transition tab switches */

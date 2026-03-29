@@ -4624,8 +4624,9 @@
 
         /* ── Content area — left side ── */
         .tab-content.active {
-            overflow-y: auto !important;
-            display: block !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
             position: fixed !important;
             top: 0 !important;
             left: 0 !important;
@@ -4633,7 +4634,7 @@
             height: 100vh !important;
             z-index: 90 !important;
             background: var(--bg);
-            padding: 16px 24px 12px 24px !important;
+            padding: 16px 24px 0 24px !important;
             padding-left: calc(24px + var(--safe-left)) !important;
             box-sizing: border-box;
             border-radius: 0 !important;
@@ -4654,6 +4655,9 @@
 
         /* Remove bottom-nav clearance padding in all tab bodies */
         .tab-body {
+            flex: 1 !important;
+            min-height: 0 !important;
+            overflow-y: auto !important;
             padding-bottom: 8px !important;
         }
 

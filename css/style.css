@@ -4637,6 +4637,19 @@
             padding-left: calc(24px + var(--safe-left)) !important;
             box-sizing: border-box;
             border-radius: 0 !important;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Prevent nested scroll conflict: parent .tab-content scrolls in landscape */
+        .tab-body {
+            overflow: visible !important;
+            height: auto !important;
+            padding-bottom: 8px !important;
+        }
+
+        /* Reduce bottom spacing in all tabs */
+        .tab-content.active {
+            padding-bottom: 8px !important;
         }
 
         .video-wrapper, .vinyl-wrapper {
@@ -4649,16 +4662,6 @@
         }
 
         .controls-area {
-            padding-bottom: 8px !important;
-        }
-
-        /* Remove bottom-nav clearance padding in all tab bodies */
-        .tab-body {
-            padding-bottom: 8px !important;
-        }
-
-        /* Reduce bottom spacing in all tabs */
-        .tab-content.active {
             padding-bottom: 8px !important;
         }
 

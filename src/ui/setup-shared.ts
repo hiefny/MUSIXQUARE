@@ -13,6 +13,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { isCompactLandscape } from '../core/platform.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
 import {
@@ -67,7 +68,7 @@ let _desktopSyncedDiagramNextSibling: Node | null = null;
 
 function isDesktopLayout(): boolean {
   return window.matchMedia('(min-width: 1280px)').matches
-    || window.matchMedia('(max-width: 950px) and (orientation: landscape)').matches;
+    || isCompactLandscape();
 }
 
 function _restoreDesktopDiagram(): void {

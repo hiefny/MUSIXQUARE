@@ -4,6 +4,8 @@
  * Usage: initCustomScrollbar(containerEl) or initAllCustomScrollbars()
  */
 
+import { isCompactLandscape, onCompactLandscapeChange } from '../core/platform.ts';
+
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
 
@@ -38,9 +40,9 @@ function updateLayout(state: ScrollbarState): void {
   const containerRect = container.getBoundingClientRect();
   let visibleHeight = clientHeight;
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
-  const isLandscape = window.matchMedia('(max-width: 950px) and (orientation: landscape)').matches;
+  const isCompactLand = isCompactLandscape();
 
-  if (!isDesktop && !isLandscape) {
+  if (!isDesktop && !isCompactLand) {
     const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
     if (bottomNav) {
       const navRect = bottomNav.getBoundingClientRect();
@@ -163,12 +165,13 @@ export function initCustomScrollbar(container: HTMLElement): void {
   state.resizeObserver.observe(container);
 
   // Orientation change → delayed re-layout (CSS transitions need time to settle)
-  const onOrientationChange = () => {
+  const onLayoutChange = () => {
     setTimeout(() => updateLayout(state), 350);
     setTimeout(() => updateLayout(state), 700);
   };
+  const cleanupCompactListener = onCompactLandscapeChange(onLayoutChange);
   const orientationMql = window.matchMedia('(orientation: landscape)');
-  orientationMql.addEventListener('change', onOrientationChange);
+  orientationMql.addEventListener('change', onLayoutChange);
 
   // Drag thumb to scroll
   thumb.addEventListener('mousedown', (e) => {
@@ -231,7 +234,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => window.removeEventListener('touchmove', onTouchMove),
     () => window.removeEventListener('mouseup', onDragEnd),
     () => window.removeEventListener('touchend', onDragEnd),
-    () => orientationMql.removeEventListener('change', onOrientationChange),
+    () => orientationMql.removeEventListener('change', onLayoutChange),
+    cleanupCompactListener,
   ];
 
   // Click on track → jump

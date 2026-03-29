@@ -13,6 +13,29 @@ export const IS_IOS: boolean =
 
 export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
 
+// ─── Layout Breakpoint Helpers ─────────────────────────────────────
+
+const MQL_COMPACT_A = '(max-width: 950px) and (orientation: landscape)';
+const MQL_COMPACT_B = '(min-width: 951px) and (max-width: 1279px)';
+
+/** Compact landscape: mobile landscape OR mid-width (951–1279px) */
+export function isCompactLandscape(): boolean {
+  return window.matchMedia(MQL_COMPACT_A).matches
+    || window.matchMedia(MQL_COMPACT_B).matches;
+}
+
+/** Listen for compact landscape changes. Returns cleanup function. */
+export function onCompactLandscapeChange(cb: () => void): () => void {
+  const mqlA = window.matchMedia(MQL_COMPACT_A);
+  const mqlB = window.matchMedia(MQL_COMPACT_B);
+  mqlA.addEventListener('change', cb);
+  mqlB.addEventListener('change', cb);
+  return () => {
+    mqlA.removeEventListener('change', cb);
+    mqlB.removeEventListener('change', cb);
+  };
+}
+
 export function isStandaloneDisplayMode(): boolean {
   try {
     if ((navigator as unknown as Record<string, unknown>).standalone) return true;

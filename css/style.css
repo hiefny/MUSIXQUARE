@@ -4474,8 +4474,10 @@
         }
     }
 
-    /* ─── Mobile Landscape Fixes ───────────────────────────────── */
-    @media (max-width: 950px) and (orientation: landscape) {
+    /* ─── Compact Landscape Layout ────────────────────────────── */
+    /* Level 2: sidebar dashboard — mobile landscape OR mid-width (951–1279px) */
+    @media (max-width: 950px) and (orientation: landscape),
+           (min-width: 951px) and (max-width: 1279px) {
 
         /* ── Sidebar (header) — right side ── */
         header {

@@ -9,7 +9,6 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { isIdleOrPaused } from '../player/video.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 
 // ─── State ───────────────────────────────────────────────────────
@@ -128,9 +127,8 @@ export function startVisualizer(): void {
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries — using idle view');
+      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries');
       _visualizerRetryCount = 0;
-      drawIdleVisualizer();
       return;
     }
     setManagedTimer('viz-retry', startVisualizer, 100);
@@ -238,47 +236,6 @@ export function startVisualizer(): void {
   draw();
 }
 
-// ─── Idle Visualizer ─────────────────────────────────────────────
-
-export function drawIdleVisualizer(): void {
-  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  
-  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  // Always sync before drawing idle state
-  const logicalSize = syncCanvasSize(canvas, ctx, wrapper);
-  
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.clearRect(0, 0, logicalSize, logicalSize);
-  
-  if (_vizMode === 'spectrum') {
-    // Spectrum idle: just grid
-    drawSpectrumGrid(ctx, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1), 4, 8, _cachedIsLight);
-    return;
-  }
-
-  // Circular idle: matches silence (bassRadius=55, highRadius=40)
-  const centerX = logicalSize / 2;
-  const centerY = logicalSize / 2;
-  const scale = logicalSize / 240;
-  
-  // Base Bass (25% opacity)
-  const bassRadius = 55 * scale;
-  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, bassRadius, 0, 2 * Math.PI);
-  ctx.fill();
-
-  // Base High (100% opacity)
-  const highRadius = 40 * scale;
-  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, highRadius, 0, 2 * Math.PI);
-  ctx.fill();
-}
-
 // ─── Spectrum Helpers ────────────────────────────────────────────
 
 function freqToX(freq: number, w: number, padX: number): number {
@@ -334,7 +291,7 @@ function startSpectrumVisualizer(): void {
 
   const analyser = getAnalyser();
   if (!analyser) {
-    drawIdleVisualizer(); // Fallback to idle (grid only)
+    startVisualizer(); // Retry — analyser may appear later
     return;
   }
 
@@ -420,13 +377,9 @@ export function initVisualizer(): void {
   refreshThemeCache();
   _initThemeListeners();
   
-  // Try to start the real engine immediately, fall back to idle if no analyser
-  const analyser = getAnalyser();
-  if (analyser) {
-    startVisualizer();
-  } else {
-    drawIdleVisualizer();
-  }
+  // Always use startVisualizer — it retries if analyser isn't ready yet,
+  // and renders silence naturally as idle circles when no audio plays.
+  startVisualizer();
 
   if (!_resizeListenerAdded) {
     _resizeListenerAdded = true;
@@ -442,12 +395,7 @@ export function initVisualizer(): void {
 
       setManagedTimer('viz-resize', () => {
         if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
-        const currentState = getState('appState');
-        if (isIdleOrPaused(currentState)) {
-          drawIdleVisualizer();
-        } else {
-          startVisualizer();
-        }
+        startVisualizer();
       }, 100);
     };
 
@@ -466,12 +414,7 @@ export function initVisualizer(): void {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       // Keep last frame
-    } else if (currentState === APP_STATE.IDLE) {
-      if (!_animationId) {
-        const analyser = getAnalyser();
-        if (analyser) startVisualizer(); else drawIdleVisualizer();
-      }
-    } else {
+    } else if (!_animationId) {
       startVisualizer();
     }
   });
@@ -481,11 +424,6 @@ export function initVisualizer(): void {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
-    } else if (currentState === APP_STATE.IDLE) {
-      if (!_animationId) {
-        const analyser = getAnalyser();
-        if (analyser) startVisualizer(); else drawIdleVisualizer();
-      }
     } else {
       startVisualizer();
     }
@@ -509,8 +447,7 @@ export function initVisualizer(): void {
       analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
     }
 
-    const currentState = getState('appState');
-    if (isIdleOrPaused(currentState)) drawIdleVisualizer(); else startVisualizer();
+    startVisualizer();
   });
 
   log.info('[Visualizer] Initialized');

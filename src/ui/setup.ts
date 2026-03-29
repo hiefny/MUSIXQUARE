@@ -15,6 +15,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
+import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
@@ -196,12 +197,11 @@ setGuestGoBack(initSetupOverlay);
 // ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
-  // Desktop / landscape layout listener
+  // Desktop / compact landscape layout listener
   try {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');
-    const mqlLandscape = window.matchMedia('(max-width: 950px) and (orientation: landscape)');
     mqlDesktop.addEventListener('change', () => syncDesktopLeftPanel());
-    mqlLandscape.addEventListener('change', () => syncDesktopLeftPanel());
+    onCompactLandscapeChange(() => syncDesktopLeftPanel());
   } catch { /* ignore */ }
 
   // Role grid click handler (event delegation)

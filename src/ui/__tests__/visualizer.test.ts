@@ -214,9 +214,5 @@ describe('Visualizer', () => {
       expect(typeof mod.startVisualizer).toBe('function');
     });
 
-    it('imports drawIdleVisualizer without error', async () => {
-      const mod = await import('../visualizer.ts');
-      expect(typeof mod.drawIdleVisualizer).toBe('function');
-    });
   });
 });

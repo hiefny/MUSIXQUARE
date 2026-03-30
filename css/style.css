@@ -4485,7 +4485,8 @@
         /* ── Sidebar (header) — right side ── */
         header {
             width: calc(200px + var(--safe-right)) !important;
-            height: 100vh !important;
+            height: var(--app-height, 100dvh) !important;
+            min-height: var(--app-height, 100dvh) !important;
             right: 0 !important;
             left: auto !important;
             top: 0 !important;
@@ -4549,7 +4550,7 @@
         /* ── Tab navigation: centered between logo and role badge ── */
         .bottom-nav {
             position: fixed !important;
-            top: calc((45px + 100vh - 54px) / 2) !important;
+            top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
             transform: translateY(-50%) !important;
             bottom: auto !important;
             left: auto !important;
@@ -4633,7 +4634,7 @@
             top: 0 !important;
             left: 0 !important;
             width: calc(100% - (200px + var(--safe-right))) !important;
-            height: 100vh !important;
+            height: var(--app-height, 100dvh) !important;
             z-index: 90 !important;
             background: var(--bg);
             padding: 16px 24px 12px 24px !important;
@@ -4687,8 +4688,9 @@
         .chat-drawer {
             left: 0 !important;
             width: calc(100% - (200px + var(--safe-right))) !important;
-            height: 100vh !important;
-            max-height: 100vh !important;
+            height: var(--app-height, 100dvh) !important;
+            max-height: var(--app-height, 100dvh) !important;
+            min-height: var(--app-height, 100dvh) !important;
             border-radius: 0 !important;
             z-index: 3000 !important;
             padding-left: var(--safe-left) !important;
@@ -4722,9 +4724,9 @@
             width: calc(100% - (200px + var(--safe-right))) !important;
             padding-left: var(--safe-left) !important;
             padding-top: 8px !important;
-            height: 100vh !important;
-            max-height: 100vh !important;
-            min-height: 100vh !important;
+            height: var(--app-height, 100dvh) !important;
+            max-height: var(--app-height, 100dvh) !important;
+            min-height: var(--app-height, 100dvh) !important;
             overflow-y: auto !important;
             background: var(--bg) !important;
         }
@@ -4847,7 +4849,7 @@
 
             /* Stabilize vertical centering when icons have no text */
             .bottom-nav {
-                top: calc((45px + 100vh - 54px) / 2) !important;
+                top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
             }
 
             /* Dashboard bottom area: badge on left, help on right */

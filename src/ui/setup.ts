@@ -19,7 +19,7 @@ import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
-import { leaveSession, joinSession } from '../network/peer.ts';
+import { joinSession } from '../network/peer.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
@@ -301,11 +301,6 @@ export function initSetup(): void {
     triggerAppEntrance();
   });
 
-  // Return to main event
-  bus.on('app:return-to-main', () => {
-    leaveSession();
-    initSetupOverlay();
-  });
 
   // Network error handling (connection failures, timeouts, etc.)
   bus.on('network:error', (error) => {
@@ -370,7 +365,8 @@ export function initSetup(): void {
             startGuestFlow();
           }
         } else {
-          window.location.reload();
+          showLoader(true, t('dialog.leaving_session'));
+          setTimeout(() => window.location.reload(), 300);
         }
       }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
@@ -394,7 +390,8 @@ export function initSetup(): void {
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
-    bus.emit('app:return-to-main');
+    showLoader(true, t('dialog.leaving_session'));
+    setTimeout(() => window.location.reload(), 300);
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -405,7 +402,8 @@ export function initSetup(): void {
       buttonText: t('common.ok'),
       dismissible: false,
     });
-    bus.emit('app:return-to-main');
+    showLoader(true, t('dialog.leaving_session'));
+    setTimeout(() => window.location.reload(), 300);
   });
 
   // Check for ?join=CODE in URL or sessionStorage (survives SW reload)

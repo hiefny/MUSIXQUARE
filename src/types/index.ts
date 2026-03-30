@@ -512,7 +512,6 @@ interface BaseEventMap {
   'setup:app-entrance': [];
 
   // ── App ───────────────────────────────────────────────────────────
-  'app:return-to-main': [];
   'app:load-demo': [];
   'app:files-selected': [files: FileList | null];
 

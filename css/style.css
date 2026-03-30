@@ -4475,9 +4475,8 @@
     }
 
     /* ─── Compact Landscape Layout ────────────────────────────── */
-    /* Level 2: sidebar dashboard — mobile landscape OR mid-width (951–1279px) */
-    @media (max-width: 950px) and (orientation: landscape),
-           (min-width: 951px) and (max-width: 1279px) {
+    /* Level 2: sidebar dashboard — width 720px–1279px */
+    @media (min-width: 720px) and (max-width: 1279px) {
 
         /* ── Sidebar (header) — right side ── */
         header {
@@ -4804,8 +4803,47 @@
             transform: translateY(-50%) !important;
         }
 
-        /* ── Setup overlay: 2-column desktop layout ── */
+    }
+    /* ── Setup Overlay: Unified 2-Column Layout ──────────────────────
+       Shared between mobile landscape and desktop.
+       Dimension tokens default to landscape values;
+       overridden by @layer desktop for ≥1280px screens.
+       ─────────────────────────────────────────────────────────────── */
+    @media (min-width: 720px) {
+
         #setup-overlay {
+            /* ── Dimension tokens (landscape defaults) ── */
+            --setup-panel-w: 320px;
+            --setup-px: 28px;
+            --setup-px-end: 28px;
+            --setup-head-py: clamp(24px, 6vh, 48px);
+            --setup-head-px: clamp(24px, 6vh, 48px);
+            --setup-logo-h: clamp(18px, 4.5vh, 26px);
+            --setup-logo-mt: 0px;
+            --setup-logo-mb: clamp(6px, 1.5vh, 12px);
+            --setup-h2: clamp(20px, 5vh, 28px);
+            --setup-h2-mb: clamp(4px, 1vh, 8px);
+            --setup-p: clamp(13px, 3vh, 16px);
+            --setup-p-lh: 1.4;
+            --setup-diagram-pad: clamp(12px, 4vh, 32px) 24px;
+            --setup-svg-max: clamp(280px, 65vh, 480px);
+            --setup-guide-gap: clamp(12px, 3vh, 24px);
+            --setup-guide-svg-max: clamp(240px, 45vh, 400px);
+            --setup-guide-svg-h: clamp(80px, 15vh, 140px);
+            --setup-guide-desc: 12px;
+            --setup-guide-mt: -10px;
+            --setup-icon: clamp(56px, 12vh, 84px);
+            --setup-icon-svg: clamp(28px, 6vh, 40px);
+            --setup-slider-w: clamp(260px, 62vh, 500px);
+            --setup-ob-title: clamp(20px, 4.5vh, 26px);
+            --setup-ob-title-mb: clamp(4px, 1vh, 8px);
+            --setup-ob-desc: clamp(13px, 2.8vh, 15px);
+            --setup-nav-mt: clamp(12px, 3.5vh, 24px);
+            --setup-nav-arrow: none;
+            --setup-actions-top: 8px;
+            --setup-actions-bottom: 16px;
+            --setup-panel-bg: var(--surface-1);
+
             left: 0 !important;
             width: 100% !important;
             padding: 0 !important;
@@ -4813,7 +4851,7 @@
 
         #setup-overlay .setup-card.full-screen {
             display: grid !important;
-            grid-template-columns: 1fr 320px !important;
+            grid-template-columns: 1fr var(--setup-panel-w) !important;
             grid-template-rows: 1fr !important;
             overflow: hidden !important;
             border-radius: 0 !important;
@@ -4822,7 +4860,7 @@
             padding: 0 !important;
         }
 
-        /* Left column: brand/diagram */
+        /* Left column: brand / diagram */
         #setup-desktop-brand {
             display: flex !important;
             flex: 1 !important;
@@ -4832,6 +4870,7 @@
             align-items: flex-start !important;
             text-align: left !important;
             padding-left: var(--safe-left) !important;
+            color: var(--text-main) !important;
             position: relative !important;
             overflow: hidden !important;
         }
@@ -4842,32 +4881,32 @@
 
         .desktop-step-header {
             display: block !important;
-            /* 상단과 좌측 여백을 동일하게(6vh) 연동하여 데스크탑과 일관된 여백감 유지 */
-            padding: clamp(24px, 6vh, 48px) clamp(24px, 6vh, 48px) 0 !important;
+            padding: var(--setup-head-py) var(--setup-head-px) 0 !important;
             width: 100% !important;
             z-index: 2 !important;
         }
 
         .desktop-step-header .logo-svg {
-            height: clamp(18px, 4.5vh, 26px) !important;
+            height: var(--setup-logo-h) !important;
             width: auto !important;
-            margin-bottom: clamp(6px, 1.5vh, 12px) !important;
+            margin-top: var(--setup-logo-mt) !important;
+            margin-bottom: var(--setup-logo-mb) !important;
         }
 
         .desktop-step-header h2 {
-            font-size: clamp(20px, 5vh, 28px) !important;
+            font-size: var(--setup-h2) !important;
             font-weight: 800 !important;
             letter-spacing: -0.03em !important;
             color: var(--text-main) !important;
-            margin-bottom: clamp(4px, 1vh, 8px) !important;
+            margin-bottom: var(--setup-h2-mb) !important;
             line-height: 1.2 !important;
         }
 
         .desktop-step-header p {
-            font-size: clamp(13px, 3vh, 16px) !important;
+            font-size: var(--setup-p) !important;
             color: var(--text-sub) !important;
             opacity: 0.75 !important;
-            line-height: 1.4 !important;
+            line-height: var(--setup-p-lh) !important;
         }
 
         .desktop-diagram-area {
@@ -4876,7 +4915,7 @@
             width: 100% !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: clamp(12px, 4vh, 32px) 24px !important;
+            padding: var(--setup-diagram-pad) !important;
             position: relative !important;
             overflow: visible !important;
         }
@@ -4888,9 +4927,9 @@
 
         /* Right column: interactive panel */
         #setup-overlay .setup-mobile-view {
-            width: 320px !important;
-            min-width: 320px !important;
-            background: var(--surface-1) !important;
+            width: var(--setup-panel-w) !important;
+            min-width: var(--setup-panel-w) !important;
+            background: var(--setup-panel-bg) !important;
             height: 100% !important;
             padding: 0 !important;
             overflow-y: auto !important;
@@ -4912,25 +4951,26 @@
 
         /* Content padding inside right panel */
         .setup-mobile-view > div:not(.ob-actions, .setup-header-pill) {
-            padding-left: 28px !important;
-            padding-right: 28px !important;
+            padding-left: var(--setup-px) !important;
+            padding-right: var(--setup-px-end) !important;
         }
 
         /* Actions bar at bottom of right column */
         #setup-overlay .setup-mobile-view .ob-actions {
-            background: var(--surface-1) !important;
-            padding: 8px 28px 16px 28px !important;
+            background: var(--setup-panel-bg) !important;
+            padding: var(--setup-actions-top) var(--setup-px-end) var(--setup-actions-bottom) var(--setup-px) !important;
             border-top: none !important;
             margin-top: auto !important;
             flex-shrink: 0 !important;
         }
 
-        /* Diagram containers scaled for landscape */
+        /* ── Diagram containers ── */
         .desktop-diagram-area .setup-graphic-container {
             width: 100% !important;
             max-width: none !important;
             max-height: none !important;
             height: auto !important;
+            min-height: 0 !important;
             margin: 0 !important;
             display: flex !important;
             align-items: center !important;
@@ -4938,8 +4978,7 @@
         }
 
         .desktop-diagram-area .setup-graphic-svg {
-            /* Dynamic scaling for high-res landscape/tablets */
-            max-width: clamp(280px, 65vh, 480px) !important;
+            max-width: var(--setup-svg-max) !important;
             width: 100% !important;
             height: auto !important;
         }
@@ -4949,17 +4988,21 @@
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
-            gap: clamp(12px, 3vh, 24px) !important;
+            gap: var(--setup-guide-gap) !important;
             margin: 0 !important;
-            margin-top: -10px !important;
+            margin-top: var(--setup-guide-mt) !important;
         }
 
         .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-            max-width: clamp(240px, 45vh, 400px) !important;
-            height: clamp(80px, 15vh, 140px) !important;
+            max-width: var(--setup-guide-svg-max) !important;
+            height: var(--setup-guide-svg-h) !important;
         }
 
-        /* Onboarding slider in left panel */
+        .desktop-diagram-area .setup-unified-item .setup-inner-desc {
+            font-size: var(--setup-guide-desc) !important;
+        }
+
+        /* ── Onboarding slider in left panel ── */
         .desktop-diagram-area #ob-slider-area {
             width: 100% !important;
             display: flex !important;
@@ -4969,37 +5012,36 @@
         }
 
         .desktop-diagram-area .ob-slider-viewport {
-            width: clamp(260px, 62vh, 500px) !important;
+            width: var(--setup-slider-w) !important;
         }
 
         .desktop-diagram-area .ob-nav-row {
-            margin-top: clamp(12px, 3.5vh, 24px) !important;
+            margin-top: var(--setup-nav-mt) !important;
         }
 
-        /* Shrink onboarding slides for landscape */
         .desktop-diagram-area .ob-icon-circle {
-            width: clamp(56px, 12vh, 84px) !important;
-            height: clamp(56px, 12vh, 84px) !important;
+            width: var(--setup-icon) !important;
+            height: var(--setup-icon) !important;
             margin-bottom: 3px !important;
         }
 
         .desktop-diagram-area .ob-icon-circle svg {
-            width: clamp(28px, 6vh, 40px) !important;
-            height: clamp(28px, 6vh, 40px) !important;
+            width: var(--setup-icon-svg) !important;
+            height: var(--setup-icon-svg) !important;
         }
 
         .desktop-diagram-area .ob-slide .ob-title {
-            font-size: clamp(20px, 4.5vh, 26px) !important;
-            margin-bottom: clamp(4px, 1vh, 8px) !important;
+            font-size: var(--setup-ob-title) !important;
+            margin-bottom: var(--setup-ob-title-mb) !important;
         }
 
         .desktop-diagram-area .ob-slide .ob-desc {
-            font-size: clamp(13px, 2.8vh, 15px) !important;
+            font-size: var(--setup-ob-desc) !important;
             line-height: 1.5 !important;
         }
 
         .desktop-diagram-area .ob-nav-arrow {
-            display: none !important;
+            display: var(--setup-nav-arrow) !important;
         }
 
         .desktop-diagram-area .ob-dot {

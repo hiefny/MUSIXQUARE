@@ -380,9 +380,41 @@
     }
 
     /* ---------------------------------------------------
-       9. Setup/Onboarding Overlay — Full-Width 2-Column Desktop Layout
+       9. Setup/Onboarding Overlay — Desktop Dimension Overrides
+       Structure lives in @layer base (unified 2-column section).
+       Here we only override dimension tokens + add desktop-only rules.
        --------------------------------------------------- */
     #setup-overlay {
+        --setup-panel-w: 480px;
+        --setup-px: 44px;
+        --setup-px-end: 36px; /* 36 + 8 scrollbar-gutter = symmetric 44px */
+        --setup-head-py: clamp(48px, 7vh, 80px);
+        --setup-head-px: clamp(48px, 5vw, 80px);
+        --setup-logo-h: clamp(22px, calc(-34px + 4.375vw), 29px);
+        --setup-logo-mt: clamp(3px, calc(-18px + 1.625vw), 5px);
+        --setup-logo-mb: 12px;
+        --setup-h2: clamp(24px, calc(-40px + 5vw), 32px);
+        --setup-h2-mb: 8px;
+        --setup-p: clamp(16px, 1.25vw, 18px);
+        --setup-p-lh: 1.5;
+        --setup-diagram-pad: clamp(16px, 3vh, 40px) clamp(40px, 6vw, 100px);
+        --setup-svg-max: clamp(480px, 60vw, 780px);
+        --setup-guide-gap: clamp(40px, 6vh, 72px);
+        --setup-guide-svg-max: clamp(420px, 55vw, 680px);
+        --setup-guide-svg-h: clamp(100px, 16vh, 200px);
+        --setup-guide-desc: clamp(14px, 1.3vw, 18px);
+        --setup-guide-mt: 0px;
+        --setup-icon: clamp(72px, 8vw, 100px);
+        --setup-icon-svg: clamp(32px, 3.5vw, 44px);
+        --setup-slider-w: clamp(320px, 60%, 560px);
+        --setup-ob-title: clamp(22px, 2.2vw, 28px);
+        --setup-ob-title-mb: 8px;
+        --setup-ob-desc: clamp(13px, 1.1vw, 15px);
+        --setup-nav-mt: 24px;
+        --setup-nav-arrow: block;
+        --setup-actions-top: 16px;
+        --setup-actions-bottom: 40px;
+
         position: fixed;
         inset: 0;
         z-index: 5000;
@@ -391,118 +423,28 @@
         -webkit-backdrop-filter: none;
     }
 
+    /* Desktop-only: full-viewport card positioning */
     #setup-overlay .setup-card.full-screen {
         position: fixed;
         inset: 0;
         width: 100vw;
         max-width: none;
-        /* Same rationale as body: cap to the *visible* viewport height. */
         height: var(--app-height, 100vh);
         max-height: var(--app-height, 100vh);
-        border-radius: 0;
-        border: none;
         outline: none;
         box-shadow: none;
-        background: transparent;
-        padding: 0;
         transform: none;
-        display: grid;
-        grid-template-columns: 1fr 480px;
-        grid-template-rows: 1fr;
-        overflow: hidden;
     }
 
-    /* --- Left Column: Diagram area + step header --- */
-    #setup-desktop-brand {
-        display: flex;
-        flex: 1;
-        background: var(--bg);
-        flex-direction: column;
-        justify-content: flex-start;
-        align-items: flex-start;
-        text-align: left;
-        padding: 0;
-        color: var(--text-main);
-        position: relative;
-        overflow: hidden;
-    }
-
-    /* Hide the static brand logo/tagline — replaced by dynamic step headers */
-    #setup-desktop-brand .brand-content {
-        display: none;
-    }
-
-    /* --- Desktop step header (mirrored into left panel by JS) --- */
-    .desktop-step-header {
-        display: block;
-        padding: clamp(48px, 7vh, 80px) clamp(48px, 5vw, 80px) 0;
-        width: 100%;
-        z-index: 2;
-    }
-
-    .desktop-step-header .logo-svg {
-        height: clamp(22px, calc(-34px + 4.375vw), 29px);
-        width: auto;
-        margin-top: clamp(3px, calc(-18px + 1.625vw), 5px);
-        margin-bottom: 12px;
-    }
-
-    .desktop-step-header h2 {
-        font-size: clamp(24px, calc(-40px + 5vw), 32px);
-        font-weight: 800;
-        letter-spacing: -0.03em;
-        color: var(--text-main);
-        margin-bottom: 8px;
-        line-height: 1.2;
-    }
-
-    .desktop-step-header p {
-        font-size: clamp(16px, 1.25vw, 18px);
-        color: var(--text-sub);
-        opacity: 0.75;
-        line-height: 1.5;
-    }
-
-    /* --- Desktop diagram area (elements moved here by JS) --- */
-    .desktop-diagram-area {
-        display: flex;
-        flex: 1;
-        width: 100%;
-        align-items: center;
-        justify-content: center;
-        padding: clamp(16px, 3vh, 40px) clamp(40px, 6vw, 100px);
-        position: relative;
-        overflow: visible;
-    }
-
-    /* --- Hide headers from the right panel (they're now mirrored to the left) --- */
-    #setup-overlay .setup-mobile-view .setup-header-text {
-        display: none;
-    }
-
-    /* --- Right Column: Interactive panel (vertically centered content) --- */
+    /* Desktop-only: scrollbar gutter for right panel */
     #setup-overlay .setup-mobile-view {
-        width: 480px;
-        min-width: 480px;
-        background: var(--surface-1);
-        height: 100%;
-        box-shadow: none;
-        padding: 0;
-        overflow-y: auto;
         scrollbar-gutter: stable;
         -ms-overflow-style: auto;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+        box-shadow: none;
     }
 
-    /* --- Onboarding slider: enlarged when inside left panel --- */
+    /* Desktop-only: slider scale by viewport height */
     .desktop-diagram-area #ob-slider-area {
-        width: 100%;
-        display: flex !important; /* override inline style="display:block" */
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
         transform: scale(1);
         transform-origin: center center;
     }
@@ -519,109 +461,17 @@
         }
     }
 
-    .desktop-diagram-area .ob-slider-viewport {
-        width: clamp(320px, 60%, 560px);
-    }
-
-    .desktop-diagram-area .ob-nav-row {
-        margin-top: 24px;
-    }
-
-    /* Enlarge onboarding icon circles for desktop */
-    .desktop-diagram-area .ob-icon-circle {
-        width: clamp(72px, 8vw, 100px);
-        height: clamp(72px, 8vw, 100px);
-    }
-
-    .desktop-diagram-area .ob-icon-circle svg {
-        width: clamp(32px, 3.5vw, 44px);
-        height: clamp(32px, 3.5vw, 44px);
-    }
-
-    .desktop-diagram-area .ob-slide .ob-title {
-        font-size: clamp(22px, 2.2vw, 28px);
-    }
-
-    .desktop-diagram-area .ob-slide .ob-desc {
-        font-size: clamp(13px, 1.1vw, 15px);
-    }
-
-    /* Onboarding mini arrows — slightly larger on desktop */
+    /* Desktop-only: nav arrow sizing (landscape hides them via token) */
     .ob-nav-arrow {
         width: 22px;
         height: 22px;
     }
 
-    /* --- Role SVG diagram: enlarged in left panel --- */
-    .desktop-diagram-area .setup-graphic-container {
-        width: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        height: auto !important;
-        min-height: 0;
-        margin: 0 !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .desktop-diagram-area .setup-graphic-svg {
-        max-width: clamp(480px, 60vw, 780px);
+    /* Desktop-only: prevent horizontal overflow from mobile inline CSS */
+    #setup-role-area .setup-graphic-container {
+        margin-left: 0;
+        margin-right: 0;
         width: 100%;
-        height: auto;
-    }
-
-    /* --- Network guide diagrams: enlarged in left panel --- */
-    .desktop-diagram-area .setup-guide-unified {
-        width: 100% !important;
-        display: flex !important;
-        flex-direction: column;
-        align-items: center;
-        gap: clamp(40px, 6vh, 72px);
-        margin: 0 !important;
-    }
-
-    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-        max-width: clamp(420px, 55vw, 680px) !important;
-        height: clamp(100px, 16vh, 200px) !important;
-    }
-
-    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
-        font-size: clamp(14px, 1.3vw, 18px);
-    }
-
-    /* --- Actions bar pinned to bottom of right column --- */
-    #setup-overlay .setup-mobile-view .ob-actions {
-        background: var(--surface-1);
-        padding-left: 44px;
-        padding-right: 36px;
-        /* 44 left + 36 right + 8 scrollbar-gutter = symmetric 44px visual gap each side */
-        padding-bottom: 40px;
-        padding-top: 16px;
-        border-top: none;
-        margin-top: auto;
-        flex-shrink: 0;
-    }
-
-    /* --- Right panel content areas: center vertically when visible --- */
-    /* NOTE: These areas use inline style display:none/flex toggled by JS.
-       We must NOT use display:flex here or it overrides JS hiding.
-       Use flex properties only - they'll apply when JS sets display:flex. */
-    #setup-overlay #setup-welcome-area,
-    #setup-overlay #setup-code-area,
-    #setup-overlay #setup-join-area,
-    #setup-overlay #setup-role-area {
-        flex: 1;
-        flex-direction: column;
-        justify-content: center;
-        align-items: stretch;
-    }
-
-    /* --- Content padding inside right panel --- */
-    /* Compensate scrollbar-gutter (8px right): 44 left + 36 right = symmetric 44px visual gap */
-    .setup-mobile-view>div:not(.ob-actions, .setup-header-pill) {
-        padding-left: 44px;
-        padding-right: 36px;
     }
 
     /* Map media/youtube overlays into the main Play grid area instead of full-screen popups */

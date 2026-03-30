@@ -4449,16 +4449,20 @@
     }
 
     /* ─── Safari Browser Fallback (Solid Colors) ─────────────────── */
-    html:not(.standalone) header,
-    html:not(.standalone) .bottom-nav {
-        background: #212121 !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-    }
+    /* Only apply on mobile portrait or narrow viewports (< 720px).
+       This prevents interference with the wide dashboard sidebar transparency. */
+    @media (max-width: 719px) {
+        html:not(.standalone) header,
+        html:not(.standalone) .bottom-nav {
+            background: #212121 !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
 
-    html[data-theme="light"]:not(.standalone) header,
-    html[data-theme="light"]:not(.standalone) .bottom-nav {
-        background: #ffffff !important;
+        html[data-theme="light"]:not(.standalone) header,
+        html[data-theme="light"]:not(.standalone) .bottom-nav {
+            background: #ffffff !important;
+        }
     }
 
     /* ─── Accessibility: Reduced Motion ─────────────────────────── */

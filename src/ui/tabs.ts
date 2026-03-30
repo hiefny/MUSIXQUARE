@@ -116,10 +116,13 @@ export function initTabs(): void {
     });
   });
 
-  // Listen for programmatic tab switch
-  bus.on('ui:switch-tab', (tabId: string) => {
-    if (tabId) switchTab(tabId);
-  });
+  // New compact help button (landscape < 315px)
+  const compactHelpBtn = document.getElementById('btn-help-compact');
+  if (compactHelpBtn) {
+    compactHelpBtn.addEventListener('click', () => {
+      switchTab('guide');
+    });
+  }
 
   log.info('[Tabs] Initialized');
 }

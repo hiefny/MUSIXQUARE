@@ -4807,6 +4807,98 @@
             transform: translateY(-50%) !important;
         }
 
+        /* ── Super-Compact Landscape (< 351px height) ── */
+        @media (max-height: 350px) {
+            /* Hide 'Help' tab in super-compact mode */
+            #nav-guide {
+                display: none !important;
+            }
+
+            /* Shift to horizontal icon-only layout */
+            .bottom-nav {
+                flex-direction: row !important;
+                justify-content: space-evenly !important; /* Distribute icons across the sidebar width */
+                padding: 0 8px !important;
+                padding-right: calc(8px + var(--safe-right)) !important;
+                width: calc(200px + var(--safe-right)) !important;
+                gap: 0 !important;
+                left: auto !important;
+                right: 0 !important;
+            }
+
+            .bottom-nav button {
+                width: 40px !important;
+                min-width: 40px !important;
+                height: 40px !important;
+                justify-content: center !important;
+                padding: 0 !important;
+                border-radius: 12px !important;
+            }
+
+            .bottom-nav button span {
+                display: none !important;
+            }
+
+            .bottom-nav button svg {
+                width: 19px !important;
+                height: 19px !important;
+                margin: 0 !important;
+            }
+
+            /* Stabilize vertical centering when icons have no text */
+            .bottom-nav {
+                top: calc((45px + 100vh - 54px) / 2) !important;
+            }
+
+            /* Dashboard bottom area: badge on left, help on right */
+            .header-right {
+                justify-content: space-between !important;
+                padding-left: 13px !important;
+                padding-right: 0 !important;
+                width: 100% !important;
+            }
+
+            /* New help button for super-compact mode */
+            .header-help-btn {
+                display: flex !important;
+                background: transparent !important;
+                color: var(--text-sub) !important;
+                border: none !important;
+                width: 40px !important;
+                height: 40px !important;
+                border-radius: 12px !important;
+                align-items: center !important;
+                justify-content: center !important;
+                /* No margin-left needed because of space-between */
+                margin-left: 0 !important; 
+                /* Distance from screen edge: 16px (header padding) + 13px (this margin) = 29px */
+                margin-right: 13px !important;
+                transition: color 0.15s, background 0.15s !important;
+                cursor: pointer !important;
+                padding: 0 !important;
+            }
+
+            /* Active state: when the guide (help) tab is currently visible */
+            body:has(#tab-guide.active) .header-help-btn {
+                color: var(--primary) !important;
+            }
+
+            .header-help-btn:active {
+                background: var(--surface-2) !important;
+            }
+
+            .header-help-btn svg {
+                width: 19px !important;
+                height: 19px !important;
+                margin: 0 !important;
+            }
+        }
+
+    }
+
+    /* Hide the super-compact help button in all other modes */
+    .header-help-btn {
+        display: none;
     }
     /* ── Setup Overlay: Unified 2-Column Layout ──────────────────────
        Shared between mobile landscape and desktop.

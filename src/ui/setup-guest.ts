@@ -111,7 +111,6 @@ function _renderInviteLinkActions(): void {
         else showToast(t('setup.select_role'));
       },
     },
-    { id: 'btn-setup-host-instead', text: t('setup.host_instead'), kind: 'text-link', onClick: () => _goBack() },
   ], 'vertical');
 }
 

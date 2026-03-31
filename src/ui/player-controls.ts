@@ -144,7 +144,7 @@ export function updateRoleBadge(): void {
     const myDeviceLabel = getState('network.myDeviceLabel') || '';
     const label = myDeviceLabel.trim() || 'PEER';
     const latency = getState('sync.lastLatencyMs') || 0;
-    text.innerText = `${label} (${latency}ms)`;
+    text.innerHTML = `${label} <span class="badge-ping">(${latency}ms)</span>`;
     badge.classList.add('connected');
     if (getState('network.connectionType') === 'remote') {
       badge.classList.add('remote');

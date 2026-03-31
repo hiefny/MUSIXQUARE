@@ -4894,6 +4894,11 @@
                 height: 19px !important;
                 margin: 0 !important;
             }
+
+            /* Hide ping latency in role badge — too cramped */
+            .badge-ping {
+                display: none !important;
+            }
         }
 
     }

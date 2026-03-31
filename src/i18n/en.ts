@@ -346,7 +346,7 @@ const en: Record<I18nKey, string> = {
   'toast.host_only_file': 'Only the host can add files',
   'toast.no_tracks': 'No tracks to play',
   'toast.no_invite_code': 'No invite code yet',
-  'toast.invite_code_settings': 'You can find the invite code in Settings and Help.',
+  'toast.invite_code_settings': 'Share the invite link from the Connect tab.',
   'toast.click_copy_invite': 'Click to copy invite code',
   'toast.cant_select_file': "Can't select a file",
   'toast.resync_all': 'Requesting resync on all devices...',

@@ -344,7 +344,7 @@ const ko = {
   'toast.host_only_file': '호스트만 파일을 추가할 수 있어요',
   'toast.no_tracks': '재생할 트랙이 없어요',
   'toast.no_invite_code': '초대 코드가 아직 없어요',
-  'toast.invite_code_settings': '초대 코드는 설정과 도움말에서 확인할 수 있어요',
+  'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
   'toast.click_copy_invite': '클릭하여 초대코드 복사',
   'toast.cant_select_file': '파일을 선택할 수 없어요',
   'toast.resync_all': '모든 기기 재동기화 요청...',

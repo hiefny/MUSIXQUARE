@@ -60,6 +60,11 @@ export function setSetupOverlayAbort(v: AbortController | null): void { _setupOv
 export function getPendingAutoJoinCode(): string | null { return _pendingAutoJoinCode; }
 export function setPendingAutoJoinCode(v: string | null): void { _pendingAutoJoinCode = v; }
 
+/** Callback invoked when a role card is tapped in invite-link mode (set by setup-guest.ts) */
+let _onInviteLinkRoleSelected: (() => void) | null = null;
+export function setOnInviteLinkRoleSelected(fn: (() => void) | null): void { _onInviteLinkRoleSelected = fn; }
+export function getOnInviteLinkRoleSelected(): (() => void) | null { return _onInviteLinkRoleSelected; }
+
 // ─── Desktop Left Panel Sync ─────────────────────────────────────
 
 let _desktopSyncedDiagram: HTMLElement | null = null;
@@ -335,6 +340,13 @@ export function handleSetupRolePreview(mode: number): void {
   setupHighlightJoinRole(mode);
   showPlacementToastForChannel(mode);
 
+  // Invite-link flow: re-render actions to enable the "Start" button
+  if (_pendingAutoJoinCode && _onInviteLinkRoleSelected) {
+    _onInviteLinkRoleSelected();
+    return;
+  }
+
+  // Normal flow: upgrade "Next" button from secondary to primary
   const nextBtn = document.getElementById('btn-setup-next');
   if (nextBtn) {
     nextBtn.classList.remove('btn-ob-secondary');

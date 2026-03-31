@@ -187,6 +187,7 @@ const ko = {
   'setup.what_sound': '이 기기로 어떤 소리를 낼까요?',
   'setup.change_later': '나중에 설정에서 바꿀 수 있어요.',
   'setup.select_role': '역할을 선택해주세요',
+  'setup.host_instead': '내가 방장할래요',
   'setup.select_role_alt': '역할을 선택해 주세요',
   'setup.hello_select_role': '안녕하세요! 본인의 역할을 선택해주세요.',
   'setup.enter_code': '연결 코드 6자리 입력',

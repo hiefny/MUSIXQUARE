@@ -189,6 +189,7 @@ const en: Record<I18nKey, string> = {
   'setup.what_sound': 'What should this device play?',
   'setup.change_later': 'You can change it later in Settings.',
   'setup.select_role': 'Please select a role',
+  'setup.host_instead': "I'll host instead",
   'setup.select_role_alt': 'Please select a role',
   'setup.hello_select_role': 'Hi! Please choose your role.',
   'setup.enter_code': 'Enter 6-digit code',

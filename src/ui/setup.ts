@@ -40,6 +40,7 @@ import {
   incrementHostCodeFlowId,
   getSetupOverlayEverShown, getSetupOverlayAbort, setSetupOverlayAbort,
   getPendingGuestRoleMode,
+  getPendingAutoJoinCode,
   setPendingAutoJoinCode,
 } from './setup-shared.ts';
 
@@ -283,15 +284,21 @@ export function initSetup(): void {
     // so we must hide it on failure to prevent permanent loader display (#103).
     showLoader(false);
 
-    setupRenderActions([
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null) },
-    ], 'horizontal-with-back');
+    if (getPendingAutoJoinCode()) {
+      // Invite-link flow: go back to role selection (no code input step)
+      startGuestFlow();
+    } else {
+      // Normal flow: re-show code input with editable field
+      setupRenderActions([
+        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+        { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null) },
+      ], 'horizontal-with-back');
 
-    const input = setupEl('setup-join-code') as HTMLInputElement | null;
-    if (input) {
-      input.disabled = false;
-      input.focus();
+      const input = setupEl('setup-join-code') as HTMLInputElement | null;
+      if (input) {
+        input.disabled = false;
+        input.focus();
+      }
     }
     setupSetGuestJoinBusy(false);
   });

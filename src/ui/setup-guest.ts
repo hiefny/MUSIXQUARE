@@ -20,6 +20,7 @@ import {
   getPendingSetupRole, setPendingSetupRole,
   getPendingGuestRoleMode, setPendingGuestRoleMode,
   getPendingAutoJoinCode,
+  setOnInviteLinkRoleSelected,
   setupEl, stopObAutoSlide,
   setupShowCodeArea, setupShowJoinArea, setupShowWelcome, setupShowRoleArea,
   setupHighlightJoinRole, setupSetGuestJoinBusy, setupRenderActions,
@@ -33,6 +34,9 @@ let _goBack: () => void = () => {};
 export function setGuestGoBack(fn: () => void): void {
   _goBack = fn;
 }
+
+// Register invite-link role-selected callback
+setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
   bus.emit('audio:activate');
@@ -70,20 +74,81 @@ export function startGuestFlow(): void {
     stopObAutoSlide();
   }
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
-    {
-      id: 'btn-setup-next', text: t('common.next'), kind: 'secondary',
-      onClick: () => {
-        const role = getPendingSetupRole();
-        if (role !== null) proceedToGuestCode(role);
-        else showToast(t('setup.select_role'));
+  const autoCode = getPendingAutoJoinCode();
+  if (autoCode) {
+    // Invite link flow: role selection → "시작하기" (disabled until role picked)
+    // No code input step needed — code is already known from URL
+    _renderInviteLinkActions();
+  } else {
+    // Normal guest flow: role selection → "다음" → code input → "시작하기"
+    setupRenderActions([
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+      {
+        id: 'btn-setup-next', text: t('common.next'), kind: 'secondary',
+        onClick: () => {
+          const role = getPendingSetupRole();
+          if (role !== null) proceedToGuestCode(role);
+          else showToast(t('setup.select_role'));
+        },
       },
-    },
-  ], 'horizontal-with-back');
+    ], 'horizontal-with-back');
+  }
 
   setState('network.myDeviceLabel', t('common.guest'));
   updateRoleBadge();
+}
+
+/** Render actions for invite-link flow: disabled "시작하기" + "내가 방장할래요" text link */
+function _renderInviteLinkActions(): void {
+  const role = getPendingSetupRole();
+  setupRenderActions([
+    {
+      id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary',
+      disabled: role === null,
+      onClick: () => {
+        const r = getPendingSetupRole();
+        if (r !== null) _handleInviteLinkJoin(r);
+        else showToast(t('setup.select_role'));
+      },
+    },
+    { id: 'btn-setup-host-instead', text: t('setup.host_instead'), kind: 'text-link', onClick: () => _goBack() },
+  ], 'vertical');
+}
+
+/** Called when a role card is tapped in invite-link mode — enable the start button */
+export function onInviteLinkRoleSelected(): void {
+  if (!getPendingAutoJoinCode()) return;
+  _renderInviteLinkActions();
+}
+
+/** Join directly using the invite code from URL (skip code input step) */
+async function _handleInviteLinkJoin(mode: number): Promise<void> {
+  const autoCode = getPendingAutoJoinCode();
+  if (!autoCode || !/^\d{6}$/.test(autoCode)) {
+    showToast(t('toast.no_invite_code'));
+    return;
+  }
+
+  setPendingGuestRoleMode(mode);
+  setState('network.lastJoinCode', autoCode);
+  updateInviteCodeUI();
+  activateNoSleep();
+
+  try {
+    selectStandardChannelButton(mode);
+    bus.emit('audio:set-channel-mode', mode);
+  } catch (e) { log.warn('[Setup] setChannelMode failed', e); }
+
+  setState('network.myDeviceLabel', PEER_NAME_PREFIX);
+  updateRoleBadge();
+
+  setupSetGuestJoinBusy(true);
+
+  setupRenderActions([
+    { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
+  ], 'vertical');
+
+  joinSession(autoCode);
 }
 
 function proceedToGuestCode(mode: number): void {

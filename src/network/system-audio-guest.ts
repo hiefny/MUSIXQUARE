@@ -15,6 +15,24 @@ import { stopAllMedia } from '../player/transport.ts';
 import { registerHandler } from './protocol.ts';
 import type { MediaConnection } from 'peerjs';
 
+/** Force Opus stereo in SDP */
+function _forceOpusStereo(sdp: string): string {
+  return sdp.replace(
+    /a=fmtp:(\d+) (.+)/g,
+    (match, pt, params) => {
+      if (!/opus/i.test(sdp.substring(sdp.lastIndexOf('a=rtpmap:' + pt), sdp.indexOf('\r\n', sdp.lastIndexOf('a=rtpmap:' + pt))))) {
+        return match;
+      }
+      let updated = params;
+      if (!/stereo=/.test(updated)) updated += ';stereo=1';
+      else updated = updated.replace(/stereo=\d/, 'stereo=1');
+      if (!/sprop-stereo=/.test(updated)) updated += ';sprop-stereo=1';
+      else updated = updated.replace(/sprop-stereo=\d/, 'sprop-stereo=1');
+      return `a=fmtp:${pt} ${updated}`;
+    }
+  );
+}
+
 // ─── Module State ─────────────────────────────────────────────────
 
 let _mediaConn: MediaConnection | null = null;
@@ -60,6 +78,16 @@ export async function handleIncomingMediaCall(mediaConn: MediaConnection): Promi
   _isCleaningUp = false;
 
   _mediaConn = mediaConn;
+
+  // Force Opus stereo on the answer SDP
+  const pc = mediaConn.peerConnection as RTCPeerConnection | undefined;
+  if (pc) {
+    const origSetLocal = pc.setLocalDescription.bind(pc);
+    pc.setLocalDescription = async (desc?: RTCLocalSessionDescriptionInit) => {
+      if (desc?.sdp) desc = { ...desc, sdp: _forceOpusStereo(desc.sdp) };
+      return origSetLocal(desc);
+    };
+  }
 
   // Answer without sending our own stream (receive-only)
   mediaConn.answer();

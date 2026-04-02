@@ -12,6 +12,28 @@ import { getPeer } from './peer-state.ts';
 import { getSystemAudioStream, isSystemAudioActive } from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
+/**
+ * Force Opus stereo in SDP offer/answer.
+ * WebRTC Opus defaults to mono — inject stereo=1 and sprop-stereo=1
+ * into the fmtp line for the Opus codec.
+ */
+function forceOpusStereo(sdp: string): string {
+  return sdp.replace(
+    /a=fmtp:(\d+) (.+)/g,
+    (match, pt, params) => {
+      if (!/opus/i.test(sdp.substring(sdp.lastIndexOf('a=rtpmap:' + pt), sdp.indexOf('\r\n', sdp.lastIndexOf('a=rtpmap:' + pt))))) {
+        return match;
+      }
+      let updated = params;
+      if (!/stereo=/.test(updated)) updated += ';stereo=1';
+      else updated = updated.replace(/stereo=\d/, 'stereo=1');
+      if (!/sprop-stereo=/.test(updated)) updated += ';sprop-stereo=1';
+      else updated = updated.replace(/sprop-stereo=\d/, 'sprop-stereo=1');
+      return `a=fmtp:${pt} ${updated}`;
+    }
+  );
+}
+
 // ─── Module State ─────────────────────────────────────────────────
 
 const _mediaConns = new Map<string, MediaConnection>();
@@ -56,6 +78,16 @@ export function callGuest(guestPeerId: string, stream?: MediaStream): void {
     const mc = peer.call(guestPeerId, s, {
       metadata: { type: 'system-audio' },
     });
+
+    // Force Opus stereo: intercept SDP offer to inject stereo=1
+    const pc = mc.peerConnection as RTCPeerConnection | undefined;
+    if (pc) {
+      const origSetLocal = pc.setLocalDescription.bind(pc);
+      pc.setLocalDescription = async (desc?: RTCLocalSessionDescriptionInit) => {
+        if (desc?.sdp) desc = { ...desc, sdp: forceOpusStereo(desc.sdp) };
+        return origSetLocal(desc);
+      };
+    }
 
     _mediaConns.set(guestPeerId, mc);
 

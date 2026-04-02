@@ -505,8 +505,9 @@ export function initPlayerControls(): void {
   });
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
-  // Demo button (moved to Help tab)
+  // Demo button (Help tab — desktop + mobile)
   $on('btn-demo-media', 'click', () => { bus.emit('app:load-demo'); });
+  $on('btn-demo-media-mobile', 'click', () => { bus.emit('app:load-demo'); });
 
   // YouTube popup (contenteditable)
   const ytInput = document.getElementById('youtube-url-input');

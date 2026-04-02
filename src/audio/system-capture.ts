@@ -19,7 +19,9 @@ import { callAllGuests, closeAllMediaConns } from '../network/system-audio-host.
 // ─── Module State ─────────────────────────────────────────────────
 
 let _capturedStream: MediaStream | null = null;
+let _stereoStream: MediaStream | null = null; // Stereo-guaranteed stream for P2P
 let _sourceNode: MediaStreamAudioSourceNode | null = null;
+let _destinationNode: MediaStreamAudioDestinationNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
@@ -33,8 +35,9 @@ export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
 
+/** Returns stereo-guaranteed stream for P2P transmission */
 export function getSystemAudioStream(): MediaStream | null {
-  return _capturedStream;
+  return _stereoStream ?? _capturedStream;
 }
 
 /**
@@ -105,6 +108,16 @@ export async function startSystemAudioCapture(): Promise<void> {
   stereoUpmix.channelCountMode = 'explicit';
   stereoUpmix.channelInterpretation = 'speakers';
   _sourceNode.connect(stereoUpmix);
+
+  // Create a stereo MediaStream for P2P transmission.
+  // WebRTC Opus defaults to mono — by routing through a stereo
+  // MediaStreamDestination, the outgoing stream is guaranteed stereo.
+  _destinationNode = ctx.createMediaStreamDestination();
+  _destinationNode.channelCount = 2;
+  _destinationNode.channelCountMode = 'explicit';
+  _destinationNode.channelInterpretation = 'speakers';
+  stereoUpmix.connect(_destinationNode);
+  _stereoStream = _destinationNode.stream;
 
   const widener = getWidener();
   if (widener) {
@@ -207,6 +220,11 @@ function cleanupCapture(): void {
     try { _sourceNode.disconnect(); } catch { /* noop */ }
     _sourceNode = null;
   }
+  if (_destinationNode) {
+    try { _destinationNode.disconnect(); } catch { /* noop */ }
+    _destinationNode = null;
+  }
+  _stereoStream = null;
   if (_capturedStream) {
     for (const track of _capturedStream.getTracks()) {
       track.stop();

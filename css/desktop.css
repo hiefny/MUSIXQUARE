@@ -70,8 +70,9 @@
     #tab-guide,
     #tab-connect {
         padding-top: 0;
-        /* Panels have internal headers now */
-        display: flex;
+        /* Panels have internal headers now — !important overrides .tab-content { display: none }
+           from base layer when resizing from mobile (where only .active tabs are visible) */
+        display: flex !important;
         flex-direction: column;
         /* Vertical column layout */
         opacity: 1;

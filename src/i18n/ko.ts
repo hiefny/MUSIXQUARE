@@ -440,8 +440,8 @@ const ko = {
   'youtube.enter_link_desc_html': 'YouTube 비디오 또는 플레이리스트 링크를 입력하세요.<br>공개된 링크만 함께 들을 수 있어요.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
-  'system_audio.button': '시스템 소리 공유',
-  'system_audio.sharing': '시스템 소리 공유 중',
+  'system_audio.button': '시스템 오디오 공유',
+  'system_audio.sharing': '시스템 오디오 공유 중',
   'system_audio.capture_denied': '소리 공유가 취소되었어요.',
   'system_audio.no_audio_track': '오디오를 공유하려면 "소리 공유"를 체크해주세요.',
   'system_audio.stop': '오디오 공유 중지',

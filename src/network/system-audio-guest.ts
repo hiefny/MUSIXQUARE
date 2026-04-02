@@ -24,6 +24,7 @@ let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
 let _gotL = false;
 let _gotR = false;
+let _prevTrackMeta: unknown = null;
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -128,7 +129,8 @@ function cleanupGuestSystemAudio(): void {
   _gotR = false;
 
   setState('systemAudio.isReceiving', false);
-  setState('player.currentTrackMeta', null);
+  setState('player.currentTrackMeta', _prevTrackMeta ?? null);
+  _prevTrackMeta = null;
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     setState('appState', APP_STATE.IDLE);
   }
@@ -139,6 +141,7 @@ function cleanupGuestSystemAudio(): void {
 export function registerSystemAudioGuestListeners(): void {
   registerHandler(MSG.SYSTEM_AUDIO_START, () => {
     log.info('[SysAudioGuest] Host started system audio sharing');
+    _prevTrackMeta = getState('player.currentTrackMeta');
     stopAllMedia({ silent: true });
     setState('player.currentTrackMeta', { type: 'file', name: 'system-audio', title: 'System Audio Sharing' });
   });

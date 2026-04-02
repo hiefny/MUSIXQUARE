@@ -488,6 +488,10 @@ export function initPlayerControls(): void {
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
     if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      if (getState('network.hostConn')) {
+        showToast(t('toast.host_only_media'));
+        return;
+      }
       bus.emit('system-audio:stop');
     } else {
       openMediaSourcePopup();

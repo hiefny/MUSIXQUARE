@@ -438,6 +438,13 @@ const ko = {
   'setup.spatial_audio_desc_html': '각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.',
   'setup.advanced_audio_desc_html': '호스트의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할 수 있어요.',
   'youtube.enter_link_desc_html': 'YouTube 비디오 또는 플레이리스트 링크를 입력하세요.<br>공개된 링크만 함께 들을 수 있어요.',
+
+  // ─── System Audio Sharing ─────────────────────────────────────
+  'system_audio.button': '시스템 소리 공유',
+  'system_audio.sharing': '시스템 소리 공유 중',
+  'system_audio.capture_denied': '화면 공유가 취소되었어요.',
+  'system_audio.no_audio_track': '오디오를 공유하려면 "소리 공유"를 체크해주세요.',
+  'system_audio.desktop_only': 'Windows 또는 Mac 데스크톱 Chrome에서만 사용할 수 있어요.',
 } as const;
 
 export default ko;

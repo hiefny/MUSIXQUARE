@@ -55,6 +55,9 @@ import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 // ─── Network Message Handlers ──────────────────────────────────────
 
 function handlePlayMsg(data: Record<string, unknown>): void {
+  // Ignore PLAY during system audio mode (live stream, not file-based)
+  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+
   const time = Number(data.time) || 0;
   const incomingIndex = data.index != null ? Number(data.index) : undefined;
 
@@ -172,6 +175,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
 }
 
 function handlePauseMsg(data: Record<string, unknown>): void {
+  // Ignore PAUSE during system audio mode
+  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
   const time = Number(data.time) || 0;
@@ -454,7 +459,10 @@ export function initPlayback(): void {
     try {
       const nowPos = getTrackPosition();
 
-      if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+      // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
+      if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+        conn.send({ type: MSG.SYSTEM_AUDIO_START });
+      } else if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as string | null;
         conn.send({

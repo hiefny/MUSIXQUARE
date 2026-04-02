@@ -134,6 +134,12 @@ function createInitialState(): StateTree {
       pendingFileIndex: undefined,
     },
 
+    systemAudio: {
+      isSharing: false,
+      isReceiving: false,
+      hostMuteLocal: true,
+    },
+
   };
 }
 
@@ -266,6 +272,7 @@ export function snapshot(): Readonly<StateTree> {
       if (value instanceof Set) return [...value];
       if (value instanceof Map) return Object.fromEntries(value);
       if (value instanceof Blob) return '[Blob]';
+      if (typeof MediaStream !== 'undefined' && value instanceof MediaStream) return '[MediaStream]';
       if (typeof value === 'object' && value !== null) {
         if (typeof value.close === 'function') return '[Connection]';
         // Guard against arbitrary circular references

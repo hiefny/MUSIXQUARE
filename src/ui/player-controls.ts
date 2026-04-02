@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
-import { IS_ANDROID } from '../core/platform.ts';
+import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
@@ -486,8 +486,18 @@ export function initPlayerControls(): void {
   // Media source popup
   $on('btn-local-file', 'click', () => openFileSelector());
   $on('btn-youtube-source', 'click', () => { closeMediaSourcePopup(); openYouTubePopup(); });
-  $on('btn-demo-media', 'click', () => { closeMediaSourcePopup(); bus.emit('app:load-demo'); });
+  $on('btn-system-audio', 'click', () => {
+    if (canCaptureSystemAudio()) {
+      closeMediaSourcePopup();
+      bus.emit('system-audio:start');
+    } else {
+      showToast(t('system_audio.desktop_only'));
+    }
+  });
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
+
+  // Demo button (moved to Help tab)
+  $on('btn-demo-media', 'click', () => { bus.emit('app:load-demo'); });
 
   // YouTube popup (contenteditable)
   const ytInput = document.getElementById('youtube-url-input');
@@ -617,7 +627,7 @@ export function initPlayerControls(): void {
 
   bus.on('state:appState', () => {
     const state = getState('appState');
-    const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE;
+    const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     updatePlayIcon(playing);
   });
 
@@ -742,7 +752,7 @@ export function initPlayerControls(): void {
 
   bus.on('state:appState', () => {
     const state = getState('appState');
-    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE) {
+    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
       startTabTitleMarquee();
     } else {
       stopTabTitleMarquee();

@@ -229,6 +229,10 @@ export interface ProtocolMap {
   'chat-slowmode': { seconds: number };
   'chat-system': { text: string };
   'request-chat-command': { command: string; args: string[] };
+
+  // ── System Audio Sharing ──────────────────────────────────────
+  'system-audio-start': NoPayload;
+  'system-audio-stop': NoPayload;
 }
 
 /** Full protocol message = { type: T } & payload */
@@ -310,6 +314,7 @@ export interface StateTree {
   files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
   youtube: { currentSubIndex: number; subItemsMap: Record<string, { ids: string[]; titles: string[] }> };
   recovery: { pending: boolean; retryCount: number; pendingFileName: string; pendingFileIndex: number | undefined };
+  systemAudio: { isSharing: boolean; isReceiving: boolean; hostMuteLocal: boolean };
 }
 
 // ─── State Path Utilities ────────────────────────────────────────────
@@ -514,6 +519,12 @@ interface BaseEventMap {
   // ── App ───────────────────────────────────────────────────────────
   'app:load-demo': [];
   'app:files-selected': [files: FileList | null];
+
+  // ── System Audio Sharing ────────────────────────────────────────
+  'system-audio:start': [];
+  'system-audio:stop': [];
+  'system-audio:force-stop': [];
+  'system-audio:incoming-call': [mediaConn: unknown];
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];

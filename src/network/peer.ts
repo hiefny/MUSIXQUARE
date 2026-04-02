@@ -197,6 +197,16 @@ function setupPeerEvents(): void {
     log.warn('[PeerJS] Disconnected from signaling server');
   });
 
+  // System Audio: handle incoming media calls (WebRTC audio stream)
+  peer.on('call', (mediaConn: unknown) => {
+    const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
+    if (mc.metadata?.type === 'system-audio') {
+      bus.emit('system-audio:incoming-call', mediaConn);
+    } else {
+      try { mc.close(); } catch { /* noop */ }
+    }
+  });
+
   peer.on('connection', (conn: DataConnection) => {
     // Check if this is a relay connection from a downstream peer
     const connMeta = conn.metadata as Record<string, unknown> | undefined;
@@ -224,6 +234,9 @@ export function leaveSession(): void {
   log.debug('[Network] Leaving session — full cleanup...');
 
   setState('network.isIntentionalDisconnect', true);
+
+  // ── 0. Stop system audio sharing ──
+  bus.emit('system-audio:force-stop');
 
   // ── 1. Stop all background timers ──
   stopBackgroundWorkerTimers();

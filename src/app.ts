@@ -34,6 +34,9 @@ import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initRelay } from './network/relay.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
+import { registerSystemCaptureListeners } from './audio/system-capture.ts';
+import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
+import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 
 // ── Storage ──
 import { setSyncWorker, setTransferWorker } from './storage/opfs.ts';
@@ -247,6 +250,9 @@ function bootstrap(): void {
   safeInit('Sync', initSync);
   safeInit('Relay', initRelay);
   safeInit('Orchestrator', initOrchestrator);
+  safeInit('SystemAudioCapture', registerSystemCaptureListeners);
+  safeInit('SystemAudioHost', registerSystemAudioHostListeners);
+  safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
 
   // 6. Workers & Storage
   try {

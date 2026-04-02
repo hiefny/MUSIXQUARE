@@ -14,6 +14,7 @@ import type { AppStateValue } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
+import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import { getVideoElement, isIdleOrPaused, isMediaVideo } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -58,6 +59,9 @@ export function getTrackPosition(): number {
   const pausedAt = getState('player.pausedAt') || 0;
 
   if (isIdleOrPaused(currentState)) return pausedAt;
+
+  // System audio: no meaningful position (live stream)
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return 0;
 
   // YouTube mode: delegated via synchronous callback
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -138,6 +142,11 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean }): void {
+  // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
+  if (isSystemAudioActive()) {
+    bus.emit('system-audio:force-stop');
+  }
+
   getLoadScope()?.dispose();
   setLoadScope(null);
   const videoElement = getVideoElement();
@@ -208,6 +217,9 @@ export function seekTo(time: number): void {
     bus.emit('youtube:seek-to', time);
     return;
   }
+
+  // System audio: no seek (live stream)
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -426,6 +438,7 @@ export function handleEnded(): void {
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
   if (isIdleOrPaused(currentState)) return;
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 
   const curr = getTrackPosition();
   const isSeeking = getState('player.isSeeking');
@@ -457,6 +470,12 @@ export function togglePlay(): void {
   // YouTube mode
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:toggle-play');
+    return;
+  }
+
+  // System audio: toggle = stop sharing
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    stopSystemAudioCapture();
     return;
   }
 
@@ -507,6 +526,11 @@ export function stopPlayback(): void {
   const currentState = getState('appState');
   if (currentState === APP_STATE.IDLE) return; // Nothing to stop
 
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    stopSystemAudioCapture();
+    return;
+  }
+
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
@@ -541,6 +565,7 @@ export function skipTime(sec: number): void {
 
   const currentState = getState('appState');
   if (currentState === APP_STATE.IDLE) return;
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return; // No skip on live stream
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:skip-time', sec);
     return;

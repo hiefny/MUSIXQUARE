@@ -440,6 +440,13 @@ const en: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html': 'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
   'setup.advanced_audio_desc_html': 'Match the host\'s settings<br>with reverb, EQ, virtual effects,<br>and more across the system.',
   'youtube.enter_link_desc_html': 'Enter a YouTube video or playlist link.<br>Only public links can be played together.',
+
+  // ─── System Audio Sharing ─────────────────────────────────────
+  'system_audio.button': 'System Audio',
+  'system_audio.sharing': 'Sharing System Audio',
+  'system_audio.capture_denied': 'Screen sharing was cancelled.',
+  'system_audio.no_audio_track': 'Please check "Share audio" to share sound.',
+  'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
 };
 
 export default en;

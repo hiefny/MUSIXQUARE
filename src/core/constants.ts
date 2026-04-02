@@ -9,6 +9,7 @@ export const APP_STATE = {
   PLAYING_AUDIO: 'PLAYING_AUDIO',
   PLAYING_VIDEO: 'PLAYING_VIDEO',
   PLAYING_YOUTUBE: 'PLAYING_YOUTUBE',
+  PLAYING_SYSTEM_AUDIO: 'PLAYING_SYSTEM_AUDIO',
 } as const;
 
 export type AppStateValue = (typeof APP_STATE)[keyof typeof APP_STATE];
@@ -120,6 +121,10 @@ export const MSG = {
   KICK_DEVICE: 'kick-device',
   RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost',
 
+  // ── System Audio Sharing ────────────────────────────────────────
+  SYSTEM_AUDIO_START: 'system-audio-start',
+  SYSTEM_AUDIO_STOP: 'system-audio-stop',
+
   // ── Chat Commands ──────────────────────────────────────────────
   CHAT_MUTE: 'chat-mute',
   CHAT_UNMUTE: 'chat-unmute',
@@ -153,6 +158,7 @@ export const RELAYABLE_MSG_TYPES = [
   MSG.PLAYLIST_UPDATE,
   MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
   MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
+  MSG.SYSTEM_AUDIO_START, MSG.SYSTEM_AUDIO_STOP,
 ] as const satisfies readonly MsgType[];
 
 // ─── Audio ──────────────────────────────────────────────────────────

@@ -551,6 +551,17 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
   });
 
+  // Language switch → refresh translated track title + tab title
+  new MutationObserver(() => {
+    refreshTrackTitle();
+    const item = getState('player.currentTrackMeta');
+    if (item) {
+      _tabTitleTrack = item.name === 'system-audio'
+        ? t('system_audio.sharing')
+        : (item.title || item.name || '');
+    }
+  }).observe(document.documentElement, { attributeFilter: ['lang'] });
+
   // Peer disconnected: update UI
   bus.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
@@ -769,7 +780,9 @@ export function initPlayerControls(): void {
   bus.on('state:player.currentTrackMeta', () => {
     const item = getState('player.currentTrackMeta');
     if (item) {
-      _tabTitleTrack = item.title || item.name || '';
+      _tabTitleTrack = item.name === 'system-audio'
+        ? t('system_audio.sharing')
+        : (item.title || item.name || '');
     }
   });
 

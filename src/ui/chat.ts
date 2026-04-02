@@ -268,16 +268,12 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const cmd = parseCommand(text);
   if (cmd) {
-    const sel = window.getSelection();
-    if (sel) {
-      const range = document.createRange();
-      range.selectNodeContents(input);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      document.execCommand('delete', false);
-    }
+    (input as any).contentEditable = 'false';
     input.innerHTML = '';
+    void input.offsetHeight; // Force reflow
+    (input as any).contentEditable = 'true';
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
     executeCommand(cmd);
     return;
   }
@@ -340,18 +336,14 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  // iOS IME fix without blur: forcefully wipe the content using execCommand
-  // which properly signals the IME to abort/flush the active composition buffer.
-  const sel = window.getSelection();
-  if (sel) {
-    const range = document.createRange();
-    range.selectNodeContents(input);
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand('delete', false);
-  }
+  // Final Boss IME fix: Toggle contentEditable to forcefully kill the OS-level 
+  // composition buffer without needing a visible blur/focus flash.
+  (input as any).contentEditable = 'false';
   input.innerHTML = '';
+  void input.offsetHeight; // Force reflow
+  (input as any).contentEditable = 'true';
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.focus();
 }
 
 function pruneOldMessages(container: HTMLElement): void {
@@ -1057,10 +1049,10 @@ export function initChat(): void {
       // If Enter was pressed during composition, trigger send now that it's finished.
       if (_isConfirmingIME) {
         _isConfirmingIME = false;
-        // Request animation frame ensures the DOM (textContent) is fully updated.
-        requestAnimationFrame(() => {
+        // Zero-delay timeout is more stable for IME-to-DOM sync on Safari/Mac than rAF.
+        setTimeout(() => {
           sendChatMessage();
-        });
+        }, 0);
       }
     });
 

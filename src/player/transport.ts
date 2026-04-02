@@ -473,11 +473,8 @@ export function togglePlay(): void {
     return;
   }
 
-  // System audio: toggle = stop sharing
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-    stopSystemAudioCapture();
-    return;
-  }
+  // System audio: ignore play/pause toggle (use "공유 중지" button instead)
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 
   const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
   const pausedAt = getState('player.pausedAt') || 0;

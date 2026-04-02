@@ -201,7 +201,8 @@ function setupPeerEvents(): void {
   peer.on('call', (mediaConn: unknown) => {
     const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
     if (mc.metadata?.type === 'system-audio') {
-      bus.emit('system-audio:incoming-call', mediaConn);
+      const channel = (mc.metadata.channel as string) || 'L';
+      bus.emit('system-audio:incoming-call', mediaConn, channel);
     } else {
       try { mc.close(); } catch { /* noop */ }
     }

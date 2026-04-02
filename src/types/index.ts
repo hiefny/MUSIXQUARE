@@ -231,9 +231,8 @@ export interface ProtocolMap {
   'request-chat-command': { command: string; args: string[] };
 
   // ── System Audio Sharing ──────────────────────────────────────
-  'system-audio-start': { sampleRate: number };
+  'system-audio-start': NoPayload;
   'system-audio-stop': NoPayload;
-  'system-audio-pcm': { chunk: ArrayBuffer };
 }
 
 /** Full protocol message = { type: T } & payload */
@@ -525,7 +524,8 @@ interface BaseEventMap {
   'system-audio:start': [];
   'system-audio:stop': [];
   'system-audio:force-stop': [];
-  'system-audio:incoming-call': [mediaConn: unknown];
+  'system-audio:streams-ready': [];
+  'system-audio:incoming-call': [mediaConn: unknown, channel: string];
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];

@@ -1,39 +1,101 @@
 /**
- * MUSIXQUARE 4.0 — System Audio Host (PCM DataChannel Broadcaster)
+ * MUSIXQUARE 4.0 — System Audio Host (Dual-Stream WebRTC)
  *
- * PCM chunks are broadcast via the existing DataConnection (broadcast()).
- * This module handles late-joining guests during active sharing.
+ * Sends L and R channels as separate mono MediaConnections.
+ * Each stream is mono Opus (Chrome's default) — two mono = true stereo.
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { isSystemAudioActive } from '../audio/system-capture.ts';
+import { getPeer } from './peer-state.ts';
 import { broadcast } from './peer-state.ts';
-import { getAudioContext } from '../audio/context.ts';
+import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
+import type { MediaConnection } from 'peerjs';
+
+// ─── Module State ─────────────────────────────────────────────────
+
+const _mediaConnsL = new Map<string, MediaConnection>();
+const _mediaConnsR = new Map<string, MediaConnection>();
+
+// ─── Call Guest ───────────────────────────────────────────────────
+
+function callGuest(guestPeerId: string): void {
+  const peer = getPeer();
+  const streamL = getStreamL();
+  const streamR = getStreamR();
+  if (!peer || !streamL || !streamR) return;
+  if (_mediaConnsL.has(guestPeerId)) return;
+
+  try {
+    // L channel call
+    const mcL = peer.call(guestPeerId, streamL, {
+      metadata: { type: 'system-audio', channel: 'L' },
+    });
+    _mediaConnsL.set(guestPeerId, mcL);
+    mcL.on('close', () => _mediaConnsL.delete(guestPeerId));
+    mcL.on('error', () => _mediaConnsL.delete(guestPeerId));
+
+    // R channel call
+    const mcR = peer.call(guestPeerId, streamR, {
+      metadata: { type: 'system-audio', channel: 'R' },
+    });
+    _mediaConnsR.set(guestPeerId, mcR);
+    mcR.on('close', () => _mediaConnsR.delete(guestPeerId));
+    mcR.on('error', () => _mediaConnsR.delete(guestPeerId));
+
+    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: L+R streams`);
+  } catch (e) {
+    log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
+  }
+}
+
+function callAllGuests(): void {
+  const peers = getState('network.connectedPeers');
+  for (const p of peers) {
+    if (p.status === 'connected' && p.id) callGuest(p.id);
+  }
+}
+
+function closeAllMediaConns(): void {
+  for (const mc of _mediaConnsL.values()) { try { mc.close(); } catch { /* noop */ } }
+  for (const mc of _mediaConnsR.values()) { try { mc.close(); } catch { /* noop */ } }
+  _mediaConnsL.clear();
+  _mediaConnsR.clear();
+}
 
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioHostListeners(): void {
-  // When a new guest connects during active sharing, send them START
+  // L/R streams ready → call all connected guests
+  bus.on('system-audio:streams-ready', () => {
+    callAllGuests();
+  });
+
+  // Late-joining guest during active sharing
   bus.on('network:peer-connected', () => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
 
-    // Small delay to let DataConnection establish
     setTimeout(() => {
-      const ctx = getAudioContext();
-      broadcast({ type: MSG.SYSTEM_AUDIO_START, sampleRate: ctx.sampleRate });
-      log.info('[SysAudioHost] Sent SYSTEM_AUDIO_START to late-joining guest');
+      broadcast({ type: MSG.SYSTEM_AUDIO_START });
+      const peers = getState('network.connectedPeers');
+      for (const p of peers) {
+        if (p.status === 'connected' && p.id && !_mediaConnsL.has(p.id)) {
+          callGuest(p.id);
+        }
+      }
     }, 500);
   });
 
-  bus.on('system-audio:force-stop', () => {
-    // Nothing to clean up — PCM sender is stopped by system-capture.ts
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    const mcL = _mediaConnsL.get(peerId);
+    if (mcL) { try { mcL.close(); } catch { /* noop */ } _mediaConnsL.delete(peerId); }
+    const mcR = _mediaConnsR.get(peerId);
+    if (mcR) { try { mcR.close(); } catch { /* noop */ } _mediaConnsR.delete(peerId); }
   });
 
-  bus.on('system-audio:stop', () => {
-    // Nothing to clean up — PCM sender is stopped by system-capture.ts
-  });
+  bus.on('system-audio:force-stop', () => closeAllMediaConns());
+  bus.on('system-audio:stop', () => closeAllMediaConns());
 }

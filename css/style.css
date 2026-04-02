@@ -781,6 +781,28 @@
         pointer-events: none;
     }
 
+    /* Media source button → red "stop sharing" style */
+    body.mode-system-audio #btn-media-source {
+        background: rgba(255, 59, 48, 0.08) !important;
+        color: #ff3b30 !important;
+    }
+
+    body.mode-system-audio #btn-media-source svg {
+        fill: #ff3b30 !important;
+    }
+
+    body.mode-system-audio #btn-media-source span {
+        color: #ff3b30 !important;
+    }
+
+    body.mode-system-audio #btn-media-source:hover {
+        background: rgba(255, 59, 48, 0.12) !important;
+    }
+
+    body.mode-system-audio #btn-media-source:active {
+        background: rgba(255, 59, 48, 0.18) !important;
+    }
+
     /* Playlist: blur + overlay */
     body.mode-system-audio #tab-playlist .playlist-list {
         filter: blur(7px) saturate(0.95);

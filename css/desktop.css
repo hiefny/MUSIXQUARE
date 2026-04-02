@@ -701,6 +701,15 @@
         overflow: hidden;
     }
 
+    /* Desktop: custom scrollbar inside chat panel (not viewport edge) */
+    .chat-scroll-wrapper .cscroll-track {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 8px;
+    }
+
     /* Chat scroll: desktop layout */
     .chat-drawer-messages {
         overflow-y: auto;

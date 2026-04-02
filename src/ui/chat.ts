@@ -249,11 +249,21 @@ const MAX_MSG_LENGTH = 500;
 
 let _lastSentTime = 0;
 
+let _lastSentText = '';
+let _lastSentTs = 0;
+
 export function sendChatMessage(): void {
   const input = document.getElementById('chat-input') as HTMLDivElement | null;
   if (!input) return;
   let text = (input.textContent || '').trim();
   if (!text) return;
+
+  // Dedup: block identical message within 500ms (guards against double-fire from
+  // duplicate event handlers, network reconnection glitches, or platform-specific quirks)
+  const now = Date.now();
+  if (text === _lastSentText && now - _lastSentTs < 500) return;
+  _lastSentText = text;
+  _lastSentTs = now;
 
   // ── Command intercept ──
   const cmd = parseCommand(text);
@@ -607,7 +617,19 @@ export function addNoticeChatMessage(sender: string, text: string): void {
 
 // ─── Handler for Incoming Chat ───────────────────────────────────
 
+const _recentMsgIds = new Set<string>();
+
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
+  // Dedup: drop duplicate messages (same sender + timestamp)
+  const msgKey = `${data.senderId}:${data.ts}`;
+  if (_recentMsgIds.has(msgKey)) return;
+  _recentMsgIds.add(msgKey);
+  // Keep set bounded (last 50 messages)
+  if (_recentMsgIds.size > 50) {
+    const first = _recentMsgIds.values().next().value;
+    if (first) _recentMsgIds.delete(first);
+  }
+
   const myId = getState('network.myId') || '';
   const senderId = data.senderId as string || '';
   const isMine = senderId === myId;

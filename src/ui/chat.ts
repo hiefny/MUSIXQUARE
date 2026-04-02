@@ -633,6 +633,10 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   const myId = getState('network.myId') || '';
   const senderId = data.senderId as string || '';
   const isMine = senderId === myId;
+
+  // Already displayed locally in sendChatMessage() — drop echo-back
+  if (isMine) return;
+
   const hostConn = getState('network.hostConn');
 
   // ── Host-side enforcement: mute, freeze ──

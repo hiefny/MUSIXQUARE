@@ -258,8 +258,10 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const cmd = parseCommand(text);
   if (cmd) {
+    input.blur();
     input.innerHTML = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    requestAnimationFrame(() => input.focus());
     executeCommand(cmd);
     return;
   }
@@ -322,8 +324,12 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
+  // iOS IME fix: blur→clear→focus resets the IME buffer.
+  // Plain innerHTML='' leaves the last composing character in the IME state.
+  input.blur();
   input.innerHTML = '';
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  requestAnimationFrame(() => input.focus());
 }
 
 function pruneOldMessages(container: HTMLElement): void {

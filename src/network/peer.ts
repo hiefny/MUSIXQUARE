@@ -200,8 +200,8 @@ function setupPeerEvents(): void {
   // System Audio: handle incoming media calls (WebRTC audio stream)
   peer.on('call', (mediaConn: unknown) => {
     const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
-    if (mc.metadata?.type === 'system-audio') {
-      const channel = (mc.metadata.channel as string) || 'L';
+    if (mc.metadata?.type === 'system-audio' || mc.metadata?.type === 'system-audio-dual') {
+      const channel = mc.metadata.type === 'system-audio-dual' ? 'DUAL' : ((mc.metadata.channel as string) || 'L');
       bus.emit('system-audio:incoming-call', mediaConn, channel);
     } else {
       try { mc.close(); } catch { /* noop */ }

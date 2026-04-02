@@ -19,6 +19,7 @@ import type { MediaConnection } from 'peerjs';
 
 let _mediaConnL: MediaConnection | null = null;
 let _mediaConnR: MediaConnection | null = null;
+let _mediaConnDual: MediaConnection | null = null;
 let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
@@ -40,9 +41,12 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   if (channel === 'L') {
     if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } }
     _mediaConnL = mediaConn;
-  } else {
+  } else if (channel === 'R') {
     if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } }
     _mediaConnR = mediaConn;
+  } else if (channel === 'DUAL') {
+    if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } }
+    _mediaConnDual = mediaConn;
   }
 
   mediaConn.answer();
@@ -66,18 +70,40 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       _merger.connect(widener.input);
     }
 
-    const source = ctx.createMediaStreamSource(remoteStream);
-
-    if (channel === 'L') {
+    if (channel === 'DUAL') {
+      const tracks = remoteStream.getAudioTracks();
+      if (tracks.length < 2) {
+        log.warn('[SysAudioGuest] Dual stream received but <2 tracks found');
+        return;
+      }
+      
+      const sysStreamL = new MediaStream([tracks[0]]);
+      const sysStreamR = new MediaStream([tracks[1]]);
+      
       if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
-      _sourceL = source;
-      source.connect(_merger, 0, 0); // mono source → merger L input
-      _gotL = true;
-    } else {
       if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
-      _sourceR = source;
-      source.connect(_merger, 0, 1); // mono source → merger R input
+      
+      _sourceL = ctx.createMediaStreamSource(sysStreamL);
+      _sourceL.connect(_merger, 0, 0);
+      _gotL = true;
+      
+      _sourceR = ctx.createMediaStreamSource(sysStreamR);
+      _sourceR.connect(_merger, 0, 1);
       _gotR = true;
+    } else {
+      const source = ctx.createMediaStreamSource(remoteStream);
+
+      if (channel === 'L') {
+        if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
+        _sourceL = source;
+        source.connect(_merger, 0, 0); // mono source → merger L input
+        _gotL = true;
+      } else {
+        if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
+        _sourceR = source;
+        source.connect(_merger, 0, 1); // mono source → merger R input
+        _gotR = true;
+      }
     }
 
     // Update state once at least one stream is connected
@@ -91,7 +117,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('close', () => {
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
-    if (channel === 'L') { _gotL = false; _mediaConnL = null; }
+    if (channel === 'DUAL') { _gotL = false; _gotR = false; _mediaConnDual = null; }
+    else if (channel === 'L') { _gotL = false; _mediaConnL = null; }
     else { _gotR = false; _mediaConnR = null; }
     if (!_gotL && !_gotR) cleanupGuestSystemAudio();
   });
@@ -109,6 +136,7 @@ function cleanupGuestSystemAudio(): void {
   if (_merger) { try { _merger.disconnect(); } catch { /* noop */ } _merger = null; }
   if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } _mediaConnL = null; }
   if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } _mediaConnR = null; }
+  if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } _mediaConnDual = null; }
   _gotL = false;
   _gotR = false;
 

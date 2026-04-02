@@ -39,8 +39,7 @@ function boostSenderBitrate(mc: MediaConnection): void {
 
 // ─── Module State ─────────────────────────────────────────────────
 
-const _mediaConnsL = new Map<string, MediaConnection>();
-const _mediaConnsR = new Map<string, MediaConnection>();
+const _mediaConns = new Map<string, MediaConnection>();
 
 // ─── Call Guest ───────────────────────────────────────────────────
 
@@ -49,7 +48,7 @@ function callGuest(guestPeerId: string): void {
   const streamL = getStreamL();
   const streamR = getStreamR();
   if (!peer || !streamL || !streamR) return;
-  if (_mediaConnsL.has(guestPeerId)) return;
+  if (_mediaConns.has(guestPeerId)) return;
 
   // Block remote (TURN) peers — system audio streaming must not go through TURN
   const peers = getState('network.connectedPeers');
@@ -60,25 +59,21 @@ function callGuest(guestPeerId: string): void {
   }
 
   try {
-    // L channel call
-    const mcL = peer.call(guestPeerId, streamL, {
-      metadata: { type: 'system-audio', channel: 'L' },
-    });
-    boostSenderBitrate(mcL);
-    _mediaConnsL.set(guestPeerId, mcL);
-    mcL.on('close', () => _mediaConnsL.delete(guestPeerId));
-    mcL.on('error', () => _mediaConnsL.delete(guestPeerId));
+    const dualStream = new MediaStream([
+      streamL.getAudioTracks()[0],
+      streamR.getAudioTracks()[0]
+    ]);
 
-    // R channel call
-    const mcR = peer.call(guestPeerId, streamR, {
-      metadata: { type: 'system-audio', channel: 'R' },
+    const mc = peer.call(guestPeerId, dualStream, {
+      metadata: { type: 'system-audio-dual' },
     });
-    boostSenderBitrate(mcR);
-    _mediaConnsR.set(guestPeerId, mcR);
-    mcR.on('close', () => _mediaConnsR.delete(guestPeerId));
-    mcR.on('error', () => _mediaConnsR.delete(guestPeerId));
+    
+    boostSenderBitrate(mc);
+    _mediaConns.set(guestPeerId, mc);
+    mc.on('close', () => _mediaConns.delete(guestPeerId));
+    mc.on('error', () => _mediaConns.delete(guestPeerId));
 
-    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: L+R streams`);
+    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single connection, dual-track stream`);
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
   }
@@ -92,10 +87,8 @@ function callAllGuests(): void {
 }
 
 function closeAllMediaConns(): void {
-  for (const mc of _mediaConnsL.values()) { try { mc.close(); } catch { /* noop */ } }
-  for (const mc of _mediaConnsR.values()) { try { mc.close(); } catch { /* noop */ } }
-  _mediaConnsL.clear();
-  _mediaConnsR.clear();
+  for (const mc of _mediaConns.values()) { try { mc.close(); } catch { /* noop */ } }
+  _mediaConns.clear();
 }
 
 // ─── Bus Listeners ────────────────────────────────────────────────
@@ -115,7 +108,7 @@ export function registerSystemAudioHostListeners(): void {
       broadcast({ type: MSG.SYSTEM_AUDIO_START });
       const peers = getState('network.connectedPeers');
       for (const p of peers) {
-        if (p.status === 'connected' && p.id && !_mediaConnsL.has(p.id)) {
+        if (p.status === 'connected' && p.id && !_mediaConns.has(p.id)) {
           callGuest(p.id);
         }
       }
@@ -126,15 +119,13 @@ export function registerSystemAudioHostListeners(): void {
   bus.on('orchestrator:peer-evaluated', (peerId: string) => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
-    if (_mediaConnsL.has(peerId)) return;
+    if (_mediaConns.has(peerId)) return;
     callGuest(peerId);
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {
-    const mcL = _mediaConnsL.get(peerId);
-    if (mcL) { try { mcL.close(); } catch { /* noop */ } _mediaConnsL.delete(peerId); }
-    const mcR = _mediaConnsR.get(peerId);
-    if (mcR) { try { mcR.close(); } catch { /* noop */ } _mediaConnsR.delete(peerId); }
+    const mc = _mediaConns.get(peerId);
+    if (mc) { try { mc.close(); } catch { /* noop */ } _mediaConns.delete(peerId); }
   });
 
   bus.on('system-audio:force-stop', () => closeAllMediaConns());

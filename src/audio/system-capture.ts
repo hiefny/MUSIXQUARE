@@ -14,14 +14,12 @@ import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
-import { callAllGuests, closeAllMediaConns } from '../network/system-audio-host.ts';
+import { startPcmSender, stopPcmSender } from './pcm-stream.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
 let _capturedStream: MediaStream | null = null;
-let _stereoStream: MediaStream | null = null; // Stereo-guaranteed stream for P2P
 let _sourceNode: MediaStreamAudioSourceNode | null = null;
-let _destinationNode: MediaStreamAudioDestinationNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
@@ -35,10 +33,6 @@ export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
 
-/** Returns stereo-guaranteed stream for P2P transmission */
-export function getSystemAudioStream(): MediaStream | null {
-  return _stereoStream ?? _capturedStream;
-}
 
 /**
  * Start system audio capture.
@@ -101,23 +95,12 @@ export async function startSystemAudioCapture(): Promise<void> {
   _capturedStream = stream;
   _sourceNode = ctx.createMediaStreamSource(stream);
 
-  // Force stereo upmix: getDisplayMedia often returns mono on some platforms.
-  // Without this, channelSplitter only fills L channel → R is silent.
+  // Local graph: upmix for safety (handles mono capture on some platforms)
   const stereoUpmix = ctx.createGain();
   stereoUpmix.channelCount = 2;
   stereoUpmix.channelCountMode = 'explicit';
   stereoUpmix.channelInterpretation = 'speakers';
   _sourceNode.connect(stereoUpmix);
-
-  // Create a stereo MediaStream for P2P transmission.
-  // WebRTC Opus defaults to mono — by routing through a stereo
-  // MediaStreamDestination, the outgoing stream is guaranteed stereo.
-  _destinationNode = ctx.createMediaStreamDestination();
-  _destinationNode.channelCount = 2;
-  _destinationNode.channelCountMode = 'explicit';
-  _destinationNode.channelInterpretation = 'speakers';
-  stereoUpmix.connect(_destinationNode);
-  _stereoStream = _destinationNode.stream;
 
   const widener = getWidener();
   if (widener) {
@@ -138,9 +121,9 @@ export async function startSystemAudioCapture(): Promise<void> {
   setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
   setState('player.currentTrackMeta', { type: 'file', name: 'system-audio', title: 'System Audio Sharing' });
 
-  // 8. Broadcast to guests & start media calls
-  broadcast({ type: MSG.SYSTEM_AUDIO_START });
-  callAllGuests();
+  // 8. Broadcast start signal & begin PCM streaming via DataChannel
+  broadcast({ type: MSG.SYSTEM_AUDIO_START, sampleRate: ctx.sampleRate });
+  startPcmSender(_sourceNode);
 
   // 9. Start visualizer
   bus.emit('visualizer:start');
@@ -160,9 +143,9 @@ export async function startSystemAudioCapture(): Promise<void> {
 export function stopSystemAudioCapture(): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
 
-  // 1. Broadcast stop to guests & close media connections
+  // 1. Stop PCM streaming & broadcast stop to guests
+  stopPcmSender();
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
-  closeAllMediaConns();
 
   // 2. Cleanup capture
   cleanupCapture();
@@ -220,11 +203,6 @@ function cleanupCapture(): void {
     try { _sourceNode.disconnect(); } catch { /* noop */ }
     _sourceNode = null;
   }
-  if (_destinationNode) {
-    try { _destinationNode.disconnect(); } catch { /* noop */ }
-    _destinationNode = null;
-  }
-  _stereoStream = null;
   if (_capturedStream) {
     for (const track of _capturedStream.getTracks()) {
       track.stop();

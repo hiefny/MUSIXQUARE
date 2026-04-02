@@ -124,6 +124,7 @@ export const MSG = {
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',
   SYSTEM_AUDIO_STOP: 'system-audio-stop',
+  SYSTEM_AUDIO_PCM: 'system-audio-pcm',
 
   // ── Chat Commands ──────────────────────────────────────────────
   CHAT_MUTE: 'chat-mute',

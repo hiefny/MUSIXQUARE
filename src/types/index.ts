@@ -231,8 +231,9 @@ export interface ProtocolMap {
   'request-chat-command': { command: string; args: string[] };
 
   // ── System Audio Sharing ──────────────────────────────────────
-  'system-audio-start': NoPayload;
+  'system-audio-start': { sampleRate: number };
   'system-audio-stop': NoPayload;
+  'system-audio-pcm': { chunk: ArrayBuffer };
 }
 
 /** Full protocol message = { type: T } & payload */

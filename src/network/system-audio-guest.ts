@@ -128,6 +128,7 @@ function cleanupGuestSystemAudio(): void {
   _gotR = false;
 
   setState('systemAudio.isReceiving', false);
+  setState('player.currentTrackMeta', null);
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     setState('appState', APP_STATE.IDLE);
   }

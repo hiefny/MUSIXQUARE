@@ -373,6 +373,18 @@ export function initYouTube(): void {
         updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
         setState('playlist.items', updated);
         setState('player.currentTrackMeta', updated[newIndex]);
+
+        // Broadcast updated title to peers (Host only)
+        if (!hostConn) {
+          const metaList = updated.map(it => ({
+            type: it.type,
+            name: it.name,
+            title: it.title || it.name,
+            videoId: it.videoId || null,
+            playlistId: it.playlistId || null,
+          }));
+          broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+        }
       }
     }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
   }

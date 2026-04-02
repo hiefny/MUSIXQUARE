@@ -24,6 +24,7 @@ let _streamL: MediaStream | null = null;
 let _streamR: MediaStream | null = null;
 let _destL: MediaStreamAudioDestinationNode | null = null;
 let _destR: MediaStreamAudioDestinationNode | null = null;
+let _delayNode: DelayNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
@@ -125,9 +126,14 @@ export async function startSystemAudioCapture(): Promise<void> {
   stereoUpmix.channelInterpretation = 'speakers';
   _sourceNode.connect(stereoUpmix);
 
+  _delayNode = ctx.createDelay(3.0);
+  const lo = (getState('sync.localOffset') as number) || 0;
+  _delayNode.delayTime.value = Math.max(0, lo);
+  stereoUpmix.connect(_delayNode);
+
   const widener = getWidener();
   if (widener) {
-    stereoUpmix.connect(widener.input);
+    _delayNode.connect(widener.input);
   } else {
     log.error('[SystemAudio] No widener found');
     cleanupCapture();
@@ -212,6 +218,7 @@ function cleanupCapture(): void {
   }
   if (_destL) { try { _destL.disconnect(); } catch { /* noop */ } _destL = null; }
   if (_destR) { try { _destR.disconnect(); } catch { /* noop */ } _destR = null; }
+  if (_delayNode) { try { _delayNode.disconnect(); } catch { /* noop */ } _delayNode = null; }
   _streamL = null;
   _streamR = null;
   if (_capturedStream) {
@@ -226,4 +233,8 @@ export function registerSystemCaptureListeners(): void {
   bus.on('system-audio:start', () => { startSystemAudioCapture(); });
   bus.on('system-audio:stop', () => { stopSystemAudioCapture(); });
   bus.on('system-audio:force-stop', () => { stopSystemAudioCapture(); });
+  
+  bus.on('state:sync.localOffset', (val: unknown) => {
+    if (_delayNode) _delayNode.delayTime.value = Math.max(0, (val as number) || 0);
+  });
 }

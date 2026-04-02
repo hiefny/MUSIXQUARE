@@ -23,6 +23,7 @@ let _mediaConnDual: MediaConnection | null = null;
 let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
+let _delayNode: DelayNode | null = null;
 let _gotL = false;
 let _gotR = false;
 let _prevTrackMeta: unknown = null;
@@ -59,6 +60,14 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     await initAudio();
     const ctx = getAudioContext();
 
+    // Set generous playoutDelayHint to normalize jitter buffer across devices
+    const receivers = mediaConn.peerConnection?.getReceivers() || [];
+    for (const receiver of receivers) {
+      if (receiver.track.kind === 'audio' && 'playoutDelayHint' in receiver) {
+        (receiver as any).playoutDelayHint = 0.25;
+      }
+    }
+
     // Create merger on first stream
     if (!_merger) {
       const widener = getWidener();
@@ -67,7 +76,12 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         return;
       }
       _merger = ctx.createChannelMerger(2);
-      _merger.connect(widener.input);
+      _delayNode = ctx.createDelay(3.0);
+      const lo = (getState('sync.localOffset') as number) || 0;
+      _delayNode.delayTime.value = Math.max(0, lo);
+      
+      _merger.connect(_delayNode);
+      _delayNode.connect(widener.input);
     }
 
     if (channel === 'DUAL') {
@@ -134,6 +148,7 @@ function cleanupGuestSystemAudio(): void {
   if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } _sourceL = null; }
   if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } _sourceR = null; }
   if (_merger) { try { _merger.disconnect(); } catch { /* noop */ } _merger = null; }
+  if (_delayNode) { try { _delayNode.disconnect(); } catch { /* noop */ } _delayNode = null; }
   if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } _mediaConnL = null; }
   if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } _mediaConnR = null; }
   if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } _mediaConnDual = null; }
@@ -169,5 +184,9 @@ export function registerSystemAudioGuestListeners(): void {
 
   bus.on('system-audio:force-stop', () => {
     cleanupGuestSystemAudio();
+  });
+
+  bus.on('state:sync.localOffset', (val: unknown) => {
+    if (_delayNode) _delayNode.delayTime.value = Math.max(0, (val as number) || 0);
   });
 }

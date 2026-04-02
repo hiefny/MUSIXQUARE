@@ -40,22 +40,47 @@ interface CommandDef {
 
 function resolveTarget(arg: string): { peerId: string; label: string } | null {
   if (!arg) return null;
-  const peers = getState('network.connectedPeers') as ConnectedPeer[];
 
-  // By join-order number (#N)
+  const myId = getState('network.myId');
+  const hostConn = getState('network.hostConn');
+  const deviceList = getState('network.lastKnownDeviceList') || [];
+
+  // 1. By join-order number (#N)
   if (arg.startsWith('#')) {
     const order = parseInt(arg.slice(1), 10);
-    if (!isNaN(order)) {
-      const peer = peers.find(p => p.joinOrder === order);
-      if (peer) return { peerId: peer.id, label: peer.label };
+    if (isNaN(order)) return null;
+
+    // Is it me?
+    const myOrder = getState('network.myJoinOrder');
+    if (order === myOrder && myId) {
+      return { peerId: myId, label: getState('network.myDeviceLabel') || (hostConn ? 'ME' : 'HOST') };
     }
+
+    // Is it someone in the session?
+    const target = deviceList.find(d => d.joinOrder === order);
+    if (target && target.id) return { peerId: target.id, label: target.label };
+
+    // Fallback: if we are a guest and targeting #0, and it's not in the list for some reason
+    if (order === 0 && hostConn) {
+      return { peerId: hostConn.peer, label: 'HOST' };
+    }
+
     return null;
   }
 
-  // By nickname (case-insensitive)
+  // 2. By nickname (case-insensitive)
   const lower = arg.toLowerCase();
-  const peer = peers.find(p => p.label.toLowerCase() === lower);
-  if (peer) return { peerId: peer.id, label: peer.label };
+
+  // Is it me?
+  const myLabel = (getState('network.myDeviceLabel') || '').toLowerCase();
+  if (myLabel === lower && myId) {
+    return { peerId: myId, label: getState('network.myDeviceLabel') || 'ME' };
+  }
+
+  // Is it someone in the session?
+  const target = deviceList.find(d => d.label.toLowerCase() === lower);
+  if (target && target.id) return { peerId: target.id, label: target.label };
+
   return null;
 }
 
@@ -283,18 +308,38 @@ function cmdHelp(): void {
 }
 
 function cmdUsers(): void {
-  const peers = getState('network.connectedPeers') as ConnectedPeer[];
-  const myLabel = getState('network.myDeviceLabel') || 'HOST';
+  const deviceList = getState('network.lastKnownDeviceList') || [];
+  const myId = getState('network.myId');
   const myOrder = getState('network.myJoinOrder') ?? 0;
+  const myLabel = getState('network.myDeviceLabel') || (myOrder === 0 ? 'HOST' : 'ME');
 
   const lines: string[] = [t('chat.cmd_users_title')];
-  lines.push(`#${myOrder}. ${myLabel} (${t('chat.cmd_users_me')})`);
 
-  for (const p of peers) {
+  // If we don't have a device list yet (early join or host-only), build a fallback list
+  let displayList = deviceList;
+  if (!displayList || displayList.length === 0) {
+    displayList = [{
+      id: myId || '',
+      label: myLabel || 'ME',
+      isHost: myOrder === 0,
+      isOp: true, // Self is always authorized for self-view
+      joinOrder: myOrder,
+      status: 'connected'
+    }];
+  }
+
+  // Sort and format each user
+  const sorted = [...displayList].sort((a, b) => (a.joinOrder ?? 0) - (b.joinOrder ?? 0));
+
+  for (const d of sorted) {
+    const isMe = d.id === myId;
     const flags: string[] = [];
-    if (p.isOp) flags.push('OP');
+    if (d.isHost) flags.push('HOST');
+    if (d.isOp && !d.isHost) flags.push('OP');
+    if (isMe) flags.push(t('chat.cmd_users_me'));
+
     const suffix = flags.length ? ` [${flags.join(', ')}]` : '';
-    lines.push(`#${p.joinOrder}. ${p.label}${suffix}`);
+    lines.push(`#${d.joinOrder}. ${d.label}${suffix}`);
   }
 
   addSystemChatMessage(lines.join('\n'));

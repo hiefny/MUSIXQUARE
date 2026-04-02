@@ -423,7 +423,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: var(--glass-bg);
+        background: red !important;
         backdrop-filter: blur(var(--glass-blur));
         -webkit-backdrop-filter: blur(var(--glass-blur));
         position: fixed;

@@ -47,19 +47,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.answer();
 
-  // Minimize jitter buffer for lowest possible latency
-  try {
-    const pc = mediaConn.peerConnection as RTCPeerConnection | undefined;
-    if (pc) {
-      const setDelay = (receiver: RTCRtpReceiver) => {
-        if (receiver.track?.kind === 'audio') {
-          (receiver as any).playoutDelayHint = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      };
-      for (const r of pc.getReceivers()) setDelay(r);
-      pc.addEventListener('track', (e) => { if (e.receiver) setDelay(e.receiver); });
-    }
-  } catch { /* noop */ }
+  // Browser manages jitter buffer — playoutDelayHint=0 causes iOS 26 stutter.
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);

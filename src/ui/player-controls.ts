@@ -798,6 +798,9 @@ export function initPlayerControls(): void {
         : item.name === 'system-audio-receiving'
           ? t('system_audio.receiving')
           : (item.title || item.name || '');
+    } else {
+      _tabTitleTrack = '';
+      document.title = DEFAULT_TITLE;
     }
   });
 

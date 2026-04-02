@@ -47,23 +47,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.answer();
 
-  // Minimize WebRTC jitter buffer for low latency
-  try {
-    const pc = mediaConn.peerConnection as RTCPeerConnection | undefined;
-    if (pc) {
-      for (const receiver of pc.getReceivers()) {
-        if (receiver.track?.kind === 'audio') {
-          (receiver as any).playoutDelayHint = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      }
-      // Also set on future receivers
-      pc.addEventListener('track', (e) => {
-        if (e.track.kind === 'audio' && e.receiver) {
-          (e.receiver as any).playoutDelayHint = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      });
-    }
-  } catch { /* noop — playoutDelayHint not supported on all browsers */ }
+  // Let the browser manage its own jitter buffer for stability.
+  // playoutDelayHint=0 caused stuttering on iOS 26 (buffer underrun cycle).
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);

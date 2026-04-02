@@ -73,8 +73,6 @@ export function broadcastYouTubeSync(): void {
             }
           }
         }
-
-        setState('player.currentTrackMeta', playlist[currentTrackIndex]);
       }
     }
 
@@ -84,8 +82,8 @@ export function broadcastYouTubeSync(): void {
       state,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
     });
-  } catch {
-    // Player not ready
+  } catch (e) {
+    log.error('[YouTube Sync] broadcast error:', e);
   }
 }
 
@@ -166,9 +164,6 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
         }
       }
 
-      const playlist = getState('playlist.items') || [];
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-      setState('player.currentTrackMeta', playlist[currentTrackIndex]);
     }
 
     // Drift correction

@@ -775,12 +775,13 @@
        System Audio Sharing Mode
        ============================================= */
 
-    /* Disable prev/next buttons + seekbar */
+    /* Disable prev/next/play buttons + seekbar */
     body.mode-system-audio #btn-prev,
     body.mode-system-audio #btn-next,
+    body.mode-system-audio #play-btn,
     body.mode-system-audio #seek-slider {
-        opacity: 0.3;
-        pointer-events: none;
+        opacity: 0.3 !important;
+        pointer-events: none !important;
     }
 
     /* Media source button → red "stop sharing" style */

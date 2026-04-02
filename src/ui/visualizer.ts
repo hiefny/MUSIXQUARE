@@ -291,28 +291,11 @@ function startSpectrumVisualizer(): void {
 
   const analyser = getAnalyser();
   if (!analyser) {
-    // Draw idle frame (grid + flat baseline) so spectrum isn't blank before audio init
-    const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-    syncCanvasSize(canvas, ctx, wrapper);
-    const w = canvas.width / (window.devicePixelRatio || 1);
-    const h = canvas.height / (window.devicePixelRatio || 1);
-    refreshThemeCache();
-    ctx.clearRect(0, 0, w, h);
-    drawSpectrumGrid(ctx, w, h, 4, 8, _cachedIsLight);
-    // Flat line at silence level
-    const baseY = h - 8;
-    ctx.strokeStyle = _cachedIsLight ? 'rgba(59, 130, 246, 0.25)' : 'rgba(59, 130, 246, 0.2)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(4, baseY);
-    ctx.lineTo(w - 4, baseY);
-    ctx.stroke();
-
-    if (++_visualizerRetryCount <= MAX_VISUALIZER_RETRIES) {
-      setManagedTimer('viz-retry', startVisualizer, 100);
-    } else {
+    if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
       _visualizerRetryCount = 0;
+      return;
     }
+    setManagedTimer('viz-retry', startVisualizer, 100);
     return;
   }
   _visualizerRetryCount = 0;

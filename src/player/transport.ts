@@ -211,6 +211,12 @@ export function seekTo(time: number): void {
     return;
   }
 
+  // Cancel pending auto-play on manual interaction (Host only)
+  if (!hostConn && getManagedTimer('autoPlayTimer')) {
+    clearManagedTimer('autoPlayTimer');
+    showToast(t('toast.auto_play_canceled'));
+  }
+
   // YouTube mode
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
@@ -558,6 +564,12 @@ export function skipTime(sec: number): void {
   if (hostConn && isOperator) {
     sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
     return;
+  }
+
+  // Cancel pending auto-play on manual interaction (Host only)
+  if (!hostConn && getManagedTimer('autoPlayTimer')) {
+    clearManagedTimer('autoPlayTimer');
+    showToast(t('toast.auto_play_canceled'));
   }
 
   const currentState = getState('appState');

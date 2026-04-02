@@ -227,6 +227,7 @@ export interface ProtocolMap {
   'chat-whisper': { senderId: string; senderLabel: string; text: string; ts: number; joinOrder: number };
   'chat-notice': { senderLabel: string; text: string; ts: number };
   'chat-slowmode': { seconds: number };
+  'chat-filter': { on: boolean };
   'chat-system': { text: string };
   'request-chat-command': { command: string; args: string[] };
 

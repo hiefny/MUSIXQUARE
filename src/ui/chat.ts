@@ -759,6 +759,14 @@ function handleChatSlowmode(data: Record<string, unknown>): void {
     : t('chat.cmd_slowmode_off'));
 }
 
+function handleChatFilter(data: Record<string, unknown>): void {
+  const on = !!data.on;
+  setState('network.filterEnabled', on);
+  addSystemChatMessage(on
+    ? t('chat.cmd_filter_on')
+    : t('chat.cmd_filter_off'));
+}
+
 function handleChatSystem(data: Record<string, unknown>): void {
   const text = data.text as string || '';
   if (text) addSystemChatMessage(text);
@@ -807,6 +815,7 @@ export function initChat(): void {
     [MSG.CHAT_WHISPER]: handleChatWhisper,
     [MSG.CHAT_NOTICE]: handleChatNotice,
     [MSG.CHAT_SLOWMODE]: handleChatSlowmode,
+    [MSG.CHAT_FILTER]: handleChatFilter,
     [MSG.CHAT_SYSTEM]: handleChatSystem,
   });
 

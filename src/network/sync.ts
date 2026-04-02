@@ -427,9 +427,8 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
     case 'filter': {
       const on = args[0]?.toLowerCase() === 'on';
       setState('network.filterEnabled', on);
-      const sysText = on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off');
-      broadcast({ type: MSG.CHAT_SYSTEM, text: sysText });
-      bus.emit('chat:system-message', sysText);
+      broadcast({ type: MSG.CHAT_FILTER, on });
+      bus.emit('chat:system-message', on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
       break;
     }
     case 'notice': {

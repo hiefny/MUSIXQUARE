@@ -163,9 +163,8 @@ function cmdFilter(args: string[]): void {
 
   if (isHost()) {
     setState('network.filterEnabled', on);
-    const sysText = on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off');
-    bus.emit('network:broadcast', { type: MSG.CHAT_SYSTEM, text: sysText });
-    addSystemChatMessage(sysText);
+    bus.emit('network:broadcast', { type: MSG.CHAT_FILTER, on });
+    addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
   } else {
     sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: 'filter', args });
   }

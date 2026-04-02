@@ -80,8 +80,14 @@ export async function handleIncomingMediaCall(mediaConn: MediaConnection): Promi
     }
 
     // Connect remote stream to audio graph
+    // Force stereo upmix: WebRTC may deliver mono even if host captured stereo
     _sourceNode = ctx.createMediaStreamSource(remoteStream);
-    _sourceNode.connect(widener.input);
+    const stereoUpmix = ctx.createGain();
+    stereoUpmix.channelCount = 2;
+    stereoUpmix.channelCountMode = 'explicit';
+    stereoUpmix.channelInterpretation = 'speakers';
+    _sourceNode.connect(stereoUpmix);
+    stereoUpmix.connect(widener.input);
 
     // Update state
     setState('systemAudio.isReceiving', true);

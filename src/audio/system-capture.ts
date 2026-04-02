@@ -98,9 +98,17 @@ export async function startSystemAudioCapture(): Promise<void> {
   _capturedStream = stream;
   _sourceNode = ctx.createMediaStreamSource(stream);
 
+  // Force stereo upmix: getDisplayMedia often returns mono on some platforms.
+  // Without this, channelSplitter only fills L channel → R is silent.
+  const stereoUpmix = ctx.createGain();
+  stereoUpmix.channelCount = 2;
+  stereoUpmix.channelCountMode = 'explicit';
+  stereoUpmix.channelInterpretation = 'speakers';
+  _sourceNode.connect(stereoUpmix);
+
   const widener = getWidener();
   if (widener) {
-    _sourceNode.connect(widener.input);
+    stereoUpmix.connect(widener.input);
   } else {
     log.error('[SystemAudio] No widener found — audio graph not ready');
     cleanupCapture();

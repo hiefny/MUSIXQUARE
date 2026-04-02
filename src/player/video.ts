@@ -127,6 +127,13 @@ function updateBodyModeClass(appState: string): void {
     body.classList.toggle('mode-youtube', wantYouTube);
   }
 
+  // System audio mode class
+  const wantSysAudio = appState === APP_STATE.PLAYING_SYSTEM_AUDIO;
+  const hasSysAudio = body.classList.contains('mode-system-audio');
+  if (wantSysAudio !== hasSysAudio) {
+    body.classList.toggle('mode-system-audio', wantSysAudio);
+  }
+
   // ── YouTube container visibility ──
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {

@@ -335,8 +335,15 @@
                 </button>
             </div>
         </div>
-        <div class="tab-body" data-custom-scroll>
-            <ul class="playlist-ul" id="playlist-ui">
+        <div class="tab-body" data-custom-scroll style="position: relative;">
+            <!-- System Audio overlay (shown during system audio sharing) -->
+            <div class="system-audio-playlist-note" id="system-audio-playlist-note">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" style="opacity: 0.5;">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                </svg>
+                <span data-i18n="system_audio.sharing"></span>
+            </div>
+            <ul class="playlist-ul playlist-list" id="playlist-ui">
                 <li class="list-empty-state" data-i18n="playlist.empty_hint"></li>
             </ul>
         </div>
@@ -958,12 +965,10 @@
                     </div> <!-- Ends help-block -->
 
                     <!-- Demo / Try the app -->
-                    <button class="file-select-btn" id="btn-demo-media" style="width: 100%; margin-top: 12px;">
-                        <div class="btn-icon-bg">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
-                            </svg>
-                        </div>
+                    <button class="rename-device-btn" id="btn-demo-media" style="margin-top: 24px;">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
+                        </svg>
                         <span data-i18n="setup.demo_button"></span>
                     </button>
                 </div> <!-- Ends desktop-help-section -->

@@ -67,7 +67,10 @@ function refreshTrackTitle(): void {
   const item = getState('player.currentTrackMeta');
   if (!item) return;
 
-  let title = item.title || item.name || t('common.unknown');
+  // System audio mode: always use translated string (survives language switch)
+  let title = item.name === 'system-audio'
+    ? t('system_audio.sharing')
+    : (item.title || item.name || t('common.unknown'));
 
   // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title
   const isRemote = getState('network.connectionType') === 'remote';
@@ -476,7 +479,13 @@ export function initPlayerControls(): void {
   $on('volume-slider', 'input', function (this: HTMLInputElement) { onVolInput(Number(this.value)); });
   $on('volume-slider', 'change', function (this: HTMLInputElement) { onVolChange(Number(this.value)); });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
-  $on('btn-media-source', 'click', () => openMediaSourcePopup());
+  $on('btn-media-source', 'click', () => {
+    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      bus.emit('system-audio:stop');
+    } else {
+      openMediaSourcePopup();
+    }
+  });
 
   // Playlist tab
   $on('btn-repeat', 'click', () => bus.emit('playlist:toggle-repeat'));
@@ -629,6 +638,19 @@ export function initPlayerControls(): void {
     const state = getState('appState');
     const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     updatePlayIcon(playing);
+
+    // System audio: swap media source button text
+    const mediaBtn = document.getElementById('btn-media-source');
+    const mediaBtnLabel = mediaBtn?.querySelector('span');
+    if (mediaBtnLabel) {
+      if (state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+        mediaBtnLabel.textContent = t('system_audio.stop');
+        mediaBtnLabel.removeAttribute('data-i18n');
+      } else if (!mediaBtnLabel.getAttribute('data-i18n')) {
+        mediaBtnLabel.textContent = t('player.play_media');
+        mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
+      }
+    }
   });
 
   // YouTube pause/play doesn't change appState — still need this event

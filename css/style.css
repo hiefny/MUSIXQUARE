@@ -770,6 +770,50 @@
         opacity: 0.62;
     }
 
+    /* =============================================
+       System Audio Sharing Mode
+       ============================================= */
+
+    /* Disable prev/next buttons */
+    body.mode-system-audio #btn-prev,
+    body.mode-system-audio #btn-next {
+        opacity: 0.3;
+        pointer-events: none;
+    }
+
+    /* Playlist: blur + overlay */
+    body.mode-system-audio #tab-playlist .playlist-list {
+        filter: blur(7px) saturate(0.95);
+        opacity: 0.5;
+        pointer-events: none;
+        transform: translateZ(0);
+    }
+
+    html[data-theme="light"] body.mode-system-audio #tab-playlist .playlist-list {
+        filter: blur(6px) saturate(0.95);
+        opacity: 0.6;
+    }
+
+    /* Playlist note overlay */
+    .system-audio-playlist-note {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-sub);
+        pointer-events: none;
+    }
+
+    body.mode-system-audio .system-audio-playlist-note {
+        display: flex;
+    }
+
     .invite-code-value {
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.10em;

@@ -3693,8 +3693,8 @@
 
     .chat-input-wrapper {
         display: flex;
-        align-items: center;
-        /* Vertically center the input text/placeholder and the arrow to each other */
+        align-items: flex-end;
+        /* Vertically align the input text and the arrow to the bottom */
         width: 100%;
         border-bottom: 2px solid var(--surface-3);
         padding-bottom: 6px;
@@ -3799,9 +3799,9 @@
         color: var(--text-main);
         box-shadow: none;
         outline: none;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: pre-wrap;
+        overflow-y: auto;
+        max-height: 120px;
         min-height: 1.2em;
         -webkit-user-select: text;
         user-select: text;

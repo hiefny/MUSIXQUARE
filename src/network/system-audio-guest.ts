@@ -47,8 +47,19 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.answer();
 
-  // Let browser manage jitter buffer — any fixed playoutDelayHint value
-  // causes instability on some devices (iOS 26 stutters at 0, others at 100ms).
+  // Minimize jitter buffer for lowest possible latency
+  try {
+    const pc = mediaConn.peerConnection as RTCPeerConnection | undefined;
+    if (pc) {
+      const setDelay = (receiver: RTCRtpReceiver) => {
+        if (receiver.track?.kind === 'audio') {
+          (receiver as any).playoutDelayHint = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
+        }
+      };
+      for (const r of pc.getReceivers()) setDelay(r);
+      pc.addEventListener('track', (e) => { if (e.receiver) setDelay(e.receiver); });
+    }
+  } catch { /* noop */ }
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);

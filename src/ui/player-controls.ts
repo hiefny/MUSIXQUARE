@@ -315,6 +315,12 @@ function handleMainSyncBtn(): void {
     return;
   }
 
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    const overlay = document.getElementById('manual-sync-overlay');
+    if (overlay) overlay.classList.add('show');
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     showToast(t('toast.resync_all'));

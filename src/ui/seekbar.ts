@@ -24,7 +24,7 @@ function initSeekBarInput(): void {
   slider.addEventListener('touchstart', () => setState('player.isSeeking', true), { passive: true });
   slider.addEventListener('input', () => {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
+    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) { slider.value = '0'; return; }
     const formatted = fmtTime(parseFloat(slider.value));
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = formatted;
@@ -42,7 +42,7 @@ function initSeekBarInput(): void {
   slider.addEventListener('change', () => {
     releaseSeek();
     const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE) { slider.value = '0'; return; }
+    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) { slider.value = '0'; return; }
     const seekTime = parseFloat(slider.value);
 
     seekTo(seekTime);
@@ -62,6 +62,16 @@ let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
 
 function _seekRafLoop(now: number): void {
+  // System audio: no seek position — keep at 0
+  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+    const tc = document.getElementById('time-curr');
+    if (slider) slider.value = '0';
+    if (tc) tc.innerText = '0:00';
+    _rafId = requestAnimationFrame(_seekRafLoop);
+    return;
+  }
+
   const isSeeking = getState('player.isSeeking');
   if (!isSeeking) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;

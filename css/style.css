@@ -775,9 +775,10 @@
        System Audio Sharing Mode
        ============================================= */
 
-    /* Disable prev/next buttons */
+    /* Disable prev/next buttons + seekbar */
     body.mode-system-audio #btn-prev,
-    body.mode-system-audio #btn-next {
+    body.mode-system-audio #btn-next,
+    body.mode-system-audio #seek-slider {
         opacity: 0.3;
         pointer-events: none;
     }

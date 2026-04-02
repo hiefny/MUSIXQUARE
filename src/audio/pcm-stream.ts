@@ -1,11 +1,12 @@
 /**
- * MUSIXQUARE 4.0 — PCM Streaming (Stereo DataChannel Transport)
+ * MUSIXQUARE 4.0 — PCM Streaming (AudioWorklet Transport)
  *
- * Bypasses WebRTC Opus mono limitation by sending raw Int16 PCM
- * over PeerJS DataConnection. Guaranteed stereo on LAN.
+ * Ultra-low latency stereo audio over DataChannel.
+ * Uses AudioWorklet (128 samples = ~2.7ms per frame) instead of
+ * ScriptProcessorNode (256+ samples, main thread).
  *
- * Host: capture → ScriptProcessorNode → Int16 PCM → broadcast via DataConnection
- * Guest: receive PCM → ring buffer → ScriptProcessorNode → widener → audio graph
+ * Host: capture → AudioWorkletNode → Int16 PCM → broadcast via DataConnection
+ * Guest: receive PCM → AudioWorkletNode ring buffer → widener → audio graph
  */
 
 import { log } from '../core/log.ts';
@@ -13,147 +14,114 @@ import { MSG } from '../core/constants.ts';
 import { getAudioContext } from './context.ts';
 import { broadcast } from '../network/peer.ts';
 
-// ─── Constants ────────────────────────────────────────────────────
-
-const BUFFER_SIZE = 2048; // ~42ms at 48kHz — good latency/overhead balance
-
 // ─── Host: PCM Sender ─────────────────────────────────────────────
 
-let _processorNode: ScriptProcessorNode | null = null;
+let _captureNode: AudioWorkletNode | null = null;
+let _workletRegistered = false;
 
 /**
  * Start extracting PCM from a MediaStreamAudioSourceNode and
  * broadcasting Int16 stereo chunks via DataConnection.
  */
-export function startPcmSender(sourceNode: MediaStreamAudioSourceNode): void {
+export async function startPcmSender(sourceNode: MediaStreamAudioSourceNode): Promise<void> {
   stopPcmSender();
 
   const ctx = getAudioContext();
 
-  // ScriptProcessorNode: captures raw PCM from the audio graph
-  _processorNode = ctx.createScriptProcessor(BUFFER_SIZE, 2, 2);
-
-  _processorNode.onaudioprocess = (e: AudioProcessingEvent) => {
-    const left = e.inputBuffer.getChannelData(0);
-    const right = e.inputBuffer.getChannelData(1);
-
-    // Convert Float32 stereo → interleaved Int16 (halves bandwidth)
-    const interleaved = new Int16Array(left.length * 2);
-    for (let i = 0; i < left.length; i++) {
-      interleaved[i * 2] = Math.max(-32768, Math.min(32767, left[i] * 32767));
-      interleaved[i * 2 + 1] = Math.max(-32768, Math.min(32767, right[i] * 32767));
+  // Register worklet processor (once)
+  if (!_workletRegistered) {
+    try {
+      await ctx.audioWorklet.addModule(
+        new URL('../workers/pcm-capture-processor.ts', import.meta.url)
+      );
+      _workletRegistered = true;
+    } catch (e) {
+      log.error('[PCM] Failed to register capture worklet:', e);
+      return;
     }
+  }
 
-    broadcast({
-      type: MSG.SYSTEM_AUDIO_PCM,
-      chunk: interleaved.buffer,
-    } as any, false); // eslint-disable-line @typescript-eslint/no-explicit-any
+  _captureNode = new AudioWorkletNode(ctx, 'pcm-capture-processor', {
+    numberOfInputs: 1,
+    numberOfOutputs: 0,
+    channelCount: 2,
+    channelCountMode: 'explicit',
+  });
+
+  // Receive Int16 PCM chunks from audio thread → broadcast to peers
+  _captureNode.port.onmessage = (e: MessageEvent) => {
+    if (e.data instanceof ArrayBuffer) {
+      broadcast({
+        type: MSG.SYSTEM_AUDIO_PCM,
+        chunk: e.data,
+      } as any, false); // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
   };
 
-  // Connect: sourceNode → processor → (nowhere, just capture)
-  // We need to connect output to something to keep it alive (Web Audio requirement)
-  sourceNode.connect(_processorNode);
-  _processorNode.connect(ctx.destination);
+  sourceNode.connect(_captureNode);
 
-  // Mute the processor output (we don't want to hear it locally — host already hears system audio)
-  // Actually, the processor must output to keep alive, but masterGain is disconnected from destination
-  // during system audio mode (hostMuteLocal), so this won't produce audible output.
-
-  log.info(`[PCM] Sender started: ${ctx.sampleRate}Hz, ${BUFFER_SIZE} samples/chunk`);
+  log.info(`[PCM] AudioWorklet sender started: ${ctx.sampleRate}Hz, 128 samples/frame`);
 }
 
 export function stopPcmSender(): void {
-  if (_processorNode) {
-    _processorNode.onaudioprocess = null;
-    try { _processorNode.disconnect(); } catch { /* noop */ }
-    _processorNode = null;
+  if (_captureNode) {
+    _captureNode.port.postMessage('stop');
+    try { _captureNode.disconnect(); } catch { /* noop */ }
+    _captureNode = null;
     log.info('[PCM] Sender stopped');
   }
 }
 
 // ─── Guest: PCM Receiver ──────────────────────────────────────────
 
-const RING_BUFFER_SECONDS = 1; // 1 second ring buffer
-
-let _receiverNode: ScriptProcessorNode | null = null;
-let _ringL: Float32Array | null = null;
-let _ringR: Float32Array | null = null;
-let _writePos = 0;
-let _readPos = 0;
-let _ringSize = 0;
-let _receiverStarted = false;
+let _playbackNode: AudioWorkletNode | null = null;
+let _playbackWorkletRegistered = false;
 
 /**
- * Initialize the PCM receiver. Call once when SYSTEM_AUDIO_START arrives.
- * Returns the AudioNode to connect to the audio graph (widener.input).
+ * Initialize the PCM receiver. Returns AudioWorkletNode to connect to audio graph.
  */
-export function startPcmReceiver(sampleRate: number): ScriptProcessorNode | null {
+export async function startPcmReceiver(_sampleRate: number): Promise<AudioNode | null> {
   stopPcmReceiver();
 
   const ctx = getAudioContext();
-  _ringSize = Math.ceil(sampleRate * RING_BUFFER_SECONDS);
-  _ringL = new Float32Array(_ringSize);
-  _ringR = new Float32Array(_ringSize);
-  _writePos = 0;
-  _readPos = 0;
 
-  _receiverNode = ctx.createScriptProcessor(BUFFER_SIZE, 0, 2);
-
-  _receiverNode.onaudioprocess = (e: AudioProcessingEvent) => {
-    const outL = e.outputBuffer.getChannelData(0);
-    const outR = e.outputBuffer.getChannelData(1);
-
-    if (!_ringL || !_ringR) {
-      outL.fill(0);
-      outR.fill(0);
-      return;
+  // Register worklet processor (once)
+  if (!_playbackWorkletRegistered) {
+    try {
+      await ctx.audioWorklet.addModule(
+        new URL('../workers/pcm-playback-processor.ts', import.meta.url)
+      );
+      _playbackWorkletRegistered = true;
+    } catch (e) {
+      log.error('[PCM] Failed to register playback worklet:', e);
+      return null;
     }
+  }
 
-    for (let i = 0; i < outL.length; i++) {
-      if (_readPos !== _writePos) {
-        outL[i] = _ringL[_readPos];
-        outR[i] = _ringR[_readPos];
-        _readPos = (_readPos + 1) % _ringSize;
-      } else {
-        // Buffer underrun — silence
-        outL[i] = 0;
-        outR[i] = 0;
-      }
-    }
-  };
+  _playbackNode = new AudioWorkletNode(ctx, 'pcm-playback-processor', {
+    numberOfInputs: 0,
+    numberOfOutputs: 1,
+    outputChannelCount: [2],
+  });
 
-  _receiverStarted = true;
-  log.info(`[PCM] Receiver started: ring=${_ringSize} samples`);
-  return _receiverNode;
+  log.info(`[PCM] AudioWorklet receiver started`);
+  return _playbackNode;
 }
 
 /**
- * Feed an incoming PCM chunk into the ring buffer.
- * Called from the protocol handler when SYSTEM_AUDIO_PCM arrives.
+ * Feed an incoming PCM chunk to the playback worklet.
  */
 export function feedPcmChunk(chunk: ArrayBuffer): void {
-  if (!_ringL || !_ringR || !_receiverStarted) return;
-
-  const int16 = new Int16Array(chunk);
-  const samples = int16.length / 2; // interleaved stereo
-
-  for (let i = 0; i < samples; i++) {
-    _ringL[_writePos] = int16[i * 2] / 32767;
-    _ringR[_writePos] = int16[i * 2 + 1] / 32767;
-    _writePos = (_writePos + 1) % _ringSize;
-  }
+  if (!_playbackNode) return;
+  // Transfer buffer to audio thread (zero-copy)
+  _playbackNode.port.postMessage(chunk, [chunk]);
 }
 
 export function stopPcmReceiver(): void {
-  _receiverStarted = false;
-  if (_receiverNode) {
-    _receiverNode.onaudioprocess = null;
-    try { _receiverNode.disconnect(); } catch { /* noop */ }
-    _receiverNode = null;
+  if (_playbackNode) {
+    _playbackNode.port.postMessage('stop');
+    try { _playbackNode.disconnect(); } catch { /* noop */ }
+    _playbackNode = null;
+    log.info('[PCM] Receiver stopped');
   }
-  _ringL = null;
-  _ringR = null;
-  _writePos = 0;
-  _readPos = 0;
-  log.info('[PCM] Receiver stopped');
 }

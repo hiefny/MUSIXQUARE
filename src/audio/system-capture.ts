@@ -123,7 +123,7 @@ export async function startSystemAudioCapture(): Promise<void> {
 
   // 8. Broadcast start signal & begin PCM streaming via DataChannel
   broadcast({ type: MSG.SYSTEM_AUDIO_START, sampleRate: ctx.sampleRate });
-  startPcmSender(_sourceNode);
+  await startPcmSender(_sourceNode);
 
   // 9. Start visualizer
   bus.emit('visualizer:start');

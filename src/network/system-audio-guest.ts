@@ -17,7 +17,7 @@ import { getAudioContext } from '../audio/context.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
-let _receiverNode: ScriptProcessorNode | null = null;
+let _receiverNode: AudioNode | null = null;
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -62,9 +62,9 @@ export function registerSystemAudioGuestListeners(): void {
       return;
     }
 
-    // Start PCM receiver — returns a ScriptProcessorNode (audio output)
+    // Start PCM receiver — returns an AudioWorkletNode (audio output)
     const sampleRate = (data as Record<string, unknown>).sampleRate as number || ctx.sampleRate;
-    _receiverNode = startPcmReceiver(sampleRate);
+    _receiverNode = await startPcmReceiver(sampleRate);
     if (_receiverNode) {
       _receiverNode.connect(widener.input);
     }

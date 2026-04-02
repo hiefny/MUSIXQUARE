@@ -51,6 +51,14 @@ function callGuest(guestPeerId: string): void {
   if (!peer || !streamL || !streamR) return;
   if (_mediaConnsL.has(guestPeerId)) return;
 
+  // Block remote (TURN) peers — system audio streaming must not go through TURN
+  const peers = getState('network.connectedPeers');
+  const peerObj = peers.find(p => p.id === guestPeerId);
+  if (peerObj && peerObj.connectionType !== 'local') {
+    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)} (type: ${peerObj.connectionType})`);
+    return;
+  }
+
   try {
     // L channel call
     const mcL = peer.call(guestPeerId, streamL, {
@@ -112,6 +120,14 @@ export function registerSystemAudioHostListeners(): void {
         }
       }
     }, 500);
+  });
+
+  // ICE type resolved → if local and system audio active, call them
+  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+    if (!isSystemAudioActive()) return;
+    if (getState('network.appRole') !== 'host') return;
+    if (_mediaConnsL.has(peerId)) return;
+    callGuest(peerId);
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {

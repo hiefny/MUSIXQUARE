@@ -731,22 +731,25 @@
     /* YouTube Together mode: lock/blur advanced Settings (keep Theme available) */
     .youtube-settings-note {
         display: none;
-        margin: 0 20px 18px;
-        padding: 12px 14px;
-        border-radius: 16px;
-        background: var(--glass-bg);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        color: var(--text-main);
-        font-size: 13px;
-        line-height: 1.45;
-        letter-spacing: -0.01em;
-        backdrop-filter: blur(var(--glass-blur));
-        -webkit-backdrop-filter: blur(var(--glass-blur));
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-sub);
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+        padding: 0 32px;
+        pointer-events: none;
     }
 
     body.mode-youtube #youtube-settings-note {
-        display: block;
+        display: flex;
+    }
+
+    .settings-subtab-panel[data-panel="audio"] {
+        position: relative;
     }
 
     #youtube-settings-disabled-wrap {
@@ -755,19 +758,14 @@
 
     body.mode-youtube #youtube-settings-disabled-wrap {
         filter: blur(7px) saturate(0.95);
-        opacity: 0.55;
+        opacity: 0.5;
         pointer-events: none;
         transform: translateZ(0);
     }
 
-    html[data-theme="light"] .youtube-settings-note {
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
-    }
-
     html[data-theme="light"] body.mode-youtube #youtube-settings-disabled-wrap {
         filter: blur(6px) saturate(0.95);
-        opacity: 0.62;
+        opacity: 0.6;
     }
 
     /* =============================================

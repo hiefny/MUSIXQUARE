@@ -47,21 +47,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.answer();
 
-  // Fixed playout delay: all devices buffer the same amount → cross-device sync.
-  // 0 = too aggressive (iOS 26 stutters), browser default = inconsistent per device.
-  // 0.1s (100ms) = stable on all platforms + uniform delay = devices stay in sync.
-  try {
-    const pc = mediaConn.peerConnection as RTCPeerConnection | undefined;
-    if (pc) {
-      const setDelay = (receiver: RTCRtpReceiver) => {
-        if (receiver.track?.kind === 'audio') {
-          (receiver as any).playoutDelayHint = 0.1; // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      };
-      for (const r of pc.getReceivers()) setDelay(r);
-      pc.addEventListener('track', (e) => { if (e.receiver) setDelay(e.receiver); });
-    }
-  } catch { /* noop — playoutDelayHint not supported on all browsers */ }
+  // Let browser manage jitter buffer — any fixed playoutDelayHint value
+  // causes instability on some devices (iOS 26 stutters at 0, others at 100ms).
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);

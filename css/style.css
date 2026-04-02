@@ -731,8 +731,9 @@
     /* YouTube Together mode: lock/blur advanced Settings (keep Theme available) */
     .youtube-settings-note {
         display: none;
-        position: absolute;
-        inset: 0;
+        position: sticky;
+        top: 50%;
+        transform: translateY(-50%);
         z-index: 10;
         align-items: center;
         justify-content: center;
@@ -742,6 +743,8 @@
         text-align: center;
         padding: 0 32px;
         pointer-events: none;
+        height: 0;
+        overflow: visible;
     }
 
     body.mode-youtube #youtube-settings-note {

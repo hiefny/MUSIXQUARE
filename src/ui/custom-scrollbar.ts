@@ -56,8 +56,10 @@ function updateLayout(state: ScrollbarState): void {
 
   state.visibleHeight = visibleHeight;
   if (isDesktop) {
-    // Desktop: track is position:absolute inside parent — use offset from parent
-    track.style.top = '0';
+    // Desktop: track is position:absolute inside parent — offset by container's position within parent
+    const parentRect = container.parentElement?.getBoundingClientRect();
+    const offsetTop = parentRect ? containerRect.top - parentRect.top : 0;
+    track.style.top = `${offsetTop}px`;
     track.style.height = `${visibleHeight}px`;
   } else {
     // Mobile: track is position:fixed — use viewport coordinates

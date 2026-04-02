@@ -987,14 +987,14 @@ export function initChat(): void {
           hideSuggest();
           return;
         }
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.isComposing) {
           hideSuggest();
           // Fall through to normal Enter send below
         }
       }
 
       // Normal Enter: send message
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         sendChatMessage();
       }

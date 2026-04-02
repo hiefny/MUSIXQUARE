@@ -322,12 +322,19 @@ export function initYouTube(): void {
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
-    setState('player.currentTrackMeta', newTrack);
+    const currentState = getState('appState');
+    const isIdle = currentState === APP_STATE.IDLE;
+    const shouldPlayNow = isIdle;
 
-    // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
-    // a window where index points to new track while old media is active.
-    loadYouTubeVideo(videoId, playlistId, true);
-    setState('playlist.currentTrackIndex', newIndex);
+    if (shouldPlayNow) {
+      setState('player.currentTrackMeta', newTrack);
+      // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
+      // a window where index points to new track while old media is active.
+      loadYouTubeVideo(videoId, playlistId, true);
+      setState('playlist.currentTrackIndex', newIndex);
+    } else {
+      showToast(t('youtube.added_to_playlist'));
+    }
 
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');
@@ -340,13 +347,16 @@ export function initYouTube(): void {
         playlistId: item.playlistId || null,
       }));
       broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-      broadcast({
-        type: MSG.YOUTUBE_PLAY,
-        videoId,
-        playlistId,
-        index: newIndex,
-        autoplay: true,
-      });
+
+      if (shouldPlayNow) {
+        broadcast({
+          type: MSG.YOUTUBE_PLAY,
+          videoId,
+          playlistId,
+          index: newIndex,
+          autoplay: true,
+        });
+      }
     }
 
     // Fetch title in background and update — capture the expected videoId/playlistId

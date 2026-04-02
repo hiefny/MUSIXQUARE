@@ -304,6 +304,7 @@ const en: Record<I18nKey, string> = {
   'youtube.playing_in_3s': 'Playing YouTube in 3 seconds...',
   'youtube.open_link': 'Open YouTube link',
   'youtube.tap_to_sync': 'TAP TO SYNC VIDEO',
+  'youtube.added_to_playlist': 'Added to playlist',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.connecting': 'Connecting...',

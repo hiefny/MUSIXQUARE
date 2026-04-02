@@ -302,6 +302,7 @@ const ko = {
   'youtube.playing_in_3s': '3초 후 YouTube 재생...',
   'youtube.open_link': 'YouTube 링크 열기',
   'youtube.tap_to_sync': '탭하여 영상 동기화',
+  'youtube.added_to_playlist': '재생 목록에 추가되었어요',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.connecting': '연결 중...',

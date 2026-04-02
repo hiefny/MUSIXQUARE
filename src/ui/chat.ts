@@ -66,7 +66,7 @@ function parseTimestamp(ts: string): number {
 
 // ─── Parse Message Content ───────────────────────────────────────
 
-const _ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]{11}[^\s]*/gi;
+const _ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/gi;
 const _tsRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
 const _combinedRegex = new RegExp(
   `(${_ytRegex.source})|(${_tsRegex.source})`,

@@ -260,7 +260,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
   const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    setState('player.currentTrackMeta', currentItem);
+    setState('player.currentTrackMeta', { ...currentItem, title: title });
   }
 }
 
@@ -279,6 +279,20 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   if (!playlistId) return;
 
   setSubItemsData(playlistId, ids, titles);
+
+  // If this is a YouTube Mix (RD...) and we are currently playing it, 
+  // force a reload using the static ID list to match the Host's sequence.
+  if (playlistId.startsWith('RD')) {
+    const currentPlaylist = getState('playlist.items')?.[getState('playlist.currentTrackIndex')]?.playlistId;
+    if (currentPlaylist === playlistId) {
+      log.info('[YouTube Mix] Forcing guest reload with host-snapshot IDs:', playlistId);
+      const subIndex = getState('youtube.currentSubIndex') ?? 0;
+      // Pass the array of IDs instead of the 'RD...' string
+      import('./iframe.ts').then(mod => {
+        mod.loadYouTubeVideo(null, ids, true, subIndex);
+      });
+    }
+  }
 
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {

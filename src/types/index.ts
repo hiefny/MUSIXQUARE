@@ -205,7 +205,7 @@ export interface ProtocolMap {
   'request-youtube-playlist-info': { playlistId: string };
 
   // ── YouTube ──────────────────────────────────────────────────────
-  'youtube-play': { videoId?: string | null; playlistId?: string | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
+  'youtube-play': { videoId?: string | null; playlistId?: string | string[] | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
   'youtube-stop': NoPayload;
   'youtube-state': { state: number; time: number; subIndex?: number };
   'youtube-sync': { time: number; state: number; subIndex?: number };

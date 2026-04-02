@@ -28,8 +28,10 @@ import {
   getCachedYtDuration, setCachedYtDuration,
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
+  setSubItemsData,
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
+import { fetchPlaylistSubTitles } from './search.ts';
 
 declare const YT: any;
 
@@ -40,7 +42,7 @@ let _lastYtVideoTitle = '';
 
 export function loadYouTubeVideo(
   videoId: string | null,
-  playlistId: string | null = null,
+  playlistId: string | string[] | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
@@ -112,10 +114,10 @@ export function loadYouTubeVideo(
         setYtLoadInProgress(false);
         return;
       }
-      createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
+      createYouTubePlayer(videoId, playlistId as string | string[] | null, autoplay, subIndex);
     };
   } else {
-    createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
+    createYouTubePlayer(videoId, playlistId as string | string[] | null, autoplay, subIndex);
   }
 
   // Safety timeout
@@ -141,7 +143,7 @@ export function loadYouTubeVideo(
 
 function createYouTubePlayer(
   videoId: string | null,
-  playlistId: string | null = null,
+  playlistId: string | string[] | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
@@ -162,7 +164,11 @@ function createYouTubePlayer(
     log.debug('[YouTube] Re-using existing player instance');
     try {
       if (playlistId) {
-        existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+        if (Array.isArray(playlistId)) {
+          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
+        } else {
+          existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+        }
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
@@ -188,9 +194,13 @@ function createYouTubePlayer(
   };
 
   if (playlistId) {
-    playerVars.listType = 'playlist';
-    playerVars.list = playlistId;
-    playerVars.index = subIndex;
+    if (Array.isArray(playlistId)) {
+      playerVars.playlist = playlistId.join(',');
+    } else {
+      playerVars.listType = 'playlist';
+      playerVars.list = playlistId;
+      playerVars.index = subIndex;
+    }
   }
 
   const playerOptions: Record<string, any> = {
@@ -198,7 +208,7 @@ function createYouTubePlayer(
     height: '100%',
     playerVars,
     events: {
-      onReady: onYouTubePlayerReady,
+      onReady: () => onYouTubePlayerReady(playlistId),
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
     },
@@ -217,7 +227,7 @@ function createYouTubePlayer(
 
 // ─── Player Events ─────────────────────────────────────────────────
 
-function onYouTubePlayerReady(): void {
+function onYouTubePlayerReady(playlistId: string | null = null): void {
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
 
@@ -227,13 +237,45 @@ function onYouTubePlayerReady(): void {
     return;
   }
 
+  const player = getYouTubePlayer();
+
+  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
+  const hostConn = getState('network.hostConn');
+  if (!hostConn && playlistId && playlistId.startsWith('RD') && player?.getPlaylist) {
+    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
+    // Wait a few seconds for YouTube to populate the internal playlist IDs
+    setManagedTimer('yt-mix-snapshot', () => {
+      try {
+        const ids = player.getPlaylist();
+        if (Array.isArray(ids) && ids.length > 0) {
+          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, playlistId);
+          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
+          const titles = new Array(ids.length).fill('');
+          setSubItemsData(playlistId, ids, titles);
+          
+          // Broadcast to all guests so they use this static list instead of generating their own
+          broadcast({
+            type: MSG.YOUTUBE_PLAYLIST_INFO,
+            playlistId,
+            ids,
+            titles
+          });
+
+          // Trigger background oEmbed title fetching
+          fetchPlaylistSubTitles(playlistId, ids);
+        }
+      } catch (e) {
+        log.warn('[YouTube Mix] Snapshot failed:', e);
+      }
+    }, 3000);
+  }
+
   // Start UI update loop
   clearManagedTimer('youtubeUILoop');
   setManagedTimer('youtubeUILoop', updateYouTubeUI, 500, { interval: true });
 
   // Only Host runs sync loop
   clearManagedTimer('youtubeSyncLoop');
-  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     setManagedTimer('youtubeSyncLoop', () => {
       bus.emit('youtube:broadcast-sync');
@@ -335,7 +377,8 @@ function updateYouTubeUI(): void {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _lastYtVideoTitle) {
         _lastYtVideoTitle = vData.title;
-        setState('player.currentTrackMeta', { title: vData.title });
+        const currentMeta = getState('player.currentTrackMeta') || {};
+        setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
       }
     }
 

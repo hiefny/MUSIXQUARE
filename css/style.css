@@ -820,17 +820,20 @@
     /* Playlist note overlay */
     .system-audio-playlist-note {
         display: none;
-        position: absolute;
-        inset: 0;
+        position: sticky;
+        top: 50%;
+        transform: translateY(-50%);
         z-index: 10;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        font-size: 15px;
-        font-weight: 600;
         color: var(--text-sub);
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+        padding: 0 32px;
         pointer-events: none;
+        height: 0;
+        overflow: visible;
     }
 
     body.mode-system-audio .system-audio-playlist-note {

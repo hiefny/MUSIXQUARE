@@ -65,7 +65,12 @@ function updateVolumeIcon(): void {
 /** Refresh the track title in the UI, considering network restrictions for remote guests. */
 function refreshTrackTitle(): void {
   const item = getState('player.currentTrackMeta');
-  if (!item) return;
+  if (!item) {
+    updateTitleWithMarquee(t('player.no_media'));
+    const artistEl = document.getElementById('track-artist');
+    if (artistEl) artistEl.innerText = '';
+    return;
+  }
 
   // System audio mode: always use translated string (survives language switch)
   let title = item.name === 'system-audio'

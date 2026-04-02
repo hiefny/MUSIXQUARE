@@ -1039,8 +1039,28 @@ export function initChat(): void {
 
       // Normal Enter: send message
       if (e.key === 'Enter' && !e.shiftKey) {
+        // Mac/iOS IME Fix: If the user is currently composing a character (Korean/Japanese/etc),
+        // we flag that we want to send it as soon as the composition is finished.
+        // This achieves "Enter once = Send" without the duplicated character bug.
+        if (e.isComposing) {
+          _isConfirmingIME = true;
+          return;
+        }
+
         e.preventDefault();
         sendChatMessage();
+      }
+    });
+    
+    let _isConfirmingIME = false;
+    chatInput.addEventListener('compositionend', () => {
+      // If Enter was pressed during composition, trigger send now that it's finished.
+      if (_isConfirmingIME) {
+        _isConfirmingIME = false;
+        // Request animation frame ensures the DOM (textContent) is fully updated.
+        requestAnimationFrame(() => {
+          sendChatMessage();
+        });
       }
     });
 

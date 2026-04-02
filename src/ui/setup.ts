@@ -102,6 +102,8 @@ export function triggerAppEntrance(): void {
         }
       }
       if (chatDrawer) chatDrawer.classList.remove('app-chat-entrance');
+      // Wake visualizer after layout settles (iOS: canvas may have been 0-sized during setup)
+      bus.emit('visualizer:start');
     }, 1200); // max delay(400) + duration(900) + buffer
   });
 }

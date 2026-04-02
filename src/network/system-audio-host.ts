@@ -14,40 +14,27 @@ import { broadcast } from './peer-state.ts';
 import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
-// ─── SDP: Boost Opus Bitrate ──────────────────────────────────────
+// ─── Boost Opus Bitrate via RTCRtpSender ─────────────────────────
 
-function boostOpusBitrate(sdp: string): string {
-  const rtpMatch = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000\/2/i);
-  if (!rtpMatch) return sdp;
-  const pt = rtpMatch[1];
-
-  const fmtpRegex = new RegExp(`(a=fmtp:${pt}\\s+)(.+)`);
-  const fmtpMatch = sdp.match(fmtpRegex);
-
-  if (fmtpMatch) {
-    let params = fmtpMatch[2];
-    params = params.replace(/;?\s*maxaveragebitrate=\d+/g, '');
-    params += ';maxaveragebitrate=128000';
-    sdp = sdp.replace(fmtpRegex, `${fmtpMatch[1]}${params}`);
-  }
-  return sdp;
-}
-
-function patchMediaConnection(mc: MediaConnection): void {
+function boostSenderBitrate(mc: MediaConnection): void {
   const pc = mc.peerConnection as RTCPeerConnection | undefined;
   if (!pc) return;
 
-  const origSetLocal = pc.setLocalDescription.bind(pc);
-  pc.setLocalDescription = async (desc?: RTCLocalSessionDescriptionInit) => {
-    if (desc?.sdp) desc = { ...desc, sdp: boostOpusBitrate(desc.sdp) };
-    return origSetLocal(desc);
-  };
-
-  const origSetRemote = pc.setRemoteDescription.bind(pc);
-  pc.setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
-    if (desc.sdp) desc = { ...desc, sdp: boostOpusBitrate(desc.sdp) };
-    return origSetRemote(desc);
-  };
+  pc.addEventListener('connectionstatechange', () => {
+    if (pc.connectionState === 'connected') {
+      for (const sender of pc.getSenders()) {
+        if (sender.track?.kind === 'audio') {
+          try {
+            const params = sender.getParameters();
+            if (params.encodings?.[0]) {
+              params.encodings[0].maxBitrate = 128000;
+              sender.setParameters(params).catch(() => { /* noop */ });
+            }
+          } catch { /* noop */ }
+        }
+      }
+    }
+  });
 }
 
 // ─── Module State ─────────────────────────────────────────────────
@@ -69,7 +56,7 @@ function callGuest(guestPeerId: string): void {
     const mcL = peer.call(guestPeerId, streamL, {
       metadata: { type: 'system-audio', channel: 'L' },
     });
-    patchMediaConnection(mcL);
+    boostSenderBitrate(mcL);
     _mediaConnsL.set(guestPeerId, mcL);
     mcL.on('close', () => _mediaConnsL.delete(guestPeerId));
     mcL.on('error', () => _mediaConnsL.delete(guestPeerId));
@@ -78,7 +65,7 @@ function callGuest(guestPeerId: string): void {
     const mcR = peer.call(guestPeerId, streamR, {
       metadata: { type: 'system-audio', channel: 'R' },
     });
-    patchMediaConnection(mcR);
+    boostSenderBitrate(mcR);
     _mediaConnsR.set(guestPeerId, mcR);
     mcR.on('close', () => _mediaConnsR.delete(guestPeerId));
     mcR.on('error', () => _mediaConnsR.delete(guestPeerId));

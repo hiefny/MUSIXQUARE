@@ -75,7 +75,9 @@ function refreshTrackTitle(): void {
   // System audio mode: always use translated string (survives language switch)
   let title = item.name === 'system-audio'
     ? t('system_audio.sharing')
-    : (item.title || item.name || t('common.unknown'));
+    : item.name === 'system-audio-receiving'
+      ? t('system_audio.receiving')
+      : (item.title || item.name || t('common.unknown'));
 
   // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title
   const isRemote = getState('network.connectionType') === 'remote';
@@ -563,7 +565,9 @@ export function initPlayerControls(): void {
     if (item) {
       _tabTitleTrack = item.name === 'system-audio'
         ? t('system_audio.sharing')
-        : (item.title || item.name || '');
+        : item.name === 'system-audio-receiving'
+          ? t('system_audio.receiving')
+          : (item.title || item.name || '');
     }
   }).observe(document.documentElement, { attributeFilter: ['lang'] });
 
@@ -787,7 +791,9 @@ export function initPlayerControls(): void {
     if (item) {
       _tabTitleTrack = item.name === 'system-audio'
         ? t('system_audio.sharing')
-        : (item.title || item.name || '');
+        : item.name === 'system-audio-receiving'
+          ? t('system_audio.receiving')
+          : (item.title || item.name || '');
     }
   });
 

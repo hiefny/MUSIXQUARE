@@ -444,6 +444,7 @@ const en: Record<I18nKey, string> = {
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',
   'system_audio.sharing': 'Sharing System Audio',
+  'system_audio.receiving': 'Receiving System Audio',
   'system_audio.capture_denied': 'Audio sharing was cancelled.',
   'system_audio.no_audio_track': 'Please check "Share audio" to share sound.',
   'system_audio.stop': 'Stop Sharing',

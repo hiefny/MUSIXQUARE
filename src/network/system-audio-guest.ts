@@ -128,7 +128,7 @@ export function registerSystemAudioGuestListeners(): void {
     log.info('[SysAudioGuest] Host started system audio sharing');
     _prevTrackMeta = getState('player.currentTrackMeta');
     stopAllMedia({ silent: true });
-    setState('player.currentTrackMeta', { type: 'file', name: 'system-audio', title: 'System Audio Sharing' });
+    setState('player.currentTrackMeta', { type: 'file', name: 'system-audio-receiving', title: 'Receiving System Audio' });
   });
 
   registerHandler(MSG.SYSTEM_AUDIO_STOP, () => {

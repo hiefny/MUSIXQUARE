@@ -55,8 +55,15 @@ function updateLayout(state: ScrollbarState): void {
   }
 
   state.visibleHeight = visibleHeight;
-  track.style.top = `${containerRect.top}px`;
-  track.style.height = `${visibleHeight}px`;
+  if (isDesktop) {
+    // Desktop: track is position:absolute inside parent — use offset from parent
+    track.style.top = '0';
+    track.style.height = `${visibleHeight}px`;
+  } else {
+    // Mobile: track is position:fixed — use viewport coordinates
+    track.style.top = `${containerRect.top}px`;
+    track.style.height = `${visibleHeight}px`;
+  }
 
   const ratio = visibleHeight / scrollHeight;
   state.thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);

@@ -698,7 +698,6 @@
         position: relative;
         flex: 1;
         min-height: 0;
-        overflow: hidden;
     }
 
     /* Desktop: custom scrollbar inside each panel (not viewport edge) */

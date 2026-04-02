@@ -227,7 +227,7 @@ function createYouTubePlayer(
 
 // ─── Player Events ─────────────────────────────────────────────────
 
-function onYouTubePlayerReady(playlistId: string | null = null): void {
+function onYouTubePlayerReady(playlistId: string | string[] | null = null): void {
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
 
@@ -241,28 +241,29 @@ function onYouTubePlayerReady(playlistId: string | null = null): void {
 
   // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
-  if (!hostConn && playlistId && playlistId.startsWith('RD') && player?.getPlaylist) {
+  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
+    const mixId = playlistId; // Captured for closure
     log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
     // Wait a few seconds for YouTube to populate the internal playlist IDs
     setManagedTimer('yt-mix-snapshot', () => {
       try {
         const ids = player.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, playlistId);
+          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
           // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(playlistId, ids, titles);
+          setSubItemsData(mixId, ids, titles);
           
           // Broadcast to all guests so they use this static list instead of generating their own
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId,
+            playlistId: mixId,
             ids,
             titles
           });
 
           // Trigger background oEmbed title fetching
-          fetchPlaylistSubTitles(playlistId, ids);
+          fetchPlaylistSubTitles(mixId, ids);
         }
       } catch (e) {
         log.warn('[YouTube Mix] Snapshot failed:', e);
@@ -370,6 +371,19 @@ function updateYouTubeUI(): void {
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
+      _lastYtVideoTitle = ''; // Reset title cache to force update on index change
+
+      // Pre-emptive title update from subItemsMap (if available) for instant feedback
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      if (currentTrack?.playlistId && playlistIdx >= 0) {
+        const subMap = getState('youtube.subItemsMap') || {};
+        const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
+        if (cachedTitle) {
+          const currentMeta = getState('player.currentTrackMeta') || {};
+          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
+          _lastYtVideoTitle = cachedTitle;
+        }
+      }
     }
 
     // Update track title whenever YouTube video title changes

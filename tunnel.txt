@@ -1,3 +1,0 @@
-﻿[35m??[39m Starting cloudflared tunnel to http://localhost:3000
-[36m??[39m Waiting for tunnel URL...
-[32m??[39m Tunnel ready at [36mhttps://deutsch-attachment-entities-characterization.trycloudflare.com[39m

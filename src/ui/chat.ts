@@ -956,6 +956,14 @@ export function initChat(): void {
       setTimeout(hideSuggest, 150);
     });
 
+    // macOS IME: compositionend fires right before a keydown Enter with isComposing=false.
+    // That Enter is the IME commit keystroke, not a "send" intent. Flag it to skip.
+    let _justComposed = false;
+    chatInput.addEventListener('compositionend', () => {
+      _justComposed = true;
+      setTimeout(() => { _justComposed = false; }, 50);
+    });
+
     chatInput.addEventListener('keydown', (e) => {
       // Autocomplete navigation
       if (_suggestItems.length && suggest.style.display !== 'none') {
@@ -987,14 +995,14 @@ export function initChat(): void {
           hideSuggest();
           return;
         }
-        if (e.key === 'Enter' && !e.isComposing) {
+        if (e.key === 'Enter' && !e.isComposing && !_justComposed) {
           hideSuggest();
           // Fall through to normal Enter send below
         }
       }
 
       // Normal Enter: send message
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !_justComposed) {
         e.preventDefault();
         sendChatMessage();
       }

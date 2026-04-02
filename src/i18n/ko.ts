@@ -442,7 +442,7 @@ const ko = {
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 소리 공유',
   'system_audio.sharing': '시스템 소리 공유 중',
-  'system_audio.capture_denied': '화면 공유가 취소되었어요.',
+  'system_audio.capture_denied': '소리 공유가 취소되었어요.',
   'system_audio.no_audio_track': '오디오를 공유하려면 "소리 공유"를 체크해주세요.',
   'system_audio.stop': '오디오 공유 중지',
   'system_audio.desktop_only': 'Windows 또는 Mac 데스크톱 Chrome에서만 사용할 수 있어요.',

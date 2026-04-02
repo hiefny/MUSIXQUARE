@@ -24,6 +24,7 @@ let _preSysAudioState: {
   appState: string;
   pausedAt: number;
   currentTrackIndex: number;
+  currentTrackMeta: unknown;
 } | null = null;
 
 // ─── Public API ───────────────────────────────────────────────────
@@ -83,6 +84,7 @@ export async function startSystemAudioCapture(): Promise<void> {
     appState: getState('appState'),
     pausedAt: getState('player.pausedAt'),
     currentTrackIndex: getState('playlist.currentTrackIndex'),
+    currentTrackMeta: getState('player.currentTrackMeta'),
   };
 
   // 3. Stop all current media
@@ -153,6 +155,8 @@ export function stopSystemAudioCapture(): void {
   // 5. Restore previous state
   if (_preSysAudioState) {
     setState('player.pausedAt', _preSysAudioState.pausedAt);
+    // Restore track meta (previous song or null → shows "No media")
+    setState('player.currentTrackMeta', _preSysAudioState.currentTrackMeta ?? null);
     // Go to PAUSED if there was media loaded, otherwise IDLE
     if (_preSysAudioState.appState !== APP_STATE.IDLE) {
       setState('appState', APP_STATE.PAUSED);
@@ -161,6 +165,7 @@ export function stopSystemAudioCapture(): void {
     }
     _preSysAudioState = null;
   } else {
+    setState('player.currentTrackMeta', null);
     setState('appState', APP_STATE.IDLE);
   }
 

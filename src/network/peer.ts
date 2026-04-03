@@ -103,15 +103,17 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN only for remote (Metered.ca via Netlify Function)
-  const iceServers: Record<string, unknown>[] = [
+  // PeerJS default config — no iceServers override, let PeerJS use its built-in defaults
+  // (same as 8ball: `new Peer()` with zero config)
+  //
+  // To re-enable custom TURN:
+  // 1. Uncomment the iceServers block below
+  // 2. Set TURN_USER/TURN_PASS in Netlify env
+  /*
+  const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
-
-  // TURN disabled: STUN-only mode (no relay costs, P2P direct connection only)
-  // Re-enable by uncommenting the block below and setting TURN_USER/TURN_PASS in Netlify env.
-  /*
   const turnEndpoints = [
     '/.netlify/functions/get-turn-config',
     'https://musixquare.netlify.app/.netlify/functions/get-turn-config',
@@ -120,29 +122,23 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     try {
       const resp = await fetch(url);
       if (resp.ok) {
-        const { username, credential } = await resp.json() as { username: string; credential: string };
+        const { username, credential } = await resp.json();
         if (username && credential) {
           iceServers.push(
             { urls: 'turn:standard.relay.metered.ca:443', username, credential },
             { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
             { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
           );
-          log.info('[Network] TURN credentials loaded (Metered.ca)');
           break;
         }
       }
     } catch { }
   }
   */
-  log.debug('[Network] STUN-only mode (TURN disabled)');
 
   const peerOpts: PeerOptions = {
     debug: 2,
-    config: {
-      iceServers,
-      // Minimal config like 8ball — no bundlePolicy/iceCandidatePoolSize overrides
-      // that could interfere with NAT traversal on mobile carriers
-    },
+    // No config override — PeerJS uses its built-in ICE servers
   };
 
   // Allow custom PeerJS signaling server injection

@@ -684,6 +684,10 @@
         box-shadow: none;
     }
 
+    .help-block.legal-block {
+        border-top: 1px solid var(--divider);
+    }
+
     .playlist-ul {
         margin: 0 16px;
     }

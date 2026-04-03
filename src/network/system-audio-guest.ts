@@ -115,21 +115,33 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
       if (channel === 'DUAL' || channel === 'SYNCED') {
         const tracks = remoteStream.getAudioTracks();
-        if (tracks.length < 2) {
-          log.warn(`[SysAudioGuest] ${channel} stream received but <2 tracks found`);
+        if (tracks.length === 0) {
+          log.warn(`[SysAudioGuest] ${channel} stream received but 0 tracks found`);
           return;
         }
 
         if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
         if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
 
-        _sourceL = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-        _sourceL.connect(_merger, 0, 0);
-        _gotL = true;
+        if (tracks.length >= 2) {
+          // Robust dual-track extraction
+          _sourceL = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
+          _sourceL.connect(_merger, 0, 0);
+          _gotL = true;
 
-        _sourceR = ctx.createMediaStreamSource(new MediaStream([tracks[1]]));
-        _sourceR.connect(_merger, 0, 1);
-        _gotR = true;
+          _sourceR = ctx.createMediaStreamSource(new MediaStream([tracks[1]]));
+          _sourceR.connect(_merger, 0, 1);
+          _gotR = true;
+        } else {
+          // Only 1 track received? Upmix to center so at least it's not 'only left'
+          log.info(`[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`);
+          const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
+          monoSource.connect(_merger, 0, 0); // Connect to L
+          monoSource.connect(_merger, 0, 1); // Connect to R
+          _sourceL = monoSource; // Keep reference for cleanup
+          _gotL = true;
+          _gotR = true;
+        }
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {

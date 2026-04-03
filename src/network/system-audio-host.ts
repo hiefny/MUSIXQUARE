@@ -16,7 +16,34 @@ import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
 
-// ─── SDP Munging: Force Opus Stereo ───────────────────────────────
+// ─── SDP Munging & Track Constraints ──────────────────────────────
+
+/**
+ * Boost bitrate and disable DSP for all audio senders in the PeerConnection.
+ */
+function boostAudioSenders(pc: RTCPeerConnection): void {
+  pc.getSenders().forEach(sender => {
+    if (sender.track?.kind === 'audio') {
+      const track = sender.track;
+      // 1. Disable browser noise handling on the track itself
+      try {
+        track.applyConstraints({
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }).catch(() => { /* noop */ });
+      } catch { /* noop */ }
+
+      // 2. Lift bitrate limit manually (510kbps)
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        params.encodings[0].maxBitrate = 510000;
+        sender.setParameters(params).catch(() => { /* noop */ });
+      } catch { /* noop */ }
+    }
+  });
+}
 
 function applySdpMunge(mc: MediaConnection): void {
   const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
@@ -28,7 +55,10 @@ function applySdpMunge(mc: MediaConnection): void {
     if (desc && desc.sdp) {
       desc.sdp = forceStereoSdp(desc.sdp);
     }
-    return originalSetLocal(desc);
+    const result = await originalSetLocal(desc);
+    // After setting local description, we can boost the senders
+    boostAudioSenders(pc);
+    return result;
   };
 }
 

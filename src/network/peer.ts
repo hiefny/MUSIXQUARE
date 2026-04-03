@@ -234,10 +234,11 @@ function setupPeerEvents(): void {
   peer.on('call', (mediaConn: unknown) => {
     const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
     const type = mc.metadata?.type;
-    if (type === 'system-audio' || type === 'system-audio-dual' || type === 'system-audio-stereo') {
+    if (type === 'system-audio' || type === 'system-audio-dual' || type === 'system-audio-stereo' || type === 'system-audio-synced') {
       let channel = 'L';
       if (type === 'system-audio-dual') channel = 'DUAL';
       else if (type === 'system-audio-stereo') channel = 'STEREO';
+      else if (type === 'system-audio-synced') channel = 'SYNCED';
       else channel = (mc.metadata?.channel as string) || 'L';
 
       bus.emit('system-audio:incoming-call', mediaConn, channel);

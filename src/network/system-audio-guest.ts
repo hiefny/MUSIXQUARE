@@ -23,6 +23,7 @@ let _mediaConnL: MediaConnection | null = null;
 let _mediaConnR: MediaConnection | null = null;
 let _mediaConnDual: MediaConnection | null = null;
 let _mediaConnStereo: MediaConnection | null = null;
+let _mediaConnSynced: MediaConnection | null = null;
 let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
@@ -30,6 +31,7 @@ let _merger: ChannelMergerNode | null = null;
 let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
+let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 
 // ─── SDP Munging ──────────────────────────────────────────────────
@@ -55,7 +57,7 @@ function applySdpMunge(mc: MediaConnection): void {
 // ─── Public API ───────────────────────────────────────────────────
 
 export function isReceivingSystemAudio(): boolean {
-  return _gotL || _gotR || _gotStereo;
+  return _gotL || _gotR || _gotStereo || _gotSynced;
 }
 
 // ─── Handle Incoming Media Call ───────────────────────────────────
@@ -69,15 +71,20 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   } else if (channel === 'R') {
     if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } }
     _mediaConnR = mediaConn;
-  } else if (channel === 'DUAL') {
-    if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } }
-    _mediaConnDual = mediaConn;
+  } else if (channel === 'DUAL' || channel === 'SYNCED') {
+    if (channel === 'DUAL') {
+      if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } }
+      _mediaConnDual = mediaConn;
+    } else {
+      if (_mediaConnSynced) { try { _mediaConnSynced.close(); } catch { /* noop */ } }
+      _mediaConnSynced = mediaConn;
+    }
   } else if (channel === 'STEREO') {
     if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } }
     _mediaConnStereo = mediaConn;
   }
 
-  if (channel === 'STEREO' || channel === 'DUAL') {
+  if (channel === 'STEREO' || channel === 'DUAL' || channel === 'SYNCED') {
     applySdpMunge(mediaConn);
   }
 
@@ -100,31 +107,31 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       _sourceStereo.connect(widener.input);
       _gotStereo = true;
     } else {
-      // Legacy L/R/DUAL logic (preserved for compatibility with older hosts)
+      // Merger-based dual-channel logic
       if (!_merger) {
         _merger = ctx.createChannelMerger(2);
         _merger.connect(widener.input);
       }
 
-      if (channel === 'DUAL') {
+      if (channel === 'DUAL' || channel === 'SYNCED') {
         const tracks = remoteStream.getAudioTracks();
         if (tracks.length < 2) {
-          log.warn('[SysAudioGuest] Dual stream received but <2 tracks found');
+          log.warn(`[SysAudioGuest] ${channel} stream received but <2 tracks found`);
           return;
         }
-        const sysStreamL = new MediaStream([tracks[0]]);
-        const sysStreamR = new MediaStream([tracks[1]]);
 
         if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
         if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
 
-        _sourceL = ctx.createMediaStreamSource(sysStreamL);
+        _sourceL = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
         _sourceL.connect(_merger, 0, 0);
         _gotL = true;
 
-        _sourceR = ctx.createMediaStreamSource(sysStreamR);
+        _sourceR = ctx.createMediaStreamSource(new MediaStream([tracks[1]]));
         _sourceR.connect(_merger, 0, 1);
         _gotR = true;
+
+        if (channel === 'SYNCED') _gotSynced = true;
       } else {
         const source = ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
@@ -152,11 +159,14 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('close', () => {
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
-    if (channel === 'DUAL') { _gotL = false; _gotR = false; _mediaConnDual = null; }
+    if (channel === 'DUAL' || channel === 'SYNCED') { 
+      _gotL = false; _gotR = false; 
+      if (channel === 'DUAL') _mediaConnDual = null; else { _mediaConnSynced = null; _gotSynced = false; }
+    }
     else if (channel === 'L') { _gotL = false; _mediaConnL = null; }
     else if (channel === 'R') { _gotR = false; _mediaConnR = null; }
     else if (channel === 'STEREO') { _gotStereo = false; _mediaConnStereo = null; }
-    if (!_gotL && !_gotR && !_gotStereo) cleanupGuestSystemAudio();
+    if (!_gotL && !_gotR && !_gotStereo && !_gotSynced) cleanupGuestSystemAudio();
   });
 
   mediaConn.on('error', (err: unknown) => {
@@ -175,9 +185,11 @@ function cleanupGuestSystemAudio(): void {
   if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } _mediaConnR = null; }
   if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } _mediaConnDual = null; }
   if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } _mediaConnStereo = null; }
+  if (_mediaConnSynced) { try { _mediaConnSynced.close(); } catch { /* noop */ } _mediaConnSynced = null; }
   _gotL = false;
   _gotR = false;
   _gotStereo = false;
+  _gotSynced = false;
 
   setState('systemAudio.isReceiving', false);
   setState('player.currentTrackMeta', _prevTrackMeta ?? null);

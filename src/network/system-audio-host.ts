@@ -11,7 +11,7 @@ import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { getPeer } from './peer-state.ts';
 import { broadcast } from './peer-state.ts';
-import { isSystemAudioActive, getStereoStream } from '../audio/system-capture.ts';
+import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
@@ -20,12 +20,9 @@ import { forceStereoSdp } from './peer.ts';
 
 function applySdpMunge(mc: MediaConnection): void {
   const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
-  if (!pc) {
-    log.warn('[SysAudioHost] No peerConnection found on MediaConnection object');
-    return;
-  }
+  if (!pc) return;
 
-  // Intercept setLocalDescription (more robust than createOffer for some PeerJS scenarios)
+  // Intercept setLocalDescription
   const originalSetLocal = pc.setLocalDescription.bind(pc);
   pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
     if (desc && desc.sdp) {
@@ -43,8 +40,9 @@ const _mediaConns = new Map<string, MediaConnection>();
 
 function callGuest(guestPeerId: string): void {
   const peer = getPeer();
-  const stereoStream = getStereoStream();
-  if (!peer || !stereoStream) return;
+  const streamL = getStreamL();
+  const streamR = getStreamR();
+  if (!peer || !streamL || !streamR) return;
   if (_mediaConns.has(guestPeerId)) return;
 
   // Block remote (TURN) peers
@@ -56,8 +54,15 @@ function callGuest(guestPeerId: string): void {
   }
 
   try {
-    const mc = peer.call(guestPeerId, stereoStream, {
-      metadata: { type: 'system-audio-stereo' }, // New type for clarity
+    // SYNCED DUAL-TRACK SINGLE-STREAM:
+    // Create one stream containing two tracks. Browsers sync tracks within a stream.
+    const syncedStream = new MediaStream([
+      streamL.getAudioTracks()[0],
+      streamR.getAudioTracks()[0],
+    ]);
+
+    const mc = peer.call(guestPeerId, syncedStream, {
+      metadata: { type: 'system-audio-synced' }, // New type for this refined approach
     });
 
     applySdpMunge(mc);
@@ -65,7 +70,7 @@ function callGuest(guestPeerId: string): void {
     mc.on('close', () => _mediaConns.delete(guestPeerId));
     mc.on('error', () => _mediaConns.delete(guestPeerId));
 
-    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single stereo stream with SDP munge`);
+    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single-stream, dual-track (synced)`);
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
   }

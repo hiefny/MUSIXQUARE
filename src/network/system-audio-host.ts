@@ -34,11 +34,11 @@ function boostAudioSenders(pc: RTCPeerConnection): void {
         }).catch(() => { /* noop */ });
       } catch { /* noop */ }
 
-      // 2. Lift bitrate limit manually (510kbps)
+      // 2. Lift bitrate limit manually (128kbps per track)
       try {
         const params = sender.getParameters();
         if (!params.encodings) params.encodings = [{}];
-        params.encodings[0].maxBitrate = 510000;
+        params.encodings[0].maxBitrate = 128000;
         sender.setParameters(params).catch(() => { /* noop */ });
       } catch { /* noop */ }
     }

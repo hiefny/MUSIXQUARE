@@ -70,14 +70,14 @@ export function forceStereoSdp(sdp: string): string {
       modified = modified.replace(fmtpRegex, (line) => {
         // Strip out existing stereo-related params
         let newLine = line.replace(/;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g, '');
-        // Append our high-fidelity stereo params + high bitrate
-        return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1';
+        // Append our high-fidelity stereo params + sweet-spot bitrate (128kbps per track)
+        return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1';
       });
     } else {
       // If no fmtp line exists, append it after the rtpmap line
       const rtpmapLine = new RegExp(`a=rtpmap:${pt} opus/48000/2`);
       modified = modified.replace(rtpmapLine, (line) => {
-        return line + `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1`;
+        return line + `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1`;
       });
     }
   }

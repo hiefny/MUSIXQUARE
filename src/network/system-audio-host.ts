@@ -14,46 +14,24 @@ import { broadcast } from './peer-state.ts';
 import { isSystemAudioActive, getStereoStream } from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
+import { forceStereoSdp } from './peer.ts';
+
 // ─── SDP Munging: Force Opus Stereo ───────────────────────────────
 
-function forceStereoSdp(sdp: string): string {
-  let modified = sdp;
-  // 1. Find opus payload types
-  const opusPTs: string[] = [];
-  const rtpmapRegex = /a=rtpmap:(\d+) opus\/48000\/2/g;
-  let match;
-  while ((match = rtpmapRegex.exec(sdp)) !== null) {
-    opusPTs.push(match[1]);
-  }
-
-  // 2. Add stereo params to fmtp lines
-  for (const pt of opusPTs) {
-    const fmtpRegex = new RegExp(`a=fmtp:${pt}(.*)`);
-    if (fmtpRegex.test(modified)) {
-      modified = modified.replace(fmtpRegex, (line) => {
-        if (!line.includes('stereo=1')) {
-          return line + '; stereo=1; sprop-stereo=1; maxaveragebitrate=510000';
-        }
-        return line;
-      });
-    } else {
-      modified += `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=510000`;
-    }
-  }
-  return modified;
-}
-
 function applySdpMunge(mc: MediaConnection): void {
-  const pc = mc.peerConnection as RTCPeerConnection | undefined;
-  if (!pc) return;
+  const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
+  if (!pc) {
+    log.warn('[SysAudioHost] No peerConnection found on MediaConnection object');
+    return;
+  }
 
-  // Intercept createOffer to munge SDP
-  const originalCreateOffer = pc.createOffer.bind(pc);
-  // @ts-ignore - Handle legacy vs modern overloads
-  pc.createOffer = async (options?: any) => {
-    const offer = await originalCreateOffer(options);
-    if (offer.sdp) offer.sdp = forceStereoSdp(offer.sdp);
-    return offer;
+  // Intercept setLocalDescription (more robust than createOffer for some PeerJS scenarios)
+  const originalSetLocal = pc.setLocalDescription.bind(pc);
+  pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
+    if (desc && desc.sdp) {
+      desc.sdp = forceStereoSdp(desc.sdp);
+    }
+    return originalSetLocal(desc);
   };
 }
 

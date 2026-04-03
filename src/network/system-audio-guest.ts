@@ -15,6 +15,8 @@ import { stopAllMedia } from '../player/transport.ts';
 import { registerHandler } from './protocol.ts';
 import type { MediaConnection } from 'peerjs';
 
+import { forceStereoSdp } from './peer.ts';
+
 // ─── Module State ─────────────────────────────────────────────────
 
 let _mediaConnL: MediaConnection | null = null;
@@ -29,6 +31,26 @@ let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
 let _prevTrackMeta: unknown = null;
+
+// ─── SDP Munging ──────────────────────────────────────────────────
+
+function applySdpMunge(mc: MediaConnection): void {
+  const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
+  if (!pc) return;
+
+  // Guest munges both local/remote to be safe
+  const originalSetLocal = pc.setLocalDescription.bind(pc);
+  pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
+    if (desc && desc.sdp) desc.sdp = forceStereoSdp(desc.sdp);
+    return originalSetLocal(desc);
+  };
+
+  const originalSetRemote = pc.setRemoteDescription.bind(pc);
+  pc.setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
+    if (desc && desc.sdp) desc.sdp = forceStereoSdp(desc.sdp);
+    return originalSetRemote(desc);
+  };
+}
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -53,6 +75,10 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   } else if (channel === 'STEREO') {
     if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } }
     _mediaConnStereo = mediaConn;
+  }
+
+  if (channel === 'STEREO' || channel === 'DUAL') {
+    applySdpMunge(mediaConn);
   }
 
   mediaConn.answer();

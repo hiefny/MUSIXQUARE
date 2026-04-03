@@ -47,6 +47,39 @@ export {
 
 export { joinSession } from './guest.ts';
 
+// ─── SDP Utils ──────────────────────────────────────────────────────
+
+/**
+ * Munge SDP to force Opus codec into high-fidelity stereo mode.
+ * Fixes Chrome's tendency to downmix to 1-channel mono.
+ */
+export function forceStereoSdp(sdp: string): string {
+  let modified = sdp;
+  // 1. Find opus payload types
+  const opusPTs: string[] = [];
+  const rtpmapRegex = /a=rtpmap:(\d+) opus\/48000\/2/g;
+  let match;
+  while ((match = rtpmapRegex.exec(sdp)) !== null) {
+    opusPTs.push(match[1]);
+  }
+
+  // 2. Add/replace stereo params to fmtp lines
+  for (const pt of opusPTs) {
+    const fmtpRegex = new RegExp(`a=fmtp:${pt}(.*)`);
+    if (fmtpRegex.test(modified)) {
+      modified = modified.replace(fmtpRegex, (line) => {
+        // Strip out existing stereo-related params
+        let newLine = line.replace(/;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g, '');
+        // Append our high-fidelity stereo params
+        return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1';
+      });
+    } else {
+      modified += `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1`;
+    }
+  }
+  return modified;
+}
+
 // ─── Network Initialization ─────────────────────────────────────────
 
 /**

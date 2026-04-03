@@ -98,10 +98,18 @@ export async function startSystemAudioCapture(): Promise<void> {
   _stereoDest = ctx.createMediaStreamDestination();
   _stereoDest.channelCount = 2;
   _stereoDest.channelCountMode = 'explicit';
-  _sourceNode.connect(_stereoDest);
+  
+  // Create a dedicated upmixer for the network stream to ensure 2 channels
+  const networkUpmix = ctx.createGain();
+  networkUpmix.channelCount = 2;
+  networkUpmix.channelCountMode = 'explicit';
+  networkUpmix.channelInterpretation = 'speakers';
+  
+  _sourceNode.connect(networkUpmix);
+  networkUpmix.connect(_stereoDest);
   _stereoStream = _stereoDest.stream;
 
-  log.info(`[SystemAudio] Stereo stream created: id=${_stereoStream.id.slice(0, 8)}`);
+  log.info(`[SystemAudio] Stereo stream created (upmixed): id=${_stereoStream.id.slice(0, 8)}`);
 
   // 6. Local graph: upmix for safety
   const stereoUpmix = ctx.createGain();

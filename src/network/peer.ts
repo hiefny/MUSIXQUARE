@@ -103,42 +103,46 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setPeer(null);
   }
 
-  // PeerJS default config — no iceServers override, let PeerJS use its built-in defaults
-  // (same as 8ball: `new Peer()` with zero config)
-  //
-  // To re-enable custom TURN:
-  // 1. Uncomment the iceServers block below
-  // 2. Set TURN_USER/TURN_PASS in Netlify env
-  /*
-  const iceServers = [
+  // ICE servers: STUN always, TURN via Netlify Function (Metered.ca)
+  const iceServers: Record<string, unknown>[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
+
   const turnEndpoints = [
     '/.netlify/functions/get-turn-config',
     'https://musixquare.netlify.app/.netlify/functions/get-turn-config',
   ];
+
   for (const url of turnEndpoints) {
     try {
       const resp = await fetch(url);
       if (resp.ok) {
-        const { username, credential } = await resp.json();
+        const { username, credential } = await resp.json() as { username: string; credential: string };
         if (username && credential) {
           iceServers.push(
             { urls: 'turn:standard.relay.metered.ca:443', username, credential },
             { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
             { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
           );
+          log.info('[Network] TURN credentials loaded (Metered.ca)');
           break;
         }
       }
-    } catch { }
+    } catch {
+      // Try next endpoint
+    }
   }
-  */
+  if (iceServers.length <= 2) {
+    log.debug('[Network] TURN config unavailable — STUN only');
+  }
 
   const peerOpts: PeerOptions = {
     debug: 2,
-    // No config override — PeerJS uses its built-in ICE servers
+    config: {
+      iceServers,
+      bundlePolicy: 'max-bundle',
+    },
   };
 
   // Allow custom PeerJS signaling server injection

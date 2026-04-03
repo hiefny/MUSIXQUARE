@@ -140,9 +140,8 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     debug: 2,
     config: {
       iceServers,
-      sdpSemantics: 'unified-plan',
-      bundlePolicy: 'max-bundle',
-      iceCandidatePoolSize: 0,
+      // Minimal config like 8ball — no bundlePolicy/iceCandidatePoolSize overrides
+      // that could interfere with NAT traversal on mobile carriers
     },
   };
 

@@ -294,8 +294,9 @@ export function resetState(): void {
 }
 
 // ─── E2E Test Hook ─────────────────────────────────────────────────
-// Expose getState/setState globally so Playwright can read/write app state.
-if (typeof window !== 'undefined') {
+// Expose getState only in development (Playwright tests).
+// Production builds strip this via Vite's import.meta.env.DEV.
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ = getState;
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ = setState;
 }

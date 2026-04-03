@@ -2310,6 +2310,18 @@
         gap: 10px;
     }
 
+    .legal-block {
+        border-top: 1px solid var(--divider);
+        margin-top: 8px;
+    }
+
+    .legal-desc {
+        font-size: 12px !important;
+        line-height: 1.6 !important;
+        color: var(--text-sub) !important;
+        opacity: 0.8;
+    }
+
     .help-title svg {
         width: 22px;
         height: 22px;

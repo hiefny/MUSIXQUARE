@@ -450,6 +450,10 @@ const en: Record<I18nKey, string> = {
   'system_audio.no_audio_track': 'Please check "Share audio" to share sound.',
   'system_audio.stop': 'Stop Sharing',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
+
+  // ─── Legal ────────────────────────────────────────────────────────
+  'legal.title': 'Copyright · Privacy · Disclaimer',
+  'legal.content_html': '<strong>Copyright Notice</strong><br>Copyright for music, videos, and other content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy</strong><br>MUSIXQUARE operates on a P2P (peer-to-peer) basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge with no guarantee of availability or stability. Mobile data charges may apply when not on Wi-Fi. The developer assumes no liability for any issues that may arise during use.',
 };
 
 export default en;

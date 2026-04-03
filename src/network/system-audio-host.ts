@@ -11,30 +11,50 @@ import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { getPeer } from './peer-state.ts';
 import { broadcast } from './peer-state.ts';
-import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
+import { isSystemAudioActive, getStereoStream } from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
-// ─── Boost Opus Bitrate via RTCRtpSender ─────────────────────────
+// ─── SDP Munging: Force Opus Stereo ───────────────────────────────
 
-function boostSenderBitrate(mc: MediaConnection): void {
+function forceStereoSdp(sdp: string): string {
+  let modified = sdp;
+  // 1. Find opus payload types
+  const opusPTs: string[] = [];
+  const rtpmapRegex = /a=rtpmap:(\d+) opus\/48000\/2/g;
+  let match;
+  while ((match = rtpmapRegex.exec(sdp)) !== null) {
+    opusPTs.push(match[1]);
+  }
+
+  // 2. Add stereo params to fmtp lines
+  for (const pt of opusPTs) {
+    const fmtpRegex = new RegExp(`a=fmtp:${pt}(.*)`);
+    if (fmtpRegex.test(modified)) {
+      modified = modified.replace(fmtpRegex, (line) => {
+        if (!line.includes('stereo=1')) {
+          return line + '; stereo=1; sprop-stereo=1; maxaveragebitrate=510000';
+        }
+        return line;
+      });
+    } else {
+      modified += `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=510000`;
+    }
+  }
+  return modified;
+}
+
+function applySdpMunge(mc: MediaConnection): void {
   const pc = mc.peerConnection as RTCPeerConnection | undefined;
   if (!pc) return;
 
-  pc.addEventListener('connectionstatechange', () => {
-    if (pc.connectionState === 'connected') {
-      for (const sender of pc.getSenders()) {
-        if (sender.track?.kind === 'audio') {
-          try {
-            const params = sender.getParameters();
-            if (params.encodings?.[0]) {
-              params.encodings[0].maxBitrate = 128000;
-              sender.setParameters(params).catch(() => { /* noop */ });
-            }
-          } catch { /* noop */ }
-        }
-      }
-    }
-  });
+  // Intercept createOffer to munge SDP
+  const originalCreateOffer = pc.createOffer.bind(pc);
+  // @ts-ignore - Handle legacy vs modern overloads
+  pc.createOffer = async (options?: any) => {
+    const offer = await originalCreateOffer(options);
+    if (offer.sdp) offer.sdp = forceStereoSdp(offer.sdp);
+    return offer;
+  };
 }
 
 // ─── Module State ─────────────────────────────────────────────────
@@ -45,35 +65,29 @@ const _mediaConns = new Map<string, MediaConnection>();
 
 function callGuest(guestPeerId: string): void {
   const peer = getPeer();
-  const streamL = getStreamL();
-  const streamR = getStreamR();
-  if (!peer || !streamL || !streamR) return;
+  const stereoStream = getStereoStream();
+  if (!peer || !stereoStream) return;
   if (_mediaConns.has(guestPeerId)) return;
 
-  // Block remote (TURN) peers — system audio streaming must not go through TURN
+  // Block remote (TURN) peers
   const peers = getState('network.connectedPeers');
   const peerObj = peers.find(p => p.id === guestPeerId);
   if (peerObj && peerObj.connectionType !== 'local') {
-    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)} (type: ${peerObj.connectionType})`);
+    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)}`);
     return;
   }
 
   try {
-    const dualStream = new MediaStream([
-      streamL.getAudioTracks()[0],
-      streamR.getAudioTracks()[0]
-    ]);
-
-    const mc = peer.call(guestPeerId, dualStream, {
-      metadata: { type: 'system-audio-dual' },
+    const mc = peer.call(guestPeerId, stereoStream, {
+      metadata: { type: 'system-audio-stereo' }, // New type for clarity
     });
-    
-    boostSenderBitrate(mc);
+
+    applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
     mc.on('close', () => _mediaConns.delete(guestPeerId));
     mc.on('error', () => _mediaConns.delete(guestPeerId));
 
-    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single connection, dual-track stream`);
+    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single stereo stream with SDP munge`);
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
   }

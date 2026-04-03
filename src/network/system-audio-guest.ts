@@ -20,17 +20,20 @@ import type { MediaConnection } from 'peerjs';
 let _mediaConnL: MediaConnection | null = null;
 let _mediaConnR: MediaConnection | null = null;
 let _mediaConnDual: MediaConnection | null = null;
+let _mediaConnStereo: MediaConnection | null = null;
 let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
+let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
 let _gotL = false;
 let _gotR = false;
+let _gotStereo = false;
 let _prevTrackMeta: unknown = null;
 
 // ─── Public API ───────────────────────────────────────────────────
 
 export function isReceivingSystemAudio(): boolean {
-  return _gotL || _gotR;
+  return _gotL || _gotR || _gotStereo;
 }
 
 // ─── Handle Incoming Media Call ───────────────────────────────────
@@ -47,62 +50,68 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   } else if (channel === 'DUAL') {
     if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } }
     _mediaConnDual = mediaConn;
+  } else if (channel === 'STEREO') {
+    if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } }
+    _mediaConnStereo = mediaConn;
   }
 
   mediaConn.answer();
-
-  // Browser manages jitter buffer — playoutDelayHint=0 causes iOS 26 stutter.
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);
 
     await initAudio();
     const ctx = getAudioContext();
-
-    // Create merger on first stream
-    if (!_merger) {
-      const widener = getWidener();
-      if (!widener) {
-        log.error('[SysAudioGuest] Audio graph not ready');
-        return;
-      }
-      _merger = ctx.createChannelMerger(2);
-      _merger.connect(widener.input);
+    const widener = getWidener();
+    if (!widener) {
+      log.error('[SysAudioGuest] Audio graph not ready');
+      return;
     }
 
-    if (channel === 'DUAL') {
-      const tracks = remoteStream.getAudioTracks();
-      if (tracks.length < 2) {
-        log.warn('[SysAudioGuest] Dual stream received but <2 tracks found');
-        return;
+    if (channel === 'STEREO') {
+      if (_sourceStereo) { try { _sourceStereo.disconnect(); } catch { /* noop */ } }
+      _sourceStereo = ctx.createMediaStreamSource(remoteStream);
+      _sourceStereo.connect(widener.input);
+      _gotStereo = true;
+    } else {
+      // Legacy L/R/DUAL logic (preserved for compatibility with older hosts)
+      if (!_merger) {
+        _merger = ctx.createChannelMerger(2);
+        _merger.connect(widener.input);
       }
 
-      const sysStreamL = new MediaStream([tracks[0]]);
-      const sysStreamR = new MediaStream([tracks[1]]);
+      if (channel === 'DUAL') {
+        const tracks = remoteStream.getAudioTracks();
+        if (tracks.length < 2) {
+          log.warn('[SysAudioGuest] Dual stream received but <2 tracks found');
+          return;
+        }
+        const sysStreamL = new MediaStream([tracks[0]]);
+        const sysStreamR = new MediaStream([tracks[1]]);
 
-      if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
-      if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
-
-      _sourceL = ctx.createMediaStreamSource(sysStreamL);
-      _sourceL.connect(_merger, 0, 0);
-      _gotL = true;
-
-      _sourceR = ctx.createMediaStreamSource(sysStreamR);
-      _sourceR.connect(_merger, 0, 1);
-      _gotR = true;
-    } else {
-      const source = ctx.createMediaStreamSource(remoteStream);
-
-      if (channel === 'L') {
         if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
-        _sourceL = source;
-        source.connect(_merger, 0, 0); // mono source → merger L input
-        _gotL = true;
-      } else {
         if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
-        _sourceR = source;
-        source.connect(_merger, 0, 1); // mono source → merger R input
+
+        _sourceL = ctx.createMediaStreamSource(sysStreamL);
+        _sourceL.connect(_merger, 0, 0);
+        _gotL = true;
+
+        _sourceR = ctx.createMediaStreamSource(sysStreamR);
+        _sourceR.connect(_merger, 0, 1);
         _gotR = true;
+      } else {
+        const source = ctx.createMediaStreamSource(remoteStream);
+        if (channel === 'L') {
+          if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
+          _sourceL = source;
+          source.connect(_merger, 0, 0);
+          _gotL = true;
+        } else {
+          if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
+          _sourceR = source;
+          source.connect(_merger, 0, 1);
+          _gotR = true;
+        }
       }
     }
 
@@ -111,7 +120,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       setState('systemAudio.isReceiving', true);
       setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
       bus.emit('visualizer:start');
-      log.info('[SysAudioGuest] System audio connected to graph (stereo merge)');
+      log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
     }
   });
 
@@ -119,8 +128,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
     if (channel === 'DUAL') { _gotL = false; _gotR = false; _mediaConnDual = null; }
     else if (channel === 'L') { _gotL = false; _mediaConnL = null; }
-    else { _gotR = false; _mediaConnR = null; }
-    if (!_gotL && !_gotR) cleanupGuestSystemAudio();
+    else if (channel === 'R') { _gotR = false; _mediaConnR = null; }
+    else if (channel === 'STEREO') { _gotStereo = false; _mediaConnStereo = null; }
+    if (!_gotL && !_gotR && !_gotStereo) cleanupGuestSystemAudio();
   });
 
   mediaConn.on('error', (err: unknown) => {
@@ -133,12 +143,15 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 function cleanupGuestSystemAudio(): void {
   if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } _sourceL = null; }
   if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } _sourceR = null; }
+  if (_sourceStereo) { try { _sourceStereo.disconnect(); } catch { /* noop */ } _sourceStereo = null; }
   if (_merger) { try { _merger.disconnect(); } catch { /* noop */ } _merger = null; }
   if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } _mediaConnL = null; }
   if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } _mediaConnR = null; }
   if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } _mediaConnDual = null; }
+  if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } _mediaConnStereo = null; }
   _gotL = false;
   _gotR = false;
+  _gotStereo = false;
 
   setState('systemAudio.isReceiving', false);
   setState('player.currentTrackMeta', _prevTrackMeta ?? null);

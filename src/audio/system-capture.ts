@@ -20,10 +20,8 @@ import { broadcast } from '../network/peer.ts';
 
 let _capturedStream: MediaStream | null = null;
 let _sourceNode: MediaStreamAudioSourceNode | null = null;
-let _streamL: MediaStream | null = null;
-let _streamR: MediaStream | null = null;
-let _destL: MediaStreamAudioDestinationNode | null = null;
-let _destR: MediaStreamAudioDestinationNode | null = null;
+let _stereoStream: MediaStream | null = null;
+let _stereoDest: MediaStreamAudioDestinationNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
@@ -37,10 +35,8 @@ export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
 
-/** Get the L mono stream for P2P */
-export function getStreamL(): MediaStream | null { return _streamL; }
-/** Get the R mono stream for P2P */
-export function getStreamR(): MediaStream | null { return _streamR; }
+/** Get the stereo stream for P2P */
+export function getStereoStream(): MediaStream | null { return _stereoStream; }
 
 /**
  * Start system audio capture.
@@ -98,25 +94,14 @@ export async function startSystemAudioCapture(): Promise<void> {
   _capturedStream = stream;
   _sourceNode = ctx.createMediaStreamSource(stream);
 
-  // 5. Split into L and R mono MediaStreams for P2P
-  const splitter = ctx.createChannelSplitter(2);
-  _sourceNode.connect(splitter);
+  // 5. Connect to stereo MediaStream destination for P2P
+  _stereoDest = ctx.createMediaStreamDestination();
+  _stereoDest.channelCount = 2;
+  _stereoDest.channelCountMode = 'explicit';
+  _sourceNode.connect(_stereoDest);
+  _stereoStream = _stereoDest.stream;
 
-  // L channel → mono MediaStream
-  _destL = ctx.createMediaStreamDestination();
-  _destL.channelCount = 1;
-  _destL.channelCountMode = 'explicit';
-  splitter.connect(_destL, 0);
-  _streamL = _destL.stream;
-
-  // R channel → mono MediaStream
-  _destR = ctx.createMediaStreamDestination();
-  _destR.channelCount = 1;
-  _destR.channelCountMode = 'explicit';
-  splitter.connect(_destR, 1);
-  _streamR = _destR.stream;
-
-  log.info(`[SystemAudio] L/R streams created: L=${_streamL.id.slice(0, 8)}, R=${_streamR.id.slice(0, 8)}`);
+  log.info(`[SystemAudio] Stereo stream created: id=${_stereoStream.id.slice(0, 8)}`);
 
   // 6. Local graph: upmix for safety
   const stereoUpmix = ctx.createGain();
@@ -155,7 +140,7 @@ export async function startSystemAudioCapture(): Promise<void> {
     stopSystemAudioCapture();
   });
 
-  log.info('[SystemAudio] Capture started (dual-stream)');
+  log.info('[SystemAudio] Capture started (stereo-stream)');
 }
 
 /**
@@ -208,10 +193,8 @@ function cleanupCapture(): void {
     try { _sourceNode.disconnect(); } catch { /* noop */ }
     _sourceNode = null;
   }
-  if (_destL) { try { _destL.disconnect(); } catch { /* noop */ } _destL = null; }
-  if (_destR) { try { _destR.disconnect(); } catch { /* noop */ } _destR = null; }
-  _streamL = null;
-  _streamR = null;
+  if (_stereoDest) { try { _stereoDest.disconnect(); } catch { /* noop */ } _stereoDest = null; }
+  _stereoStream = null;
   if (_capturedStream) {
     for (const track of _capturedStream.getTracks()) track.stop();
     _capturedStream = null;

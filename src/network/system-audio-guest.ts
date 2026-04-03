@@ -123,24 +123,40 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
         if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
 
-        if (tracks.length >= 2) {
-          // Robust dual-track extraction
+        // Use ID-to-Channel mapping from host if available (synced mode)
+        const mapping = (mediaConn.metadata as any)?.mapping;
+
+        if (mapping && tracks.length >= 2) {
+          log.info('[SysAudioGuest] Using ID-based track mapping for crystal-clear stereo');
+          for (const t of tracks) {
+            const role = mapping[t.id];
+            const source = ctx.createMediaStreamSource(new MediaStream([t]));
+            if (role === 'L') {
+              _sourceL = source;
+              source.connect(_merger, 0, 0);
+              _gotL = true;
+            } else if (role === 'R') {
+              _sourceR = source;
+              source.connect(_merger, 0, 1);
+              _gotR = true;
+            }
+          }
+        } else if (tracks.length >= 2) {
+          // Standard track order (default)
           _sourceL = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
           _sourceL.connect(_merger, 0, 0);
           _gotL = true;
-
           _sourceR = ctx.createMediaStreamSource(new MediaStream([tracks[1]]));
           _sourceR.connect(_merger, 0, 1);
           _gotR = true;
         } else {
-          // Only 1 track received? Upmix to center so at least it's not 'only left'
+          // Failsafe: Upmix single track to center
           log.info(`[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`);
           const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-          monoSource.connect(_merger, 0, 0); // Connect to L
-          monoSource.connect(_merger, 0, 1); // Connect to R
-          _sourceL = monoSource; // Keep reference for cleanup
-          _gotL = true;
-          _gotR = true;
+          monoSource.connect(_merger, 0, 0);
+          monoSource.connect(_merger, 0, 1);
+          _sourceL = monoSource;
+          _gotL = true; _gotR = true;
         }
 
         if (channel === 'SYNCED') _gotSynced = true;

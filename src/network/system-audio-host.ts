@@ -55,14 +55,20 @@ function callGuest(guestPeerId: string): void {
 
   try {
     // SYNCED DUAL-TRACK SINGLE-STREAM:
-    // Create one stream containing two tracks. Browsers sync tracks within a stream.
-    const syncedStream = new MediaStream([
-      streamL.getAudioTracks()[0],
-      streamR.getAudioTracks()[0],
-    ]);
+    const trackL = streamL.getAudioTracks()[0];
+    const trackR = streamR.getAudioTracks()[0];
+
+    const syncedStream = new MediaStream([trackL, trackR]);
 
     const mc = peer.call(guestPeerId, syncedStream, {
-      metadata: { type: 'system-audio-synced' }, // New type for this refined approach
+      metadata: { 
+        type: 'system-audio-synced',
+        // Track ID mapping allows guest to correctly route L and R regardless of track order
+        mapping: {
+          [trackL.id]: 'L',
+          [trackR.id]: 'R'
+        }
+      },
     });
 
     applySdpMunge(mc);

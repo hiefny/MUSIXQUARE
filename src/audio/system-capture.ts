@@ -134,10 +134,8 @@ export async function startSystemAudioCapture(): Promise<void> {
     return;
   }
 
-  // 7. Host mute local
-  if (getState('systemAudio.hostMuteLocal')) {
-    muteLocalOutput(true);
-  }
+  // 7. Host mute local (always mute — avoid double audio)
+  muteLocalOutput(true);
 
   // 8. Update state
   setState('systemAudio.isSharing', true);

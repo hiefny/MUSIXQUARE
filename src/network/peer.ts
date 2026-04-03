@@ -109,13 +109,13 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
 
-  // Fetch TURN credentials from Netlify Function
-  // Try relative path first (same-origin Netlify), then absolute URL fallback (Toss in-app etc.)
+  // TURN disabled: STUN-only mode (no relay costs, P2P direct connection only)
+  // Re-enable by uncommenting the block below and setting TURN_USER/TURN_PASS in Netlify env.
+  /*
   const turnEndpoints = [
     '/.netlify/functions/get-turn-config',
     'https://musixquare.netlify.app/.netlify/functions/get-turn-config',
   ];
-
   for (const url of turnEndpoints) {
     try {
       const resp = await fetch(url);
@@ -131,13 +131,10 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
           break;
         }
       }
-    } catch {
-      // Try next endpoint
-    }
+    } catch { }
   }
-  if (iceServers.length <= 2) {
-    log.debug('[Network] TURN config unavailable — STUN only');
-  }
+  */
+  log.debug('[Network] STUN-only mode (TURN disabled)');
 
   const peerOpts: PeerOptions = {
     debug: 2,

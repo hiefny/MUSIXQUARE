@@ -310,7 +310,7 @@ function openFileSelector(): void {
 
 function handleMainSyncBtn(): void {
   const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     showToast(t('youtube.no_precision_sync'));
     return;
   }

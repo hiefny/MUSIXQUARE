@@ -107,6 +107,9 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
+  // Skip during precision sync cooldown
+  if (Date.now() < _precisionSyncUntil) return;
+
   try {
     const hostTime = Number(data.time) || 0;
     const hostState = Number(data.state);
@@ -200,6 +203,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+
+  // Skip during precision sync cooldown (prevents double-seek)
+  if (Date.now() < _precisionSyncUntil) return;
 
   // Skip state sync while host is likely watching an ad
   if (_hostAdPauseActive) return;
@@ -353,6 +359,7 @@ function startPrecisionSync(): void {
 
 let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
 let _syncSeekTime = 0;
+let _precisionSyncUntil = 0; // Suppress regular sync handlers until this timestamp
 
 function handleSyncPrepare(): void {
   // No longer used — kept for protocol compatibility
@@ -389,6 +396,7 @@ function handleSyncPulse(data: Record<string, unknown>): void {
     log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
 
     setTimeout(() => {
+      _precisionSyncUntil = Date.now() + 2000; // Suppress regular sync for 2s
       if (player.seekTo) player.seekTo(_syncSeekTime, true);
       log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
     }, waitMs);

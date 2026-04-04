@@ -574,6 +574,14 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
   });
 
+  // Guest: dim media source button (host-only action)
+  bus.on('state:network.hostConn', () => {
+    const mediaBtn = document.getElementById('btn-media-source');
+    if (mediaBtn) {
+      mediaBtn.style.opacity = getState('network.hostConn') ? '0.15' : '';
+    }
+  });
+
   // Language switch → refresh translated track title + tab title
   new MutationObserver(() => {
     refreshTrackTitle();
@@ -683,11 +691,8 @@ export function initPlayerControls(): void {
     if (mediaBtnLabel) {
       if (state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
         if (isGuest) {
-          // Guest: keep original label + color, just dim
-          if (mediaBtn) {
-            mediaBtn.style.opacity = '0.15';
-            mediaBtn.classList.add('sys-audio-guest');
-          }
+          // Guest: keep original label + color (opacity already set by hostConn listener)
+          if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
         } else {
           // Host: show stop button
           mediaBtnLabel.textContent = t('system_audio.stop');
@@ -699,7 +704,8 @@ export function initPlayerControls(): void {
           mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
         }
         if (mediaBtn) {
-          mediaBtn.style.opacity = '';
+          // Restore host opacity only — guest stays dimmed via hostConn listener
+          if (!getState('network.hostConn')) mediaBtn.style.opacity = '';
           mediaBtn.classList.remove('sys-audio-guest');
         }
       }

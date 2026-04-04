@@ -76,11 +76,15 @@ export function broadcastYouTubeSync(): void {
       }
     }
 
+    // Include current video ID for Mix playlist sync
+    const videoId = player.getVideoData?.()?.video_id || '';
+
     broadcast({
       type: MSG.YOUTUBE_SYNC,
       time: currentTime,
       state,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
+      videoId,
     });
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
@@ -148,7 +152,24 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
     }
 
-    // Sub-index change
+    // Video ID sync — fixes YouTube Mix (each device has different playlist order)
+    const hostVideoId = (data.videoId as string) || '';
+    if (hostVideoId && player.getVideoData) {
+      const guestVideoId = player.getVideoData()?.video_id || '';
+      if (guestVideoId && hostVideoId !== guestVideoId) {
+        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loading host video`);
+        if (player.loadVideoById) {
+          player.loadVideoById(hostVideoId);
+        }
+        // Update sub-index from host
+        if (hostSubIndex !== undefined && hostSubIndex !== -1) {
+          setYouTubeSubIndex(hostSubIndex);
+        }
+        return; // Skip drift correction — new video is loading
+      }
+    }
+
+    // Sub-index change (non-Mix playlists: same order on all devices)
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
@@ -160,13 +181,11 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           try {
             player.playVideoAt(hostSubIndex);
           } catch (e) {
-            // Rollback state on failure to keep UI in sync with actual player
             log.warn('[YouTube Sync] playVideoAt failed, rolling back sub-index:', e);
             setYouTubeSubIndex(currentSubIndex);
           }
         }
       }
-
     }
 
     // Drift correction
@@ -214,10 +233,23 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     const state = Number(data.state);
     const time = Number(data.time) || 0;
 
-    // Handle sub-index change from Host broadcast
+    // Video ID sync — fixes Mix playlists where sub-index = different video
     let subIndexChanged = false;
+    const hostVideoId = (data.videoId as string) || '';
     const subIndex = data.subIndex as number | undefined;
-    if (subIndex !== undefined && subIndex >= 0) {
+
+    if (hostVideoId && player.getVideoData) {
+      const guestVideoId = player.getVideoData()?.video_id || '';
+      if (guestVideoId && hostVideoId !== guestVideoId && player.loadVideoById) {
+        log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
+        player.loadVideoById(hostVideoId);
+        if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
+        subIndexChanged = true;
+      }
+    }
+
+    // Fallback: sub-index based (regular playlists)
+    if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
       if (player.playVideoAt) {
         const currentIdx = player.getPlaylistIndex?.() ?? -1;
         if (currentIdx !== subIndex) {

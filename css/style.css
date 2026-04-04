@@ -2318,6 +2318,13 @@
         gap: 10px;
     }
 
+    .setup-remote-hint {
+        font-size: 12px;
+        color: var(--text-sub);
+        opacity: 0.7;
+        margin-top: 8px;
+    }
+
     .legal-block {
         border-top: 1px dotted var(--surface-3);
         margin-top: 8px;

@@ -294,7 +294,9 @@ export function playNextTrack(): void {
       if (repeatMode === 0) {
         log.debug('[Host] Single track, shuffle ON, repeat OFF. Stopping.');
         stopAllMedia();
+        setState('player.currentTrackMeta', null);
         broadcast({ type: MSG.PAUSE, time: 0 });
+        showToast(t('toast.playlist_ended'));
         return;
       }
       nextIndex = 0;
@@ -313,7 +315,9 @@ export function playNextTrack(): void {
       } else {
         log.debug('[Host] End of playlist reached (Repeat OFF). Stopping.');
         stopAllMedia();
+        setState('player.currentTrackMeta', null);
         broadcast({ type: MSG.PAUSE, time: 0 });
+        showToast(t('toast.playlist_ended'));
         return;
       }
     }

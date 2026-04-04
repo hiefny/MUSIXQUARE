@@ -360,6 +360,7 @@ const en: Record<I18nKey, string> = {
   'toast.file_ready': 'Your file is ready! Press Play.',
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.youtube_syncing': 'Syncing YouTube...',
+  'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost — setting not synced',
   'toast.host_changed_setting': 'The host changed a setting',

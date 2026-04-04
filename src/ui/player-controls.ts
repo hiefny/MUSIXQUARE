@@ -308,7 +308,14 @@ function openFileSelector(): void {
 
 // ─── Sync Button ─────────────────────────────────────────────────
 
+let _syncCooldownUntil = 0;
+
 function handleMainSyncBtn(): void {
+  // Debounce: ignore rapid taps (3s cooldown)
+  const now = Date.now();
+  if (now < _syncCooldownUntil) return;
+  _syncCooldownUntil = now + 3000;
+
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     showToast(t('system_audio.no_precision_sync'));

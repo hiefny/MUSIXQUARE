@@ -671,8 +671,11 @@ export function initPlayerControls(): void {
     if (mediaBtnLabel) {
       if (state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
         if (isGuest) {
-          // Guest: keep original label, just dim
-          if (mediaBtn) mediaBtn.style.opacity = '0.15';
+          // Guest: keep original label + color, just dim
+          if (mediaBtn) {
+            mediaBtn.style.opacity = '0.15';
+            mediaBtn.classList.add('sys-audio-guest');
+          }
         } else {
           // Host: show stop button
           mediaBtnLabel.textContent = t('system_audio.stop');
@@ -683,7 +686,10 @@ export function initPlayerControls(): void {
           mediaBtnLabel.textContent = t('player.play_media');
           mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
         }
-        if (mediaBtn) mediaBtn.style.opacity = '';
+        if (mediaBtn) {
+          mediaBtn.style.opacity = '';
+          mediaBtn.classList.remove('sys-audio-guest');
+        }
       }
     }
   });

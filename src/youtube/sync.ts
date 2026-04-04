@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
+import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData } from './_state.ts';
@@ -260,9 +261,15 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
+    // Update seekbar IMMEDIATELY (before iframe seekTo — no 500ms polling wait)
+    if (time > 0) {
+      const duration = player.getDuration?.() || 0;
+      if (duration > 0) {
+        bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+      }
+    }
+
     if (state === 1 && player.playVideo) {
-      // Skip seek when sub-index just changed — new video starts at 0,
-      // seekTo would apply to the old (briefly still loaded) video frame
       if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
       player.playVideo();
     } else if (state === 2 && player.pauseVideo) {

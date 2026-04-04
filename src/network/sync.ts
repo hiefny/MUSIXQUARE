@@ -41,8 +41,6 @@ let _syncSampleExpected = 0;       // how many samples we're still waiting for
  * Host: broadcasts global resync. Guest: resets offset and requests sync time.
  */
 function handleMainSyncBtn(): void {
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
   const hostConn = getState('network.hostConn');
   if (!hostConn) {

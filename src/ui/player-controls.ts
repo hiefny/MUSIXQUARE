@@ -317,12 +317,13 @@ function handleMainSyncBtn(): void {
 
   const hostConn = getState('network.hostConn');
 
-  // YouTube mode: host triggers precision sync, guest shows toast
+  // YouTube mode: host broadcasts resync, guest runs auto-sync
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    if (hostConn) {
-      showToast(t('youtube.no_precision_sync'));
-    } else {
+    if (!hostConn) {
       bus.emit('youtube:precision-sync');
+      showToast(t('toast.youtube_syncing'));
+    } else {
+      bus.emit('sync:auto-sync');
       showToast(t('toast.youtube_syncing'));
     }
     return;

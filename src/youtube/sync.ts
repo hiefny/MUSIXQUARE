@@ -261,20 +261,22 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
-    // Update seekbar IMMEDIATELY (before iframe seekTo — no 500ms polling wait)
-    if (time > 0) {
-      const duration = player.getDuration?.() || 0;
-      if (duration > 0) {
-        bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
-      }
+    // Seekbar = source of truth: update seekbar FIRST, then iframe follows seekbar
+    const duration = player.getDuration?.() || 0;
+    if (time > 0 && duration > 0) {
+      bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
     }
 
+    // Read seekbar value (may include offsets/compensation) and use THAT for iframe
+    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+    const seekbarTime = slider ? parseFloat(slider.value) : time;
+
     if (state === 1 && player.playVideo) {
-      if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
+      if (!subIndexChanged && player.seekTo) player.seekTo(seekbarTime, true);
       player.playVideo();
     } else if (state === 2 && player.pauseVideo) {
       player.pauseVideo();
-      if (player.seekTo) player.seekTo(time, true);
+      if (player.seekTo) player.seekTo(seekbarTime, true);
     } else if (state === 0 || state === -1) {
       // ENDED (0) or STOPPED (-1): stop guest YouTube player
       if (player.stopVideo) player.stopVideo();

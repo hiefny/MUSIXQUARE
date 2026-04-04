@@ -195,7 +195,6 @@ const en: Record<I18nKey, string> = {
   'setup.enter_host_code': 'Enter the 6-digit code from the host',
   'setup.enter_host_code_alt': "Enter the host's code.",
   'setup.connect_devices': 'Now connect other devices.',
-  'setup.remote_youtube_hint': 'Note: YouTube Together works even on different networks.',
   'setup.enter_code_connect': 'Enter this code on other devices',
   'setup.last_step': 'Last step!',
   'setup.joining': 'Joining...',

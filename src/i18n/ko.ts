@@ -193,7 +193,6 @@ const ko = {
   'setup.enter_host_code': '방장이 알려준 6자리 코드를 입력해주세요',
   'setup.enter_host_code_alt': '호스트의 코드를 입력해주세요.',
   'setup.connect_devices': '이제 다른 기기들과 연결해주세요.',
-  'setup.remote_youtube_hint': '참고: 같은 네트워크가 아니더라도 유튜브 함께보기 기능은 이용할 수 있어요.',
   'setup.enter_code_connect': '이 코드를 다른 기기에 입력해주세요',
   'setup.last_step': '마지막이에요!',
   'setup.joining': '참가하는 중...',

@@ -315,20 +315,16 @@ const PLAY_DELAY = 1000;     // ms after last pulse → play
 
 function startPrecisionSync(): void {
   const player = getYouTubePlayer();
-  if (!player || !player.getCurrentTime || !player.pauseVideo) return;
+  if (!player || !player.getCurrentTime) return;
 
-  // 1. Pause all
-  player.pauseVideo();
-  broadcast({ type: MSG.YOUTUBE_SYNC_PREPARE });
-
-  // 2. Calculate target seek time (rounded down to second)
+  // 1. Calculate target seek time (rounded down to second)
   const currentTime = player.getCurrentTime();
   const seekTime = Math.floor(currentTime);
 
-  // 3. Tell guests what time we'll seek to (but DON'T seek yet — mobile auto-plays on seek)
+  // 2. Tell guests the target time
   broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });
 
-  // 4. Send 3 pulses at 300ms intervals
+  // 3. Send 3 pulses at 300ms intervals
   let pulsesSent = 0;
   const pulseTimer = setInterval(() => {
     pulsesSent++;
@@ -342,11 +338,10 @@ function startPrecisionSync(): void {
     if (pulsesSent >= PULSE_COUNT) {
       clearInterval(pulseTimer);
 
-      // 5. After PLAY_DELAY: seek + play simultaneously
+      // 4. After PLAY_DELAY: seekTo triggers instant playback
       setTimeout(() => {
         if (player.seekTo) player.seekTo(seekTime, true);
-        if (player.playVideo) player.playVideo();
-        log.info(`[YT PrecisionSync] Host seek+play at ${seekTime}s`);
+        log.info(`[YT PrecisionSync] Host seek to ${seekTime}s`);
       }, PLAY_DELAY);
     }
   }, PULSE_INTERVAL);
@@ -358,11 +353,8 @@ let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
 let _syncSeekTime = 0;
 
 function handleSyncPrepare(): void {
-  const player = getYouTubePlayer();
-  if (!player) return;
-  if (player.pauseVideo) player.pauseVideo();
+  // No longer used — kept for protocol compatibility
   _syncPulses = [];
-  log.debug('[YT PrecisionSync] Guest: prepared (paused)');
 }
 
 function handleSyncSeek(data: Record<string, unknown>): void {
@@ -400,8 +392,7 @@ function handleSyncPulse(data: Record<string, unknown>): void {
 
     setTimeout(() => {
       if (player.seekTo) player.seekTo(_syncSeekTime, true);
-      if (player.playVideo) player.playVideo();
-      log.info(`[YT PrecisionSync] Guest: play at ${_syncSeekTime}s`);
+      log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
     }, waitMs);
 
     _syncPulses = [];

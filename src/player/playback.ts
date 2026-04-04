@@ -312,16 +312,6 @@ export function initPlayback(): void {
     // Adding it again here would double-compensate, making the guest run ahead of host
     const compensatedTime = hostTime + localOffset;
 
-    const currentSyncState = getState('appState');
-
-    // YouTube mode: seekTo only (no play/pause — seekTo auto-resumes on mobile)
-    if (currentSyncState === APP_STATE.PLAYING_YOUTUBE) {
-      bus.emit('youtube:seek-to', compensatedTime);
-      const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
-      showToast(`${t('toast.sync_done')}${rttLabel}`);
-      return;
-    }
-
     if (isPlaying) {
       if (getCurrentAudioBuffer() || getVideoElement()?.src) {
         play(compensatedTime);
@@ -336,6 +326,7 @@ export function initPlayback(): void {
         return;
       }
       // Pause without destroying media — guest needs buffer/video intact to resume
+      const currentSyncState = getState('appState');
       if (currentSyncState === APP_STATE.PLAYING_AUDIO || currentSyncState === APP_STATE.PLAYING_VIDEO) {
         pause(compensatedTime);
       } else {

@@ -664,23 +664,25 @@ export function initPlayerControls(): void {
     const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     updatePlayIcon(playing);
 
-    // System audio: swap media source button text + guest opacity
+    // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
     const mediaBtn = document.getElementById('btn-media-source');
     const mediaBtnLabel = mediaBtn?.querySelector('span');
+    const isGuest = !!getState('network.hostConn');
     if (mediaBtnLabel) {
       if (state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-        mediaBtnLabel.textContent = t('system_audio.stop');
-        mediaBtnLabel.removeAttribute('data-i18n');
-        // Guest: very low opacity on stop button (host-only action)
-        if (getState('network.hostConn') && mediaBtn) {
-          mediaBtn.style.opacity = '0.15';
+        if (isGuest) {
+          // Guest: keep original label, just dim
+          if (mediaBtn) mediaBtn.style.opacity = '0.15';
+        } else {
+          // Host: show stop button
+          mediaBtnLabel.textContent = t('system_audio.stop');
+          mediaBtnLabel.removeAttribute('data-i18n');
         }
       } else {
         if (!mediaBtnLabel.getAttribute('data-i18n')) {
           mediaBtnLabel.textContent = t('player.play_media');
           mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
         }
-        // Restore opacity
         if (mediaBtn) mediaBtn.style.opacity = '';
       }
     }

@@ -94,8 +94,11 @@ export async function startSystemAudioCapture(): Promise<void> {
   // 3. Stop all current media
   stopAllMedia({ silent: true });
 
-  // 3.5 Force host to stereo (channel mode 0) during system audio
-  setState('audio.channelMode', 0);
+  // 3.5 UI only: show stereo button as active (actual channelMode unchanged)
+  try {
+    document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
+    document.querySelector('#grid-standard .ch-opt[data-ch="0"]')?.classList.add('active');
+  } catch { /* noop */ }
 
   // 4. Init audio
   await initAudio();
@@ -176,7 +179,11 @@ export function stopSystemAudioCapture(): void {
   if (_preSysAudioState) {
     setState('player.pausedAt', _preSysAudioState.pausedAt);
     setState('player.currentTrackMeta', _preSysAudioState.currentTrackMeta ?? null);
-    setState('audio.channelMode', _preSysAudioState.channelMode);
+    // Restore channel UI to previous selection
+    try {
+      document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
+      document.querySelector(`#grid-standard .ch-opt[data-ch="${_preSysAudioState.channelMode}"]`)?.classList.add('active');
+    } catch { /* noop */ }
     if (_preSysAudioState.appState !== APP_STATE.IDLE) {
       setState('appState', APP_STATE.PAUSED);
     } else {

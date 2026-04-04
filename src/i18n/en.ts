@@ -359,7 +359,7 @@ const en: Record<I18nKey, string> = {
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready! Press Play.',
   'toast.host_ad': 'The host seems to be watching an ad',
-  'toast.youtube_syncing': 'Syncing YouTube...',
+  'toast.youtube_syncing': 'Syncing YouTube.. playback in 2s',
   'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost — setting not synced',

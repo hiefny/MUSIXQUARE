@@ -368,27 +368,23 @@ function handleSyncPulse(data: Record<string, unknown>): void {
   if (!player) return;
 
   const seq = Number(data.seq) || 0;
-  const hostTs = Number(data.hostTs) || 0;
   const receivedAt = Date.now();
 
-  _syncPulses.push({ seq, hostTs, receivedAt });
-  log.debug(`[YT PrecisionSync] Guest: pulse ${seq}, oneWay=${receivedAt - hostTs}ms`);
+  _syncPulses.push({ seq, hostTs: 0, receivedAt });
+  log.debug(`[YT PrecisionSync] Guest: pulse ${seq}`);
 
   if (seq >= PULSE_COUNT) {
-    // Pick the pulse with minimum one-way latency (most accurate)
-    const best = _syncPulses.reduce((a, b) =>
-      (a.receivedAt - a.hostTs) < (b.receivedAt - b.hostTs) ? a : b
-    );
-    const oneWayMs = best.receivedAt - best.hostTs;
+    // Use last pulse's arrival time as anchor (guest clock only — no cross-clock issues)
+    const lastPulseReceived = _syncPulses[_syncPulses.length - 1].receivedAt;
 
-    // Host plays at: 3rd pulse hostTs + PLAY_DELAY
-    // Guest should play at: 3rd pulse hostTs + PLAY_DELAY - oneWayMs (in local clock)
-    const thirdPulse = _syncPulses[_syncPulses.length - 1];
-    const hostPlayTime = thirdPulse.hostTs + PLAY_DELAY;
-    const localPlayTime = hostPlayTime - oneWayMs;
-    const waitMs = Math.max(0, localPlayTime - Date.now());
+    // Compensate for one-way latency using existing RTT measurement
+    const rtt = getState('sync.lastLatencyMs') || 0;
+    const halfRtt = rtt / 2;
 
-    log.info(`[YT PrecisionSync] Guest: bestOneWay=${oneWayMs}ms, wait=${waitMs}ms`);
+    // Guest seeks at: lastPulseReceived + PLAY_DELAY - halfRtt
+    const waitMs = Math.max(0, (lastPulseReceived + PLAY_DELAY - halfRtt) - Date.now());
+
+    log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
 
     setTimeout(() => {
       if (player.seekTo) player.seekTo(_syncSeekTime, true);

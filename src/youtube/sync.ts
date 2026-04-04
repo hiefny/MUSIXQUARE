@@ -396,7 +396,7 @@ function handleSyncPulse(data: Record<string, unknown>): void {
     log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
 
     setTimeout(() => {
-      _precisionSyncUntil = Date.now() + 2000; // Suppress regular sync for 2s
+      _precisionSyncUntil = Date.now() + 3000; // Suppress regular sync for 3s (matches drift threshold)
       if (player.seekTo) player.seekTo(_syncSeekTime, true);
       log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
     }, waitMs);

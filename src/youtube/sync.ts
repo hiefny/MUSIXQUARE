@@ -322,14 +322,14 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   setSubItemsData(playlistId, ids, titles);
 
-  // If this is a YouTube Mix (RD...) and we are currently playing it, 
-  // force a reload using the static ID list to match the Host's sequence.
+  // If this is a YouTube Mix (RD...) and we are currently playing it,
+  // force a reload ONCE using the static ID list to match the Host's sequence.
   if (playlistId.startsWith('RD')) {
     const currentPlaylist = getState('playlist.items')?.[getState('playlist.currentTrackIndex')]?.playlistId;
-    if (currentPlaylist === playlistId) {
-      log.info('[YouTube Mix] Forcing guest reload with host-snapshot IDs:', playlistId);
+    if (currentPlaylist === playlistId && !_mixReloadedIds.has(playlistId)) {
+      _mixReloadedIds.add(playlistId);
+      log.info('[YouTube Mix] Forcing guest reload (once) with host-snapshot IDs:', playlistId);
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
-      // Pass the array of IDs instead of the 'RD...' string
       import('./iframe.ts').then(mod => {
         mod.loadYouTubeVideo(null, ids, true, subIndex);
       });
@@ -416,6 +416,7 @@ function startPrecisionSync(): void {
 let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
 let _syncSeekTime = 0;
 let _precisionSyncUntil = 0;
+const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
 let _guestPlayTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function handleSyncPrepare(): void {
@@ -492,7 +493,10 @@ export function initYouTubeSync(): void {
   });
 
   // Reset ad detection when guest reconnects (receives new YouTube session)
-  bus.on('youtube:load', () => resetAdDetection());
+  bus.on('youtube:load', () => {
+    resetAdDetection();
+    _mixReloadedIds.clear();
+  });
 
   log.info('[YouTube Sync] Initialized');
 }

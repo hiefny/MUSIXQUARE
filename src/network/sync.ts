@@ -261,8 +261,6 @@ function handlePongLatency(data: Record<string, unknown>): void {
 }
 
 function handleSyncResponse(data: Record<string, unknown>): void {
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
 
   // If multi-sample sync is active, collect this sample
   if (_syncSampleExpected > 0) {

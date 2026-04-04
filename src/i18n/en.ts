@@ -295,7 +295,7 @@ const en: Record<I18nKey, string> = {
   'youtube.load_timeout': 'YouTube load timed out. Please try again.',
   'youtube.invalid_link': 'Invalid YouTube link',
   'youtube.not_valid_link': 'Not a valid YouTube link',
-  'youtube.no_precision_sync': "High-precision sync isn't available in YouTube mode.",
+  'youtube.no_precision_sync': 'Only the host can sync in YouTube mode.',
   'youtube.effects_disabled': 'Watch YouTube together — advanced audio effects are disabled.',
   'youtube.enter_link_placeholder': 'Enter a video or playlist link',
   'youtube.fetching_info': 'Loading video info...',

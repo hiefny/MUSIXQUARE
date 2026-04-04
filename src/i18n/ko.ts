@@ -293,7 +293,7 @@ const ko = {
   'youtube.load_timeout': 'YouTube 로드 시간 초과. 다시 시도해주세요.',
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
   'youtube.not_valid_link': '유효한 YouTube 링크가 아닙니다',
-  'youtube.no_precision_sync': 'YouTube 모드에서는 정밀 동기화를 지원하지 않아요',
+  'youtube.no_precision_sync': 'YouTube 모드에서는 방장만 동기화를 실행할 수 있어요',
   'youtube.effects_disabled': 'YouTube 같이 보기 - 고급 오디오 효과가 비활성화됩니다',
   'youtube.enter_link_placeholder': '동영상 또는 플레이리스트 링크를 입력하세요',
   'youtube.fetching_info': '영상 정보 불러오는 중...',

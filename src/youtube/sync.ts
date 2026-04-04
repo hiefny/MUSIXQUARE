@@ -177,7 +177,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       const currentTime = player.getCurrentTime();
       const drift = Math.abs(currentTime - compensatedTime);
 
-      if (drift > 2 && player.seekTo) {
+      if (drift > 3 && player.seekTo) {
         log.debug(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
         player.seekTo(compensatedTime, true);
       }

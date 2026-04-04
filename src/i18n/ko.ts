@@ -357,6 +357,7 @@ const ko = {
   'toast.hprecision_sync': '고정밀 동기화: 오디오를 준비하고 있어요…',
   'toast.file_ready': '파일이 준비됐어요! 재생 버튼을 눌러 보세요.',
   'toast.host_ad': '호스트가 광고를 보고 있는 것 같아요',
+  'toast.youtube_syncing': '유튜브 동기화 중...',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김 — 설정이 동기화되지 않았어요',
   'toast.host_changed_setting': '방장이 설정을 변경했어요',

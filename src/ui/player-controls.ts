@@ -310,16 +310,24 @@ function openFileSelector(): void {
 
 function handleMainSyncBtn(): void {
   const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    showToast(t('youtube.no_precision_sync'));
-    return;
-  }
   if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     showToast(t('system_audio.no_precision_sync'));
     return;
   }
 
   const hostConn = getState('network.hostConn');
+
+  // YouTube mode: host triggers precision sync, guest shows toast
+  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (hostConn) {
+      showToast(t('youtube.no_precision_sync'));
+    } else {
+      bus.emit('youtube:precision-sync');
+      showToast(t('toast.youtube_syncing'));
+    }
+    return;
+  }
+
   if (!hostConn) {
     showToast(t('toast.resync_all'));
     bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });

@@ -307,6 +307,114 @@ function handleYouTubeStop(): void {
   }
 }
 
+// ─── Precision Sync (Host) ────────────────────────────────────────
+
+const PULSE_COUNT = 3;
+const PULSE_INTERVAL = 300;  // ms between pulses
+const PLAY_DELAY = 1000;     // ms after last pulse → play
+
+function startPrecisionSync(): void {
+  const player = getYouTubePlayer();
+  if (!player || !player.getCurrentTime || !player.pauseVideo) return;
+
+  // 1. Pause all
+  player.pauseVideo();
+  broadcast({ type: MSG.YOUTUBE_SYNC_PREPARE });
+
+  // 2. Seek to rounded second
+  const currentTime = player.getCurrentTime();
+  const seekTime = Math.floor(currentTime);
+  if (player.seekTo) player.seekTo(seekTime, true);
+  broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });
+
+  // 3. Send 3 pulses at 300ms intervals
+  let pulsesSent = 0;
+  const pulseTimer = setInterval(() => {
+    pulsesSent++;
+    broadcast({
+      type: MSG.YOUTUBE_SYNC_PULSE,
+      seq: pulsesSent,
+      hostTs: Date.now(),
+    });
+    log.debug(`[YT PrecisionSync] Pulse ${pulsesSent}/${PULSE_COUNT}`);
+
+    if (pulsesSent >= PULSE_COUNT) {
+      clearInterval(pulseTimer);
+
+      // 4. Play after PLAY_DELAY
+      setTimeout(() => {
+        if (player.seekTo) player.seekTo(seekTime, true);
+        if (player.playVideo) player.playVideo();
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: seekTime,
+          subIndex: getState('youtube.currentSubIndex') ?? -1,
+        });
+        log.info(`[YT PrecisionSync] Host play at ${seekTime}s`);
+      }, PLAY_DELAY);
+    }
+  }, PULSE_INTERVAL);
+}
+
+// ─── Precision Sync (Guest) ───────────────────────────────────────
+
+let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
+let _syncSeekTime = 0;
+
+function handleSyncPrepare(): void {
+  const player = getYouTubePlayer();
+  if (!player) return;
+  if (player.pauseVideo) player.pauseVideo();
+  _syncPulses = [];
+  log.debug('[YT PrecisionSync] Guest: prepared (paused)');
+}
+
+function handleSyncSeek(data: Record<string, unknown>): void {
+  const player = getYouTubePlayer();
+  if (!player) return;
+  _syncSeekTime = Number(data.time) || 0;
+  if (player.seekTo) player.seekTo(_syncSeekTime, true);
+  log.debug(`[YT PrecisionSync] Guest: seeked to ${_syncSeekTime}s`);
+}
+
+function handleSyncPulse(data: Record<string, unknown>): void {
+  const player = getYouTubePlayer();
+  if (!player) return;
+
+  const seq = Number(data.seq) || 0;
+  const hostTs = Number(data.hostTs) || 0;
+  const receivedAt = Date.now();
+
+  _syncPulses.push({ seq, hostTs, receivedAt });
+  log.debug(`[YT PrecisionSync] Guest: pulse ${seq}, oneWay=${receivedAt - hostTs}ms`);
+
+  if (seq >= PULSE_COUNT) {
+    // Pick the pulse with minimum one-way latency (most accurate)
+    const best = _syncPulses.reduce((a, b) =>
+      (a.receivedAt - a.hostTs) < (b.receivedAt - b.hostTs) ? a : b
+    );
+    const oneWayMs = best.receivedAt - best.hostTs;
+
+    // Host plays at: 3rd pulse hostTs + PLAY_DELAY
+    // Guest should play at: 3rd pulse hostTs + PLAY_DELAY - oneWayMs (in local clock)
+    const thirdPulse = _syncPulses[_syncPulses.length - 1];
+    const hostPlayTime = thirdPulse.hostTs + PLAY_DELAY;
+    const localPlayTime = hostPlayTime - oneWayMs;
+    const waitMs = Math.max(0, localPlayTime - Date.now());
+
+    log.info(`[YT PrecisionSync] Guest: bestOneWay=${oneWayMs}ms, wait=${waitMs}ms`);
+
+    setTimeout(() => {
+      if (player.seekTo) player.seekTo(_syncSeekTime, true);
+      if (player.playVideo) player.playVideo();
+      log.info(`[YT PrecisionSync] Guest: play at ${_syncSeekTime}s`);
+    }, waitMs);
+
+    _syncPulses = [];
+  }
+}
+
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initYouTubeSync(): void {
@@ -316,6 +424,14 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
     [MSG.YOUTUBE_STOP]: handleYouTubeStop,
+    [MSG.YOUTUBE_SYNC_PREPARE]: handleSyncPrepare,
+    [MSG.YOUTUBE_SYNC_SEEK]: handleSyncSeek,
+    [MSG.YOUTUBE_SYNC_PULSE]: handleSyncPulse,
+  });
+
+  // Host: precision sync trigger
+  bus.on('youtube:precision-sync', () => {
+    startPrecisionSync();
   });
 
   // Reset ad detection when guest reconnects (receives new YouTube session)

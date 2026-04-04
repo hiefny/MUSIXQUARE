@@ -212,6 +212,12 @@ export interface ProtocolMap {
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
+  // ── YouTube Precision Sync ──────────────────────────────────────
+  'youtube-sync-prepare': NoPayload;
+  'youtube-sync-seek': { time: number };
+  'youtube-sync-pulse': { seq: number; hostTs: number };
+  'youtube-sync-go': NoPayload;
+
   // ── Chat ─────────────────────────────────────────────────────────
   'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number; joinOrder?: number };
 
@@ -432,6 +438,7 @@ interface BaseEventMap {
   'chat:notice-message': [sender: string, text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
+  'youtube:precision-sync': [];
   'youtube:load': [videoId: string | null, playlistId: string | null, autoplay?: boolean, subIndex?: number];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];

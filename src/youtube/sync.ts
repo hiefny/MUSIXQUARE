@@ -368,17 +368,23 @@ function startPrecisionSync(): void {
   const player = getYouTubePlayer();
   if (!player || !player.getCurrentTime) return;
 
-  // Cancel any in-progress sync (prevents timer accumulation)
+  // Cancel any in-progress sync
   if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
   if (_hostPlayTimeout) { clearTimeout(_hostPlayTimeout); _hostPlayTimeout = null; }
 
-  // 1. Calculate target seek time: jump FORWARD past the sync delay
-  const currentTime = player.getCurrentTime();
-  const totalDelayS = (PULSE_COUNT * PULSE_INTERVAL + PLAY_DELAY) / 1000;
-  const seekTime = Math.ceil(currentTime + totalDelayS);
+  // 1. Pause all devices
+  player.pauseVideo();
+  broadcast({ type: MSG.YOUTUBE_SYNC_PREPARE });
 
-  // 2. Tell guests the target time
+  // 2. Seek to rounded-down second (e.g. 16:44 → 16:00)
+  // Paused state → seekTo won't auto-play on mobile
+  // Recently played position → still in buffer → no rebuffering
+  const currentTime = player.getCurrentTime();
+  const seekTime = Math.floor(currentTime);
+  player.seekTo(seekTime, true);
   broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });
+
+  showToast(t('toast.youtube_syncing'));
 
   // 3. Send 3 pulses at 300ms intervals
   let pulsesSent = 0;
@@ -394,11 +400,12 @@ function startPrecisionSync(): void {
     if (pulsesSent >= PULSE_COUNT) {
       if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
 
-      // 4. After PLAY_DELAY: seekTo triggers instant playback
+      // 4. After PLAY_DELAY: play from the seeked position
       _hostPlayTimeout = setTimeout(() => {
         _hostPlayTimeout = null;
-        if (player.seekTo) player.seekTo(seekTime, true);
-        log.info(`[YT PrecisionSync] Host seek to ${seekTime}s`);
+        _precisionSyncUntil = Date.now() + 3000;
+        player.playVideo();
+        log.info(`[YT PrecisionSync] Host play at ${seekTime}s`);
       }, PLAY_DELAY);
     }
   }, PULSE_INTERVAL);
@@ -412,17 +419,23 @@ let _precisionSyncUntil = 0;
 let _guestPlayTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function handleSyncPrepare(): void {
-  // Reset guest state — cancel any pending play timer
+  // Pause + reset state
+  const player = getYouTubePlayer();
+  if (player?.pauseVideo) player.pauseVideo();
   _syncPulses = [];
   if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
+  showToast(t('toast.youtube_syncing'));
+  log.debug('[YT PrecisionSync] Guest: paused, waiting for seek + pulses');
 }
 
 function handleSyncSeek(data: Record<string, unknown>): void {
-  // New sync started — cancel any pending play from previous sync
+  // Seek while paused — won't auto-play, position is in buffer
+  const player = getYouTubePlayer();
   _syncPulses = [];
   if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
   _syncSeekTime = Number(data.time) || 0;
-  log.debug(`[YT PrecisionSync] Guest: target time ${_syncSeekTime}s (seek deferred)`);
+  if (player?.seekTo) player.seekTo(_syncSeekTime, true);
+  log.debug(`[YT PrecisionSync] Guest: seeked to ${_syncSeekTime}s (paused)`);
 }
 
 function handleSyncPulse(data: Record<string, unknown>): void {
@@ -451,8 +464,8 @@ function handleSyncPulse(data: Record<string, unknown>): void {
     _guestPlayTimeout = setTimeout(() => {
       _guestPlayTimeout = null;
       _precisionSyncUntil = Date.now() + 3000;
-      if (player.seekTo) player.seekTo(_syncSeekTime, true);
-      log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
+      if (player.playVideo) player.playVideo();
+      log.info(`[YT PrecisionSync] Guest: play at ${_syncSeekTime}s`);
     }, waitMs);
 
     _syncPulses = [];

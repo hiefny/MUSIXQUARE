@@ -311,13 +311,8 @@ export function initPlayback(): void {
     const compensatedTime = hostTime + localOffset;
     const currentSyncState = getState('appState');
 
-    // YouTube mode: seekTo (same infrastructure as local file)
-    if (currentSyncState === APP_STATE.PLAYING_YOUTUBE) {
-      bus.emit('youtube:seek-to', compensatedTime);
-      const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
-      showToast(`${t('toast.sync_done')}${rttLabel}`);
-      return;
-    }
+    // YouTube mode: handled by precision sync (pulse system), not NTP
+    if (currentSyncState === APP_STATE.PLAYING_YOUTUBE) return;
 
     if (isPlaying) {
       if (getCurrentAudioBuffer() || getVideoElement()?.src) {

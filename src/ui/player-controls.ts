@@ -324,7 +324,17 @@ function handleMainSyncBtn(): void {
 
   const hostConn = getState('network.hostConn');
 
-  // Same flow for all modes (file, YouTube) — host broadcasts resync, guest auto-syncs
+  // YouTube mode: host-only precision sync, guest blocked
+  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (hostConn) {
+      showToast(t('youtube.no_precision_sync'));
+      return;
+    }
+    bus.emit('youtube:precision-sync');
+    return;
+  }
+
+  // File mode: host broadcasts resync, guest auto-syncs
   if (!hostConn) {
     showToast(t('toast.resync_all'));
     bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });

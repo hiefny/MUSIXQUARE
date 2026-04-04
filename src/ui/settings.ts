@@ -8,6 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { APP_STATE } from '../core/constants.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 import { showToast } from './toast.ts';
@@ -442,7 +443,11 @@ export function initSettings(): void {
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
     el.addEventListener('click', () => {
-      // Role selection is always allowed — each device picks its own speaker role
+      // Host: block channel change during system audio sharing
+      if (!getState('network.hostConn') && getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+        showToast(t('system_audio.host_channel_locked'));
+        return;
+      }
       setChannel(parseInt(el.dataset.ch!, 10));
     });
   });

@@ -203,7 +203,7 @@ const en: Record<I18nKey, string> = {
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Need help?',
   'help.local_recommended': 'Local network recommended',
-  'help.connect_all_wifi': 'Connect all devices to the same Wi\u2011Fi',
+  'help.connect_all_wifi': 'Connect to the same network for full features',
   'help.local_file': 'Choose local file',
   'help.load_local': 'Load local file',
   'help.youtube_compat': 'YouTube (Compatible)',
@@ -364,7 +364,7 @@ const en: Record<I18nKey, string> = {
   'toast.host_changed_setting': 'The host changed a setting',
   'toast.session_mismatch': 'Session mismatch detected — file transfer will retry.',
   'toast.same_wifi_only': 'Connect via the same Wi-Fi to enjoy file sharing!',
-  'toast.same_wifi_file_title': 'File playback only available on same Wi-Fi',
+  'toast.same_wifi_file_title': 'Media sharing is only available on the same network',
   'toast.sync_done': 'Sync complete',
   'toast.sync_correction': 'correction',
   'toast.receiving_pct': 'Receiving... {{pct}}%',

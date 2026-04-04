@@ -351,12 +351,19 @@ const PULSE_COUNT = 3;
 const PULSE_INTERVAL = 300;  // ms between pulses
 const PLAY_DELAY = 1000;     // ms after last pulse → play
 
+// Host: track active timers to prevent accumulation on rapid taps
+let _hostPulseInterval: ReturnType<typeof setInterval> | null = null;
+let _hostPlayTimeout: ReturnType<typeof setTimeout> | null = null;
+
 function startPrecisionSync(): void {
   const player = getYouTubePlayer();
   if (!player || !player.getCurrentTime) return;
 
+  // Cancel any in-progress sync (prevents timer accumulation)
+  if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
+  if (_hostPlayTimeout) { clearTimeout(_hostPlayTimeout); _hostPlayTimeout = null; }
+
   // 1. Calculate target seek time: jump FORWARD past the sync delay
-  // Total delay ≈ pulses(900ms) + playDelay(1000ms) = ~1.9s → ceil to next second
   const currentTime = player.getCurrentTime();
   const totalDelayS = (PULSE_COUNT * PULSE_INTERVAL + PLAY_DELAY) / 1000;
   const seekTime = Math.ceil(currentTime + totalDelayS);
@@ -366,7 +373,7 @@ function startPrecisionSync(): void {
 
   // 3. Send 3 pulses at 300ms intervals
   let pulsesSent = 0;
-  const pulseTimer = setInterval(() => {
+  _hostPulseInterval = setInterval(() => {
     pulsesSent++;
     broadcast({
       type: MSG.YOUTUBE_SYNC_PULSE,
@@ -376,10 +383,11 @@ function startPrecisionSync(): void {
     log.debug(`[YT PrecisionSync] Pulse ${pulsesSent}/${PULSE_COUNT}`);
 
     if (pulsesSent >= PULSE_COUNT) {
-      clearInterval(pulseTimer);
+      if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
 
       // 4. After PLAY_DELAY: seekTo triggers instant playback
-      setTimeout(() => {
+      _hostPlayTimeout = setTimeout(() => {
+        _hostPlayTimeout = null;
         if (player.seekTo) player.seekTo(seekTime, true);
         log.info(`[YT PrecisionSync] Host seek to ${seekTime}s`);
       }, PLAY_DELAY);
@@ -391,16 +399,20 @@ function startPrecisionSync(): void {
 
 let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
 let _syncSeekTime = 0;
-let _precisionSyncUntil = 0; // Suppress regular sync handlers until this timestamp
+let _precisionSyncUntil = 0;
+let _guestPlayTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function handleSyncPrepare(): void {
-  // No longer used — kept for protocol compatibility
+  // Reset guest state — cancel any pending play timer
   _syncPulses = [];
+  if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
 }
 
 function handleSyncSeek(data: Record<string, unknown>): void {
+  // New sync started — cancel any pending play from previous sync
+  _syncPulses = [];
+  if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
   _syncSeekTime = Number(data.time) || 0;
-  // Don't seek yet — mobile auto-plays on seekTo. Wait for pulse timing.
   log.debug(`[YT PrecisionSync] Guest: target time ${_syncSeekTime}s (seek deferred)`);
 }
 
@@ -427,8 +439,9 @@ function handleSyncPulse(data: Record<string, unknown>): void {
 
     log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
 
-    setTimeout(() => {
-      _precisionSyncUntil = Date.now() + 3000; // Suppress regular sync for 3s (matches drift threshold)
+    _guestPlayTimeout = setTimeout(() => {
+      _guestPlayTimeout = null;
+      _precisionSyncUntil = Date.now() + 3000;
       if (player.seekTo) player.seekTo(_syncSeekTime, true);
       log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
     }, waitMs);

@@ -308,9 +308,16 @@ export function initPlayback(): void {
   // Sync: handle sync response from host (apply time + play/pause)
   bus.on('sync:response', (hostTime, isPlaying, oneWayLatency) => {
     const localOffset = getState('sync.localOffset') || 0;
-    // oneWayLatency is already factored into extrapolatedTime (elapsed subtracts rtt/2)
-    // Adding it again here would double-compensate, making the guest run ahead of host
     const compensatedTime = hostTime + localOffset;
+    const currentSyncState = getState('appState');
+
+    // YouTube mode: seekTo (same infrastructure as local file)
+    if (currentSyncState === APP_STATE.PLAYING_YOUTUBE) {
+      bus.emit('youtube:seek-to', compensatedTime);
+      const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
+      showToast(`${t('toast.sync_done')}${rttLabel}`);
+      return;
+    }
 
     if (isPlaying) {
       if (getCurrentAudioBuffer() || getVideoElement()?.src) {
@@ -325,8 +332,6 @@ export function initPlayback(): void {
         log.debug('[Sync] Host paused, keeping pending play');
         return;
       }
-      // Pause without destroying media — guest needs buffer/video intact to resume
-      const currentSyncState = getState('appState');
       if (currentSyncState === APP_STATE.PLAYING_AUDIO || currentSyncState === APP_STATE.PLAYING_VIDEO) {
         pause(compensatedTime);
       } else {

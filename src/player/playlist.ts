@@ -804,6 +804,7 @@ export function initPlaylist(): void {
       stopAllMedia();
       clearPreloadState();
       setState('playlist.currentTrackIndex', -1);
+      setState('player.currentTrackMeta', null);
       setState('files.currentFileBlob', null);
       setState('transfer.meta', {});
     } else if (isCurrentTrack) {

@@ -107,8 +107,6 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
-  // Skip during precision sync cooldown
-  if (Date.now() < _precisionSyncUntil) return;
 
   try {
     const hostTime = Number(data.time) || 0;
@@ -204,8 +202,6 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-  // Skip during precision sync cooldown (prevents double-seek)
-  if (Date.now() < _precisionSyncUntil) return;
 
   // Skip state sync while host is likely watching an ad
   if (_hostAdPauseActive) return;
@@ -315,94 +311,13 @@ function handleYouTubeStop(): void {
 
 // ─── Precision Sync (Host) ────────────────────────────────────────
 
-const PULSE_COUNT = 3;
-const PULSE_INTERVAL = 300;  // ms between pulses
-const PLAY_DELAY = 1000;     // ms after last pulse → play
-
 function startPrecisionSync(): void {
-  const player = getYouTubePlayer();
-  if (!player || !player.getCurrentTime) return;
-
-  // 1. Calculate target seek time: jump FORWARD past the sync delay
-  // Total delay ≈ pulses(900ms) + playDelay(1000ms) = ~1.9s → ceil to next second
-  const currentTime = player.getCurrentTime();
-  const totalDelayS = (PULSE_COUNT * PULSE_INTERVAL + PLAY_DELAY) / 1000;
-  const seekTime = Math.ceil(currentTime + totalDelayS);
-
-  // 2. Tell guests the target time
-  broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });
-
-  // 3. Send 3 pulses at 300ms intervals
-  let pulsesSent = 0;
-  const pulseTimer = setInterval(() => {
-    pulsesSent++;
-    broadcast({
-      type: MSG.YOUTUBE_SYNC_PULSE,
-      seq: pulsesSent,
-      hostTs: Date.now(),
-    });
-    log.debug(`[YT PrecisionSync] Pulse ${pulsesSent}/${PULSE_COUNT}`);
-
-    if (pulsesSent >= PULSE_COUNT) {
-      clearInterval(pulseTimer);
-
-      // 4. After PLAY_DELAY: seekTo triggers instant playback
-      setTimeout(() => {
-        if (player.seekTo) player.seekTo(seekTime, true);
-        log.info(`[YT PrecisionSync] Host seek to ${seekTime}s`);
-      }, PLAY_DELAY);
-    }
-  }, PULSE_INTERVAL);
-}
-
-// ─── Precision Sync (Guest) ───────────────────────────────────────
-
-let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
-let _syncSeekTime = 0;
-let _precisionSyncUntil = 0; // Suppress regular sync handlers until this timestamp
-
-function handleSyncPrepare(): void {
-  // No longer used — kept for protocol compatibility
-  _syncPulses = [];
-}
-
-function handleSyncSeek(data: Record<string, unknown>): void {
-  _syncSeekTime = Number(data.time) || 0;
-  // Don't seek yet — mobile auto-plays on seekTo. Wait for pulse timing.
-  log.debug(`[YT PrecisionSync] Guest: target time ${_syncSeekTime}s (seek deferred)`);
-}
-
-function handleSyncPulse(data: Record<string, unknown>): void {
-  const player = getYouTubePlayer();
-  if (!player) return;
-
-  const seq = Number(data.seq) || 0;
-  const receivedAt = Date.now();
-
-  _syncPulses.push({ seq, hostTs: 0, receivedAt });
-  log.debug(`[YT PrecisionSync] Guest: pulse ${seq}`);
-
-  if (seq >= PULSE_COUNT) {
-    // Use last pulse's arrival time as anchor (guest clock only — no cross-clock issues)
-    const lastPulseReceived = _syncPulses[_syncPulses.length - 1].receivedAt;
-
-    // Compensate for one-way latency using existing RTT measurement
-    const rtt = getState('sync.lastLatencyMs') || 0;
-    const halfRtt = rtt / 2;
-
-    // Guest seeks at: lastPulseReceived + PLAY_DELAY - halfRtt
-    const waitMs = Math.max(0, (lastPulseReceived + PLAY_DELAY - halfRtt) - Date.now());
-
-    log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
-
-    setTimeout(() => {
-      _precisionSyncUntil = Date.now() + 3000; // Suppress regular sync for 3s (matches drift threshold)
-      if (player.seekTo) player.seekTo(_syncSeekTime, true);
-      log.info(`[YT PrecisionSync] Guest: seek to ${_syncSeekTime}s`);
-    }, waitMs);
-
-    _syncPulses = [];
-  }
+  // Reuse existing 3-sample NTP infrastructure:
+  // Host broadcasts GLOBAL_RESYNC_REQUEST → each guest runs startMultiSampleSync()
+  // → sync:response fires → YouTube branch in playback.ts handles seekTo
+  broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
+  showToast(t('toast.resync_all'));
+  log.info('[YT PrecisionSync] Host triggered global resync for YouTube');
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
@@ -414,9 +329,6 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
     [MSG.YOUTUBE_STOP]: handleYouTubeStop,
-    [MSG.YOUTUBE_SYNC_PREPARE]: handleSyncPrepare,
-    [MSG.YOUTUBE_SYNC_SEEK]: handleSyncSeek,
-    [MSG.YOUTUBE_SYNC_PULSE]: handleSyncPulse,
   });
 
   // Host: precision sync trigger

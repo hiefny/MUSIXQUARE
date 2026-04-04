@@ -317,9 +317,11 @@ function startPrecisionSync(): void {
   const player = getYouTubePlayer();
   if (!player || !player.getCurrentTime) return;
 
-  // 1. Calculate target seek time (rounded down to second)
+  // 1. Calculate target seek time: jump FORWARD past the sync delay
+  // Total delay ≈ pulses(900ms) + playDelay(1000ms) = ~1.9s → ceil to next second
   const currentTime = player.getCurrentTime();
-  const seekTime = Math.floor(currentTime);
+  const totalDelayS = (PULSE_COUNT * PULSE_INTERVAL + PLAY_DELAY) / 1000;
+  const seekTime = Math.ceil(currentTime + totalDelayS);
 
   // 2. Tell guests the target time
   broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });

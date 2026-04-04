@@ -34,7 +34,7 @@ import {
   updateSubItemIds,
 } from './_state.ts';
 
-import { loadYouTubeVideo, refreshYouTubeDisplay } from './iframe.ts';
+import { loadYouTubeVideo, refreshYouTubeDisplay, markYtStateBroadcast } from './iframe.ts';
 
 import {
   handleYouTubePlay,
@@ -160,17 +160,32 @@ export function initYouTube(): void {
     // Non-OP guest: no toggle permission
     if (hostConn) return;
 
-    // Host direct
+    // Host direct — broadcast IMMEDIATELY, then control iframe
     const player = getYouTubePlayer();
     if (!player) return;
     try {
       const state = player.getPlayerState();
+      const currentTime = player.getCurrentTime?.() || 0;
       if (state === YT.PlayerState.PLAYING) {
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          state: 2, // PAUSED
+          time: currentTime,
+          subIndex: player.getPlaylistIndex?.() ?? -1,
+          videoId: player.getVideoData?.()?.video_id || '',
+        });
         player.pauseVideo();
       } else {
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          state: 1, // PLAYING
+          time: currentTime,
+          subIndex: player.getPlaylistIndex?.() ?? -1,
+          videoId: player.getVideoData?.()?.video_id || '',
+        });
         player.playVideo();
       }
-      // Broadcast is handled by onYouTubePlayerStateChange — no need to emit here
+      markYtStateBroadcast(); // Prevent duplicate from onStateChange
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
     }
@@ -218,12 +233,19 @@ export function initYouTube(): void {
       let target = current + seconds;
       if (target < 0) target = 0;
       if (target > duration) target = duration;
-      player.seekTo(target, true);
-      // Only host broadcasts — guests don't have authority to seek
+      // Broadcast BEFORE seek — guests react instantly
+      markYtStateBroadcast();
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
-        broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: target });
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          state: player.getPlayerState(),
+          time: target,
+          subIndex: player.getPlaylistIndex?.() ?? -1,
+          videoId: player.getVideoData?.()?.video_id || '',
+        });
       }
+      player.seekTo(target, true);
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
@@ -234,15 +256,19 @@ export function initYouTube(): void {
     const player = getYouTubePlayer();
     if (!player?.seekTo || !Number.isFinite(seconds)) return;
     try {
-      player.seekTo(seconds, true);
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
+        // Broadcast BEFORE seek — guests react instantly
+      markYtStateBroadcast();
         broadcast({
           type: MSG.YOUTUBE_STATE,
           state: player.getPlayerState?.() ?? 1,
           time: seconds,
+          subIndex: player.getPlaylistIndex?.() ?? -1,
+          videoId: player.getVideoData?.()?.video_id || '',
         });
       }
+      player.seekTo(seconds, true);
     } catch (e) {
       log.error('[YouTube] Seek error:', e);
     }

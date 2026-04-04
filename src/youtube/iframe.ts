@@ -37,6 +37,8 @@ declare const YT: any;
 
 /** Tracks the last known YouTube video title to detect changes */
 let _lastYtVideoTitle = '';
+export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
+export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
@@ -186,7 +188,7 @@ function createYouTubePlayer(
 
   const playerVars: Record<string, any> = {
     autoplay: autoplay ? 1 : 0,
-    controls: 1,
+    controls: 0,
     rel: 0,
     modestbranding: 1,
     playsinline: 1,
@@ -331,9 +333,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
 
-  // Host broadcasts state to guests
+  // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
   const hostConn = getState('network.hostConn');
-  if (!hostConn && player?.getCurrentTime) {
+  const now = Date.now();
+  if (!hostConn && player?.getCurrentTime && now - _lastYtStateBroadcast > 300) {
+    _lastYtStateBroadcast = now;
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state,

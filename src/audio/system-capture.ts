@@ -53,6 +53,12 @@ export async function startSystemAudioCapture(): Promise<void> {
     return;
   }
 
+  // 0.5 Warn if many devices connected
+  const connectedPeers = getState('network.connectedPeers');
+  if (connectedPeers.length >= 4) {
+    bus.emit('ui:show-toast', t('system_audio.many_devices_warning'));
+  }
+
   // 1. Capture FIRST (user gesture must be synchronous call stack)
   let stream: MediaStream;
   try {

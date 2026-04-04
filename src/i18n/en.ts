@@ -450,6 +450,7 @@ const en: Record<I18nKey, string> = {
   'system_audio.no_audio_track': 'Please check "Share audio" to share sound.',
   'system_audio.stop': 'Stop Sharing',
   'system_audio.no_precision_sync': 'Sync is not available in system audio mode.',
+  'system_audio.many_devices_warning': 'System audio sharing may stutter with many devices connected.',
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
 

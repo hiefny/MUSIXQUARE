@@ -2,18 +2,13 @@
   command = "npm run build"
   publish = "dist"
 
-# REDIRECT: From old subdomain to new domain
+# REDIRECT: Redirect Netlify subdomain to Primary Domain using Host condition
 [[redirects]]
-  from = "https://mxqr.netlify.app/*"
+  from = "/*"
   to = "https://musixquare.com/:splat"
   status = 301
   force = true
-
-[[redirects]]
-  from = "http://mxqr.netlify.app/*"
-  to = "https://musixquare.com/:splat"
-  status = 301
-  force = true
+  conditions = {Host = ["mxqr.netlify.app"]}
 
 # SPA fallback: serve index.html for all other routes
 [[redirects]]

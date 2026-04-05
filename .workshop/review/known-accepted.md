@@ -23,18 +23,13 @@ fix15 전수조사 기준. 다음 감사 시 이 파일을 참조하여 중복 �
 - system message, toast, dialog는 `textContent`/`innerText` 사용
 - **결론**: XSS 취약점 없음
 
-### B-2. `Tone = _Tone as any` / `Peer: any` 캐스팅
-- Tone.js, PeerJS를 vendor 타입 없이 사용하는 의도적 패턴
-- 자체 인터페이스(`ToneNode`, `DataConnection` 등)로 최소 타이핑 제공
-- **결론**: tree-shaking 불가 트레이드오프 포함, 현재 구조에서 불가피
-
 ### B-3. `YT: any` / `_youtubePlayer: any`
 - YouTube IFrame API에 공식 TS 타입 없음
 - `declare const YT: any`는 표준 패턴
 - **결론**: 의도적
 
-### B-4. empty catch (safeDisconnect, dispose, Tone.js 관련)
-- `safeDisconnect()`: Tone.js는 미연결 노드 disconnect 시 항상 throw
+### B-4. empty catch (safeDisconnect, dispose)
+- `safeDisconnect()`: Web Audio `AudioNode.disconnect()`는 미연결 노드에 대해 `InvalidAccessError`를 throw
 - `dispose()` cleanup: 부분 생성된 노드 정리 시 throw 가능
 - **결론**: 주석으로 명시된 의도적 에러 삼킴
 
@@ -51,7 +46,7 @@ fix15 전수조사 기준. 다음 감사 시 이 파일을 참조하여 중복 �
 
 ### B-7. AudioContext 미닫기
 - SPA에서 AudioContext는 페이지 수명 동안 유지해야 함
-- `Tone.context.close()` 호출 시 재초기화 불가
+- `audioContext.close()` 호출 시 재초기화 불가 (싱글톤 패턴, `src/audio/context.ts` 참조)
 - **결론**: 의도적 설계
 
 ### B-8. Worker 미종료
@@ -92,12 +87,6 @@ fix15 전수조사 기준. 다음 감사 시 이 파일을 참조하여 중복 �
 - 모바일 퍼스트 앱, 키보드 내비게이션 사용 비율 극히 낮음
 - **결론**: 접근성 전면 개선 시 함께 처리
 
-### C-4. Tone.js tree-shaking 불가
-- `import * as _Tone from 'tone'` → named import 전환 필요
-- 전환 시 모든 Tone 호출부 타입 재작업 (수십 곳)
-- 336KB → ~200KB 절감 예상이지만 ROI 낮음
-- **결론**: 성능 최적화 단계에서 검토
-
 ### C-5. OPFS 파일 세션 종료 시 미정리
 - 3-30MB/세션 디스크 누적
 - 브라우저 quota가 자동 관리
@@ -125,19 +114,9 @@ fix15 전수조사 기준. 다음 감사 시 이 파일을 참조하여 중복 �
 
 ---
 
-## D. Vite dev server vendor 경고 (무시)
-
-```
-[vite] Internal server error: Failed to load url /vendor/Tone.js
-[vite] Internal server error: Failed to load url /vendor/peerjs.min.js
-```
-
-- `public/` 디렉토리에 vendor JS 없음 (npm으로 설치, Vite가 번들링)
-- dev server에서만 발생하는 경고, production build 정상
-- **결론**: 무시
-
----
-
 ## 업데이트 이력
 - 2026-03-13: fix15 감사 후 작성 — opfs listener leak 1건 잔존
 - 2026-03-13: fixignore.md 통합 — B1-B10 의도적 동작 + C1-C8 구조적 한계 병합, C1/C2 fix01-15 반영 업데이트
+- 2026-04-05: Tone.js 완전 제거 반영 — B-2 PeerJS 캐스팅만 유지, B-4/B-7 Web Audio 기준 재서술, C-4 Tone.js tree-shaking 항목 삭제
+- 2026-04-05: PeerJS vendor/ 제거 반영 — PeerJS npm 전환 완료(`peerjs@^1.5.5` bundled by Vite), D 섹션(vendor 경고) 전체 삭제 — 경로가 프로젝트에 존재하지 않아 재현 불가
+- 2026-04-05: B-2(`Peer: any` 캐스팅) 삭제 — `src/types/index.ts`에서 PeerJS 공식 타입을 정상 임포트(`import type { Peer, DataConnection } from 'peerjs'`) 중이며, `Peer: any`/`as any` 캐스팅이 `src/` 전역에 0건. npm 전환으로 자연 해소

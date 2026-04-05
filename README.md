@@ -13,16 +13,14 @@ MUSIXQUARE is a web-based party app that turns multiple devices on the **same lo
 - **🔌 Direct Host Connections (Stable)**: Host connects directly to multiple guest devices (configurable in Settings/Connect tab).
 - **🔊 Role‑based Routing**: Guests choose their output role when joining (Original / Left / Right / Woofer).
 - **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
-- **🛠️ Pro Audio Engine**: Mixing / FX powered by Tone.js.
+- **🛠️ Pro Audio Engine**: Mixing / FX powered by the native Web Audio API (no external audio library).
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **Tone.js**: Web Audio engine (FX / mixing)
-  - Self-hosted (vendored) at `vendor/Tone.js`
-- **PeerJS**: WebRTC P2P networking for low‑latency messaging
-  - Self-hosted (vendored) at `vendor/peerjs.min.js`
+- **Web Audio API**: Native browser audio engine (FX / mixing) — direct `AudioNode` graph, no external audio library
+- **PeerJS**: WebRTC P2P networking for low‑latency messaging (installed via npm, bundled by Vite)
 - **OPFS (Origin Private File System)**: Efficient local storage for large media (where supported)
 
 ---
@@ -70,7 +68,8 @@ We highly recommend trying out the live version of MUSIXQUARE instead of running
 
 This project is a static web app (HTML/CSS/JS).
 
-- **Core libs are self-hosted**: Tone.js and PeerJS are included in the repo under `vendor/` for self-hosting / offline-first deployments.
+- **Audio engine**: Built on the native Web Audio API — no external audio library.
+- **PeerJS**: Installed via npm and bundled by Vite (no runtime CDN dependency).
 - **UI font (Pretendard)**: Loaded from **local self-hosted files** (`css/pretendard.css` + `fonts/`).
   - License is included at `fonts/PRETENDARD_LICENSE.txt`.
 - For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
@@ -84,14 +83,13 @@ This project is a static web app (HTML/CSS/JS).
 
 ## 📄 Third‑Party Licenses
 
-This repo vendors (self-hosts) the following third-party libraries for offline/self-hosted deployments:
+Runtime dependencies (installed via npm, bundled by Vite):
 
-- **Tone.js** — MIT License — see `vendor/Tone.js.LICENSE.txt`
-- **PeerJS** — MIT License — see `vendor/peerjs.LICENSE.txt`
+- **PeerJS** — MIT License — see `node_modules/peerjs/LICENSE`
 
-Fonts:
+Self-hosted assets:
 
-- **Pretendard** — SIL Open Font License 1.1 — see `fonts/PRETENDARD_LICENSE.txt`
+- **Pretendard** (font) — SIL Open Font License 1.1 — see `fonts/PRETENDARD_LICENSE.txt`
 
 ## Maintenance notes
 

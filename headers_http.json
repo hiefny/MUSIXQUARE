@@ -1,0 +1,11 @@
+{
+  "statusCode": 301,
+  "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "date": "Sun, 05 Apr 2026 04:09:12 GMT",
+    "location": "https://mxqr.netlify.app/",
+    "server": "Netlify",
+    "x-nf-request-id": "01KNDX95V5RPACGFK04J9GWB1B",
+    "content-length": "40"
+  }
+}

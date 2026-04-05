@@ -1,0 +1,15 @@
+{
+  "statusCode": 301,
+  "headers": {
+    "age": "2",
+    "cache-control": "public,max-age=0,must-revalidate",
+    "cache-status": "\"Netlify Edge\"; fwd=miss",
+    "content-length": "48",
+    "content-type": "text/plain; charset=utf-8",
+    "date": "Sun, 05 Apr 2026 04:12:38 GMT",
+    "location": "https://musixquare.com/robots.txt",
+    "server": "Netlify",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "x-nf-request-id": "01KNDXFEKSY0FBXQAQRN89FW13"
+  }
+}

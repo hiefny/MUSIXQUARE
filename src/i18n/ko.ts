@@ -447,7 +447,7 @@ const ko = {
   'system_audio.sharing': '시스템 오디오 공유 중',
   'system_audio.receiving': '시스템 오디오 수신 중',
   'system_audio.capture_denied': '오디오 공유가 취소되었어요.',
-  'system_audio.no_audio_track': '오디오를 공유하려면 "소리 공유"를 체크해주세요.',
+  'system_audio.no_audio_track': '"오디오 공유" 토글이 켜지지 않았어요. 다시 시도해주세요.',
   'system_audio.stop': '공유 중지',
   'system_audio.no_precision_sync': '시스템 오디오 모드에서는 동기화를 사용할 수 없어요.',
   'system_audio.many_devices_warning': '시스템 오디오 공유 시 연결된 기기가 많으면 끊김이 발생할 수 있어요.',

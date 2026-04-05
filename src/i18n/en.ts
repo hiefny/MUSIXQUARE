@@ -449,7 +449,7 @@ const en: Record<I18nKey, string> = {
   'system_audio.sharing': 'Sharing System Audio',
   'system_audio.receiving': 'Receiving System Audio',
   'system_audio.capture_denied': 'Audio sharing was cancelled.',
-  'system_audio.no_audio_track': 'Please check "Share audio" to share sound.',
+  'system_audio.no_audio_track': '"Share audio" was not enabled. Please try again.',
   'system_audio.stop': 'Stop Sharing',
   'system_audio.no_precision_sync': 'Sync is not available in system audio mode.',
   'system_audio.many_devices_warning': 'System audio sharing may stutter with many devices connected.',

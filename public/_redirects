@@ -1,2 +1,2 @@
-# 모든 도메인 이행 설정은 루트의 netlify.toml에서 Host 조건을 사용하여 관리합니다.
-# 이 파일을 비워두어 설정 충돌을 방지합니다.
+https://mxqr.netlify.app/* https://musixquare.com/:splat 301!
+http://mxqr.netlify.app/* https://musixquare.com/:splat 301!

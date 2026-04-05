@@ -1,2 +1,5 @@
-# 모든 리다이렉트 설정은 루트의 netlify.toml에서 관리합니다.
-# 이 파일을 비워두거나 netlify.toml과 동기화해야 합니다.
+# Domain Migration: Reduce hops to 1 for Google Search Console
+# Netlify prefers _redirects for faster processing.
+https://mxqr.netlify.app/* https://musixquare.com/:splat 301!
+http://mxqr.netlify.app/* https://musixquare.com/:splat 301!
+mxqr.netlify.app/* https://musixquare.com/:splat 301!

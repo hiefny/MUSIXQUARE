@@ -1,15 +1,16 @@
 {
-  "statusCode": 301,
+  "statusCode": 200,
   "headers": {
-    "age": "2",
+    "accept-ranges": "bytes",
+    "age": "1",
     "cache-control": "public,max-age=0,must-revalidate",
-    "cache-status": "\"Netlify Edge\"; fwd=miss",
-    "content-length": "48",
-    "content-type": "text/plain; charset=utf-8",
-    "date": "Sun, 05 Apr 2026 04:12:38 GMT",
-    "location": "https://musixquare.com/robots.txt",
+    "cache-status": "\"Netlify Edge\"; fwd=stale",
+    "content-length": "68",
+    "content-type": "text/plain; charset=UTF-8",
+    "date": "Sun, 05 Apr 2026 04:35:30 GMT",
+    "etag": "\"15642bbe435a1f4da11eb9a43f433df8-ssl\"",
     "server": "Netlify",
     "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
-    "x-nf-request-id": "01KNDXFEKSY0FBXQAQRN89FW13"
+    "x-nf-request-id": "01KNDYSAE61SM9NKNKY46M0GNJ"
   }
 }

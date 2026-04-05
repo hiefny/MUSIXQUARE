@@ -2,7 +2,20 @@
   command = "npm run build"
   publish = "dist"
 
-# SPA fallback: serve index.html for all routes (client-side routing)
+# REDIRECT: From old subdomain to new domain
+[[redirects]]
+  from = "https://mxqr.netlify.app/*"
+  to = "https://musixquare.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://mxqr.netlify.app/*"
+  to = "https://musixquare.com/:splat"
+  status = 301
+  force = true
+
+# SPA fallback: serve index.html for all other routes
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -1154,12 +1154,15 @@
     input[type=range]::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        height: 16px;
-        width: 16px;
+        /* 터치 영역 28px, 시각적 크기 16px (투명 border 6px) */
+        height: 28px;
+        width: 28px;
         border-radius: 50%;
         background-color: var(--text-sub);
-        margin-top: -5px;
-        /* (Track 6px - Thumb 16px) / 2 = -5px */
+        background-clip: content-box;
+        border: 6px solid transparent;
+        margin-top: -11px;
+        /* (Track 6px - Thumb 28px) / 2 = -11px */
         transform: scale(1);
         filter: none;
         box-shadow: none !important;
@@ -1167,11 +1170,13 @@
     }
 
     input[type=range]::-moz-range-thumb {
-        height: 16px;
-        width: 16px;
+        /* 터치 영역 28px, 시각적 크기 16px (투명 border 6px) */
+        height: 28px;
+        width: 28px;
         border-radius: 50%;
         background-color: var(--text-sub);
-        border: none;
+        background-clip: content-box;
+        border: 6px solid transparent;
         transform: scale(1);
         filter: none;
         box-shadow: none !important;

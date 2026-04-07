@@ -381,24 +381,6 @@ async function handleLogoReturnToMain(): Promise<void> {
   }
 }
 
-// ─── Range: tap-anywhere to set value ────────────────────────────
-
-function installRangeTapAnywhere(): void {
-  const ranges = document.querySelectorAll<HTMLInputElement>('input[type="range"]');
-  ranges.forEach((range) => {
-    range.addEventListener('pointerdown', (e: PointerEvent) => {
-      const rect = range.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const min = parseFloat(range.min) || 0;
-      const max = parseFloat(range.max) || 100;
-      range.value = String(min + ratio * (max - min));
-      range.dispatchEvent(new Event('input', { bubbles: true }));
-      // Capture the pointer so subsequent moves (drag) stay on this slider
-      range.setPointerCapture(e.pointerId);
-    });
-  });
-}
-
 // ─── Android Range Scroll Fix ────────────────────────────────────
 
 function installAndroidRangeScrollFix(): void {
@@ -576,8 +558,7 @@ export function initPlayerControls(): void {
   // Seek bar
   initSeekBar();
 
-  // Range: tap anywhere on track to jump + Android scroll fix
-  installRangeTapAnywhere();
+  // Android fix
   installAndroidRangeScrollFix();
 
   // Volume sync

@@ -1131,6 +1131,7 @@
         margin: 0;
         /* Prevent ANY browser gestures (swipe to go back, scroll) while dragging sliders, forcing 100% control to the slider thumb */
         touch-action: none !important;
+        overflow: visible;
     }
 
     input[type=range]::-webkit-slider-runnable-track {
@@ -1666,14 +1667,17 @@
 
     #woofer-cutoff-control:not(.collapsed) {
         max-height: 100px;
+        overflow: visible;
     }
 
     #reverb-sliders-area:not(.collapsed) {
         max-height: 380px;
+        overflow: visible;
     }
 
     #eq-sliders-area:not(.collapsed) {
         max-height: 200px;
+        overflow: visible;
     }
 
     .reverb-sliders-area.collapsed {
@@ -5272,6 +5276,7 @@
     color-scheme: light !important;
     opacity: 0.9;
     transition: opacity 0.2s;
+    pointer-events: none;
 }
 .disquiet-float:hover iframe {
     opacity: 1;

@@ -5255,17 +5255,28 @@
 /* end @layer base */
 
 /* ─── Disquiet badge: floating + theme-aware ─── */
-.disquiet-badge-wrap {
+.disquiet-float {
+    position: sticky;
+    bottom: 92px;
     display: flex;
-    justify-content: flex-start;
-    padding: 24px 0 32px 36px;
+    justify-content: flex-end;
+    padding-right: 16px;
+    pointer-events: none;
+    z-index: 10;
 }
-.settings-subtab-panel .disquiet-badge-wrap {
-    padding-left: 24px;
-}
-.disquiet-badge-wrap a {
+.disquiet-float a {
+    pointer-events: auto;
     filter: drop-shadow(0 2px 8px rgba(0,0,0,0.15));
 }
-.disquiet-badge-wrap iframe {
+.disquiet-float iframe {
     color-scheme: light !important;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+}
+.disquiet-float:hover iframe {
+    opacity: 1;
+}
+.settings-subtab-panel .disquiet-float {
+    padding-right: 16px;
+    bottom: 16px;
 }

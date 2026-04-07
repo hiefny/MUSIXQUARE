@@ -5257,10 +5257,10 @@
 /* ─── Disquiet badge: floating + theme-aware ─── */
 .disquiet-float {
     position: sticky;
-    bottom: 92px;
+    bottom: -20px;
     display: flex;
     justify-content: flex-end;
-    padding-right: 16px;
+    padding-right: 0;
     pointer-events: none;
     z-index: 10;
 }

@@ -5253,3 +5253,19 @@
 }
 
 /* end @layer base */
+
+/* ─── Disquiet badge: floating + theme-aware ─── */
+.disquiet-badge-wrap {
+    display: flex;
+    justify-content: flex-start;
+    padding: 24px 0 32px 36px;
+}
+.settings-subtab-panel .disquiet-badge-wrap {
+    padding-left: 24px;
+}
+.disquiet-badge-wrap a {
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.15));
+}
+.disquiet-badge-wrap iframe {
+    color-scheme: light !important;
+}

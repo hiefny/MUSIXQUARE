@@ -18,21 +18,13 @@ import { releasePeerSlot } from './peer-state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 
-// ─── Multi-Sample Sync State ─────────────────────────────────────────
-
+/* v6.0: NTP multi-sample sync state disabled — SharedClock handles sync
 const SYNC_SAMPLE_COUNT = 3;
-const SYNC_SAMPLE_INTERVAL = 500; // ms between samples
-
-interface SyncSample {
-  sentAt: number;       // Date.now() when request was sent
-  rtt: number;          // round-trip time in ms
-  hostTime: number;     // host playback position in seconds
-  isPlaying: boolean;
-}
-
+const SYNC_SAMPLE_INTERVAL = 500;
+interface SyncSample { sentAt: number; rtt: number; hostTime: number; isPlaying: boolean; }
 let _syncSamples: SyncSample[] = [];
-let _syncSampleExpected = 0;       // how many samples we're still waiting for
-// Sync timers now managed via setManagedTimer('sync-sample') / setManagedTimer('sync-timeout')
+let _syncSampleExpected = 0;
+*/
 
 // ─── Sync Button Logic ──────────────────────────────────────────────
 
@@ -41,19 +33,9 @@ let _syncSampleExpected = 0;       // how many samples we're still waiting for
  * Host: broadcasts global resync. Guest: resets offset and requests sync time.
  */
 function handleMainSyncBtn(): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    // Host: Broadcast resync request to all guests
-    broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-    showToast(t('toast.resync_all'));
-  } else {
-    // Guest: Perform multi-sample auto-sync
-    setState('sync.localOffset', 0);
-    setState('sync.autoSyncOffset', 0);
-    bus.emit('sync:display-update');
-    showToast(t('toast.optimal_sync'));
-    startMultiSampleSync();
-  }
+  // v6.0: SharedClock handles sync automatically.
+  // Manual sync button now just shows confirmation.
+  showToast(t('toast.resync_all'));
 }
 
 // ─── Guest: Multi-Sample Sync ────────────────────────────────────────
@@ -62,139 +44,12 @@ function handleMainSyncBtn(): void {
  * Start a 3-sample sync sequence. Sends GET_SYNC_TIME at 500ms intervals,
  * collects RTT for each response, then picks the sample with the lowest RTT.
  */
-function startMultiSampleSync(): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn || !hostConn.open) return;
-
-  // Cancel any in-progress multi-sample sequence
-  clearManagedTimer('sync-sample');
-  clearManagedTimer('sync-timeout');
-  _syncSamples = [];
-  _syncSampleExpected = SYNC_SAMPLE_COUNT;
-
-  // Send first sample immediately, rest at intervals
-  sendSyncSample(hostConn);
-  let sent = 1;
-  const scheduleNext = () => {
-    if (sent >= SYNC_SAMPLE_COUNT) return;
-    setManagedTimer('sync-sample', () => {
-      if (!hostConn.open) return;
-      sendSyncSample(hostConn);
-      sent++;
-      scheduleNext();
-    }, SYNC_SAMPLE_INTERVAL);
-  };
-  scheduleNext();
-
-  // Safety timeout: apply whatever we have if not all responses arrive
-  setManagedTimer('sync-timeout', () => {
-    if (_syncSampleExpected > 0 && _syncSamples.length > 0) {
-      log.warn(`[Sync] Timeout: got ${_syncSamples.length}/${_syncSampleExpected} samples, applying best`);
-      applyBestSample();
-    } else if (_syncSampleExpected > 0) {
-      log.warn('[Sync] Timeout: no samples received, aborting');
-      _syncSamples = [];
-      _syncSampleExpected = 0;
-    }
-  }, SYNC_SAMPLE_COUNT * SYNC_SAMPLE_INTERVAL + 2000);
-}
-
-function sendSyncSample(conn: DataConnection): void {
-  const ts = Date.now();
-  try { conn.send({ type: MSG.GET_SYNC_TIME, ts }); } catch { /* connection closed */ }
-}
-
-/**
- * Called when a SYNC_RESPONSE arrives. Collects samples and applies
- * the best one (lowest RTT) once all samples are in.
- */
-function collectSyncSample(data: Record<string, unknown>): void {
-  const t4 = Date.now();
-  const t1 = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
-  const grossRtt = t1 ? t4 - t1 : Infinity;
-
-  // NTP-style: subtract host processing time to get pure network RTT
-  const t2 = (typeof data.t2 === 'number') ? data.t2 : 0;
-  const t3 = (typeof data.t3 === 'number') ? data.t3 : 0;
-  const hostProcessing = (t2 && t3 && t3 >= t2) ? t3 - t2 : 0;
-  const rtt = grossRtt < Infinity ? Math.max(0, grossRtt - hostProcessing) : Infinity;
-
-  const hostTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
-  const isPlaying = !!data.isPlaying;
-
-  _syncSamples.push({
-    sentAt: t1,
-    rtt,
-    hostTime,
-    isPlaying,
-  });
-
-  log.debug(`[Sync] Sample ${_syncSamples.length}/${_syncSampleExpected}: netRTT=${rtt}ms (gross=${grossRtt}ms, hostProc=${hostProcessing}ms), hostTime=${hostTime.toFixed(2)}s`);
-
-  if (_syncSamples.length >= _syncSampleExpected) {
-    applyBestSample();
-  }
-}
-
-/**
- * Pick the sample with the lowest RTT and apply it.
- * Compensate for time elapsed since that sample was taken.
- */
-function applyBestSample(): void {
-  if (_syncSamples.length === 0) return;
-
-  // Pick lowest RTT
-  const best = _syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
-
-  // Guard: if best sample has no usable RTT (all corrupted), abort
-  if (!Number.isFinite(best.rtt) || best.sentAt <= 0) {
-    log.warn('[Sync] No usable sample (invalid RTT or sentAt), aborting');
-    _syncSamples = [];
-    _syncSampleExpected = 0;
-    return;
-  }
-
-  const elapsed = (Date.now() - best.sentAt - best.rtt / 2) / 1000; // seconds since host reported
-
-  log.debug(`[Sync] Best sample: RTT=${best.rtt}ms, hostTime=${best.hostTime.toFixed(2)}s, elapsed=${elapsed.toFixed(3)}s`);
-
-  // Latency compensation — remote + unknown (applied even before ICE classification)
-  let oneWayLatencySeconds = 0;
-  if (getState('network.connectionType') !== 'local') {
-    if (best.rtt > 0 && best.rtt < Infinity) {
-      oneWayLatencySeconds = (best.rtt / 2) / 1000;
-    }
-  }
-
-  setState('sync.autoSyncOffset', oneWayLatencySeconds);
-  bus.emit('sync:display-update');
-
-  // Extrapolate: host position + time elapsed since that sample
-  const extrapolatedTime = best.isPlaying ? best.hostTime + elapsed : best.hostTime;
-  bus.emit('sync:response', extrapolatedTime, best.isPlaying, oneWayLatencySeconds);
-
-  // Cleanup
-  _syncSamples = [];
-  _syncSampleExpected = 0;
-}
+// v6.0: NTP multi-sample sync removed — SharedClock handles all sync
 
 // ─── Delayed Global Resync (Host-only) ──────────────────────────────
 
-/**
- * Request a global resync after a short delay.
- * Ensures host-side playback state change has settled across the network.
- */
-export function requestGlobalResyncDelayed(delay = 1000): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Host only
-
-  setManagedTimer('global-resync', () => {
-    const hc = getState('network.hostConn');
-    if (!hc) {
-      broadcast({ type: MSG.GLOBAL_RESYNC_REQUEST });
-      log.debug(`[Sync] Automatic global resync requested (delay: ${delay}ms)`);
-    }
-  }, delay);
+export function requestGlobalResyncDelayed(_delay = 1000): void {
+  // v6.0: SharedClock handles sync — NTP auto-resync disabled
 }
 
 /**
@@ -259,10 +114,13 @@ function handlePongLatency(data: Record<string, unknown>): void {
   bus.emit('sync:latency-update', ms);
 }
 
-function handleSyncResponse(data: Record<string, unknown>): void {
-  // If multi-sample sync is active, collect this sample
+function handleSyncResponse(_data: Record<string, unknown>): void {
+  // v6.0: SharedClock handles sync — NTP sync response disabled
+  return;
+
+  /* Legacy NTP code preserved for reference:
   if (_syncSampleExpected > 0) {
-    collectSyncSample(data);
+    collectSyncSample(_data);
     return;
   }
 
@@ -284,17 +142,12 @@ function handleSyncResponse(data: Record<string, unknown>): void {
   bus.emit('sync:display-update');
   const extrapolatedTime = data.isPlaying ? syncTime + oneWayLatencySeconds : syncTime;
   bus.emit('sync:response', extrapolatedTime, !!data.isPlaying, oneWayLatencySeconds);
+  */
 }
 
 function handleGlobalResyncRequest(): void {
-  setState('sync.autoSyncOffset', 0);
+  // v6.0: SharedClock handles sync — NTP resync disabled
   showToast(t('toast.host_reset_sync'));
-  setState('sync.localOffset', 0);
-  bus.emit('sync:display-update');
-  setManagedTimer('global-resync-jitter', () => {
-    if (!getState('network.sessionCode')) return; // Session ended
-    startMultiSampleSync();
-  }, 500 + Math.random() * 500);
 }
 
 function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {
@@ -471,10 +324,7 @@ export function initSync(): void {
   // Clean up module-scoped sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
-      _syncSamples = [];
-      _syncSampleExpected = 0;
-      clearManagedTimer('sync-sample');
-      clearManagedTimer('sync-timeout');
+      // v6.0: NTP state removed — SharedClock handles cleanup
       setState('sync.lastLatencyMs', 0);
       setState('sync.latencyHistory', []);
     }

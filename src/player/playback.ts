@@ -22,7 +22,7 @@ import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
-import { requestGlobalResyncDelayed } from '../network/sync.ts';
+// NTP resync removed — SharedClock handles sync
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -217,7 +217,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
 
   play(time);
   broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
-  requestGlobalResyncDelayed();
+  // SharedClock handles sync
 }
 
 function handleRequestPause(data: Record<string, unknown>, conn: DataConnection): void {
@@ -262,7 +262,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
     broadcast({ type: MSG.PAUSE, time });
   }
-  requestGlobalResyncDelayed();
+  // SharedClock handles sync
 }
 
 function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnection): void {

@@ -23,7 +23,7 @@ import {
 import { postWorkerCommand } from '../storage/opfs.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
-import { requestGlobalResyncDelayed } from '../network/sync.ts';
+// NTP resync removed — SharedClock handles sync
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
@@ -170,7 +170,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     await loadPreloadedTrack(index, myLoadToken);
     await play(0);
     broadcast({ type: MSG.PLAY, time: 0, index, name: fileName });
-    requestGlobalResyncDelayed();
+    // SharedClock handles sync
     schedulePreload();
     return;
   }
@@ -242,7 +242,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         play(0);
         const currentIdx = getState('playlist.currentTrackIndex');
         broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
-        requestGlobalResyncDelayed();
+        // SharedClock handles sync
       }, 3000);
     }
   }
@@ -286,7 +286,7 @@ export function playNextTrack(): void {
     incrementLoadToken();
     play(0).catch(() => { /* noop */ });
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-    requestGlobalResyncDelayed();
+    // SharedClock handles sync
     return;
   } else if (isShuffle) {
     if (playlist.length === 1) {
@@ -369,7 +369,7 @@ export function playPrevTrack(): void {
     // Restart current track from the beginning
     play(0);
     broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-    requestGlobalResyncDelayed();
+    // SharedClock handles sync
     return;
   }
 
@@ -391,7 +391,7 @@ export function playPrevTrack(): void {
       } else {
         play(0);
         broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-        requestGlobalResyncDelayed();
+        // SharedClock handles sync
       }
     }
   }
@@ -761,7 +761,7 @@ export function initPlaylist(): void {
         incrementLoadToken();
         play(0).catch(() => { /* noop */ });
         broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-        requestGlobalResyncDelayed();
+        // SharedClock handles sync
       }, 300);
     } else {
       log.debug('Auto-advancing to next track...');

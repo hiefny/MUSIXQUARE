@@ -16,6 +16,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { getHostNow } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile } from '../storage/transfer.ts';
@@ -153,7 +154,22 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   }
 
   if (getCurrentAudioBuffer() || getVideoElement()?.src) {
-    play(time);
+    // Shared Clock: schedule play at the host-specified time
+    const hostPlayAt = Number(data.hostPlayAt) || 0;
+    if (hostPlayAt > 0) {
+      const waitMs = Math.max(0, hostPlayAt - getHostNow());
+      if (waitMs > 0 && waitMs < 2000) {
+        // Schedule for the exact host-clock moment
+        setManagedTimer('clock-play', () => play(time), waitMs);
+        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms (hostPlayAt=${hostPlayAt})`);
+      } else {
+        // Fallback: play immediately (clock not synced or stale message)
+        play(time);
+      }
+    } else {
+      // Legacy: no hostPlayAt field — play immediately
+      play(time);
+    }
   } else {
     // Remote guest: no file will arrive, show guide (transport guard)
     if (isRemoteGuest() && !hasActiveRelay()) {

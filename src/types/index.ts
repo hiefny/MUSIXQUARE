@@ -146,7 +146,7 @@ export interface ProtocolMap {
   'vbass': { value: number };
 
   // ── Playback ─────────────────────────────────────────────────────
-  'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number };
+  'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number; hostPlayAt?: number };
   'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number };
   'play-preloaded': { index: number; name: string; mime?: string; retryAttempt?: number };
   'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number };

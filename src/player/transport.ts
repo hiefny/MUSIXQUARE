@@ -19,6 +19,10 @@ import { getVideoElement, isIdleOrPaused, isMediaVideo } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { requestGlobalResyncDelayed } from '../network/sync.ts';
+import { getHostNow } from '../network/shared-clock.ts';
+
+/** Schedule playback slightly in the future so the message arrives before play time */
+const SCHEDULE_AHEAD_MS = 200;
 
 import {
   getPlayerNode, setPlayerNode,
@@ -231,7 +235,7 @@ export function seekTo(time: number): void {
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     play(time);
-    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
+    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
     requestGlobalResyncDelayed();
   } else {
     // Paused: update position + broadcast
@@ -504,7 +508,7 @@ export function togglePlay(): void {
   } else {
     if (!hostConn) {
       play(pausedAt);
-      broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex });
+      broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
       requestGlobalResyncDelayed();
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
@@ -597,7 +601,7 @@ export function skipTime(sec: number): void {
 
   if (isPlaying) {
     play(target);
-    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex });
+    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
     requestGlobalResyncDelayed();
   } else {
     setState('player.pausedAt', target);

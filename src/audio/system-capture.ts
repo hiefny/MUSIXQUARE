@@ -208,6 +208,7 @@ export function stopSystemAudioCapture(): void {
     setState('appState', APP_STATE.IDLE);
   }
 
+  bus.emit('ui:show-toast', t('system_audio.stopped'));
   log.info('[SystemAudio] Capture stopped');
 }
 

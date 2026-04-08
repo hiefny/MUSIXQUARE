@@ -215,7 +215,7 @@ function initBeforeUnload(): void {
 // ── Bootstrap ──
 
 function bootstrap(): void {
-  log.info(`[App] MUSIXQUARE 5.0 bootstrap (instance: ${INSTANCE_ID})`);
+  log.info(`[App] MUSIXQUARE 6.0 bootstrap (instance: ${INSTANCE_ID})`);
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {

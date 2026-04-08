@@ -218,6 +218,11 @@ export interface ProtocolMap {
   'youtube-sync-pulse': { seq: number; hostTs: number };
   'youtube-sync-go': NoPayload;
 
+  // ── Shared Clock ────────────────────────────────────────────────
+  'clock-sync': { hostTime: number };
+  'clock-ping': { pingId: number; guestTime: number };
+  'clock-pong': { pingId: number; hostTime: number };
+
   // ── Chat ─────────────────────────────────────────────────────────
   'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number; joinOrder?: number };
 

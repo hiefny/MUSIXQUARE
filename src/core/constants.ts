@@ -121,6 +121,11 @@ export const MSG = {
   YOUTUBE_SYNC_SEEK: 'youtube-sync-seek',
   YOUTUBE_SYNC_PULSE: 'youtube-sync-pulse',
   YOUTUBE_SYNC_GO: 'youtube-sync-go',
+  // ── Shared Clock ───────────────────────────────────────────────
+  CLOCK_SYNC: 'clock-sync',
+  CLOCK_PING: 'clock-ping',
+  CLOCK_PONG: 'clock-pong',
+
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
   RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost',

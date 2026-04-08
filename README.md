@@ -1,109 +1,83 @@
-# MUSIXQUARE 🎵
+# MUSIXQUARE
 
-**Multi‑Device Synchronized Surround Audio**
+**Multi-Device Synchronized Audio System**
 
-MUSIXQUARE is a web-based party app that turns multiple devices on the **same local network (same Wi‑Fi / hotspot)** into a single synchronized audio system.
+MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless audio system. Connect phones, tablets, and desktops on the same network to create surround sound — or use YouTube Together across any network.
 
----
-
-## ✨ Key Features
-
-- **🔢 Short Code Join (In‑App Safe)**: Guests type a **6‑digit code** shown on the host device.
-- **📡 Local Network Only**: Designed for **same Wi‑Fi / same hotspot**.
-- **🔌 Direct Host Connections (Stable)**: Host connects directly to multiple guest devices (configurable in Settings/Connect tab).
-- **🔊 Role‑based Routing**: Guests choose their output role when joining (Original / Left / Right / Woofer).
-- **🎥 YouTube + Local Files**: Host can load local files or add a YouTube link (within in‑app constraints).
-- **🛠️ Pro Audio Engine**: Mixing / FX powered by the native Web Audio API (no external audio library).
+**https://musixquare.com**
 
 ---
 
-## 🛠️ Technology Stack
+## Features
 
-- **Web Audio API**: Native browser audio engine (FX / mixing) — direct `AudioNode` graph, no external audio library
-- **PeerJS**: WebRTC P2P networking for low‑latency messaging (installed via npm, bundled by Vite)
-- **OPFS (Origin Private File System)**: Efficient local storage for large media (where supported)
-
----
-
-## ✅ Requirements / Notes
-
-- **Secure context required** (HTTPS or `localhost`) for WebRTC / Service Worker / OPFS.
-- This build **does not use STUN/TURN** and is intended for **LAN usage**.
+- **6-Digit Code Join**: Guests enter a short code to connect instantly.
+- **Speaker Role Routing**: Each device picks its role — Stereo, Left, Right, or Subwoofer.
+- **Local File Sharing**: Host sends audio/video files directly to guests via P2P. Precise sync supported.
+- **YouTube Together**: Watch together with synced playback. Works across different networks.
+- **System Audio Sharing**: Stream desktop audio to connected devices in real-time stereo. Windows/Mac Chrome only.
+- **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass — all processed locally via Web Audio API.
+- **Chat**: Real-time P2P messaging with commands, whisper, and moderation.
+- **Precision Sync**: NTP-style 3-sample latency measurement for file mode. Pulse-based simultaneous playback for YouTube mode.
 
 ---
 
-## 🚀 Try It Out
+## Tech Stack
 
-We highly recommend trying out the live version of MUSIXQUARE instead of running it locally. 
-
-**👉 Play now at: [https://musixquare.com](https://musixquare.com)**
-
-> **Note for Developers**: If you really need to run this project locally, a local web server is required (e.g., `python -m http.server 5173` or VSCode Live Server). Opening the `index.html` file directly via `file://` will break core features like Service Workers, OPFS, and WebRTC.
+- **TypeScript + Vite**: ES modules, strict mode, hot module replacement.
+- **Web Audio API**: Native browser audio graph — no external audio library.
+- **PeerJS (WebRTC)**: P2P data channels for file transfer, media streams for system audio.
+- **STUN + TURN**: Google STUN for NAT traversal. Metered.ca TURN via Netlify Function for remote connections.
+- **OPFS**: Origin Private File System for efficient local media storage.
 
 ---
 
-## 📖 How to Use
+## Getting Started
 
-> NOTE: The demo track filename is provided as `demo_track.mp3` for URL and server compatibility.
+### Live Version (Recommended)
+
+**https://musixquare.com** — no install needed.
+
+### Local Development
+
+```bash
+npm install
+npm run dev
+```
+
+> Requires HTTPS or `localhost` for WebRTC, Service Worker, and OPFS.
+
+---
+
+## How to Use
 
 ### Host
 
-1. Open the app and tap **“I'll host”**
-2. The app shows a **6‑digit code**
-3. Guests enter the code, then select their role on their device (Original / Left / Right / Woofer).
-4. Once ready, the host immediately sees 3 options:
-   - **Load local file**
-   - **Enter YouTube link**
-   - **Try it (Demo)**
+1. Open the app and tap **"I'll host"**
+2. Share the **6-digit code** with guests
+3. Choose a media source:
+   - **Load local file** — audio/video from your device
+   - **YouTube** — paste a link or playlist URL
+   - **System Audio** — stream your desktop audio (Windows/Mac Chrome)
 
 ### Guest
 
-1. Open the app and tap **“Join a session”**
-2. Enter the **6‑digit code** shown on the host
-3. Wait until the system starts (host finishes connecting devices)
+1. Open the app and tap **"Join a session"**
+2. Enter the **6-digit code**
+3. Select your speaker role (Stereo / Left / Right / Woofer)
 
 ---
 
-## 🌐 Deployment
+## Deployment
 
-This project is a static web app (HTML/CSS/JS).
-
-- **Audio engine**: Built on the native Web Audio API — no external audio library.
-- **PeerJS**: Installed via npm and bundled by Vite (no runtime CDN dependency).
-- **UI font (Pretendard)**: Loaded from **local self-hosted files** (`css/pretendard.css` + `fonts/`).
-  - License is included at `fonts/PRETENDARD_LICENSE.txt`.
-- For Toss In‑App release, it is intended to be served from **Toss infrastructure** (no Netlify dependencies).
+- **Hosting**: Netlify (auto-deploys from `main` branch)
+- **Build**: `npm run build` → `dist/`
+- **TURN Server**: Netlify Function (`netlify/functions/get-turn-config.js`) with Metered.ca credentials
+- **Font**: Pretendard self-hosted (`css/pretendard.css` + `fonts/`)
+- **PWA**: `manifest.webmanifest` + `service-worker.js` included
 
 ---
 
-## 📲 PWA
+## Third-Party Licenses
 
-- `manifest.webmanifest` and `service-worker.js` are included.
-- Service worker is registered from `js/app.js` on secure contexts.
-
-## 📄 Third‑Party Licenses
-
-Runtime dependencies (installed via npm, bundled by Vite):
-
-- **PeerJS** — MIT License — see `node_modules/peerjs/LICENSE`
-
-Self-hosted assets:
-
+- **PeerJS** — MIT License
 - **Pretendard** (font) — SIL Open Font License 1.1 — see `fonts/PRETENDARD_LICENSE.txt`
-
-## Maintenance notes
-
-### Pretendard self-hosting (no CDN)
-
-This repo is configured to load Pretendard from **local files** (`css/pretendard.css` + `fonts/`).
-
-To download the font files into the project:
-- macOS/Linux: `./scripts/fetch-pretendard.sh`
-- Windows (PowerShell): `./scripts/fetch-pretendard.ps1`
-
-(License is included at `fonts/PRETENDARD_LICENSE.txt`.)
-
-### Debug-only relay overlay
-
-The old "relay debug overlay" console helpers were removed from `js/app.js` so they don't ship in production.
-

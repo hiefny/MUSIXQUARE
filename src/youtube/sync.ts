@@ -10,6 +10,8 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
+import { setManagedTimer } from '../core/timers.ts';
+import { getHostNow } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -261,24 +263,39 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
-    // Seekbar = source of truth: update seekbar FIRST, then iframe follows seekbar
+    // SharedClock: schedule YouTube action at host-specified time
+    const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
-    if (time > 0 && duration > 0) {
-      bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+
+    const executeAction = (waitMs: number) => {
+      const compensatedTime = time + (waitMs / 1000);
+
+      // Update seekbar immediately
+      if (compensatedTime > 0 && duration > 0) {
+        bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
+      }
+
+      if (state === 1 && player.playVideo) {
+        if (!subIndexChanged && player.seekTo) player.seekTo(compensatedTime, true);
+        player.playVideo();
+      } else if (state === 2 && player.pauseVideo) {
+        player.pauseVideo();
+        if (player.seekTo) player.seekTo(compensatedTime, true);
+      }
+    };
+
+    if (hostPlayAt > 0) {
+      const waitMs = Math.max(0, hostPlayAt - getHostNow());
+      if (waitMs > 0 && waitMs < 2000) {
+        setManagedTimer('yt-clock-action', () => executeAction(waitMs), waitMs);
+      } else {
+        executeAction(0);
+      }
+    } else {
+      executeAction(0);
     }
 
-    // Read seekbar value (may include offsets/compensation) and use THAT for iframe
-    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-    const seekbarTime = slider ? parseFloat(slider.value) : time;
-
-    if (state === 1 && player.playVideo) {
-      if (!subIndexChanged && player.seekTo) player.seekTo(seekbarTime, true);
-      player.playVideo();
-    } else if (state === 2 && player.pauseVideo) {
-      player.pauseVideo();
-      if (player.seekTo) player.seekTo(seekbarTime, true);
-    } else if (state === 0 || state === -1) {
-      // ENDED (0) or STOPPED (-1): stop guest YouTube player
+    if (state === 0 || state === -1) {
       if (player.stopVideo) player.stopVideo();
     }
   } catch (e) {

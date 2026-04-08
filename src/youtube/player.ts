@@ -18,6 +18,9 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
+import { getHostNow } from '../network/shared-clock.ts';
+
+const SCHEDULE_AHEAD_MS = 200;
 import { registerHandlers } from '../network/protocol.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
 import type { PlaylistItem } from '../types/index.ts';
@@ -173,6 +176,7 @@ export function initYouTube(): void {
           time: currentTime,
           subIndex: player.getPlaylistIndex?.() ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
         });
         player.pauseVideo();
       } else {
@@ -182,6 +186,7 @@ export function initYouTube(): void {
           time: currentTime,
           subIndex: player.getPlaylistIndex?.() ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
         });
         player.playVideo();
       }
@@ -243,6 +248,7 @@ export function initYouTube(): void {
           time: target,
           subIndex: player.getPlaylistIndex?.() ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
         });
       }
       player.seekTo(target, true);
@@ -266,6 +272,7 @@ export function initYouTube(): void {
           time: seconds,
           subIndex: player.getPlaylistIndex?.() ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
         });
       }
       player.seekTo(seconds, true);

@@ -16,7 +16,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { getHostNow } from '../network/shared-clock.ts';
+import { getHostNow, getClockOffset, getClockSampleCount, getClockBestRtt } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile } from '../storage/transfer.ts';
@@ -157,13 +157,27 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // Shared Clock: schedule play at the host-specified time
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     if (hostPlayAt > 0) {
-      const waitMs = Math.max(0, hostPlayAt - getHostNow());
+      const now = getHostNow();
+      const waitMs = Math.max(0, hostPlayAt - now);
+      const offset = getClockOffset();
+      const samples = getClockSampleCount();
+      const bestRtt = getClockBestRtt();
+
+      // DEBUG: show clock state on screen
+      try {
+        let d = document.getElementById('clock-debug');
+        if (!d) { d = document.createElement('div'); d.id = 'clock-debug'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.9);color:#0f0;font:12px monospace;padding:8px;pointer-events:none;'; document.body.appendChild(d); }
+        d.textContent = `[Clock] offset=${offset.toFixed(1)}ms | rtt=${bestRtt}ms | samples=${samples} | wait=${waitMs.toFixed(0)}ms | hostPlayAt-now=${(hostPlayAt-now).toFixed(0)}ms`;
+        setTimeout(() => d?.remove(), 10000);
+      } catch { /* noop */ }
+
       if (waitMs > 0 && waitMs < 2000) {
-        // Schedule for the exact host-clock moment
-        setManagedTimer('clock-play', () => play(time), waitMs);
-        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms (hostPlayAt=${hostPlayAt})`);
+        // Compensate: host has been playing during waitMs, so advance position
+        const compensatedTime = time + (waitMs / 1000);
+        setManagedTimer('clock-play', () => play(compensatedTime), waitMs);
+        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms)`);
       } else {
-        // Fallback: play immediately (clock not synced or stale message)
+        log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);
       }
     } else {

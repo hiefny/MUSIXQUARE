@@ -190,7 +190,14 @@ export function stopSystemAudioCapture(): void {
       document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
       document.querySelector(`#grid-standard .ch-opt[data-ch="${_preSysAudioState.channelMode}"]`)?.classList.add('active');
     } catch { /* noop */ }
-    if (_preSysAudioState.appState !== APP_STATE.IDLE) {
+
+    // YouTube was playing → reload it (stopAllMedia destroyed the player)
+    if (_preSysAudioState.appState === APP_STATE.PLAYING_YOUTUBE) {
+      const meta = _preSysAudioState.currentTrackMeta as Record<string, unknown> | null;
+      if (meta) {
+        bus.emit('youtube:load', (meta.videoId as string) || null, (meta.playlistId as string) || null, true);
+      }
+    } else if (_preSysAudioState.appState !== APP_STATE.IDLE) {
       setState('appState', APP_STATE.PAUSED);
     } else {
       setState('appState', APP_STATE.IDLE);

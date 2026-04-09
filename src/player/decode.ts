@@ -457,12 +457,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       setPendingPlayTime(undefined);
     }
 
-    // Force sync after 1s — position is stale from file transfer delay
-    if (hostConn?.open) {
-      setManagedTimer('force-initial-sync', () => {
-        bus.emit('sync:force-initial');
-      }, 1000);
-    }
+    // Force sync handled by sync.ts state:appState listener (1s delayed reset)
 
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {

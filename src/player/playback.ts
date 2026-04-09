@@ -164,8 +164,15 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       if (waitMs > 0 && waitMs < 2000) {
         // Compensate: host has been playing during waitMs, so advance position
         const compensatedTime = time + (waitMs / 1000);
-        setManagedTimer('clock-play', () => play(compensatedTime), waitMs);
-        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms)`);
+        // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
+        const hasBuffer = !!getCurrentAudioBuffer();
+        if (hasBuffer) {
+          play(compensatedTime, waitMs / 1000);
+        } else {
+          // Video-only: fall back to setTimeout (Web Audio scheduling not available)
+          setManagedTimer('clock-play', () => play(compensatedTime), waitMs);
+        }
+        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms${hasBuffer ? ', WebAudio' : ', setTimeout'})`);
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);

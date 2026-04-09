@@ -239,7 +239,7 @@ export function seekTo(time: number): void {
 
 // ─── Play ──────────────────────────────────────────────────────────
 
-export async function play(offset: number): Promise<void> {
+export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
     setPendingPlayTime(offset);
@@ -262,7 +262,7 @@ export async function play(offset: number): Promise<void> {
   }, 15000);
 
   try {
-    await _internalPlay(offset);
+    await _internalPlay(offset, scheduleDelay);
   } finally {
     clearManagedTimer('navigator-lock-watchdog');
     setManagedTimer('playback-unlock-delay', () => {
@@ -278,7 +278,7 @@ export async function play(offset: number): Promise<void> {
   }
 }
 
-async function _internalPlay(offset: number): Promise<void> {
+async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   setPendingPlayTime(undefined);
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
@@ -350,7 +350,10 @@ async function _internalPlay(offset: number): Promise<void> {
       }
     });
 
-    newNode.start(0, safeOffset);
+    // scheduleDelay > 0: Web Audio hardware-timed start (sub-ms precision)
+    // scheduleDelay = 0: immediate start (host or local play)
+    const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
+    newNode.start(startWhen, safeOffset);
 
     // Sync visuals (muted video)
     if (videoElement?.src) {
@@ -369,7 +372,7 @@ async function _internalPlay(offset: number): Promise<void> {
   // startedAt = wall-clock time when playback would have started from 0:00
   //   = now - playbackPosition + syncCorrection
   const localOffset = getState('sync.localOffset') || 0;
-  const startedAt = getCurrentTime() - safeOffset + localOffset;
+  const startedAt = getCurrentTime() + scheduleDelay - safeOffset + localOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);

@@ -280,10 +280,14 @@ export function initSync(): void {
   });
 
   // Reset initial sync flag on every new playback (guest gets fresh correction)
+  // 2nd defense: reset again after 1s when audio engine is fully stable
   bus.on('state:appState', () => {
     const s = getState('appState');
     if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
       _initialSyncDone = false;
+      setManagedTimer('force-initial-sync', () => {
+        _initialSyncDone = false;
+      }, 1000);
     }
   });
 
@@ -307,11 +311,6 @@ export function initSync(): void {
 
   bus.on('sync:auto-sync', () => {
     handleAutoSync();
-  });
-
-  // Force initial sync — next SYNC_PONG will do unconditional correction
-  bus.on('sync:force-initial', () => {
-    _initialSyncDone = false;
   });
 
   bus.on('sync:close-manual', () => {

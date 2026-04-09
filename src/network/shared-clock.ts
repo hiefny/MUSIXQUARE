@@ -15,7 +15,7 @@ import { log } from '../core/log.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 
-const MAX_SAMPLES = 20;            // Keep last 20 RTT samples
+const MAX_SAMPLES = 60;            // Keep last 60 RTT samples (~1min window)
 const WARMUP_COUNT = 5;
 
 // ─── State ────────────────────────────────────────────────────────

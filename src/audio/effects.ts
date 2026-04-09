@@ -28,9 +28,14 @@ import {
 } from './engine.ts';
 import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
-
-// ─── Constants ────────────────────────────────────────────────────
-const RAMP_TIME = 0.1; // seconds — standard audio parameter ramp duration
+import {
+  RAMP_TIME, FREQ_FULL_RANGE, SUB_FREQ_MIN, SUB_FREQ_MAX,
+  REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY,
+  REVERB_LOWCUT_BASE, REVERB_LOWCUT_FACTOR,
+  REVERB_HIGHCUT_BASE, REVERB_HIGHCUT_FACTOR,
+  REVERB_PRESETS,
+  STEREO_NARROW_BASE, STEREO_NARROW_SCALE, STEREO_WIDE_FLOOR,
+} from './constants.ts';
 
 // ─── Apply All Settings ────────────────────────────────────────────
 
@@ -63,12 +68,12 @@ export async function applySettings(): Promise<void> {
   // Reverb damping filters
   const rlc = getRvbLowCut();
   if (rlc) {
-    const lFreq = 20 * Math.pow(50, Math.max(0, Math.min(100, reverbLowCut)) / 100);
+    const lFreq = REVERB_LOWCUT_BASE * Math.pow(REVERB_LOWCUT_FACTOR, Math.max(0, Math.min(100, reverbLowCut)) / 100);
     rampParam(rlc.frequency, lFreq, RAMP_TIME);
   }
   const rhc = getRvbHighCut();
   if (rhc) {
-    const hFreq = 20000 * Math.pow(0.05, Math.max(0, Math.min(100, reverbHighCut)) / 100);
+    const hFreq = REVERB_HIGHCUT_BASE * Math.pow(REVERB_HIGHCUT_FACTOR, Math.max(0, Math.min(100, reverbHighCut)) / 100);
     rampParam(rhc.frequency, hFreq, RAMP_TIME);
   }
 
@@ -91,9 +96,9 @@ export async function applySettings(): Promise<void> {
   if (wid) {
     wid.setWidth(stereoWidth * 0.5, RAMP_TIME);
     if (stereoWidth < 1.0) {
-      compensation = 0.6 + 0.4 * stereoWidth;
+      compensation = STEREO_NARROW_BASE + STEREO_NARROW_SCALE * stereoWidth;
     } else if (stereoWidth > 1.0) {
-      compensation = Math.max(0.5, 1.0 / (0.6 + 0.4 * stereoWidth));
+      compensation = Math.max(STEREO_WIDE_FLOOR, 1.0 / (STEREO_NARROW_BASE + STEREO_NARROW_SCALE * stereoWidth));
     }
   }
 
@@ -112,7 +117,7 @@ export async function applySettings(): Promise<void> {
   // Global LowPass
   const lp = getGlobalLowPass();
   if (lp) {
-    rampParam(lp.frequency, isWooferRole ? subFreq : 20000, RAMP_TIME);
+    rampParam(lp.frequency, isWooferRole ? subFreq : FREQ_FULL_RANGE, RAMP_TIME);
   }
 
   // Master Volume
@@ -137,8 +142,8 @@ export async function applySettings(): Promise<void> {
 }
 
 // Track last reverb params to avoid unnecessary IR regeneration
-let _lastReverbDecay = 5.0;
-let _lastReverbPreDelay = 0.1;
+let _lastReverbDecay = REVERB_DEFAULT_DECAY;
+let _lastReverbPreDelay = REVERB_DEFAULT_PREDELAY;
 
 // ─── Reverb Controls ───────────────────────────────────────────────
 
@@ -169,8 +174,8 @@ export function setReverbParam(param: string, val: number, skipApply = false): v
 
 function resetReverb(): void {
   setReverbParam('mix', 0, true);
-  setReverbParam('decay', 5.0, true);
-  setReverbParam('predelay', 0.1, true);
+  setReverbParam('decay', REVERB_DEFAULT_DECAY, true);
+  setReverbParam('predelay', REVERB_DEFAULT_PREDELAY, true);
   setReverbParam('lowcut', 0, true);
   setReverbParam('highcut', 0, true);
   applySettingsAsync();
@@ -247,7 +252,7 @@ export function resetVirtualBass(): void {
 // ─── Subwoofer Cutoff ──────────────────────────────────────────────
 
 function updateSubFreq(val: number): void {
-  const freq = Math.max(20, Math.min(500, Number(val)));
+  const freq = Math.max(SUB_FREQ_MIN, Math.min(SUB_FREQ_MAX, Number(val)));
   if (!Number.isFinite(freq)) return;
   setState('audio.subFreq', freq);
   applySettingsAsync();
@@ -468,20 +473,24 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
       bus.emit('ui:sync-reverb-preset', 'off');
       _notifyHostChanged();
       return;
-    case 'studio':
-      setState('audio.reverbMix', 0.3);
-      setState('audio.reverbDecay', 1.0);
-      setState('audio.reverbPreDelay', 0.02);
-      setState('audio.reverbLowCut', 0);
-      setState('audio.reverbHighCut', 0);
+    case 'studio': {
+      const p = REVERB_PRESETS.studio;
+      setState('audio.reverbMix', p.mix);
+      setState('audio.reverbDecay', p.decay);
+      setState('audio.reverbPreDelay', p.preDelay);
+      setState('audio.reverbLowCut', p.lowCut);
+      setState('audio.reverbHighCut', p.highCut);
       break;
-    case 'arena':
-      setState('audio.reverbMix', 0.4);
-      setState('audio.reverbDecay', 5.0);
-      setState('audio.reverbPreDelay', 0.12);
-      setState('audio.reverbLowCut', 0);
-      setState('audio.reverbHighCut', 0);
+    }
+    case 'arena': {
+      const p = REVERB_PRESETS.arena;
+      setState('audio.reverbMix', p.mix);
+      setState('audio.reverbDecay', p.decay);
+      setState('audio.reverbPreDelay', p.preDelay);
+      setState('audio.reverbLowCut', p.lowCut);
+      setState('audio.reverbHighCut', p.highCut);
       break;
+    }
     default:
       return;
   }

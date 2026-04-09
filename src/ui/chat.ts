@@ -66,17 +66,14 @@ function parseTimestamp(ts: string): number {
 
 // ─── Parse Message Content ───────────────────────────────────────
 
-const _ytRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/gi;
-const _tsRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
-const _combinedRegex = new RegExp(
-  `(${_ytRegex.source})|(${_tsRegex.source})`,
-  'gi'
-);
+// Non-global for .test() — avoids fragile lastIndex resets
+const _ytTestRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/i;
+const _ytSource = _ytTestRegex.source;
+const _tsSource = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/.source;
+// Global combined regex for exec() loop
+const _combinedRegex = new RegExp(`(${_ytSource})|(${_tsSource})`, 'gi');
 
 function parseMessageContent(text: string): string {
-  // Reset lastIndex for global regexes reused across calls
-  _ytRegex.lastIndex = 0;
-  _tsRegex.lastIndex = 0;
   _combinedRegex.lastIndex = 0;
 
   let result = '';
@@ -90,8 +87,7 @@ function parseMessageContent(text: string): string {
 
     const matchedText = match[0];
 
-    _ytRegex.lastIndex = 0;
-    if (_ytRegex.test(matchedText)) {
+    if (_ytTestRegex.test(matchedText)) {
       const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
       const uniqueId = 'yt-' + Math.random().toString(36).substring(2, 11);
 
@@ -229,12 +225,19 @@ function initChatSwipeToDismiss(): void {
   header.addEventListener('touchcancel', endDrag);
 
   // Mouse events (for small-screen PC users)
+  // Attach window listeners only during active drag to prevent permanent leak
+  const onMouseMove = (e: MouseEvent) => moveDrag(e.clientY);
+  const onMouseUp = () => {
+    endDrag();
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+  };
   header.addEventListener('mousedown', (e: MouseEvent) => {
     startDrag(e.clientY);
     e.preventDefault(); // prevent text selection while dragging
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   });
-  window.addEventListener('mousemove', (e: MouseEvent) => moveDrag(e.clientY));
-  window.addEventListener('mouseup', endDrag);
 
   // Header click to close (tap or click without drag)
   header.addEventListener('click', () => {
@@ -774,14 +777,21 @@ function handleChatSystem(data: Record<string, unknown>): void {
 
 // ─── Event Delegation ────────────────────────────────────────────
 
+let _chatDelegationAC: AbortController | null = null;
+
 function initChatEventDelegation(): void {
+  // Tear down previous listeners on re-init
+  _chatDelegationAC?.abort();
+  _chatDelegationAC = new AbortController();
+  const { signal } = _chatDelegationAC;
+
   // Timestamp seeking
   document.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
     if (!target) return;
     const sec = Number(target.getAttribute('data-seek'));
     if (Number.isFinite(sec)) seekTo(sec);
-  });
+  }, { signal });
 
   document.addEventListener('keydown', (e) => {
     const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
@@ -791,7 +801,7 @@ function initChatEventDelegation(): void {
     e.stopPropagation();
     const sec = Number(target.getAttribute('data-seek'));
     if (Number.isFinite(sec)) seekTo(sec);
-  });
+  }, { signal });
 
   // YouTube button in chat
   document.addEventListener('click', (e) => {
@@ -799,7 +809,7 @@ function initChatEventDelegation(): void {
     if (!btn) return;
     const url = btn.getAttribute('data-youtube-url');
     if (url) bus.emit('youtube:load-from-chat', url);
-  });
+  }, { signal });
 }
 
 // ─── Init ────────────────────────────────────────────────────────

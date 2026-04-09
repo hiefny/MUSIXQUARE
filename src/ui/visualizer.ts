@@ -51,7 +51,7 @@ function _initThemeListeners(): void {
   // Listen for OS-level prefers-color-scheme change
   try {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshThemeCache);
-  } catch { /* ignore */ }
+  } catch (e) { log.debug('[Visualizer] matchMedia listener error:', e); }
 
   // Listen for data-theme attribute changes (app-level theme toggle)
   try {

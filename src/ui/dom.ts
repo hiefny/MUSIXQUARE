@@ -168,7 +168,7 @@ export function updateOverlayOpenClass(): void {
       return !!(el && el.classList.contains('active'));
     });
     if (document.body) document.body.classList.toggle('overlay-open', anyActive);
-  } catch { /* ignore */ }
+  } catch (e) { log.debug('[DOM] Overlay class toggle error:', e); }
 }
 
 export function initOverlayOpenObserver(): void {
@@ -184,7 +184,7 @@ export function initOverlayOpenObserver(): void {
       const el = document.getElementById(id);
       if (el) _overlayObserver!.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
-  } catch { /* ignore */ }
+  } catch (e) { log.debug('[DOM] Overlay observer init error:', e); }
 
   updateOverlayOpenClass();
 }

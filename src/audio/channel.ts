@@ -24,6 +24,7 @@ import {
 } from './engine.ts';
 import { applySettingsAsync } from './effects.ts';
 import { rampParam } from './helpers.ts';
+import { FREQ_FULL_RANGE, RAMP_TIME_FAST } from './constants.ts';
 
 // ─── Channel Mode ──────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ export function setChannelMode(mode: number): void {
   // Reset LowPass: skip full-range ramp when switching TO Sub (mode=2),
   // because Sub immediately sets its own target frequency — avoids transient
   // burst of unfiltered bass during the 20kHz→subFreq ramp.
-  if (lowPass && mode !== 2) rampParam(lowPass.frequency,20000, 0.02);
+  if (lowPass && mode !== 2) rampParam(lowPass.frequency, FREQ_FULL_RANGE, RAMP_TIME_FAST);
 
   // Reset routing
   safeDisconnect(gL);
@@ -57,8 +58,8 @@ export function setChannelMode(mode: number): void {
   // Reset gains (rampTo prevents audible click, matches setSurroundChannel pattern)
   // Skip for Sub mode (mode=2) — immediate .value=0.5 override avoids transient spike
   if (mode !== 2) {
-    rampParam(gL.gain,1, 0.05);
-    rampParam(gR.gain,1, 0.05);
+    rampParam(gL.gain, 1, RAMP_TIME_FAST);
+    rampParam(gR.gain, 1, RAMP_TIME_FAST);
   }
 
   if (mode === 0) {
@@ -78,7 +79,7 @@ export function setChannelMode(mode: number): void {
     // Set gain BEFORE connecting to prevent +6dB spike
     gL.gain.value = 0.5;
     gR.gain.value = 0.5;
-    if (lowPass) rampParam(lowPass.frequency,subFreq, 0.02);
+    if (lowPass) rampParam(lowPass.frequency, subFreq, RAMP_TIME_FAST);
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
     gR.connect(merge, 0, 0);
@@ -181,7 +182,7 @@ export function setSurroundChannel(idx: number): void {
 
     // LowPass for LFE channel (rampTo avoids click on active signal path)
     if (lowPass) {
-      rampParam(lowPass.frequency,idx === 3 ? subFreq : 20000, 0.02);
+      rampParam(lowPass.frequency, idx === 3 ? subFreq : FREQ_FULL_RANGE, RAMP_TIME_FAST);
     }
 
     // Force output to Dual Mono
@@ -189,8 +190,8 @@ export function setSurroundChannel(idx: number): void {
     safeDisconnect(gR);
     gL.connect(merge, 0, 0);
     gR.connect(merge, 0, 1);
-    rampParam(gL.gain,1, 0.1);
-    rampParam(gR.gain,1, 0.1);
+    rampParam(gL.gain, 1, RAMP_TIME_FAST);
+    rampParam(gR.gain, 1, RAMP_TIME_FAST);
 
     const names = [
       'Front Left (L)', 'Front Right (R)', 'Center (Dialog)',

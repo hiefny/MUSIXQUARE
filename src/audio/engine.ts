@@ -23,6 +23,16 @@ import {
   createCrossFade, createStereoWidener, createCascadedFilter,
   type CrossFadeGraph, type StereoWidenerGraph, type CascadedFilter,
 } from './helpers.ts';
+import {
+  FREQ_FULL_RANGE, ANALYSER_FFT_SIZE, ANALYSER_SMOOTHING,
+  REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY,
+  REVERB_LOWCUT_BASE, VB_CURVE_LENGTH,
+  VB_SUB_LP_FREQ, VB_SUB_HP_FREQ, VB_SUB_COMP, VB_SUB_TRIM_GAIN,
+  VB_SUB_POST_HP_FREQ, VB_SUB_POST_LP_FREQ,
+  VB_MID_LP_FREQ, VB_MID_HP_FREQ, VB_MID_COMP, VB_MID_TRIM_GAIN,
+  VB_MID_POST_HP_FREQ, VB_MID_POST_LP_FREQ, VB_MID_MIX_GAIN,
+  VB_LIMITER,
+} from './constants.ts';
 
 // ─── AudioGraph Struct ────────────────────────────────────────────
 interface AudioGraph {
@@ -204,74 +214,73 @@ async function _doInitAudio(): Promise<void> {
 
   // Reverb (synchronous IR generation — no async needed!)
   _graph.reverb = ctx.createConvolver();
-  _graph.reverb.buffer = generateReverbIR(5.0, 0.1);
+  _graph.reverb.buffer = generateReverbIR(REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY);
 
   // Damping filters
   _graph.rvbLowCut = ctx.createBiquadFilter();
   _graph.rvbLowCut.type = 'highpass';
-  _graph.rvbLowCut.frequency.value = 20;
+  _graph.rvbLowCut.frequency.value = REVERB_LOWCUT_BASE;
 
   _graph.rvbHighCut = ctx.createBiquadFilter();
   _graph.rvbHighCut.type = 'lowpass';
-  _graph.rvbHighCut.frequency.value = 20000;
+  _graph.rvbHighCut.frequency.value = FREQ_FULL_RANGE;
 
   _graph.rvbCrossFade = createCrossFade(0); // Initially Dry
 
   // ── Virtual Bass — Dual-Band Psychoacoustic Enhancement ──
-  const VB_CURVE_LEN = 8192;
 
   // Sub-bass: soft cubic saturation  f(x) = x - x³/3
-  const subCurve = new Float32Array(VB_CURVE_LEN);
-  for (let i = 0; i < VB_CURVE_LEN; i++) {
-    const x = (i / (VB_CURVE_LEN - 1)) * 2 - 1;
+  const subCurve = new Float32Array(VB_CURVE_LENGTH);
+  for (let i = 0; i < VB_CURVE_LENGTH; i++) {
+    const x = (i / (VB_CURVE_LENGTH - 1)) * 2 - 1;
     subCurve[i] = x - (x * x * x) / 3;
   }
 
   // Mid-bass: soft quadratic saturation  f(x) = sign(x)·(2|x| - x²)
-  const midCurve = new Float32Array(VB_CURVE_LEN);
-  for (let i = 0; i < VB_CURVE_LEN; i++) {
-    const x = (i / (VB_CURVE_LEN - 1)) * 2 - 1;
+  const midCurve = new Float32Array(VB_CURVE_LENGTH);
+  for (let i = 0; i < VB_CURVE_LENGTH; i++) {
+    const x = (i / (VB_CURVE_LENGTH - 1)) * 2 - 1;
     const ax = Math.abs(x);
     const shaped = ax <= 1.0 ? (2 * ax - ax * ax) : 1.0;
     midCurve[i] = x >= 0 ? shaped : -shaped;
   }
 
   // Sub-bass path (40-80 Hz)
-  _graph.vbSubLP = createCascadedFilter('lowpass', 80, 2);       // -24dB
+  _graph.vbSubLP = createCascadedFilter('lowpass', VB_SUB_LP_FREQ, 2);       // -24dB
   _graph.vbSubHP = ctx.createBiquadFilter();
-  _graph.vbSubHP.type = 'highpass'; _graph.vbSubHP.frequency.value = 40;
+  _graph.vbSubHP.type = 'highpass'; _graph.vbSubHP.frequency.value = VB_SUB_HP_FREQ;
   _graph.vbSubComp = ctx.createDynamicsCompressor();
-  _graph.vbSubComp.threshold.value = -24; _graph.vbSubComp.ratio.value = 4;
-  _graph.vbSubComp.attack.value = 0.01; _graph.vbSubComp.release.value = 0.1;
-  _graph.vbSubComp.knee.value = 10;
-  _graph.vbSubTrim = ctx.createGain(); _graph.vbSubTrim.gain.value = 0.8;
+  _graph.vbSubComp.threshold.value = VB_SUB_COMP.threshold; _graph.vbSubComp.ratio.value = VB_SUB_COMP.ratio;
+  _graph.vbSubComp.attack.value = VB_SUB_COMP.attack; _graph.vbSubComp.release.value = VB_SUB_COMP.release;
+  _graph.vbSubComp.knee.value = VB_SUB_COMP.knee;
+  _graph.vbSubTrim = ctx.createGain(); _graph.vbSubTrim.gain.value = VB_SUB_TRIM_GAIN;
   _graph.vbSubShaper = ctx.createWaveShaper(); _graph.vbSubShaper.curve = subCurve;
   _graph.vbSubPostHP = ctx.createBiquadFilter();
-  _graph.vbSubPostHP.type = 'highpass'; _graph.vbSubPostHP.frequency.value = 80;
-  _graph.vbSubPostLP = createCascadedFilter('lowpass', 320, 2);  // -24dB
+  _graph.vbSubPostHP.type = 'highpass'; _graph.vbSubPostHP.frequency.value = VB_SUB_POST_HP_FREQ;
+  _graph.vbSubPostLP = createCascadedFilter('lowpass', VB_SUB_POST_LP_FREQ, 2);  // -24dB
   _graph.vbSubMix = ctx.createGain();
 
   // Mid-bass path (80-160 Hz)
-  _graph.vbMidLP = createCascadedFilter('lowpass', 160, 2);      // -24dB
+  _graph.vbMidLP = createCascadedFilter('lowpass', VB_MID_LP_FREQ, 2);      // -24dB
   _graph.vbMidHP = ctx.createBiquadFilter();
-  _graph.vbMidHP.type = 'highpass'; _graph.vbMidHP.frequency.value = 80;
+  _graph.vbMidHP.type = 'highpass'; _graph.vbMidHP.frequency.value = VB_MID_HP_FREQ;
   _graph.vbMidComp = ctx.createDynamicsCompressor();
-  _graph.vbMidComp.threshold.value = -20; _graph.vbMidComp.ratio.value = 3;
-  _graph.vbMidComp.attack.value = 0.005; _graph.vbMidComp.release.value = 0.08;
-  _graph.vbMidComp.knee.value = 8;
-  _graph.vbMidTrim = ctx.createGain(); _graph.vbMidTrim.gain.value = 0.7;
+  _graph.vbMidComp.threshold.value = VB_MID_COMP.threshold; _graph.vbMidComp.ratio.value = VB_MID_COMP.ratio;
+  _graph.vbMidComp.attack.value = VB_MID_COMP.attack; _graph.vbMidComp.release.value = VB_MID_COMP.release;
+  _graph.vbMidComp.knee.value = VB_MID_COMP.knee;
+  _graph.vbMidTrim = ctx.createGain(); _graph.vbMidTrim.gain.value = VB_MID_TRIM_GAIN;
   _graph.vbMidShaper = ctx.createWaveShaper(); _graph.vbMidShaper.curve = midCurve;
   _graph.vbMidPostHP = ctx.createBiquadFilter();
-  _graph.vbMidPostHP.type = 'highpass'; _graph.vbMidPostHP.frequency.value = 150;
-  _graph.vbMidPostLP = createCascadedFilter('lowpass', 600, 2);  // -24dB
-  _graph.vbMidMix = ctx.createGain(); _graph.vbMidMix.gain.value = 0.8;
+  _graph.vbMidPostHP.type = 'highpass'; _graph.vbMidPostHP.frequency.value = VB_MID_POST_HP_FREQ;
+  _graph.vbMidPostLP = createCascadedFilter('lowpass', VB_MID_POST_LP_FREQ, 2);  // -24dB
+  _graph.vbMidMix = ctx.createGain(); _graph.vbMidMix.gain.value = VB_MID_MIX_GAIN;
 
   // Output stage
   _graph.vbSum = ctx.createGain();
   _graph.vbLimiter = ctx.createDynamicsCompressor();
-  _graph.vbLimiter.threshold.value = -3; _graph.vbLimiter.ratio.value = 20;
-  _graph.vbLimiter.attack.value = 0.003; _graph.vbLimiter.release.value = 0.01;
-  _graph.vbLimiter.knee.value = 0;
+  _graph.vbLimiter.threshold.value = VB_LIMITER.threshold; _graph.vbLimiter.ratio.value = VB_LIMITER.ratio;
+  _graph.vbLimiter.attack.value = VB_LIMITER.attack; _graph.vbLimiter.release.value = VB_LIMITER.release;
+  _graph.vbLimiter.knee.value = VB_LIMITER.knee;
   _graph.vbGain = ctx.createGain(); _graph.vbGain.gain.value = 0;
 
   // ── Connections ──
@@ -286,7 +295,7 @@ async function _doInitAudio(): Promise<void> {
   // 3. Post-Processing: Merge → GlobalLowPass → EQ → Reverb → Master
   _graph.globalLowPass = ctx.createBiquadFilter();
   _graph.globalLowPass.type = 'lowpass';
-  _graph.globalLowPass.frequency.value = 20000;
+  _graph.globalLowPass.frequency.value = FREQ_FULL_RANGE;
   _graph.toneMerge.connect(_graph.globalLowPass);
 
   let eqIn: AudioNode = _graph.globalLowPass;
@@ -331,8 +340,8 @@ async function _doInitAudio(): Promise<void> {
 
   // Visualizer — 2048 bins for accurate frequency mapping
   _graph.analyser = ctx.createAnalyser();
-  _graph.analyser.fftSize = 2048;
-  _graph.analyser.smoothingTimeConstant = 0.3;
+  _graph.analyser.fftSize = ANALYSER_FFT_SIZE;
+  _graph.analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
   _graph.masterGain.connect(_graph.analyser);
   _graph.masterGain.connect(ctx.destination);
 
@@ -351,9 +360,12 @@ async function _doInitAudio(): Promise<void> {
   }
 
   // Auto-resume AudioContext on interruption
+  // Always remove old handler first to prevent duplicates on re-init
   try {
-    if (_ctxStateChangeCtx && _ctxStateChangeHandler) {
-      _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
+    if (_ctxStateChangeHandler) {
+      // Remove from both the old context and current, in case they differ
+      if (_ctxStateChangeCtx) _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
+      if (_ctxStateChangeCtx !== ctx) ctx.removeEventListener('statechange', _ctxStateChangeHandler);
     }
     const handler = () => {
       if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {

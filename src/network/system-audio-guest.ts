@@ -243,7 +243,8 @@ export function registerSystemAudioGuestListeners(): void {
   });
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
-    handleIncomingCall(mediaConn as MediaConnection, channel);
+    handleIncomingCall(mediaConn as MediaConnection, channel)
+      .catch(e => log.error('[SysAudioGuest] handleIncomingCall failed:', e));
   });
 
   bus.on('system-audio:force-stop', () => {

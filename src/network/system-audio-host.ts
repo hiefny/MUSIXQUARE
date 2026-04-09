@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { getPeer } from './peer-state.ts';
 import { broadcast } from './peer-state.ts';
 import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
@@ -137,7 +138,7 @@ export function registerSystemAudioHostListeners(): void {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
 
-    setTimeout(() => {
+    setManagedTimer('sys-audio-late-join', () => {
       broadcast({ type: MSG.SYSTEM_AUDIO_START });
       const peers = getState('network.connectedPeers');
       for (const p of peers) {

@@ -15,7 +15,7 @@ import { setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
-import { showLoader, updateLoader } from './toast.ts';
+import { showLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
 import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
 import { showDialog } from './dialog.ts';
@@ -646,14 +646,8 @@ export function initPlayerControls(): void {
     showToast(message);
   });
 
-  // Loader
-  bus.on('ui:show-loader', (visible, label) => {
-    showLoader(visible, label);
-  });
-
-  bus.on('ui:update-loader', (percent) => {
-    updateLoader(percent);
-  });
+  // Loader — driven directly via showLoader()/updateLoader() imports.
+  // bus.on handlers removed: no module emits these events.
 
   // Play button state (enabled/disabled)
   bus.on('ui:play-btn-state', (enabled) => {

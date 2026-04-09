@@ -52,7 +52,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
         ));
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) { log.debug('[Sync] Liveness update error:', e); }
 
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
@@ -74,7 +74,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
           trackIndex: getState('playlist.currentTrackIndex'),
         });
       } catch { /* closed */ }
-    });
+    }).catch(e => log.error('[Sync] Failed to import transport:', e));
   } else {
     try {
       conn.send({
@@ -131,7 +131,7 @@ function handleSyncPong(data: Record<string, unknown>): void {
     if (drift > 2) {
       mod.play(estimatedHostPos);
     }
-  });
+  }).catch(e => log.error('[Sync] Failed to import transport:', e));
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -317,7 +317,8 @@ export function initSync(): void {
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
     // Dynamic import to avoid circular dependency
-    import('../player/transport.ts').then(mod => mod.adjustSync(ms / 1000));
+    import('../player/transport.ts').then(mod => mod.adjustSync(ms / 1000))
+      .catch(e => log.error('[Sync] Failed to import transport:', e));
   });
 
   bus.on('sync:auto-sync', () => {

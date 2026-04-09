@@ -124,5 +124,10 @@ export function initTabs(): void {
     });
   }
 
+  // Programmatic tab switch via bus (e.g. from playlist.ts on track play)
+  bus.on('ui:switch-tab', (tabId) => {
+    switchTab(tabId);
+  });
+
   log.info('[Tabs] Initialized');
 }

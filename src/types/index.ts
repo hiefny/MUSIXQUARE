@@ -413,8 +413,7 @@ interface BaseEventMap {
   'ui:sync-surround': [on: boolean];
   'ui:sync-vbass': [on: boolean];
   'ui:show-toast': [message: string];
-  'ui:show-loader': [visible: boolean, label?: string];
-  'ui:update-loader': [percent: number];
+  // ui:show-loader / ui:update-loader removed — driven via direct function imports
   'ui:play-btn-state': [enabled: boolean];
   'ui:update-play-state': [playing: boolean];
   'ui:duration-update': [duration: number];

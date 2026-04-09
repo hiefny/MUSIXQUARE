@@ -181,6 +181,8 @@ function createYouTubePlayer(
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
+      try { existingPlayer.destroy(); } catch { /* best-effort */ }
+      setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
       if (container) container.innerHTML = '<div id="youtube-player"></div>';
     }

@@ -15,11 +15,11 @@ import { broadcast, broadcastDeviceList } from './peer.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
+import { getCurrentTime } from '../audio/context.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 
 let _syncPingCounter = 0;
-let _initialSyncDone = false; // First pong after playback start → unconditional seek
 
 /**
  * Get the total sync offset in milliseconds.
@@ -121,16 +121,13 @@ function handleSyncPong(data: Record<string, unknown>): void {
     const myPos = mod.getTrackPosition();
     const drift = estimatedHostPos - myPos;
 
-    // First sync after playback start: unconditional correction (even 0.1s drift)
-    // Subsequent syncs: only correct if drift > 2s (safe for high-latency networks)
-    if (!_initialSyncDone) {
-      _initialSyncDone = true;
-      if (Math.abs(drift) > 0.1) {
-        log.info(`[Sync] Initial sync: ${drift.toFixed(2)}s → seeking to ${estimatedHostPos.toFixed(1)}s`);
-        mod.seekTo(estimatedHostPos);
-      }
-    } else if (Math.abs(drift) > 2) {
-      log.debug(`[Sync] Drift correction: ${drift.toFixed(2)}s`);
+    // Time-based threshold: tight correction in first 3s, relaxed after
+    const startedAt = getState('player.startedAt') || 0;
+    const playElapsed = startedAt > 0 ? getCurrentTime() - startedAt : 999;
+    const threshold = playElapsed < 3 ? 0.1 : 2;
+
+    if (Math.abs(drift) > threshold) {
+      log.info(`[Sync] Drift ${drift.toFixed(2)}s (threshold=${threshold}s, elapsed=${playElapsed.toFixed(1)}s) → seeking to ${estimatedHostPos.toFixed(1)}s`);
       mod.seekTo(estimatedHostPos);
     }
   });
@@ -279,17 +276,6 @@ export function initSync(): void {
     if (role !== 'host' && role !== 'guest') resetClockState();
   });
 
-  // Reset initial sync flag on every new playback (guest gets fresh correction)
-  // 2nd defense: reset again after 1s when audio engine is fully stable
-  bus.on('state:appState', () => {
-    const s = getState('appState');
-    if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
-      _initialSyncDone = false;
-      setManagedTimer('force-initial-sync', () => {
-        _initialSyncDone = false;
-      }, 1000);
-    }
-  });
 
   // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
@@ -298,7 +284,6 @@ export function initSync(): void {
       setState('sync.latencyHistory', []);
       resetClockState();
       _syncPingCounter = 0;
-      _initialSyncDone = false;
     }
   });
 

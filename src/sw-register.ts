@@ -76,7 +76,9 @@ export function registerServiceWorker(): void {
                 }
               }
             } catch {
-              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+              // Dialog dismissed or failed — do NOT activate the waiting worker.
+              // The update will be applied on next natural page load.
+              log.debug('[SW] Update dialog dismissed — skipping activation');
             }
           }
         });

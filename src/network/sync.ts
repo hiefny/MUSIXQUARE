@@ -106,9 +106,13 @@ function handleSyncPong(data: Record<string, unknown>): void {
   bus.emit('sync:latency-update', ms);
 
   // 3. File mode drift correction
-  if (position === undefined || !Number.isFinite(position) || position === 0) return;
   const appState = getState('appState');
   if (appState !== APP_STATE.PLAYING_AUDIO && appState !== APP_STATE.PLAYING_VIDEO) return;
+
+  // Skip if host is not playing (appState in pong tells us)
+  const hostAppState = data.appState as string;
+  if (hostAppState !== APP_STATE.PLAYING_AUDIO && hostAppState !== APP_STATE.PLAYING_VIDEO) return;
+  if (!Number.isFinite(position)) return;
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;

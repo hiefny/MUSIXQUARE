@@ -310,7 +310,10 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
-  // Open nudge-sync overlay (±ms fine-tuning)
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) {
+    showToast(t('toast.host_sync_not_recommended'));
+  }
   const overlay = document.getElementById('manual-sync-overlay');
   if (overlay) overlay.classList.add('show');
 }

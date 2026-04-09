@@ -19,7 +19,7 @@ let _transferWorker: Worker | null = null;
 let _syncWorker: Worker | null = null;
 
 // ─── Worker Timer IDs ───────────────────────────────────────────────
-const WORKER_TIMER_IDS = ['heartbeat', 'ping', 'video-sync'];
+const WORKER_TIMER_IDS = ['video-sync'];
 
 // ─── OPFS Instance ID (same as core session) ───────────────────────
 // INSTANCE_ID used directly (no alias needed)

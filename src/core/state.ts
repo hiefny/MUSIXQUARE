@@ -260,7 +260,8 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
 
 /**
  * Get a readonly deep-cloned snapshot of the entire state tree (for debugging).
- * Returns a structuredClone to prevent external mutation of internal state.
+ * Returns a JSON-serialized deep copy to prevent external mutation of internal state.
+ * (structuredClone is not used because StateTree contains non-cloneable DataConnection objects.)
  */
 export function snapshot(): Readonly<StateTree> {
   // JSON serialization — structuredClone always throws because

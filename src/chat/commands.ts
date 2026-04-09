@@ -386,7 +386,7 @@ function cmdDebug(): void {
   const dpr = window.devicePixelRatio?.toFixed(1) || '?';
   const touch = 'ontouchstart' in window ? 'yes' : 'no';
   const standalone = (window.matchMedia('(display-mode: standalone)').matches
-    || (navigator as unknown as Record<string, unknown>).standalone) ? 'yes' : 'no';
+    || (navigator as unknown as { standalone?: boolean }).standalone) ? 'yes' : 'no';
   lines.push(`[Browser] ${browser}`);
   lines.push(`[OS] ${os}`);
   lines.push(`[Screen] ${screen} (${viewport}) @${dpr}x | touch:${touch} | PWA:${standalone}`);
@@ -404,7 +404,7 @@ function cmdDebug(): void {
   lines.push(`[PeerID] ${myId}`);
   lines.push(`[Peers] ${peers.length} connected`);
   for (const p of peers) {
-    const flags = [p.isOp ? 'OP' : '', (p as unknown as Record<string, unknown>).connectionType || ''].filter(Boolean).join(',');
+    const flags = [p.isOp ? 'OP' : '', p.connectionType || ''].filter(Boolean).join(',');
     lines.push(`  #${p.joinOrder} ${p.label} [${flags}]`);
   }
 

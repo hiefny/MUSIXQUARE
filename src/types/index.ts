@@ -78,8 +78,21 @@ export interface WorkerCommand {
   instanceId?: string;
 }
 
+export type WorkerResponseType =
+  | 'OPFS_STARTED'
+  | 'OPFS_FILE_READY'
+  | 'OPFS_READ_COMPLETE'
+  | 'OPFS_WRITE_ERROR'
+  | 'OPFS_READ_ERROR'
+  | 'OPFS_ERROR'
+  | 'OPFS_RESET_COMPLETE'
+  | 'OPFS_CLEANUP_COMPLETE'
+  | 'SESSION_MISMATCH'
+  | 'WORKER_ERROR'
+  | 'TICK';
+
 export interface WorkerResponse {
-  type: string;
+  type: WorkerResponseType;
   filename?: string;
   sessionId?: number;
   index?: number;
@@ -89,6 +102,7 @@ export interface WorkerResponse {
   error?: string;
   command?: string;
   code?: string;
+  skipped?: boolean;
 }
 
 // ─── Device List ───────────────────────────────────────────────────

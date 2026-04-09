@@ -31,7 +31,6 @@ let _analysedBuffer: AudioBuffer | null = null;   // avoid re-analysis of same b
 // ─── Public Getters ──────────────────────────────────────────────
 
 export function getDetectedBPM(): number { return _bpm; }
-export function getBeatPhase(): number { return _phase; }
 
 let _partyMode = false;
 export function isPartyMode(): boolean { return _partyMode; }
@@ -96,9 +95,16 @@ async function analyzeAndStart(): Promise<void> {
 
     _bpm = Math.round(topBPM);
     _phase = v2Result.phase; // Use custom phase logic
-    _beatDuration = 60 / _bpm;
     _analysedBuffer = buf;
 
+    if (_bpm <= 0) {
+      log.warn('[BeatDetector] Could not detect BPM');
+      _beatDuration = 0;
+      setState('audio.detectedBPM', 0);
+      return;
+    }
+
+    _beatDuration = 60 / _bpm;
     setState('audio.detectedBPM', _bpm);
 
     log.info(`[BeatDetector] ${_bpm} BPM via library in ${ms.toFixed(0)}ms`);
@@ -111,8 +117,14 @@ async function analyzeAndStart(): Promise<void> {
     const v2 = detectBPM_V2(buf);
     _bpm = Math.round(v2.bpm);
     _phase = v2.phase;
-    _beatDuration = 60 / _bpm;
     _analysedBuffer = buf;
+
+    if (_bpm <= 0) {
+      _beatDuration = 0;
+      return;
+    }
+
+    _beatDuration = 60 / _bpm;
     startBeatLoop();
   }
 }

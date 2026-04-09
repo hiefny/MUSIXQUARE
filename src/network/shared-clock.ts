@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 6.0 — Shared Clock (Pure State Module)
+ * MUSIXQUARE 3.0 — Shared Clock (Pure State Module)
  *
  * Pure clock state module — offset calculation and getHostNow() API.
  * Timer management and handler registration handled by sync.ts.

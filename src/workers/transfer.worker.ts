@@ -193,7 +193,7 @@ async function acquireLock(opfsObj: OpfsSlot, sessionId: number, filename: strin
 
   if (opfsObj.isLocked && opfsObj.name !== filename) {
     const age = now - opfsObj.lockTime;
-    if (sessionId >= opfsObj.sessionId!) {
+    if (opfsObj.sessionId == null || sessionId >= opfsObj.sessionId) {
       await cleanupHandle(opfsObj, `Preemption for new file by session ${sessionId}`);
     } else if (age < timeout) {
       return false;

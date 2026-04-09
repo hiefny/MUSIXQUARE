@@ -109,9 +109,10 @@ function scheduleOpfsCatchupPump(pump: OpfsCatchupPump, delayMs: number): void {
 }
 
 function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
+  if (!pump || !pump.active) return;
   // Verify pump from map to avoid running stale reference from timer closure
   const current = opfsCatchupPumps.get(pump.peerId);
-  if (!pump || !pump.active || current !== pump) return;
+  if (current !== pump) return;
 
   const conn = pump.conn;
   if (!conn || !conn.open) {

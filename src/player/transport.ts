@@ -18,7 +18,6 @@ import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-cap
 import { getVideoElement, isIdleOrPaused, isMediaVideo } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
-// NTP resync removed — SharedClock handles sync
 import { getHostNow } from '../network/shared-clock.ts';
 
 /** Schedule playback slightly in the future so the message arrives before play time */
@@ -236,7 +235,6 @@ export function seekTo(time: number): void {
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     play(time);
     broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
-    // SharedClock handles sync — no NTP resync needed
   } else {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
@@ -509,7 +507,6 @@ export function togglePlay(): void {
     if (!hostConn) {
       play(pausedAt);
       broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
-      // SharedClock handles sync — no NTP resync needed
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
@@ -602,7 +599,6 @@ export function skipTime(sec: number): void {
   if (isPlaying) {
     play(target);
     broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
-    // SharedClock handles sync — no NTP resync needed
   } else {
     setState('player.pausedAt', target);
     broadcast({ type: MSG.PAUSE, time: target });

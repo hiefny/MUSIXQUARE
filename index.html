@@ -1613,20 +1613,21 @@
             data-i18n="common.message"></span>
     </div>
 
-    <!-- Manual Sync Overlay (Bug #1: was missing from HTML) -->
     <div class="manual-sync-overlay" id="manual-sync-overlay">
         <div class="sync-glass-panel">
             <div class="sync-card-title" data-i18n="player.manual_sync_title"></div>
-            <div class="sync-status-text" id="manual-sync-value">0</div>
-            <div style="display:flex; gap:8px; justify-content:center; margin:16px 0;">
-                <button class="btn-action" id="btn-nudge-minus10" style="flex:1;">-10ms</button>
-                <button class="btn-action" id="btn-nudge-minus1" style="flex:1;">-1ms</button>
-                <button class="btn-action" id="btn-nudge-plus1" style="flex:1;">+1ms</button>
-                <button class="btn-action" id="btn-nudge-plus10" style="flex:1;">+10ms</button>
+            <div class="sync-offset-display">
+                <span class="sync-offset-value" id="manual-sync-value">0ms</span>
             </div>
-            <div style="display:flex; gap:8px; margin-top:12px;">
-                <button class="btn-action" id="btn-auto-sync" style="flex:1;" data-i18n="common.reset"></button>
-                <button class="btn-ob-primary" id="btn-sync-done" style="flex:1;" data-i18n="common.done"></button>
+            <div class="sync-nudge-row">
+                <button class="sync-nudge-btn" id="btn-nudge-minus10">-10</button>
+                <button class="sync-nudge-btn small" id="btn-nudge-minus1">-1</button>
+                <button class="sync-nudge-btn small" id="btn-nudge-plus1">+1</button>
+                <button class="sync-nudge-btn" id="btn-nudge-plus10">+10</button>
+            </div>
+            <div class="sync-bottom-row">
+                <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset"></button>
+                <button class="sync-done-btn" id="btn-sync-done" data-i18n="common.done"></button>
             </div>
         </div>
     </div>

@@ -16,13 +16,12 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { getHostNow, getClockOffset, getClockSampleCount, getClockBestRtt } from '../network/shared-clock.ts';
+import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
-// NTP resync removed — SharedClock handles sync
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -46,7 +45,7 @@ import {
   loadPreloadedTrack,
   clearPreviousTrackState, finalizeGuestFile,
 } from './decode.ts';
-import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import { showLoader, updateLoader } from '../ui/toast.ts';
 
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
@@ -160,16 +159,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       const now = getHostNow();
       const waitMs = Math.max(0, hostPlayAt - now);
       const offset = getClockOffset();
-      const samples = getClockSampleCount();
       const bestRtt = getClockBestRtt();
-
-      // DEBUG: show clock state on screen
-      try {
-        let d = document.getElementById('clock-debug');
-        if (!d) { d = document.createElement('div'); d.id = 'clock-debug'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.9);color:#0f0;font:12px monospace;padding:8px;pointer-events:none;'; document.body.appendChild(d); }
-        d.textContent = `[Clock] offset=${offset.toFixed(1)}ms | rtt=${bestRtt}ms | samples=${samples} | wait=${waitMs.toFixed(0)}ms | hostPlayAt-now=${(hostPlayAt-now).toFixed(0)}ms`;
-        setTimeout(() => d?.remove(), 10000);
-      } catch { /* noop */ }
 
       if (waitMs > 0 && waitMs < 2000) {
         // Compensate: host has been playing during waitMs, so advance position
@@ -230,7 +220,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   play(time);
-  broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
+  broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + 200 });
   // SharedClock handles sync
 }
 
@@ -269,7 +259,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
 
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     play(time);
-    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex });
+    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + 200 });
   } else {
     setState('player.pausedAt', time);
     const videoElement = getVideoElement();
@@ -328,45 +318,7 @@ export function initPlayback(): void {
     }
   });
 
-  // Sync: provide current track position via callback pattern
-  bus.on('sync:get-position', (callback) => {
-    if (typeof callback === 'function') {
-      callback(getTrackPosition());
-    }
-  });
-
-  // Sync: handle sync response from host (apply time + play/pause)
-  bus.on('sync:response', (hostTime, isPlaying, oneWayLatency) => {
-    const localOffset = getState('sync.localOffset') || 0;
-    const compensatedTime = hostTime + localOffset;
-    const currentSyncState = getState('appState');
-
-    // YouTube mode: handled by precision sync (pulse system), not NTP
-    if (currentSyncState === APP_STATE.PLAYING_YOUTUBE) return;
-
-    if (isPlaying) {
-      if (getCurrentAudioBuffer() || getVideoElement()?.src) {
-        play(compensatedTime);
-      } else {
-        setState('player.pausedAt', compensatedTime);
-        log.debug('[Sync] Host playing but no audio data yet, storing position');
-      }
-    } else {
-      if (getPendingPlayTime() !== undefined) {
-        setState('player.pausedAt', compensatedTime);
-        log.debug('[Sync] Host paused, keeping pending play');
-        return;
-      }
-      if (currentSyncState === APP_STATE.PLAYING_AUDIO || currentSyncState === APP_STATE.PLAYING_VIDEO) {
-        pause(compensatedTime);
-      } else {
-        setState('player.pausedAt', compensatedTime);
-      }
-    }
-
-    const rttLabel = oneWayLatency > 0 ? ` (+${Math.round(oneWayLatency * 1000)}ms ${t('toast.sync_correction')})` : '';
-    showToast(`${t('toast.sync_done')}${rttLabel}`);
-  });
+  // 'sync:get-position' and 'sync:response' listeners removed — no emitter exists
 
   // Disconnect playerNode from surround splitter (called when surround mode turns off)
   bus.on('audio:disconnect-surround', () => {

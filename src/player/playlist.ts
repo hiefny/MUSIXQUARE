@@ -23,7 +23,6 @@ import {
 import { postWorkerCommand } from '../storage/opfs.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
-// NTP resync removed — SharedClock handles sync
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
@@ -230,7 +229,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     setState('transfer.currentSessionId', sessionId);
 
     broadcast({ type: MSG.FILE_PREPARE, name: file.name, index, sessionId, mime: file.type });
-    await loadAndBroadcastFile(file, sessionId, false, myLoadToken);
+    await loadAndBroadcastFile(file, sessionId, myLoadToken);
 
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     if (isFirstTrackLoad) {

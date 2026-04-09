@@ -40,7 +40,6 @@ import { showToast, showLoader } from '../ui/toast.ts';
 export async function loadAndBroadcastFile(
   file: File,
   sessionId: number | null = null,
-  _unused?: boolean,
   loadToken?: number,
 ): Promise<void> {
   const myLoadId = incrementLoadSessionId();
@@ -261,11 +260,11 @@ export async function loadPreloadedTrack(
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
 
-    // Request 3-sample sync from host after settle
+    // Auto-sync after settle
     const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
       setManagedTimer('playback-preload-auto-sync', () => {
-        log.debug('[Guest] Post-preload auto-sync: triggering 3-sample sync');
+        log.debug('[Guest] Post-preload auto-sync');
         bus.emit('sync:auto-sync');
       }, 500);
     }
@@ -461,10 +460,10 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       setPendingPlayTime(undefined);
     }
 
-    // Auto-sync after 1s — triggers the same 3-sample sync as the sync button.
+    // Auto-sync after 1s
     if (hostConn?.open) {
       setManagedTimer('playback-download-auto-sync', () => {
-        log.debug('[Guest] Post-download auto-sync: triggering 3-sample sync');
+        log.debug('[Guest] Post-download auto-sync');
         bus.emit('sync:auto-sync');
       }, 1000);
     }

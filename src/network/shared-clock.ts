@@ -3,8 +3,7 @@
  *
  * Host clock = single source of truth for all playback timing.
  *
- * Host: periodically broadcasts its Date.now() timestamp.
- * Guest: measures RTT, calculates offset to host clock.
+ * Guest: measures RTT via ping/pong, calculates offset to host clock.
  *        getHostNow() returns the estimated host time at any moment.
  *
  * Playback commands use host-clock timestamps:
@@ -16,12 +15,11 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { broadcast, sendToHost } from './peer-state.ts';
+import { sendToHost } from './peer-state.ts';
 import { registerHandler } from './protocol.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 
-const CLOCK_SYNC_INTERVAL = 3000;  // Host broadcasts every 3s
 const CLOCK_PING_INTERVAL = 2000;  // Guest pings every 2s
 const MAX_SAMPLES = 20;            // Keep last 20 RTT samples
 const WARMUP_FAST_INTERVAL = 500;  // First 5 samples at 500ms for fast convergence
@@ -33,20 +31,11 @@ let _isHostClock = false;
 
 function startHostClock(): void {
   _isHostClock = true;
-  // Broadcast host timestamp periodically
-  setManagedTimer('shared-clock-broadcast', () => {
-    broadcast({
-      type: MSG.CLOCK_SYNC,
-      hostTime: Date.now(),
-    } as any);
-  }, CLOCK_SYNC_INTERVAL, { interval: true });
-
   log.info('[SharedClock] Host clock started');
 }
 
 function stopHostClock(): void {
   _isHostClock = false;
-  clearManagedTimer('shared-clock-broadcast');
 }
 
 // ─── Guest State ──────────────────────────────────────────────────
@@ -189,6 +178,7 @@ function startGuestClock(): void {
 function stopGuestClock(): void {
   clearManagedTimer('shared-clock-ping');
   _samples = [];
+  _bestOffset = 0;
   _pendingPings.clear();
 }
 

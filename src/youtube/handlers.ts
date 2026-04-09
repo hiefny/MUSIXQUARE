@@ -12,7 +12,8 @@ import { MSG } from '../core/constants.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
-import { loadYouTubeVideo } from './iframe.ts';
+import { loadYouTubeVideo, markYtStateBroadcast } from './iframe.ts';
+import { scheduleYtAutoSync, cancelYtAutoSync } from './player.ts';
 import type { DataConnection } from '../types/index.ts';
 
 declare const YT: any;
@@ -48,13 +49,8 @@ export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: Da
   }
 
   const player = getYouTubePlayer();
-  if (player?.playVideo) {
-    player.playVideo();
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state: 1,
-      time: player.getCurrentTime?.() || 0,
-    });
+  if (player?.getCurrentTime) {
+    scheduleYtAutoSync(player.getCurrentTime() || 0);
   }
 }
 
@@ -69,11 +65,14 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
 
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
+    cancelYtAutoSync();
     player.pauseVideo();
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state: 2,
       time: player.getCurrentTime?.() || 0,
+      subIndex: player.getPlaylistIndex?.() ?? -1,
+      videoId: player.getVideoData?.()?.video_id || '',
     });
   }
 }
@@ -92,17 +91,17 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
   try {
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) {
-      // Inline pause — verifyOperator already checked above
+      // Pause: immediate, cancel any pending auto-sync
+      cancelYtAutoSync();
+      markYtStateBroadcast();
       if (player.pauseVideo) {
         player.pauseVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0 });
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
+        markYtStateBroadcast();
       }
     } else {
-      // Inline play — verifyOperator already checked above
-      if (player.playVideo) {
-        player.playVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: player.getCurrentTime?.() || 0 });
-      }
+      // Play: 1s auto-sync delay
+      scheduleYtAutoSync(player.getCurrentTime?.() || 0);
     }
   } catch (e) {
     log.error('[YouTube] Toggle error:', e);
@@ -138,6 +137,7 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
       state: 1,
       time: 0,
       subIndex: subIdx,
+      videoId: player.getVideoData?.()?.video_id || '',
     });
   }
 }

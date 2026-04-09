@@ -1,15 +1,14 @@
 /**
  * MUSIXQUARE 3.0 — Sync & Latency Management
  *
- * Manages: Heartbeat, ping/pong latency, auto-sync, manual sync (nudge),
- * sync response handling, global resync.
+ * Manages: Heartbeat, ping/pong latency, manual sync (nudge).
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
+import { MSG, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
@@ -17,40 +16,6 @@ import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
-
-/* v6.0: NTP multi-sample sync state disabled — SharedClock handles sync
-const SYNC_SAMPLE_COUNT = 3;
-const SYNC_SAMPLE_INTERVAL = 500;
-interface SyncSample { sentAt: number; rtt: number; hostTime: number; isPlaying: boolean; }
-let _syncSamples: SyncSample[] = [];
-let _syncSampleExpected = 0;
-*/
-
-// ─── Sync Button Logic ──────────────────────────────────────────────
-
-/**
- * Handle the main sync button press.
- * Host: broadcasts global resync. Guest: resets offset and requests sync time.
- */
-function handleMainSyncBtn(): void {
-  // v6.0: SharedClock handles sync automatically.
-  // Manual sync button now just shows confirmation.
-  showToast(t('toast.resync_all'));
-}
-
-// ─── Guest: Multi-Sample Sync ────────────────────────────────────────
-
-/**
- * Start a 3-sample sync sequence. Sends GET_SYNC_TIME at 500ms intervals,
- * collects RTT for each response, then picks the sample with the lowest RTT.
- */
-// v6.0: NTP multi-sample sync removed — SharedClock handles all sync
-
-// ─── Delayed Global Resync (Host-only) ──────────────────────────────
-
-export function requestGlobalResyncDelayed(_delay = 1000): void {
-  // v6.0: SharedClock handles sync — NTP auto-resync disabled
-}
 
 /**
  * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
@@ -67,7 +32,7 @@ export function handleAutoSync(): void {
   setState('sync.localOffset', 0);
   setState('sync.autoSyncOffset', 0);
   bus.emit('sync:display-update');
-  handleMainSyncBtn();
+  showToast(t('toast.sync_reset'));
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
@@ -112,72 +77,6 @@ function handlePongLatency(data: Record<string, unknown>): void {
   setState('sync.latencyHistory', updated);
   setState('sync.lastLatencyMs', Math.min(...updated));
   bus.emit('sync:latency-update', ms);
-}
-
-function handleSyncResponse(_data: Record<string, unknown>): void {
-  // v6.0: SharedClock handles sync — NTP sync response disabled
-  return;
-
-  /* Legacy NTP code preserved for reference:
-  if (_syncSampleExpected > 0) {
-    collectSyncSample(_data);
-    return;
-  }
-
-  // Fallback: single-shot sync (e.g. post-download auto-sync from playback.ts)
-  let oneWayLatencySeconds = 0;
-  if (getState('network.connectionType') !== 'local') {
-    const reqTs = (typeof data.reqTs === 'number' && data.reqTs > 0) ? data.reqTs : 0;
-    const grossRtt = reqTs ? Date.now() - reqTs : 0;
-    // NTP-style: subtract host processing time
-    const t2 = (typeof data.t2 === 'number') ? data.t2 : 0;
-    const t3 = (typeof data.t3 === 'number') ? data.t3 : 0;
-    const hostProcessing = (t2 && t3 && t3 >= t2) ? t3 - t2 : 0;
-    const networkRtt = Math.max(0, grossRtt - hostProcessing);
-    if (networkRtt > 0) oneWayLatencySeconds = (networkRtt / 2) / 1000;
-  }
-
-  const syncTime = (typeof data.time === 'number' && Number.isFinite(data.time)) ? data.time : 0;
-  setState('sync.autoSyncOffset', oneWayLatencySeconds);
-  bus.emit('sync:display-update');
-  const extrapolatedTime = data.isPlaying ? syncTime + oneWayLatencySeconds : syncTime;
-  bus.emit('sync:response', extrapolatedTime, !!data.isPlaying, oneWayLatencySeconds);
-  */
-}
-
-function handleGlobalResyncRequest(): void {
-  // v6.0: SharedClock handles sync — NTP resync disabled
-  showToast(t('toast.host_reset_sync'));
-}
-
-function handleGetSyncTime(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Guest ignores
-
-  if (!conn || !conn.open) return;
-
-  const hostReceiveTs = Date.now(); // NTP t2: when host received the request
-
-  bus.emit('sync:get-position', (position: number) => {
-    if (!conn.open) return; // guard against close during callback
-    const currentState = getState('appState');
-    const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
-                      currentState === APP_STATE.PLAYING_VIDEO ||
-                      currentState === APP_STATE.PLAYING_YOUTUBE;
-
-    const hostSendTs = Date.now(); // NTP t3: when host sends the response
-
-    try {
-      conn.send({
-        type: MSG.SYNC_RESPONSE,
-        time: position,
-        isPlaying,
-        reqTs: (typeof data.ts === 'number' && Number.isFinite(data.ts)) ? data.ts : 0,
-        t2: hostReceiveTs,
-        t3: hostSendTs,
-      });
-    } catch { /* connection closed */ }
-  });
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -314,9 +213,6 @@ export function initSync(): void {
     [MSG.HEARTBEAT_ACK]: handleHeartbeatAck,
     [MSG.PING_LATENCY]: handlePingLatency,
     [MSG.PONG_LATENCY]: handlePongLatency,
-    [MSG.SYNC_RESPONSE]: handleSyncResponse,
-    [MSG.GLOBAL_RESYNC_REQUEST]: handleGlobalResyncRequest,
-    [MSG.GET_SYNC_TIME]: handleGetSyncTime,
     [MSG.REQUEST_RENAME]: handleRequestRename,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
@@ -324,7 +220,6 @@ export function initSync(): void {
   // Clean up module-scoped sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
-      // v6.0: NTP state removed — SharedClock handles cleanup
       setState('sync.lastLatencyMs', 0);
       setState('sync.latencyHistory', []);
     }
@@ -338,7 +233,7 @@ export function initSync(): void {
   });
 
   bus.on('sync:auto-sync', () => {
-    handleMainSyncBtn();
+    handleAutoSync();
   });
 
   bus.on('sync:close-manual', () => {

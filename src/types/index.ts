@@ -173,9 +173,7 @@ export interface ProtocolMap {
   'heartbeat-ack': NoPayload;
   'ping-latency': { timestamp: number };
   'pong-latency': { timestamp: number };
-  'sync-response': { time: number; isPlaying: boolean; reqTs: number };
-  'get-sync-time': { ts: number };
-  'global-resync-request': NoPayload;
+  // 'sync-response', 'get-sync-time', 'global-resync-request' removed — dead code
 
   // ── Network / Relay ──────────────────────────────────────────────
   'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string; joinOrder?: number }> };
@@ -212,14 +210,7 @@ export interface ProtocolMap {
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
-  // ── YouTube Precision Sync ──────────────────────────────────────
-  'youtube-sync-prepare': NoPayload;
-  'youtube-sync-seek': { time: number };
-  'youtube-sync-pulse': { seq: number; hostTs: number };
-  'youtube-sync-go': NoPayload;
-
   // ── Shared Clock ────────────────────────────────────────────────
-  'clock-sync': { hostTime: number };
   'clock-ping': { pingId: number; guestTime: number };
   'clock-pong': { pingId: number; hostTime: number };
 
@@ -443,7 +434,7 @@ interface BaseEventMap {
   'chat:notice-message': [sender: string, text: string];
 
   // ── YouTube ───────────────────────────────────────────────────────
-  'youtube:precision-sync': [];
+  'youtube:sync-loading': [loading: boolean];
   'youtube:load': [videoId: string | null, playlistId: string | null, autoplay?: boolean, subIndex?: number];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];
@@ -509,8 +500,7 @@ interface BaseEventMap {
   'sync:nudge': [ms: number];
   'sync:auto-sync': [];
   'sync:close-manual': [];
-  'sync:get-position': [callback: (pos: number) => void];
-  'sync:response': [hostTime: number, isPlaying: boolean, oneWayLatencySeconds: number];
+  // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];
 
   // ── Relay / Orchestrator ─────────────────────────────────────────

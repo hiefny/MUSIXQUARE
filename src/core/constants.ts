@@ -60,8 +60,8 @@ export const MSG = {
   FILE_START: 'file-start',
   FILE_WAIT: 'file-wait',
   FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
-  GET_SYNC_TIME: 'get-sync-time',
-  GLOBAL_RESYNC_REQUEST: 'global-resync-request',
+  // GET_SYNC_TIME removed — dead code (no sender, no handler)
+  // GLOBAL_RESYNC_REQUEST removed — dead code (no sender, no handler)
   HEARTBEAT: 'heartbeat',
   HEARTBEAT_ACK: 'heartbeat-ack',
   PAUSE: 'pause',
@@ -103,7 +103,7 @@ export const MSG = {
   SHUFFLE_MODE: 'shuffle-mode',
   // STATUS_SYNC removed — dead code (no sender, no handler)
   STEREO_WIDTH: 'stereo-width',
-  SYNC_RESPONSE: 'sync-response',
+  // SYNC_RESPONSE removed — dead code (no sender, no handler)
   // FORCE_SYNC_PLAY removed — dead code (no sender, no handler)
   OPERATOR_GRANT: 'operator-grant',
   OPERATOR_REVOKE: 'operator-revoke',
@@ -117,12 +117,7 @@ export const MSG = {
   YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
   YOUTUBE_STOP: 'youtube-stop',
   YOUTUBE_SYNC: 'youtube-sync',
-  YOUTUBE_SYNC_PREPARE: 'youtube-sync-prepare',
-  YOUTUBE_SYNC_SEEK: 'youtube-sync-seek',
-  YOUTUBE_SYNC_PULSE: 'youtube-sync-pulse',
-  YOUTUBE_SYNC_GO: 'youtube-sync-go',
   // ── Shared Clock ───────────────────────────────────────────────
-  CLOCK_SYNC: 'clock-sync',
   CLOCK_PING: 'clock-ping',
   CLOCK_PONG: 'clock-pong',
 
@@ -162,12 +157,11 @@ export const RELAYABLE_MSG_TYPES = [
   MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
   MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
   MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
-  MSG.YOUTUBE_SYNC_PREPARE, MSG.YOUTUBE_SYNC_SEEK, MSG.YOUTUBE_SYNC_PULSE, MSG.YOUTUBE_SYNC_GO,
   MSG.CHAT, MSG.CHAT_MUTE, MSG.CHAT_UNMUTE,
   MSG.CHAT_FREEZE, MSG.CHAT_UNFREEZE, MSG.CHAT_CLEAR,
   MSG.CHAT_NOTICE, MSG.CHAT_SLOWMODE, MSG.CHAT_FILTER, MSG.CHAT_SYSTEM,
   MSG.PLAYLIST_UPDATE,
-  MSG.GLOBAL_RESYNC_REQUEST, MSG.PLAY_PRELOADED,
+  MSG.PLAY_PRELOADED,
   MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
   MSG.SYSTEM_AUDIO_START, MSG.SYSTEM_AUDIO_STOP,
 ] as const satisfies readonly MsgType[];

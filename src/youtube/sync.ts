@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
@@ -107,6 +107,12 @@ export function resetAdDetection(): void {
   _hostAdPauseActive = false;
 }
 
+// ─── Auto-Sync Cooldown ──────────────────────────────────────────
+// During auto-sync wait, suppress drift correction from handleYouTubeSync
+
+let _autoSyncUntil = 0;
+const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
+
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
 function handleYouTubeSync(data: Record<string, unknown>): void {
@@ -114,8 +120,8 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
-  // Skip during precision sync cooldown
-  if (Date.now() < _precisionSyncUntil) return;
+  // Skip during auto-sync cooldown (prevents drift correction from fighting scheduled play)
+  if (Date.now() < _autoSyncUntil) return;
 
   try {
     const hostTime = Number(data.time) || 0;
@@ -226,14 +232,22 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-  // Skip during precision sync cooldown (prevents double-seek)
-  if (Date.now() < _precisionSyncUntil) return;
+  const state = Number(data.state);
+
+  // PAUSE/STOP always takes priority — cancel any pending auto-sync
+  if (state === 2 || state === 0 || state === -1) {
+    _autoSyncUntil = 0;
+    clearManagedTimer('yt-clock-action');
+    bus.emit('youtube:sync-loading', false);
+  }
+
+  // Skip during auto-sync cooldown (prevents drift correction from fighting scheduled play)
+  if (Date.now() < _autoSyncUntil) return;
 
   // Skip state sync while host is likely watching an ad
   if (_hostAdPauseActive) return;
 
   try {
-    const state = Number(data.state);
     const time = Number(data.time) || 0;
 
     // Video ID sync — fixes Mix playlists where sub-index = different video
@@ -267,32 +281,59 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
 
-    const executeAction = (waitMs: number) => {
-      const compensatedTime = time + (waitMs / 1000);
-
-      // Update seekbar immediately
-      if (compensatedTime > 0 && duration > 0) {
-        bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
-      }
-
-      if (state === 1 && player.playVideo) {
-        if (!subIndexChanged && player.seekTo) player.seekTo(compensatedTime, true);
-        player.playVideo();
-      } else if (state === 2 && player.pauseVideo) {
-        player.pauseVideo();
-        if (player.seekTo) player.seekTo(compensatedTime, true);
-      }
-    };
-
     if (hostPlayAt > 0) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
-      if (waitMs > 0 && waitMs < 2000) {
-        setManagedTimer('yt-clock-action', () => executeAction(waitMs), waitMs);
+
+      if (waitMs > 300 && waitMs < 3000 && state === 1) {
+        // ── Auto-sync path: significant wait (>300ms) + play command ──
+        // 1. Pause immediately for clean sync
+        if (player.pauseVideo) player.pauseVideo();
+
+        // 2. Seek to target position (while paused = in-buffer, no rebuffer)
+        if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
+
+        // 3. Update seekbar immediately
+        if (time > 0 && duration > 0) {
+          bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+        }
+
+        // 4. Suppress drift correction during wait
+        _autoSyncUntil = Date.now() + waitMs + 1500;
+
+        // 5. Show sync loading state on guest
+        bus.emit('youtube:sync-loading', true);
+        showToast(t('toast.yt_sync_start'));
+
+        // 6. Play at scheduled time
+        setManagedTimer('yt-clock-action', () => {
+          if (player.playVideo) player.playVideo();
+          bus.emit('youtube:sync-loading', false);
+          showToast(t('toast.yt_sync_done'));
+        }, waitMs);
+
+        log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
+      } else if (waitMs > 0 && waitMs <= 300) {
+        // Short wait (≤300ms) — schedule without pause (minor timing correction)
+        const compensatedTime = time + (waitMs / 1000);
+        if (compensatedTime > 0 && duration > 0) {
+          bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
+        }
+        setManagedTimer('yt-clock-action', () => {
+          if (state === 1 && player.playVideo) {
+            if (!subIndexChanged && player.seekTo) player.seekTo(compensatedTime, true);
+            player.playVideo();
+          } else if (state === 2 && player.pauseVideo) {
+            player.pauseVideo();
+            if (player.seekTo) player.seekTo(compensatedTime, true);
+          }
+        }, waitMs);
       } else {
-        executeAction(0);
+        // No wait or out of range — execute immediately
+        executeImmediate(player, state, time, duration, subIndexChanged);
       }
     } else {
-      executeAction(0);
+      // No hostPlayAt — execute immediately (pause, stop, etc.)
+      executeImmediate(player, state, time, duration, subIndexChanged);
     }
 
     if (state === 0 || state === -1) {
@@ -300,6 +341,22 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     }
   } catch (e) {
     log.error('[YouTube State] Error:', e);
+  }
+}
+
+/** Immediate action helper (no SharedClock delay). */
+function executeImmediate(
+  player: any, state: number, time: number, duration: number, subIndexChanged: boolean,
+): void {
+  if (time > 0 && duration > 0) {
+    bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+  }
+  if (state === 1 && player.playVideo) {
+    if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
+    player.playVideo();
+  } else if (state === 2 && player.pauseVideo) {
+    player.pauseVideo();
+    if (player.seekTo) player.seekTo(time, true);
   }
 }
 
@@ -364,129 +421,12 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 function handleYouTubeStop(): void {
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
+  clearManagedTimer('yt-clock-action');
+  bus.emit('youtube:sync-loading', false);
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     bus.emit('youtube:stop-mode');
     bus.emit('player:stop-all-media');
-  }
-}
-
-// ─── Precision Sync (Host) ────────────────────────────────────────
-
-const PULSE_COUNT = 3;
-const PULSE_INTERVAL = 300;  // ms between pulses
-const PLAY_DELAY = 1000;     // ms after last pulse → play
-
-// Host: track active timers to prevent accumulation on rapid taps
-let _hostPulseInterval: ReturnType<typeof setInterval> | null = null;
-let _hostPlayTimeout: ReturnType<typeof setTimeout> | null = null;
-
-function startPrecisionSync(): void {
-  const player = getYouTubePlayer();
-  if (!player || !player.getCurrentTime) return;
-
-  // Cancel any in-progress sync
-  if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
-  if (_hostPlayTimeout) { clearTimeout(_hostPlayTimeout); _hostPlayTimeout = null; }
-
-  // 1. Pause all devices
-  player.pauseVideo();
-  broadcast({ type: MSG.YOUTUBE_SYNC_PREPARE });
-
-  // 2. Seek to rounded-down second (e.g. 16:44 → 16:00)
-  // Paused state → seekTo won't auto-play on mobile
-  // Recently played position → still in buffer → no rebuffering
-  const currentTime = player.getCurrentTime();
-  const seekTime = Math.floor(currentTime);
-  player.seekTo(seekTime, true);
-  broadcast({ type: MSG.YOUTUBE_SYNC_SEEK, time: seekTime });
-
-  showToast(t('toast.youtube_syncing'));
-
-  // 3. Send 3 pulses at 300ms intervals
-  let pulsesSent = 0;
-  _hostPulseInterval = setInterval(() => {
-    pulsesSent++;
-    broadcast({
-      type: MSG.YOUTUBE_SYNC_PULSE,
-      seq: pulsesSent,
-      hostTs: Date.now(),
-    });
-    log.debug(`[YT PrecisionSync] Pulse ${pulsesSent}/${PULSE_COUNT}`);
-
-    if (pulsesSent >= PULSE_COUNT) {
-      if (_hostPulseInterval) { clearInterval(_hostPulseInterval); _hostPulseInterval = null; }
-
-      // 4. After PLAY_DELAY: play from the seeked position
-      _hostPlayTimeout = setTimeout(() => {
-        _hostPlayTimeout = null;
-        _precisionSyncUntil = Date.now() + 3000;
-        player.playVideo();
-        log.info(`[YT PrecisionSync] Host play at ${seekTime}s`);
-      }, PLAY_DELAY);
-    }
-  }, PULSE_INTERVAL);
-}
-
-// ─── Precision Sync (Guest) ───────────────────────────────────────
-
-let _syncPulses: { seq: number; hostTs: number; receivedAt: number }[] = [];
-let _syncSeekTime = 0;
-let _precisionSyncUntil = 0;
-const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
-let _guestPlayTimeout: ReturnType<typeof setTimeout> | null = null;
-
-function handleSyncPrepare(): void {
-  // Pause + reset state
-  const player = getYouTubePlayer();
-  if (player?.pauseVideo) player.pauseVideo();
-  _syncPulses = [];
-  if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
-  showToast(t('toast.youtube_syncing'));
-  log.debug('[YT PrecisionSync] Guest: paused, waiting for seek + pulses');
-}
-
-function handleSyncSeek(data: Record<string, unknown>): void {
-  // Seek while paused — won't auto-play, position is in buffer
-  const player = getYouTubePlayer();
-  _syncPulses = [];
-  if (_guestPlayTimeout) { clearTimeout(_guestPlayTimeout); _guestPlayTimeout = null; }
-  _syncSeekTime = Number(data.time) || 0;
-  if (player?.seekTo) player.seekTo(_syncSeekTime, true);
-  log.debug(`[YT PrecisionSync] Guest: seeked to ${_syncSeekTime}s (paused)`);
-}
-
-function handleSyncPulse(data: Record<string, unknown>): void {
-  const player = getYouTubePlayer();
-  if (!player) return;
-
-  const seq = Number(data.seq) || 0;
-  const receivedAt = Date.now();
-
-  _syncPulses.push({ seq, hostTs: 0, receivedAt });
-  log.debug(`[YT PrecisionSync] Guest: pulse ${seq}`);
-
-  if (seq >= PULSE_COUNT) {
-    // Use last pulse's arrival time as anchor (guest clock only — no cross-clock issues)
-    const lastPulseReceived = _syncPulses[_syncPulses.length - 1].receivedAt;
-
-    // Compensate for one-way latency using existing RTT measurement
-    const rtt = getState('sync.lastLatencyMs') || 0;
-    const halfRtt = rtt / 2;
-
-    // Guest seeks at: lastPulseReceived + PLAY_DELAY - halfRtt
-    const waitMs = Math.max(0, (lastPulseReceived + PLAY_DELAY - halfRtt) - Date.now());
-
-    log.info(`[YT PrecisionSync] Guest: rtt=${rtt}ms, halfRtt=${halfRtt}ms, wait=${waitMs}ms`);
-
-    _guestPlayTimeout = setTimeout(() => {
-      _guestPlayTimeout = null;
-      _precisionSyncUntil = Date.now() + 3000;
-      if (player.playVideo) player.playVideo();
-      log.info(`[YT PrecisionSync] Guest: play at ${_syncSeekTime}s`);
-    }, waitMs);
-
-    _syncPulses = [];
   }
 }
 
@@ -499,14 +439,6 @@ export function initYouTubeSync(): void {
     [MSG.YOUTUBE_SUB_TITLE_UPDATE]: handleSubTitleUpdate,
     [MSG.YOUTUBE_PLAYLIST_INFO]: handleYouTubePlaylistInfo,
     [MSG.YOUTUBE_STOP]: handleYouTubeStop,
-    [MSG.YOUTUBE_SYNC_PREPARE]: handleSyncPrepare,
-    [MSG.YOUTUBE_SYNC_SEEK]: handleSyncSeek,
-    [MSG.YOUTUBE_SYNC_PULSE]: handleSyncPulse,
-  });
-
-  // Host: precision sync trigger
-  bus.on('youtube:precision-sync', () => {
-    startPrecisionSync();
   });
 
   // Reset ad detection when guest reconnects (receives new YouTube session)

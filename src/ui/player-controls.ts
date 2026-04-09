@@ -308,39 +308,10 @@ function openFileSelector(): void {
 
 // ─── Sync Button ─────────────────────────────────────────────────
 
-let _syncCooldownUntil = 0;
-
 function handleMainSyncBtn(): void {
-  // Debounce: ignore rapid taps (3s cooldown)
-  const now = Date.now();
-  if (now < _syncCooldownUntil) return;
-  _syncCooldownUntil = now + 3000;
-
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-    showToast(t('system_audio.no_precision_sync'));
-    return;
-  }
-
-  const hostConn = getState('network.hostConn');
-
-  // YouTube mode: host-only precision sync, guest blocked
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    if (hostConn) {
-      showToast(t('youtube.no_precision_sync'));
-      return;
-    }
-    bus.emit('youtube:precision-sync');
-    return;
-  }
-
-  // File mode: host broadcasts resync, guest auto-syncs
-  if (!hostConn) {
-    showToast(t('toast.resync_all'));
-    bus.emit('network:broadcast', { type: MSG.GLOBAL_RESYNC_REQUEST });
-  } else {
-    bus.emit('sync:auto-sync');
-  }
+  // Open nudge-sync overlay (±ms fine-tuning)
+  const overlay = document.getElementById('manual-sync-overlay');
+  if (overlay) overlay.classList.add('show');
 }
 
 // ─── Logo Return to Main ─────────────────────────────────────────
@@ -724,6 +695,12 @@ export function initPlayerControls(): void {
     if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
       updatePlayIcon(playing);
     }
+  });
+
+  // YouTube auto-sync loading spinner on play button
+  bus.on('youtube:sync-loading', (loading) => {
+    const btn = document.getElementById('play-btn');
+    if (btn) btn.classList.toggle('yt-syncing', !!loading);
   });
 
   // Player actions

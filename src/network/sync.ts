@@ -309,6 +309,11 @@ export function initSync(): void {
     handleAutoSync();
   });
 
+  // Force initial sync — next SYNC_PONG will do unconditional correction
+  bus.on('sync:force-initial', () => {
+    _initialSyncDone = false;
+  });
+
   bus.on('sync:close-manual', () => {
     const overlay = document.getElementById('manual-sync-overlay');
     if (overlay) overlay.classList.remove('show');

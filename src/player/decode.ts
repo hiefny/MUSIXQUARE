@@ -276,7 +276,7 @@ export async function loadPreloadedTrack(
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const target = pendingTime + localOffset;
-      log.debug(`[Preload] Found pending play time, starting at ${target.toFixed(2)}s`);
+      log.debug(`[Preload] Pending play at ${target.toFixed(1)}s`);
       play(target);
       setPendingPlayTime(undefined);
     }
@@ -446,23 +446,21 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
-    // Consume pending play time (stale from PLAY message received before transfer).
-    // Start playback immediately at the saved position.
+    // Consume pending play time and start playback (position may be stale)
     const hostConn = getState('network.hostConn');
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const localOffset = getState('sync.localOffset') || 0;
       const target = pendingTime + localOffset;
-      log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
+      log.debug(`[Guest] Pending play at ${target.toFixed(1)}s`);
       play(target);
       setPendingPlayTime(undefined);
     }
 
-    // Auto-sync after 1s
+    // Force sync after 1s — position is stale from file transfer delay
     if (hostConn?.open) {
-      setManagedTimer('playback-download-auto-sync', () => {
-        log.debug('[Guest] Post-download auto-sync');
-        bus.emit('sync:auto-sync');
+      setManagedTimer('force-initial-sync', () => {
+        bus.emit('sync:force-initial');
       }, 1000);
     }
 

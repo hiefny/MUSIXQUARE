@@ -495,6 +495,7 @@ interface BaseEventMap {
   'sync:display-update': [];
   'sync:nudge': [ms: number];
   'sync:auto-sync': [];
+  'sync:force-initial': [];
   'sync:close-manual': [];
   // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];

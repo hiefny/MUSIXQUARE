@@ -19,6 +19,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 
 let _syncPingCounter = 0;
+let _initialSyncDone = false; // First pong after playback start → unconditional seek
 
 /**
  * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
@@ -106,7 +107,7 @@ function handleSyncPong(data: Record<string, unknown>): void {
   setState('sync.lastLatencyMs', Math.min(...updated));
   bus.emit('sync:latency-update', ms);
 
-  // 3. File mode drift correction (from old handleHeartbeatAck)
+  // 3. File mode drift correction
   if (position === undefined || !Number.isFinite(position) || position === 0) return;
   const appState = getState('appState');
   if (appState !== APP_STATE.PLAYING_AUDIO && appState !== APP_STATE.PLAYING_VIDEO) return;
@@ -117,7 +118,16 @@ function handleSyncPong(data: Record<string, unknown>): void {
   import('../player/transport.ts').then(mod => {
     const myPos = mod.getTrackPosition();
     const drift = estimatedHostPos - myPos;
-    if (Math.abs(drift) > 1.5) {
+
+    // First sync after playback start: unconditional correction (even 0.1s drift)
+    // Subsequent syncs: only correct if drift > 2s (safe for high-latency networks)
+    if (!_initialSyncDone) {
+      _initialSyncDone = true;
+      if (Math.abs(drift) > 0.1) {
+        log.info(`[Sync] Initial sync: ${drift.toFixed(2)}s → seeking to ${estimatedHostPos.toFixed(1)}s`);
+        mod.seekTo(estimatedHostPos);
+      }
+    } else if (Math.abs(drift) > 2) {
       log.debug(`[Sync] Drift correction: ${drift.toFixed(2)}s`);
       mod.seekTo(estimatedHostPos);
     }
@@ -267,6 +277,14 @@ export function initSync(): void {
     if (role !== 'host' && role !== 'guest') resetClockState();
   });
 
+  // Reset initial sync flag on every new playback (guest gets fresh correction)
+  bus.on('state:appState', () => {
+    const s = getState('appState');
+    if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
+      _initialSyncDone = false;
+    }
+  });
+
   // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
@@ -274,6 +292,7 @@ export function initSync(): void {
       setState('sync.latencyHistory', []);
       resetClockState();
       _syncPingCounter = 0;
+      _initialSyncDone = false;
     }
   });
 

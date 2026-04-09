@@ -118,17 +118,19 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const estimatedHostPos = position + hostElapsed;
 
   import('../player/transport.ts').then(mod => {
-    const myPos = mod.getTrackPosition();
-    const drift = Math.abs(estimatedHostPos - myPos);
-
-    // First 3s: tight correction (>0.1s). After: relaxed (>2s)
     const startedAt = getState('player.startedAt') || 0;
     const playElapsed = startedAt > 0 ? getCurrentTime() - startedAt : 999;
-    const threshold = playElapsed < 3 ? 0.1 : 2;
 
-    if (drift > threshold) {
-      log.info(`[Sync] Correction: drift=${drift.toFixed(2)}s, threshold=${threshold}s → play(${estimatedHostPos.toFixed(1)}s)`);
+    if (playElapsed < 2) {
+      // First ping-pong after play: unconditionally lock to host position
       mod.play(estimatedHostPos);
+    } else {
+      // Steady state: only correct large drift (>2s)
+      const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
+      if (drift > 2) {
+        log.info(`[Sync] Drift correction: ${drift.toFixed(2)}s → play(${estimatedHostPos.toFixed(1)}s)`);
+        mod.play(estimatedHostPos);
+      }
     }
   });
 }

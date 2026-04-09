@@ -15,7 +15,6 @@ import { broadcast, broadcastDeviceList } from './peer.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
-import { getCurrentTime } from '../audio/context.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 
@@ -121,13 +120,8 @@ function handleSyncPong(data: Record<string, unknown>): void {
     const myPos = mod.getTrackPosition();
     const drift = estimatedHostPos - myPos;
 
-    // Time-based threshold: tight correction in first 3s, relaxed after
-    const startedAt = getState('player.startedAt') || 0;
-    const playElapsed = startedAt > 0 ? getCurrentTime() - startedAt : 999;
-    const threshold = playElapsed < 3 ? 0.1 : 2;
-
-    if (Math.abs(drift) > threshold) {
-      log.info(`[Sync] Drift ${drift.toFixed(2)}s (threshold=${threshold}s, elapsed=${playElapsed.toFixed(1)}s) → seeking to ${estimatedHostPos.toFixed(1)}s`);
+    // Always correct to host position (>50ms to avoid float noise)
+    if (Math.abs(drift) > 0.05) {
       mod.seekTo(estimatedHostPos);
     }
   });

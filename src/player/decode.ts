@@ -273,10 +273,9 @@ export async function loadPreloadedTrack(
 
     // Consume pending play time
     const localOffset = getState('sync.localOffset') || 0;
-    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
-      const target = pendingTime + localOffset + autoSyncOffset;
+      const target = pendingTime + localOffset;
       log.debug(`[Preload] Found pending play time, starting at ${target.toFixed(2)}s`);
       play(target);
       setPendingPlayTime(undefined);
@@ -453,8 +452,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const localOffset = getState('sync.localOffset') || 0;
-      const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-      const target = pendingTime + localOffset + autoSyncOffset;
+      const target = pendingTime + localOffset;
       log.debug(`[Guest] Found pending play time after download, starting at ${target.toFixed(2)}s`);
       play(target);
       setPendingPlayTime(undefined);

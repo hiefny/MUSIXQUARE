@@ -283,7 +283,7 @@ export interface StateTree {
     userPreampGain: number;
     detectedBPM: number;
   };
-  sync: { localOffset: number; autoSyncOffset: number; lastLatencyMs: number; latencyHistory: number[] };
+  sync: { localOffset: number; lastLatencyMs: number; latencyHistory: number[] };
   network: {
     myId: string | null;
     myDeviceLabel: string;

@@ -199,8 +199,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
     // Drift correction
     const localOffset = getState('sync.localOffset') || 0;
-    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-    const rawCompensatedTime = hostTime + autoSyncOffset + localOffset;
+    const rawCompensatedTime = hostTime + localOffset;
     // Drift correction (skip if duration not loaded yet)
     const duration = (player.getDuration && player.getDuration()) || 0;
     if (duration > 0) {

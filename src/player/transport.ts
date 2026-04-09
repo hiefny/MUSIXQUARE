@@ -82,32 +82,25 @@ export function getTrackPosition(): number {
   let pos = 0;
   const startedAt = getState('player.startedAt') || 0;
   const localOffset = getState('sync.localOffset') || 0;
-  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
 
   const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && getCurrentTime() > 0) {
-    const combinedOffset = localOffset + autoSyncOffset;
-    // Guard: schedule offset reset if combined drift exceeds 30 seconds.
+    // Guard: schedule offset reset if drift exceeds 30 seconds.
     // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
-    // Only fires on genuine bugs (e.g. corrupted autoSyncOffset).
     // Deferred to avoid setState inside a getter (side-effect in read path).
-    if (Math.abs(combinedOffset) > 30) {
-      log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}, auto=${autoSyncOffset.toFixed(3)}, combined=${combinedOffset.toFixed(3)}s — resetting`);
+    if (Math.abs(localOffset) > 30) {
+      log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}s — resetting`);
       queueMicrotask(() => {
-        // Read current offsets at execution time (may have changed since queued)
         const lo = getState('sync.localOffset') || 0;
-        const ao = getState('sync.autoSyncOffset') || 0;
-        const drift = lo + ao;
         setState('sync.localOffset', 0);
-        setState('sync.autoSyncOffset', 0);
         // Recalculate startedAt to remove the encoded offset — prevents position
-        // jump on next getTrackPosition() call after offsets are zeroed.
+        // jump on next getTrackPosition() call after offset is zeroed.
         const sa = getState('player.startedAt');
-        if (sa) setState('player.startedAt', sa - drift);
+        if (sa) setState('player.startedAt', sa - lo);
       });
       pos = getCurrentTime() - startedAt;
     } else {
-      pos = (getCurrentTime() - startedAt) + combinedOffset;
+      pos = (getCurrentTime() - startedAt) + localOffset;
     }
   } else if (videoElement?.src && videoElement.readyState >= 1) {
     pos = videoElement.currentTime;
@@ -376,9 +369,7 @@ async function _internalPlay(offset: number): Promise<void> {
   // startedAt = wall-clock time when playback would have started from 0:00
   //   = now - playbackPosition + syncCorrection
   const localOffset = getState('sync.localOffset') || 0;
-  const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-  const combinedSyncOffset = localOffset + autoSyncOffset;
-  const startedAt = getCurrentTime() - safeOffset + combinedSyncOffset;
+  const startedAt = getCurrentTime() - safeOffset + localOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);

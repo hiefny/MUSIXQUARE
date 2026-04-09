@@ -22,19 +22,17 @@ let _syncPingCounter = 0;
 let _initialSyncDone = false; // First pong after playback start → unconditional seek
 
 /**
- * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
+ * Get the total sync offset in milliseconds.
  */
 export function getTotalSyncOffsetMs(): number {
   const localOffset = getState('sync.localOffset');
-  const autoSyncOffset = getState('sync.autoSyncOffset');
-  return Math.round((localOffset + autoSyncOffset) * 1000);
+  return Math.round(localOffset * 1000);
 }
 
 // ─── Auto Sync ──────────────────────────────────────────────────────
 
 export function handleAutoSync(): void {
   setState('sync.localOffset', 0);
-  setState('sync.autoSyncOffset', 0);
   bus.emit('sync:display-update');
   showToast(t('toast.sync_reset'));
 }

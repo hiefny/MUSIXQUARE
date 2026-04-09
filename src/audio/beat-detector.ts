@@ -234,8 +234,7 @@ function tick(): void {
 
   const startedAt = getState('player.startedAt') as number || 0;
   const localOffset = (getState('sync.localOffset') as number) || 0;
-  const autoSyncOffset = (getState('sync.autoSyncOffset') as number) || 0;
-  const now = (getCurrentTime() - startedAt) + localOffset + autoSyncOffset;
+  const now = (getCurrentTime() - startedAt) + localOffset;
 
   const beatsElapsed = (now - _phase) / _beatDuration;
   const beatIdx = Math.floor(beatsElapsed);

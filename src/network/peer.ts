@@ -383,7 +383,6 @@ export function leaveSession(): void {
     'preload.meta': null,
     // Sync
     'sync.localOffset': 0,
-    'sync.autoSyncOffset': 0,
     // Player
     'player.pausedAt': 0,
     // YouTube

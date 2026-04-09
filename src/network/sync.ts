@@ -8,14 +8,17 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, RESERVED_NAMES } from '../core/constants.ts';
+import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
+import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
+
+let _syncPingCounter = 0;
 
 /**
  * Get the total sync offset (localOffset + autoSyncOffset) in milliseconds.
@@ -37,10 +40,10 @@ export function handleAutoSync(): void {
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
-function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): void {
-  // Update liveness timestamp (immutable update)
+function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
+  // 1. Liveness update (from old handleHeartbeat)
   try {
-    if (conn && conn.peer) {
+    if (conn?.peer) {
       const connectedPeers = getState('network.connectedPeers');
       const p = connectedPeers.find(x => x.id === conn.peer);
       if (p) {
@@ -51,32 +54,74 @@ function handleHeartbeat(_data: Record<string, unknown>, conn: DataConnection): 
     }
   } catch { /* ignore */ }
 
-  // Reply to the sender
-  if (conn && conn.open) {
-    try { conn.send({ type: MSG.HEARTBEAT_ACK }); } catch { /* connection closed */ }
+  // 2. Reply with SYNC_PONG including host time + playback state
+  if (!conn?.open) return;
+  const appState = getState('appState');
+  const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO || appState === APP_STATE.PLAYING_VIDEO;
+
+  // Dynamic import for getTrackPosition to avoid circular dep
+  if (isFilePlaying) {
+    import('../player/transport.ts').then(mod => {
+      if (!conn.open) return;
+      try {
+        conn.send({
+          type: MSG.SYNC_PONG,
+          pingId: data.pingId,
+          hostTime: Date.now(),
+          position: mod.getTrackPosition(),
+          appState,
+          trackIndex: getState('playlist.currentTrackIndex'),
+        });
+      } catch { /* closed */ }
+    });
+  } else {
+    try {
+      conn.send({
+        type: MSG.SYNC_PONG,
+        pingId: data.pingId,
+        hostTime: Date.now(),
+        position: 0,
+        appState,
+        trackIndex: getState('playlist.currentTrackIndex'),
+      });
+    } catch { /* closed */ }
   }
 }
 
-function handleHeartbeatAck(): void {
-  // Heartbeat ACK received — no action needed currently
-}
+function handleSyncPong(data: Record<string, unknown>): void {
+  const pingId = data.pingId as number;
+  const hostTime = data.hostTime as number;
+  const position = data.position as number;
 
-function handlePingLatency(data: Record<string, unknown>, conn: DataConnection): void {
-  if (typeof data.timestamp !== 'number') return;
-  if (conn && conn.open) {
-    try { conn.send({ type: MSG.PONG_LATENCY, timestamp: data.timestamp }); } catch { /* connection closed */ }
-  }
-}
+  // 1. Clock offset calculation (from shared-clock processSyncPong)
+  const result = processSyncPong(pingId, hostTime);
+  if (!result) return;
 
-function handlePongLatency(data: Record<string, unknown>): void {
-  if (!Number.isFinite(data.timestamp)) return;
-  const ms = Date.now() - (data.timestamp as number);
+  // 2. Latency history update (from old handlePongLatency)
+  const ms = result.rtt;
   const latencyHistory = getState('sync.latencyHistory');
   const updated = [...latencyHistory, ms];
   if (updated.length > 10) updated.shift();
   setState('sync.latencyHistory', updated);
   setState('sync.lastLatencyMs', Math.min(...updated));
   bus.emit('sync:latency-update', ms);
+
+  // 3. File mode drift correction (from old handleHeartbeatAck)
+  if (position === undefined || !Number.isFinite(position) || position === 0) return;
+  const appState = getState('appState');
+  if (appState !== APP_STATE.PLAYING_AUDIO && appState !== APP_STATE.PLAYING_VIDEO) return;
+
+  const hostElapsed = (getHostNow() - hostTime) / 1000;
+  const estimatedHostPos = position + hostElapsed;
+
+  import('../player/transport.ts').then(mod => {
+    const myPos = mod.getTrackPosition();
+    const drift = estimatedHostPos - myPos;
+    if (Math.abs(drift) > 1.5) {
+      log.debug(`[Sync] Drift correction: ${drift.toFixed(2)}s`);
+      mod.seekTo(estimatedHostPos);
+    }
+  });
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -209,19 +254,26 @@ function _resolveTargetForHost(arg: string): { peerId: string; label: string } |
 
 export function initSync(): void {
   registerHandlers({
-    [MSG.HEARTBEAT]: handleHeartbeat,
-    [MSG.HEARTBEAT_ACK]: handleHeartbeatAck,
-    [MSG.PING_LATENCY]: handlePingLatency,
-    [MSG.PONG_LATENCY]: handlePongLatency,
+    [MSG.SYNC_PING]: handleSyncPing,
+    [MSG.SYNC_PONG]: handleSyncPong,
     [MSG.REQUEST_RENAME]: handleRequestRename,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 
-  // Clean up module-scoped sync state when session ends
+  // SharedClock role management (replaces old initSharedClock)
+  bus.on('state:network.appRole', () => {
+    const role = getState('network.appRole');
+    setIsHostClock(role === 'host');
+    if (role !== 'host' && role !== 'guest') resetClockState();
+  });
+
+  // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
       setState('sync.lastLatencyMs', 0);
       setState('sync.latencyHistory', []);
+      resetClockState();
+      _syncPingCounter = 0;
     }
   });
 
@@ -244,15 +296,15 @@ export function initSync(): void {
   // sync:display-update handler is in player-controls.ts (UI module) to maintain
   // network → UI separation. This module only emits the event.
 
-  // Worker tick handlers: Guest sends heartbeat/ping to host
+  // Worker tick handler: Guest sends unified SYNC_PING to host
   bus.on('worker:timer-tick', (id) => {
     const hostConn = getState('network.hostConn');
     if (!hostConn || !hostConn.open) return;
 
-    if (id === 'heartbeat') {
-      try { hostConn.send({ type: MSG.HEARTBEAT }); } catch { /* noop */ }
-    } else if (id === 'ping') {
-      try { hostConn.send({ type: MSG.PING_LATENCY, timestamp: Date.now() }); } catch { /* noop */ }
+    if (id === 'sync') {
+      const pingId = ++_syncPingCounter;
+      registerPing(pingId);
+      try { hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }); } catch { /* noop */ }
     }
   });
 

@@ -190,9 +190,8 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
     });
 
-    // Start heartbeat & ping timers for guest
-    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'heartbeat', interval: 1000 });
-    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'ping', interval: 2000 });
+    // Start unified sync timer (replaces separate heartbeat + ping timers)
+    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'sync', interval: 1000 });
 
     // Detect local vs remote connection after ICE stabilizes
     setManagedTimer('guest-ice-detect', async () => {

@@ -37,8 +37,6 @@ import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
-import { initSharedClock } from './network/shared-clock.ts';
-
 // ── Storage ──
 import { setSyncWorker, setTransferWorker } from './storage/opfs.ts';
 import { initTransfer } from './storage/transfer.ts';
@@ -254,7 +252,7 @@ function bootstrap(): void {
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);
   safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
-  safeInit('SharedClock', initSharedClock);
+  // SharedClock init removed — managed by sync.ts (unified sync)
 
   // 6. Workers & Storage
   try {

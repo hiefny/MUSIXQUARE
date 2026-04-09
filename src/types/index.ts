@@ -168,12 +168,8 @@ export interface ProtocolMap {
   'preload-end': { name: string; index: number; sessionId: number };
   'preload-ack': { index: number };
 
-  // ── Sync / Timing ────────────────────────────────────────────────
-  'heartbeat': NoPayload;
-  'heartbeat-ack': NoPayload;
-  'ping-latency': { timestamp: number };
-  'pong-latency': { timestamp: number };
   // 'sync-response', 'get-sync-time', 'global-resync-request' removed — dead code
+  // 'heartbeat', 'heartbeat-ack', 'ping-latency', 'pong-latency' removed — replaced by sync-ping/pong
 
   // ── Network / Relay ──────────────────────────────────────────────
   'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string; joinOrder?: number }> };
@@ -211,8 +207,8 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
-  'clock-ping': { pingId: number; guestTime: number };
-  'clock-pong': { pingId: number; hostTime: number };
+  'sync-ping': { pingId: number; guestTime: number };
+  'sync-pong': { pingId: number; hostTime: number; position: number; appState: string; trackIndex: number };
 
   // ── Chat ─────────────────────────────────────────────────────────
   'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number; joinOrder?: number };

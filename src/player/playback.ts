@@ -454,6 +454,7 @@ export function initPlayback(): void {
           name: itemName,
           state: currentState,
           timestamp: Date.now(),
+          hostPlayAt: getHostNow() + 200,
         });
       } else if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
         // IDLE or PAUSED: Send pause to sync position

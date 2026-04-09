@@ -65,7 +65,10 @@ export { loadYouTubeVideo } from './iframe.ts';
  * Host: broadcast → pause → seek → wait 1s → play
  * Guest: receives hostPlayAt, waits until that moment, plays
  */
-export function scheduleYtAutoSync(targetTime: number): void {
+export function scheduleYtAutoSync(
+  targetTime: number,
+  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean },
+): void {
   const player = getYouTubePlayer();
   if (!player) return;
 
@@ -80,14 +83,14 @@ export function scheduleYtAutoSync(targetTime: number): void {
     type: MSG.YOUTUBE_STATE,
     state: 1, // PLAYING
     time: targetTime,
-    subIndex: player.getPlaylistIndex?.() ?? -1,
-    videoId: player.getVideoData?.()?.video_id || '',
+    subIndex: overrides?.subIndex ?? player.getPlaylistIndex?.() ?? -1,
+    videoId: overrides?.videoId ?? player.getVideoData?.()?.video_id ?? '',
     hostPlayAt,
   });
 
   // 2. Pause + seek for clean sync (while paused = no auto-play on mobile)
   if (player.getPlayerState?.() === 1) player.pauseVideo();
-  player.seekTo(targetTime, true);
+  if (!overrides?.skipSeek) player.seekTo(targetTime, true);
   markYtStateBroadcast(); // Re-suppress after pause/seek triggers onStateChange
 
   // 3. Show loading state
@@ -353,10 +356,11 @@ export function initYouTube(): void {
       const ids = player.getPlaylist() || [];
       const idx = player.getPlaylistIndex();
       if (ids.length > 0 && idx < ids.length - 1) {
-        player.nextVideo();
         const nextIdx = idx + 1;
         setYouTubeSubIndex(nextIdx);
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: nextIdx, videoId: player.getVideoData?.()?.video_id || '' });
+        player.nextVideo();
+        // 1s auto-sync: guests load same subIndex, all play simultaneously
+        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: ids[nextIdx] || '', skipSeek: true });
         callback(true);
         return;
       }
@@ -370,18 +374,19 @@ export function initYouTube(): void {
     try {
       const currentTime = player.getCurrentTime();
       if (currentTime > 3) {
-        player.seekTo(0, true);
-        broadcast({ type: MSG.YOUTUBE_STATE, state: player.getPlayerState(), time: 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
+        // Restart current video with auto-sync
+        scheduleYtAutoSync(0);
         callback(true);
         return;
       }
       const ids = player.getPlaylist?.() || [];
       const idx = player.getPlaylistIndex?.() ?? -1;
       if (ids.length > 0 && idx > 0) {
-        player.previousVideo();
         const prevIdx = idx - 1;
         setYouTubeSubIndex(prevIdx);
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 1, time: 0, subIndex: prevIdx, videoId: player.getVideoData?.()?.video_id || '' });
+        player.previousVideo();
+        // 1s auto-sync: guests load same subIndex, all play simultaneously
+        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: ids[prevIdx] || '', skipSeek: true });
         callback(true);
         return;
       }

@@ -62,14 +62,10 @@ export const MSG = {
   FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
   // GET_SYNC_TIME removed — dead code (no sender, no handler)
   // GLOBAL_RESYNC_REQUEST removed — dead code (no sender, no handler)
-  HEARTBEAT: 'heartbeat',
-  HEARTBEAT_ACK: 'heartbeat-ack',
   PAUSE: 'pause',
-  PING_LATENCY: 'ping-latency',
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
   PLAY_PRELOADED: 'play-preloaded',
-  PONG_LATENCY: 'pong-latency',
   PREAMP: 'preamp',
   PRELOAD_ACK: 'preload-ack',
   PRELOAD_CHUNK: 'preload-chunk',
@@ -118,8 +114,8 @@ export const MSG = {
   YOUTUBE_STOP: 'youtube-stop',
   YOUTUBE_SYNC: 'youtube-sync',
   // ── Shared Clock ───────────────────────────────────────────────
-  CLOCK_PING: 'clock-ping',
-  CLOCK_PONG: 'clock-pong',
+  SYNC_PING: 'sync-ping',
+  SYNC_PONG: 'sync-pong',
 
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',

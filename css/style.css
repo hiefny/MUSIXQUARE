@@ -4373,22 +4373,44 @@
     .sync-glass-panel {
         width: min(320px, calc(100vw - 48px));
         background: var(--surface-1);
-        border: 1px solid var(--border);
+        border: none;
         border-radius: var(--radius-l);
-        padding: 28px 24px 20px;
+        padding: 16px 24px 20px;
         display: flex;
         flex-direction: column;
         align-items: stretch;
         animation: fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .sync-offset-display {
-        margin: 20px 0 24px;
-        text-align: center;
+    .sync-dual-display {
+        display: flex;
+        gap: 12px;
+        margin: 16px 0 20px;
     }
 
-    .sync-offset-value {
-        font-size: 36px;
+    .sync-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 0;
+    }
+
+    .sync-col + .sync-col {
+        border-left: 1px solid var(--surface-3);
+    }
+
+
+    .sync-col-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-sub);
+        letter-spacing: 0.3px;
+    }
+
+    .sync-col-value {
+        font-size: 28px;
         font-weight: 800;
         font-variant-numeric: tabular-nums;
         color: var(--text-main);
@@ -4404,7 +4426,7 @@
     .sync-nudge-btn {
         flex: 3;
         height: 44px;
-        border: 1px solid var(--border);
+        border: none;
         border-radius: var(--radius-m);
         background: var(--surface-2);
         color: var(--text-main);
@@ -4482,13 +4504,6 @@
     }
 
 
-    .sync-card-title {
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--text-sub);
-        letter-spacing: -0.2px;
-        text-align: center;
-    }
 
     /* Large File Select Button */
     .file-select-btn-large {

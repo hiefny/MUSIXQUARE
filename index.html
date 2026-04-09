@@ -1615,9 +1615,15 @@
 
     <div class="manual-sync-overlay" id="manual-sync-overlay">
         <div class="sync-glass-panel">
-            <div class="sync-card-title" data-i18n="player.manual_sync_title"></div>
-            <div class="sync-offset-display">
-                <span class="sync-offset-value" id="manual-sync-value">0ms</span>
+            <div class="sync-dual-display">
+                <div class="sync-col">
+                    <span class="sync-col-label" data-i18n="player.auto_sync_label"></span>
+                    <span class="sync-col-value" id="auto-sync-value">0ms</span>
+                </div>
+                <div class="sync-col">
+                    <span class="sync-col-label" data-i18n="player.manual_sync_label"></span>
+                    <span class="sync-col-value" id="manual-sync-value">0ms</span>
+                </div>
             </div>
             <div class="sync-nudge-row">
                 <button class="sync-nudge-btn" id="btn-nudge-minus10">-10</button>

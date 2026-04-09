@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
+import { getClockOffset } from '../network/shared-clock.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
@@ -542,9 +543,15 @@ export function initPlayerControls(): void {
     updateRoleBadge();
   });
 
-  // Latency update → refresh role badge to show latency value
+  // Latency update → refresh role badge + clock offset display
   bus.on('sync:latency-update', () => {
     updateRoleBadge();
+    const autoEl = document.getElementById('auto-sync-value');
+    if (autoEl) {
+      const offset = getClockOffset();
+      const ms = Math.round(offset);
+      autoEl.innerText = ms > 0 ? `+${ms}ms` : `${ms}ms`;
+    }
   });
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
@@ -722,13 +729,15 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
   });
 
-  // Sync display update (manual-sync-value element)
+  // Sync display update (dual: auto + manual)
+  const fmtMs = (ms: number) => ms > 0 ? `+${ms}ms` : `${ms}ms`;
+
   bus.on('sync:display-update', () => {
     const localOffset = getState('sync.localOffset') || 0;
-    const autoSyncOffset = getState('sync.autoSyncOffset') || 0;
-    const total = localOffset + autoSyncOffset;
-    const el = document.getElementById('manual-sync-value');
-    if (el) el.innerText = `${total >= 0 ? '+' : ''}${(total * 1000).toFixed(0)}ms`;
+    const manualEl = document.getElementById('manual-sync-value');
+    const autoEl = document.getElementById('auto-sync-value');
+    if (manualEl) manualEl.innerText = fmtMs(Math.round(localOffset * 1000));
+    if (autoEl) autoEl.innerText = fmtMs(Math.round(getClockOffset()));
   });
 
   // YouTube time update — handled by seekbar.ts

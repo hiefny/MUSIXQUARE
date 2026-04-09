@@ -47,6 +47,9 @@ import {
 } from './decode.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 
+/** Must match SCHEDULE_AHEAD_MS in transport.ts */
+const SCHEDULE_AHEAD_MS = 200;
+
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
 
@@ -230,7 +233,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   play(time);
-  broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + 200 });
+  broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
   // SharedClock handles sync
 }
 
@@ -269,7 +272,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
 
   if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
     play(time);
-    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + 200 });
+    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
   } else {
     setState('player.pausedAt', time);
     const videoElement = getVideoElement();
@@ -457,6 +460,8 @@ export function initPlayback(): void {
       } else if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as string | null;
+        // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.
+        // Guest plays immediately (legacy path); initial sync corrects 1s later.
         conn.send({
           type: MSG.PLAY,
           time: nowPos,
@@ -464,7 +469,6 @@ export function initPlayback(): void {
           name: itemName,
           state: currentState,
           timestamp: Date.now(),
-          hostPlayAt: getHostNow() + 200,
         });
       } else if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
         // IDLE or PAUSED: Send pause to sync position

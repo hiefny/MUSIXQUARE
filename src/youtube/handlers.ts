@@ -66,6 +66,7 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
     cancelYtAutoSync();
+    markYtStateBroadcast();
     player.pauseVideo();
     broadcast({
       type: MSG.YOUTUBE_STATE,

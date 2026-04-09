@@ -680,6 +680,12 @@ export function initPlayerControls(): void {
     const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     updatePlayIcon(playing);
 
+    // Clear YouTube sync spinner when leaving YouTube mode
+    if (state !== APP_STATE.PLAYING_YOUTUBE) {
+      const playBtn = document.getElementById('play-btn');
+      if (playBtn) playBtn.classList.remove('yt-syncing');
+    }
+
     // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
     const mediaBtn = document.getElementById('btn-media-source');
     const mediaBtnLabel = mediaBtn?.querySelector('span');

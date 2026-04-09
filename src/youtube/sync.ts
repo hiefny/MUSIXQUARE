@@ -418,6 +418,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 // ─── Handle YouTube Stop ──────────────────────────────────────────
 
 function handleYouTubeStop(): void {
+  _autoSyncUntil = 0;
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
   clearManagedTimer('yt-clock-action');
@@ -442,6 +443,7 @@ export function initYouTubeSync(): void {
 
   // Reset ad detection when guest reconnects (receives new YouTube session)
   bus.on('youtube:load', () => {
+    _autoSyncUntil = 0;
     resetAdDetection();
     _mixReloadedIds.clear();
   });

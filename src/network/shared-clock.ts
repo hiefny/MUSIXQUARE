@@ -16,7 +16,6 @@ import { log } from '../core/log.ts';
 // ─── Constants ────────────────────────────────────────────────────
 
 const MAX_SAMPLES = 60;            // Keep last 60 RTT samples (~1min window)
-const WARMUP_COUNT = 5;
 
 // ─── State ────────────────────────────────────────────────────────
 
@@ -29,7 +28,7 @@ interface ClockSample {
 let _isHostClock = false;
 let _samples: ClockSample[] = [];
 let _bestOffset = 0;           // Current best estimate of (hostTime - localTime)
-let _pingsSent = 0;
+let _pongsReceived = 0;
 let _pendingPings = new Map<number, number>(); // pingId → sentAt
 
 // ─── Getters ──────────────────────────────────────────────────────
@@ -40,21 +39,16 @@ let _pendingPings = new Map<number, number>(); // pingId → sentAt
  */
 export function getHostNow(): number {
   if (_isHostClock) return Date.now(); // Host IS the clock
+  if (_samples.length === 0) log.warn('[SharedClock] getHostNow called with no samples — offset may be inaccurate');
   return Date.now() + _bestOffset;
 }
+
 
 /**
  * Get the current clock offset (host - local) in milliseconds.
  */
 export function getClockOffset(): number {
   return _bestOffset;
-}
-
-/**
- * Get the number of samples collected (for UI display).
- */
-export function getClockSampleCount(): number {
-  return _samples.length;
 }
 
 /**
@@ -111,6 +105,7 @@ export function processSyncPong(
 
   const receivedAt = Date.now();
   const rtt = receivedAt - pingSentAt;
+  if (rtt < 0) return null;  // System clock went backward
   const halfRtt = rtt / 2;
 
   // Offset = how far ahead host clock is from our clock
@@ -126,21 +121,11 @@ export function processSyncPong(
   const best = _samples.reduce((a, b) => a.rtt < b.rtt ? a : b);
   _bestOffset = best.offset;
 
-  _pingsSent++;
+  _pongsReceived++;
 
   log.debug(`[SharedClock] Sample #${_samples.length}: RTT=${rtt}ms, offset=${offset.toFixed(1)}ms, best=${_bestOffset.toFixed(1)}ms`);
 
   return { rtt, offset };
-}
-
-// ─── Warmup Detection ─────────────────────────────────────────────
-
-/**
- * Returns true once enough pings have been processed for stable sync.
- * sync.ts uses this to switch from fast warmup interval to normal interval.
- */
-export function isWarmupDone(): boolean {
-  return _pingsSent >= WARMUP_COUNT;
 }
 
 // ─── Reset ────────────────────────────────────────────────────────
@@ -151,7 +136,7 @@ export function isWarmupDone(): boolean {
 export function resetClockState(): void {
   _samples = [];
   _bestOffset = 0;
-  _pingsSent = 0;
+  _pongsReceived = 0;
   _pendingPings.clear();
   _isHostClock = false;
 }

@@ -361,8 +361,6 @@ const ko = {
   'toast.session_mismatch': '세션 불일치 감지 — 파일 전송이 재시도됩니다.',
   'toast.same_wifi_only': '동일 네트워크로 연결하면 파일 기능도 이용할 수 있어요!',
   'toast.same_wifi_file_title': '동일 네트워크에서만 미디어 공유가 가능해요',
-  'toast.sync_done': '동기화 완료',
-  'toast.sync_correction': '보정',
   'toast.receiving_pct': '수신 중... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -389,6 +387,7 @@ const ko = {
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS 필수: 보안 연결에서만 작동합니다.',
   'error.browser_update': '브라우저를 업데이트해 주세요 (iOS 15.2+, Chrome 86+)',
+  'error.load_failed': '로드 실패: {{msg}}',
   'error.audio_decode_fail': '오디오 디코딩 실패!',
   'error.audio_memory': '오디오 메모리 로드 중...',
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',

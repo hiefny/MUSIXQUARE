@@ -416,7 +416,7 @@ function handleVolume(data: Record<string, unknown>): void {
   if (!Number.isFinite(vol)) return;
   bus.emit('audio:set-volume', vol);
   if (!data._bootstrap) {
-    showToast(`Volume: ${Math.round(vol * 100)}%`);
+    showToast(t('common.volume_percent', { val: Math.round(vol * 100) }));
   }
 }
 

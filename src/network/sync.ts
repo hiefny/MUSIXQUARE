@@ -20,6 +20,7 @@ import { showToast } from '../ui/toast.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
+let _wasPlaying = false;
 
 /**
  * Get the total sync offset in milliseconds.
@@ -55,6 +56,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
 
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
+  const hostTime = Date.now();  // Capture BEFORE async import
   const appState = getState('appState');
   const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO || appState === APP_STATE.PLAYING_VIDEO;
 
@@ -66,7 +68,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
         conn.send({
           type: MSG.SYNC_PONG,
           pingId: data.pingId,
-          hostTime: Date.now(),
+          hostTime,
           position: mod.getTrackPosition(),
           appState,
           trackIndex: getState('playlist.currentTrackIndex'),
@@ -78,7 +80,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
       conn.send({
         type: MSG.SYNC_PONG,
         pingId: data.pingId,
-        hostTime: Date.now(),
+        hostTime,
         position: 0,
         appState,
         trackIndex: getState('playlist.currentTrackIndex'),
@@ -283,12 +285,17 @@ export function initSync(): void {
     }, 1000);
   };
 
-  // New playback start (IDLE → PLAYING)
+  // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
   bus.on('state:appState', () => {
     const s = getState('appState');
-    if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
+    const isPlaying = s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO;
+    if (isPlaying && !_wasPlaying) {
       armInitialSync();
     }
+    if (!isPlaying) {
+      _needsInitialSync = false;
+    }
+    _wasPlaying = isPlaying;
   });
 
   // Host seek/play while already PLAYING (appState doesn't change)
@@ -301,6 +308,8 @@ export function initSync(): void {
       setState('sync.latencyHistory', []);
       resetClockState();
       _syncPingCounter = 0;
+      _needsInitialSync = false;
+      _wasPlaying = false;
     }
   });
 

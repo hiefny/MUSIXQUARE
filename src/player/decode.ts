@@ -148,7 +148,7 @@ export async function loadAndBroadcastFile(
     log.error(err);
     // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
     setState('files.currentFileBlob', null);
-    showToast(`Load Failed: ${(err as Error).message}`);
+    showToast(t('error.load_failed', { msg: (err as Error).message }));
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {
       showLoader(false);

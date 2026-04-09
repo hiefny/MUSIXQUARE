@@ -136,6 +136,8 @@ export function stopYouTubeMode(): void {
   cancelYtAutoSync(); // Clear pending auto-sync timer + loading state
 
   clearManagedTimer('yt-load-timeout');
+  clearManagedTimer('yt-mix-snapshot');
+  clearManagedTimer('yt-refresh-display');
 
   const player = getYouTubePlayer();
   if (player) {
@@ -679,6 +681,7 @@ export function initYouTube(): void {
         time: ytTime,
         state: ytState,
         subIndex: subIdx,
+        videoId: player.getVideoData?.()?.video_id || '',
       });
 
       log.debug('[YouTube] Bootstrap: sent YouTube state to new peer');

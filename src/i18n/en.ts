@@ -363,8 +363,6 @@ const en: Record<I18nKey, string> = {
   'toast.session_mismatch': 'Session mismatch detected — file transfer will retry.',
   'toast.same_wifi_only': 'Connect via the same Wi-Fi to enjoy file sharing!',
   'toast.same_wifi_file_title': 'Media sharing is only available on the same network',
-  'toast.sync_done': 'Sync complete',
-  'toast.sync_correction': 'correction',
   'toast.receiving_pct': 'Receiving... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -391,6 +389,7 @@ const en: Record<I18nKey, string> = {
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS required: works only on a secure connection.',
   'error.browser_update': 'Please update your browser (iOS 15.2+, Chrome 86+)',
+  'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",

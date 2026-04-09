@@ -107,7 +107,8 @@ export function getTrackPosition(): number {
   }
 
   if (isNaN(pos)) pos = 0;
-  if (pos < 0) pos = 0;
+  // If audio is scheduled but hasn't started yet, return the target offset
+  if (pos < 0) pos = getState('player.pausedAt') || 0;
   if (duration > 0 && pos > duration) pos = duration;
 
   return pos;
@@ -363,6 +364,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     }
   } else if (hasVideoSource && videoElement?.src) {
     // Video-only playback (no audio buffer) — play video with its own audio track
+    // Video-only: scheduleDelay not applicable (upstream uses setTimeout fallback)
     videoElement.currentTime = safeOffset;
     videoElement.muted = false;
     videoElement.play().catch(() => { /* noop */ });

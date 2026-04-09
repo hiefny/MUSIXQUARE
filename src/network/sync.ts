@@ -15,11 +15,11 @@ import { broadcast, broadcastDeviceList } from './peer.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
-import { getCurrentTime } from '../audio/context.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 
 let _syncPingCounter = 0;
+let _needsInitialSync = false;
 
 /**
  * Get the total sync offset in milliseconds.
@@ -118,19 +118,16 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const estimatedHostPos = position + hostElapsed;
 
   import('../player/transport.ts').then(mod => {
-    const startedAt = getState('player.startedAt') || 0;
-    const playElapsed = startedAt > 0 ? getCurrentTime() - startedAt : 999;
-
-    if (playElapsed < 2) {
-      // First ping-pong after play: unconditionally lock to host position
+    // First pong after play start: unconditionally lock to host
+    if (_needsInitialSync) {
+      _needsInitialSync = false;
       mod.play(estimatedHostPos);
-    } else {
-      // Steady state: only correct large drift (>2s)
-      const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
-      if (drift > 2) {
-        log.info(`[Sync] Drift correction: ${drift.toFixed(2)}s → play(${estimatedHostPos.toFixed(1)}s)`);
-        mod.play(estimatedHostPos);
-      }
+      return;
+    }
+    // Ongoing: correct if drift > 2s
+    const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
+    if (drift > 2) {
+      mod.play(estimatedHostPos);
     }
   });
 }
@@ -278,6 +275,16 @@ export function initSync(): void {
     if (role !== 'host' && role !== 'guest') resetClockState();
   });
 
+
+  // Guest: schedule initial sync 1s after playback starts (audio engine stable)
+  bus.on('state:appState', () => {
+    const s = getState('appState');
+    if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
+      setManagedTimer('initial-sync-arm', () => {
+        _needsInitialSync = true;
+      }, 1000);
+    }
+  });
 
   // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {

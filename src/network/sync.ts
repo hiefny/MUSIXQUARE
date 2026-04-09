@@ -117,13 +117,8 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const estimatedHostPos = position + hostElapsed;
 
   import('../player/transport.ts').then(mod => {
-    const myPos = mod.getTrackPosition();
-    const drift = estimatedHostPos - myPos;
-
-    // Always correct to host position (>50ms to avoid float noise)
-    if (Math.abs(drift) > 0.05) {
-      mod.seekTo(estimatedHostPos);
-    }
+    // Always lock to host position
+    mod.seekTo(estimatedHostPos);
   });
 }
 

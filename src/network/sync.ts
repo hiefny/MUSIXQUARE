@@ -116,9 +116,9 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
+  // Directly call play() — seekTo() is host-only (blocks on guest)
   import('../player/transport.ts').then(mod => {
-    // Always lock to host position
-    mod.seekTo(estimatedHostPos);
+    mod.play(estimatedHostPos);
   });
 }
 

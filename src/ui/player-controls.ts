@@ -11,7 +11,7 @@ import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset } from '../network/shared-clock.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -759,16 +759,14 @@ export function initPlayerControls(): void {
   const MARQUEE_PAUSE_START = 3; // 3s pause at start
   const MARQUEE_PAUSE_END = 1;   // 1s pause at end
   let _tabTitleTrack = '';
-  let _tabTitleInterval: ReturnType<typeof setInterval> | null = null;
-
   function startTabTitleMarquee(): void {
-    if (_tabTitleInterval) return;
+    if (getManagedTimer('tab-title-marquee')) return;
 
     let scrollPos = 0;
     let startPause = 0;
     let endPause = 0;
 
-    _tabTitleInterval = setInterval(() => {
+    setManagedTimer('tab-title-marquee', () => {
       const state = getState('appState');
       if (state === APP_STATE.IDLE) {
         stopTabTitleMarquee();
@@ -815,14 +813,11 @@ export function initPlayerControls(): void {
       }
       document.title = full.slice(scrollPos);
       scrollPos++;
-    }, 1000);
+    }, 1000, { interval: true });
   }
 
   function stopTabTitleMarquee(): void {
-    if (_tabTitleInterval) {
-      clearInterval(_tabTitleInterval);
-      _tabTitleInterval = null;
-    }
+    clearManagedTimer('tab-title-marquee');
     document.title = _tabTitleTrack
       ? `${_tabTitleTrack} | MUSIXQUARE`
       : DEFAULT_TITLE;

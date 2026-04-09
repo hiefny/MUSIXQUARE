@@ -367,7 +367,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
       finalized: false,
     });
     setState('preload.sessionState', skipSessionState);
-    try { preloadReorderBuffer.delete(sid); } catch { /* ignore */ }
+    try { preloadReorderBuffer.delete(sid); } catch (e) { log.debug('[Preload] reorder buffer cleanup:', e); }
     return;
   }
 
@@ -431,7 +431,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
   // Use setTimeout(0) to let the worker process OPFS_START before receiving WRITE commands
-  setManagedTimer('preload-drain-' + sid, () => { try { drainPreloadReorderBuffer(sid); } catch { /* best-effort */ } }, 0);
+  setManagedTimer('preload-drain-' + sid, () => { try { drainPreloadReorderBuffer(sid); } catch (e) { log.debug('[Preload] drain reorder buffer:', e); } }, 0);
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');

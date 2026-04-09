@@ -410,7 +410,7 @@ export function initVisualizer(): void {
     const vizOrientationMql = window.matchMedia('(orientation: landscape)');
     vizOrientationMql.addEventListener('change', () => {
       handleResize();
-      setTimeout(handleResize, 350);
+      setManagedTimer('viz-orientation-resize', handleResize, 350);
     });
   }
 

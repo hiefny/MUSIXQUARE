@@ -5,6 +5,7 @@
  */
 
 import { isCompactLandscape, onCompactLandscapeChange } from '../core/platform.ts';
+import { setManagedTimer } from '../core/timers.ts';
 
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
@@ -175,8 +176,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   // Orientation change → delayed re-layout (CSS transitions need time to settle)
   const onLayoutChange = () => {
-    setTimeout(() => updateLayout(state), 350);
-    setTimeout(() => updateLayout(state), 700);
+    setManagedTimer('scrollbar-relayout-fast', () => updateLayout(state), 350);
+    setManagedTimer('scrollbar-relayout-slow', () => updateLayout(state), 700);
   };
   const cleanupCompactListener = onCompactLandscapeChange(onLayoutChange);
   const orientationMql = window.matchMedia('(orientation: landscape)');

@@ -152,7 +152,7 @@ export async function initAudio(): Promise<void> {
   if (_graph.masterGain) {
     const ctx = getAudioContext();
     if (ctx.state !== 'running') {
-      try { await ensureRunning(); } catch { /* best-effort */ }
+      try { await ensureRunning(); } catch (e) { log.debug('[Engine] ensureRunning:', e); }
     }
     return;
   }

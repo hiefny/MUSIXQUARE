@@ -155,8 +155,8 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
     videoElement.load();
   }
 
-  try { BlobURLManager.revoke(); } catch { /* noop */ }
-  try { BlobURLManager.flushDeferred('stopAllMedia'); } catch { /* noop */ }
+  try { BlobURLManager.revoke(); } catch (e) { log.debug('[Transport] BlobURL revoke:', e); }
+  try { BlobURLManager.flushDeferred('stopAllMedia'); } catch (e) { log.debug('[Transport] BlobURL flush:', e); }
 
   // 2. Stop YouTube
   bus.emit('youtube:stop-mode');
@@ -233,7 +233,7 @@ export function seekTo(time: number): void {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
     const videoElement = getVideoElement();
-    if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
+    if (videoElement) try { videoElement.currentTime = time; } catch (e) { log.debug('[Transport] seek while paused:', e); }
     broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
   }
 }
@@ -409,8 +409,8 @@ export function pause(forcedTime?: number): void {
 
   const videoElement = getVideoElement();
   if (videoElement) {
-    try { videoElement.pause(); } catch { /* noop */ }
-    try { videoElement.currentTime = pausePos; } catch { /* noop */ }
+    try { videoElement.pause(); } catch (e) { log.debug('[Transport] video pause:', e); }
+    try { videoElement.currentTime = pausePos; } catch (e) { log.debug('[Transport] video seek on pause:', e); }
   }
 
   setAppState(APP_STATE.PAUSED);
@@ -517,8 +517,8 @@ export function stopPlayback(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
-    try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch { /* noop */ }
-    try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch { /* noop */ }
+    try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch (e) { log.debug('[Transport] send REQUEST_SEEK:', e); }
+    try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch (e) { log.debug('[Transport] send REQUEST_PAUSE:', e); }
     showToast(t('toast.stop_sent'));
     return;
   }
@@ -635,7 +635,7 @@ export function checkVideoSync(): void {
 
     if (drift >= 1.9 && videoElement.paused) {
       log.warn('[SyncCheck] Video appears frozen. Attempting kickstart...');
-      videoElement.play().catch(() => { /* noop */ });
+      videoElement.play().catch(e => { log.debug('[Transport] video kickstart:', e); });
     }
 
     videoElement.currentTime = targetTime;

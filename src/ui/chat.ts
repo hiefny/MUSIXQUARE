@@ -1008,7 +1008,7 @@ export function initChat(): void {
 
     // Blur: hide suggest (with delay for click to register)
     chatInput.addEventListener('blur', () => {
-      setTimeout(hideSuggest, 150);
+      setManagedTimer('chat-hide-suggest', hideSuggest, 150);
     });
 
     chatInput.addEventListener('keydown', (e) => {
@@ -1069,7 +1069,7 @@ export function initChat(): void {
       if (_isConfirmingIME) {
         _isConfirmingIME = false;
         // Zero-delay timeout is more stable for IME-to-DOM sync on Safari/Mac than rAF.
-        setTimeout(() => {
+        setManagedTimer('chat-ime-send', () => {
           sendChatMessage();
         }, 0);
       }

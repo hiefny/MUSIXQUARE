@@ -275,7 +275,7 @@ export function initYouTube(): void {
     if (!player) return;
     try {
       player.stopVideo();
-      try { player.seekTo(0, true); } catch { /* noop */ }
+      try { player.seekTo(0, true); } catch (e) { log.debug('[YouTube] seekTo(0) after stop:', e); }
       broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
@@ -366,7 +366,7 @@ export function initYouTube(): void {
         callback(true);
         return;
       }
-    } catch { /* noop */ }
+    } catch (e) { log.debug('[YouTube] try-next error:', e); }
     callback(false);
   });
 
@@ -392,7 +392,7 @@ export function initYouTube(): void {
         callback(true);
         return;
       }
-    } catch { /* noop */ }
+    } catch (e) { log.debug('[YouTube] try-prev error:', e); }
     callback(false);
   });
 
@@ -582,7 +582,7 @@ export function initYouTube(): void {
     if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
         ids = player.getPlaylist() || [];
-      } catch { /* YouTube player may not be ready */ }
+      } catch (e) { log.debug('[YouTube] getPlaylist() not ready:', e); }
     }
 
     // 2. Initial map setup
@@ -658,7 +658,7 @@ export function initYouTube(): void {
       try {
         if (player?.getCurrentTime) ytTime = player.getCurrentTime();
         if (player?.getPlayerState) ytState = player.getPlayerState();
-      } catch { /* best-effort */ }
+      } catch (e) { log.debug('[YouTube] late-join state read:', e); }
 
       const autoplay = (ytState === 1);
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;

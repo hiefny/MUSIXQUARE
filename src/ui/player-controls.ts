@@ -310,6 +310,14 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
+  const currentState = getState('appState');
+
+  // YouTube / System Audio: nudge sync not applicable
+  if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    showToast(t('toast.sync_not_available'));
+    return;
+  }
+
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     showToast(t('toast.host_sync_not_recommended'));

@@ -350,6 +350,7 @@ const ko = {
   'toast.hprecision_sync': '고정밀 동기화: 오디오를 준비하고 있어요…',
   'toast.file_ready': '파일이 준비됐어요! 재생 버튼을 눌러 보세요.',
   'toast.host_sync_not_recommended': '방장의 동기화 제어는 권장하지 않아요',
+  'toast.sync_not_available': '이 모드에서는 동기화 제어를 사용할 수 없어요',
   'toast.host_ad': '호스트가 광고를 보고 있는 것 같아요',
   'toast.yt_sync_start': '동기화 중...',
   'toast.yt_sync_done': '동기화 완료',

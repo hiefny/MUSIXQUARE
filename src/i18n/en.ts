@@ -352,6 +352,7 @@ const en: Record<I18nKey, string> = {
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready! Press Play.',
   'toast.host_sync_not_recommended': 'Sync adjustment is not recommended for the host',
+  'toast.sync_not_available': 'Sync control is not available in this mode',
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.yt_sync_start': 'Syncing...',
   'toast.yt_sync_done': 'Sync complete',

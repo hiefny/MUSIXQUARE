@@ -446,8 +446,17 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
-    // Consume pending play time and start playback (position may be stale)
+    // Set track metadata from playlist (missing in download path — fixes title display)
     const hostConn = getState('network.hostConn');
+    if (hostConn) {
+      const playlist = getState('playlist.items') || [];
+      const idx = getState('playlist.currentTrackIndex');
+      if (playlist[idx]) {
+        setState('player.currentTrackMeta', playlist[idx]);
+      }
+    }
+
+    // Consume pending play time and start playback (position may be stale)
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const localOffset = getState('sync.localOffset') || 0;

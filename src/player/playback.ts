@@ -173,13 +173,16 @@ function handlePlayMsg(data: Record<string, unknown>): void {
           setManagedTimer('clock-play', () => play(compensatedTime), waitMs);
         }
         log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms${hasBuffer ? ', WebAudio' : ', setTimeout'})`);
+        bus.emit('sync:arm-initial');
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);
+        bus.emit('sync:arm-initial');
       }
     } else {
       // Legacy: no hostPlayAt field — play immediately
       play(time);
+      bus.emit('sync:arm-initial');
     }
   } else {
     // Remote guest: no file will arrive, show guide (transport guard)

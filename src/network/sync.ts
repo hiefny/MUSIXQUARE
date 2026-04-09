@@ -276,15 +276,23 @@ export function initSync(): void {
   });
 
 
-  // Guest: schedule initial sync 1s after playback starts (audio engine stable)
+  // Guest: arm initial sync 1s after any play command (audio engine stable by then)
+  const armInitialSync = () => {
+    setManagedTimer('initial-sync-arm', () => {
+      _needsInitialSync = true;
+    }, 1000);
+  };
+
+  // New playback start (IDLE → PLAYING)
   bus.on('state:appState', () => {
     const s = getState('appState');
     if (s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO) {
-      setManagedTimer('initial-sync-arm', () => {
-        _needsInitialSync = true;
-      }, 1000);
+      armInitialSync();
     }
   });
+
+  // Host seek/play while already PLAYING (appState doesn't change)
+  bus.on('sync:arm-initial', armInitialSync);
 
   // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {

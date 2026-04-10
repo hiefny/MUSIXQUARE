@@ -96,8 +96,18 @@ export function scheduleYtAutoSync(
     hostPlayAt,
   });
 
-  // 2. Pause + seek for clean sync (while paused = no auto-play on mobile)
-  if (player.getPlayerState?.() === 1) player.pauseVideo();
+  // 2. Force-pause + seek for clean sync (while paused = no auto-play on
+  // mobile). NO `=== 1` guard here — we intentionally fire pauseVideo even
+  // when getPlayerState() reports PAUSED, because the reported state can
+  // lag reality during the post-playVideo transition window (the 500ms
+  // yt-sync-grace). If a seek arrives in that window and we trusted the
+  // stale PAUSED reading, we'd skip pausing, and YouTube's async state
+  // transition would complete moments later — player would be PLAYING
+  // while our sync spinner is spinning and the new countdown is armed,
+  // leading to "spinner up but video is actually playing" desync.
+  // pauseVideo on an already-paused / CUED / UNSTARTED player is a safe
+  // no-op per YouTube IFrame API.
+  player.pauseVideo?.();
   if (!overrides?.skipSeek) player.seekTo(targetTime, true);
   markYtStateBroadcast(); // Re-suppress after pause/seek triggers onStateChange
 

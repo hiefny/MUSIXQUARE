@@ -7,7 +7,7 @@
  * Extracted from player-controls.ts for single-responsibility.
  */
 
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -110,17 +110,19 @@ function _stopSeekRaf(): void {
 
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
+const _busScope = createBusScope();
+
 function initSeekBarBusHandlers(): void {
-  // Duration update
-  bus.on('ui:duration-update', (duration) => {
+  _busScope.dispose();
+
+  _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
     if (slider) { slider.max = String(duration); }
     if (tTotal) tTotal.innerText = fmtTime(duration);
   });
 
-  // Seek reset
-  bus.on('ui:seek-reset', () => {
+  _busScope.on('ui:seek-reset', () => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) { slider.value = '0'; }
@@ -129,9 +131,8 @@ function initSeekBarBusHandlers(): void {
     _stopSeekRaf();
   });
 
-  // UI loop start (playback begins)
   let _endedCheckCounter = 0;
-  bus.on('ui:loop-start', () => {
+  _busScope.on('ui:loop-start', () => {
     _endedCheckCounter = 0;
     _startSeekRaf();
 
@@ -154,14 +155,13 @@ function initSeekBarBusHandlers(): void {
     }, 250, { interval: true });
   });
 
-  // Clean up when playback stops
-  bus.on('player:stop-all-media', () => {
+  _busScope.on('player:stop-all-media', () => {
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
   });
 
   // YouTube time update (seek bar + time display)
-  bus.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
+  _busScope.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');

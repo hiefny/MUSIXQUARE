@@ -416,8 +416,7 @@ function _cleanupAllNodes(): void {
 
   // Widener
   if (_graph.widener) {
-    safeDisconnect(_graph.widener.input);
-    safeDisconnect(_graph.widener.output);
+    _graph.widener.dispose();
   }
 
   _graph = createEmptyGraph();
@@ -463,14 +462,15 @@ bus.on('audio:connect-surround', (playerNode, channelIdx) => {
 
   (playerNode as AudioNode).connect(splitter);
 
+  // 7.1 layout: L(0) R(1) C(2) LFE(3) SL(4) SR(5) RL(6) RR(7).
+  // For 5.1 sources (no RL/RR), mix the rear channel into the matching side
+  // so "rear" selection still produces audio on 5.1 tracks.
   if (channelIdx === 6) {
     splitter.connect(gain, 6, 0);
     splitter.connect(gain, 4, 0);
   } else if (channelIdx === 7) {
     splitter.connect(gain, 7, 0);
     splitter.connect(gain, 5, 0);
-  } else if (channelIdx === 3) {
-    splitter.connect(gain, 3, 0);
   } else {
     splitter.connect(gain, channelIdx, 0);
   }

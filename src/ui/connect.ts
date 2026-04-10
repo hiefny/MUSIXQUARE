@@ -7,7 +7,7 @@
 
 import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
 import { t, getResolvedLanguage } from '../i18n/index.ts';
@@ -315,22 +315,23 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   });
 }
 
-// ─── Init ───────────────────────────────────────────────────────
+// ─── Lifecycle ──────────────────────────────────────────────────────
+
+const _busScope = createBusScope();
 
 export function initConnect(): void {
-  // Init both sliders (mobile + desktop)
-  // Init both steppers (mobile + desktop)
+  _busScope.dispose();
+
   initStepper('max-device-stepper');
   initStepper('desktop-max-device-stepper');
 
   // QR refresh when connect tab is opened
-  bus.on('ui:connect-tab-opened', () => {
+  _busScope.on('ui:connect-tab-opened', () => {
     refreshAllQR();
   });
 
-  // QR refresh when session starts (sessionCode changes)
-  bus.on('ui:settings-tab-opened', () => {
-    // Desktop sub-tab may show connect panel — refresh QR
+  // Desktop sub-tab may show connect panel — refresh QR
+  _busScope.on('ui:settings-tab-opened', () => {
     refreshAllQR();
   });
 
@@ -342,20 +343,17 @@ export function initConnect(): void {
   _langObserver = new MutationObserver(() => _updateDeviceTitles());
   _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
-  // Device list updates → render in connect containers
-  bus.on('network:device-list-update', (list: unknown[]) => {
+  _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) {
       renderConnectDeviceList(list as Array<Record<string, unknown>>);
     }
   });
 
-  // Session code changes → refresh QR
-  bus.on('state:network.sessionCode', () => {
+  // sessionCode is set before sessionStarted — both trigger QR refresh
+  _busScope.on('state:network.sessionCode', () => {
     refreshAllQR();
   });
-
-  // Session started → refresh QR (code is set before sessionStarted becomes true)
-  bus.on('state:setup.sessionStarted', () => {
+  _busScope.on('state:setup.sessionStarted', () => {
     refreshAllQR();
   });
 

@@ -6,7 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { escapeHtml } from './dom.ts';
@@ -189,7 +189,11 @@ export function updatePlaylistUI(): void {
 
 let _pendingPlaylistUpdate = false;
 
+const _busScope = createBusScope();
+
 export function initPlaylistView(): void {
+  _busScope.dispose();
+
   // Subscribe to playlist state changes (debounced via rAF to batch rapid updates)
   const debouncedUpdate = () => {
     if (_pendingPlaylistUpdate) return;
@@ -199,11 +203,11 @@ export function initPlaylistView(): void {
       updatePlaylistUI();
     });
   };
-  bus.on('state:playlist.items', debouncedUpdate);
-  bus.on('state:playlist.currentTrackIndex', debouncedUpdate);
-  bus.on('state:youtube.currentSubIndex', debouncedUpdate);
-  bus.on('state:appState', debouncedUpdate);
-  bus.on('state:network.connectionType', debouncedUpdate);
+  _busScope.on('state:playlist.items', debouncedUpdate);
+  _busScope.on('state:playlist.currentTrackIndex', debouncedUpdate);
+  _busScope.on('state:youtube.currentSubIndex', debouncedUpdate);
+  _busScope.on('state:appState', debouncedUpdate);
+  _busScope.on('state:network.connectionType', debouncedUpdate);
 
   log.info('[PlaylistView] Initialized');
 }

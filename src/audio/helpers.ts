@@ -61,8 +61,14 @@ export function generateReverbIR(
 ): AudioBuffer {
   const ctx = getAudioContext();
   const sampleRate = ctx.sampleRate;
-  const preDelaySamples = Math.floor(preDelay * sampleRate);
-  const decaySamples = Math.max(1, Math.floor(decay * sampleRate));
+
+  // Clamp inputs to prevent excessive memory allocation
+  // (30s decay @ 48kHz = ~2.88M samples × 2ch ≈ 23MB — cap at 30s)
+  const clampedDecay = Math.max(0.01, Math.min(30, decay));
+  const clampedPreDelay = Math.max(0, Math.min(2, preDelay));
+
+  const preDelaySamples = Math.floor(clampedPreDelay * sampleRate);
+  const decaySamples = Math.max(1, Math.floor(clampedDecay * sampleRate));
   const totalSamples = preDelaySamples + decaySamples;
 
   const buffer = ctx.createBuffer(2, totalSamples, sampleRate);
@@ -72,7 +78,7 @@ export function generateReverbIR(
     for (let i = preDelaySamples; i < totalSamples; i++) {
       const t = (i - preDelaySamples) / decaySamples;
       // White noise × exponential decay (matches Tone.js algorithm)
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay / 2);
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, clampedDecay / 2);
     }
   }
   return buffer;
@@ -128,6 +134,7 @@ export interface StereoWidenerGraph {
   input: GainNode;           // Connect source here
   output: ChannelMergerNode; // Connect from here
   setWidth(value: number, rampTime: number): void;
+  dispose(): void;           // Disconnect all internal nodes
 }
 
 export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
@@ -188,12 +195,20 @@ export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
   outL.connect(output, 0, 0);
   outR.connect(output, 0, 1);
 
+  const allNodes: AudioNode[] = [
+    input, splitter, lToMid, rToMid, midSum, lToSide, rToSide,
+    sideSum, midGain, sideGain, outL, outR, sideToR, output,
+  ];
+
   return {
     input,
     output,
     setWidth(value: number, rt: number): void {
       rampParam(midGain.gain, 1 - value, rt);
       rampParam(sideGain.gain, value, rt);
+    },
+    dispose(): void {
+      for (const n of allNodes) safeDisconnect(n);
     },
   };
 }

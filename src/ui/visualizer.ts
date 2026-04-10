@@ -5,7 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -53,7 +53,12 @@ function _initThemeListeners(): void {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshThemeCache);
   } catch (e) { log.debug('[Visualizer] matchMedia listener error:', e); }
 
-  // Listen for data-theme attribute changes (app-level theme toggle)
+  // Listen for data-theme attribute changes (app-level theme toggle).
+  // Idempotent: re-init replaces any previous observer.
+  if (_themeObserver) {
+    _themeObserver.disconnect();
+    _themeObserver = null;
+  }
   try {
     _themeObserver = new MutationObserver(refreshThemeCache);
     _themeObserver.observe(document.documentElement, {
@@ -376,12 +381,16 @@ function startSpectrumVisualizer(): void {
   draw();
 }
 
-// ─── Init ────────────────────────────────────────────────────────
+// ─── Lifecycle ──────────────────────────────────────────────────────
+
+const _busScope = createBusScope();
 
 export function initVisualizer(): void {
+  _busScope.dispose();
+
   refreshThemeCache();
   _initThemeListeners();
-  
+
   // Always use startVisualizer — it retries if analyser isn't ready yet,
   // and renders silence naturally as idle circles when no audio plays.
   startVisualizer();
@@ -415,7 +424,7 @@ export function initVisualizer(): void {
   }
 
   // Listen for check events from tab switch
-  bus.on('ui:visualizer-check', () => {
+  _busScope.on('ui:visualizer-check', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       // Keep last frame
@@ -425,7 +434,7 @@ export function initVisualizer(): void {
   });
 
   // Listen for playback state changes
-  bus.on('state:appState', () => {
+  _busScope.on('state:appState', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
@@ -435,12 +444,12 @@ export function initVisualizer(): void {
   });
 
   // Listen for visualizer start command from playback
-  bus.on('visualizer:start', () => {
+  _busScope.on('visualizer:start', () => {
     startVisualizer();
   });
 
   // Visualizer mode switch
-  bus.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
+  _busScope.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
     _vizMode = mode;
     document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
     document.body.classList.toggle('viz-circular', mode === 'circular');

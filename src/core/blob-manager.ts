@@ -91,6 +91,11 @@ export const BlobURLManager = {
     }
 
     log.debug(`[BlobURL] Confirmed Active: ${this._activeURL}`);
+
+    // Auto-flush deferred URLs that are no longer attached after source change
+    if (this._deferredUntilDetached.size) {
+      this.flushDeferred('post-confirm');
+    }
   },
 
   /**

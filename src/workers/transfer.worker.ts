@@ -301,6 +301,8 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
         type: 'SESSION_MISMATCH', command: 'OPFS_WRITE',
         expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
       });
+      // Explicit error ACK so the main thread doesn't hang waiting for a response
+      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Session mismatch', filename, index: data.index, isPreload, code: 'SESSION_MISMATCH' });
       return;
     }
 

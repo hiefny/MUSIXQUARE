@@ -110,3 +110,28 @@ class EventBusImpl {
 
 /** Singleton EventBus instance */
 export const bus = new EventBusImpl();
+
+// ── Bus Scope ──────────────────────────────────────────────────
+
+/**
+ * Group-unsubscribe helper for modules that re-initialize.
+ * Wraps `bus.on` and collects cleanups so a single `dispose()`
+ * drops every subscription registered through this scope.
+ */
+export interface BusScope {
+  on<K extends EventKey>(event: K, fn: TypedListener<K>): void;
+  dispose(): void;
+}
+
+export function createBusScope(): BusScope {
+  const cleanups: Array<() => void> = [];
+  return {
+    on(event, fn) {
+      cleanups.push(bus.on(event, fn));
+    },
+    dispose() {
+      for (const u of cleanups) u();
+      cleanups.length = 0;
+    },
+  };
+}

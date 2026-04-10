@@ -6,7 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
@@ -422,9 +422,12 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
   });
 }
 
-// ─── Init ────────────────────────────────────────────────────────
+// ─── Lifecycle ──────────────────────────────────────────────────────
+
+const _busScope = createBusScope();
 
 export function initSettings(): void {
+  _busScope.dispose();
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener(evt, fn);
@@ -486,7 +489,7 @@ export function initSettings(): void {
   });
 
   // Guest UI sync: when host changes reverb preset
-  bus.on('ui:sync-reverb-preset', (type: string) => {
+  _busScope.on('ui:sync-reverb-preset', (type: string) => {
     syncReverbSlidersToPreset(type);
   });
 
@@ -510,7 +513,7 @@ export function initSettings(): void {
   });
 
   // Guest UI sync: when host changes EQ preset
-  bus.on('ui:sync-eq-preset', (type: string) => {
+  _busScope.on('ui:sync-eq-preset', (type: string) => {
     syncEqSlidersToPreset(type);
   });
 
@@ -548,7 +551,7 @@ export function initSettings(): void {
   // ─── Guest UI Sync: host broadcasts setting changes ──────────
 
   // Reverb individual slider sync (from host broadcast)
-  bus.on('ui:sync-reverb-param', (param: string, value: number) => {
+  _busScope.on('ui:sync-reverb-param', (param: string, value: number) => {
     const sliderMap: Record<string, string> = {
       mix: 'reverb-slider', decay: 'reverb-decay-slider', predelay: 'reverb-predelay-slider',
       lowcut: 'reverb-lowcut-slider', highcut: 'reverb-highcut-slider',
@@ -568,19 +571,19 @@ export function initSettings(): void {
   });
 
   // Surround toggle sync (from host broadcast)
-  bus.on('ui:sync-surround', (on: boolean) => {
+  _busScope.on('ui:sync-surround', (on: boolean) => {
     document.querySelectorAll('#grid-surround .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
     document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   });
 
   // Virtual Bass toggle sync (from host broadcast)
-  bus.on('ui:sync-vbass', (on: boolean) => {
+  _busScope.on('ui:sync-vbass', (on: boolean) => {
     document.querySelectorAll('#grid-vbass .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
     document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   });
 
   // EQ band slider/label sync (from audio module via bus, avoids audio→DOM coupling)
-  bus.on('ui:sync-eq-band', (bandIdx: number, value: number) => {
+  _busScope.on('ui:sync-eq-band', (bandIdx: number, value: number) => {
     _setDisp(`eq-val-${bandIdx}`, value > 0 ? `+${value}` : String(value));
     const slider = document.getElementById(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
     if (slider && parseFloat(slider.value) !== value) slider.value = String(value);
@@ -589,10 +592,10 @@ export function initSettings(): void {
   // ─── Host-Ctrl Lock UI update on role change ──────────────────
 
   // Update lock state when connection/role changes (fires on connect, OP grant/revoke, session start)
-  bus.on('network:role-badge-update', () => _updateHostCtrlLockUI());
+  _busScope.on('network:role-badge-update', () => _updateHostCtrlLockUI());
 
   // Device list events
-  bus.on('network:device-list-update', (list: unknown[]) => {
+  _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
   });
 

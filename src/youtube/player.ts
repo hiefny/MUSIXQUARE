@@ -269,6 +269,35 @@ export function initYouTube(): void {
     }
   });
 
+  // YouTube sub-video auto-advance inside a playlist: iframe.ts's
+  // updateYouTubeUI detects the sub-index transition and emits this event
+  // (ENDED does not fire for intra-playlist boundaries, so the normal
+  // playlist:next-track path is bypassed). We re-apply the 1-sec rendezvous
+  // sync here so guests stay aligned across the sub-video boundary.
+  bus.on('youtube:sub-video-advanced', () => {
+    const player = getYouTubePlayer();
+    if (!player?.playVideo) return;
+
+    // Force-pause the host regardless of current state. At the moment of
+    // detection the player may be in BUFFERING or PLAYING; we want it
+    // paused so the 1-sec countdown has a clean starting point. pauseVideo
+    // on a non-playing player is a safe no-op per YT IFrame API.
+    try { player.pauseVideo?.(); } catch { /* noop */ }
+
+    // Capture the position the new sub-video has reached so guests seek
+    // to the same spot instead of jumping back to 0. getCurrentTime on a
+    // just-advanced sub-video is usually a very small value but not always
+    // exactly 0 (YouTube may have buffered a few frames ahead).
+    const currentTime = (() => {
+      try { return player.getCurrentTime?.() || 0; } catch { return 0; }
+    })();
+
+    setYtAutoplayIntent(true); // avoid pause-back guard firing post-sync
+    // skipSeek:true — host is already at currentTime after the force-pause,
+    // re-seeking would only introduce an extra BUFFERING round-trip.
+    scheduleYtAutoSync(currentTime, { skipSeek: true });
+  });
+
   bus.on('youtube:get-position', (callback) => {
     if (typeof callback === 'function') {
       try {

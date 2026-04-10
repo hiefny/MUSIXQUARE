@@ -473,6 +473,13 @@ interface BaseEventMap {
   'youtube:seek-to': [seconds: number];
   'youtube:try-next-internal': [callback: (success: boolean) => void];
   'youtube:try-prev-internal': [callback: (success: boolean) => void];
+  /**
+   * Emitted by iframe.ts when the YouTube IFrame auto-advances between
+   * sub-videos in a playlist (ENDED does not fire for intra-playlist
+   * transitions). Listened by player.ts to re-apply the 1-second
+   * rendezvous sync so guests stay aligned across the sub-video boundary.
+   */
+  'youtube:sub-video-advanced': [];
   'youtube:broadcast-sync': [];
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];

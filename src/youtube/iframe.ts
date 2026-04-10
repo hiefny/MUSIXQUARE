@@ -11,7 +11,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
@@ -160,6 +160,12 @@ function createYouTubePlayer(
   // checks this flag to pause-back if autoplay was not requested.
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
   setYtAutoplayIntent(autoplay);
+
+  // Reset sub-index cache so the sub-video auto-advance detector (in
+  // updateYouTubeUI) doesn't mistake the initial index of a freshly loaded
+  // track for a mid-playlist transition. The cache is populated on the
+  // first updateYouTubeUI tick after the player becomes ready.
+  setCachedYtPlaylistIdx(-1);
 
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
@@ -376,9 +382,41 @@ function updateYouTubeUI(): void {
 
     // Reset cache when playlist sub-index changes (= different video)
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
+      const prevIdx = getCachedYtPlaylistIdx();
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
       _lastYtVideoTitle = ''; // Reset title cache to force update on index change
+
+      // Host-side sub-video auto-advance detection
+      // ───────────────────────────────────────────
+      // YouTube IFrame auto-advances between sub-videos in a playlist WITHOUT
+      // firing an ENDED event, so our ENDED → playlist:next-track → try-next-
+      // internal path never runs and guests play the new sub-video with no
+      // 1-sec rendezvous countdown, diverging from the host until drift
+      // correction catches up. Detect the transition here and ask player.ts
+      // to schedule an auto-sync (pause host briefly, broadcast hostPlayAt,
+      // resume everyone simultaneously).
+      //
+      // Guards:
+      //   - host only (guest sub-index follows host via handleYouTubeState)
+      //   - prevIdx must be a valid index (not -1) — skips the very first
+      //     sub-index population after load, which is the initial track load
+      //     already handled by the autoPlayTimer → youtube:auto-play path
+      //   - playlistIdx must be >= 0
+      //   - no scheduled sync already running (would otherwise overlap)
+      //   - the underlying player must actually be in PLAYING state (1) —
+      //     transient BUFFERING/CUED transitions during loadVideoById etc.
+      //     shouldn't trigger sync
+      const hostConn = getState('network.hostConn');
+      if (!hostConn
+        && prevIdx !== -1
+        && playlistIdx >= 0
+        && state === 1
+        && !getManagedTimer('yt-auto-sync')
+      ) {
+        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx}, applying 1-sec sync`);
+        bus.emit('youtube:sub-video-advanced');
+      }
 
       // Pre-emptive title update from subItemsMap (if available) for instant feedback
       const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];

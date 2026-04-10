@@ -340,7 +340,9 @@ export interface StateTree {
      *
      * Self-calibrating: after each rendezvous, drift is measured vs.
      * extrapolated host position and this value is nudged via EMA.
-     * Clamped to [50, 600]ms. Default 200ms (desktop-ish baseline).
+     * Clamped to [0, 600]ms. Default 0ms — first rendezvous fires AT the
+     * target instant with no arbitrary pre-pull, and the calibrator learns
+     * the true per-device latency from the observed drift.
      */
     guestPlayLatency: number;
   };

@@ -316,7 +316,7 @@ export function guestRendezvousSync(): void {
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
 
-  const guestPlayLatency = getState('youtube.guestPlayLatency') ?? 200;
+  const guestPlayLatency = getState('youtube.guestPlayLatency') ?? 0;
   const MARGIN_SEC = 1.5; // headroom for seek + buffer + network jitter
 
   // Extrapolate host's current position
@@ -413,10 +413,13 @@ function scheduleRendezvousPlay(
 
         // Positive drift (guest ahead) means playVideo() fired too early → our L_play
         // estimate was too HIGH → DECREASE it. Hence minus sign.
-        const current = getState('youtube.guestPlayLatency') ?? 200;
+        const current = getState('youtube.guestPlayLatency') ?? 0;
         const LR = 0.3;
         const nextRaw = current - driftMs * LR;
-        const next = Math.round(Math.max(50, Math.min(600, nextRaw)));
+        // Floor lowered from 50→0: devices with <50ms playVideo latency (or
+        // effectively-instant mobile Web Audio unlock) can now fully converge
+        // instead of permanently firing 50ms early. Ceiling 600 kept as safety.
+        const next = Math.round(Math.max(0, Math.min(600, nextRaw)));
         if (next !== current) setState('youtube.guestPlayLatency', next);
 
         log.debug(

@@ -126,7 +126,7 @@ function createInitialState(): StateTree {
     youtube: {
       currentSubIndex: -1,
       subItemsMap: {},
-      guestPlayLatency: 200, // ms — self-calibrated by rendezvous sync; see StateTree.youtube.guestPlayLatency
+      guestPlayLatency: 0, // ms — initial 0 (no arbitrary pre-pull); self-calibrated by rendezvous sync. See StateTree.youtube.guestPlayLatency
     },
 
     recovery: {

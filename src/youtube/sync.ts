@@ -420,7 +420,17 @@ function scheduleRendezvousPlay(
         // effectively-instant mobile Web Audio unlock) can now fully converge
         // instead of permanently firing 50ms early. Ceiling 600 kept as safety.
         const next = Math.round(Math.max(0, Math.min(600, nextRaw)));
-        if (next !== current) setState('youtube.guestPlayLatency', next);
+        if (next !== current) {
+          setState('youtube.guestPlayLatency', next);
+          // Persist the learned latency across sessions. The playVideo →
+          // audible-output delay is a stable property of the device's
+          // browser + OS + audio pipeline, so restoring it on next load
+          // makes even the very first rendezvous accurate instead of
+          // having to learn from scratch every page load.
+          try {
+            localStorage.setItem('musixquare-yt-play-latency', String(next));
+          } catch { /* storage unavailable — in-memory only is fine */ }
+        }
 
         log.debug(
           `[Rendezvous] Calibrate: drift=${driftMs.toFixed(0)}ms, L_play ${current} → ${next} (target=${targetPosition.toFixed(2)}s measured=${guestPos.toFixed(2)}s)`,

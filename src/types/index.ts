@@ -340,9 +340,13 @@ export interface StateTree {
      *
      * Self-calibrating: after each rendezvous, drift is measured vs.
      * extrapolated host position and this value is nudged via EMA.
-     * Clamped to [0, 600]ms. Default 0ms — first rendezvous fires AT the
-     * target instant with no arbitrary pre-pull, and the calibrator learns
-     * the true per-device latency from the observed drift.
+     * Clamped to [0, 600]ms.
+     *
+     * Persisted to localStorage under `musixquare-yt-play-latency` so the
+     * learned value survives page reloads — the underlying latency is a
+     * stable device property (browser + OS + audio stack), so each device
+     * only has to calibrate once and subsequent sessions start accurate.
+     * Default 0ms when no prior calibration exists (pristine install).
      */
     guestPlayLatency: number;
   };

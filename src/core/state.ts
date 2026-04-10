@@ -14,6 +14,32 @@ import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } fr
 export type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
 import type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
 
+/**
+ * Restore persisted YouTube rendezvous play-latency from localStorage.
+ *
+ * The playVideo() → audible-output latency is a stable per-device property
+ * (browser + OS + audio stack), so once the rendezvous calibration has
+ * learned it, we persist the value and reuse it next session — otherwise
+ * every fresh page load would have an inaccurate first rendezvous until
+ * the EMA caught up.
+ *
+ * Clamped to the same [0, 600] range as the calibration floor/ceiling, and
+ * falls back to 0 on any read error (no localStorage, corrupt value, etc.).
+ */
+const YT_PLAY_LATENCY_STORAGE_KEY = 'musixquare-yt-play-latency';
+function readStoredGuestPlayLatency(): number {
+  try {
+    if (typeof localStorage === 'undefined') return 0;
+    const raw = localStorage.getItem(YT_PLAY_LATENCY_STORAGE_KEY);
+    if (raw === null) return 0;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 600) return 0;
+    return parsed;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Initial State ─────────────────────────────────────────────────
 
 function createInitialState(): StateTree {
@@ -126,7 +152,10 @@ function createInitialState(): StateTree {
     youtube: {
       currentSubIndex: -1,
       subItemsMap: {},
-      guestPlayLatency: 0, // ms — initial 0 (no arbitrary pre-pull); self-calibrated by rendezvous sync. See StateTree.youtube.guestPlayLatency
+      // ms — restored from localStorage if a previous session has calibrated
+      // it, else 0 (no arbitrary pre-pull). Self-calibrated by rendezvous sync.
+      // See StateTree.youtube.guestPlayLatency
+      guestPlayLatency: readStoredGuestPlayLatency(),
     },
 
     recovery: {

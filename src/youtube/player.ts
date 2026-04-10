@@ -252,9 +252,20 @@ export function initYouTube(): void {
   bus.on('youtube:auto-play', () => {
     const player = getYouTubePlayer();
     if (player?.playVideo) {
-      setYtAutoplayIntent(true); // Prevent onStateChange PLAYING handler from pausing back
-      player.playVideo();
-      bus.emit('youtube:broadcast-sync');
+      // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
+      // doesn't get caught by onStateChange's pause-back guard (the guard
+      // was armed by loadYouTubeVideo's autoplay=false default).
+      setYtAutoplayIntent(true);
+      // Use scheduleYtAutoSync instead of raw playVideo so this path
+      // (host-side 3s autoPlayTimer after track add / end-of-video auto-advance)
+      // gets the same 1-second rendezvous countdown as every other host-
+      // initiated YouTube play, keeping guests aligned instead of forcing
+      // drift correction to clean up afterwards.
+      //
+      // skipSeek:true — the freshly loaded video is already at position 0,
+      // so seekTo(0) would be a wasted round-trip (and may trigger an
+      // unwanted BUFFERING transition on CUED players).
+      scheduleYtAutoSync(0, { skipSeek: true });
     }
   });
 

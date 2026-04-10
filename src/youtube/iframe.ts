@@ -444,6 +444,24 @@ function showYouTubeSyncOverlay(show: boolean): void {
         const player = getYouTubePlayer();
         if (!player?.playVideo) return;
 
+        // CRITICAL: flip autoplay intent to `true` BEFORE any player API
+        // call. Reason:
+        //
+        //   loadYouTubeVideo() earlier set _ytAutoplayIntent=false (because
+        //   host broadcasts YOUTUBE_PLAY with autoplay:false). The pause-back
+        //   guard in onYouTubePlayerStateChange relies on this flag to revert
+        //   any accidental PLAYING transition back to PAUSED.
+        //
+        //   Without flipping it here, the rendezvous's legitimate
+        //   scheduled playVideo() (fired ~1.5s later) causes a PLAYING
+        //   event that the guard interprets as "not intended" and pauses
+        //   back — leaving the user staring at a paused player until the
+        //   autoSync cooldown expires and drift correction force-plays.
+        //
+        //   User explicitly tapping the overlay IS the play intent, so
+        //   flipping the flag here is semantically correct.
+        setYtAutoplayIntent(true);
+
         // Step 1 — satisfy iOS user-gesture requirement SYNCHRONOUSLY.
         // Once the <video> element has received a user-initiated play() inside
         // this gesture window, subsequent programmatic play/pause/seek calls

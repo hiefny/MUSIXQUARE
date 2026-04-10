@@ -111,12 +111,22 @@ export function scheduleYtAutoSync(
     player.playVideo();
     bus.emit('youtube:sync-loading', false);
     showToast(t('toast.yt_sync_done'));
+    // Post-sync grace window: playVideo() is async — the YouTube iframe
+    // takes ~30-100ms to transition the player state from PAUSED to
+    // PLAYING. Without this grace period a seek landing in that gap
+    // would see "no yt-auto-sync timer + state still PAUSED" and slip
+    // through as a bare seek+state=2 (because mid-sync detection
+    // depends on the timer being present). Keep the "mid-sync" signal
+    // alive for 500ms after playVideo so seek handlers still route
+    // through scheduleYtAutoSync in that window.
+    setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
   }, YT_AUTO_SYNC_MS);
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during countdown). */
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
+  clearManagedTimer('yt-sync-grace');
   bus.emit('youtube:sync-loading', false);
 }
 
@@ -357,12 +367,13 @@ export function initYouTube(): void {
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
         // See youtube:seek-to for why we need the midSync check — a pending
-        // yt-auto-sync countdown keeps the player PAUSED while logically we
-        // are still in a play session, so a bare seek during the countdown
-        // would skip re-syncing and let the stale target's playVideo fire.
-        const midSync = !!getManagedTimer('yt-auto-sync');
+        // yt-auto-sync countdown (or the post-playVideo grace window) keeps
+        // the player PAUSED while logically we are still in a play session,
+        // so a bare seek during that window would skip re-syncing and let
+        // the stale target's playVideo fire.
+        const midSync = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
         if (state === 1 || midSync) {
-          // Playing (or mid-sync countdown) → (re)schedule auto-sync
+          // Playing (or mid-sync countdown / grace) → (re)schedule auto-sync
           scheduleYtAutoSync(target);
         } else {
           // Actually paused by user → seek immediately, no delay
@@ -393,16 +404,17 @@ export function initYouTube(): void {
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
-        // A pending 'yt-auto-sync' timer means we're mid-countdown from an
-        // earlier scheduleYtAutoSync. Treat that as "effectively playing"
-        // even though the player is currently PAUSED (the countdown paused
-        // it), so the new seek (re)schedules a fresh sync instead of being
-        // interpreted as a user-paused scrub and slipping through as a
-        // bare seekTo+state=2 while the old pending playVideo still fires
-        // 1s later with a stale target.
-        const midSync = !!getManagedTimer('yt-auto-sync');
+        // Mid-sync detection — two phases:
+        //   - yt-auto-sync: 1s countdown before playVideo() is called
+        //   - yt-sync-grace: 500ms after playVideo() while YouTube IFrame
+        //     finishes its async PAUSED→PLAYING state transition
+        // Both are treated as "effectively playing" so a seek landing in
+        // either window (re)schedules a fresh sync instead of slipping
+        // through as a bare seek+state=2 while the player's reported
+        // state is still lying about being PAUSED.
+        const midSync = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
         if (state === 1 || midSync) {
-          // Playing (or mid-sync countdown) → (re)schedule auto-sync.
+          // Playing (or mid-sync countdown / grace) → (re)schedule auto-sync.
           // scheduleYtAutoSync clears any pending yt-auto-sync up-front,
           // so the old countdown is naturally superseded.
           scheduleYtAutoSync(seconds);

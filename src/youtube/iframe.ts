@@ -358,7 +358,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
   const hostConn = getState('network.hostConn');
   const now = Date.now();
-  if (!hostConn && player?.getCurrentTime && now - _lastYtStateBroadcast > 300) {
+  // CRITICAL: also skip while a scheduled sync countdown (yt-auto-sync) or
+  // its post-playVideo grace window (yt-sync-grace) is active. During that
+  // window the player transitions PAUSED → BUFFERING → PLAYING (pause,
+  // seek, wait, play) and onStateChange fires for each transition. If the
+  // 300ms UI-dedupe cooldown elapses during this ~1s+ window, onStateChange
+  // will broadcast an auxiliary YOUTUBE_STATE{state:2, no hostPlayAt} for
+  // the transient PAUSED state — which the guest interprets as "host paused"
+  // and cancels its pending yt-clock-action, leaving guest paused while
+  // host resumes at the end of the countdown. scheduleYtAutoSync already
+  // broadcasts the authoritative state+hostPlayAt at the start of its
+  // sequence, so suppressing these in-flight auxiliary broadcasts is safe.
+  const syncInFlight = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
+  if (!hostConn && player?.getCurrentTime && !syncInFlight && now - _lastYtStateBroadcast > 300) {
     _lastYtStateBroadcast = now;
     broadcast({
       type: MSG.YOUTUBE_STATE,

@@ -528,6 +528,11 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
     stopAllMedia();
     clearPreloadState();
     bus.emit('storage:clear-previous-track', 'playlist-emptied');
+    // Mirror host's empty-playlist reset: clear track meta so the title
+    // display reverts to "미디어 없음" instead of lingering on the last
+    // played track. clearPreviousTrackState doesn't touch player.currentTrackMeta,
+    // so we clear it explicitly here.
+    setState('player.currentTrackMeta', null);
   }
 
   // Sync current track index from host (late-join bootstrap)

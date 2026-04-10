@@ -15,7 +15,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -356,11 +356,16 @@ export function initYouTube(): void {
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
-        if (state === 1) {
-          // Playing → auto-sync (pause, seek, wait 1s, play)
+        // See youtube:seek-to for why we need the midSync check — a pending
+        // yt-auto-sync countdown keeps the player PAUSED while logically we
+        // are still in a play session, so a bare seek during the countdown
+        // would skip re-syncing and let the stale target's playVideo fire.
+        const midSync = !!getManagedTimer('yt-auto-sync');
+        if (state === 1 || midSync) {
+          // Playing (or mid-sync countdown) → (re)schedule auto-sync
           scheduleYtAutoSync(target);
         } else {
-          // Paused → seek immediately, no delay
+          // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();
           broadcast({
             type: MSG.YOUTUBE_STATE,
@@ -388,11 +393,21 @@ export function initYouTube(): void {
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
-        if (state === 1) {
-          // Playing → auto-sync (pause, seek, wait 1s, play)
+        // A pending 'yt-auto-sync' timer means we're mid-countdown from an
+        // earlier scheduleYtAutoSync. Treat that as "effectively playing"
+        // even though the player is currently PAUSED (the countdown paused
+        // it), so the new seek (re)schedules a fresh sync instead of being
+        // interpreted as a user-paused scrub and slipping through as a
+        // bare seekTo+state=2 while the old pending playVideo still fires
+        // 1s later with a stale target.
+        const midSync = !!getManagedTimer('yt-auto-sync');
+        if (state === 1 || midSync) {
+          // Playing (or mid-sync countdown) → (re)schedule auto-sync.
+          // scheduleYtAutoSync clears any pending yt-auto-sync up-front,
+          // so the old countdown is naturally superseded.
           scheduleYtAutoSync(seconds);
         } else {
-          // Paused → seek immediately, no delay
+          // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();
           broadcast({
             type: MSG.YOUTUBE_STATE,

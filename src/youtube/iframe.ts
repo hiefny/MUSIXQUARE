@@ -37,6 +37,14 @@ declare const YT: any;
 
 /** Tracks the last known YouTube video title to detect changes */
 let _lastYtVideoTitle = '';
+/**
+ * Tracks the YouTube videoId that the duration cache is currently valid for.
+ * Needed because player.getDuration() can return the OLD video's duration
+ * briefly after loadVideoById — the "lock on first valid read" pattern would
+ * otherwise cache the stale value and never update for subsequent videos.
+ * Cleared on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
+ */
+let _lastDurationVideoId = '';
 export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
 
@@ -67,6 +75,7 @@ export function loadYouTubeVideo(
   setEngineMode('youtube');
 
   setCachedYtDuration(0); // Reset duration cache for new video
+  _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -441,6 +450,7 @@ function updateYouTubeUI(): void {
     }
 
     // Update track title whenever YouTube video title changes
+    let currentVideoId = '';
     if (player.getVideoData) {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _lastYtVideoTitle) {
@@ -448,10 +458,30 @@ function updateYouTubeUI(): void {
         const currentMeta = getState('player.currentTrackMeta') || {};
         setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
       }
+      currentVideoId = vData?.video_id || '';
     }
 
-    // Lock duration on first valid read — stays locked until video changes
-    if (rawDuration > 0 && getCachedYtDuration() === 0) {
+    // Invalidate the duration cache whenever the videoId changes. Without
+    // this, `player.getDuration()` returning the OLD video's duration briefly
+    // after `loadVideoById` would latch into the cache (via the "first valid
+    // read" logic below) and never refresh for subsequent videos.
+    //
+    // Guard: empty currentVideoId means getVideoData has no data yet —
+    // don't stomp state on an uninitialised poll.
+    if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
+      if (_lastDurationVideoId !== '') {
+        setCachedYtDuration(0); // force re-read on next valid rawDuration
+      }
+      _lastDurationVideoId = currentVideoId;
+    }
+
+    // Commit the latest rawDuration whenever it diverges meaningfully from
+    // the cache. The old "lock on first valid read" pattern was fragile: a
+    // transitional poll could land on (new videoId, stale rawDuration) or
+    // (stale videoId, stale rawDuration) and permanently pin the cache to
+    // the previous video's duration. Re-reading every poll is cheap, and
+    // a small threshold keeps the emit quiet when rawDuration is stable.
+    if (rawDuration > 0 && Math.abs(rawDuration - getCachedYtDuration()) > 0.05) {
       setCachedYtDuration(rawDuration);
     }
 

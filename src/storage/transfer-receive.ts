@@ -166,11 +166,31 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   const incomingSid = data.sessionId as number;
   const prevLocalSid = getState('transfer.localSessionId');
+  const isNewSession = incomingSid && incomingSid > prevLocalSid;
 
-  // Update session if newer
-  if (incomingSid && incomingSid > prevLocalSid) {
-    log.debug(`[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid})`);
+  // Update session if newer + hard-reset receive pipeline.
+  //
+  // Rapid track switch (e.g. 4→5→4→5) bug: without this reset, the old
+  // session's receivedCount persists across the new FILE_PREPARE. That
+  // leaves prepareWatchdog's `rc===0` condition unsatisfiable, and the
+  // chunkWatchdog's `lastChunkTime` stays anchored to an old chunk from
+  // the defunct session. Result: guest sits at "0%" until the 12s
+  // chunkWatchdog eventually expires from absolute time drift.
+  //
+  // Fix: on every new-session FILE_PREPARE, wipe the receive state and
+  // restart the chunkWatchdog from NOW so both safety nets are armed.
+  if (isNewSession) {
+    log.debug(`[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`);
     setState('transfer.localSessionId', incomingSid);
+    setState('transfer.receivedCount', 0);
+    setState('transfer.lastReceivedCountSnapshot', 0);
+    fileReorderBuffer.clear();
+    nextExpectedChunk = 0;
+    setState('transfer.staleChunkBurstStart', 0);
+    setState('transfer.staleChunkBurstCount', 0);
+    // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
+    // not from the last chunk of the previous (defunct) session.
+    startChunkWatchdog();
   }
 
   // Check for preloaded match
@@ -221,7 +241,11 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
     setState('transfer.skipIncomingFile', true);
     showLoader(false);
-    bus.emit('playback:replay-current');
+    // Honor host's auto-play delay if provided — otherwise the guest would
+    // play(0) immediately and drift for 3s while the host still waits on
+    // its autoPlayTimer before broadcasting MSG.PLAY.
+    const delayMs = Number(data.autoPlayDelayMs) || 0;
+    bus.emit('playback:replay-current', delayMs);
     return;
   }
 
@@ -400,6 +424,9 @@ export function handleFileStart(data: Record<string, unknown>): void {
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', data as Partial<FileMeta>);
   setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  // Reset stale-burst tracking — a valid FILE_START means we're back on track
+  setState('transfer.staleChunkBurstStart', 0);
+  setState('transfer.staleChunkBurstCount', 0);
 
   fileReorderBuffer.clear();
   nextExpectedChunk = 0;
@@ -559,7 +586,44 @@ export function handleFileChunk(data: Record<string, unknown>): void {
     }
   }
 
-  if (incomingSid < localSid) return;
+  if (incomingSid < localSid) {
+    // Stale chunk from a superseded session. Usually harmless — but if the
+    // host just flipped sessions rapidly (e.g. 4→5→4→5) and the new
+    // session's chunks are stuck behind backpressure, the guest can sit
+    // idle while stale chunks pile up. Detect the burst and short-circuit
+    // the 12s chunkWatchdog by requesting recovery after 3s of stale flood.
+    const now = Date.now();
+    const burstStart = getState('transfer.staleChunkBurstStart');
+    const burstCount = getState('transfer.staleChunkBurstCount');
+
+    if (burstStart === 0 || now - burstStart > 5000) {
+      // New burst window
+      setState('transfer.staleChunkBurstStart', now);
+      setState('transfer.staleChunkBurstCount', 1);
+    } else {
+      const newCount = burstCount + 1;
+      setState('transfer.staleChunkBurstCount', newCount);
+
+      // Threshold: 3s of stale-only traffic AND at least 20 rejections
+      // (avoids tripping on a single straggler chunk)
+      const burstDuration = now - burstStart;
+      const rc = getState('transfer.receivedCount');
+      if (burstDuration > 3000 && newCount >= 20 && rc === 0) {
+        log.warn(`[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`);
+        setState('transfer.staleChunkBurstStart', 0);
+        setState('transfer.staleChunkBurstCount', 0);
+        clearManagedTimer('chunkWatchdog');
+        bus.emit('storage:request-recovery');
+      }
+    }
+    return;
+  }
+
+  // Valid chunk (session matches) — reset stale-burst tracking
+  if (getState('transfer.staleChunkBurstStart') !== 0) {
+    setState('transfer.staleChunkBurstStart', 0);
+    setState('transfer.staleChunkBurstCount', 0);
+  }
 
   if (!fileReorderBuffer.has(incomingSid)) {
     fileReorderBuffer.set(incomingSid, new Map());
@@ -815,4 +879,6 @@ export function clearReceiveState(): void {
   fileReorderBuffer.clear();
   _pendingEarlyChunks.length = 0;
   nextExpectedChunk = 0;
+  setState('transfer.staleChunkBurstStart', 0);
+  setState('transfer.staleChunkBurstCount', 0);
 }

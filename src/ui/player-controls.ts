@@ -312,9 +312,27 @@ function openFileSelector(): void {
 function handleMainSyncBtn(): void {
   const currentState = getState('appState');
 
-  // YouTube / System Audio: nudge sync not applicable
-  if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
+  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     showToast(t('toast.sync_not_available'));
+    return;
+  }
+
+  // YouTube mode: host fires countdown broadcast, guest fires rendezvous
+  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    const hostConn = getState('network.hostConn');
+    if (hostConn) {
+      // Guest path — self-heal rendezvous (SMPTE slave-sync style)
+      import('../youtube/sync.ts').then(mod => mod.guestRendezvousSync());
+    } else {
+      // Host path — existing countdown: pause, re-broadcast with 1s lead,
+      // everyone plays simultaneously at hostPlayAt
+      import('../youtube/player.ts').then(mod => {
+        const player = mod.getYouTubePlayer();
+        const currentTime = player?.getCurrentTime?.() ?? 0;
+        mod.scheduleYtAutoSync(currentTime);
+      });
+    }
     return;
   }
 

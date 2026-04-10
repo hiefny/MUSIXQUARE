@@ -12,9 +12,10 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { play, stopAllMedia, getTrackPosition } from './transport.ts';
+import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
-import { incrementLoadToken } from './_state.ts';
+import { incrementLoadToken, getCurrentAudioBuffer, setCurrentAudioBuffer } from './_state.ts';
+import { getVideoElement } from './video.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
@@ -133,10 +134,59 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
 
-  // Cancel in-flight preload
-  setState('preload.isPreloading', false);
-
   const hostConn = getState('network.hostConn');
+
+  // ─── Fast Path: Host re-clicks currently-playing local file ─────────
+  // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
+  // and restart after the standard 3s delay. Guests get a FILE_PREPARE
+  // with autoPlayDelayMs which routes through their same-file replay
+  // branch — no re-download.
+  const _currentIdx = getState('playlist.currentTrackIndex');
+  const _item = playlist[index];
+  const _isSameTrack = index === _currentIdx;
+  const _hasAudioLoaded = !!(getCurrentAudioBuffer() || getVideoElement()?.src);
+  const _isLocalFileTrack = !!_item && _item.type !== 'youtube' && !!_item.file;
+
+  if (!hostConn && _isSameTrack && _hasAudioLoaded && _isLocalFileTrack) {
+    log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
+
+    const file = _item.file!;
+    const sessionId = getState('transfer.currentSessionId') || nextSessionId();
+    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
+    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
+
+    // Tell guests via FILE_PREPARE → their same-file branch emits
+    // playback:replay-current(delayMs), which defers play(0) accordingly.
+    broadcast({
+      type: MSG.FILE_PREPARE,
+      name: file.name,
+      index,
+      sessionId,
+      mime: file.type,
+      autoPlayDelayMs,
+    });
+
+    // Reset host position to 0 and wait, mirroring the normal branch's UX
+    pause(0);
+    setState('player.pausedAt', 0);
+
+    if (isFirstTrackLoad) {
+      setState('player.isFirstTrackLoad', false);
+    } else {
+      showToast(t('toast.playing_in_3s'));
+    }
+
+    setManagedTimer('autoPlayTimer', () => {
+      play(0);
+      broadcast({ type: MSG.PLAY, time: 0, index, name: file.name });
+    }, autoPlayDelayMs);
+
+    return;
+  }
+
+  // Cancel in-flight preload (only for non-fast-path — fast path preserves
+  // the preload cache since the next track is unchanged)
+  setState('preload.isPreloading', false);
 
   // Auto-switch to Play tab (Host only)
   if (!hostConn) bus.emit('ui:switch-tab', 'play');
@@ -228,10 +278,23 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     const sessionId = nextSessionId();
     setState('transfer.currentSessionId', sessionId);
 
-    broadcast({ type: MSG.FILE_PREPARE, name: file.name, index, sessionId, mime: file.type });
+    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
+    // Tell guests how long the host will wait before actually calling play(0).
+    // Guests on the "same-file replay" path use this to defer their own
+    // play(0), otherwise they ghost-play for 3s while the host is still
+    // waiting on its autoPlayTimer.
+    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
+
+    broadcast({
+      type: MSG.FILE_PREPARE,
+      name: file.name,
+      index,
+      sessionId,
+      mime: file.type,
+      autoPlayDelayMs,
+    });
     await loadAndBroadcastFile(file, sessionId, myLoadToken);
 
-    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);
       showToast(t('toast.file_ready'));
@@ -242,9 +305,37 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         const currentIdx = getState('playlist.currentTrackIndex');
         broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
         // SharedClock handles sync
-      }, 3000);
+      }, autoPlayDelayMs);
     }
   }
+}
+
+// ─── End Of Playlist Handler ───────────────────────────────────────
+
+/**
+ * Uniform cleanup path for "playlist finished, nothing should be selected".
+ *
+ * Clears track meta, audio buffer, and resets currentTrackIndex to -1 so the
+ * UI state ("미디어 없음") is internally consistent with transport state.
+ * Broadcasts MSG.PAUSE{endOfPlaylist:true} so guests mirror the reset.
+ *
+ * Why clear currentAudioBuffer + reset currentTrackIndex:
+ * - Before this fix, stopAllMedia left the decoded AudioBuffer resident and
+ *   currentTrackIndex still pointed at the last track. Pressing play would
+ *   silently resume the last track's audio while the title stayed "미디어
+ *   없음" — an inconsistent phantom state. With this cleanup, togglePlay
+ *   detects the deselected state (currentTrackIndex === -1) and redirects
+ *   to playTrack(0), giving a clean "restart from top" UX.
+ */
+function handleEndOfPlaylist(reason: string): void {
+  log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
+  stopAllMedia();
+  setCurrentAudioBuffer(null);
+  setState('player.currentTrackMeta', null);
+  setState('playlist.currentTrackIndex', -1);
+  setState('player.pausedAt', 0);
+  broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true });
+  showToast(t('toast.playlist_ended'));
 }
 
 // ─── Play Next Track ───────────────────────────────────────────────
@@ -291,11 +382,7 @@ export function playNextTrack(): void {
     if (playlist.length === 1) {
       // Single-track + shuffle + repeat OFF → stop (same as sequential behavior)
       if (repeatMode === 0) {
-        log.debug('[Host] Single track, shuffle ON, repeat OFF. Stopping.');
-        stopAllMedia();
-        setState('player.currentTrackMeta', null);
-        broadcast({ type: MSG.PAUSE, time: 0 });
-        showToast(t('toast.playlist_ended'));
+        handleEndOfPlaylist('single-track-shuffle');
         return;
       }
       nextIndex = 0;
@@ -312,11 +399,7 @@ export function playNextTrack(): void {
       if (repeatMode === 1) {
         nextIndex = 0;
       } else {
-        log.debug('[Host] End of playlist reached (Repeat OFF). Stopping.');
-        stopAllMedia();
-        setState('player.currentTrackMeta', null);
-        broadcast({ type: MSG.PAUSE, time: 0 });
-        showToast(t('toast.playlist_ended'));
+        handleEndOfPlaylist('sequential-end');
         return;
       }
     }

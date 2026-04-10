@@ -483,6 +483,20 @@ export function togglePlay(): void {
   const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const playlistItems = getState('playlist.items') || [];
+
+  // Deselected state (e.g. after end-of-playlist reset): no track is selected
+  // but the playlist is non-empty. Pressing play should restart from track 0
+  // rather than silently resuming the stale audio buffer with "미디어 없음"
+  // still showing in the title.
+  if (!isActuallyPlaying && currentTrackIndex === -1 && playlistItems.length > 0) {
+    if (!hostConn) {
+      void import('./playlist.ts').then(mod => mod.playTrack(0));
+    } else if (isOperator) {
+      sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, index: 0 });
+    }
+    return;
+  }
 
   // Cancel pending auto-play (with user feedback)
   if (!hostConn && getManagedTimer('autoPlayTimer')) {

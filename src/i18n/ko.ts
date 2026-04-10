@@ -298,7 +298,7 @@ const ko = {
   'youtube.enter_link_toast': 'YouTube 링크를 입력하세요',
   'youtube.playing_in_3s': '3초 후 YouTube 재생...',
   'youtube.open_link': 'YouTube 링크 열기',
-  'youtube.tap_to_sync': '탭하여 영상 동기화',
+  'youtube.tap_to_play': '탭하여 재생',
   'youtube.added_to_playlist': '재생 목록에 추가되었어요',
 
   // ─── Network ─────────────────────────────────────────────────────
@@ -354,6 +354,11 @@ const ko = {
   'toast.host_ad': '호스트가 광고를 보고 있는 것 같아요',
   'toast.yt_sync_start': '동기화 중...',
   'toast.yt_sync_done': '동기화 완료',
+  'toast.yt_rendezvous_start': '호스트에 맞춰 동기화 중...',
+  'toast.yt_rendezvous_done': '동기화 완료',
+  'toast.yt_rendezvous_host_paused': '호스트가 일시정지 상태라 위치만 맞췄어요',
+  'toast.yt_rendezvous_no_data': '호스트 재생 정보가 없어요. 잠시 후 다시 시도해주세요',
+  'toast.yt_rendezvous_timeout': '동기화 실패 — 네트워크를 확인하고 다시 시도해주세요',
   'toast.playlist_ended': '마지막 곡이 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김 — 설정이 동기화되지 않았어요',

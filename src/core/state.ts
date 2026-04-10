@@ -42,6 +42,8 @@ function createInitialState(): StateTree {
       lastReceivedCountSnapshot: 0,
       skipIncomingFile: false,
       waitingForPreload: false,
+      staleChunkBurstStart: 0,
+      staleChunkBurstCount: 0,
     },
 
     preload: {
@@ -124,6 +126,7 @@ function createInitialState(): StateTree {
     youtube: {
       currentSubIndex: -1,
       subItemsMap: {},
+      guestPlayLatency: 200, // ms — self-calibrated by rendezvous sync; see StateTree.youtube.guestPlayLatency
     },
 
     recovery: {

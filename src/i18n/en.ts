@@ -300,7 +300,7 @@ const en: Record<I18nKey, string> = {
   'youtube.enter_link_toast': 'Please enter a YouTube link',
   'youtube.playing_in_3s': 'Playing YouTube in 3 seconds...',
   'youtube.open_link': 'Open YouTube link',
-  'youtube.tap_to_sync': 'TAP TO SYNC VIDEO',
+  'youtube.tap_to_play': 'TAP TO PLAY',
   'youtube.added_to_playlist': 'Added to playlist',
 
   // ─── Network ─────────────────────────────────────────────────────
@@ -356,6 +356,11 @@ const en: Record<I18nKey, string> = {
   'toast.host_ad': 'The host seems to be watching an ad',
   'toast.yt_sync_start': 'Syncing...',
   'toast.yt_sync_done': 'Sync complete',
+  'toast.yt_rendezvous_start': 'Aligning to host...',
+  'toast.yt_rendezvous_done': 'Sync complete',
+  'toast.yt_rendezvous_host_paused': 'Host is paused — matched position only',
+  'toast.yt_rendezvous_no_data': 'No host playback data yet — try again in a moment',
+  'toast.yt_rendezvous_timeout': 'Sync failed — check your connection and retry',
   'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost — setting not synced',

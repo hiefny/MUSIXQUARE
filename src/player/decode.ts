@@ -384,6 +384,19 @@ export function clearPreviousTrackState(reason = ''): void {
 // ─── Finalize Guest File (after OPFS download) ────────────────────
 
 export async function finalizeGuestFile(file: File | Blob): Promise<void> {
+  // Guard: if the app has switched to YouTube mode mid-transfer, abort the
+  // finalize path. Otherwise setEngineMode('buffer') would kill the iframe
+  // and currentTrackMeta would attach the YouTube track's metadata to the
+  // file blob. (Primary defence is in handleYouTubePlay cancelling the
+  // transfer, this is a belt-and-suspenders second layer.)
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    log.debug('[Guest] finalizeGuestFile aborted — app switched to YouTube mode');
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('transfer.skipIncomingFile', true);
+    showLoader(false);
+    return;
+  }
+
   log.debug('[Guest] Finalizing with Buffer Mode...');
   const myLoadId = incrementLoadSessionId();
   showLoader(true, t('error.audio_memory'));

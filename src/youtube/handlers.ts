@@ -8,12 +8,14 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { bus } from '../core/events.ts';
-import { MSG } from '../core/constants.ts';
+import { MSG, TRANSFER_STATE } from '../core/constants.ts';
+import { clearManagedTimer } from '../core/timers.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo, markYtStateBroadcast } from './iframe.ts';
 import { scheduleYtAutoSync, cancelYtAutoSync } from './player.ts';
+import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
 declare const YT: any;
@@ -30,6 +32,25 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   if (!videoId && !playlistId) {
     log.warn('[YouTube] handleYouTubePlay: no videoId or playlistId');
     return;
+  }
+
+  // Cancel any in-flight file transfer before switching to YouTube mode.
+  // Fixes: guest downloading a file when host switches to YouTube would
+  // finish the download and then run finalizeGuestFile, which overrides
+  // engineMode back to 'buffer', kills the iframe, and attaches the
+  // YouTube track's meta to an unrelated audio blob ("weird title").
+  const transferState = getState('transfer.state');
+  if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
+    log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
+    setState('transfer.skipIncomingFile', true);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('transfer.receivedCount', 0);
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    clearManagedTimer('preloadWatchdog');
+    // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
+    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(() => { /* noop */ });
+    showLoader(false);
   }
 
   if (index !== undefined) {

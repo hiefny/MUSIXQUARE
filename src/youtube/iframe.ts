@@ -417,7 +417,14 @@ function updateYouTubeUI(): void {
   }
 }
 
-// ─── iOS Sync Overlay ──────────────────────────────────────────────
+// ─── iOS Play-Gate Overlay ─────────────────────────────────────────
+// iOS WebKit blocks iframe-embedded YouTube from autoplaying without a
+// direct tap inside the iframe region. This overlay detects when the
+// player has been stuck at UNSTARTED(-1) for >3s (see updateYouTubeUI)
+// and prompts the user to tap — the tap satisfies iOS gesture, unlocks
+// the video element, and (for guests) immediately triggers a one-shot
+// rendezvous sync so playback starts aligned with the host instead of
+// starting from position 0 and relying on coarse drift correction.
 
 function showYouTubeSyncOverlay(show: boolean): void {
   const overlayId = 'youtube-ios-sync-overlay';
@@ -435,15 +442,40 @@ function showYouTubeSyncOverlay(show: boolean): void {
       `;
       overlay.onclick = () => {
         const player = getYouTubePlayer();
-        if (player?.playVideo) {
+        if (!player?.playVideo) return;
+
+        // Step 1 — satisfy iOS user-gesture requirement SYNCHRONOUSLY.
+        // Once the <video> element has received a user-initiated play() inside
+        // this gesture window, subsequent programmatic play/pause/seek calls
+        // (including those inside setManagedTimer) work without re-gesturing.
+        try {
           player.playVideo();
-          showYouTubeSyncOverlay(false);
+          // Immediately pause to prevent an audible blip from position 0
+          // before rendezvous takes over. Pause does not revoke the unlock.
+          player.pauseVideo?.();
+        } catch (e) {
+          log.debug('[YouTube iOS gate] prime play/pause threw:', e);
+        }
+
+        showYouTubeSyncOverlay(false);
+
+        // Step 2 — decide fallback path. Guest → rendezvous (aligned start).
+        // Host/standalone → plain playVideo (no external reference to follow).
+        const hostConn = getState('network.hostConn');
+        if (hostConn) {
+          // Dynamic import to avoid circular iframe↔sync dependency
+          import('./sync.ts').then(mod => mod.guestRendezvousSync()).catch(err => {
+            log.warn('[YouTube iOS gate] rendezvous failed, falling back to plain play:', err);
+            try { player.playVideo(); } catch { /* noop */ }
+          });
+        } else {
+          try { player.playVideo(); } catch { /* noop */ }
         }
       };
       overlay.innerHTML = `
         <div style="background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M8 5v14l11-7z"/></svg>
-          ${t('youtube.tap_to_sync')}
+          ${t('youtube.tap_to_play')}
         </div>
       `;
       const wrapper = document.querySelector('.video-wrapper');

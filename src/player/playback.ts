@@ -45,7 +45,7 @@ import {
   loadPreloadedTrack,
   clearPreviousTrackState, finalizeGuestFile,
 } from './decode.ts';
-import { showLoader, updateLoader } from '../ui/toast.ts';
+import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -60,6 +60,10 @@ const SCHEDULE_AHEAD_MS = 200;
 function handlePlayMsg(data: Record<string, unknown>): void {
   // Ignore PLAY during system audio mode (live stream, not file-based)
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+
+  // Host's MSG.PLAY is authoritative — cancel any pending deferred replay
+  // from a prior FILE_PREPARE(autoPlayDelayMs) so we don't double-start.
+  clearManagedTimer('playback-replay-defer');
 
   const time = Number(data.time) || 0;
   const incomingIndex = data.index != null ? Number(data.index) : undefined;
@@ -214,6 +218,19 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
   const time = Number(data.time) || 0;
   pause(time);
+
+  // Host reached end of playlist (Repeat OFF). Clear the stale track meta
+  // so the guest's title/thumbnail don't linger on the last played track.
+  if (data.endOfPlaylist) {
+    log.debug('[Guest] Host signalled end of playlist — clearing track meta');
+    setState('player.currentTrackMeta', null);
+    // Mirror host's deselected state so operator guest's togglePlay
+    // also redirects to playTrack(0) instead of resuming stale audio.
+    setState('playlist.currentTrackIndex', -1);
+    setState('player.pausedAt', 0);
+    stopAllMedia();
+    showToast(t('toast.playlist_ended'));
+  }
 }
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {
@@ -231,6 +248,14 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   const rawTime = Number(data.time);
   const time = (Number.isFinite(rawTime) && rawTime >= 0) ? rawTime : pausedAt;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const playlistItems = getState('playlist.items') || [];
+
+  // Deselected state (post end-of-playlist): redirect to playTrack(0)
+  // rather than resuming stale audio buffer.
+  if (currentTrackIndex === -1 && playlistItems.length > 0) {
+    void import('./playlist.ts').then(mod => mod.playTrack(0));
+    return;
+  }
 
   play(time);
   broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
@@ -318,9 +343,14 @@ export function initPlayback(): void {
     stopAllMedia();
   });
 
-  // Replay current track from start (repeat-one: guest already has file)
-  bus.on('playback:replay-current', () => {
-    if (getCurrentAudioBuffer() || getVideoElement()?.src) {
+  // Replay current track from start (repeat-one: guest already has file).
+  // delayMs lets the host tell the guest "I'm going to start at T+delayMs,
+  // so don't start playing until then" — prevents the 3-second drift
+  // window when host re-clicks a currently-playing track.
+  bus.on('playback:replay-current', (delayMs?: number) => {
+    if (!(getCurrentAudioBuffer() || getVideoElement()?.src)) return;
+
+    const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');
       play(0);
       // Auto-sync 1s later to align with host
@@ -328,6 +358,16 @@ export function initPlayback(): void {
       if (hostConn?.open) {
         setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:auto-sync'), 1000);
       }
+    };
+
+    if (delayMs && delayMs > 0) {
+      log.debug(`[Guest] Deferring replay by ${delayMs}ms to match host autoPlayTimer`);
+      // Pause locally so the old decoded buffer doesn't keep running, and
+      // the guest shows a "lined up" UI while waiting for the host's rendezvous.
+      pause(0);
+      setManagedTimer('playback-replay-defer', doReplay, delayMs);
+    } else {
+      doReplay();
     }
   });
 

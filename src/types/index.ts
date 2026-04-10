@@ -161,9 +161,9 @@ export interface ProtocolMap {
 
   // ── Playback ─────────────────────────────────────────────────────
   'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number; hostPlayAt?: number };
-  'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number };
+  'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number; endOfPlaylist?: boolean };
   'play-preloaded': { index: number; name: string; mime?: string; retryAttempt?: number };
-  'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number };
+  'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number; autoPlayDelayMs?: number };
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
   'repeat-mode': { value: number };
@@ -270,6 +270,10 @@ export interface StateTree {
     lastReceivedCountSnapshot: number;
     skipIncomingFile: boolean;
     waitingForPreload: boolean;
+    /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
+    staleChunkBurstStart: number;
+    /** Count of consecutive stale-session chunks rejected in the current burst. */
+    staleChunkBurstCount: number;
   };
   preload: {
     isPreloading: boolean;
@@ -325,7 +329,21 @@ export interface StateTree {
   relay: { upstreamDataConn: DataConnection | null; downstreamDataPeers: DataConnection[] };
   playlist: { items: PlaylistItem[]; currentTrackIndex: number; repeatMode: number; isShuffle: boolean };
   files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
-  youtube: { currentSubIndex: number; subItemsMap: Record<string, { ids: string[]; titles: string[] }> };
+  youtube: {
+    currentSubIndex: number;
+    subItemsMap: Record<string, { ids: string[]; titles: string[] }>;
+    /**
+     * Guest-only: estimated `playVideo()` call → audible output latency (ms).
+     * Used by the rendezvous sync (guest-initiated, host-nondisruptive) to
+     * fire playVideo() slightly ahead of the target rendezvous instant so
+     * the audible start aligns with the host's playback position.
+     *
+     * Self-calibrating: after each rendezvous, drift is measured vs.
+     * extrapolated host position and this value is nudged via EMA.
+     * Clamped to [50, 600]ms. Default 200ms (desktop-ish baseline).
+     */
+    guestPlayLatency: number;
+  };
   recovery: { pending: boolean; retryCount: number; pendingFileName: string; pendingFileIndex: number | undefined };
   systemAudio: { isSharing: boolean; isReceiving: boolean; hostMuteLocal: boolean };
 }
@@ -407,7 +425,7 @@ interface BaseEventMap {
   'player:ended': [];
   'player:toggle-play': [];
   'player:stop-all-media': [];
-  'playback:replay-current': [];
+  'playback:replay-current': [delayMs?: number];
   'player:sync-video-volume': [volume: number];
   'player:check-ended': [];
   'player:buffer-changed': [];

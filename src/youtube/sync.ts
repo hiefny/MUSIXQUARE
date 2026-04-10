@@ -468,8 +468,19 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     cancelGuestRendezvous(); // Host paused/stopped while guest was rendezvousing
   }
 
-  // Skip during auto-sync cooldown (prevents drift correction from fighting scheduled play)
-  if (Date.now() < _autoSyncUntil) return;
+  // "Last action wins": ALWAYS cancel any pending scheduled action from a
+  // previous host command before processing this one. Without this, a rapid
+  // seek / play / seek sequence on the host would get processed as the very
+  // first command on the guest while subsequent commands fell into an early
+  // return (we used to skip this function entirely during _autoSyncUntil,
+  // which caused the guest to honour only the earliest scheduled play and
+  // drop every later host-initiated state change until the cooldown expired).
+  //
+  // The _autoSyncUntil cooldown is kept ONLY for handleYouTubeSync (the 3s
+  // periodic drift-correction broadcast) — its intent was to prevent drift
+  // correction from fighting a scheduled play, not to block explicit host
+  // actions. Explicit host actions (YOUTUBE_STATE) should always override.
+  clearManagedTimer('yt-clock-action');
 
   // Skip state sync while host is likely watching an ad
   if (_hostAdPauseActive) return;

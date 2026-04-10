@@ -29,6 +29,21 @@ let _preloadScope: SessionScope | null = null;
 /** Per-peer unicast preload abort controls (key: peerId) */
 const _activePreloadUnicasts = new Map<string, SessionScope>();
 
+// ─── Approach B: Serialized Preload Transfers ──────────────────────
+// Track the in-flight backgroundTransfer promise so the next preload
+// can await it rather than aborting it mid-stream. This preserves
+// partial preload data on guests when the host advances to the
+// preloaded track before transfer is complete — avoiding the
+// 0%-restart penalty and resulting "수신중" loader flicker.
+let _inFlightBackgroundTransfer: Promise<void> | null = null;
+/**
+ * Monotonic counter incremented on every schedulePreload/cancelPreloadTransfer
+ * call. Each preloadNextTrack snapshot its myGeneration; after the serialization
+ * await, it re-checks against the current _preloadGeneration. If a newer call
+ * has come in (or a cancel has fired), the stale preloadNextTrack aborts.
+ */
+let _preloadGeneration = 0;
+
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
  */
@@ -74,8 +89,11 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
  * preload data from reaching guests after the host changes tracks.
  */
 export function cancelPreloadTransfer(): void {
+  // Supersede any pending preloadNextTrack that is still awaiting a prior
+  // serialized transfer — it will notice the generation mismatch after its
+  // await and exit instead of starting a new (unwanted) transfer.
+  _preloadGeneration++;
   if (_preloadScope) {
-    _preloadScope = SessionScope.replace(_preloadScope);
     _preloadScope.dispose();
     _preloadScope = null;
   }
@@ -87,8 +105,13 @@ export function cancelPreloadTransfer(): void {
 
 /**
  * Schedule next track preload after a delay (host-only).
+ *
+ * Each call bumps the preload generation so any in-flight preloadNextTrack
+ * that is still awaiting a prior serialized transfer will notice it has
+ * been superseded and exit cleanly after its await resolves.
  */
 export function schedulePreload(delayMs = 500): void {
+  _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
   setManagedTimer('preloadScheduleTimer', () => {
     preloadNextTrack();
@@ -97,17 +120,28 @@ export function schedulePreload(delayMs = 500): void {
 
 /**
  * Preload the next track in the playlist (host-only).
+ *
+ * Approach B: serialization
+ * ─────────────────────────
+ * Before starting a new backgroundTransfer, await any prior in-flight
+ * backgroundTransfer so it can complete naturally. This prevents the
+ * old behavior where advancing to the preloaded track would cancel
+ * the old transfer mid-stream, forcing guests to restart from 0%.
+ *
+ * Pitfall guarded: during the await, another schedulePreload (or a
+ * cancelPreloadTransfer) may bump _preloadGeneration. We snapshot
+ * myGeneration up-front and re-check after the await; if superseded,
+ * we exit without starting a new transfer.
  */
 async function preloadNextTrack(): Promise<void> {
+  const myGeneration = _preloadGeneration;
+
   const playlist = getState('playlist.items');
   if (playlist.length <= 1) return;
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
-
-  const currentSession = nextSessionId();
-  setState('preload.sessionId', currentSession);
 
   // Determine next index
   let nextIdx: number;
@@ -154,11 +188,46 @@ async function preloadNextTrack(): Promise<void> {
     return;
   }
 
+  // Publish the file reference immediately so the host's own "Using
+  // Preloaded Track" fast path in playTrack can use it even while the
+  // backgroundTransfer to guests is still being serialized. The host
+  // has the File in memory directly; it doesn't need the transfer to
+  // finish to decode/play it.
+  setState('preload.nextFileBlob', file);
+
+  // Serialize: wait for any prior backgroundTransfer to finish naturally
+  // before starting a new one. This is the core of Approach B — it lets
+  // in-progress preloads reach their PRELOAD_END on guests instead of
+  // being torn down and forcing a 0%-restart recovery.
+  const prevTransfer = _inFlightBackgroundTransfer;
+  if (prevTransfer) {
+    log.debug('[Preload] Serializing — awaiting prior backgroundTransfer');
+    try { await prevTransfer; } catch { /* prior may have been cancelled */ }
+  }
+
+  // Re-check generation: a newer schedulePreload or cancelPreloadTransfer
+  // may have fired while we were awaiting the prior transfer.
+  if (_preloadGeneration !== myGeneration) {
+    log.debug('[Preload] Aborted — superseded during serialization wait');
+    return;
+  }
+
+  // Verify the chosen item is still at nextIdx (playlist may have been
+  // mutated during the await — track removed, reordered, etc.).
+  const playlistNow = getState('playlist.items');
+  if (!playlistNow || playlistNow[nextIdx] !== item) {
+    log.debug('[Preload] Aborted — playlist changed during serialization wait');
+    return;
+  }
+
+  // Safe to allocate the new session id and kick off transfer
+  const currentSession = nextSessionId();
+  setState('preload.sessionId', currentSession);
+
   log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
   setState('preload.isPreloading', true);
 
   const total = Math.ceil(file.size / CHUNK_SIZE);
-  setState('preload.nextFileBlob', file);
   setState('preload.meta', {
     name: file.name,
     index: nextIdx,
@@ -169,11 +238,16 @@ async function preloadNextTrack(): Promise<void> {
   });
 
   // Broadcast preload to connected peers
+  const transferPromise = backgroundTransfer(file, nextIdx, currentSession);
+  _inFlightBackgroundTransfer = transferPromise;
   try {
-    await backgroundTransfer(file, nextIdx, currentSession);
+    await transferPromise;
   } catch (e) {
     log.warn('[Preload] backgroundTransfer failed:', e);
   } finally {
+    if (_inFlightBackgroundTransfer === transferPromise) {
+      _inFlightBackgroundTransfer = null;
+    }
     if (getState('preload.sessionId') === currentSession) {
       setState('preload.isPreloading', false);
     }
@@ -183,8 +257,12 @@ async function preloadNextTrack(): Promise<void> {
 // ─── Host: Background Transfer ──────────────────────────────────────
 
 async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
-  _preloadScope = SessionScope.replace(_preloadScope);
-  const scope = _preloadScope;
+  // Approach B: caller (preloadNextTrack) has already awaited the prior
+  // in-flight transfer, so we create a fresh scope WITHOUT disposing the
+  // previous one. cancelPreloadTransfer is the only path that aborts a
+  // scope; it operates on the current _preloadScope reference.
+  const scope = new SessionScope();
+  _preloadScope = scope;
 
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
@@ -683,30 +761,26 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
 function handlePlayPreloaded(data: Record<string, unknown>): void {
   const index = data.index as number;
   const name = (data.name as string) || '';
-  const retryAttempt = (data.retryAttempt as number) || 0;
 
-  log.debug(`[Guest] Command: Play Preloaded Track, index: ${index}, name: ${name}, retry: ${retryAttempt}`);
+  log.debug(`[Guest] Command: Play Preloaded Track, index: ${index}, name: ${name}`);
 
-  // Dedup: ignore duplicate commands for same track (unless retry)
-  if (_activePlayPreloadedIndex === index && retryAttempt === 0) {
+  // Dedup: ignore duplicate commands for same track
+  if (_activePlayPreloadedIndex === index) {
     log.debug(`[PlayPreloaded] Already processing track ${index}, ignoring duplicate`);
     return;
   }
 
-  // First attempt: stop current media and update state
-  if (retryAttempt === 0) {
-    _activePlayPreloadedIndex = index;
-    bus.emit('player:stop-all-media');
+  _activePlayPreloadedIndex = index;
+  bus.emit('player:stop-all-media');
 
-    if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', index);
-    }
+  if (data.index !== undefined) {
+    setState('playlist.currentTrackIndex', index);
+  }
 
-    // Update metadata for UI title display
-    const playlist = getState('playlist.items') || [];
-    if (playlist[index]) {
-      setState('player.currentTrackMeta', playlist[index]);
-    }
+  // Update metadata for UI title display
+  const playlist = getState('playlist.items') || [];
+  if (playlist[index]) {
+    setState('player.currentTrackMeta', playlist[index]);
   }
 
   // Check if preloaded blob matches requested track
@@ -741,15 +815,33 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
     }
   }
 
-  if (isDownloadingSame && retryAttempt < 4) {
-    // Preload in progress — retry after delay (up to 4 attempts = 2s total)
-    log.debug(`[PlayPreloaded] Preload in progress. Retrying... (${retryAttempt + 1}/4)`);
-    if (retryAttempt === 0) {
-      showLoader(true, t('transfer.download_finishing'));
-    }
-    setManagedTimer('preload-play-retry', () => {
-      handlePlayPreloaded({ ...data, retryAttempt: retryAttempt + 1 });
-    }, 500);
+  // Approach B: preload is still downloading → delegate to the waiter path
+  // (storage:use-preloaded) instead of the old 4× retry / 0%-restart fallback.
+  //
+  // The waiter sets transfer.waitingForPreload=true and installs a progress-aware
+  // watchdog in playback.ts. When the remaining PRELOAD_CHUNK / PRELOAD_END
+  // messages arrive (host has serialized its transfers so they WILL arrive),
+  // storage:preload-file-ready auto-triggers playback via use-preloaded again.
+  //
+  // This replaces the old path where:
+  //   - 4 retries × 500 ms = 2 s forced wait
+  //   - then REQUEST_DATA_RECOVERY { nextChunk: 0 } = full re-download
+  //   - then "수신중 0%" loader flicker
+  //
+  // With serialization on the host side, the in-flight PRELOAD session will
+  // finalize on its own; we just need to wait for it without panicking.
+  if (isDownloadingSame) {
+    log.debug('[Guest] Preload in progress — delegating to waiter (storage:use-preloaded)');
+    setState('recovery.pendingFileIndex', index);
+    showLoader(true, t('transfer.download_finishing'));
+    bus.emit('storage:use-preloaded', index, name);
+    _activePlayPreloadedIndex = undefined;
+
+    // Relay downstream
+    const downstreamPeers = getState('relay.downstreamDataPeers');
+    downstreamPeers.forEach(p => {
+      safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
+    });
     return;
   }
 
@@ -765,7 +857,6 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   showLoader(true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');
-  const playlist = getState('playlist.items') || [];
   const trackName = name || playlist[index]?.name || '';
 
   if (hostConn?.open) {

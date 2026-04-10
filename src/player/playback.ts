@@ -435,23 +435,33 @@ export function initPlayback(): void {
       const newToken = incrementLoadToken();
       loadPreloadedTrack(index, newToken);
     } else {
-      // Blob not ready yet — set watchdog, will be triggered by opfs:file-ready preload path
+      // Blob not ready yet — set progress-aware watchdog. Will be triggered
+      // by opfs:file-ready → storage:preload-file-ready → use-preloaded re-emit.
       log.debug('[Playback] Preload blob not ready yet, waiting...');
 
-      const PRELOAD_WATCHDOG_MS = 10_000;
+      // Approach B: progress-aware watchdog
+      // ────────────────────────────────────
+      // The host now serializes preload transfers, so an in-progress preload
+      // WILL finalize naturally — we just need to wait for it. Fixed 10s was
+      // too short for larger tracks over slower networks, forcing a needless
+      // 0%-restart recovery. Instead, wait up to 60s total but reset the
+      // timer each time the preload session makes progress (nextExpectedChunk
+      // increments). If progress stalls for 10s straight, give up and recover.
+      const PRELOAD_WATCHDOG_MAX_MS = 60_000;    // absolute ceiling
+      const PRELOAD_WATCHDOG_STALL_MS = 10_000;  // no-progress timeout
+      const watchdogStart = Date.now();
+      let lastProgressChunk = -1;
 
-      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
-      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
-        if (val === false) {
-          clearManagedTimer('preload-blob-watchdog');
-          _unsubWatchdog();
-        }
-      });
+      const installStallTimer = (): void => {
+        clearManagedTimer('preload-blob-watchdog');
+        setManagedTimer('preload-blob-watchdog', onWatchdogFire, PRELOAD_WATCHDOG_STALL_MS);
+      };
 
-      setManagedTimer('preload-blob-watchdog', () => {
-        _unsubWatchdog(); // Always clean up state listener on timer expiry
+      function onWatchdogFire(): void {
+        _unsubWatchdog();
+        _unsubProgress();
         if (!getState('transfer.waitingForPreload')) return;
-        log.warn('[Preload] Preloaded blob not available within timeout');
+        log.warn('[Preload] Preloaded blob not available — stall timeout');
         setState('transfer.waitingForPreload', false);
         setState('transfer.skipIncomingFile', false);
         showLoader(false);
@@ -466,7 +476,44 @@ export function initPlayback(): void {
             index,
           });
         }
-      }, PRELOAD_WATCHDOG_MS);
+      }
+
+      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
+      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
+        if (val === false) {
+          clearManagedTimer('preload-blob-watchdog');
+          _unsubWatchdog();
+          _unsubProgress();
+        }
+      });
+
+      // Progress-aware reset: watch preload.sessionState changes. When the
+      // session matching our track advances its nextExpectedChunk, reset the
+      // stall timer. Respect the absolute ceiling to prevent runaway waits.
+      const _unsubProgress = bus.on('state:preload.sessionState', () => {
+        if (!getState('transfer.waitingForPreload')) return;
+
+        // Absolute ceiling — give up even if progress is still happening
+        if (Date.now() - watchdogStart > PRELOAD_WATCHDOG_MAX_MS) {
+          log.warn('[Preload] Absolute watchdog ceiling reached');
+          onWatchdogFire();
+          return;
+        }
+
+        const sessionState = getState('preload.sessionState');
+        for (const [, session] of sessionState) {
+          if (session.skipped || session.finalized) continue;
+          if (session.index !== index && session.name !== name) continue;
+          const prog = session.nextExpectedChunk || 0;
+          if (prog > lastProgressChunk) {
+            lastProgressChunk = prog;
+            installStallTimer(); // reset stall timer on any forward progress
+          }
+          break;
+        }
+      });
+
+      installStallTimer();
     }
   });
 

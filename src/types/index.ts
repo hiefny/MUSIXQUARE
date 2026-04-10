@@ -162,7 +162,7 @@ export interface ProtocolMap {
   // ── Playback ─────────────────────────────────────────────────────
   'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number; hostPlayAt?: number };
   'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number; endOfPlaylist?: boolean };
-  'play-preloaded': { index: number; name: string; mime?: string; retryAttempt?: number };
+  'play-preloaded': { index: number; name: string; mime?: string };
   'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number; autoPlayDelayMs?: number };
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };

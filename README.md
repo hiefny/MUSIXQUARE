@@ -17,7 +17,7 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 - **System Audio Sharing**: Stream desktop audio to connected devices in real-time stereo. Windows/Mac Chrome only.
 - **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass — all processed locally via Web Audio API.
 - **Chat**: Real-time P2P messaging with commands, whisper, and moderation.
-- **Precision Sync**: NTP-style 3-sample latency measurement for file mode. Pulse-based simultaneous playback for YouTube mode.
+- **Precision Sync**: NTP-style rolling RTT measurement with min-latency selection for file mode. Countdown-synchronized simultaneous playback for YouTube mode.
 
 ---
 

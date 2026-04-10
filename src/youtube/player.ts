@@ -21,6 +21,14 @@ import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 
 const YT_AUTO_SYNC_MS = 1000; // 1s countdown before simultaneous play
+
+// URL-input flow: when a user pastes a YouTube link and we're in IDLE state,
+// _addYouTubeToPlaylist sets this flag, loads the player with autoplay=false,
+// and waits for the 'youtube:player-ready' bus event. The listener then
+// triggers youtube:auto-play (→ scheduleYtAutoSync) so the 1-sec rendezvous
+// countdown broadcasts hostPlayAt and every device plays in lockstep instead
+// of each running its own autoplay timing.
+let _pendingAutoSyncOnReady = false;
 import { registerHandlers } from '../network/protocol.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
 import type { PlaylistItem } from '../types/index.ts';
@@ -120,6 +128,7 @@ export function stopYouTubeMode(): void {
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
   setYouTubeSubIndex(-1);
+  _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
 
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
@@ -298,6 +307,18 @@ export function initYouTube(): void {
     scheduleYtAutoSync(currentTime, { skipSeek: true });
   });
 
+  // URL-input path: the player finished initializing — if _addYouTubeToPlaylist
+  // set the pending flag, kick off the 1-sec rendezvous sync now. This replaces
+  // the old autoplay=true raw-play path so guests stay aligned on first load.
+  bus.on('youtube:player-ready', () => {
+    if (!_pendingAutoSyncOnReady) return;
+    _pendingAutoSyncOnReady = false;
+    // Route through youtube:auto-play so we share the same code path as
+    // the post-autoPlayTimer flow in playTrack (scheduleYtAutoSync with
+    // skipSeek + autoplayIntent flip).
+    bus.emit('youtube:auto-play');
+  });
+
   bus.on('youtube:get-position', (callback) => {
     if (typeof callback === 'function') {
       try {
@@ -473,9 +494,15 @@ export function initYouTube(): void {
 
     if (shouldPlayNow) {
       setState('player.currentTrackMeta', newTrack);
-      // Load YouTube — sets currentTrackIndex AFTER stopAllMedia to avoid
-      // a window where index points to new track while old media is active.
-      loadYouTubeVideo(videoId, playlistId, true);
+      // Load YouTube with autoplay=FALSE so the 1-sec rendezvous countdown
+      // has a clean starting state. _pendingAutoSyncOnReady is checked by
+      // the 'youtube:player-ready' listener, which then triggers
+      // 'youtube:auto-play' → scheduleYtAutoSync → guests aligned.
+      //
+      // (Was previously loadYouTubeVideo(…, true) which auto-started
+      // playback with zero sync coordination.)
+      _pendingAutoSyncOnReady = true;
+      loadYouTubeVideo(videoId, playlistId, false);
       setState('playlist.currentTrackIndex', newIndex);
     } else {
       showToast(t('youtube.added_to_playlist'));
@@ -499,7 +526,9 @@ export function initYouTube(): void {
           videoId,
           playlistId,
           index: newIndex,
-          autoplay: true,
+          // autoplay=false: guest also loads without iframe auto-start and
+          // waits for host's hostPlayAt broadcast from scheduleYtAutoSync.
+          autoplay: false,
         });
       }
     }

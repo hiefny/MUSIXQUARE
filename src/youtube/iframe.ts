@@ -295,6 +295,11 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
   // Apply volume
   bus.emit('audio:apply-youtube-volume');
+
+  // Notify anyone waiting for the player to become usable (e.g. the URL
+  // input path in player.ts that wants to trigger a 1-sec rendezvous sync
+  // as soon as the freshly created player instance is ready).
+  bus.emit('youtube:player-ready');
 }
 
 function onYouTubePlayerError(event: { data: number }): void {
@@ -404,17 +409,21 @@ function updateYouTubeUI(): void {
       //     already handled by the autoPlayTimer → youtube:auto-play path
       //   - playlistIdx must be >= 0
       //   - no scheduled sync already running (would otherwise overlap)
-      //   - the underlying player must actually be in PLAYING state (1) —
-      //     transient BUFFERING/CUED transitions during loadVideoById etc.
-      //     shouldn't trigger sync
+      //
+      // NOTE: no `state === 1` (PLAYING) guard. updateYouTubeUI polls at
+      // 500ms; the auto-advance transition often lands on a BUFFERING (3)
+      // frame, and skipping the emit on those frames is fatal — the cache
+      // gets updated unconditionally above, so the next poll sees the new
+      // index as the current one and never detects the change. player.ts's
+      // listener force-pauses before scheduleYtAutoSync, so it works from
+      // any starting state.
       const hostConn = getState('network.hostConn');
       if (!hostConn
         && prevIdx !== -1
         && playlistIdx >= 0
-        && state === 1
         && !getManagedTimer('yt-auto-sync')
       ) {
-        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx}, applying 1-sec sync`);
+        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
         bus.emit('youtube:sub-video-advanced');
       }
 

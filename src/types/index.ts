@@ -480,6 +480,12 @@ interface BaseEventMap {
    * rendezvous sync so guests stay aligned across the sub-video boundary.
    */
   'youtube:sub-video-advanced': [];
+  /**
+   * Emitted by iframe.ts from onYouTubePlayerReady. Used by the URL-input
+   * path in player.ts to defer its 1-sec rendezvous sync trigger until
+   * the freshly created player instance is actually usable.
+   */
+  'youtube:player-ready': [];
   'youtube:broadcast-sync': [];
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];

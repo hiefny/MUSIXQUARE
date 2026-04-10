@@ -50,6 +50,13 @@ import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 
+// ─── Preload waiter: cross-invocation cleanup ───────────────────────
+// Tracks active unsubs from storage:use-preloaded's "blob not ready" path.
+// Rapid track switches (A→B while both are waiting) would otherwise leave
+// A's listeners alive alongside B's, letting A's closure overwrite B's
+// stall timer or issue a REQUEST_DATA_RECOVERY for the wrong track.
+let _activePreloadWaiterCleanup: (() => void) | null = null;
+
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
 
@@ -216,11 +223,11 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
-  const time = Number(data.time) || 0;
-  pause(time);
 
-  // Host reached end of playlist (Repeat OFF). Clear the stale track meta
-  // so the guest's title/thumbnail don't linger on the last played track.
+  // Host reached end of playlist (Repeat OFF). Short-circuit: skip the
+  // regular pause() path which would flash a "일시정지" toast before the
+  // "재생목록 끝" toast overwrites it. Just stop everything and clear
+  // the stale track meta so title/indicator mirror the host's reset.
   if (data.endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
     setState('player.currentTrackMeta', null);
@@ -230,7 +237,11 @@ function handlePauseMsg(data: Record<string, unknown>): void {
     setState('player.pausedAt', 0);
     stopAllMedia();
     showToast(t('toast.playlist_ended'));
+    return;
   }
+
+  const time = Number(data.time) || 0;
+  pause(time);
 }
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {
@@ -425,6 +436,15 @@ export function initPlayback(): void {
   // Use preloaded track (skip download, decode from preload cache)
   bus.on('storage:use-preloaded', (index, name) => {
     log.debug(`[Playback] Using preloaded track for index: ${index} (${name})`);
+
+    // Tear down any previous waiter before starting this one — otherwise
+    // rapid track switches (A→B while both waiting) would leave A's
+    // progress listener alive alongside B's, causing closure cross-talk.
+    if (_activePreloadWaiterCleanup) {
+      _activePreloadWaiterCleanup();
+      _activePreloadWaiterCleanup = null;
+    }
+
     setState('transfer.skipIncomingFile', true);
     setState('transfer.waitingForPreload', true);
 
@@ -451,15 +471,28 @@ export function initPlayback(): void {
       const PRELOAD_WATCHDOG_STALL_MS = 10_000;  // no-progress timeout
       const watchdogStart = Date.now();
       let lastProgressChunk = -1;
+      let disposed = false;
+
+      const cleanup = (): void => {
+        if (disposed) return;
+        disposed = true;
+        clearManagedTimer('preload-blob-watchdog');
+        _unsubWatchdog();
+        _unsubProgress();
+        if (_activePreloadWaiterCleanup === cleanup) {
+          _activePreloadWaiterCleanup = null;
+        }
+      };
 
       const installStallTimer = (): void => {
+        if (disposed) return;
         clearManagedTimer('preload-blob-watchdog');
         setManagedTimer('preload-blob-watchdog', onWatchdogFire, PRELOAD_WATCHDOG_STALL_MS);
       };
 
       function onWatchdogFire(): void {
-        _unsubWatchdog();
-        _unsubProgress();
+        if (disposed) return;
+        cleanup();
         if (!getState('transfer.waitingForPreload')) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
         setState('transfer.waitingForPreload', false);
@@ -480,17 +513,14 @@ export function initPlayback(): void {
 
       // Clear watchdog if blob arrives in time (waitingForPreload set to false)
       const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
-        if (val === false) {
-          clearManagedTimer('preload-blob-watchdog');
-          _unsubWatchdog();
-          _unsubProgress();
-        }
+        if (val === false) cleanup();
       });
 
       // Progress-aware reset: watch preload.sessionState changes. When the
       // session matching our track advances its nextExpectedChunk, reset the
       // stall timer. Respect the absolute ceiling to prevent runaway waits.
       const _unsubProgress = bus.on('state:preload.sessionState', () => {
+        if (disposed) return;
         if (!getState('transfer.waitingForPreload')) return;
 
         // Absolute ceiling — give up even if progress is still happening
@@ -513,6 +543,7 @@ export function initPlayback(): void {
         }
       });
 
+      _activePreloadWaiterCleanup = cleanup;
       installStallTimer();
     }
   });

@@ -159,9 +159,11 @@ async function preloadNextTrack(): Promise<void> {
     }
   }
 
-  setState('preload.nextTrackIndex', nextIdx);
-
+  // Invalid-target early exit: clear stale preload state and bail out
+  // (this runs BEFORE the serialization await so there's no window
+  // where inconsistent state could be observed by the host fast path).
   if (nextIdx < 0 || nextIdx >= playlist.length) {
+    setState('preload.nextTrackIndex', -1);
     setState('preload.isPreloading', false);
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -169,13 +171,12 @@ async function preloadNextTrack(): Promise<void> {
   }
 
   const item = playlist[nextIdx];
-  if (!item) {
-    setState('preload.isPreloading', false);
-    return;
-  }
+  if (!item) return;
 
-  // Skip YouTube items
+  // Skip YouTube items — clear stale preload state so the host's fast
+  // path in playTrack doesn't match a no-longer-valid cached file.
   if (item.type === 'youtube') {
+    setState('preload.nextTrackIndex', -1);
     setState('preload.isPreloading', false);
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -183,22 +184,18 @@ async function preloadNextTrack(): Promise<void> {
   }
 
   const file = item.file as File;
-  if (!file) {
-    setState('preload.isPreloading', false);
-    return;
-  }
-
-  // Publish the file reference immediately so the host's own "Using
-  // Preloaded Track" fast path in playTrack can use it even while the
-  // backgroundTransfer to guests is still being serialized. The host
-  // has the File in memory directly; it doesn't need the transfer to
-  // finish to decode/play it.
-  setState('preload.nextFileBlob', file);
+  if (!file) return;
 
   // Serialize: wait for any prior backgroundTransfer to finish naturally
   // before starting a new one. This is the core of Approach B — it lets
   // in-progress preloads reach their PRELOAD_END on guests instead of
   // being torn down and forcing a 0%-restart recovery.
+  //
+  // NOTE: we do NOT mutate preload.* state before this await. Publishing
+  // nextFileBlob early (while preload.meta is still stale from the prior
+  // session) would create a half-updated cache the host's fast path
+  // could consume, leading to blob/meta mismatch in loadPreloadedTrack.
+  // All preload state is written AFTER the await as one atomic snapshot.
   const prevTransfer = _inFlightBackgroundTransfer;
   if (prevTransfer) {
     log.debug('[Preload] Serializing — awaiting prior backgroundTransfer');
@@ -220,11 +217,14 @@ async function preloadNextTrack(): Promise<void> {
     return;
   }
 
-  // Safe to allocate the new session id and kick off transfer
+  // Safe to allocate the new session id and publish the preload cache
+  // atomically. All five state fields below describe the SAME track and
+  // the SAME session — the host's fast path in playTrack will only ever
+  // observe them as a consistent snapshot.
   const currentSession = nextSessionId();
   setState('preload.sessionId', currentSession);
-
-  log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
+  setState('preload.nextTrackIndex', nextIdx);
+  setState('preload.nextFileBlob', file);
   setState('preload.isPreloading', true);
 
   const total = Math.ceil(file.size / CHUNK_SIZE);
@@ -236,6 +236,8 @@ async function preloadNextTrack(): Promise<void> {
     size: file.size,
     sessionId: currentSession,
   });
+
+  log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
 
   // Broadcast preload to connected peers
   const transferPromise = backgroundTransfer(file, nextIdx, currentSession);

@@ -429,7 +429,10 @@ function updateYouTubeUI(): void {
       //     sub-index population after load, which is the initial track load
       //     already handled by the autoPlayTimer → youtube:auto-play path
       //   - playlistIdx must be >= 0
-      //   - no scheduled sync already running (would otherwise overlap)
+      //   - no scheduled sync already running — check BOTH yt-auto-sync AND
+      //     yt-sync-grace so we don't double-trigger if a sub-index transition
+      //     happens to land inside the 500ms post-playVideo grace window of a
+      //     prior sync (would otherwise schedule an overlapping countdown)
       //
       // NOTE: no `state === 1` (PLAYING) guard. updateYouTubeUI polls at
       // 500ms; the auto-advance transition often lands on a BUFFERING (3)
@@ -443,6 +446,7 @@ function updateYouTubeUI(): void {
         && prevIdx !== -1
         && playlistIdx >= 0
         && !getManagedTimer('yt-auto-sync')
+        && !getManagedTimer('yt-sync-grace')
       ) {
         log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
         bus.emit('youtube:sub-video-advanced');

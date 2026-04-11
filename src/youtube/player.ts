@@ -168,6 +168,17 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
 
+  // Full reset of guest-side sync module state (rendezvous flag, host
+  // snapshot, drift-correction cooldown, ad detection, rendezvous timers).
+  // Without this, a mid-rendezvous mode exit would leak timers, leave
+  // _rendezvousInProgress=true (blocking next rendezvous), leave
+  // _autoSyncUntil pinned to a future timestamp (blocking drift correction),
+  // and leave _lastHostSnapshot pointing to stale host-clock data. Dynamic
+  // import keeps the dependency direction player.ts → sync.ts (sync.ts
+  // doesn't import from player.ts, so this is cycle-free, but staying
+  // dynamic matches the existing broadcastYouTubeSync pattern).
+  import('./sync.ts').then(mod => mod.resetYouTubeSyncState()).catch(() => { /* noop */ });
+
   const player = getYouTubePlayer();
   if (player) {
     try {

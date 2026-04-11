@@ -461,6 +461,34 @@ export function cancelGuestRendezvous(): void {
   finishRendezvous();
 }
 
+/**
+ * Full reset of all guest-side YouTube sync module state. Called from
+ * stopYouTubeMode so a mid-sync mode exit (user navigated away, mode
+ * switch, session leave) doesn't leave stale flags/timers/snapshots
+ * that could block the next YouTube session's first rendezvous or let
+ * drift correction fight a countdown that no longer exists.
+ *
+ * What gets reset:
+ *   - _rendezvousInProgress → false (unblocks guestRendezvousSync re-entry)
+ *   - _autoSyncUntil → 0 (re-enables drift correction immediately on next load)
+ *   - _lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
+ *   - _mixReloadedIds cleared (Mix reload suppression doesn't carry over)
+ *   - resetAdDetection() for host-ad pause tracking
+ *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate)
+ *   - youtube:sync-loading overlay hidden
+ */
+export function resetYouTubeSyncState(): void {
+  _rendezvousInProgress = false;
+  _autoSyncUntil = 0;
+  _lastHostSnapshot = null;
+  _mixReloadedIds.clear();
+  resetAdDetection();
+  clearManagedTimer('yt-rendezvous-buffer');
+  clearManagedTimer('yt-rendezvous-play');
+  clearManagedTimer('yt-rendezvous-calibrate');
+  bus.emit('youtube:sync-loading', false);
+}
+
 // ─── Handle YouTube State (Host→Guest broadcast) ──────────────────
 
 function handleYouTubeState(data: Record<string, unknown>): void {

@@ -496,7 +496,15 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
+  // Guard against malformed or missing state field. Number(undefined) → NaN,
+  // and `NaN === 1/2/0/-1` is always false, so a missing state would silently
+  // fall through to the generic code path below with unpredictable behaviour.
+  // Drop the message entirely if state isn't a finite YT player-state value.
   const state = Number(data.state);
+  if (!Number.isFinite(state)) {
+    log.warn('[YouTube State] Dropping message with invalid state:', data.state);
+    return;
+  }
 
   // PAUSE/STOP always takes priority — cancel any pending auto-sync
   if (state === 2 || state === 0 || state === -1) {

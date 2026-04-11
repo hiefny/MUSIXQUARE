@@ -423,10 +423,30 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) return;
 
+    // Stale session guard: by the time this async handler fires, the guest
+    // may have moved on to a newer transfer session (rapid track switch,
+    // recovery response for an older session, etc.). Compare the incoming
+    // sessionId against transfer.localSessionId and drop if superseded.
+    // finalizeGuestFile has its own load-token guard internally, but
+    // skipping here avoids an unnecessary decode of a now-stale file.
+    const localSid = getState('transfer.localSessionId');
+    if (_sessionId && localSid && _sessionId < localSid) {
+      log.debug(`[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}`);
+      return;
+    }
+
     const file = await readFileFromOpfs(filename, false);
     if (!file) {
       log.error('[Playback] Failed to read OPFS file:', filename);
       showLoader(false);
+      return;
+    }
+
+    // Re-check session after async readFileFromOpfs — the read itself is
+    // async and the session may have advanced while we were waiting.
+    const sidAfterRead = getState('transfer.localSessionId');
+    if (_sessionId && sidAfterRead && _sessionId < sidAfterRead) {
+      log.debug(`[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`);
       return;
     }
 

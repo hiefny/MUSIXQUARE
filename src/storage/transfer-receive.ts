@@ -634,20 +634,37 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
 
+  // Defense-in-depth chunk index bounds check. The protocol validator now
+  // enforces isNonNegInt(index), but we repeat the guard here because the
+  // index is ultimately keyed into a Map — any leak of a malformed value
+  // (negative, NaN, Infinity, or beyond meta.total) would bloat memory or
+  // stall the drain loop. If meta.total is known and index exceeds it,
+  // drop the chunk; otherwise accept as usual.
+  const chunkIndex = data.index as number;
+  if (!Number.isFinite(chunkIndex) || chunkIndex < 0 || !Number.isInteger(chunkIndex)) {
+    log.warn(`[Transfer] Dropping chunk with invalid index: ${chunkIndex}`);
+    return;
+  }
+  const metaPeek = getState('transfer.meta');
+  const expectedTotal = (metaPeek?.total as number | undefined);
+  if (typeof expectedTotal === 'number' && expectedTotal > 0 && chunkIndex >= expectedTotal) {
+    log.warn(`[Transfer] Dropping chunk beyond total: ${chunkIndex} >= ${expectedTotal}`);
+    return;
+  }
+
   // 12-4 + 13-9: Guard against unbounded reorder buffer growth with recovery
   const MAX_REORDER_BUFFER = 500;
   if (sessionBuffer.size > MAX_REORDER_BUFFER) {
     log.warn(`[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`);
     sessionBuffer.clear();
-    const overflowIdx = data.index as number;
-    nextExpectedChunk = overflowIdx;
-    setState('transfer.receivedCount', overflowIdx); // keep in sync
+    nextExpectedChunk = chunkIndex;
+    setState('transfer.receivedCount', chunkIndex); // keep in sync
     bus.emit('storage:request-recovery');
     return; // Don't fall through to re-add chunk with incorrect offset
   }
 
   const chunkData = new Uint8Array(data.chunk as ArrayBuffer);
-  sessionBuffer.set(data.index as number, chunkData);
+  sessionBuffer.set(chunkIndex, chunkData);
 
   const meta = getState('transfer.meta');
   let opfsFilename = getState('files.currentFileOpfs');

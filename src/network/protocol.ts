@@ -54,17 +54,25 @@ const isArrayBufferLike = (v: unknown): boolean =>
   v instanceof Uint8Array ||
   (v != null && typeof v === 'object' && Object.prototype.toString.call(v) === '[object ArrayBuffer]');
 
+// Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
+// values. Without this, Number(undefined) → NaN silently passes typeof===number,
+// and a malicious peer could send index=Infinity to explode a reorder buffer Map.
+const isFiniteNumber = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isFinite(v);
+const isNonNegInt = (v: unknown): v is number =>
+  isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
+
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
-  [MSG.PLAY]: (d) => d.time === undefined || typeof d.time === 'number',
-  [MSG.PAUSE]: (d) => d.time === undefined || typeof d.time === 'number',
-  [MSG.VOLUME]: (d) => typeof d.value === 'number',
-  [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && typeof d.index === 'number',
-  [MSG.FILE_START]: (d) => typeof d.name === 'string' && typeof d.total === 'number',
+  [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
+  [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
+  [MSG.VOLUME]: (d) => isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
+  [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
+  [MSG.FILE_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total),
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
-  [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && typeof d.index === 'number',
-  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && typeof d.total === 'number',
+  [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
+  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
-  [MSG.EQ_UPDATE]: (d) => typeof d.band === 'number' && typeof d.value === 'number',
+  [MSG.EQ_UPDATE]: (d) => isFiniteNumber(d.band) && (d.band as number) >= 0 && (d.band as number) < 16 && isFiniteNumber(d.value),
 };
 
 // ─── Handler Registry ───────────────────────────────────────────────

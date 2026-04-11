@@ -53,8 +53,15 @@ export async function loadAndBroadcastFile(
     await initAudio();
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
+    // Create blob URL eagerly for video element; actual state publication
+    // of files.currentFileBlob is deferred until AFTER decode succeeds so
+    // that (files.currentFileBlob, transfer.meta) are always published as
+    // an atomic pair. Previously, blob was set pre-decode and meta post-
+    // decode — a recovery request arriving in the intervening async window
+    // would resolve to currentFileBlob with the PREVIOUS track's meta,
+    // causing recovery.ts findMatchingBlob() to match the wrong file or
+    // fall through its no-hint branch with stale metadata.
     const url = BlobURLManager.create(file) || '';
-    setState('files.currentFileBlob', file);
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
@@ -99,7 +106,12 @@ export async function loadAndBroadcastFile(
     }
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
+    // Atomic publish: meta first, then blob — both in the same synchronous
+    // tick so any subscriber (e.g. recovery.ts findMatchingBlob) always
+    // sees them in sync. Order is meta→blob so a reader that checks blob
+    // first and then meta can never observe "blob set, meta still stale".
     setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
+    setState('files.currentFileBlob', file);
 
 
     if (videoElement) {

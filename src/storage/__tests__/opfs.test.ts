@@ -163,11 +163,10 @@ describe('stopBackgroundWorkerTimers', () => {
     setSyncWorker(mockWorker);
     stopBackgroundWorkerTimers();
 
-    // Should send STOP_TIMER for heartbeat, ping, video-sync
-    expect(mockPostMessage).toHaveBeenCalledTimes(3);
+    // Only 'video-sync' remains in the worker; heartbeat/ping were moved to
+    // main-thread managed timers during modularization.
+    expect(mockPostMessage).toHaveBeenCalledTimes(1);
     const commands = mockPostMessage.mock.calls.map((c: unknown[]) => (c[0] as Record<string, unknown>).id);
-    expect(commands).toContain('heartbeat');
-    expect(commands).toContain('ping');
     expect(commands).toContain('video-sync');
   });
 });

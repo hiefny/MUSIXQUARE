@@ -11,18 +11,37 @@ vi.mock('../../core/log.ts', () => ({
 
 vi.mock('../../core/events.ts', () => {
   const handlers = new Map<string, Function[]>();
+  const bus = {
+    on: vi.fn((event: string, handler: Function) => {
+      if (!handlers.has(event)) handlers.set(event, []);
+      handlers.get(event)!.push(handler);
+      return () => {
+        const fns = handlers.get(event);
+        if (!fns) return;
+        const idx = fns.indexOf(handler);
+        if (idx >= 0) fns.splice(idx, 1);
+      };
+    }),
+    emit: vi.fn((event: string, ...args: unknown[]) => {
+      const fns = handlers.get(event) || [];
+      fns.forEach(fn => fn(...args));
+    }),
+    clear: vi.fn(() => handlers.clear()),
+  };
   return {
-    bus: {
-      on: vi.fn((event: string, handler: Function) => {
-        if (!handlers.has(event)) handlers.set(event, []);
-        handlers.get(event)!.push(handler);
-      }),
-      emit: vi.fn((event: string, ...args: unknown[]) => {
-        const fns = handlers.get(event) || [];
-        fns.forEach(fn => fn(...args));
-      }),
-      clear: vi.fn(() => handlers.clear()),
-    },
+    bus,
+    createBusScope: vi.fn(() => {
+      const cleanups: Array<() => void> = [];
+      return {
+        on: vi.fn((event: string, fn: Function) => {
+          cleanups.push(bus.on(event, fn));
+        }),
+        dispose: vi.fn(() => {
+          for (const u of cleanups) u();
+          cleanups.length = 0;
+        }),
+      };
+    }),
   };
 });
 

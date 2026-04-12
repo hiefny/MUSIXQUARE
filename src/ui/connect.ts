@@ -61,11 +61,13 @@ async function generateQR(containerId: string): Promise<void> {
   container.replaceChildren(loadingP);
 
   try {
-    const base = `${location.origin}${location.pathname}`;
-    const url = `${base}?join=${sessionCode}`;
+    // QR: uppercase alphanumeric mode for smallest QR
+    const qrUrl = `MUSIXQUARE.COM/${sessionCode}`;
+    // Clipboard: normal readable URL
+    const shareUrl = `${location.origin}/${sessionCode}`;
 
     // Generate SVG string — transparent background, currentColor-friendly
-    const svgString = await QRCode.toString(url, {
+    const svgString = await QRCode.toString(qrUrl, {
       type: 'svg',
       margin: 2,
       errorCorrectionLevel: 'L',
@@ -94,7 +96,7 @@ async function generateQR(containerId: string): Promise<void> {
     copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     copyBtn.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(url);
+        await navigator.clipboard.writeText(shareUrl);
         showToast(t('connect.link_copied'));
       } catch {
         showToast(t('toast.copy_failed'));

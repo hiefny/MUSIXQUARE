@@ -271,8 +271,8 @@ export function initSetup(): void {
     setPendingAutoJoinCode(null);
     try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
     try {
-      if (window.location.search.includes('join=')) {
-        window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+      if (window.location.search.includes('join=') || /^\/\d{6}$/.test(window.location.pathname)) {
+        window.history.replaceState({}, '', '/' + window.location.hash);
       }
     } catch { /* noop */ }
   });
@@ -417,11 +417,13 @@ export function initSetup(): void {
       });
   });
 
-  // Check for ?join=CODE in URL or sessionStorage (survives SW reload)
+  // Check for /CODE path, ?join=CODE param, or sessionStorage (survives SW reload)
   const JOIN_CODE_KEY = 'mxqr_pending_join';
   try {
+    // Path-based: musixquare.com/482913
+    const pathMatch = window.location.pathname.match(/^\/(\d{6})$/);
     const urlParams = new URLSearchParams(window.location.search);
-    let joinCode = urlParams.get('join') || '';
+    let joinCode = pathMatch?.[1] || urlParams.get('join') || '';
 
     // Fallback: recover code from sessionStorage (SW reload may have wiped the URL)
     if (!joinCode || !/^\d{6}$/.test(joinCode)) {

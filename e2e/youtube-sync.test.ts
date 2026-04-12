@@ -1,0 +1,247 @@
+/**
+ * E2E: YouTube Sync / Drift Correction Tests — Route B of the drift-regression plan.
+ *
+ * These tests drive two real browser contexts (host + guest) connected over
+ * a local PeerJS broker, with a deterministic fake `window.YT` installed
+ * BEFORE navigation on both sides. The fake player records every API call
+ * with a Date.now() timestamp, so tests can assert on the full
+ * host → PeerJS → guest path without touching the real YouTube iframe.
+ *
+ * These complement the vitest sync-integration.test.ts: those tests cover
+ * the logic-order fixes in isolation, these cover the PeerJS round-trip.
+ *
+ * Companion to src/youtube/__tests__/sync-integration.test.ts.
+ */
+
+import { test, expect, type Page } from '@playwright/test';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
+import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { readState } from './helpers/wait.ts';
+import { installFakeYt, readFakeYtLog, clearFakeYtLog } from './helpers/fake-yt.ts';
+
+// Deterministic fake URL — fake-yt stub accepts any videoId
+const YT_VIDEO_URL = 'https://www.youtube.com/watch?v=FAKE_VIDEO_ID';
+
+let pair: HostGuestPair;
+
+// ── Helpers ───────────────────────────────────────────────────────────
+async function waitForBus(page: Page, timeout = 20_000): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ === 'object' &&
+      typeof (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ === 'function',
+    { timeout },
+  );
+}
+
+async function hostLoadYouTube(page: Page, url: string): Promise<void> {
+  await page.evaluate((u) => {
+    const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
+      | { emit: (type: string, ...args: unknown[]) => void }
+      | undefined;
+    if (!bus) throw new Error('bus not exposed via __MUSIXQUARE_BUS__');
+    // Natural entry point — same path chat-link clicks use. Runs the full
+    // _addYouTubeToPlaylist pipeline: playlist.items update → loadYouTubeVideo
+    // with autoplay=false → _pendingAutoSyncOnReady → onReady fires →
+    // youtube:auto-play → scheduleYtAutoSync (1-sec countdown).
+    bus.emit('youtube:load-from-chat', u);
+  }, url);
+}
+
+async function waitForYtLogOp(
+  page: Page,
+  op: string,
+  timeout = 20_000,
+): Promise<void> {
+  await page.waitForFunction(
+    (expectedOp) => {
+      const log = (window as unknown as Record<string, unknown>).__fakeYtLog as
+        | Array<{ op: string }>
+        | undefined;
+      return log?.some((e) => e.op === expectedOp) ?? false;
+    },
+    op,
+    { timeout },
+  );
+}
+
+// Surface page console errors into test output for diagnostics.
+function attachConsoleCapture(page: Page, label: string): void {
+  page.on('console', (msg) => {
+    const type = msg.type();
+    if (type === 'error' || type === 'warning') {
+      // Only log for debugging — don't fail the test
+      // eslint-disable-next-line no-console
+      console.log(`[${label}] ${type}:`, msg.text());
+    }
+  });
+}
+
+test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
+  test.beforeEach(async ({ browser }) => {
+    pair = await createHostGuestContexts(browser);
+    // Install fake YT BEFORE any navigation so window.YT is defined when
+    // the app's iframe loader runs.
+    await installFakeYt(pair.hostPage);
+    await installFakeYt(pair.guestPage);
+    attachConsoleCapture(pair.hostPage, 'host');
+    attachConsoleCapture(pair.guestPage, 'guest');
+  });
+
+  test.afterEach(async () => {
+    await cleanupContexts(pair);
+  });
+
+  // ── Test 1: fake YT infrastructure is installed on both sides ─────────
+  test('fake YT.Player is installed on host and guest before navigation', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    const hostHasYT = await pair.hostPage.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      return typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function';
+    });
+    const guestHasYT = await pair.guestPage.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      return typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function';
+    });
+
+    expect(hostHasYT).toBe(true);
+    expect(guestHasYT).toBe(true);
+
+    // Bus + state hooks should also be exposed after app bootstrap
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+  });
+
+  // ── Test 2: full sync flow end-to-end ────────────────────────────────
+  test('host play routes through 1-sec rendezvous and guest player pauses/seeks/plays', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+
+    await clearFakeYtLog(pair.hostPage);
+    await clearFakeYtLog(pair.guestPage);
+
+    // Host kicks off the natural YT load flow via the chat-link entry point.
+    // This runs _addYouTubeToPlaylist → loadYouTubeVideo → onReady →
+    // youtube:auto-play → scheduleYtAutoSync (1-sec countdown) and broadcasts
+    // YOUTUBE_PLAY + YOUTUBE_STATE to the guest.
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
+
+    // Host fake player should receive playVideo after the 1-sec countdown
+    await waitForYtLogOp(pair.hostPage, 'playVideo', 20_000);
+
+    // Guest appState must have flipped to PLAYING_YOUTUBE (set by
+    // setEngineMode inside loadYouTubeVideo when handleYouTubePlay runs)
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        return get?.('appState') === 'PLAYING_YOUTUBE';
+      },
+      { timeout: 20_000 },
+    );
+
+    // Guest fake player should receive playVideo from the scheduled
+    // handleYouTubeState on the PeerJS broadcast
+    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
+
+    const hostLog = await readFakeYtLog(pair.hostPage);
+    const guestLog = await readFakeYtLog(pair.guestPage);
+
+    const hostOps = hostLog.map((e) => e.op);
+    const guestOps = guestLog.map((e) => e.op);
+
+    // Host side: scheduleYtAutoSync force-pauses first, then plays
+    expect(hostOps).toContain('pauseVideo');
+    expect(hostOps).toContain('playVideo');
+    const hostPauseIdx = hostOps.indexOf('pauseVideo');
+    const hostPlayIdx = hostOps.indexOf('playVideo');
+    expect(hostPauseIdx).toBeLessThan(hostPlayIdx);
+
+    // Guest side: handleYouTubeState with hostPlayAt > 300ms runs the
+    // "auto-sync path" which pauses first, then plays at scheduled time
+    expect(guestOps).toContain('playVideo');
+  });
+
+  // ── Test 3: state propagation ────────────────────────────────────────
+  test('guest transitions to PLAYING_YOUTUBE after host starts video', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
+
+    // Host appState flips first
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        return get?.('appState') === 'PLAYING_YOUTUBE';
+      },
+      { timeout: 15_000 },
+    );
+
+    // Guest appState should flip to PLAYING_YOUTUBE after receiving YOUTUBE_PLAY
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        return get?.('appState') === 'PLAYING_YOUTUBE';
+      },
+      { timeout: 20_000 },
+    );
+
+    expect(await readState(pair.guestPage, 'appState')).toBe('PLAYING_YOUTUBE');
+  });
+
+  // ── Test 4: stop mode propagation ────────────────────────────────────
+  test('host stop YouTube mode clears guest state', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
+
+    // Wait for guest to enter YT mode
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        return get?.('appState') === 'PLAYING_YOUTUBE';
+      },
+      { timeout: 20_000 },
+    );
+
+    // Host triggers stop-mode (listener → stopYouTubeMode → YOUTUBE_STOP broadcast)
+    await pair.hostPage.evaluate(() => {
+      const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
+        | { emit: (type: string, ...args: unknown[]) => void }
+        | undefined;
+      bus?.emit('youtube:stop-mode');
+    });
+
+    // Guest appState should leave PLAYING_YOUTUBE once YOUTUBE_STOP arrives
+    // (handleYouTubeStop emits youtube:stop-mode + player:stop-all-media,
+    // which transitions appState out of PLAYING_YOUTUBE)
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        return get?.('appState') !== 'PLAYING_YOUTUBE';
+      },
+      { timeout: 15_000 },
+    );
+
+    expect(await readState(pair.guestPage, 'appState')).not.toBe('PLAYING_YOUTUBE');
+  });
+});

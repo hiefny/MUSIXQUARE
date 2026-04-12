@@ -549,8 +549,18 @@ export function initYouTube(): void {
       //
       // (Was previously loadYouTubeVideo(…, true) which auto-started
       // playback with zero sync coordination.)
-      _pendingAutoSyncOnReady = true;
+      //
+      // IMPORTANT: set the flag AFTER loadYouTubeVideo, not before. The
+      // synchronous cascade `loadYouTubeVideo → player:stop-all-media →
+      // stopAllMedia → youtube:stop-mode → stopYouTubeMode` wipes
+      // `_pendingAutoSyncOnReady` as part of its idempotent cleanup. If
+      // we set the flag *before* that cascade runs, stopYouTubeMode
+      // clobbers it and the eventual youtube:player-ready callback
+      // silently skips scheduleYtAutoSync — the first URL-input play
+      // then races through raw YouTube autoplay with zero sync
+      // coordination, exactly the bug this flag was meant to fix.
       loadYouTubeVideo(videoId, playlistId, false);
+      _pendingAutoSyncOnReady = true;
       setState('playlist.currentTrackIndex', newIndex);
     } else {
       showToast(t('youtube.added_to_playlist'));

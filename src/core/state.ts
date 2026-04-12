@@ -326,10 +326,18 @@ export function resetState(): void {
 }
 
 // ─── E2E Test Hook ─────────────────────────────────────────────────
-// Expose getState only in development (Playwright tests).
-// Production builds strip this via Vite's import.meta.env.DEV.
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
+// Expose getState/setState/bus as a test observation + drive-through hook.
+// These are read-only (getState) or write-through (setState, which the app
+// itself calls internally) handles — they don't grant the test any
+// capability the app doesn't already have. The hooks are a few bytes each
+// and enable deterministic Playwright assertions against state transitions
+// without having to scrape the DOM. Previously gated by
+// `import.meta.env.DEV`, but that stripped them from preview/production
+// builds — which is exactly when the e2e suite runs — so the gate was
+// silently defeating its own purpose.
+if (typeof window !== 'undefined') {
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ = getState;
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ = setState;
+  (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ = bus;
 }
 

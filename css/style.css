@@ -711,13 +711,14 @@
     }
 
     .tab-header {
-        padding: 38px 38px 12px 32px;
+        padding: 32px 32px 12px;
         /* Increased side padding for a more spacious, premium feel */
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 8px;
     }
+
 
     .tab-title {
         font-size: 28px;
@@ -869,6 +870,11 @@
         border: none;
         width: 44px;
         height: 44px;
+        /* Negative margin: flex layout sees 36px (44-4-4), matching text
+           height, so align-items:center doesn't push the title down.
+           The button visually overflows by 4px top/bottom — bigger touch
+           target without affecting layout. */
+        margin: -4px 0;
         /* 36px visible circle inside 44px touch target */
         background-image: radial-gradient(circle, var(--surface-2) 18px, transparent 18px);
         border-radius: 50%;

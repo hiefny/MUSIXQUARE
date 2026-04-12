@@ -266,13 +266,14 @@ export function initRecovery(): void {
     sendRecoveryRequest();
   });
 
-  // Clear recovery state on session leave to prevent stale pending flag
-  bus.on('state:network.sessionCode', (code: unknown) => {
-    if (!code) {
-      setState('recovery.pending', false);
-      setState('recovery.retryCount', 0);
-      clearManagedTimer('recovery-backoff');
-    }
+  // Clear recovery state on session leave OR new session (reconnect) to
+  // prevent stale pending flag from blocking all future recovery requests.
+  // M13: Previously only fired when code became falsy (session leave), but
+  // reconnect changes code from one truthy value to another, skipping reset.
+  bus.on('state:network.sessionCode', () => {
+    setState('recovery.pending', false);
+    setState('recovery.retryCount', 0);
+    clearManagedTimer('recovery-backoff');
   });
 
   log.info('[Recovery] Handlers registered');

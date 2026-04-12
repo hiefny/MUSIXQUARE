@@ -231,6 +231,11 @@ function stopBeatLoop(): void {
     _animId = null;
   }
   _lastBeatIdx = -1;
+  // M16: Release the stale AudioBuffer reference. A 10-minute stereo 44.1kHz
+  // track weighs ~100 MB as a raw AudioBuffer. Without this, the old buffer
+  // stays pinned in memory until a new track is analyzed (or indefinitely if
+  // playback stops without loading another track).
+  _analysedBuffer = null;
 }
 
 function tick(): void {

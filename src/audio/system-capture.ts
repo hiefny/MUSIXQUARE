@@ -24,6 +24,11 @@ let _streamL: MediaStream | null = null;
 let _streamR: MediaStream | null = null;
 let _destL: MediaStreamAudioDestinationNode | null = null;
 let _destR: MediaStreamAudioDestinationNode | null = null;
+// M15: Track intermediate graph nodes so cleanupCapture can disconnect them.
+// Previously these were local variables in startSystemAudioCapture, leaking
+// connected AudioNodes on each start/stop cycle.
+let _splitter: ChannelSplitterNode | null = null;
+let _stereoUpmix: GainNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
@@ -113,7 +118,8 @@ export async function startSystemAudioCapture(): Promise<void> {
   _sourceNode = ctx.createMediaStreamSource(stream);
 
   // 5. Connect to L and R mono MediaStream destinations for synced P2P
-  const splitter = ctx.createChannelSplitter(2);
+  _splitter = ctx.createChannelSplitter(2);
+  const splitter = _splitter;
   _sourceNode.connect(splitter);
 
   _destL = ctx.createMediaStreamDestination();
@@ -131,7 +137,8 @@ export async function startSystemAudioCapture(): Promise<void> {
   log.info(`[SystemAudio] L/R mono streams created for synced P2P: L=${_streamL.id.slice(0, 8)}, R=${_streamR.id.slice(0, 8)}`);
 
   // 6. Local graph: upmix for safety
-  const stereoUpmix = ctx.createGain();
+  _stereoUpmix = ctx.createGain();
+  const stereoUpmix = _stereoUpmix;
   stereoUpmix.channelCount = 2;
   stereoUpmix.channelCountMode = 'explicit';
   stereoUpmix.channelInterpretation = 'speakers';
@@ -233,6 +240,9 @@ function cleanupCapture(): void {
     try { _sourceNode.disconnect(); } catch { /* noop */ }
     _sourceNode = null;
   }
+  // M15: Disconnect intermediate graph nodes that were previously leaked
+  if (_splitter) { try { _splitter.disconnect(); } catch { /* noop */ } _splitter = null; }
+  if (_stereoUpmix) { try { _stereoUpmix.disconnect(); } catch { /* noop */ } _stereoUpmix = null; }
   if (_destL) { try { _destL.disconnect(); } catch { /* noop */ } _destL = null; }
   if (_destR) { try { _destR.disconnect(); } catch { /* noop */ } _destR = null; }
   _streamL = null;

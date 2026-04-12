@@ -164,6 +164,12 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('youtubeSyncLoop');
   cancelYtAutoSync(); // Clear pending auto-sync timer + loading state
 
+  // M2: Clear the guest-side yt-clock-action timer (scheduled by
+  // handleYouTubeState for delayed play/pause). Without this, the timer
+  // fires after the player is destroyed and calls playVideo/pauseVideo
+  // on a null player, producing console errors and orphaned toasts.
+  clearManagedTimer('yt-clock-action');
+
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');

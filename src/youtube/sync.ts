@@ -225,9 +225,11 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
     }
 
-    // Drift correction
-    const localOffset = getState('sync.localOffset') || 0;
-    const rawCompensatedTime = hostTime + localOffset;
+    // Drift correction — uses raw hostTime without the manual sync.localOffset.
+    // M3: sync.localOffset is the user's manual Bluetooth speaker compensation
+    // for local audio playback. Applying it to YouTube iframe drift correction
+    // would permanently offset the guest by whatever the user set on the slider.
+    const rawCompensatedTime = hostTime;
     // Drift correction (skip if duration not loaded yet)
     const duration = (player.getDuration && player.getDuration()) || 0;
     if (duration > 0) {
@@ -528,6 +530,13 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
   clearManagedTimer('yt-clock-action');
 
+  // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
+  // Without this, a pending yt-rendezvous-play timer fires alongside the
+  // yt-clock-action timer, causing a double playVideo() desync.
+  if (state === 1 && _rendezvousInProgress) {
+    cancelGuestRendezvous();
+  }
+
   // Skip state sync while host is likely watching an ad
   if (_hostAdPauseActive) return;
 
@@ -553,7 +562,11 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
       if (player.playVideoAt) {
         const currentIdx = player.getPlaylistIndex?.() ?? -1;
-        if (currentIdx !== subIndex) {
+        // M4: bounds-check against guest's playlist length to avoid
+        // playVideoAt with an out-of-range index (Mix playlists can
+        // have different item counts across host and guest).
+        const ytPlaylist = player.getPlaylist?.() || [];
+        if (currentIdx !== subIndex && (ytPlaylist.length === 0 || subIndex < ytPlaylist.length)) {
           player.playVideoAt(subIndex);
           setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
@@ -598,7 +611,10 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
       } else if (waitMs > 0 && waitMs <= 300) {
         // Short wait (≤300ms) — schedule without pause (minor timing correction)
-        const compensatedTime = time + (waitMs / 1000);
+        // M6: clamp to [0, duration] to avoid seeking past the end which
+        // triggers a premature ENDED event and track-advance on the guest.
+        const rawCompensated = time + (waitMs / 1000);
+        const compensatedTime = duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
         if (compensatedTime > 0 && duration > 0) {
           bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
         }

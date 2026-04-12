@@ -219,7 +219,7 @@ const en: Record<I18nKey, string> = {
   'chat.title': 'Chat',
   'chat.close': 'Close chat',
   'chat.open': 'Open chat',
-  'chat.placeholder': 'Type a message...',
+  'chat.placeholder': 'Chat or type "/" for commands',
   'chat.input_label': 'Type a chat message',
   'chat.send': 'Send message',
   'chat.start': 'Start chatting',

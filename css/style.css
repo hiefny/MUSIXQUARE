@@ -1035,7 +1035,7 @@
 
     /* YouTube mode: always show fullscreen button (no hover on mobile) */
     .mode-youtube .fullscreen-btn {
-        opacity: 0.7;
+        opacity: 0.35;
     }
 
     .mode-youtube .fullscreen-btn:active {

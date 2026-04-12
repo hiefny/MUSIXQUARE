@@ -217,7 +217,7 @@ const ko = {
   'chat.title': '채팅',
   'chat.close': '채팅 닫기',
   'chat.open': '채팅 열기',
-  'chat.placeholder': '메시지 입력...',
+  'chat.placeholder': '채팅 또는 "/"로 명령어 입력',
   'chat.input_label': '채팅 메시지 입력',
   'chat.send': '메시지 보내기',
   'chat.start': '채팅을 시작하세요',

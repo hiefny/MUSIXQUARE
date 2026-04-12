@@ -404,15 +404,17 @@ export function initSetup(): void {
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
-  bus.on('network:kicked-explicitly', async () => {
-    await showDialog({
+  bus.on('network:kicked-explicitly', () => {
+    showDialog({
       title: t('connect.kicked_title'),
       message: t('connect.kicked_message'),
       buttonText: t('common.ok'),
       dismissible: false,
-    });
-    showLoader(true, t('dialog.leaving_session'));
-    setTimeout(() => window.location.reload(), 300);
+    }).catch(e => log.warn('[Setup] Kick dialog error:', e))
+      .finally(() => {
+        showLoader(true, t('dialog.leaving_session'));
+        setTimeout(() => window.location.reload(), 300);
+      });
   });
 
   // Check for ?join=CODE in URL or sessionStorage (survives SW reload)

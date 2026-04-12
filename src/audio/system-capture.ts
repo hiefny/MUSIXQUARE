@@ -246,7 +246,12 @@ function cleanupCapture(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemCaptureListeners(): void {
-  bus.on('system-audio:start', () => { startSystemAudioCapture(); });
+  bus.on('system-audio:start', () => {
+    startSystemAudioCapture().catch(e => {
+      log.error('[SystemAudio] Unhandled error in startSystemAudioCapture:', e);
+      stopSystemAudioCapture(); // Best-effort cleanup of half-initialized state
+    });
+  });
   bus.on('system-audio:stop', () => { stopSystemAudioCapture(); });
   bus.on('system-audio:force-stop', () => { stopSystemAudioCapture(); });
 }

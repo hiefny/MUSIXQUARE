@@ -292,6 +292,17 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   log.debug('[Play] Stage 2: Resuming AudioContext');
   try { await ensureRunning(); } catch (e) { log.warn('Resume failed:', e); }
 
+  // ── Post-await mode re-check ──────────────────────────────────────
+  // While we awaited ensureRunning/initAudio, the user may have switched
+  // to YouTube mode. Without this guard, _internalPlay continues to
+  // create an AudioBufferSourceNode and calls setAppState(PLAYING_AUDIO),
+  // overwriting PLAYING_YOUTUBE — causing double-audio and a broken UI
+  // state that requires a page reload.
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    log.warn('[Audio] Aborted play() — app switched to YouTube mode during async init');
+    return;
+  }
+
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const videoElement = getVideoElement();
   const hasVideoSource = !!(videoElement?.src?.startsWith('blob:'));
@@ -308,6 +319,12 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
     showToast(t('error.audio_engine_prepare'));
+    return;
+  }
+
+  // Re-check after second async gap (initAudio)
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    log.warn('[Audio] Aborted play() — app switched to YouTube mode during initAudio');
     return;
   }
 

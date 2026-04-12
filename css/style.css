@@ -2371,7 +2371,7 @@
     }
 
     .legal-block {
-        border-top: 1px dotted var(--surface-3);
+        border-top: 1px dotted var(--divider);
         margin-top: 8px;
     }
 

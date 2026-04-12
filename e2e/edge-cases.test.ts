@@ -744,9 +744,10 @@ test.describe('Stress Tests', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Navigate forward through entire playlist
+    // Navigate forward through entire playlist (3 tracks, no repeat →
+    // 3 iterations collects [0, 1, 2]; a 4th would hit end-of-playlist = -1)
     const indices: number[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
       indices.push(idx);
       await pair.hostPage.click('#btn-next');

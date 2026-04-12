@@ -806,9 +806,17 @@ function handleFilesSelected(files: FileList | null): void {
 
   showToast(t('toast.added_tracks', { count: addedCount }));
 
-  // Auto-play first added file if nothing is playing
+  // Auto-play first added file if nothing is playing AND no track has been
+  // selected yet. The `currentIndex < 0` guard prevents a race when multiple
+  // files are uploaded sequentially: playTrack(0) sets currentTrackIndex = 0
+  // synchronously (line 228), but its async audio decode keeps appState as
+  // IDLE until decode + play() complete. Without the guard, each subsequent
+  // upload also sees IDLE and calls playTrack(N), overwriting the index to
+  // the last uploaded track — so clicking "next" immediately overflows the
+  // playlist boundary into handleEndOfPlaylist (currentTrackIndex = -1).
   const currentState = getState('appState');
-  if (currentState === APP_STATE.IDLE) {
+  const currentIndex = getState('playlist.currentTrackIndex');
+  if (currentState === APP_STATE.IDLE && currentIndex < 0) {
     playTrack(playlist.length - addedCount);
   } else {
     // Already playing — preload next track for guests (covers end-of-playlist + file add case)

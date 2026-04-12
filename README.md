@@ -37,7 +37,7 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 
 **https://musixquare.com** — no install needed.
 
-### Local Development
+### Local Development (Owner Only)
 
 ```bash
 npm install
@@ -45,6 +45,7 @@ npm run dev
 ```
 
 > Requires HTTPS or `localhost` for WebRTC, Service Worker, and OPFS.
+> This section is for the project maintainer. See [LICENSE](./LICENSE) for usage terms.
 
 ---
 
@@ -76,6 +77,10 @@ npm run dev
 - **PWA**: `manifest.webmanifest` + `service-worker.js` included
 
 ---
+
+## License
+
+**All Rights Reserved.** This project is proprietary software. The source code is visible on GitHub for portfolio and educational reference only — it is **not** open source. Copying, modification, redistribution, or commercial use in any form is prohibited without prior written permission. See [LICENSE](./LICENSE) for details.
 
 ## Third-Party Licenses
 

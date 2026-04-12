@@ -865,10 +865,16 @@
 
     .tab-action-btn {
         background: var(--surface-2);
+        background-clip: content-box;
         color: var(--text-sub);
         border: none;
-        width: 44px;
-        height: 44px;
+        width: 36px;
+        height: 36px;
+        /* WCAG 44px touch target via transparent padding — visual circle
+           stays 36px so tab-header alignment with title text is preserved,
+           but the actual tap area is 44×44px (36 + 4×2). */
+        padding: 4px;
+        box-sizing: content-box;
         border-radius: 50%;
         display: flex;
         align-items: center;

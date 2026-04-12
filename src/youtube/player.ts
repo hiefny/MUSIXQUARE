@@ -212,12 +212,6 @@ export function stopYouTubeMode(): void {
     videoEl.load();
   }
 
-  const fsBtn = document.querySelector('.fullscreen-btn') as HTMLElement | null;
-  if (fsBtn) {
-    fsBtn.style.removeProperty('display');
-    fsBtn.style.display = '';
-  }
-
   // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
   if (wasInYouTube) {
     const hostConn = getState('network.hostConn');

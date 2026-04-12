@@ -143,8 +143,9 @@ export function loadYouTubeVideo(
 
   bus.emit('ui:play-btn-state', true);
 
-  const fsBtn = document.querySelector('.fullscreen-btn') as HTMLElement | null;
-  if (fsBtn) fsBtn.style.setProperty('display', 'none', 'important');
+  // Keep fullscreen button visible in YouTube mode — the button targets
+  // .video-wrapper which contains the YouTube iframe container, so
+  // Fullscreen API works correctly for both local video and YouTube.
 
   setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), 500);
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);

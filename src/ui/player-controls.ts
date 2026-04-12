@@ -163,19 +163,23 @@ export function updateRoleBadge(): void {
     return;
   }
 
+  // Role badge text is INTENTIONALLY English-only ('HOST', 'GUEST', 'SETUP').
+  // The device list UI also uses English labels ('Host', 'Peer 1', etc.),
+  // so translating the badge to Korean ('호스트') creates a visual mismatch.
+  // Do NOT i18n-ize these — they are identity labels, not UI copy.
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = t('common.host');
+    text.innerText = 'HOST';
     badge.classList.add('connected');
     return;
   }
 
   if (appRole === 'guest') {
-    text.innerText = t('common.guest');
+    text.innerText = 'GUEST';
     return;
   }
 
-  text.innerText = t('common.setup');
+  text.innerText = 'SETUP';
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

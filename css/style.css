@@ -711,7 +711,7 @@
     }
 
     .tab-header {
-        padding: 32px 32px 12px;
+        padding: 38px 38px 12px 32px;
         /* Increased side padding for a more spacious, premium feel */
         display: flex;
         justify-content: space-between;
@@ -864,17 +864,13 @@
     }
 
     .tab-action-btn {
-        background: var(--surface-2);
-        background-clip: content-box;
+        background: transparent;
         color: var(--text-sub);
         border: none;
-        width: 36px;
-        height: 36px;
-        /* WCAG 44px touch target via transparent padding — visual circle
-           stays 36px so tab-header alignment with title text is preserved,
-           but the actual tap area is 44×44px (36 + 4×2). */
-        padding: 4px;
-        box-sizing: content-box;
+        width: 44px;
+        height: 44px;
+        /* 36px visible circle inside 44px touch target */
+        background-image: radial-gradient(circle, var(--surface-2) 18px, transparent 18px);
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -886,7 +882,8 @@
 
     .tab-action-btn:active {
         transform: scale(0.9);
-        background: var(--surface-3);
+        background: transparent;
+        background-image: radial-gradient(circle, var(--surface-3) 18px, transparent 18px);
     }
 
     .tab-action-btn svg {
@@ -897,12 +894,14 @@
 
     /* Playlist Controls Active States */
     .tab-action-btn.active {
-        background: var(--primary);
+        background: transparent;
+        background-image: radial-gradient(circle, var(--primary) 18px, transparent 18px);
         color: white;
     }
 
     .tab-action-btn.active-one {
-        background: var(--primary);
+        background: transparent;
+        background-image: radial-gradient(circle, var(--primary) 18px, transparent 18px);
         color: white;
     }
 
@@ -1343,7 +1342,7 @@
     .playlist-title-area {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 0;
     }
 
     /* Speaker Active State — see canonical definition near line 4885+ */

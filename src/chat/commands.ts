@@ -100,14 +100,14 @@ function hasPermission(perm: Permission): boolean {
 // ─── Command Implementations ────────────────────────────────────
 
 function cmdKick(args: string[]): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/kick #번호' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_kick') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
   bus.emit('network:kick-device', target.peerId);
 }
 
 function cmdOp(args: string[]): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/op #번호' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_op') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
@@ -117,7 +117,7 @@ function cmdOp(args: string[]): void {
 }
 
 function cmdDeop(args: string[]): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/deop #번호' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_deop') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
@@ -139,7 +139,7 @@ function cmdFreeze(args: string[]): void {
 }
 
 function cmdMute(args: string[]): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/mute #번호' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_mute') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
 
@@ -156,7 +156,7 @@ function cmdMute(args: string[]): void {
 }
 
 function cmdUnmute(args: string[]): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/unmute #번호' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_unmute') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
 
@@ -214,7 +214,7 @@ function cmdSlowmode(args: string[]): void {
 }
 
 function cmdNotice(_: string[], rawArgs: string): void {
-  if (!rawArgs.trim()) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/notice 메시지' })); return; }
+  if (!rawArgs.trim()) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_notice') })); return; }
   const senderLabel = getState('network.myDeviceLabel') || 'HOST';
   const payload = { type: MSG.CHAT_NOTICE, senderLabel, text: rawArgs.trim(), ts: Date.now() };
 
@@ -228,7 +228,7 @@ function cmdNotice(_: string[], rawArgs: string): void {
 
 function cmdNick(_: string[], rawArgs: string): void {
   const newName = rawArgs.trim();
-  if (!newName) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/nick 새이름' })); return; }
+  if (!newName) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_nick') })); return; }
   if (newName.length > 20) { addSystemChatMessage(t('chat.cmd_nick_too_long')); return; }
   const isHostSelf = !getState('network.hostConn');
   if (RESERVED_NAMES.some(r => newName.toLowerCase() === r.toLowerCase())) {
@@ -256,14 +256,14 @@ function cmdNick(_: string[], rawArgs: string): void {
 }
 
 function cmdWhisper(args: string[], rawArgs: string): void {
-  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/w #번호 메시지' })); return; }
+  if (!args[0]) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_w') })); return; }
   const target = resolveTarget(args[0]);
   if (!target) { addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] })); return; }
 
   // Extract message (everything after the target identifier)
   const msgStart = rawArgs.indexOf(args[0]) + args[0].length;
   const msg = rawArgs.slice(msgStart).trim();
-  if (!msg) { addSystemChatMessage(t('chat.cmd_usage', { usage: '/w #번호 메시지' })); return; }
+  if (!msg) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_w') })); return; }
 
   const myId = getState('network.myId') || '';
   const myLabel = getState('network.myDeviceLabel') || '';

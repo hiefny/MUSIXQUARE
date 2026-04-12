@@ -53,6 +53,57 @@ export function animateTransition(callback: () => void): void {
 
 // ─── HTML Escaping ───────────────────────────────────────────────
 
+// ─── Overlay Inert Management ────────────────────────────────────
+// When a fullscreen overlay is active, set `inert` on all sibling elements
+// of <body> children so keyboard focus is trapped inside the overlay.
+// The OVERLAY_IDS list covers the three main overlays that lack focus traps.
+
+const OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overlay'];
+
+/**
+ * Observe overlay .active class changes and toggle `inert` on non-overlay
+ * body children. Uses a single MutationObserver on <body> for efficiency.
+ */
+export function initOverlayInertObserver(): void {
+  function syncInert(): void {
+    const anyOverlayActive = OVERLAY_IDS.some(id => {
+      const el = document.getElementById(id);
+      return el?.classList.contains('active');
+    });
+    // Toggle inert on all direct children of body that aren't the active overlay
+    for (const child of Array.from(document.body.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (OVERLAY_IDS.includes(child.id)) continue;
+      if (anyOverlayActive) {
+        child.setAttribute('inert', '');
+      } else {
+        child.removeAttribute('inert');
+      }
+    }
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type === 'attributes' && m.attributeName === 'class') {
+        const target = m.target as HTMLElement;
+        if (OVERLAY_IDS.includes(target.id)) {
+          syncInert();
+          return;
+        }
+      }
+    }
+  });
+
+  // Observe each overlay element for class changes
+  for (const id of OVERLAY_IDS) {
+    const el = document.getElementById(id);
+    if (el) observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // Initial sync
+  syncInert();
+}
+
 const _ESCAPE_HTML_RE = /[&<>"']/;
 const _ESCAPE_HTML_RE_G = /[&<>"']/g;
 const _ESCAPE_HTML_MAP: Record<string, string> = {

@@ -165,17 +165,17 @@ export function updateRoleBadge(): void {
 
   const appRole = getState('network.appRole');
   if (appRole === 'host') {
-    text.innerText = 'HOST';
+    text.innerText = t('common.host');
     badge.classList.add('connected');
     return;
   }
 
   if (appRole === 'guest') {
-    text.innerText = 'GUEST';
+    text.innerText = t('common.guest');
     return;
   }
 
-  text.innerText = 'SETUP';
+  text.innerText = t('common.setup');
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

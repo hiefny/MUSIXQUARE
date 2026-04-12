@@ -38,8 +38,8 @@ function _getChatLabelBase(): string {
   const label = myDeviceLabel.trim();
 
   if (!hostConn) {
-    // Host: use custom label if set, otherwise default 'Host'
-    return (label && label !== 'HOST') ? label : 'Host';
+    // Host: use custom label if set, otherwise default translated 'Host'
+    return (label && label !== 'HOST') ? label : t('common.host');
   }
 
   if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest')) return PEER_NAME_PREFIX;

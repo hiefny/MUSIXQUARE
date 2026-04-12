@@ -64,13 +64,19 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (isFilePlaying) {
     import('../player/transport.ts').then(mod => {
       if (!conn.open) return;
+      // Re-read appState AFTER the microtask gap — the captured value from
+      // before the dynamic import may be stale if the host paused during the
+      // import resolve. Sending a stale PLAYING_AUDIO pong causes the guest
+      // to start playing while the host is actually paused.
+      const freshAppState = getState('appState');
+      const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO || freshAppState === APP_STATE.PLAYING_VIDEO;
       try {
         conn.send({
           type: MSG.SYNC_PONG,
           pingId: data.pingId,
           hostTime,
-          position: mod.getTrackPosition(),
-          appState,
+          position: freshIsPlaying ? mod.getTrackPosition() : 0,
+          appState: freshAppState,
           trackIndex: getState('playlist.currentTrackIndex'),
         });
       } catch { /* closed */ }

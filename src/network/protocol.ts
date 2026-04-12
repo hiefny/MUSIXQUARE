@@ -62,17 +62,51 @@ const isFiniteNumber = (v: unknown): v is number =>
 const isNonNegInt = (v: unknown): v is number =>
   isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
 
+// Max 200,000 chunks ≈ 3.2 GB at 16 KB/chunk — prevents DoS via unbounded total
+const MAX_FILE_TOTAL = 200_000;
+
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
   [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.VOLUME]: (d) => isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
-  [MSG.FILE_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total),
+  [MSG.FILE_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
-  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total),
+  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) => isFiniteNumber(d.band) && (d.band as number) >= 0 && (d.band as number) < 16 && isFiniteNumber(d.value),
+
+  // YouTube messages — validate numeric fields that flow into player APIs / state
+  [MSG.YOUTUBE_PLAY]: (d) =>
+    (d.videoId === undefined || d.videoId === null || typeof d.videoId === 'string') &&
+    (d.index === undefined || isNonNegInt(d.index)) &&
+    (d.subIndex === undefined || isNonNegInt(d.subIndex)),
+  [MSG.YOUTUBE_SYNC]: (d) =>
+    isFiniteNumber(d.time) && isFiniteNumber(d.state) &&
+    (d.subIndex === undefined || isFiniteNumber(d.subIndex)),
+  [MSG.YOUTUBE_STATE]: (d) =>
+    isFiniteNumber(d.state) && (d.time === undefined || isFiniteNumber(d.time)) &&
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+  [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
+    typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
+  [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) =>
+    isNonNegInt(d.subIdx),
+
+  // File transfer — validate session IDs and indices
+  [MSG.FILE_PREPARE]: (d) =>
+    (d.name === undefined || typeof d.name === 'string') &&
+    (d.index === undefined || isNonNegInt(d.index)) &&
+    (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
+  [MSG.FILE_RESUME]: (d) =>
+    isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
+
+  // Chat — validate text field exists and cap length
+  [MSG.CHAT]: (d) => typeof d.text === 'string',
+
+  // Playlist — validate list is an array (individual items checked in handler)
+  [MSG.PLAYLIST_UPDATE]: (d) =>
+    Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
 };
 
 // ─── Handler Registry ───────────────────────────────────────────────

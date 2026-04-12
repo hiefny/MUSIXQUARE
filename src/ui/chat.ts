@@ -23,6 +23,7 @@ import type { DataConnection } from '../types/index.ts';
 import { showToast } from './toast.ts';
 
 const MAX_CHAT_MESSAGES = 200;
+const MAX_SENDER_LABEL_LENGTH = 30;
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -660,7 +661,8 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     }
   }
 
-  const senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
+  let senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
+  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH) senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
   const displayName = _formatChatDisplayName(senderLabel);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
@@ -671,7 +673,27 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     data.text = text; // Update data so relay sends filtered text
   }
 
-  const badge: 'host' | 'op' | undefined = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
+  // ── Badge derivation: Host-side uses authoritative peer list, guest trusts relay ──
+  // A malicious guest could send { isHost: true } or { isOp: true } to spoof badges.
+  // On the host, we derive the badge from our own connectedPeers list (source of truth)
+  // and overwrite data.isHost/isOp BEFORE relaying, so downstream guests receive the
+  // correct badge regardless of what the original sender claimed.
+  let badge: 'host' | 'op' | undefined;
+  if (!hostConn) {
+    // Host: derive from authoritative peer list
+    const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
+    const peers = getState('network.connectedPeers');
+    const peerEntry = peers.find(p => p.id === senderPeerId);
+    const isOp = peerEntry?.isOp ?? false;
+    badge = isOp ? 'op' : undefined; // only host gets 'host' badge (set below)
+    // Overwrite untrusted badge fields before relay
+    data.isHost = false;
+    data.isOp = isOp;
+  } else {
+    // Guest: trust relayed data (host already sanitized it)
+    badge = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
+  }
+
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
   addChatMessage(displayName, text, isMine, badge, joinOrder);
 
@@ -684,7 +706,8 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
 // ─── Chat Command Protocol Handlers ─────────────────────────────
 
-function handleChatMute(data: Record<string, unknown>): void {
+function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   const targetId = data.targetId as string;
   const targetLabel = data.targetLabel as string;
   const myId = getState('network.myId') || '';
@@ -695,7 +718,8 @@ function handleChatMute(data: Record<string, unknown>): void {
   addSystemChatMessage(t('chat.cmd_muted', { name: targetLabel }));
 }
 
-function handleChatUnmute(data: Record<string, unknown>): void {
+function handleChatUnmute(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   const targetId = data.targetId as string;
   const targetLabel = data.targetLabel as string;
   const myId = getState('network.myId') || '';
@@ -706,17 +730,31 @@ function handleChatUnmute(data: Record<string, unknown>): void {
   addSystemChatMessage(t('chat.cmd_unmuted', { name: targetLabel }));
 }
 
-function handleChatFreeze(): void {
+/**
+ * Guest-side guard: admin chat commands (freeze/unfreeze/clear/slowmode/filter/system)
+ * must only be processed when they arrive from the host connection. Without this,
+ * a compromised relay node could inject these commands and silence all guests.
+ */
+function isFromHost(conn?: DataConnection): boolean {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) return true; // We ARE the host — always accept
+  return conn === hostConn;
+}
+
+function handleChatFreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   setState('network.chatFrozen', true);
   addSystemChatMessage(t('chat.cmd_frozen'));
 }
 
-function handleChatUnfreeze(): void {
+function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   setState('network.chatFrozen', false);
   addSystemChatMessage(t('chat.cmd_unfrozen'));
 }
 
-function handleChatClear(): void {
+function handleChatClear(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   bus.emit('chat:clear-all');
 }
 
@@ -754,7 +792,8 @@ function handleChatNotice(data: Record<string, unknown>): void {
   addNoticeChatMessage(senderLabel, text);
 }
 
-function handleChatSlowmode(data: Record<string, unknown>): void {
+function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   const seconds = data.seconds as number || 0;
   setState('network.slowmodeSeconds', seconds);
   addSystemChatMessage(seconds > 0
@@ -762,7 +801,8 @@ function handleChatSlowmode(data: Record<string, unknown>): void {
     : t('chat.cmd_slowmode_off'));
 }
 
-function handleChatFilter(data: Record<string, unknown>): void {
+function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   const on = !!data.on;
   setState('network.filterEnabled', on);
   addSystemChatMessage(on
@@ -770,7 +810,8 @@ function handleChatFilter(data: Record<string, unknown>): void {
     : t('chat.cmd_filter_off'));
 }
 
-function handleChatSystem(data: Record<string, unknown>): void {
+function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isFromHost(conn)) return;
   const text = data.text as string || '';
   if (text) addSystemChatMessage(text);
 }

@@ -68,6 +68,7 @@ async function generateQR(containerId: string): Promise<void> {
     const svgString = await QRCode.toString(url, {
       type: 'svg',
       margin: 2,
+      errorCorrectionLevel: 'L',
       color: {
         dark: '#000000',
         light: '#00000000',  // Fully transparent background

@@ -2,6 +2,45 @@
   command = "npm run build"
   publish = "dist"
 
+# ─── Domain migration: mxqr.netlify.app → musixquare.com ───
+# Explicit robots.txt exception for GSC over Netlify domain
+[[redirects]]
+  from = "https://mxqr.netlify.app/robots.txt"
+  to = "/robots.txt"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "http://mxqr.netlify.app/robots.txt"
+  to = "/robots.txt"
+  status = 200
+  force = true
+
+# Exact root match
+[[redirects]]
+  from = "https://mxqr.netlify.app"
+  to = "https://musixquare.com"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://mxqr.netlify.app"
+  to = "https://musixquare.com"
+  status = 301
+  force = true
+
+# Wildcard match for all sub-pages
+[[redirects]]
+  from = "https://mxqr.netlify.app/*"
+  to = "https://musixquare.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://mxqr.netlify.app/*"
+  to = "https://musixquare.com/:splat"
+  status = 301
+  force = true
 
 # SPA fallback: serve index.html for all routes
 [[redirects]]

@@ -269,7 +269,6 @@ export function initSetup(): void {
     hideSetupOverlay();
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
-    try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
     try {
       if (window.location.search.includes('join=') || /^\/\d{6}$/.test(window.location.pathname)) {
         window.history.replaceState({}, '', '/' + window.location.hash);
@@ -417,24 +416,17 @@ export function initSetup(): void {
       });
   });
 
-  // Check for /CODE path, ?join=CODE param, or sessionStorage (survives SW reload)
-  const JOIN_CODE_KEY = 'mxqr_pending_join';
+  // Check for /CODE path or ?join=CODE param
   try {
-    // Path-based: musixquare.com/482913
+    // Wipe any leftover join code from a previous (crashed/abandoned) session
+    try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
+
     const pathMatch = window.location.pathname.match(/^\/(\d{6})$/);
     const urlParams = new URLSearchParams(window.location.search);
-    let joinCode = pathMatch?.[1] || urlParams.get('join') || '';
-
-    // Fallback: recover code from sessionStorage (SW reload may have wiped the URL)
-    if (!joinCode || !/^\d{6}$/.test(joinCode)) {
-      joinCode = sessionStorage.getItem(JOIN_CODE_KEY) || '';
-    }
+    const joinCode = pathMatch?.[1] || urlParams.get('join') || '';
 
     if (joinCode && /^\d{6}$/.test(joinCode)) {
       log.info(`[Setup] Auto-join code detected: ${joinCode}`);
-
-      // Persist code so it survives SW reload AND proceedToGuestCode() clearing
-      sessionStorage.setItem(JOIN_CODE_KEY, joinCode);
       setPendingAutoJoinCode(joinCode);
 
       // Show overlay first, then jump to guest role selection

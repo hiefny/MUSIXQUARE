@@ -498,6 +498,10 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
+  // Host sent a new command — cancel the guest ENDED fallback timer.
+  // (Guest defers IDLE transition on video end to wait for this message.)
+  clearManagedTimer('yt-guest-ended-fallback');
+
   // Guard against malformed or missing state field. Number(undefined) → NaN,
   // and `NaN === 1/2/0/-1` is always false, so a missing state would silently
   // fall through to the generic code path below with unpredictable behaviour.
@@ -723,6 +727,7 @@ function handleYouTubeStop(): void {
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
   clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-guest-ended-fallback');
   bus.emit('youtube:sync-loading', false);
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {

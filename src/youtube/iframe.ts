@@ -349,9 +349,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
     } else {
-      // Guest: set IDLE and clean up orphaned player
-      setAppState(APP_STATE.IDLE);
-      bus.emit('youtube:stop-mode');
+      // Guest: DON'T go IDLE immediately — host is about to send YOUTUBE_STATE
+      // with the next video. If we set IDLE now, handleYouTubeState() would
+      // drop the message (appState !== PLAYING_YOUTUBE guard). Wait up to 5s
+      // for the host's next-track command; fall back to IDLE if nothing arrives.
+      log.debug('[YouTube] Guest: video ended — waiting for host next-track');
+      setManagedTimer('yt-guest-ended-fallback', () => {
+        // Host never sent next track (e.g. playlist truly ended) — clean up
+        if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+          log.debug('[YouTube] Guest: no next-track from host — going IDLE');
+          setAppState(APP_STATE.IDLE);
+          bus.emit('youtube:stop-mode');
+        }
+      }, 5_000);
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }

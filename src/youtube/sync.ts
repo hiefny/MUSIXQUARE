@@ -137,6 +137,7 @@ function updateHostSnapshot(hostTime: number, hostState: number): void {
 // ─── Rendezvous Sync State (Guest-side) ──────────────────────────
 
 let _rendezvousInProgress = false;
+let _lastRendezvousAt = 0; // Cooldown to prevent rapid-fire (YouTube API crash)
 
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
@@ -289,9 +290,10 @@ export function guestRendezvousSync(): void {
     return;
   }
 
-  // Debounce re-entry
-  if (_rendezvousInProgress) {
-    log.debug('[Rendezvous] Already in progress — ignoring');
+  // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
+  const now = Date.now();
+  if (_rendezvousInProgress || now - _lastRendezvousAt < 3000) {
+    log.debug('[Rendezvous] Debounced — in progress or cooldown');
     return;
   }
 
@@ -334,6 +336,7 @@ export function guestRendezvousSync(): void {
   log.debug(`[Rendezvous] Start: hostPosNow=${hostPosNow.toFixed(2)}s target=${targetPosition.toFixed(2)}s L_play=${guestPlayLatency}ms`);
 
   _rendezvousInProgress = true;
+  _lastRendezvousAt = Date.now();
   _autoSyncUntil = Date.now() + MARGIN_SEC * 1000 + 2000; // suppress drift fighter
   bus.emit('youtube:sync-loading', true);
   showToast(t('toast.yt_rendezvous_start'));
@@ -355,16 +358,19 @@ export function guestRendezvousSync(): void {
 
   const checkBuffer = (): void => {
     if (!_rendezvousInProgress) return; // cancelled
+    // Re-fetch player — it may have been destroyed during the polling gap
+    const p = getYouTubePlayer();
+    if (!p) { finishRendezvous(); return; }
     bufferChecks++;
     let pState = -1;
-    try { pState = player.getPlayerState?.() ?? -1; } catch { /* noop */ }
+    try { pState = p.getPlayerState?.() ?? -1; } catch { /* noop */ }
 
     const bufferReady = pState === 2 || pState === 5;
     const outOfTime = getHostNow() > bufferDeadline;
 
     if (bufferReady) {
       log.debug(`[Rendezvous] Buffer ready after ${bufferChecks} checks (state=${pState})`);
-      scheduleRendezvousPlay(player, playCallAtHostClock, targetPosition, snapshot);
+      scheduleRendezvousPlay(playCallAtHostClock, targetPosition, snapshot);
       return;
     }
 
@@ -382,7 +388,6 @@ export function guestRendezvousSync(): void {
 }
 
 function scheduleRendezvousPlay(
-  player: any,
   playCallAtHostClock: number,
   targetPosition: number,
   snapshot: HostPositionSnapshot,
@@ -392,8 +397,10 @@ function scheduleRendezvousPlay(
 
   setManagedTimer('yt-rendezvous-play', () => {
     if (!_rendezvousInProgress) return; // cancelled during wait
+    const p = getYouTubePlayer();
+    if (!p) { finishRendezvous(); return; }
     try {
-      player.playVideo();
+      p.playVideo();
     } catch (e) {
       log.warn('[Rendezvous] playVideo threw:', e);
       finishRendezvous();
@@ -405,8 +412,10 @@ function scheduleRendezvousPlay(
     // Step 3: self-calibrate guestPlayLatency from measured drift (~800ms later)
     setManagedTimer('yt-rendezvous-calibrate', () => {
       _rendezvousInProgress = false;
+      const pCal = getYouTubePlayer();
+      if (!pCal) return; // player destroyed — skip calibration
       try {
-        const guestPos = player.getCurrentTime?.() ?? 0;
+        const guestPos = pCal.getCurrentTime?.() ?? 0;
         // Re-extrapolate host position using the SAME snapshot (drift-free baseline)
         const hostPosNowMeasured =
           snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
@@ -607,7 +616,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
 
         // 6. Play at scheduled time
         setManagedTimer('yt-clock-action', () => {
-          if (player.playVideo) player.playVideo();
+          const p = getYouTubePlayer();
+          if (p?.playVideo) p.playVideo();
           bus.emit('youtube:sync-loading', false);
           showToast(t('toast.yt_sync_done'));
         }, waitMs);
@@ -623,12 +633,14 @@ function handleYouTubeState(data: Record<string, unknown>): void {
           bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
         }
         setManagedTimer('yt-clock-action', () => {
-          if (state === 1 && player.playVideo) {
-            if (!subIndexChanged && player.seekTo) player.seekTo(compensatedTime, true);
-            player.playVideo();
-          } else if (state === 2 && player.pauseVideo) {
-            player.pauseVideo();
-            if (player.seekTo) player.seekTo(compensatedTime, true);
+          const p = getYouTubePlayer();
+          if (!p) return;
+          if (state === 1 && p.playVideo) {
+            if (!subIndexChanged && p.seekTo) p.seekTo(compensatedTime, true);
+            p.playVideo();
+          } else if (state === 2 && p.pauseVideo) {
+            p.pauseVideo();
+            if (p.seekTo) p.seekTo(compensatedTime, true);
           }
         }, waitMs);
       } else {
@@ -652,6 +664,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
 function executeImmediate(
   player: any, state: number, time: number, duration: number, subIndexChanged: boolean,
 ): void {
+  // Clear any orphaned scheduled action — this immediate command supersedes it
+  clearManagedTimer('yt-clock-action');
   if (time > 0 && duration > 0) {
     bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
   }

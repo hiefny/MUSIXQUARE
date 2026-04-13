@@ -76,6 +76,7 @@ export function loadYouTubeVideo(
 
   setCachedYtDuration(0); // Reset duration cache for new video
   _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
+  _lastYtStateBroadcast = 0; // Allow immediate first broadcast for new session
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -267,7 +268,10 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
     // Wait a few seconds for YouTube to populate the internal playlist IDs
     setManagedTimer('yt-mix-snapshot', () => {
       try {
-        const ids = player.getPlaylist();
+        // Re-fetch player — original capture may be stale after 3s
+        const freshPlayer = getYouTubePlayer();
+        if (!freshPlayer?.getPlaylist) return;
+        const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
           log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
           // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
@@ -324,6 +328,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   const player = getYouTubePlayer();
+  if (!player) return; // Player destroyed during async state transition
   const state = event.data;
 
   if (state === YT.PlayerState.PLAYING) {

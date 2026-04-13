@@ -174,6 +174,14 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
 
+  // Disconnect relay upstream so stale relay doesn't pump chunks when
+  // switching to file mode. Guest-only — host doesn't have upstreamDataConn.
+  const upstreamDataConn = getState('relay.upstreamDataConn');
+  if (upstreamDataConn) {
+    try { upstreamDataConn.close(); } catch { /* noop */ }
+    setState('relay.upstreamDataConn', null);
+  }
+
   // Full reset of guest-side sync module state (rendezvous flag, host
   // snapshot, drift-correction cooldown, ad detection, rendezvous timers).
   // Without this, a mid-rendezvous mode exit would leak timers, leave
@@ -802,14 +810,38 @@ export function initYouTube(): void {
         subIndex: subIdx,
       });
 
-      // Also send an immediate sync frame
-      conn.send({
-        type: MSG.YOUTUBE_SYNC,
-        time: ytTime,
-        state: ytState,
-        subIndex: subIdx,
-        videoId: player.getVideoData?.()?.video_id || '',
-      });
+      // Delay the sync frame so the guest's async loadVideoById / loadPlaylist
+      // completes before the position arrives. An immediate YOUTUBE_SYNC would
+      // be overwritten by YouTube's iframe resetting to position 0 on load.
+      // Use YOUTUBE_STATE (not SYNC) with hostPlayAt so the guest's auto-sync
+      // path handles pause → seek → timed play correctly.
+      // NOTE: only the late-joining conn receives this — existing guests are
+      // NOT disturbed (no broadcast, no host pause).
+      if (autoplay && ytTime > 0) {
+        const BOOTSTRAP_DELAY = 2000;
+        setManagedTimer('yt-bootstrap-sync', () => {
+          if (!conn.open) return;
+          let freshTime = ytTime;
+          try { if (player?.getCurrentTime) freshTime = player.getCurrentTime(); } catch { /* noop */ }
+          conn.send({
+            type: MSG.YOUTUBE_STATE,
+            state: 1,
+            time: freshTime,
+            subIndex: subIdx,
+            videoId: player?.getVideoData?.()?.video_id || '',
+            hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
+          });
+        }, BOOTSTRAP_DELAY);
+      } else {
+        // Host paused or at start — simple sync frame is fine
+        conn.send({
+          type: MSG.YOUTUBE_SYNC,
+          time: ytTime,
+          state: ytState,
+          subIndex: subIdx,
+          videoId: player?.getVideoData?.()?.video_id || '',
+        });
+      }
 
       log.debug('[YouTube] Bootstrap: sent YouTube state to new peer');
     } catch (e) {

@@ -122,6 +122,12 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
 // ─── File Receive Handlers ───────────────────────────────────────────
 
 export async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
+  // YouTube mode: ignore file transfers entirely — no file to receive
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
+    return;
+  }
+
   // Demo track: fetch directly from server instead of P2P transfer
   if (data.name === DEMO_FILE_NAME) {
     setState('transfer.skipIncomingFile', true);

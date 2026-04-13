@@ -352,6 +352,14 @@ export function playNextTrack(): void {
 
   // Host: YouTube internal navigation
   const currentState = getState('appState');
+  const repeatMode = getState('playlist.repeatMode') || 0;
+
+  // YouTube: Repeat-one restarts current video via auto-sync (before try-next)
+  if (currentState === APP_STATE.PLAYING_YOUTUBE && repeatMode === 2) {
+    bus.emit('youtube:seek-to', 0);
+    return;
+  }
+
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     let handled = false;
     bus.emit('youtube:try-next-internal', (success: boolean) => { handled = success; });
@@ -360,7 +368,6 @@ export function playNextTrack(): void {
 
   const playlist = getState('playlist.items') || [];
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const repeatMode = getState('playlist.repeatMode') || 0;
   const isShuffle = getState('playlist.isShuffle');
   const nextTrackIndex = getState('preload.nextTrackIndex');
 

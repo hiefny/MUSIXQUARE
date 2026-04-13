@@ -123,6 +123,14 @@ export function initMediaSession(): void {
     updateMediaSessionMetadata(meta ?? null);
   });
 
+  // Update lock screen metadata when YouTube sub-video changes (playlist auto-advance)
+  bus.on('state:youtube.currentSubIndex', () => {
+    const meta = getState('player.currentTrackMeta');
+    if (meta && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+      updateMediaSessionMetadata(meta);
+    }
+  });
+
   // !! CRITICAL — DO NOT REMOVE
   // Sync playbackState with app state. This explicitly tells the OS
   // that media is playing, which has a crucial side effect on iOS PWA:

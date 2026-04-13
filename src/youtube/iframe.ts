@@ -423,13 +423,45 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
 // ─── YouTube UI Update Loop ────────────────────────────────────────
 
+let _ytCrashFailCount = 0;
+const YT_CRASH_THRESHOLD = 6; // 6 consecutive failures × 500ms = 3s unresponsive
+
 function updateYouTubeUI(): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
+  // Crash detection: if getCurrentTime() throws repeatedly, the iframe
+  // process has died (sad face icon). YouTube API events stop firing
+  // entirely, so onError never triggers. Detect via polling and recover.
+  let currentTime: number;
   try {
-    const currentTime = player.getCurrentTime();
+    currentTime = player.getCurrentTime();
+    _ytCrashFailCount = 0; // Reset on success
+  } catch {
+    _ytCrashFailCount++;
+    if (_ytCrashFailCount >= YT_CRASH_THRESHOLD) {
+      log.error(`[YouTube] iframe unresponsive (${_ytCrashFailCount} failures) — rebuilding player`);
+      _ytCrashFailCount = 0;
+      // Capture current state for recovery
+      const videoId = getState('player.currentTrackMeta')?.videoId as string || '';
+      const playlistId = getState('player.currentTrackMeta')?.playlistId as string || '';
+      const subIndex = getState('youtube.currentSubIndex') ?? 0;
+      // Destroy dead player and rebuild
+      try { player.destroy?.(); } catch { /* already dead */ }
+      setYouTubePlayer(null);
+      const container = document.getElementById('youtube-player-container');
+      if (container) container.innerHTML = '<div id="youtube-player"></div>';
+      showToast(t('youtube.load_fail'));
+      // Reload the same video
+      if (videoId || playlistId) {
+        loadYouTubeVideo(videoId || null, playlistId || null, true, subIndex);
+      }
+    }
+    return;
+  }
+
+  try {
     const rawDuration = player.getDuration?.() || 0;
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;

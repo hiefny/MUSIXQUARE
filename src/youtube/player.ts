@@ -349,12 +349,33 @@ export function initYouTube(): void {
       try { return player.getCurrentTime?.() || 0; } catch { return 0; }
     })();
 
+    // M7: Explicitly extract the new videoId from the playlist array instead of
+    // relying on player.getVideoData() inside scheduleYtAutoSync. The IFrame API
+    // updates getPlaylistIndex() slightly before getVideoData(), causing the host
+    // to accidentally broadcast the OLD video's ID with the NEW subIndex. Guests
+    // receiving the old ID interpret it as a mismatch, explicitly load the OLD
+    // video via loadVideoById(), and wait 3s at the start of the previous track.
+    let nextIdx = -1;
+    let nextVideoId: string | undefined;
+    try {
+      nextIdx = player.getPlaylistIndex?.() ?? -1;
+      const pList = player.getPlaylist?.() || [];
+      if (nextIdx >= 0 && nextIdx < pList.length) {
+        nextVideoId = pList[nextIdx];
+      }
+    } catch { /* noop */ }
+
     setYtAutoplayIntent(true); // avoid pause-back guard firing post-sync
     // skipSeek:true — host is already at currentTime after the force-pause,
     // re-seeking would only introduce an extra BUFFERING round-trip.
     // 3s countdown for track transitions — guest needs time to load the
     // new video via loadVideoById before the synchronized play fires.
-    scheduleYtAutoSync(currentTime, { skipSeek: true, countdownMs: 3000 });
+    scheduleYtAutoSync(currentTime, { 
+      subIndex: nextIdx !== -1 ? nextIdx : undefined,
+      videoId: nextVideoId,
+      skipSeek: true, 
+      countdownMs: 3000 
+    });
   });
 
   // URL-input path: the player finished initializing — if _addYouTubeToPlaylist

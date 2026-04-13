@@ -426,6 +426,10 @@ function syncVolumeSlider(): void {
   updateVolumeIcon();
 }
 
+// ─── Module State ───────────────────────────────────────────────
+
+let _langObserver: MutationObserver | null = null;
+
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initPlayerControls(): void {
@@ -601,7 +605,9 @@ export function initPlayerControls(): void {
   });
 
   // Language switch → refresh translated track title + tab title
-  new MutationObserver(() => {
+  // Store reference so the observer can be disconnected if module re-inits.
+  _langObserver?.disconnect();
+  _langObserver = new MutationObserver(() => {
     refreshTrackTitle();
     const item = getState('player.currentTrackMeta');
     if (item) {
@@ -611,7 +617,8 @@ export function initPlayerControls(): void {
           ? t('system_audio.receiving')
           : (item.title || item.name || '');
     }
-  }).observe(document.documentElement, { attributeFilter: ['lang'] });
+  });
+  _langObserver.observe(document.documentElement, { attributeFilter: ['lang'] });
 
   // Peer disconnected: update UI
   bus.on('network:peer-disconnected', (peerId) => {

@@ -149,10 +149,10 @@ export function startVisualizer(): void {
 
   // Initial Sync
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
-  const logicalSize = syncCanvasSize(canvas, ctx, wrapper);
+  let logicalSize = syncCanvasSize(canvas, ctx, wrapper);
 
   // Pre-compute constants outside draw loop
-  const scale = logicalSize / 240;
+  let scale = logicalSize / 240;
   const twoPi = 2 * Math.PI;
   const highStart = Math.floor(bufferLength * 0.7);
   const highEnd = bufferLength;
@@ -168,6 +168,11 @@ export function startVisualizer(): void {
     const currentState = getState('appState');
     // YouTube/Video mode: analyser isn't connected or canvas is CSS-hidden, skip draw
     if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+
+    // Self-correct after resize — avoids stale dimensions during the 100ms
+    // gap between resize event and startVisualizer() re-init.
+    const curSize = canvas!.width / (window.devicePixelRatio || 1);
+    if (curSize !== logicalSize) { logicalSize = curSize; scale = logicalSize / 240; }
 
     try {
       analyser!.getFloatFrequencyData(_freqData);
@@ -313,8 +318,8 @@ function startSpectrumVisualizer(): void {
   // Sync size
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
   syncCanvasSize(canvas, ctx, wrapper);
-  const logicalW = canvas.width / (window.devicePixelRatio || 1);
-  const logicalH = canvas.height / (window.devicePixelRatio || 1);
+  let logicalW = canvas.width / (window.devicePixelRatio || 1);
+  let logicalH = canvas.height / (window.devicePixelRatio || 1);
 
   const padX = 4;
   const padY = 8;
@@ -323,6 +328,11 @@ function startSpectrumVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+
+    // Self-correct after resize
+    const curW = canvas!.width / (window.devicePixelRatio || 1);
+    const curH = canvas!.height / (window.devicePixelRatio || 1);
+    if (curW !== logicalW || curH !== logicalH) { logicalW = curW; logicalH = curH; }
 
     try {
       analyser!.getFloatFrequencyData(freqData);

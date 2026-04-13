@@ -393,7 +393,14 @@ export function playNextTrack(): void {
         return;
       }
       nextIndex = 0;
-    } else if (nextTrackIndex !== -1 && nextTrackIndex !== currentTrackIndex && nextTrackIndex < playlist.length) {
+    } else if (
+      nextTrackIndex !== -1 &&
+      nextTrackIndex !== currentTrackIndex &&
+      nextTrackIndex < playlist.length &&
+      // Validate preloaded index still points to the expected track —
+      // playlist mutations (remove/reorder) can shift positions.
+      playlist[nextTrackIndex] != null
+    ) {
       nextIndex = nextTrackIndex;
     } else {
       do {

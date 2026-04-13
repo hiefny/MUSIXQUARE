@@ -416,6 +416,14 @@ export function handleFileStart(data: Record<string, unknown>): void {
   clearManagedTimer('prepareWatchdog');
   clearManagedTimer('chunkWatchdog');
 
+  // Evict stale reorder buffer entries from previous sessions — prevents
+  // memory accumulation when transfers are interrupted without cleanup.
+  if (fileReorderBuffer.size > 1) {
+    for (const key of fileReorderBuffer.keys()) {
+      if (key !== incomingSid) fileReorderBuffer.delete(key);
+    }
+  }
+
   // Check if same file (recovery)
   const meta = getState('transfer.meta');
   const receivedCount = getState('transfer.receivedCount');

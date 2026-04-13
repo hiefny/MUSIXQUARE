@@ -250,6 +250,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     clearManagedTimer('ice-detect-' + peerId);
     clearManagedTimer('ice-redetect-' + peerId);
 
+    // Read current label BEFORE cleanup deletes it from peerLabels.
+    // Captures rename (e.g. "Alice") instead of stale slot name ("GUEST 1").
+    const currentLabel = getState('network.peerLabels')?.[peerId] || deviceName;
+
     const closeConns = new Map(getState('network.activeHostConnByPeerId'));
     closeConns.delete(peerId);
     setState('network.activeHostConnByPeerId', closeConns);
@@ -269,10 +273,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      showToast(t('toast.device_disconnected', { name: deviceName }));
-      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
+      showToast(t('toast.device_disconnected', { name: currentLabel }));
+      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: currentLabel }));
     }
-    log.info(`[Host] ${deviceName} disconnected`);
+    log.info(`[Host] ${currentLabel} disconnected`);
   });
 
   conn.on('error', (err: unknown) => {
@@ -286,6 +290,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Clear ICE detection timers to prevent firing on disconnected peer
     clearManagedTimer('ice-detect-' + peerId);
     clearManagedTimer('ice-redetect-' + peerId);
+
+    const errLabel = getState('network.peerLabels')?.[peerId] || deviceName;
 
     const errConns = new Map(getState('network.activeHostConnByPeerId'));
     errConns.delete(peerId);
@@ -306,8 +312,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
-      showToast(t('toast.device_conn_error', { name: deviceName }));
-      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: deviceName }));
+      showToast(t('toast.device_conn_error', { name: errLabel }));
+      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: errLabel }));
     }
     try { conn.close(); } catch { /* noop */ }
   });

@@ -284,7 +284,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
         setState('playlist.currentTrackIndex', data.index as number);
       }
 
-      // Preload Watchdog: If preloading fails to complete, recover after 10s
+      // Preload Watchdog: If preloading fails to complete, recover.
+      // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
+      const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer('preloadWatchdog', () => {
         if (getState('transfer.waitingForPreload')) {
           log.warn('[Guest] Preload wait timed out. Force recovering...');
@@ -294,7 +296,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
           sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name as string | undefined, index: data.index as number | undefined });
         }
-      }, 10000);
+      }, preloadWatchdogMs);
 
       return; // Don't start new download
     }
@@ -396,10 +398,19 @@ export function handleFileStart(data: Record<string, unknown>): void {
   // Skip if using preloaded file — do NOT relay FILE_START downstream.
   // Downstream peers would begin expecting chunks that will never arrive
   // (since chunks are also skipped when skipIncomingFile is true).
+  // Exception: if this FILE_START is a recovery re-send (same file, same session),
+  // the host explicitly wants us to receive data — clear the stale skip flag.
   if (getState('transfer.skipIncomingFile')) {
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    return;
+    const meta = getState('transfer.meta');
+    const isRecoveryResend = !isNewSession && meta?.name === data.name;
+    if (isRecoveryResend) {
+      log.info('[file-start] Clearing stale skipIncomingFile for same-session recovery');
+      setState('transfer.skipIncomingFile', false);
+    } else {
+      clearManagedTimer('prepareWatchdog');
+      clearManagedTimer('chunkWatchdog');
+      return;
+    }
   }
 
   clearManagedTimer('prepareWatchdog');

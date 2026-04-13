@@ -105,7 +105,7 @@ function callGuest(guestPeerId: string): void {
     applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
     mc.on('close', () => _mediaConns.delete(guestPeerId));
-    mc.on('error', () => _mediaConns.delete(guestPeerId));
+    mc.on('error', () => { try { mc.close(); } catch { /* noop */ } _mediaConns.delete(guestPeerId); });
 
     log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single-stream, dual-track (synced)`);
   } catch (e) {

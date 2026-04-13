@@ -44,12 +44,13 @@ export function initBeatDetector(): void {
     if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
       void analyzeAndStart();
     } else {
-      stopBeatLoop();
+      // Non-playing state: stop loop AND release buffer memory
+      clearBeatDetector();
     }
   });
 
-  // Re-analyze when a new track loads (buffer changes while already playing)
-  bus.on('player:ended', stopBeatLoop);
+  // Track ended: full reset to release AudioBuffer memory
+  bus.on('player:ended', clearBeatDetector);
 
   // Handle track change: when stopAllMedia({ silent: true }) keeps appState as PLAYING,
   // state:appState won't fire again. Listen for buffer swaps to re-analyze BPM.
@@ -231,11 +232,20 @@ function stopBeatLoop(): void {
     _animId = null;
   }
   _lastBeatIdx = -1;
-  // M16: Release the stale AudioBuffer reference. A 10-minute stereo 44.1kHz
-  // track weighs ~100 MB as a raw AudioBuffer. Without this, the old buffer
-  // stays pinned in memory until a new track is analyzed (or indefinitely if
-  // playback stops without loading another track).
+  // M16: Memory note — _analysedBuffer is NOT nullified here anymore.
+  // Clearing it here defeated the cache check in analyzeAndStart() (line 73),
+  // causing full BPM re-analysis on every resume of the same track.
+  // Instead, _analysedBuffer is released in clearBeatDetector() (called on
+  // track change / stop) so memory is still freed when it matters.
+}
+
+/** Full reset — call on track change or playback stop to release memory. */
+export function clearBeatDetector(): void {
+  stopBeatLoop();
   _analysedBuffer = null;
+  _bpm = 0;
+  _beatDuration = 0;
+  _phase = 0;
 }
 
 function tick(): void {

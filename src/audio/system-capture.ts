@@ -169,10 +169,14 @@ export async function startSystemAudioCapture(): Promise<void> {
   bus.emit('visualizer:start');
 
   // 11. Listen for browser "Stop sharing" button
-  audioTracks[0].addEventListener('ended', () => {
+  // Use a named function so cleanupCapture can remove it (prevents
+  // recursive reentry: explicit stop → track.stop() → ended → stop again).
+  const onTrackEnded = (): void => {
+    audioTracks[0].removeEventListener('ended', onTrackEnded);
     log.info('[SystemAudio] Audio track ended (user stopped sharing)');
     stopSystemAudioCapture();
-  });
+  };
+  audioTracks[0].addEventListener('ended', onTrackEnded);
 
   log.info('[SystemAudio] Capture started (stereo-stream)');
 }

@@ -57,6 +57,8 @@ export function setAppState(newState: AppStateValue): void {
 
 // ─── Track Position ────────────────────────────────────────────────
 
+let _offsetResetQueued = false;
+
 export function getTrackPosition(): number {
   const currentState = getState('appState');
   const pausedAt = getState('player.pausedAt') || 0;
@@ -88,9 +90,13 @@ export function getTrackPosition(): number {
     // Guard: schedule offset reset if drift exceeds 30 seconds.
     // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
     // Deferred to avoid setState inside a getter (side-effect in read path).
-    if (Math.abs(localOffset) > 30) {
+    // _offsetResetQueued prevents duplicate microtasks when getTrackPosition()
+    // is called multiple times in the same frame (seek bar, sync, broadcast).
+    if (Math.abs(localOffset) > 30 && !_offsetResetQueued) {
+      _offsetResetQueued = true;
       log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}s — resetting`);
       queueMicrotask(() => {
+        _offsetResetQueued = false;
         const lo = getState('sync.localOffset') || 0;
         setState('sync.localOffset', 0);
         // Recalculate startedAt to remove the encoded offset — prevents position

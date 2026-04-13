@@ -155,7 +155,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   }
 
   let ticking = false;
-  container.addEventListener('scroll', () => {
+  const onScroll = (): void => {
     showTrack();
     if (!ticking) {
       window.requestAnimationFrame(() => {
@@ -164,7 +164,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
       });
       ticking = true;
     }
-  }, { passive: true });
+  };
+  container.addEventListener('scroll', onScroll, { passive: true });
 
   // Content mutations → update layout
   state.observer = new MutationObserver(() => updateLayout(state));
@@ -240,6 +241,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   window.addEventListener('touchend', onDragEnd);
 
   state.cleanup = [
+    () => container.removeEventListener('scroll', onScroll),
     () => window.removeEventListener('mousemove', onMouseMove),
     () => window.removeEventListener('touchmove', onTouchMove),
     () => window.removeEventListener('mouseup', onDragEnd),

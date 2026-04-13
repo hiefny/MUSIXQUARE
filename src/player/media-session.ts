@@ -56,14 +56,15 @@ export function initMediaSession(): void {
   if (!('mediaSession' in navigator)) return;
   log.debug('[MediaSession] Initializing action handlers...');
 
-  const isBlocked = (): boolean => {
+  /** Non-OP guest: block track changes & seek, but ALLOW play/pause.
+   *  Users must always be able to pause from lock screen / hardware buttons. */
+  const isPlaybackBlocked = (): boolean => {
     const hostConn = getState('network.hostConn');
     const isOperator = getState('network.isOperator');
     return !!(hostConn && !isOperator);
   };
 
   navigator.mediaSession.setActionHandler('play', () => {
-    if (isBlocked()) return;
     const currentState = getState('appState');
     if (currentState === APP_STATE.PLAYING_YOUTUBE) {
       togglePlay();
@@ -83,34 +84,33 @@ export function initMediaSession(): void {
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    if (isBlocked()) return;
     const currentState = getState('appState');
     if (!isIdleOrPaused(currentState)) togglePlay();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {
-    if (isBlocked()) return;
+    if (isPlaybackBlocked()) return;
     bus.emit('playlist:prev-track');
   });
 
   navigator.mediaSession.setActionHandler('nexttrack', () => {
-    if (isBlocked()) return;
+    if (isPlaybackBlocked()) return;
     bus.emit('playlist:next-track');
   });
 
   navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-    if (isBlocked()) return;
+    if (isPlaybackBlocked()) return;
     skipTime(-(details.seekOffset || 10));
   });
 
   navigator.mediaSession.setActionHandler('seekforward', (details) => {
-    if (isBlocked()) return;
+    if (isPlaybackBlocked()) return;
     skipTime(details.seekOffset || 10);
   });
 
   try {
     navigator.mediaSession.setActionHandler('stop', () => {
-      if (isBlocked()) return;
+      if (isPlaybackBlocked()) return;
       stopPlayback();
     });
   } catch (e: unknown) {

@@ -342,7 +342,16 @@ export function handleRelayConnection(conn: DataConnection): void {
     const msg = data as Record<string, unknown>;
 
     if (msg.type === MSG.REQUEST_CURRENT_FILE) {
-      bus.emit('relay:serve-current-file', conn, msg);
+      // Guard: only serve if conn is tracked (open handler has fired).
+      // If data arrives before open, the OPFS catchup pump looks up the peer
+      // in downstreamDataPeers — a miss silently drops all chunks.
+      const tracked = (getState('relay.downstreamDataPeers') as DataConnection[]).some(p => p === conn);
+      if (!tracked) {
+        log.warn(`[Relay] REQUEST_CURRENT_FILE before open — deferring for ${conn.peer}`);
+        conn.once('open', () => bus.emit('relay:serve-current-file', conn, msg));
+      } else {
+        bus.emit('relay:serve-current-file', conn, msg);
+      }
     } else if (msg.type === MSG.REQUEST_DATA_RECOVERY) {
       bus.emit('relay:serve-recovery', conn, msg);
     } else {

@@ -668,10 +668,11 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
   // keep buffering until sessionState exists so we have a reliable filename/total.
   if (!session) {
     if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
-      // Drop oldest chunk instead of entire buffer to preserve recent data
-      const oldestKey = Math.min(...sessionBuffer.keys());
-      sessionBuffer.delete(oldestKey);
-      log.warn(`[Preload] Early chunk buffer overflow (SID: ${sid}). Dropped oldest chunk ${oldestKey}.`);
+      // Drop highest-index chunk — the drain loop starts from chunk 0, so
+      // evicting low indices (especially 0) permanently stalls the drain.
+      const highestKey = Math.max(...sessionBuffer.keys());
+      sessionBuffer.delete(highestKey);
+      log.warn(`[Preload] Early chunk buffer overflow (SID: ${sid}). Dropped chunk ${highestKey}.`);
     }
     return;
   }

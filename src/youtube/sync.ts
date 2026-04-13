@@ -15,7 +15,7 @@ import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData, setYtAutoplayIntent } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 
@@ -296,7 +296,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     // State sync (always applied, even when duration not loaded)
     if (player.getPlayerState && player.playVideo && player.pauseVideo) {
       const ytState = player.getPlayerState();
-      if (hostState === 1 && ytState !== 1) player.playVideo();
+      if (hostState === 1 && ytState !== 1) { setYtAutoplayIntent(true); player.playVideo(); }
       else if (hostState === 2 && ytState !== 2) player.pauseVideo();
     }
   } catch (e) {
@@ -449,6 +449,7 @@ function scheduleRendezvousPlay(
     const p = getYouTubePlayer();
     if (!p) { finishRendezvous(); return; }
     try {
+      setYtAutoplayIntent(true); // authorize this play past pause-back guard
       p.playVideo();
     } catch (e) {
       log.warn('[Rendezvous] playVideo threw:', e);
@@ -720,7 +721,10 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         // 6. Play at scheduled time
         setManagedTimer('yt-clock-action', () => {
           const p = getYouTubePlayer();
-          if (p?.playVideo) p.playVideo();
+          if (p?.playVideo) {
+            setYtAutoplayIntent(true); // authorize this play past pause-back guard
+            p.playVideo();
+          }
           bus.emit('youtube:sync-loading', false);
           showToast(t('toast.yt_sync_done'));
         }, waitMs);
@@ -747,9 +751,10 @@ function handleYouTubeState(data: Record<string, unknown>): void {
               p.seekTo(compensatedTime, true);
               setManagedTimer('yt-seek-play', () => {
                 const p2 = getYouTubePlayer();
-                if (p2?.playVideo) p2.playVideo();
+                if (p2?.playVideo) { setYtAutoplayIntent(true); p2.playVideo(); }
               }, 150);
             } else {
+              setYtAutoplayIntent(true);
               p.playVideo();
             }
           } else if (state === 2 && p.pauseVideo) {
@@ -806,9 +811,10 @@ function executeImmediate(
       player.seekTo(time, true);
       setManagedTimer('yt-seek-play', () => {
         const p = getYouTubePlayer();
-        if (p?.playVideo) p.playVideo();
+        if (p?.playVideo) { setYtAutoplayIntent(true); p.playVideo(); }
       }, 150);
     } else {
+      setYtAutoplayIntent(true);
       player.playVideo();
     }
   } else if (state === 2 && player.pauseVideo) {

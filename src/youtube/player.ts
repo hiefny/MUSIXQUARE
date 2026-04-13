@@ -75,7 +75,7 @@ export { loadYouTubeVideo } from './iframe.ts';
  */
 export function scheduleYtAutoSync(
   targetTime: number,
-  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean },
+  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; countdownMs?: number },
 ): void {
   const player = getYouTubePlayer();
   if (!player) return;
@@ -83,7 +83,8 @@ export function scheduleYtAutoSync(
   // Cancel any pending sync
   clearManagedTimer('yt-auto-sync');
 
-  const hostPlayAt = getHostNow() + YT_AUTO_SYNC_MS;
+  const countdown = overrides?.countdownMs ?? YT_AUTO_SYNC_MS;
+  const hostPlayAt = getHostNow() + countdown;
 
   // 1. Broadcast to guests with 1s ahead
   markYtStateBroadcast();
@@ -137,7 +138,7 @@ export function scheduleYtAutoSync(
     // alive for 500ms after playVideo so seek handlers still route
     // through scheduleYtAutoSync in that window.
     setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
-  }, YT_AUTO_SYNC_MS);
+  }, countdown);
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during countdown). */
@@ -320,7 +321,8 @@ export function initYouTube(): void {
       // skipSeek:true — the freshly loaded video is already at position 0,
       // so seekTo(0) would be a wasted round-trip (and may trigger an
       // unwanted BUFFERING transition on CUED players).
-      scheduleYtAutoSync(0, { skipSeek: true });
+      // 3s countdown — guest needs time to load the new video iframe.
+      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: 3000 });
     }
   });
 
@@ -350,7 +352,9 @@ export function initYouTube(): void {
     setYtAutoplayIntent(true); // avoid pause-back guard firing post-sync
     // skipSeek:true — host is already at currentTime after the force-pause,
     // re-seeking would only introduce an extra BUFFERING round-trip.
-    scheduleYtAutoSync(currentTime, { skipSeek: true });
+    // 3s countdown for track transitions — guest needs time to load the
+    // new video via loadVideoById before the synchronized play fires.
+    scheduleYtAutoSync(currentTime, { skipSeek: true, countdownMs: 3000 });
   });
 
   // URL-input path: the player finished initializing — if _addYouTubeToPlaylist
@@ -485,8 +489,9 @@ export function initYouTube(): void {
         const nextIdx = idx + 1;
         setYouTubeSubIndex(nextIdx);
         player.nextVideo();
-        // 1s auto-sync: guests load same subIndex, all play simultaneously
-        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: ids[nextIdx] || '', skipSeek: true });
+        // 3s countdown for track transitions — guest needs time to load the
+        // new video before synchronized play fires.
+        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: ids[nextIdx] || '', skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
       }

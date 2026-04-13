@@ -344,11 +344,16 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   } else if (state === YT.PlayerState.PAUSED) {
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
-    clearManagedTimer('youtubeUILoop');
+    // Host: clear ALL loops and advance
+    // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
+    // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
+    // suppression (pause + wait for host) needs the loop running to detect
+    // the sub-index change. Only clear the sync broadcast loop (host-only).
     clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
+      clearManagedTimer('youtubeUILoop');
       // Host: skip IDLE state transition to prevent UI flash — next-track
       // will call stopAllMedia({ silent: true }) which handles state internally.
       log.debug('[YouTube] Ended, playing next track...');
@@ -361,6 +366,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       log.debug('[YouTube] Guest: video ended — waiting for host next-track');
       setManagedTimer('yt-guest-ended-fallback', () => {
         // Host never sent next track (e.g. playlist truly ended) — clean up
+        clearManagedTimer('youtubeUILoop');
         if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
           log.debug('[YouTube] Guest: no next-track from host — going IDLE');
           setAppState(APP_STATE.IDLE);

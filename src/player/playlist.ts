@@ -278,11 +278,15 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       }
 
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-      if (isFirstTrackLoad) {
+      // If we're already in YouTube mode (YT-to-YT transition via ENDED),
+      // this is NOT a first load — always auto-play regardless of the flag.
+      const isAlreadyYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      if (isFirstTrackLoad && !isAlreadyYt) {
         setState('player.isFirstTrackLoad', false);
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         showToast(t('youtube.ready'));
       } else {
+        if (isFirstTrackLoad) setState('player.isFirstTrackLoad', false);
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         showToast(t('youtube.playing_in_3s'));
         setManagedTimer('autoPlayTimer', () => {

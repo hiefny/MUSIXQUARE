@@ -95,6 +95,11 @@ export function broadcastYouTubeSync(): void {
       state,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId,
+      // Host-side clock at the moment currentTime was read. Guests use
+      // this for snapshot extrapolation instead of their own getHostNow()
+      // at receive time, which is one-way-latency later and causes the
+      // extrapolated position to be consistently behind by that latency.
+      hostClock: getHostNow(),
     });
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
@@ -133,9 +138,14 @@ interface HostPositionSnapshot {
 }
 let _lastHostSnapshot: HostPositionSnapshot | null = null;
 
-function updateHostSnapshot(hostTime: number, hostState: number): void {
+function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: number): void {
   _lastHostSnapshot = {
-    hostClockAt: getHostNow(),
+    // Use the host's own clock reading (sent in the message) when available.
+    // Falling back to getHostNow() at receive time introduces a systematic
+    // error equal to the one-way network latency: the position was measured
+    // at send time, but hostClockAt is stamped at receive time, making every
+    // extrapolation underestimate elapsed time by that latency.
+    hostClockAt: hostClock ?? getHostNow(),
     hostPosition: hostTime,
     hostState,
   };
@@ -160,9 +170,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const hostTime = Number(data.time) || 0;
     const hostState = Number(data.state);
     const hostSubIndex = data.subIndex as number | undefined;
+    const hostClock = Number(data.hostClock) || undefined;
 
     // Cache latest host position for rendezvous sync extrapolation
-    updateHostSnapshot(hostTime, hostState);
+    updateHostSnapshot(hostTime, hostState, hostClock);
 
     // ── Host ad detection ──
     if (hostState === 1) {

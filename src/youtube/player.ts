@@ -117,8 +117,15 @@ export function scheduleYtAutoSync(
 
   // 4. After 1s: play simultaneously
   setManagedTimer('yt-auto-sync', () => {
+    // Re-fetch player — the closure-captured reference from 1s ago may be
+    // stale if stopYouTubeMode was called during the countdown.
+    const p = getYouTubePlayer();
+    if (!p?.playVideo) {
+      bus.emit('youtube:sync-loading', false);
+      return;
+    }
     markYtStateBroadcast(); // Prevent onStateChange duplicate on playVideo
-    player.playVideo();
+    p.playVideo();
     bus.emit('youtube:sync-loading', false);
     showToast(t('toast.yt_sync_done'));
     // Post-sync grace window: playVideo() is async — the YouTube iframe

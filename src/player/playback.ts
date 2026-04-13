@@ -144,6 +144,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         // Transport guard: remote guest without relay can't receive file data
         if (isRemoteGuest() && !hasActiveRelay()) {
           log.info('[Guest] Stale audio recovery skipped — remote without relay');
+          showLoader(false);
           return;
         }
         // Skip if transfer is already in progress — file is arriving, no need to re-request

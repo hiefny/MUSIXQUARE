@@ -262,6 +262,7 @@ function bootstrap(): void {
       { type: 'module' },
     );
     setSyncWorker(syncW);
+    syncW.onerror = (ev) => log.error('[App] SyncWorker error:', ev.message || ev);
     syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] SyncWorker started');
   } catch (e) {
@@ -275,6 +276,7 @@ function bootstrap(): void {
       { type: 'module' },
     );
     setTransferWorker(transferW);
+    transferW.onerror = (ev) => log.error('[App] TransferWorker error:', ev.message || ev);
     transferWorkerReady = true;
     transferW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] TransferWorker started');

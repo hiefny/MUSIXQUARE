@@ -388,6 +388,9 @@ export function handleFileStart(data: Record<string, unknown>): void {
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'new-session-start');
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
+    // New session always resets skipIncomingFile — a stale flag from a previous
+    // preload/demo/same-file skip must not block the new session's file transfer.
+    setState('transfer.skipIncomingFile', false);
   }
 
   // Skip if using preloaded file — do NOT relay FILE_START downstream.

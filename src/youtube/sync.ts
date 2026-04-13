@@ -374,8 +374,8 @@ export function guestRendezvousSync(): void {
       return;
     }
 
-    if (outOfTime || bufferChecks > 40) {
-      log.warn('[Rendezvous] Buffer gate timeout — aborting');
+    if (outOfTime || bufferChecks > 100) {
+      log.warn(`[Rendezvous] Buffer gate timeout after ${bufferChecks} checks — aborting`);
       showToast(t('toast.yt_rendezvous_timeout'));
       finishRendezvous();
       return;
@@ -730,7 +730,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
       import('./iframe.ts').then(mod => {
         mod.loadYouTubeVideo(null, ids, true, subIndex);
-      });
+      }).catch(err => log.error('[YouTube Mix] Failed to load iframe module:', err));
     }
   }
 

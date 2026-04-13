@@ -150,7 +150,10 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
   const data = e.data;
   if (!data || !data.type) return;
 
-  switch (data.type) {
+  // Wrap entire switch in try/catch — an uncaught exception here kills
+  // ALL subsequent worker message processing, permanently breaking file
+  // transfer for the rest of the session.
+  try { switch (data.type) {
     case 'OPFS_STARTED':
       log.debug(`[OPFS] Session started: ${data.filename} (SID: ${data.sessionId})`);
       break;
@@ -238,6 +241,8 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
 
     default:
       log.debug(`[OPFS] Unknown worker message: ${data.type}`);
+  } } catch (err) {
+    log.error(`[OPFS] Worker message handler crashed on ${data.type}:`, err);
   }
 }
 

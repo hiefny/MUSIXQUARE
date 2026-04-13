@@ -773,9 +773,10 @@ export function initYouTube(): void {
     }
 
     // 3. Trigger background title fetcher (All roles)
+    // Full fetch when user explicitly expands the sub-playlist UI
     const currentSubMap = getState('youtube.subItemsMap') || {};
     if (currentSubMap[playlistId]?.ids?.length > 0) {
-      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids);
+      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids, { fullFetch: true });
     }
 
     // 4. Guest: Request info from Host if sub-item data is missing

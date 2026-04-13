@@ -204,12 +204,22 @@ let _subTitleAbort: AbortController | null = null;
  * Background oEmbed fetcher for YouTube playlist sub-item titles.
  * Sequentially fetches titles with 200ms delay between requests.
  * Updates state, UI, and broadcasts to peers as titles arrive.
- * Ported from original app.js fetchPlaylistSubTitles().
+ *
+ * Lazy mode (default): only fetches titles around the current sub-index
+ * (±WINDOW items). Full 100-track fetches hammered the network with
+ * 100 oEmbed requests, 100 setState spreads, and 100 broadcasts —
+ * causing GC pressure and mobile crashes on long Mix sessions.
  *
  * When called again (e.g. playlist switch), the previous fetch loop
  * is cancelled via AbortController to avoid unnecessary network + setState.
  */
-export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]): Promise<void> {
+const LAZY_WINDOW = 5; // fetch current ± 5 titles (11 total max)
+
+export async function fetchPlaylistSubTitles(
+  playlistId: string,
+  ids: string[],
+  options?: { fullFetch?: boolean },
+): Promise<void> {
   if (!ids || ids.length === 0) return;
 
   const subMap = getState('youtube.subItemsMap') || {};
@@ -224,14 +234,21 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
   const abort = new AbortController();
   _subTitleAbort = abort;
 
-  log.debug(`[YouTube Feed] Starting title fetch for playlist: ${playlistId} (${ids.length} items)`);
+  // Determine which indices to fetch
+  const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
+  let startIdx = 0;
+  let endIdx = ids.length;
+  if (!options?.fullFetch) {
+    startIdx = Math.max(0, currentSubIndex - LAZY_WINDOW);
+    endIdx = Math.min(ids.length, currentSubIndex + LAZY_WINDOW + 1);
+  }
+
+  log.debug(`[YouTube Feed] Title fetch for ${playlistId}: indices ${startIdx}-${endIdx - 1} of ${ids.length}`);
 
   try {
-    for (let i = 0; i < ids.length; i++) {
-      // Check cancellation before each fetch
+    for (let i = startIdx; i < endIdx; i++) {
       if (abort.signal.aborted) return;
 
-      // Re-read state in case it was updated externally
       const currentMap = getState('youtube.subItemsMap') || {};
       const currentData = currentMap[playlistId];
       if (!currentData) break;
@@ -253,12 +270,10 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
         if (abort.signal.aborted) return;
 
         if (json && json.title) {
-          // Update state
           updateSubItemTitle(playlistId, i, json.title);
 
           log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
 
-          // Only Host broadcasts to peers
           const hostConn = getState('network.hostConn');
           if (!hostConn) {
             broadcast({
@@ -270,11 +285,10 @@ export async function fetchPlaylistSubTitles(playlistId: string, ids: string[]):
           }
         }
       } catch (e) {
-        if (abort.signal.aborted) return; // Silently return on cancellation
+        if (abort.signal.aborted) return;
         log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
       }
 
-      // 200ms delay between requests to avoid rate limiting
       await delay(DELAY.RETRY);
     }
   } finally {

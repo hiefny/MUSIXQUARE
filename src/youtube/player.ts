@@ -600,6 +600,7 @@ export function initYouTube(): void {
     const shouldPlayNow = isIdle;
 
     if (shouldPlayNow) {
+      setState('player.isFirstTrackLoad', false);
       setState('player.currentTrackMeta', newTrack);
       // Load YouTube with autoplay=FALSE so the 1-sec rendezvous countdown
       // has a clean starting state. _pendingAutoSyncOnReady is checked by

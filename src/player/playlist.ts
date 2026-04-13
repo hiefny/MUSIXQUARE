@@ -239,7 +239,11 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     setState('preload.nextTrackIndex', -1);
 
     if (!hostConn) {
-      stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+      // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo
+      // reuses the existing player instance, preserving the iOS user gesture.
+      // Destroying the iframe forces a "tap to play" on mobile.
+      const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
       broadcast({
         type: MSG.YOUTUBE_PLAY,
         videoId: item.videoId,

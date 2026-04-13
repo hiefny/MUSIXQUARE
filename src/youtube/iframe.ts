@@ -58,20 +58,37 @@ export function loadYouTubeVideo(
 ): void {
   const player = getYouTubePlayer();
 
-  // Guard: destroy previous player to prevent concurrent player instances
-  if (isYtLoadInProgress() && player) {
-    try {
-      player.stopVideo?.();
-      if (typeof player.destroy === 'function') player.destroy();
-    } catch { /* best-effort cleanup */ }
-    setYouTubePlayer(null);
-    const container = document.getElementById('youtube-player-container');
-    if (container) container.innerHTML = '<div id="youtube-player"></div>';
+  // YouTube-to-YouTube transition: reuse the existing player instance
+  // instead of destroying and recreating the iframe. On iOS, recreating
+  // the iframe resets the user gesture — requiring a tap to play again.
+  // loadVideoById/loadPlaylist on the same player preserves the gesture.
+  const isYouTubeToYouTube = player?.loadVideoById && getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+
+  if (isYouTubeToYouTube) {
+    log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
+    // Light cleanup: reset sync state without destroying the player
+    clearManagedTimer('youtubeUILoop');
+    clearManagedTimer('youtubeSyncLoop');
+    clearManagedTimer('yt-clock-action');
+    clearManagedTimer('yt-auto-sync');
+    clearManagedTimer('yt-sync-grace');
+    import('./sync.ts').then(mod => mod.resetYouTubeSyncState()).catch(() => { /* noop */ });
+  } else {
+    // Guard: destroy previous player to prevent concurrent player instances
+    if (isYtLoadInProgress() && player) {
+      try {
+        player.stopVideo?.();
+        if (typeof player.destroy === 'function') player.destroy();
+      } catch { /* best-effort cleanup */ }
+      setYouTubePlayer(null);
+      const container = document.getElementById('youtube-player-container');
+      if (container) container.innerHTML = '<div id="youtube-player"></div>';
+    }
+    // Stop existing media BEFORE creating new scope/session — otherwise
+    // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
+    // new scope immediately, causing the first-ever IFrame API load to abort.
+    bus.emit('player:stop-all-media');
   }
-  // Stop existing media BEFORE creating new scope/session — otherwise
-  // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
-  // new scope immediately, causing the first-ever IFrame API load to abort.
-  bus.emit('player:stop-all-media');
   setEngineMode('youtube');
 
   setCachedYtDuration(0); // Reset duration cache for new video

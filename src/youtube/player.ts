@@ -721,13 +721,18 @@ export function initYouTube(): void {
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
         setYouTubeSubIndex(subIdx);
-        const ytPlaylist = player.getPlaylist?.() || [];
-        const videoId = ytPlaylist[subIdx] || '';
-        
-        // By using scheduleYtAutoSync instead of a raw broadcast, we set the yt-auto-sync
-        // timer. This blocks the 'youtube:sub-video-advanced' event from firing, preventing
-        // it from issuing a premature seekTo(0) which cancels the iframe track transition.
-        scheduleYtAutoSync(0, { subIndex: subIdx, videoId: videoId, skipSeek: true, countdownMs: 3000 });
+        // Suppress 'sub-video-advanced' abort by using a grace period timer.
+        // We do not use scheduleYtAutoSync with a 3000ms countdown because that introduces 
+        // a massive 3-second UI lag for explicit user clicks. We want an instant transition!
+        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 3000);
+
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: 0,
+          subIndex: subIdx,
+          videoId: player.getVideoData?.()?.video_id || '',
+        });
       }
     } else {
       // Different playlist item — load it with the target sub-index

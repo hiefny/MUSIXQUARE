@@ -67,8 +67,8 @@ export function loadYouTubeVideo(
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
     // Light cleanup: reset sync state without destroying the player
-    clearManagedTimer('youtubeUILoop');
-    clearManagedTimer('youtubeSyncLoop');
+    // Do NOT clear youtubeUILoop or youtubeSyncLoop here, as they are only
+    // started once in onYouTubePlayerReady.
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
     clearManagedTimer('yt-sync-grace');

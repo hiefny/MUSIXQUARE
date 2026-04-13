@@ -634,7 +634,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
 
         // 3. Update seekbar immediately
-        if (time > 0 && duration > 0) {
+        if (time >= 0 && duration >= 0) {
           bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
         }
 
@@ -660,7 +660,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         // triggers a premature ENDED event and track-advance on the guest.
         const rawCompensated = time + (waitMs / 1000);
         const compensatedTime = duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
-        if (compensatedTime > 0 && duration > 0) {
+        if (compensatedTime >= 0 && duration >= 0) {
           bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
         }
         _autoSyncUntil = Date.now() + 3000;
@@ -716,7 +716,7 @@ function executeImmediate(
 ): void {
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
-  if (time > 0 && duration > 0) {
+  if (time >= 0 && duration >= 0) {
     bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
   }
 

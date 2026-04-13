@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
@@ -25,6 +25,13 @@ export function broadcastYouTubeSync(): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
+
+  // Suppress heartbeat while auto-sync countdown is active.
+  // During the countdown the host is paused+seeking — getCurrentTime()
+  // may return a stale (pre-seek) value. Broadcasting that stale position
+  // causes ALL guests' drift correction to undo the seek, even though
+  // they already received the correct position via YOUTUBE_STATE.
+  if (getManagedTimer('yt-auto-sync') || getManagedTimer('yt-sync-grace')) return;
 
   try {
     const currentTime = player.getCurrentTime();

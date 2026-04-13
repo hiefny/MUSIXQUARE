@@ -718,21 +718,26 @@ export function initYouTube(): void {
     if (!player) return;
 
     if (isCurrent) {
-      // Same playlist — just jump to sub-index
+      // Same playlist — jump to sub-index via scheduleYtAutoSync so guests
+      // get a proper hostPlayAt countdown and video ID is read AFTER the
+      // transition (playVideoAt is async — getVideoData() returns stale ID
+      // if read immediately).
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
         setYouTubeSubIndex(subIdx);
-        // Suppress 'sub-video-advanced' abort by using a grace period timer.
-        // We do not use scheduleYtAutoSync with a 3000ms countdown because that introduces 
-        // a massive 3-second UI lag for explicit user clicks. We want an instant transition!
-        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 3000);
 
-        broadcast({
-          type: MSG.YOUTUBE_STATE,
-          state: 1,
-          time: 0,
+        // Resolve the correct videoId from our cached sub-items map
+        // (YouTube iframe hasn't switched yet, so getVideoData() is stale).
+        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+        const subMap = getState('youtube.subItemsMap') || {};
+        const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
+        const targetVideoId = ids[subIdx] || player.getVideoData?.()?.video_id || '';
+
+        scheduleYtAutoSync(0, {
           subIndex: subIdx,
-          videoId: player.getVideoData?.()?.video_id || '',
+          videoId: targetVideoId,
+          skipSeek: true,
+          countdownMs: 3000,
         });
       }
     } else {

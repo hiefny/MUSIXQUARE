@@ -124,7 +124,13 @@ export function processSyncPong(
 
   _samples.push({ rtt, offset, timestamp: receivedAt });
 
-  // Keep bounded
+  // Keep bounded by count AND age. Old samples' offsets become stale
+  // because device clocks drift over time (mobile Date.now() can drift
+  // tens of μs/sec — after 30min that's hundreds of ms). Using a
+  // months-old minimum-RTT sample's offset causes persistent rendezvous
+  // desync that grows linearly with session duration.
+  const AGE_LIMIT = 120_000; // 2 minutes — balances freshness vs sample pool
+  _samples = _samples.filter(s => receivedAt - s.timestamp < AGE_LIMIT);
   if (_samples.length > MAX_SAMPLES) _samples.shift();
 
   // Best offset = from the sample with lowest RTT (most accurate)

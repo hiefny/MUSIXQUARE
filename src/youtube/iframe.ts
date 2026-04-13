@@ -385,6 +385,14 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     if (!getYtAutoplayIntent()) {
       player?.pauseVideo?.();
       showLoader(false);
+      // The video loaded and started playing (loadPlaylist async completion).
+      // If autoPlayTimer is still pending, fire it NOW — the video is ready.
+      // This replaces time-based guessing (1s delay) with event-based detection:
+      // YouTube tells us it's ready by firing PLAYING, so we can proceed.
+      if (getManagedTimer('autoPlayTimer')) {
+        clearManagedTimer('autoPlayTimer');
+        bus.emit('youtube:auto-play');
+      }
       return; // Don't broadcast or update UI — we're reverting to paused
     }
     showYouTubeSyncOverlay(false);

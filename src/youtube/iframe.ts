@@ -66,9 +66,12 @@ export function loadYouTubeVideo(
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
+    // Immediately stop the current video and show loading state so the
+    // user doesn't stare at a frozen last frame while loadPlaylist fetches
+    // the new playlist metadata from YouTube's servers.
+    try { player!.stopVideo?.(); } catch { /* noop */ }
+    showLoader(true, t('youtube.playing_in_3s'));
     // Light cleanup: reset sync state without destroying the player
-    // Do NOT clear youtubeUILoop or youtubeSyncLoop here, as they are only
-    // started once in onYouTubePlayerReady.
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
     clearManagedTimer('yt-sync-grace');
@@ -354,11 +357,14 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     if (!getYtAutoplayIntent()) {
       setYtAutoplayIntent(true);
       player?.pauseVideo?.();
+      showLoader(false); // Clear loader from YT-to-YT transition
       return; // Don't broadcast or update UI — we're reverting to paused
     }
     showYouTubeSyncOverlay(false);
+    showLoader(false);
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
+    showLoader(false);
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
     // Host: clear ALL loops and advance

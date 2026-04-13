@@ -605,8 +605,15 @@ function updateYouTubeUI(): void {
     }
 
     const cachedDuration = getCachedYtDuration();
-    if (cachedDuration > 0) {
-      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(cachedDuration), currentTime, cachedDuration);
+    // Always emit time-update even when duration is 0 (new video loading).
+    // Without this, the seekbar freezes on the previous track's position
+    // until getDuration() returns a valid value for the new video.
+    // The seekbar handler (ui:time-update) guards on `duration > 0` for
+    // slider.max, so a 0 duration just means the thumb won't move but
+    // the current time text still updates.
+    {
+      const displayDuration = cachedDuration > 0 ? cachedDuration : rawDuration;
+      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(displayDuration), currentTime, displayDuration);
     }
   } catch {
     // Player not ready

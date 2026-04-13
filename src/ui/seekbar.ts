@@ -169,15 +169,19 @@ function initSeekBarBusHandlers(): void {
     const tt = document.getElementById('time-dur');
     const isSeeking = getState('player.isSeeking');
 
-    if (slider && duration > 0) {
-      slider.max = String(duration);
-      if (!isSeeking) {
+    if (slider) {
+      if (duration > 0) {
+        slider.max = String(duration);
+      }
+      if (!isSeeking && duration > 0) {
         slider.value = String(currentTime);
         slider.setAttribute('aria-valuetext', currentFormatted);
       }
     }
+    // Always update time text — even during duration=0 (new video loading),
+    // so the user sees "0:03" ticking instead of a frozen display.
     if (tc && !isSeeking) tc.innerText = currentFormatted;
-    if (tt) tt.innerText = totalFormatted;
+    if (tt && duration > 0) tt.innerText = totalFormatted;
   });
 }
 

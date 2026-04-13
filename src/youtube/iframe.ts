@@ -215,6 +215,15 @@ function createYouTubePlayer(
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
       setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
+
+      // Suppress heartbeat state-sync for 5s after loading a new video.
+      // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
+      // arrives before YOUTUBE_STATE and wakes the guest via state-sync
+      // (hostState=1, ytState≠1 → playVideo), causing the guest to play
+      // from position 0 while the host is still loading.
+      if (!autoplay) {
+        import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
+      }
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);

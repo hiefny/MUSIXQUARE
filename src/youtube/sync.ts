@@ -125,6 +125,13 @@ export function resetAdDetection(): void {
 let _autoSyncUntil = 0;
 const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
 
+/** Suppress drift correction + state sync for the given duration.
+ *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
+ *  heartbeat state-sync from waking the guest prematurely. */
+export function suppressDriftUntil(ms: number): void {
+  _autoSyncUntil = Date.now() + ms;
+}
+
 // ─── Host Position Snapshot Cache (Guest-side) ───────────────────
 // Updated on every MSG.YOUTUBE_SYNC heartbeat (~3s interval on host).
 // Consumed by guestRendezvousSync() to extrapolate host's current position

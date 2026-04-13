@@ -129,7 +129,10 @@ const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reload
  *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
  *  heartbeat state-sync from waking the guest prematurely. */
 export function suppressDriftUntil(ms: number): void {
-  _autoSyncUntil = Date.now() + ms;
+  // Use Math.max to never shorten an existing suppression window.
+  // handleYouTubeState may have set a longer window (waitMs + 1500)
+  // that this async call from iframe.ts must not overwrite.
+  _autoSyncUntil = Math.max(_autoSyncUntil, Date.now() + ms);
 }
 
 // ─── Host Position Snapshot Cache (Guest-side) ───────────────────
@@ -677,7 +680,26 @@ function handleYouTubeState(data: Record<string, unknown>): void {
             subIndexChanged = true;
           }
         }
-        _autoSyncUntil = Date.now() + 5000;
+        // Schedule a delayed play using hostPlayAt so the guest starts at
+        // the same time as the host, even though the video is reloading.
+        // Without this, the guest only plays when heartbeat state-sync
+        // wakes it 5+ seconds later with no countdown alignment.
+        const mismatchHostPlayAt = Number(data.hostPlayAt) || 0;
+        if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
+          const waitForPlay = Math.max(500, mismatchHostPlayAt - getHostNow());
+          _autoSyncUntil = Date.now() + waitForPlay + 3000;
+          bus.emit('youtube:sync-loading', true);
+          setManagedTimer('yt-clock-action', () => {
+            const p = getYouTubePlayer();
+            if (p?.playVideo) {
+              setYtAutoplayIntent(true);
+              p.playVideo();
+            }
+            bus.emit('youtube:sync-loading', false);
+          }, waitForPlay);
+        } else {
+          _autoSyncUntil = Date.now() + 5000;
+        }
         return;
       }
     }

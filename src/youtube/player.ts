@@ -842,17 +842,40 @@ export function initYouTube(): void {
       const autoplay = (ytState === 1);
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       const subIdx = (currentSubIndex >= 0) ? currentSubIndex : 0;
+      const currentVideoId = player?.getVideoData?.()?.video_id || '';
+
+      // For Mix playlists (RD...), send the host's static ID array instead
+      // of the playlistId. YouTube Mixes are personalized per device — if
+      // the guest loads by playlistId, it gets a different video order and
+      // the subIndex points to the wrong video. Sending the ID array makes
+      // the guest load the exact same sequence as the host.
+      const isMix = typeof item.playlistId === 'string' && item.playlistId.startsWith('RD');
+      const subMap = getState('youtube.subItemsMap') || {};
+      const hostIds = subMap[item.playlistId as string]?.ids;
+      const useStaticIds = isMix && hostIds && hostIds.length > 0;
 
       // Send YouTube play command so guest enters YouTube mode
       conn.send({
         type: MSG.YOUTUBE_PLAY,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
+        videoId: useStaticIds ? null : (item.videoId || null),
+        playlistId: useStaticIds ? hostIds : (item.playlistId || null),
         name: item.name || item.title,
         index: currentTrackIndex,
         autoplay,
         subIndex: subIdx,
       });
+
+      // Also send YOUTUBE_PLAYLIST_INFO so the guest has the sub-items map
+      // for title display and playVideoAt-based sync corrections.
+      if (hostIds && hostIds.length > 0) {
+        const titles = subMap[item.playlistId as string]?.titles || [];
+        conn.send({
+          type: MSG.YOUTUBE_PLAYLIST_INFO,
+          playlistId: item.playlistId,
+          ids: hostIds,
+          titles,
+        });
+      }
 
       // Delay the sync frame so the guest's async loadVideoById / loadPlaylist
       // completes before the position arrives. An immediate YOUTUBE_SYNC would
@@ -866,13 +889,19 @@ export function initYouTube(): void {
         setManagedTimer('yt-bootstrap-sync', () => {
           if (!conn.open) return;
           let freshTime = ytTime;
-          try { if (player?.getCurrentTime) freshTime = player.getCurrentTime(); } catch { /* noop */ }
+          let freshSubIdx = subIdx;
+          let freshVideoId = currentVideoId;
+          try {
+            if (player?.getCurrentTime) freshTime = player.getCurrentTime();
+            freshSubIdx = getState('youtube.currentSubIndex') ?? subIdx;
+            freshVideoId = player?.getVideoData?.()?.video_id || currentVideoId;
+          } catch { /* noop */ }
           conn.send({
             type: MSG.YOUTUBE_STATE,
             state: 1,
             time: freshTime,
-            subIndex: subIdx,
-            videoId: player?.getVideoData?.()?.video_id || '',
+            subIndex: freshSubIdx,
+            videoId: freshVideoId,
             hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
           });
         }, BOOTSTRAP_DELAY);
@@ -883,7 +912,8 @@ export function initYouTube(): void {
           time: ytTime,
           state: ytState,
           subIndex: subIdx,
-          videoId: player?.getVideoData?.()?.video_id || '',
+          videoId: currentVideoId,
+          hostClock: getHostNow(),
         });
       }
 

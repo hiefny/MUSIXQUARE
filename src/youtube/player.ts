@@ -721,13 +721,13 @@ export function initYouTube(): void {
       if (player.playVideoAt) {
         player.playVideoAt(subIdx);
         setYouTubeSubIndex(subIdx);
-        broadcast({
-          type: MSG.YOUTUBE_STATE,
-          state: 1,
-          time: 0,
-          subIndex: subIdx,
-          videoId: player.getVideoData?.()?.video_id || '',
-        });
+        const ytPlaylist = player.getPlaylist?.() || [];
+        const videoId = ytPlaylist[subIdx] || '';
+        
+        // By using scheduleYtAutoSync instead of a raw broadcast, we set the yt-auto-sync
+        // timer. This blocks the 'youtube:sub-video-advanced' event from firing, preventing
+        // it from issuing a premature seekTo(0) which cancels the iframe track transition.
+        scheduleYtAutoSync(0, { subIndex: subIdx, videoId: videoId, skipSeek: true, countdownMs: 3000 });
       }
     } else {
       // Different playlist item — load it with the target sub-index

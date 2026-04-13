@@ -231,10 +231,24 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           player.playVideoAt(hostSubIndex);
           setYouTubeSubIndex(hostSubIndex);
           log.info(`[YouTube Sync] Resolved mismatch via playVideoAt(${hostSubIndex})`);
-        } else if (player.loadVideoById) {
-          player.loadVideoById(hostVideoId);
-          if (hostSubIndex !== undefined && hostSubIndex !== -1) {
+        } else {
+          // Prefer reloading from host's static ID array to preserve playlist
+          // context. loadVideoById destroys the playlist, breaking all future
+          // sub-video transitions.
+          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+          const subMap = getState('youtube.subItemsMap') || {};
+          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
+
+          if (hostIds && hostIds.length > 0 && hostSubIndex !== undefined && hostSubIndex >= 0 && player.loadPlaylist) {
+            log.info(`[YouTube Sync] Reloading playlist from host IDs at index ${hostSubIndex}`);
+            player.loadPlaylist(hostIds, hostSubIndex, 0);
             setYouTubeSubIndex(hostSubIndex);
+          } else if (player.loadVideoById) {
+            log.warn(`[YouTube Sync] No host IDs — falling back to loadVideoById`);
+            player.loadVideoById(hostVideoId);
+            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
+              setYouTubeSubIndex(hostSubIndex);
+            }
           }
         }
         _autoSyncUntil = Date.now() + 5000;
@@ -618,23 +632,38 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       if (guestVideoId && hostVideoId !== guestVideoId) {
         log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
         const ytPlaylist = player.getPlaylist?.() || [];
+
         if (subIndex !== undefined && subIndex !== -1 && player.playVideoAt && ytPlaylist.length > subIndex && ytPlaylist[subIndex] === hostVideoId) {
+          // Best case: guest has the same playlist with the right video at this index
           player.playVideoAt(subIndex);
           setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
           log.info(`[YouTube State] Resolved mismatch via playVideoAt(${subIndex})`);
-        } else if (player.loadVideoById) {
-          player.loadVideoById(hostVideoId);
-          if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
-          subIndexChanged = true;
+        } else {
+          // Fallback: try to reload from host's static ID array (subItemsMap)
+          // instead of loadVideoById, which destroys playlist context and
+          // prevents all future sub-video transitions — causing repeated
+          // mismatch → loadVideoById → mismatch cycles that lead to crashes.
+          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+          const subMap = getState('youtube.subItemsMap') || {};
+          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
+
+          if (hostIds && hostIds.length > 0 && subIndex !== undefined && subIndex >= 0) {
+            log.info(`[YouTube State] Reloading playlist from host IDs (${hostIds.length} items) at index ${subIndex}`);
+            if (player.loadPlaylist) {
+              player.loadPlaylist(hostIds, subIndex, 0);
+            }
+            setYouTubeSubIndex(subIndex);
+            subIndexChanged = true;
+          } else if (player.loadVideoById) {
+            // Last resort: no host IDs available, load single video
+            log.warn(`[YouTube State] No host IDs available — falling back to loadVideoById (playlist context will be lost)`);
+            player.loadVideoById(hostVideoId);
+            if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
+            subIndexChanged = true;
+          }
         }
-        // Suppress drift correction while new video loads
         _autoSyncUntil = Date.now() + 5000;
-        // Return early — the video is loading. Falling through to the
-        // hostPlayAt scheduling logic would schedule a play on a half-loaded
-        // video, causing the guest to play from position 0 or an incorrect
-        // position. The next heartbeat or YOUTUBE_STATE (after load completes)
-        // will handle sync correctly.
         return;
       }
     }

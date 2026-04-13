@@ -66,8 +66,10 @@ function _seekRafLoop(now: number): void {
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
-    if (slider) slider.value = '0';
+    const tt = document.getElementById('time-total');
+    if (slider) { slider.value = '0'; slider.max = '0'; }
     if (tc) tc.innerText = '0:00';
+    if (tt) tt.innerText = '0:00';
     _rafId = requestAnimationFrame(_seekRafLoop);
     return;
   }

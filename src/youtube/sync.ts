@@ -240,8 +240,13 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
 
           if (hostIds && hostIds.length > 0 && hostSubIndex !== undefined && hostSubIndex >= 0 && player.loadPlaylist) {
-            log.info(`[YouTube Sync] Reloading playlist from host IDs at index ${hostSubIndex}`);
-            player.loadPlaylist(hostIds, hostSubIndex, 0);
+            const WINDOW = 25;
+            const sliceStart = Math.max(0, hostSubIndex - WINDOW);
+            const sliceEnd = Math.min(hostIds.length, hostSubIndex + WINDOW);
+            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
+            const adjustedIndex = hostSubIndex - sliceStart;
+            log.info(`[YouTube Sync] Reloading playlist: ${slicedIds.length} IDs (${sliceStart}-${sliceEnd} of ${hostIds.length}) at index ${adjustedIndex}`);
+            player.loadPlaylist(slicedIds, adjustedIndex, 0);
             setYouTubeSubIndex(hostSubIndex);
           } else if (player.loadVideoById) {
             log.warn(`[YouTube Sync] No host IDs — falling back to loadVideoById`);
@@ -650,9 +655,17 @@ function handleYouTubeState(data: Record<string, unknown>): void {
           const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
 
           if (hostIds && hostIds.length > 0 && subIndex !== undefined && subIndex >= 0) {
-            log.info(`[YouTube State] Reloading playlist from host IDs (${hostIds.length} items) at index ${subIndex}`);
+            // Cap at 50 IDs around the current index to prevent iframe crashes
+            // on 100+ item playlists. YouTube iframe memory usage scales with
+            // playlist size; 100+ IDs can crash the iframe process on mobile.
+            const WINDOW = 25;
+            const sliceStart = Math.max(0, subIndex - WINDOW);
+            const sliceEnd = Math.min(hostIds.length, subIndex + WINDOW);
+            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
+            const adjustedIndex = subIndex - sliceStart;
+            log.info(`[YouTube State] Reloading playlist: ${slicedIds.length} IDs (window ${sliceStart}-${sliceEnd} of ${hostIds.length}) at adjusted index ${adjustedIndex}`);
             if (player.loadPlaylist) {
-              player.loadPlaylist(hostIds, subIndex, 0);
+              player.loadPlaylist(slicedIds, adjustedIndex, 0);
             }
             setYouTubeSubIndex(subIndex);
             subIndexChanged = true;

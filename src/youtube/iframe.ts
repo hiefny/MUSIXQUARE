@@ -218,7 +218,17 @@ function createYouTubePlayer(
     try {
       if (playlistId) {
         if (Array.isArray(playlistId)) {
-          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
+          // Cap playlist size to prevent iframe crashes on 100+ item playlists.
+          // YouTube iframe memory usage scales with playlist length.
+          const WINDOW = 25;
+          let ids = playlistId;
+          let idx = subIndex;
+          if (ids.length > WINDOW * 2) {
+            const start = Math.max(0, subIndex - WINDOW);
+            ids = ids.slice(start, start + WINDOW * 2);
+            idx = subIndex - start;
+          }
+          existingPlayer.loadPlaylist(ids, idx, 0);
         } else {
           existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
         }
@@ -259,7 +269,17 @@ function createYouTubePlayer(
 
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      playerVars.playlist = playlistId.join(',');
+      // Cap playlist size — 100+ IDs crash YouTube iframe on mobile
+      const WINDOW = 25;
+      let ids = playlistId;
+      let idx = subIndex;
+      if (ids.length > WINDOW * 2) {
+        const start = Math.max(0, subIndex - WINDOW);
+        ids = ids.slice(start, start + WINDOW * 2);
+        idx = subIndex - start;
+      }
+      playerVars.playlist = ids.join(',');
+      playerVars.index = idx;
     } else {
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
@@ -490,6 +510,14 @@ function updateYouTubeUI(): void {
     if (_ytCrashFailCount >= YT_CRASH_THRESHOLD) {
       log.error(`[YouTube] iframe unresponsive (${_ytCrashFailCount} failures) — rebuilding player`);
       _ytCrashFailCount = 0;
+
+      // Reset guestPlayLatency — the last calibration before the crash may
+      // have been measured against a dying iframe (stale getCurrentTime),
+      // producing a corrupted EMA value that persists across reloads and
+      // permanently biases all future rendezvous sync.
+      setState('youtube.guestPlayLatency', 0);
+      try { localStorage.removeItem('musixquare-yt-play-latency'); } catch { /* noop */ }
+
       // Capture current state for recovery
       const videoId = getState('player.currentTrackMeta')?.videoId as string || '';
       const playlistId = getState('player.currentTrackMeta')?.playlistId as string || '';

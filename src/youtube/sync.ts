@@ -203,6 +203,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
         if (hostSubIndex !== undefined && hostSubIndex !== -1) {
           setYouTubeSubIndex(hostSubIndex);
         }
+        // Suppress drift correction while the new video loads — without this,
+        // the next heartbeat reads getCurrentTime() on the half-loaded video
+        // (position 0 or stale) and force-seeks, fighting the load.
+        _autoSyncUntil = Date.now() + 5000;
         return; // Skip drift correction — new video is loading
       }
     }
@@ -568,6 +572,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         player.loadVideoById(hostVideoId);
         if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
         subIndexChanged = true;
+        // Suppress drift correction while new video loads
+        _autoSyncUntil = Date.now() + 5000;
       }
     }
 
@@ -624,7 +630,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
 
         log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
       } else if (waitMs > 0 && waitMs <= 300) {
-        // Short wait (≤300ms) — schedule without pause (minor timing correction)
+        // Short wait (≤300ms) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which
         // triggers a premature ENDED event and track-advance on the guest.
         const rawCompensated = time + (waitMs / 1000);
@@ -632,12 +638,23 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         if (compensatedTime > 0 && duration > 0) {
           bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
         }
+        _autoSyncUntil = Date.now() + 3000;
         setManagedTimer('yt-clock-action', () => {
           const p = getYouTubePlayer();
           if (!p) return;
           if (state === 1 && p.playVideo) {
-            if (!subIndexChanged && p.seekTo) p.seekTo(compensatedTime, true);
-            p.playVideo();
+            // Pause-seek-play: same pattern as executeImmediate to avoid
+            // seekTo+playVideo race on the YouTube iframe.
+            if (!subIndexChanged && p.seekTo) {
+              p.pauseVideo?.();
+              p.seekTo(compensatedTime, true);
+              setManagedTimer('yt-clock-action', () => {
+                const p2 = getYouTubePlayer();
+                if (p2?.playVideo) p2.playVideo();
+              }, 150);
+            } else {
+              p.playVideo();
+            }
           } else if (state === 2 && p.pauseVideo) {
             p.pauseVideo();
             if (p.seekTo) p.seekTo(compensatedTime, true);
@@ -666,7 +683,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   }
 }
 
-/** Immediate action helper (no SharedClock delay). */
+/** Immediate action helper (no SharedClock delay).
+ *  Suppresses drift correction briefly so the next heartbeat
+ *  doesn't overwrite the seek with a stale position. */
 function executeImmediate(
   player: any, state: number, time: number, duration: number, subIndexChanged: boolean,
 ): void {
@@ -675,9 +694,27 @@ function executeImmediate(
   if (time > 0 && duration > 0) {
     bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
   }
+
+  // Suppress drift correction while YouTube buffers the seek.
+  // Without this, the next 3s heartbeat reads a stale getCurrentTime()
+  // (pre-seek position) and force-seeks back, undoing the command.
+  _autoSyncUntil = Date.now() + 3000;
+
   if (state === 1 && player.playVideo) {
-    if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
-    player.playVideo();
+    if (!subIndexChanged && player.seekTo) {
+      // Seek WHILE PAUSED first — YouTube reliably buffers the target
+      // position when paused. Then resume. Calling seekTo+playVideo
+      // simultaneously races: playVideo can fire before the seek takes
+      // effect, briefly playing from the old position.
+      player.pauseVideo?.();
+      player.seekTo(time, true);
+      setManagedTimer('yt-clock-action', () => {
+        const p = getYouTubePlayer();
+        if (p?.playVideo) p.playVideo();
+      }, 150);
+    } else {
+      player.playVideo();
+    }
   } else if (state === 2 && player.pauseVideo) {
     player.pauseVideo();
     if (player.seekTo) player.seekTo(time, true);

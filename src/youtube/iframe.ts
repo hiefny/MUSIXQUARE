@@ -429,35 +429,32 @@ function updateYouTubeUI(): void {
       setCachedYtDuration(0);
       _lastYtVideoTitle = ''; // Reset title cache to force update on index change
 
-      // Host-side sub-video auto-advance detection
-      // ───────────────────────────────────────────
-      // YouTube IFrame auto-advances between sub-videos in a playlist WITHOUT
-      // firing an ENDED event, so our ENDED → playlist:next-track → try-next-
-      // internal path never runs and guests play the new sub-video with no
-      // 1-sec rendezvous countdown, diverging from the host until drift
-      // correction catches up. Detect the transition here and ask player.ts
-      // to schedule an auto-sync (pause host briefly, broadcast hostPlayAt,
-      // resume everyone simultaneously).
-      //
-      // Guards:
-      //   - host only (guest sub-index follows host via handleYouTubeState)
-      //   - prevIdx must be a valid index (not -1) — skips the very first
-      //     sub-index population after load, which is the initial track load
-      //     already handled by the autoPlayTimer → youtube:auto-play path
-      //   - playlistIdx must be >= 0
-      //   - no scheduled sync already running — check BOTH yt-auto-sync AND
-      //     yt-sync-grace so we don't double-trigger if a sub-index transition
-      //     happens to land inside the 500ms post-playVideo grace window of a
-      //     prior sync (would otherwise schedule an overlapping countdown)
-      //
-      // NOTE: no `state === 1` (PLAYING) guard. updateYouTubeUI polls at
-      // 500ms; the auto-advance transition often lands on a BUFFERING (3)
-      // frame, and skipping the emit on those frames is fatal — the cache
-      // gets updated unconditionally above, so the next poll sees the new
-      // index as the current one and never detects the change. player.ts's
-      // listener force-pauses before scheduleYtAutoSync, so it works from
-      // any starting state.
       const hostConn = getState('network.hostConn');
+
+      // ── Guest-side: suppress independent auto-advance ──────────────
+      // YouTube iframe auto-advances to the next video in a playlist
+      // independently on each device. In a Mix (RD...) playlist, the order
+      // is personalized per device, so the guest's "next" video is likely
+      // DIFFERENT from the host's. If we let the guest play freely,
+      // videoId mismatch detection (handleYouTubeSync, 3s heartbeat)
+      // eventually corrects it via loadVideoById, but this causes 3-6s
+      // of the guest playing the wrong video from position 0.
+      //
+      // Fix: immediately pause the guest and let the host's YOUTUBE_STATE
+      // (which arrives with the correct videoId and hostPlayAt within ~1s)
+      // drive the transition. This eliminates the wrong-video window.
+      if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
+        log.info(`[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`);
+        try { player.pauseVideo?.(); } catch { /* noop */ }
+        return; // Skip rest of UI update — host command will handle everything
+      }
+
+      // ── Host-side: sub-video auto-advance detection ────────────────
+      // YouTube IFrame auto-advances between sub-videos in a playlist
+      // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
+      // path never runs and guests diverge until drift correction catches
+      // up. Detect the transition here and schedule an auto-sync (pause
+      // host briefly, broadcast hostPlayAt, resume everyone simultaneously).
       if (!hostConn
         && prevIdx !== -1
         && playlistIdx >= 0

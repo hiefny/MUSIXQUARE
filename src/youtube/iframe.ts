@@ -45,6 +45,7 @@ let _lastYtVideoTitle = '';
  * Cleared on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
  */
 let _lastDurationVideoId = '';
+let _videoDataPollCount = 0;
 export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
 let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
@@ -508,7 +509,9 @@ function updateYouTubeUI(): void {
       const prevIdx = getCachedYtPlaylistIdx();
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
-      _lastYtVideoTitle = ''; // Reset title cache to force update on index change
+      _lastYtVideoTitle = '';
+      _lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
+      _videoDataPollCount = 9; // Trigger getVideoData on the NEXT tick (not wait 5s)
 
       const hostConn = getState('network.hostConn');
 
@@ -561,9 +564,19 @@ function updateYouTubeUI(): void {
       }
     }
 
-    // Update track title whenever YouTube video title changes
-    let currentVideoId = '';
-    if (player.getVideoData) {
+    // Update track title and videoId cache.
+    // getVideoData() is an expensive cross-iframe call. Only call it when
+    // the sub-index changed (detected above) or every ~5 seconds (10th tick)
+    // as a fallback for non-playlist single videos. Legacy v1 never called
+    // getVideoData() during polling, and the current version's 2x/second
+    // calls were a major contributor to iframe memory pressure and crashes.
+    _videoDataPollCount = (_videoDataPollCount + 1) % 10;
+    const shouldPollVideoData = (playlistIdx !== getCachedYtPlaylistIdx())  // sub-index just changed (already cached above)
+      ? false  // sub-index branch above already ran; title was set from subItemsMap
+      : (_videoDataPollCount === 0); // every 10th tick (~5s) for title/videoId sync
+
+    let currentVideoId = _lastDurationVideoId; // reuse cached value by default
+    if (shouldPollVideoData && player.getVideoData) {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _lastYtVideoTitle) {
         _lastYtVideoTitle = vData.title;
@@ -571,20 +584,14 @@ function updateYouTubeUI(): void {
         setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
       }
       currentVideoId = vData?.video_id || '';
-    }
 
-    // Invalidate the duration cache whenever the videoId changes. Without
-    // this, `player.getDuration()` returning the OLD video's duration briefly
-    // after `loadVideoById` would latch into the cache (via the "first valid
-    // read" logic below) and never refresh for subsequent videos.
-    //
-    // Guard: empty currentVideoId means getVideoData has no data yet —
-    // don't stomp state on an uninitialised poll.
-    if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
-      if (_lastDurationVideoId !== '') {
-        setCachedYtDuration(0); // force re-read on next valid rawDuration
+      // Invalidate duration cache when videoId changes
+      if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
+        if (_lastDurationVideoId !== '') {
+          setCachedYtDuration(0);
+        }
+        _lastDurationVideoId = currentVideoId;
       }
-      _lastDurationVideoId = currentVideoId;
     }
 
     // Commit the latest rawDuration whenever it diverges meaningfully from

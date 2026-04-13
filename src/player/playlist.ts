@@ -244,14 +244,38 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // Destroying the iframe forces a "tap to play" on mobile.
       const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+
+      // For Mix playlists (RD...), send the host's cached static ID array
+      // instead of the playlistId. YouTube Mixes are personalized per device —
+      // sending the raw playlistId makes the guest load a different video order,
+      // requiring an expensive reload via _mixReloadedIds. Static IDs avoid that.
+      const isMix = typeof item.playlistId === 'string' && (item.playlistId as string).startsWith('RD');
+      const subMap = getState('youtube.subItemsMap') || {};
+      const hostIds = subMap[item.playlistId as string]?.ids;
+      const useStaticIds = isMix && hostIds && hostIds.length > 0;
+
+      const playVideoId = useStaticIds ? null : (item.videoId ?? null);
+      const playPlaylistId = useStaticIds ? hostIds : (item.playlistId ?? null);
+
       broadcast({
         type: MSG.YOUTUBE_PLAY,
-        videoId: item.videoId,
-        playlistId: item.playlistId,
+        videoId: playVideoId,
+        playlistId: playPlaylistId,
         name: item.name || item.title,
         index,
         autoplay: false,
       });
+
+      // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
+      if (hostIds && hostIds.length > 0) {
+        const titles = subMap[item.playlistId as string]?.titles || [];
+        broadcast({
+          type: MSG.YOUTUBE_PLAYLIST_INFO,
+          playlistId: item.playlistId as string,
+          ids: hostIds,
+          titles,
+        });
+      }
 
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       if (isFirstTrackLoad) {
@@ -261,9 +285,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       } else {
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         showToast(t('youtube.playing_in_3s'));
-        // YouTube iframe takes time to load the new video. We wait 1000ms to allow it to initialize,
-        // then `youtube:auto-play` handles the remaining 2000ms rendezvous sync (total 3s).
-        // Before, it was 3000ms here + 3000ms in auto-play = 6 seconds total wait!
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
         }, 1000);

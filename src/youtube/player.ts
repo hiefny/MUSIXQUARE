@@ -321,8 +321,9 @@ export function initYouTube(): void {
       // skipSeek:true — the freshly loaded video is already at position 0,
       // so seekTo(0) would be a wasted round-trip (and may trigger an
       // unwanted BUFFERING transition on CUED players).
-      // 3s countdown — guest needs time to load the new video iframe.
-      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: 3000 });
+      // We use 2000ms here because playTrack already waited 1000ms (or on_ready took at least 1000ms),
+      // making the total safe delay for guests ~3 seconds.
+      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: 2000 });
     }
   });
 

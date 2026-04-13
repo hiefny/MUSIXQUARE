@@ -261,9 +261,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       } else {
         bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
         showToast(t('youtube.playing_in_3s'));
+        // YouTube iframe takes time to load the new video. We wait 1000ms to allow it to initialize,
+        // then `youtube:auto-play` handles the remaining 2000ms rendezvous sync (total 3s).
+        // Before, it was 3000ms here + 3000ms in auto-play = 6 seconds total wait!
         setManagedTimer('autoPlayTimer', () => {
           bus.emit('youtube:auto-play');
-        }, 3000);
+        }, 1000);
       }
     }
     return;

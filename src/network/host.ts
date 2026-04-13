@@ -185,7 +185,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
-    // Detect local vs remote for this guest after ICE stabilizes
+    // Detect local vs remote for this guest after ICE stabilizes.
+    // 1s is enough for LAN (host→host pair succeeds ~300-500ms).
+    // Reduced from 1.5s to speed up file transfer start for late-joiners.
     setManagedTimer('ice-detect-' + peerId, async () => {
       try {
         const type = await detectConnectionType(conn);
@@ -201,7 +203,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         broadcastDeviceList();
         bus.emit('orchestrator:peer-type-detected', peerId);
 
-        // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
+        // Re-detect after 10s from connection open if classified as 'remote'
+        // (ICE may not have stabilized at 1s for STUN/TURN)
         if (type === 'remote' && conn.open) {
           setManagedTimer('ice-redetect-' + peerId, async () => {
             try {
@@ -221,10 +224,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
                 }
               }
             } catch (e) { log.warn('[Host] ICE re-detection error:', e); }
-          }, 8500);
+          }, 9000); // 1s + 9s = 10s from connection open
         }
       } catch (e) { log.warn('[Host] ICE detection error:', e); }
-    }, 1500);
+    }, 1000);
 
     // Broadcast updated device list to all peers
     broadcastDeviceList();

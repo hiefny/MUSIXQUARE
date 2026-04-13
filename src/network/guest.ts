@@ -56,6 +56,20 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     setState('network.hostConn', null);
   }
 
+  // ── Reconnect cleanup ──
+  // H-3: Close stale upstream relay — prevents old relay session from pumping
+  // data into a new session context after reconnection.
+  const staleRelay = getState('relay.upstreamDataConn');
+  if (staleRelay) {
+    try { staleRelay.close(); } catch { /* noop */ }
+    setState('relay.upstreamDataConn', null);
+  }
+
+  // M-2: Clear ICE detection timers from previous connection — prevents stale
+  // timers from overwriting the new connection's ICE classification.
+  clearManagedTimer('guest-ice-detect');
+  clearManagedTimer('guest-ice-redetect');
+
   if (!hostId) {
     bus.emit('network:error', new Error('NO_HOST_ID'));
     return;
@@ -193,14 +207,16 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     // Start unified sync timer (replaces separate heartbeat + ping timers)
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'sync', interval: 1000 });
 
-    // Detect local vs remote connection after ICE stabilizes
+    // Detect local vs remote connection after ICE stabilizes.
+    // 1s is enough for LAN (host→host pair succeeds ~300-500ms).
     setManagedTimer('guest-ice-detect', async () => {
       const type = await detectConnectionType(conn);
       setState('network.connectionType', type);
       log.info(`[Peer] Connection type: ${type}`);
       bus.emit('network:role-badge-update');
 
-      // Re-detect after 10s if classified as 'remote' (ICE may not have stabilized at 1.5s)
+      // Re-detect after 10s from connection open if classified as 'remote'
+      // (ICE may not have stabilized at 1s for STUN/TURN)
       if (type === 'remote' && conn.open) {
         setManagedTimer('guest-ice-redetect', async () => {
           if (!conn.open) return;
@@ -210,9 +226,9 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
             log.info('[Peer] Reclassified as local on re-detection');
             bus.emit('network:role-badge-update');
           }
-        }, 8500);
+        }, 9000); // 1s + 9s = 10s from connection open
       }
-    }, 1500);
+    }, 1000);
 
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');

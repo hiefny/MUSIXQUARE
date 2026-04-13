@@ -52,6 +52,16 @@ export function getClockOffset(): number {
 }
 
 /**
+ * Check if the clock has been calibrated (at least one pong sample received).
+ * Host is always considered calibrated (it IS the clock source).
+ * Used to gate hostPlayAt-based sync — without samples, getHostNow() returns
+ * raw Date.now() with zero offset, making timed play inaccurate.
+ */
+export function isClockCalibrated(): boolean {
+  return _isHostClock || _samples.length > 0;
+}
+
+/**
  * Get the best RTT in milliseconds.
  */
 export function getClockBestRtt(): number {

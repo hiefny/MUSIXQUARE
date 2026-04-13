@@ -11,7 +11,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { getHostNow } from '../network/shared-clock.ts';
+import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -591,7 +591,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
 
-    if (hostPlayAt > 0) {
+    if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
 
       if (waitMs > 300 && waitMs < 3000 && state === 1) {
@@ -648,7 +648,13 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         executeImmediate(player, state, time, duration, subIndexChanged);
       }
     } else {
-      // No hostPlayAt — execute immediately (pause, stop, etc.)
+      // No hostPlayAt, or clock uncalibrated (late-join, no pongs yet) — execute immediately.
+      // An uncalibrated clock means getHostNow() returns raw Date.now() with zero offset,
+      // making hostPlayAt-based countdown inaccurate. Immediate play is safe because the
+      // periodic sync pong (1s interval) will calibrate and correct drift shortly after.
+      if (hostPlayAt > 0) {
+        log.warn('[YouTube State] SharedClock uncalibrated — ignoring hostPlayAt, executing immediately');
+      }
       executeImmediate(player, state, time, duration, subIndexChanged);
     }
 

@@ -116,28 +116,33 @@ export function scheduleYtAutoSync(
   bus.emit('youtube:sync-loading', true);
   showToast(t('toast.yt_sync_start'));
 
-  // 4. After 1s: play simultaneously
+  // 4. After countdown: play simultaneously
   setManagedTimer('yt-auto-sync', () => {
-    // Re-fetch player — the closure-captured reference from 1s ago may be
-    // stale if stopYouTubeMode was called during the countdown.
     const p = getYouTubePlayer();
     if (!p?.playVideo) {
       bus.emit('youtube:sync-loading', false);
       return;
     }
-    markYtStateBroadcast(); // Prevent onStateChange duplicate on playVideo
-    p.playVideo();
-    bus.emit('youtube:sync-loading', false);
-    showToast(t('toast.yt_sync_done'));
-    // Post-sync grace window: playVideo() is async — the YouTube iframe
-    // takes ~30-100ms to transition the player state from PAUSED to
-    // PLAYING. Without this grace period a seek landing in that gap
-    // would see "no yt-auto-sync timer + state still PAUSED" and slip
-    // through as a bare seek+state=2 (because mid-sync detection
-    // depends on the timer being present). Keep the "mid-sync" signal
-    // alive for 500ms after playVideo so seek handlers still route
-    // through scheduleYtAutoSync in that window.
-    setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
+    // If YouTube is still loading (UNSTARTED/BUFFERING after loadPlaylist),
+    // playVideo() may silently fail. Retry up to 3 times at 500ms intervals.
+    let retries = 0;
+    const tryPlay = (): void => {
+      const pl = getYouTubePlayer();
+      if (!pl?.playVideo) { bus.emit('youtube:sync-loading', false); return; }
+      markYtStateBroadcast();
+      setYtAutoplayIntent(true);
+      pl.playVideo();
+      const st = pl.getPlayerState?.() ?? -1;
+      if (st !== 1 && st !== 3 && retries < 3) { // not PLAYING or BUFFERING
+        retries++;
+        setManagedTimer('yt-auto-sync', tryPlay, 500);
+        return;
+      }
+      bus.emit('youtube:sync-loading', false);
+      showToast(t('toast.yt_sync_done'));
+      setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
+    };
+    tryPlay();
   }, countdown);
 }
 

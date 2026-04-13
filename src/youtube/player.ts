@@ -123,26 +123,36 @@ export function scheduleYtAutoSync(
       bus.emit('youtube:sync-loading', false);
       return;
     }
-    // If YouTube is still loading (UNSTARTED/BUFFERING after loadPlaylist),
-    // playVideo() may silently fail. Retry up to 3 times at 500ms intervals.
+    markYtStateBroadcast();
+    setYtAutoplayIntent(true);
+    p.playVideo();
+
+    // playVideo() is async — getPlayerState() may not reflect PLAYING
+    // immediately. Check after 300ms; if still not playing, retry.
     let retries = 0;
-    const tryPlay = (): void => {
+    const verifyPlay = (): void => {
       const pl = getYouTubePlayer();
-      if (!pl?.playVideo) { bus.emit('youtube:sync-loading', false); return; }
-      markYtStateBroadcast();
-      setYtAutoplayIntent(true);
-      pl.playVideo();
+      if (!pl) { bus.emit('youtube:sync-loading', false); return; }
       const st = pl.getPlayerState?.() ?? -1;
-      if (st !== 1 && st !== 3 && retries < 3) { // not PLAYING or BUFFERING
-        retries++;
-        setManagedTimer('yt-auto-sync', tryPlay, 500);
+      if (st === 1 || st === 3) { // PLAYING or BUFFERING — success
+        bus.emit('youtube:sync-loading', false);
+        showToast(t('toast.yt_sync_done'));
+        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
         return;
       }
-      bus.emit('youtube:sync-loading', false);
-      showToast(t('toast.yt_sync_done'));
-      setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
+      if (retries < 3) {
+        retries++;
+        markYtStateBroadcast();
+        setYtAutoplayIntent(true);
+        pl.playVideo?.();
+        setManagedTimer('yt-auto-sync', verifyPlay, 500);
+      } else {
+        // Give up retrying — clear loading state
+        bus.emit('youtube:sync-loading', false);
+        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
+      }
     };
-    tryPlay();
+    setManagedTimer('yt-auto-sync', verifyPlay, 300);
   }, countdown);
 }
 

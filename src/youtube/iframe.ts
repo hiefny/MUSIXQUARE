@@ -68,9 +68,6 @@ export function loadYouTubeVideo(
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
-    // Immediately stop the current video and show loading state so the
-    // user doesn't stare at a frozen last frame while loadPlaylist fetches
-    // the new playlist metadata from YouTube's servers.
     try { player!.stopVideo?.(); } catch { /* noop */ }
     showLoader(true, t('youtube.playing_in_3s'));
     // Light cleanup: reset sync state without destroying the player
@@ -78,6 +75,21 @@ export function loadYouTubeVideo(
     clearManagedTimer('yt-auto-sync');
     clearManagedTimer('yt-sync-grace');
     import('./sync.ts').then(mod => mod.resetYouTubeSyncState()).catch(() => { /* noop */ });
+
+    // Restart UI loop if it was cleared by the ENDED handler.
+    // The ENDED→playTrack→loadYouTubeVideo path clears youtubeUILoop
+    // in onStateChange(ENDED), but the YT-to-YT reuse path skips
+    // onYouTubePlayerReady (which normally starts the loop).
+    if (!getManagedTimer('youtubeUILoop')) {
+      setManagedTimer('youtubeUILoop', updateYouTubeUI, 500, { interval: true });
+    }
+    // Same for host sync loop
+    const hostConn = getState('network.hostConn');
+    if (!hostConn && !getManagedTimer('youtubeSyncLoop')) {
+      setManagedTimer('youtubeSyncLoop', () => {
+        bus.emit('youtube:broadcast-sync');
+      }, 3000, { interval: true });
+    }
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
     if (isYtLoadInProgress() && player) {

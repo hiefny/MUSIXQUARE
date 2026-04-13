@@ -516,7 +516,9 @@ function updateYouTubeUI(): void {
       if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
         log.info(`[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`);
         try { player.pauseVideo?.(); } catch { /* noop */ }
-        return; // Skip rest of UI update — host command will handle everything
+        // Do NOT return here — fall through so title, duration, and seekbar
+        // UI updates still run. The pause is enough to suppress playback;
+        // returning early would freeze the UI on the previous track's metadata.
       }
 
       // ── Host-side: sub-video auto-advance detection ────────────────

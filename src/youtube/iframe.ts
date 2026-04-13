@@ -363,11 +363,15 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
   if (state === YT.PlayerState.PLAYING) {
     // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
-    // Reset flag after firing so subsequent user-initiated plays work normally.
+    // Do NOT reset intent to true here — loadPlaylist() is async and can fire
+    // multiple PLAYING events (BUFFERING→PLAYING, internal restart). Resetting
+    // on the first one lets the second slip through, causing the guest to play
+    // before the host's scheduleYtAutoSync countdown completes.
+    // Intent is set to true by scheduleYtAutoSync callers (youtube:auto-play,
+    // youtube:sub-video-advanced, etc.) when they're ready for playback.
     if (!getYtAutoplayIntent()) {
-      setYtAutoplayIntent(true);
       player?.pauseVideo?.();
-      showLoader(false); // Clear loader from YT-to-YT transition
+      showLoader(false);
       return; // Don't broadcast or update UI — we're reverting to paused
     }
     showYouTubeSyncOverlay(false);

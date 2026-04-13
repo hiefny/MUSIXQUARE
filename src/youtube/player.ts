@@ -177,6 +177,8 @@ export function stopYouTubeMode(): void {
   // fires after the player is destroyed and calls playVideo/pauseVideo
   // on a null player, producing console errors and orphaned toasts.
   clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-seek-play');
+  clearManagedTimer('yt-bootstrap-sync');
 
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');

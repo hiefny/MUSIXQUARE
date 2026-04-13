@@ -139,22 +139,20 @@ export function suppressDriftUntil(ms: number): void {
 // extrapolation composes directly with getHostNow().
 
 interface HostPositionSnapshot {
-  hostClockAt: number; // host-clock ms when snapshot was taken (≈ getHostNow() at receive)
+  hostClockAt: number; // host-clock ms when snapshot was taken
   hostPosition: number; // video position (seconds)
   hostState: number; // YT PlayerState (1=playing, 2=paused, ...)
+  _videoId?: string; // video ID at snapshot time (for calibration cross-check)
 }
 let _lastHostSnapshot: HostPositionSnapshot | null = null;
 
 function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: number): void {
+  const player = getYouTubePlayer();
   _lastHostSnapshot = {
-    // Use the host's own clock reading (sent in the message) when available.
-    // Falling back to getHostNow() at receive time introduces a systematic
-    // error equal to the one-way network latency: the position was measured
-    // at send time, but hostClockAt is stamped at receive time, making every
-    // extrapolation underestimate elapsed time by that latency.
     hostClockAt: hostClock ?? getHostNow(),
     hostPosition: hostTime,
     hostState,
+    _videoId: player?.getVideoData?.()?.video_id || '',
   };
 }
 
@@ -220,6 +218,13 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
+        // Skip if another handler (handleYouTubeState) already initiated a
+        // video load — calling loadVideoById again would interrupt it,
+        // resetting buffering and extending the transition window.
+        if (Date.now() < _autoSyncUntil) {
+          log.debug('[YouTube Sync] Video mismatch detected but load already in progress — skipping');
+          return;
+        }
         log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loading host video`);
         const ytPlaylist = player.getPlaylist?.() || [];
         if (hostSubIndex !== undefined && hostSubIndex !== -1 && player.playVideoAt && ytPlaylist.length > hostSubIndex && ytPlaylist[hostSubIndex] === hostVideoId) {
@@ -232,11 +237,8 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
             setYouTubeSubIndex(hostSubIndex);
           }
         }
-        // Suppress drift correction while the new video loads — without this,
-        // the next heartbeat reads getCurrentTime() on the half-loaded video
-        // (position 0 or stale) and force-seeks, fighting the load.
         _autoSyncUntil = Date.now() + 5000;
-        return; // Skip drift correction — new video is loading
+        return;
       }
     }
 
@@ -448,6 +450,17 @@ function scheduleRendezvousPlay(
       const pCal = getYouTubePlayer();
       if (!pCal) return; // player destroyed — skip calibration
       try {
+        // Guard: skip calibration if the video changed during rendezvous.
+        // A different video means guestPos and hostPosNowMeasured are from
+        // different timelines — the resulting driftMs would be wildly wrong,
+        // corrupting guestPlayLatency (EMA) for all future rendezvous.
+        const currentVideoId = pCal.getVideoData?.()?.video_id || '';
+        const snapshotVideoId = snapshot._videoId || '';
+        if (snapshotVideoId && currentVideoId !== snapshotVideoId) {
+          log.debug('[Rendezvous] Calibration skipped — video changed during rendezvous');
+          return;
+        }
+
         const guestPos = pCal.getCurrentTime?.() ?? 0;
         // Re-extrapolate host position using the SAME snapshot (drift-free baseline)
         const hostPosNowMeasured =
@@ -455,22 +468,23 @@ function scheduleRendezvousPlay(
         const driftSec = guestPos - hostPosNowMeasured; // + = guest ahead, − = guest behind
         const driftMs = driftSec * 1000;
 
+        // Outlier rejection: if drift exceeds 2 seconds, the measurement is
+        // likely from a transitional state (buffering, seek in progress, ad).
+        // Applying it to the EMA would corrupt guestPlayLatency for 7-10
+        // subsequent rendezvous attempts. Skip silently.
+        if (Math.abs(driftMs) > 2000) {
+          log.debug(`[Rendezvous] Calibration skipped — drift ${driftMs.toFixed(0)}ms exceeds 2s outlier threshold`);
+          return;
+        }
+
         // Positive drift (guest ahead) means playVideo() fired too early → our L_play
         // estimate was too HIGH → DECREASE it. Hence minus sign.
         const current = getState('youtube.guestPlayLatency') ?? 0;
         const LR = 0.3;
         const nextRaw = current - driftMs * LR;
-        // Floor lowered from 50→0: devices with <50ms playVideo latency (or
-        // effectively-instant mobile Web Audio unlock) can now fully converge
-        // instead of permanently firing 50ms early. Ceiling 600 kept as safety.
         const next = Math.round(Math.max(0, Math.min(600, nextRaw)));
         if (next !== current) {
           setState('youtube.guestPlayLatency', next);
-          // Persist the learned latency across sessions. The playVideo →
-          // audible-output delay is a stable property of the device's
-          // browser + OS + audio pipeline, so restoring it on next load
-          // makes even the very first rendezvous accurate instead of
-          // having to learn from scratch every page load.
           try {
             localStorage.setItem('musixquare-yt-play-latency', String(next));
           } catch { /* storage unavailable — in-memory only is fine */ }
@@ -589,6 +603,11 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   try {
     const time = Number(data.time) || 0;
 
+    // Update host snapshot from explicit commands — not just heartbeats.
+    // Without this, host seek/play commands don't update the snapshot,
+    // so rendezvous pressed within 3s of a seek uses pre-seek position.
+    updateHostSnapshot(time, state);
+
     // Video ID sync — fixes Mix playlists where sub-index = different video
     let subIndexChanged = false;
     const hostVideoId = (data.videoId as string) || '';
@@ -611,6 +630,12 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         }
         // Suppress drift correction while new video loads
         _autoSyncUntil = Date.now() + 5000;
+        // Return early — the video is loading. Falling through to the
+        // hostPlayAt scheduling logic would schedule a play on a half-loaded
+        // video, causing the guest to play from position 0 or an incorrect
+        // position. The next heartbeat or YOUTUBE_STATE (after load completes)
+        // will handle sync correctly.
+        return;
       }
     }
 
@@ -691,7 +716,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
             if (!subIndexChanged && p.seekTo) {
               p.pauseVideo?.();
               p.seekTo(compensatedTime, true);
-              setManagedTimer('yt-clock-action', () => {
+              setManagedTimer('yt-seek-play', () => {
                 const p2 = getYouTubePlayer();
                 if (p2?.playVideo) p2.playVideo();
               }, 150);
@@ -739,19 +764,18 @@ function executeImmediate(
   }
 
   // Suppress drift correction while YouTube buffers the seek.
-  // Without this, the next 3s heartbeat reads a stale getCurrentTime()
-  // (pre-seek position) and force-seeks back, undoing the command.
   _autoSyncUntil = Date.now() + 3000;
 
   if (state === 1 && player.playVideo) {
     if (!subIndexChanged && player.seekTo) {
-      // Seek WHILE PAUSED first — YouTube reliably buffers the target
-      // position when paused. Then resume. Calling seekTo+playVideo
-      // simultaneously races: playVideo can fire before the seek takes
-      // effect, briefly playing from the old position.
+      // Pause-seek-play: seek while paused, then play after 150ms.
+      // Uses a SEPARATE timer name so a new YOUTUBE_STATE arriving during
+      // the 150ms gap doesn't cancel the pending playVideo without
+      // scheduling a replacement (yt-clock-action is cleared at the top
+      // of handleYouTubeState, but yt-seek-play is not).
       player.pauseVideo?.();
       player.seekTo(time, true);
-      setManagedTimer('yt-clock-action', () => {
+      setManagedTimer('yt-seek-play', () => {
         const p = getYouTubePlayer();
         if (p?.playVideo) p.playVideo();
       }, 150);

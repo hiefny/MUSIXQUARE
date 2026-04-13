@@ -46,6 +46,7 @@ let _lastYtVideoTitle = '';
  */
 let _lastDurationVideoId = '';
 export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
+let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
@@ -424,8 +425,14 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // broadcasts the authoritative state+hostPlayAt at the start of its
   // sequence, so suppressing these in-flight auxiliary broadcasts is safe.
   const syncInFlight = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
-  if (!hostConn && player?.getCurrentTime && !syncInFlight && now - _lastYtStateBroadcast > 300) {
+  // State-aware cooldown: only suppress if same state was broadcast within 300ms.
+  // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
+  // pause→play within 300ms), leaving guests stuck in the old state for 3s
+  // until the next heartbeat corrected it.
+  const isDuplicateState = (state === _lastYtBroadcastState) && (now - _lastYtStateBroadcast < 300);
+  if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
     _lastYtStateBroadcast = now;
+    _lastYtBroadcastState = state;
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state,

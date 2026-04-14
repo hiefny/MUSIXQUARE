@@ -185,7 +185,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const hostTime = Number(data.time) || 0;
     const hostState = Number(data.state);
     const hostSubIndex = data.subIndex as number | undefined;
-    const hostClock = Number(data.hostClock) || undefined;
+    const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
 
     // Cache latest host position for rendezvous sync extrapolation
     updateHostSnapshot(hostTime, hostState, hostClock);
@@ -544,6 +544,7 @@ function finishRendezvous(): void {
   _autoSyncUntil = 0;
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
+  clearManagedTimer('yt-rendezvous-calibrate');
   bus.emit('youtube:sync-loading', false);
 }
 
@@ -576,6 +577,7 @@ export function cancelGuestRendezvous(): void {
  */
 export function resetYouTubeSyncState(): void {
   _rendezvousInProgress = false;
+  _lastRendezvousAt = 0;
   _autoSyncUntil = 0;
   _lastHostSnapshot = null;
   _mixReloadedIds.clear();
@@ -629,6 +631,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   // correction from fighting a scheduled play, not to block explicit host
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
   clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-seek-play');
 
   // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
   // Without this, a pending yt-rendezvous-play timer fires alongside the
@@ -737,6 +740,14 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
+    // ENDED/UNSTARTED: stop immediately, skip all play/pause sync logic.
+    // Without this, state=0 with non-zero hostPlayAt could fall into the
+    // short-wait or executeImmediate paths, wastefully setting _autoSyncUntil.
+    if (state === 0 || state === -1) {
+      if (player.stopVideo) player.stopVideo();
+      return;
+    }
+
     // SharedClock: schedule YouTube action at host-specified time
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
@@ -823,9 +834,6 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       executeImmediate(player, state, time, duration, subIndexChanged);
     }
 
-    if (state === 0 || state === -1) {
-      if (player.stopVideo) player.stopVideo();
-    }
   } catch (e) {
     log.error('[YouTube State] Error:', e);
   }
@@ -839,6 +847,7 @@ function executeImmediate(
 ): void {
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-seek-play');
   if (time >= 0 && duration >= 0) {
     bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
   }
@@ -876,7 +885,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
   const subIdx = data.subIdx as number;
   const title = data.title as string;
 
-  if (!playlistId || subIdx === undefined || !title) return;
+  if (!playlistId || !Number.isInteger(subIdx) || subIdx < 0 || !title) return;
 
   updateSubItemTitle(playlistId, subIdx, title);
 

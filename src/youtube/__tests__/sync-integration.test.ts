@@ -61,6 +61,7 @@ vi.mock('../../network/protocol.ts', () => ({
 // getHostNow tracks Date.now() so it advances with vitest fake timers.
 vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: vi.fn(() => Date.now()),
+  isClockCalibrated: vi.fn(() => true),
   getClockOffset: vi.fn(() => 0),
   getClockBestRtt: vi.fn(() => 0),
   setIsHostClock: vi.fn(),
@@ -253,7 +254,7 @@ describe('YouTube Sync — Regression Integration', () => {
 
   // 3. Grace window stays active 500ms after playVideo (regression for c11173f)
   describe('scheduleYtAutoSync — post-play grace window (commit c11173f)', () => {
-    it('yt-sync-grace timer is live from T=1000 through T=1499, gone at T=1500', async () => {
+    it('yt-sync-grace timer is set after verifyPlay confirms PLAYING, gone 500ms later', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
 
@@ -262,14 +263,18 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(getManagedTimer('yt-sync-grace')).toBeNull();
 
       vi.advanceTimersByTime(1000);
-      // Immediately after playVideo, grace timer is armed
+      // playVideo fired, but grace is set by verifyPlay (300ms later)
+      expect(getManagedTimer('yt-sync-grace')).toBeNull();
+
+      vi.advanceTimersByTime(300);
+      // T=1300: verifyPlay fires, sees PLAYING (fake player flips to 1 on playVideo), arms grace
       expect(getManagedTimer('yt-sync-grace')).not.toBeNull();
 
       vi.advanceTimersByTime(499);
-      // Still live at T=1499
+      // Still live at T=1799
       expect(getManagedTimer('yt-sync-grace')).not.toBeNull();
 
-      vi.advanceTimersByTime(2); // -> T=1501
+      vi.advanceTimersByTime(2); // -> T=1801
       // Cleared after 500ms
       expect(getManagedTimer('yt-sync-grace')).toBeNull();
     });

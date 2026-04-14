@@ -111,6 +111,7 @@ export function loadYouTubeVideo(
   setCachedYtDuration(0); // Reset duration cache for new video
   _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
   _lastYtStateBroadcast = 0; // Allow immediate first broadcast for new session
+  _lastYtBroadcastState = -1; // Reset so first state is never treated as duplicate
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -548,12 +549,17 @@ function updateYouTubeUI(): void {
       if (Date.now() - getYtIOSWatchdog()! > 3000) {
         showYouTubeSyncOverlay(true);
       }
-    } else {
+    } else if (state === 1 || state === 2) {
+      // Only clear watchdog on definitively successful states (PLAYING/PAUSED).
+      // Clearing on BUFFERING(3) would reset the timer if a stuck player
+      // briefly flickers through BUFFERING during initialization.
       setYtIOSWatchdog(null);
     }
 
     // Reset cache when playlist sub-index changes (= different video)
+    let subIndexJustChanged = false;
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
+      subIndexJustChanged = true;
       const prevIdx = getCachedYtPlaylistIdx();
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
@@ -605,7 +611,7 @@ function updateYouTubeUI(): void {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
         if (cachedTitle) {
-          const currentMeta = getState('player.currentTrackMeta') || {};
+          const currentMeta = getState('player.currentTrackMeta') || currentTrack;
           setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
           _lastYtVideoTitle = cachedTitle;
         }
@@ -619,7 +625,7 @@ function updateYouTubeUI(): void {
     // getVideoData() during polling, and the current version's 2x/second
     // calls were a major contributor to iframe memory pressure and crashes.
     _videoDataPollCount = (_videoDataPollCount + 1) % 10;
-    const shouldPollVideoData = (playlistIdx !== getCachedYtPlaylistIdx())  // sub-index just changed (already cached above)
+    const shouldPollVideoData = subIndexJustChanged
       ? false  // sub-index branch above already ran; title was set from subItemsMap
       : (_videoDataPollCount === 0); // every 10th tick (~5s) for title/videoId sync
 
@@ -628,8 +634,10 @@ function updateYouTubeUI(): void {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _lastYtVideoTitle) {
         _lastYtVideoTitle = vData.title;
-        const currentMeta = getState('player.currentTrackMeta') || {};
-        setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
+        const currentMeta = getState('player.currentTrackMeta');
+        if (currentMeta) {
+          setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
+        }
       }
       currentVideoId = vData?.video_id || '';
 
@@ -752,7 +760,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
     }
     overlay.style.display = 'flex';
   } else if (overlay) {
-    overlay.style.display = 'none';
+    overlay.remove();
     setYtIOSWatchdog(null);
   }
 }

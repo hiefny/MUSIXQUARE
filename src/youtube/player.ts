@@ -194,6 +194,7 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
   clearManagedTimer('yt-bootstrap-sync');
+  clearManagedTimer('yt-guest-ended-fallback');
 
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
@@ -425,7 +426,6 @@ export function initYouTube(): void {
     if (!player) return;
     try {
       player.stopVideo();
-      try { player.seekTo(0, true); } catch (e) { log.debug('[YouTube] seekTo(0) after stop:', e); }
       broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
@@ -610,9 +610,8 @@ export function initYouTube(): void {
     const newIndex = updatedPlaylist.length - 1;
     const currentState = getState('appState');
     const isIdle = currentState === APP_STATE.IDLE;
-    const shouldPlayNow = isIdle;
 
-    if (shouldPlayNow) {
+    if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setState('player.currentTrackMeta', newTrack);
       // Load YouTube with autoplay=FALSE so the 1-sec rendezvous countdown
@@ -651,7 +650,7 @@ export function initYouTube(): void {
       }));
       broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
 
-      if (shouldPlayNow) {
+      if (isIdle) {
         broadcast({
           type: MSG.YOUTUBE_PLAY,
           videoId,
@@ -680,7 +679,7 @@ export function initYouTube(): void {
         setState('player.currentTrackMeta', updated[newIndex]);
 
         // Broadcast updated title to peers (Host only)
-        if (!hostConn) {
+        if (!getState('network.hostConn')) {
           const metaList = updated.map(it => ({
             type: it.type,
             name: it.name,
@@ -708,7 +707,7 @@ export function initYouTube(): void {
     const playlistId = extractYouTubePlaylistId(url);
 
     if (!videoId && !playlistId) {
-      showToast(t('youtube.not_valid_link'));
+      showToast(t('youtube.invalid_link'));
       return;
     }
 
@@ -887,7 +886,7 @@ export function initYouTube(): void {
       const useStaticIds = isMix && hostIds && hostIds.length > 0;
 
       // Send YouTube play command so guest enters YouTube mode
-      conn.send({
+      safeSend(conn, {
         type: MSG.YOUTUBE_PLAY,
         videoId: useStaticIds ? null : (item.videoId || null),
         playlistId: useStaticIds ? hostIds : (item.playlistId || null),
@@ -901,9 +900,9 @@ export function initYouTube(): void {
       // for title display and playVideoAt-based sync corrections.
       if (hostIds && hostIds.length > 0) {
         const titles = subMap[item.playlistId as string]?.titles || [];
-        conn.send({
+        safeSend(conn, {
           type: MSG.YOUTUBE_PLAYLIST_INFO,
-          playlistId: item.playlistId,
+          playlistId: item.playlistId as string,
           ids: hostIds,
           titles,
         });
@@ -924,11 +923,12 @@ export function initYouTube(): void {
           let freshSubIdx = subIdx;
           let freshVideoId = currentVideoId;
           try {
-            if (player?.getCurrentTime) freshTime = player.getCurrentTime();
+            const freshPlayer = getYouTubePlayer();
+            if (freshPlayer?.getCurrentTime) freshTime = freshPlayer.getCurrentTime();
             freshSubIdx = getState('youtube.currentSubIndex') ?? subIdx;
-            freshVideoId = player?.getVideoData?.()?.video_id || currentVideoId;
+            freshVideoId = freshPlayer?.getVideoData?.()?.video_id || currentVideoId;
           } catch { /* noop */ }
-          conn.send({
+          safeSend(conn, {
             type: MSG.YOUTUBE_STATE,
             state: 1,
             time: freshTime,
@@ -939,7 +939,7 @@ export function initYouTube(): void {
         }, BOOTSTRAP_DELAY);
       } else {
         // Host paused or at start — simple sync frame is fine
-        conn.send({
+        safeSend(conn, {
           type: MSG.YOUTUBE_SYNC,
           time: ytTime,
           state: ytState,

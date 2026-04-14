@@ -126,16 +126,30 @@ export function setYouTubeSubIndex(index: number): void {
   setState('youtube.currentSubIndex', index);
 }
 
+/** Reset all module-level variables. Called on full app/session reset. */
+export function resetYouTubeModuleState(): void {
+  _youtubePlayer = null;
+  _currentYouTubeSessionId = 0;
+  _ytScriptLoading = false;
+  _ytIOSWatchdog = null;
+  _ytScope?.dispose();
+  _ytScope = null;
+  _ytLoadInProgress = false;
+  _ytAutoplayIntent = true;
+  _cachedYtDuration = 0;
+  _cachedYtPlaylistIdx = -1;
+}
+
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────
 
 type SubItemsMap = Record<string, { ids: string[]; titles: string[] }>;
-const MAX_SUB_ITEMS_ENTRIES = 10; // LRU limit — evict oldest when full
+const MAX_SUB_ITEMS_ENTRIES = 10; // FIFO limit — evict oldest inserted when full
 
 function _getSubMap(): SubItemsMap {
   return getState('youtube.subItemsMap') || {};
 }
 
-/** Prune map to MAX entries, keeping the most recently set keys. */
+/** Prune map to MAX entries, evicting the oldest inserted keys first (FIFO). */
 function _pruneSubMap(subMap: SubItemsMap): SubItemsMap {
   const keys = Object.keys(subMap);
   if (keys.length <= MAX_SUB_ITEMS_ENTRIES) return subMap;
@@ -155,7 +169,7 @@ export function updateSubItemIds(playlistId: string, ids: string[]): void {
   setState('youtube.subItemsMap', _pruneSubMap(subMap));
 }
 
-/** Update a single sub-item title by index (mutates in place — avoids triple spread). */
+/** Update a single sub-item title by index (shallow copy — avoids deep triple spread). */
 export function updateSubItemTitle(playlistId: string, subIdx: number, title: string): void {
   const subMap = _getSubMap();
   const entry = subMap[playlistId];
@@ -163,8 +177,9 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
   // Only setState if title actually changed
   if (entry.titles[subIdx] === title) return;
   const newTitles = [...entry.titles];
+  while (newTitles.length <= subIdx) newTitles.push('');
   newTitles[subIdx] = title;
-  setState('youtube.subItemsMap', { ...subMap, [playlistId]: { ...entry, titles: newTitles } });
+  setState('youtube.subItemsMap', _pruneSubMap({ ...subMap, [playlistId]: { ...entry, titles: newTitles } }));
 }
 
 /** Set full sub-item data (IDs + titles) for a playlist. */

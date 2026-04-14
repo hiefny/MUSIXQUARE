@@ -37,6 +37,7 @@ async function fetchWithTimeout(url: string, timeoutMs = 5000, externalSignal?: 
 const VIDEO_PATTERNS = [
   /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+  /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
 ];
 
 export function extractYouTubeVideoId(url: string): string | null {
@@ -114,9 +115,12 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
 
 // ─── oEmbed Preview Fetch (UI-bound) ───────────────────────────────
 
+let _previewAbort: AbortController | null = null;
+
 /** Clear any pending preview debounce timer (call on overlay close). */
 export function clearPreviewDebounce(): void {
   clearManagedTimer('yt-preview-debounce');
+  if (_previewAbort) { _previewAbort.abort(); _previewAbort = null; }
 }
 
 export function fetchYouTubePreview(url: string): void {
@@ -150,7 +154,7 @@ export function fetchYouTubePreview(url: string): void {
     previewContainer.style.display = 'none';
     statusText.style.display = 'block';
     statusText.innerText = t('youtube.invalid_link');
-    statusText.style.color = '#ef4444';
+    statusText.style.color = 'var(--danger, #ef4444)';
     setPlayBtnEnabled(false);
     return;
   }
@@ -161,11 +165,29 @@ export function fetchYouTubePreview(url: string): void {
   setPlayBtnEnabled(false);
 
   setManagedTimer('yt-preview-debounce', async () => {
+    // Re-query DOM refs (overlay may have been destroyed and recreated during debounce)
+    const freshPreview = document.getElementById('youtube-preview');
+    const freshStatus = document.getElementById('youtube-preview-status');
+    const freshPlayBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+    const freshSetPlayBtnEnabled = (enabled: boolean): void => {
+      if (!freshPlayBtn) return;
+      freshPlayBtn.disabled = !enabled;
+      freshPlayBtn.style.opacity = enabled ? '1' : '0.5';
+    };
+    if (!freshPreview || !freshStatus) return;
+
+    // Cancel previous in-flight fetch to prevent stale results overwriting newer ones
+    if (_previewAbort) _previewAbort.abort();
+    const abort = new AbortController();
+    _previewAbort = abort;
+
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-      const response = await fetchWithTimeout(oembedUrl);
+      const response = await fetchWithTimeout(oembedUrl, 5000, abort.signal);
+      if (abort.signal.aborted) return;
       if (!response.ok) throw new Error('Video not found');
       const data = await response.json();
+      if (abort.signal.aborted) return;
 
       const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
       const title = document.getElementById('youtube-preview-title');
@@ -179,19 +201,20 @@ export function fetchYouTubePreview(url: string): void {
           thumb.style.display = 'none';
         }
       }
-      if (title) title.innerText = data.title;
-      if (chan) chan.innerText = data.author_name;
+      if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
+      if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
 
-      previewContainer.style.display = 'block';
-      statusText.style.display = 'none';
-      setPlayBtnEnabled(true);
+      freshPreview.style.display = 'block';
+      freshStatus.style.display = 'none';
+      freshSetPlayBtnEnabled(true);
     } catch (e) {
+      if (abort.signal.aborted) return;
       log.error('[YouTube Preview] Error:', e);
-      previewContainer.style.display = 'none';
-      statusText.style.display = 'block';
-      statusText.innerText = t('youtube.fetch_failed');
-      statusText.style.color = '#ef4444';
-      setPlayBtnEnabled(false);
+      freshPreview.style.display = 'none';
+      freshStatus.style.display = 'block';
+      freshStatus.innerText = t('youtube.fetch_failed');
+      freshStatus.style.color = 'var(--danger, #ef4444)';
+      freshSetPlayBtnEnabled(false);
     }
   }, 500);
 }
@@ -254,7 +277,10 @@ export async function fetchPlaylistSubTitles(
       if (!currentData) break;
 
       // Skip if already has title
-      if (currentData.titles[i]) continue;
+      if (currentData.titles[i]) {
+        // Skip delay when title is already cached — no network request needed
+        continue;
+      }
 
       try {
         const videoId = ids[i];
@@ -289,7 +315,8 @@ export async function fetchPlaylistSubTitles(
         log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
       }
 
-      await delay(DELAY.RETRY);
+      // Throttle between network requests (not after cache hits)
+      if (!abort.signal.aborted) await delay(DELAY.RETRY);
     }
   } finally {
     if (_subTitleAbort === abort) _subTitleAbort = null;

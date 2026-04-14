@@ -49,7 +49,7 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
     // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
-    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(() => { /* noop */ });
+    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(e => { log.debug('[YouTube] clearReceiveState failed:', e); });
     showLoader(false);
   }
 
@@ -86,13 +86,14 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
 
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
+    const time = player.getCurrentTime?.() || 0;
     cancelYtAutoSync();
     markYtStateBroadcast();
     player.pauseVideo();
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state: 2,
-      time: player.getCurrentTime?.() || 0,
+      time,
       subIndex: player.getPlaylistIndex?.() ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
     });
@@ -115,10 +116,11 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
     if (state === YT.PlayerState.PLAYING) {
       // Pause: immediate, cancel any pending auto-sync
       cancelYtAutoSync();
-      markYtStateBroadcast();
       if (player.pauseVideo) {
+        const time = player.getCurrentTime?.() || 0;
+        markYtStateBroadcast();
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
         player.pauseVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
         markYtStateBroadcast();
       }
     } else {
@@ -154,12 +156,19 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   if (player?.playVideoAt && typeof subIdx === 'number') {
     player.playVideoAt(subIdx);
     setYouTubeSubIndex(subIdx);
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state: 1,
-      time: 0,
+
+    // Resolve videoId from subItemsMap — getVideoData() is stale right after playVideoAt
+    const playlist = getState('playlist.items') || [];
+    const currentItem = playlist[currentTrackIndex];
+    const subMap = getState('youtube.subItemsMap') || {};
+    const ids = subMap[currentItem?.playlistId as string]?.ids || [];
+    const targetVideoId = ids[subIdx] || player.getVideoData?.()?.video_id || '';
+
+    scheduleYtAutoSync(0, {
       subIndex: subIdx,
-      videoId: player.getVideoData?.()?.video_id || '',
+      videoId: targetVideoId,
+      skipSeek: true,
+      countdownMs: 3000,
     });
   }
 }
@@ -168,7 +177,7 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
  * Host responds to Guest's request for YouTube playlist sub-item data.
  * Sends cached IDs and titles from subItemsMap.
  */
-export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
+export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host handles this
 

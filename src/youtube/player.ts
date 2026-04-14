@@ -889,7 +889,7 @@ export function initYouTube(): void {
 
       safeSend(conn, {
         type: MSG.YOUTUBE_PLAY,
-        videoId: currentVideoId || (useStaticIds ? null : (item.videoId || null)),
+        videoId: useStaticIds ? null : (item.videoId || null),
         playlistId: useStaticIds ? hostIds : (item.playlistId || null),
         name: item.name || item.title,
         index: currentTrackIndex,

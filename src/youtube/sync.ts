@@ -177,8 +177,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
-  // Skip during auto-sync cooldown (prevents drift correction from fighting scheduled play)
-  if (Date.now() < _autoSyncUntil) return;
+  const isManual = !!data.isManual;
+
+  // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown
+  if (!isManual && Date.now() < _autoSyncUntil) return;
 
   try {
     const hostTime = Number(data.time) || 0;
@@ -190,7 +192,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     updateHostSnapshot(hostTime, hostState, hostClock);
 
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
-    if (data.isManual) {
+    if (isManual) {
       log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
       guestRendezvousSync();
       return;

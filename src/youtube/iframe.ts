@@ -331,37 +331,42 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
   const player = getYouTubePlayer();
 
-  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
+  // ── Playlist Snapshot & Sync (Host Only) ──
+  // In single-video mode, we need subItemsMap populated for ALL playlist
+  // types (Mix RD, regular PL) so try-next/prev-internal can find sub-videos.
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
-    const mixId = playlistId; // Captured for closure
-    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
+  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
+    const snapshotId = playlistId;
+    log.debug('[YouTube] Scheduling playlist snapshot for subItemsMap...');
     // Wait a few seconds for YouTube to populate the internal playlist IDs
     setManagedTimer('yt-mix-snapshot', () => {
       try {
-        // Re-fetch player — original capture may be stale after 3s
         const freshPlayer = getYouTubePlayer();
         if (!freshPlayer?.getPlaylist) return;
         const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
-          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
+          log.info(`[YouTube] Snapshotting ${ids.length} items for subItemsMap:`, snapshotId);
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(mixId, ids, titles);
-          
-          // Broadcast to all guests so they use this static list instead of generating their own
+          setSubItemsData(snapshotId, ids, titles);
+
+          // Set initial sub-index if not already set
+          const currentSub = getState('youtube.currentSubIndex') ?? -1;
+          if (currentSub < 0) {
+            const currentIdx = freshPlayer.getPlaylistIndex?.() ?? 0;
+            setYouTubeSubIndex(currentIdx >= 0 ? currentIdx : 0);
+          }
+
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: mixId,
+            playlistId: snapshotId,
             ids,
             titles
           });
 
-          // Trigger background oEmbed title fetching
-          fetchPlaylistSubTitles(mixId, ids);
+          fetchPlaylistSubTitles(snapshotId, ids);
         }
       } catch (e) {
-        log.warn('[YouTube Mix] Snapshot failed:', e);
+        log.warn('[YouTube] Playlist snapshot failed:', e);
       }
     }, 3000);
   }

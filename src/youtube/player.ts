@@ -531,7 +531,11 @@ export function initYouTube(): void {
         const nextIdx = idx + 1;
         const nextVideoId = subData.ids[nextIdx];
         setYouTubeSubIndex(nextIdx);
-        player.loadVideoById(nextVideoId);
+        if (player.playVideoAt) {
+          player.playVideoAt(nextIdx);
+        } else {
+          player.loadVideoById(nextVideoId);
+        }
         scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
@@ -559,7 +563,11 @@ export function initYouTube(): void {
         const prevIdx = idx - 1;
         const prevVideoId = subData.ids[prevIdx];
         setYouTubeSubIndex(prevIdx);
-        player.loadVideoById(prevVideoId);
+        if (player.playVideoAt) {
+          player.playVideoAt(prevIdx);
+        } else {
+          player.loadVideoById(prevVideoId);
+        }
         // 1s auto-sync: guests load same subIndex, all play simultaneously
         scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);

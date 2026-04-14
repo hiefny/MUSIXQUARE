@@ -218,17 +218,8 @@ function createYouTubePlayer(
     try {
       if (playlistId) {
         if (Array.isArray(playlistId)) {
-          // Cap playlist size to prevent iframe crashes on 100+ item playlists.
-          // YouTube iframe memory usage scales with playlist length.
-          const WINDOW = 25;
-          let ids = playlistId;
-          let idx = subIndex;
-          if (ids.length > WINDOW * 2) {
-            const start = Math.max(0, subIndex - WINDOW);
-            ids = ids.slice(start, start + WINDOW * 2);
-            idx = subIndex - start;
-          }
-          existingPlayer.loadPlaylist(ids, idx, 0);
+          // Full array — no windowing. loadPlaylist via postMessage has no URL limit.
+          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
         } else {
           existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
         }
@@ -269,17 +260,13 @@ function createYouTubePlayer(
 
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      // Cap playlist size — 100+ IDs crash YouTube iframe on mobile
-      const WINDOW = 25;
-      let ids = playlistId;
-      let idx = subIndex;
-      if (ids.length > WINDOW * 2) {
-        const start = Math.max(0, subIndex - WINDOW);
-        ids = ids.slice(start, start + WINDOW * 2);
-        idx = subIndex - start;
+      // 100+ IDs in playerVars.playlist create a massive iframe SRC URL that exceeds
+      // HTTP length limits, causing crashes on iOS/Mobile.
+      // Fix: start with just the target videoId, then upgrade to full playlist
+      // via loadPlaylist postMessage in onYouTubePlayerReady (no URL limit).
+      if (!videoId) {
+        videoId = playlistId[subIndex] || playlistId[0];
       }
-      playerVars.playlist = ids.join(',');
-      playerVars.index = idx;
     } else {
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
@@ -292,7 +279,7 @@ function createYouTubePlayer(
     height: '100%',
     playerVars,
     events: {
-      onReady: () => onYouTubePlayerReady(playlistId),
+      onReady: () => onYouTubePlayerReady(playlistId, subIndex),
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
     },
@@ -311,7 +298,10 @@ function createYouTubePlayer(
 
 // ─── Player Events ─────────────────────────────────────────────────
 
-function onYouTubePlayerReady(playlistId: string | string[] | null = null): void {
+function onYouTubePlayerReady(
+  playlistId: string | string[] | null = null,
+  subIndex = 0,
+): void {
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
 
@@ -322,6 +312,16 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
   }
 
   const player = getYouTubePlayer();
+
+  // If we deferred a large array playlist to bypass the URL limit, load it now via postMessage.
+  if (Array.isArray(playlistId) && player.loadPlaylist) {
+    log.debug(`[YouTube] Upgrading to full array playlist (${playlistId.length} items) via postMessage`);
+    if (getYtAutoplayIntent()) {
+      player.loadPlaylist(playlistId, subIndex, 0);
+    } else {
+      player.cuePlaylist(playlistId, subIndex, 0);
+    }
+  }
 
   // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');

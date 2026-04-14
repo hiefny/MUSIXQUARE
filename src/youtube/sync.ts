@@ -260,13 +260,8 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
 
           if (hostIds && hostIds.length > 0 && hostSubIndex !== undefined && hostSubIndex >= 0 && player.loadPlaylist) {
-            const WINDOW = 25;
-            const sliceStart = Math.max(0, hostSubIndex - WINDOW);
-            const sliceEnd = Math.min(hostIds.length, hostSubIndex + WINDOW);
-            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
-            const adjustedIndex = hostSubIndex - sliceStart;
-            log.warn(`[YouTube Sync] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${slicedIds.length} IDs)`);
-            player.loadPlaylist(slicedIds, adjustedIndex, 0);
+            log.warn(`[YouTube Sync] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${hostIds.length} IDs)`);
+            player.loadPlaylist(hostIds, hostSubIndex, 0);
             setYouTubeSubIndex(hostSubIndex);
           } else if (player.loadVideoById) {
             log.warn(`[YouTube Sync] No host IDs — last resort loadVideoById`);
@@ -680,14 +675,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
           const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
 
           if (hostIds && hostIds.length > 0 && subIndex !== undefined && subIndex >= 0) {
-            const WINDOW = 25;
-            const sliceStart = Math.max(0, subIndex - WINDOW);
-            const sliceEnd = Math.min(hostIds.length, subIndex + WINDOW);
-            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
-            const adjustedIndex = subIndex - sliceStart;
-            log.warn(`[YouTube State] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${slicedIds.length} IDs)`);
+            log.warn(`[YouTube State] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${hostIds.length} IDs)`);
             if (player.loadPlaylist) {
-              player.loadPlaylist(slicedIds, adjustedIndex, 0);
+              player.loadPlaylist(hostIds, subIndex, 0);
             }
             setYouTubeSubIndex(subIndex);
             subIndexChanged = true;

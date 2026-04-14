@@ -69,8 +69,8 @@ export function broadcastYouTubeSync(isManual = false): void {
 
       // Only trust the IFrame's index if it's NOT -1 (single video mode).
       // When we use loadVideoById, the iframe loses its playlist context and 
-      // returns -1. Overwriting our managed index with -1 would break navigation.
-      if (sIdx !== -1 && sIdx !== currentYouTubeSubIndex) {
+      // returns -1 or undefined. Overwriting our managed index with undefined would break navigation.
+      if (typeof sIdx === 'number' && sIdx !== -1 && sIdx !== currentYouTubeSubIndex) {
         setYouTubeSubIndex(sIdx);
 
         const playlist = getState('playlist.items') || [];

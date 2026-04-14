@@ -80,6 +80,10 @@ interface IframeRuntime {
   lastBroadcastState: number;
   /** Consecutive getCurrentTime() failures — trips the crash-recovery rebuild. */
   crashFailCount: number;
+  /** Last playlist index that was preempted for auto-advance. Prevents infinite looping within 0.8s */
+  lastPreemptIdx: number;
+  /** True if we are intercepting a native playlist load via cuePlaylist purely to scrape IDs. */
+  isScrapingPlaylist: boolean;
 }
 
 const _ifr: IframeRuntime = {
@@ -89,6 +93,8 @@ const _ifr: IframeRuntime = {
   lastStateBroadcast: 0,
   lastBroadcastState: -1,
   crashFailCount: 0,
+  lastPreemptIdx: -1,
+  isScrapingPlaylist: false,
 };
 
 export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
@@ -255,20 +261,36 @@ function createYouTubePlayer(
   // track for a mid-playlist transition. The cache is populated on the
   // first updateYouTubeUI tick after the player becomes ready.
   setCachedYtPlaylistIdx(-1);
+  _ifr.lastPreemptIdx = -1;
+
+  const hostConn = getState('network.hostConn');
+  const needsScrape = (!hostConn && playlistId !== null);
+
+  if (needsScrape) {
+    _ifr.isScrapingPlaylist = true;
+    setYtLoadInProgress(true);
+    showToast("대형 플리 안전 모드 분석 중... 🎵");
+  } else {
+    _ifr.isScrapingPlaylist = false;
+  }
 
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
     try {
-      if (playlistId) {
+      if (needsScrape && playlistId) {
+        existingPlayer.cuePlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+      } else if (playlistId) {
         existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
       // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
-      setYouTubeSubIndex(subIndex);
-      setYtLoadInProgress(false);
+      if (!needsScrape) {
+        setYouTubeSubIndex(subIndex);
+        setYtLoadInProgress(false);
+      }
 
       // Suppress heartbeat state-sync for 5s after loading a new video.
       // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
@@ -301,6 +323,7 @@ function createYouTubePlayer(
     playerVars.listType = 'playlist';
     playerVars.list = playlistId;
     playerVars.index = subIndex;
+    if (needsScrape) playerVars.autoplay = 0;
   }
 
   const playerOptions: Record<string, any> = {
@@ -343,29 +366,37 @@ function onYouTubePlayerReady(): void {
 
   // ── Playlist Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
-  if (!hostConn && pid && player?.getPlaylist) {
-    log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
-    setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), PLAYLIST_SNAPSHOT_DELAY_MS);
+  if (!hostConn && pid) {
+    if (_ifr.isScrapingPlaylist && player?.cuePlaylist) {
+      log.debug('[YouTube] Cueing playlist for backend scrape...', pid);
+      const subIndex = getState('youtube.currentSubIndex') ?? 0;
+      player.cuePlaylist({ list: pid, listType: 'playlist', index: subIndex, startSeconds: 0 });
+    }
 
-    // Aggressive First-Track Fisher: Poll fast to catch the first video ID.
-    // Makes the 1st track highlight appear almost instantly even without a v= parameter.
-    let fisherCount = 0;
-    setManagedTimer('yt-first-track-fisher', () => {
-      try {
-        const p = getYouTubePlayer();
-        const vid = p?.getVideoData?.()?.video_id;
-        if (vid) {
-          const subMap = getState('youtube.subItemsMap') || {};
-          const existing = subMap[pid]?.ids || [];
-          // Only update if we don't have IDs yet, or if it's currently a single-track list
-          if (existing.length <= 1) {
-            updateSubItemIds(pid, [vid]);
+    if (player?.getPlaylist) {
+      log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
+      setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), PLAYLIST_SNAPSHOT_DELAY_MS);
+
+      // Aggressive First-Track Fisher: Poll fast to catch the first video ID.
+      // Makes the 1st track highlight appear almost instantly even without a v= parameter.
+      let fisherCount = 0;
+      setManagedTimer('yt-first-track-fisher', () => {
+        try {
+          const p = getYouTubePlayer();
+          const vid = p?.getVideoData?.()?.video_id;
+          if (vid) {
+            const subMap = getState('youtube.subItemsMap') || {};
+            const existing = subMap[pid]?.ids || [];
+            // Only update if we don't have IDs yet, or if it's currently a single-track list
+            if (existing.length <= 1) {
+              updateSubItemIds(pid, [vid]);
+            }
+            clearManagedTimer('yt-first-track-fisher');
           }
-          clearManagedTimer('yt-first-track-fisher');
-        }
-      } catch { /* ignore */ }
-      if (++fisherCount > FIRST_TRACK_FISHER_MAX_POLLS) clearManagedTimer('yt-first-track-fisher');
-    }, FIRST_TRACK_FISHER_INTERVAL_MS, { interval: true });
+        } catch { /* ignore */ }
+        if (++fisherCount > FIRST_TRACK_FISHER_MAX_POLLS) clearManagedTimer('yt-first-track-fisher');
+      }, FIRST_TRACK_FISHER_INTERVAL_MS, { interval: true });
+    }
   }
 
   // Start UI update loop
@@ -480,6 +511,33 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       }, GUEST_ENDED_FALLBACK_MS);
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
+  } else if (state === YT.PlayerState.CUED) {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn && _ifr.isScrapingPlaylist) {
+      log.info(`[YouTube Fix] CUED triggered. Extracting IDs without playing...`);
+      _ifr.isScrapingPlaylist = false;
+
+      const ids = player.getPlaylist() || [];
+      if (ids.length > 0) {
+        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+        const pid = currentTrack?.playlistId;
+        const subIdx = getState('youtube.currentSubIndex') ?? 0;
+
+        if (pid) updateSubItemIds(pid, ids);
+        log.info(`[YouTube Fix] Micro-Scrape successful! IDs injected. Switching to Single-Video Mode.`);
+
+        setYouTubeSubIndex(subIdx);
+        player.loadVideoById(ids[subIdx] || ids[0], 0);
+
+        if (getYtAutoplayIntent()) {
+          player.playVideo();
+        }
+      } else {
+        log.warn(`[YouTube Fix] Micro-Scrape failed. Falling back to native playback.`);
+        if (getYtAutoplayIntent()) player.playVideo();
+      }
+    }
+    return;
   }
 
   // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
@@ -580,6 +638,24 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
+    // ==========================================
+    // [대형 플리 렉 제로 패치] 선제적 트랙 전환
+    // 순정 플레이리스트 엔진(playlistIdx !== -1)이 다음 곡으로 자동 전환을 시도할 때
+    // 대형 플레이리스트의 경우 수 초간 화면이 멈추거나 튕기는 심각한 렉이 발생합니다.
+    // 곡이 끝나기 0.5~0.8초 전에 우리가 선제적으로 단일 비디오 전환을 지시해버리면
+    // 순정 엔진 특유의 렉을 완벽하게 우회하고 즉시 게스트들과 스무스하게 동기화됩니다.
+    // ==========================================
+    const hostConn = getState('network.hostConn');
+    if (!hostConn && playlistIdx !== -1 && state === 1 && _ifr.lastPreemptIdx !== playlistIdx) {
+      const timeRemaining = rawDuration - currentTime;
+      if (rawDuration > 0 && timeRemaining <= 0.8 && timeRemaining > 0) {
+        log.info(`[YouTube Fix] Pre-empting slow native auto-advance (remaining: ${timeRemaining.toFixed(2)}s)`);
+        _ifr.lastPreemptIdx = playlistIdx;
+        bus.emit('youtube:try-next-internal', () => { });
+        return;
+      }
+    }
+
     // Reset cache when playlist sub-index changes (= different video)
     let subIndexJustChanged = false;
     if (playlistIdx !== getCachedYtPlaylistIdx()) {
@@ -590,28 +666,13 @@ function updateYouTubeUI(): void {
       _ifr.lastVideoTitle = '';
       _ifr.lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
 
-      // ==========================================
-      // [강력한 OOM 해결 패치] Native 자동 스킵 방어막
-      // ==========================================
-      const hostConn = getState('network.hostConn');
-      // 호스트/게스트 구분 없이 순정 엔진으로 재생 중이다가 자동 다음곡으로 넘어가면 무조건 단일 모드로 납치합니다.
-      if (prevIdx !== -1 && playlistIdx > 0) {
-        log.info(`[YouTube Fix] Native auto-advance detected (${prevIdx} -> ${playlistIdx}). Hijacking to Single-Video Mode.`);
-        
-        const subMap = getState('youtube.subItemsMap') || {};
-        const pid = (getState('player.currentTrackMeta') as any)?.playlistId;
-        
-        if (pid && subMap[pid] && subMap[pid].ids.length > playlistIdx) {
-           const targetVid = subMap[pid].ids[playlistIdx];
-           loadYouTubeVideo(targetVid, null, true, playlistIdx);
-           return;
-        }
-      }
-      // ==========================================
+
       // Arm the counter so (N+1) % N === 0 on the NEXT tick → getVideoData
       // fires immediately after a sub-index change instead of waiting for
       // the usual ~5s cadence. `- 1` keeps this correct if N ever changes.
       _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
+
+      const hostConn = getState('network.hostConn');
 
       // ── Guest-side: suppress independent auto-advance ──────────────
       // YouTube iframe auto-advances to the next video in a playlist
@@ -838,19 +899,34 @@ export function refreshYouTubeDisplay(): void {
  * This is the ONLY way to get the correct list for RD (Mixes) and also
  * allows us to bypass the IFrame's OOM-prone playlist engine for PL-type lists.
  */
-function _triggerPlaylistSnapshot(pid: string): void {
+let _snapshotRetryCount = 0;
+function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
+  if (!isRetry) _snapshotRetryCount = 0;
+
   try {
     const player = getYouTubePlayer();
     if (!player?.getPlaylist) return;
 
+    const subMap = getState('youtube.subItemsMap') || {};
+    const existingIds = subMap[pid]?.ids || [];
+
     const ids = (player.getPlaylist() || []).slice(0, PLAYLIST_MAX_ITEMS);
-    if (!Array.isArray(ids) || ids.length === 0) {
-      log.debug('[YouTube Snapshot] Player returned empty list, giving up');
+
+    // 유튜브 엔진 구동 초기에 플레이리스트가 온전히 불러와지지 않고
+    // 곡 하나만 덜렁 있는 상태(length === 1)로 꼼수를 부리는 경우가 있습니다.
+    // 기존에 알고 있는 ID 목록이 없다면 무조건 2개 이상이 될 때까지 재시도합니다.
+    if (!Array.isArray(ids) || ids.length === 0 || (ids.length === 1 && existingIds.length <= 1)) {
+      if (_snapshotRetryCount < 20) {
+        _snapshotRetryCount++;
+        log.debug(`[YouTube Snapshot] Player returned empty/single list, retrying (${_snapshotRetryCount}/20)...`);
+        setManagedTimer(`yt-snapshot-retry-${pid}`, () => _triggerPlaylistSnapshot(pid, true), 1000);
+      } else {
+        log.warn(`[YouTube Snapshot] Player returned empty/single list after 20 retries, giving up on: ${pid}`);
+      }
       return;
     }
 
-    const subMap = getState('youtube.subItemsMap') || {};
-    const existingIds = subMap[pid]?.ids || [];
+
 
     // CRITICAL: If the player is in single-video mode (loadVideoById), getPlaylist() 
     // often returns an array of length 1. Do not overwrite our full list with this.
@@ -860,7 +936,7 @@ function _triggerPlaylistSnapshot(pid: string): void {
     }
 
     log.info(`[YouTube Snapshot] Captured ${ids.length} items:`, pid);
-    
+
     // Preserve any titles already fetched or cached
     const existingTitles = subMap[pid]?.titles || [];
     const titles = ids.map((_, idx) => existingTitles[idx] || '');
@@ -877,7 +953,7 @@ function _triggerPlaylistSnapshot(pid: string): void {
 
     // Start fetching titles in the background
     fetchPlaylistSubTitles(pid, ids);
-    
+
     // Clear any pending snapshot timers as we just finished it
     clearManagedTimer('yt-playlist-snapshot');
   } catch (e) {

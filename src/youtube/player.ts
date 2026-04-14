@@ -414,6 +414,33 @@ export function initYouTube(): void {
       }
     } catch { /* noop */ }
 
+    // [Fallback] 순정 IFrame API가 유휴 상태(아무 액션 안 함)일 때 getPlaylist()를 
+    // 비워버리는 버그가 있습니다. 이 경우 우리가 직접 스크래핑한 캐시에서 ID를 강제로 가져옵니다.
+    if (!nextVideoId && nextIdx > 0) {
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const pid = currentTrack?.playlistId;
+      if (pid) {
+        const subMap = getState('youtube.subItemsMap') || {};
+        nextVideoId = subMap[pid]?.ids?.[nextIdx];
+        log.info(`[YouTube Fix] Auto-advance cache fallback used for index ${nextIdx} -> ${nextVideoId}`);
+      }
+    }
+
+    // ==========================================
+    // [강력한 OOM 해결 + 랙 제로 패치]
+    // 1번 곡에서 2번 곡으로 넘어가는 순간, 순정 엔진을 파괴하고 단일 모드로 부드럽게 세팅합니다.
+    // 기존의 scheduleYtAutoSync(3초 대기)를 아예 건너뛰고 바로 통신을 쏴서 단일모드급 스무스함을 줍니다.
+    if (nextVideoId && nextIdx > 0) {
+      log.info(`[YouTube Fix] Hijacking native auto-advance instantly.`);
+      setYouTubeSubIndex(nextIdx); // 하이라이트 즉시 갱신
+      player.loadVideoById?.(nextVideoId);
+      
+      // 3초 대기 없이 게스트들에게 즉시 새 비디오 + 새 인덱스를 동기화!
+      import('./sync.ts').then(m => m.broadcastYouTubeSync(true));
+      return; 
+    }
+    // ==========================================
+
     setYtAutoplayIntent(true); // avoid pause-back guard firing post-sync
     // skipSeek:true — host is already at currentTime after the force-pause,
     // re-seeking would only introduce an extra BUFFERING round-trip.

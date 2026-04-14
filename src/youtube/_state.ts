@@ -12,8 +12,9 @@ import { getState, setState } from '../core/state.ts';
 // ─── Module State ──────────────────────────────────────────────────
 
 export interface YouTubePlayerInstance {
-  loadVideoById(videoId: string): void;
+  loadVideoById(videoId: string, startSeconds?: number): void;
   loadPlaylist(args: { list: string; listType: string; index?: number; startSeconds?: number }): void;
+  cuePlaylist(args: { list: string; listType: string; index?: number; startSeconds?: number }): void;
   pauseVideo(): void;
   playVideo(): void;
   stopVideo(): void;

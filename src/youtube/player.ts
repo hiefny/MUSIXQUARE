@@ -274,9 +274,24 @@ function navigateSubVideo(
 
     const idx = getState('youtube.currentSubIndex') ?? -1;
     const targetIdx = idx + direction;
-    const inBounds = direction === 1
-      ? (idx >= 0 && subData?.ids && idx < subData.ids.length - 1)
+    let inBounds = direction === 1
+      ? (idx >= 0 && !!subData?.ids && idx < subData.ids.length - 1)
       : (idx > 0 && !!subData?.ids);
+
+    // Fallback: about to fall off the end forward, but the iframe may have
+    // lazily populated more items since the initial indexing snapshot.
+    // Re-read getPlaylist() and retry if the cached list was truncated.
+    if (!inBounds && direction === 1 && player.getPlaylist) {
+      try {
+        const freshIds = (player.getPlaylist() || []).slice(0, PLAYLIST_MAX_ITEMS);
+        if (freshIds.length > (subData?.ids?.length ?? 0)) {
+          log.info(`[YouTube] navigate refresh: ${subData?.ids?.length ?? 0} -> ${freshIds.length} items`);
+          updateSubItemIds(pid, freshIds);
+          subData = { ids: freshIds, titles: subData?.titles || [] };
+          inBounds = idx >= 0 && idx < freshIds.length - 1;
+        }
+      } catch (e) { log.debug('[YouTube] navigate refresh error:', e); }
+    }
 
     if (inBounds && subData?.ids) {
       const targetVideoId = subData.ids[targetIdx];

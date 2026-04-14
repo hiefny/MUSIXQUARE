@@ -455,6 +455,44 @@ function onYouTubePlayerReady(): void {
   bus.emit('youtube:player-ready');
 }
 
+/**
+ * Poll player.getPlaylist() until the returned ID count stabilizes, then
+ * fire the indexing callback with the final list. Used instead of reading
+ * getPlaylist() exactly once at CUED, because YouTube populates the list
+ * lazily on large playlists.
+ */
+const INDEXING_POLL_INTERVAL_MS = 300;
+const INDEXING_POLL_MAX_ATTEMPTS = 15; // ~4.5s ceiling
+
+function _pollIndexingPlaylist(prevCount: number, attempts: number): void {
+  const player = getYouTubePlayer();
+  if (!player?.getPlaylist) {
+    // Player gone — abandon indexing without invoking the callback
+    setYtIndexing(false);
+    setYtIndexingCallback(null);
+    return;
+  }
+  const ids = player.getPlaylist() || [];
+  const stabilized = ids.length > 0 && ids.length === prevCount;
+  const giveUp = attempts >= INDEXING_POLL_MAX_ATTEMPTS;
+  if (stabilized || giveUp) {
+    log.debug(`[YouTube] Indexing settled at ${ids.length} items after ${attempts} polls`);
+    const cb = getYtIndexingCallback();
+    // Do NOT clear indexing state before the callback runs. The callback
+    // triggers loadYouTubeVideo -> stopYouTubeMode, which relies on
+    // isYtIndexing() to avoid clobbering the sub-index.
+    if (cb) cb(ids);
+    setYtIndexing(false);
+    setYtIndexingCallback(null);
+    return;
+  }
+  setManagedTimer(
+    'yt-indexing-poll',
+    () => _pollIndexingPlaylist(ids.length, attempts + 1),
+    INDEXING_POLL_INTERVAL_MS,
+  );
+}
+
 function onYouTubePlayerError(event: { data: number }): void {
   log.error('[YouTube] Player error:', event.data);
   setYtLoadInProgress(false);
@@ -513,15 +551,13 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.CUED) {
     if (indexing) {
-      log.debug('[YouTube] CUED during indexing — extracting IDs');
-      const ids = player.getPlaylist() || [];
-      const callback = getYtIndexingCallback();
-      // Do NOT clear indexing state before the callback runs. The callback
-      // triggers loadYouTubeVideo -> stopYouTubeMode, which relies on
-      // isYtIndexing() to avoid clobbering the sub-index.
-      if (callback) callback(ids);
-      setYtIndexing(false);
-      setYtIndexingCallback(null);
+      log.debug('[YouTube] CUED during indexing — polling for full list');
+      // YouTube populates getPlaylist() lazily for large playlists — a
+      // 100-track list commonly returns ~10 items on the first read after
+      // CUED. Firing the callback immediately would cache a truncated list
+      // and the playlist would "end" at sub-video 10. Poll until the count
+      // stabilizes (same count twice in a row) or a safety ceiling.
+      _pollIndexingPlaylist(-1, 0);
       return;
     }
 

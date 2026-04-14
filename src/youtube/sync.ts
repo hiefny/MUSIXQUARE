@@ -178,12 +178,9 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           log.debug('[YouTube Sync] Video mismatch but load in progress — skipping');
           return;
         }
-        // Legacy: try playVideoAt first, fallback to loadVideoById
+        // Single-video mode: loadVideoById directly
         log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}`);
-        if (hostSubIndex !== undefined && hostSubIndex >= 0 && player.playVideoAt) {
-          player.playVideoAt(hostSubIndex);
-          setYouTubeSubIndex(hostSubIndex);
-        } else if (player.loadVideoById) {
+        if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
@@ -194,16 +191,11 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
     }
 
-    // Sub-index change
+    // Sub-index change — just track, no playVideoAt
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
       setYouTubeSubIndex(hostSubIndex);
-      if (player.playVideoAt && player.getPlaylistIndex) {
-        if (player.getPlaylistIndex() !== hostSubIndex) {
-          player.playVideoAt(hostSubIndex);
-        }
-      }
     }
 
     // Drift correction — uses raw hostTime without the manual sync.localOffset.
@@ -560,14 +552,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        // Legacy: try playVideoAt, fallback to loadVideoById
-        log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId}`);
-        const ytPlaylist = player.getPlaylist?.() || [];
-        if (subIndex !== undefined && subIndex >= 0 && player.playVideoAt && ytPlaylist.length > subIndex) {
-          player.playVideoAt(subIndex);
-          setYouTubeSubIndex(subIndex);
-          subIndexChanged = true;
-        } else if (player.loadVideoById) {
+        log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
+        if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
           if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
@@ -577,12 +563,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
-    // Sub-index tracking + playVideoAt (legacy)
+    // Sub-index tracking (no playVideoAt in single-video mode)
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
-      const currentIdx = player.getPlaylistIndex?.() ?? -1;
-      if (currentIdx !== subIndex && player.playVideoAt) {
-        player.playVideoAt(subIndex);
-      }
       setYouTubeSubIndex(subIndex);
     }
 

@@ -245,21 +245,23 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
-      // Legacy: send playlistId to guests so they load the same playlist.
-      // For Mix playlists, send host's static ID array to avoid personalization.
-      const isMix = typeof item.playlistId === 'string' && (item.playlistId as string).startsWith('RD');
+      // Guests get single videoId ONLY — never loadPlaylist (crashes on 200+ items).
+      // Host resolves the specific video from subItemsMap when available.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const useStaticIds = isMix && hostIds && hostIds.length > 0;
+      const currentSubIdx = subIndex ?? (getState('youtube.currentSubIndex') ?? 0);
+      const guestVideoId = (hostIds && hostIds.length > currentSubIdx)
+        ? hostIds[currentSubIdx]
+        : (item.videoId ?? null);
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
-        videoId: item.videoId ?? null,
-        playlistId: useStaticIds ? hostIds : (item.playlistId ?? null),
+        videoId: guestVideoId,
+        playlistId: null, // guests never load playlists
         name: item.name || item.title,
         index,
         autoplay: false,
-        subIndex: subIndex ?? 0,
+        subIndex: currentSubIdx,
       });
 
       // Send YOUTUBE_PLAYLIST_INFO for sub-items map

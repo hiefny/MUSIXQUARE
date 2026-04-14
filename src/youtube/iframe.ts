@@ -309,12 +309,16 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
           fetchPlaylistSubTitles(snapshotId, ids);
 
-          // NOTE: do NOT call loadVideoById here to "switch to single-video mode".
-          // The host is already playing via YouTube's playlist engine (from the
-          // initial playerVars.list load). Calling loadVideoById would reset
-          // playback position to 0 and conflict with scheduleYtAutoSync.
-          // The playlist engine is used ONLY for this first video — all subsequent
-          // navigation (ENDED, next/prev) uses loadVideoById from subItemsMap.
+          // Switch to single-video mode: free YouTube's playlist engine
+          // memory by loading just the current video. This prevents crashes
+          // on 200+ item playlists. Position is near 0 (just started) so
+          // the reset is harmless.
+          const subIdx = getState('youtube.currentSubIndex') ?? 0;
+          const currentId = ids[subIdx] || ids[0];
+          if (currentId && freshPlayer.loadVideoById) {
+            log.info(`[YouTube] Switching to single-video: ${currentId}`);
+            freshPlayer.loadVideoById(currentId);
+          }
         }
       } catch (e) {
         log.warn('[YouTube] Playlist snapshot failed:', e);

@@ -344,29 +344,10 @@ export function initYouTube(): void {
     }
   });
 
-  // Legacy: YouTube iframe auto-advances between sub-videos in a playlist
-  // WITHOUT firing ENDED. updateYouTubeUI detects via getPlaylistIndex polling.
-  bus.on('youtube:sub-video-advanced', () => {
-    const player = getYouTubePlayer();
-    if (!player?.playVideo) return;
-    try { player.pauseVideo?.(); } catch { /* noop */ }
-    const currentTime = (() => {
-      try { return player.getCurrentTime?.() || 0; } catch { return 0; }
-    })();
-    let nextIdx = -1;
-    let nextVideoId: string | undefined;
-    try {
-      nextIdx = player.getPlaylistIndex?.() ?? -1;
-      const pList = player.getPlaylist?.() || [];
-      if (nextIdx >= 0 && nextIdx < pList.length) nextVideoId = pList[nextIdx];
-    } catch { /* noop */ }
-    scheduleYtAutoSync(currentTime, {
-      subIndex: nextIdx !== -1 ? nextIdx : undefined,
-      videoId: nextVideoId,
-      skipSeek: true,
-      countdownMs: 3000,
-    });
-  });
+  // In single-video mode, YouTube can't auto-advance — ENDED fires instead.
+  // Sub-video sequencing is handled by ENDED → playlist:next-track → try-next-internal.
+  // The youtube:sub-video-advanced event is only needed during the first 3 seconds
+  // before the host switches to single-video mode (unlikely to trigger).
 
   // URL-input path: the player finished initializing — if _addYouTubeToPlaylist
   // set the pending flag, kick off the 1-sec rendezvous sync now. This replaces
@@ -490,18 +471,21 @@ export function initYouTube(): void {
     }
   });
 
-  // Legacy-style: use YouTube's own playlist navigation
+  // Single-video mode: navigate via subItemsMap + loadVideoById
   bus.on('youtube:try-next-internal', (callback) => {
     const player = getYouTubePlayer();
-    if (!player?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
+    if (!player?.loadVideoById || typeof callback !== 'function') { callback(false); return; }
     try {
-      const ids = player.getPlaylist() || [];
-      const idx = player.getPlaylistIndex();
-      if (ids.length > 0 && idx < ids.length - 1) {
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const subMap = getState('youtube.subItemsMap') || {};
+      const subData = subMap[currentTrack?.playlistId as string];
+      const idx = getState('youtube.currentSubIndex') ?? -1;
+      if (subData?.ids && idx >= 0 && idx < subData.ids.length - 1) {
         const nextIdx = idx + 1;
+        const nextVideoId = subData.ids[nextIdx];
         setYouTubeSubIndex(nextIdx);
-        player.nextVideo();
-        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: ids[nextIdx] || '', skipSeek: true, countdownMs: 3000 });
+        player.loadVideoById(nextVideoId);
+        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
       }
@@ -511,7 +495,7 @@ export function initYouTube(): void {
 
   bus.on('youtube:try-prev-internal', (callback) => {
     const player = getYouTubePlayer();
-    if (!player?.getPlaylist || typeof callback !== 'function') { callback(false); return; }
+    if (!player?.loadVideoById || typeof callback !== 'function') { callback(false); return; }
     try {
       const currentTime = player.getCurrentTime?.() ?? 0;
       if (currentTime > 3) {
@@ -519,13 +503,16 @@ export function initYouTube(): void {
         callback(true);
         return;
       }
-      const ids = player.getPlaylist() || [];
-      const idx = player.getPlaylistIndex();
-      if (ids.length > 0 && idx > 0) {
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const subMap = getState('youtube.subItemsMap') || {};
+      const subData = subMap[currentTrack?.playlistId as string];
+      const idx = getState('youtube.currentSubIndex') ?? -1;
+      if (subData?.ids && idx > 0) {
         const prevIdx = idx - 1;
+        const prevVideoId = subData.ids[prevIdx];
         setYouTubeSubIndex(prevIdx);
-        player.previousVideo();
-        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: ids[prevIdx] || '', skipSeek: true, countdownMs: 3000 });
+        player.loadVideoById(prevVideoId);
+        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
       }
@@ -705,15 +692,14 @@ export function initYouTube(): void {
     if (!player) return;
 
     if (isCurrent) {
-      // Same playlist — jump to sub-index via playVideoAt (legacy style)
-      if (player.playVideoAt) {
-        player.playVideoAt(subIdx);
+      // Single-video mode: load via loadVideoById from subItemsMap
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const subMap = getState('youtube.subItemsMap') || {};
+      const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
+      const targetVideoId = ids[subIdx] || '';
+      if (targetVideoId && player.loadVideoById) {
+        player.loadVideoById(targetVideoId);
         setYouTubeSubIndex(subIdx);
-        // Resolve videoId for broadcast
-        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-        const subMap = getState('youtube.subItemsMap') || {};
-        const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
-        const targetVideoId = ids[subIdx] || player.getVideoData?.()?.video_id || '';
         scheduleYtAutoSync(0, {
           subIndex: subIdx,
           videoId: targetVideoId,

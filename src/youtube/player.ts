@@ -122,7 +122,7 @@ export function scheduleYtAutoSync(
       isManual: true, // Trigger guest precision rendezvous
     });
     log.debug('[YouTube] Sync: Precision rendezvous follow-up sent');
-  }, 2000);
+  }, 0);
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during countdown). */

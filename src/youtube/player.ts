@@ -584,7 +584,7 @@ export function initYouTube(): void {
 
   bus.on('youtube:broadcast-sync', () => {
     // Imported dynamically to avoid circular deps
-    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(true));
+    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(false));
   });
 
   // YouTube preview (from URL input)

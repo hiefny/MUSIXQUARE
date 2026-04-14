@@ -61,10 +61,22 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     });
   }
 
-  // [수정] 악명 높은 메모리 누수 방지를 위해 게스트는 무조건 playlistId를 통제(차단)합니다.
-  // videoId가 없을 때 playlistId를 넣던 기존 로직을 제거하고 무조건 null을 전달하여 
-  // 게스트 IFrame에 listType='playlist' 파라미터가 주입되는 것을 원천 차단합니다.
-  loadYouTubeVideo(videoId, null, autoplay ?? false, subIndex ?? 0);
+  let finalVideoId = videoId;
+  let finalPlaylistId = playlistId;
+
+  // [수정] 조기 접속 게스트(Early Guest)가 아직 videoId를 모를 경우 어쩔 수 없이 playlistId로
+  // 임시 구동시켜 에러 150을 피해야 합니다. 단, 이미 캐싱된 리스트라면 즉시 단일 모드로 우회합니다.
+  if (!finalVideoId && finalPlaylistId) {
+    const subMap = getState('youtube.subItemsMap') || {};
+    const knownIds = subMap[finalPlaylistId]?.ids;
+    if (knownIds && knownIds.length > 0) {
+      finalVideoId = knownIds[0];
+      finalPlaylistId = null;
+    }
+  }
+
+  // videoId가 존재하면 무조건 playlistId를 통제하여 순정 엔진 진입을 원천 차단합니다.
+  loadYouTubeVideo(finalVideoId, finalVideoId ? null : finalPlaylistId, autoplay ?? false, subIndex ?? 0);
 }
 
 /**

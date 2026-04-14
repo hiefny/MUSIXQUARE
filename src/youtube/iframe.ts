@@ -594,7 +594,8 @@ function updateYouTubeUI(): void {
       // [강력한 OOM 해결 패치] Native 자동 스킵 방어막
       // ==========================================
       const hostConn = getState('network.hostConn');
-      if (!hostConn && prevIdx !== -1 && playlistIdx > 0) {
+      // 호스트/게스트 구분 없이 순정 엔진으로 재생 중이다가 자동 다음곡으로 넘어가면 무조건 단일 모드로 납치합니다.
+      if (prevIdx !== -1 && playlistIdx > 0) {
         log.info(`[YouTube Fix] Native auto-advance detected (${prevIdx} -> ${playlistIdx}). Hijacking to Single-Video Mode.`);
         
         const subMap = getState('youtube.subItemsMap') || {};

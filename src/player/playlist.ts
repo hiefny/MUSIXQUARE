@@ -245,28 +245,31 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
-      // For Mix playlists (RD...), send the host's cached static ID array
-      // instead of the playlistId. YouTube Mixes are personalized per device —
-      // sending the raw playlistId makes the guest load a different video order,
-      // requiring an expensive reload via _mixReloadedIds. Static IDs avoid that.
-      const isMix = typeof item.playlistId === 'string' && (item.playlistId as string).startsWith('RD');
+      // Single-video broadcast: send the resolved videoId (NOT the playlist
+      // ID array). The guest loads via loadVideoById only — its iframe never
+      // sees a multi-item playlist context, so the playlist engine that
+      // OOMs on 200+ items doesn't run. Original playlistId string is sent
+      // for UI context only (guest's handleYouTubePlay treats videoId as
+      // primary when both are present). For previously-snapshotted playlists
+      // we use the snapshot's first ID; for first-play, item.videoId is
+      // already the entry-point video.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const useStaticIds = isMix && hostIds && hostIds.length > 0;
-
-      const playVideoId = useStaticIds ? null : (item.videoId ?? null);
-      const playPlaylistId = useStaticIds ? hostIds : (item.playlistId ?? null);
+      const broadcastVideoId =
+        (hostIds && hostIds[subIndex ?? 0]) ||
+        (item.videoId ?? null);
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
-        videoId: playVideoId,
-        playlistId: playPlaylistId,
+        videoId: broadcastVideoId,
+        playlistId: item.playlistId ?? null,
         name: item.name || item.title,
         index,
         autoplay: false,
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
+      // for navigation (next/prev/sub-seek) and title display.
       if (hostIds && hostIds.length > 0) {
         const titles = subMap[item.playlistId as string]?.titles || [];
         broadcast({

@@ -867,24 +867,30 @@ export function initYouTube(): void {
       const autoplay = (ytState === 1);
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       const subIdx = (currentSubIndex >= 0) ? currentSubIndex : 0;
-      const currentVideoId = player?.getVideoData?.()?.video_id || '';
 
-      // For Mix playlists (RD...), send the host's static ID array instead
-      // of the playlistId. YouTube Mixes are personalized per device — if
-      // the guest loads by playlistId, it gets a different video order and
-      // the subIndex points to the wrong video. Sending the ID array makes
-      // the guest load the exact same sequence as the host.
-      // Send the host's static ID array for ALL playlist types (not just Mix).
-      // Also send the CURRENT videoId (not item.videoId which is the original
-      // first video) so the guest loads the exact video the host is playing.
+      // Single-video bootstrap: resolve the videoId the host is currently
+      // playing and send THAT as the videoId. Never send the full ID array
+      // as playlistId (guest's iframe would build a 200+ item playlist
+      // engine and OOM). The original playlistId (string) is still sent
+      // for UI context (so the guest knows this video belongs to a
+      // playlist), and the host follows up with YOUTUBE_PLAYLIST_INFO to
+      // populate the guest's subItemsMap for navigation.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const useStaticIds = hostIds && hostIds.length > 0;
+      const resolvedVideoId =
+        (hostIds && hostIds[subIdx]) ||
+        player?.getVideoData?.()?.video_id ||
+        item.videoId ||
+        null;
+      const currentVideoId = resolvedVideoId || '';
 
       safeSend(conn, {
         type: MSG.YOUTUBE_PLAY,
-        videoId: useStaticIds ? null : (item.videoId || null),
-        playlistId: useStaticIds ? hostIds : (item.playlistId || null),
+        videoId: resolvedVideoId,
+        // Pass the playlistId string (PL/RD) for UI context only — the guest
+        // does NOT load by it. handleYouTubePlay treats videoId as primary
+        // when both are present (single-video mode).
+        playlistId: item.playlistId || null,
         name: item.name || item.title,
         index: currentTrackIndex,
         autoplay,
@@ -892,7 +898,7 @@ export function initYouTube(): void {
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so the guest has the sub-items map
-      // for title display and playVideoAt-based sync corrections.
+      // for navigation (next/prev/sub-seek) and title display.
       if (hostIds && hostIds.length > 0) {
         const titles = subMap[item.playlistId as string]?.titles || [];
         safeSend(conn, {

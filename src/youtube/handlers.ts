@@ -41,7 +41,12 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     setState('playlist.currentTrackIndex', index);
   }
 
-  loadYouTubeVideo(videoId, playlistId, autoplay ?? false, subIndex ?? 0);
+  // Single-video mode: when the host sent a videoId, load JUST that video.
+  // The playlistId in the payload is for UI context (lookup into the local
+  // playlist.items[index].playlistId) — not something to feed to the
+  // iframe's playlist engine. Only when no videoId is present (legacy
+  // single-track-with-playlist-only payloads) do we fall back to playlistId.
+  loadYouTubeVideo(videoId, videoId ? null : playlistId, autoplay ?? false, subIndex ?? 0);
 }
 
 export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {

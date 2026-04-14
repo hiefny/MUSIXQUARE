@@ -436,9 +436,22 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearManagedTimer('youtubeUILoop');
       // Host: skip IDLE state transition to prevent UI flash — next-track
       // will call stopAllMedia({ silent: true }) which handles state internally.
+      //
+      // Single-video mode: try to advance to the next sub-video within the
+      // current YouTube playlist first (via loadVideoById, using snapshotted
+      // subItemsMap). Only fall back to the MUSIXQUARE queue's next track
+      // when we've reached the end of the sub-items list.
+      let advanced = false;
+      bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+      if (advanced) {
+        log.debug('[YouTube] Ended, advancing to next sub-video...');
+        // Keep youtubeUILoop alive — loadVideoById fired by try-next keeps the
+        // player alive and the UI loop needs to keep tracking the new video.
+        return;
+      }
+      clearManagedTimer('youtubeUILoop');
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
     } else {

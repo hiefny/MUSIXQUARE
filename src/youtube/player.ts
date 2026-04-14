@@ -522,7 +522,10 @@ export function initYouTube(): void {
     const player = getYouTubePlayer();
     if (!player?.loadVideoById || typeof callback !== 'function') { callback(false); return; }
     try {
-      // Use subItemsMap (survives single-video switch) instead of player.getPlaylist()
+      // Single-video mode: always drive navigation via loadVideoById using
+      // the host-snapshotted subItemsMap. We never call playVideoAt — the
+      // iframe's playlist engine is what OOMs on 200+ item playlists, so we
+      // keep the iframe on one video at a time.
       const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
       const subMap = getState('youtube.subItemsMap') || {};
       const subData = subMap[currentTrack?.playlistId as string];
@@ -531,11 +534,7 @@ export function initYouTube(): void {
         const nextIdx = idx + 1;
         const nextVideoId = subData.ids[nextIdx];
         setYouTubeSubIndex(nextIdx);
-        if (player.playVideoAt) {
-          player.playVideoAt(nextIdx);
-        } else {
-          player.loadVideoById(nextVideoId);
-        }
+        player.loadVideoById(nextVideoId);
         scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
@@ -563,11 +562,8 @@ export function initYouTube(): void {
         const prevIdx = idx - 1;
         const prevVideoId = subData.ids[prevIdx];
         setYouTubeSubIndex(prevIdx);
-        if (player.playVideoAt) {
-          player.playVideoAt(prevIdx);
-        } else {
-          player.loadVideoById(prevVideoId);
-        }
+        // Single-video mode: always loadVideoById (see try-next-internal).
+        player.loadVideoById(prevVideoId);
         // 1s auto-sync: guests load same subIndex, all play simultaneously
         scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);

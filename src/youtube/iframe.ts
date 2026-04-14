@@ -240,38 +240,13 @@ function createYouTubePlayer(
       setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
 
+      // Suppress heartbeat state-sync for 5s after loading a new video.
+      // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
+      // arrives before YOUTUBE_STATE and wakes the guest via state-sync
+      // (hostState=1, ytState≠1 → playVideo), causing the guest to play
+      // from position 0 while the host is still loading.
       if (!autoplay) {
         import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
-      }
-
-      // Snapshot + single-video switch for reuse path too (onYouTubePlayerReady
-      // only runs for NEW players, not reuse). Without this, subItemsMap stays
-      // empty and try-next-internal can't find sub-videos.
-      const hostConn = getState('network.hostConn');
-      if (!hostConn && typeof playlistId === 'string') {
-        setManagedTimer('yt-mix-snapshot', () => {
-          try {
-            const p = getYouTubePlayer();
-            if (!p?.getPlaylist) return;
-            const snapIds = p.getPlaylist();
-            if (Array.isArray(snapIds) && snapIds.length > 0) {
-              log.info(`[YouTube] Reuse-path snapshot: ${snapIds.length} items`);
-              setSubItemsData(playlistId as string, snapIds, new Array(snapIds.length).fill(''));
-              const curSub = getState('youtube.currentSubIndex') ?? -1;
-              if (curSub < 0) setYouTubeSubIndex(p.getPlaylistIndex?.() ?? 0);
-              broadcast({ type: MSG.YOUTUBE_PLAYLIST_INFO, playlistId, ids: snapIds, titles: new Array(snapIds.length).fill('') });
-              fetchPlaylistSubTitles(playlistId as string, snapIds);
-              // Switch to single-video to free playlist engine memory
-              const si = getState('youtube.currentSubIndex') ?? 0;
-              const vid = snapIds[si] || snapIds[0];
-              const pos = p.getCurrentTime?.() ?? 0;
-              if (vid && p.loadVideoById) {
-                log.info(`[YouTube] Reuse-path: freeing playlist engine → ${vid} at ${pos.toFixed(1)}s`);
-                p.loadVideoById({ videoId: vid, startSeconds: pos });
-              }
-            }
-          } catch (e) { log.warn('[YouTube] Reuse-path snapshot failed:', e); }
-        }, 3000);
       }
       return;
     } catch (e) {
@@ -348,51 +323,37 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
   const player = getYouTubePlayer();
 
-  // ── Playlist ID Snapshot & Single-Video Switch (Host Only) ──
-  // Works for ALL playlist types (Mix RD, regular PL).
-  // After snapshot, switch to loadVideoById to free YouTube's playlist
-  // engine memory — prevents crashes on 200+ item playlists.
+  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
-    const snapshotId = playlistId;
-    log.debug('[YouTube] Scheduling playlist snapshot...');
+  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
+    const mixId = playlistId; // Captured for closure
+    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
+    // Wait a few seconds for YouTube to populate the internal playlist IDs
     setManagedTimer('yt-mix-snapshot', () => {
       try {
+        // Re-fetch player — original capture may be stale after 3s
         const freshPlayer = getYouTubePlayer();
         if (!freshPlayer?.getPlaylist) return;
         const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube] Snapshotted ${ids.length} items:`, snapshotId);
+          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
+          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(snapshotId, ids, titles);
-
-          const currentSub = getState('youtube.currentSubIndex') ?? -1;
-          if (currentSub < 0) {
-            const idx = freshPlayer.getPlaylistIndex?.() ?? 0;
-            setYouTubeSubIndex(idx >= 0 ? idx : 0);
-          }
-
+          setSubItemsData(mixId, ids, titles);
+          
+          // Broadcast to all guests so they use this static list instead of generating their own
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: snapshotId,
+            playlistId: mixId,
             ids,
-            titles,
+            titles
           });
 
-          fetchPlaylistSubTitles(snapshotId, ids);
-
-          // Switch to single-video: free playlist engine memory.
-          // Preserve current position so playback doesn't jump.
-          const subIdx = getState('youtube.currentSubIndex') ?? 0;
-          const currentId = ids[subIdx] || ids[0];
-          const pos = freshPlayer.getCurrentTime?.() ?? 0;
-          if (currentId && freshPlayer.loadVideoById) {
-            log.info(`[YouTube] Freeing playlist engine → loadVideoById(${currentId}) at ${pos.toFixed(1)}s`);
-            freshPlayer.loadVideoById({ videoId: currentId, startSeconds: pos });
-          }
+          // Trigger background oEmbed title fetching
+          fetchPlaylistSubTitles(mixId, ids);
         }
       } catch (e) {
-        log.warn('[YouTube] Snapshot failed:', e);
+        log.warn('[YouTube Mix] Snapshot failed:', e);
       }
     }, 3000);
   }

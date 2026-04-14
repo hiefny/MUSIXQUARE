@@ -487,7 +487,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       type: MSG.YOUTUBE_STATE,
       state,
       time: player.getCurrentTime(),
-      subIndex: player.getPlaylistIndex?.() ?? -1,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
     });
   }

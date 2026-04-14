@@ -78,7 +78,7 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
       type: MSG.YOUTUBE_STATE,
       state: 2,
       time,
-      subIndex: player.getPlaylistIndex?.() ?? -1,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
     });
   }
@@ -103,7 +103,7 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
       if (player.pauseVideo) {
         const time = player.getCurrentTime?.() || 0;
         markYtStateBroadcast();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time, subIndex: getState('youtube.currentSubIndex') ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
         player.pauseVideo();
         markYtStateBroadcast();
       }

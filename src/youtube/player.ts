@@ -92,7 +92,7 @@ export function scheduleYtAutoSync(
     type: MSG.YOUTUBE_STATE,
     state: 1, // PLAYING
     time: targetTime,
-    subIndex: overrides?.subIndex ?? player.getPlaylistIndex?.() ?? -1,
+    subIndex: overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1,
     videoId: overrides?.videoId ?? player.getVideoData?.()?.video_id ?? '',
     hostPlayAt,
   });
@@ -309,7 +309,7 @@ export function initYouTube(): void {
           type: MSG.YOUTUBE_STATE,
           state: 2, // PAUSED
           time: currentTime,
-          subIndex: player.getPlaylistIndex?.() ?? -1,
+          subIndex: getState('youtube.currentSubIndex') ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
         });
         player.pauseVideo();
@@ -426,7 +426,7 @@ export function initYouTube(): void {
     if (!player) return;
     try {
       player.stopVideo();
-      broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
+      broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0, subIndex: getState('youtube.currentSubIndex') ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
     } catch (e) {
       log.error('[YouTube] Stop error:', e);
     }
@@ -461,7 +461,7 @@ export function initYouTube(): void {
             type: MSG.YOUTUBE_STATE,
             state: 2,
             time: target,
-            subIndex: player.getPlaylistIndex?.() ?? -1,
+            subIndex: getState('youtube.currentSubIndex') ?? -1,
             videoId: player.getVideoData?.()?.video_id || '',
           });
           player.seekTo(target, true);
@@ -504,7 +504,7 @@ export function initYouTube(): void {
             type: MSG.YOUTUBE_STATE,
             state: 2,
             time: seconds,
-            subIndex: player.getPlaylistIndex?.() ?? -1,
+            subIndex: getState('youtube.currentSubIndex') ?? -1,
             videoId: player.getVideoData?.()?.video_id || '',
           });
           player.seekTo(seconds, true);

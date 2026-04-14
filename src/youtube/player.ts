@@ -95,7 +95,8 @@ export function scheduleYtAutoSync(
     player.pauseVideo?.();
   }
 
-  // 2. Immediate broadcast to guests (Reaction)
+  // 2. Broadcast Stage 1: Immediate Reaction
+  // Guests will perform a rough seek/play to minimize initial lag.
   markYtStateBroadcast();
   broadcast({
     type: MSG.YOUTUBE_STATE,
@@ -103,10 +104,12 @@ export function scheduleYtAutoSync(
     time: targetTime,
     subIndex,
     videoId,
-    hostPlayAt: 0, // Direct sync signal
+    hostPlayAt: 0,
   });
 
-  // 3. Schedule precision rendezvous broadcast (2 seconds later)
+  // 3. Broadcast Stage 2: Precision Rendezvous (Fixed 2s delay)
+  // Ensures all guests reach perfect alignment regardless of buffering speed.
+  const waitMs = overrides?.countdownMs ?? 2000;
   clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {
     const p = getYouTubePlayer();
@@ -114,15 +117,15 @@ export function scheduleYtAutoSync(
 
     markYtStateBroadcast();
     broadcast({
-      type: MSG.YOUTUBE_SYNC, // Rendezvous mode for fine-tuning
+      type: MSG.YOUTUBE_SYNC,
       time: p.getCurrentTime?.() || 0,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: p.getVideoData?.()?.video_id || '',
       state: p.getPlayerState?.() || 1,
-      isManual: true, // Trigger guest precision rendezvous
+      isManual: true, // Force all guests into Rendezvous mode
     });
-    log.debug('[YouTube] Sync: Precision rendezvous follow-up sent');
-  }, 0);
+    log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
+  }, waitMs);
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during countdown). */

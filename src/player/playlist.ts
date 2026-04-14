@@ -245,27 +245,24 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
-      // Single-video mode: always send a resolved single videoId to guests.
-      // Guests NEVER load YouTube playlists — they only receive the one video
-      // to play. This prevents iframe crashes on 100+ item playlists.
+      // Legacy: send playlistId to guests so they load the same playlist.
+      // For Mix playlists, send host's static ID array to avoid personalization.
+      const isMix = typeof item.playlistId === 'string' && (item.playlistId as string).startsWith('RD');
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const currentSubIdx = subIndex ?? (getState('youtube.currentSubIndex') ?? 0);
-      const resolvedVideoId = (hostIds && hostIds.length > 0 && currentSubIdx < hostIds.length)
-        ? hostIds[currentSubIdx]
-        : (item.videoId ?? null);
+      const useStaticIds = isMix && hostIds && hostIds.length > 0;
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
-        videoId: resolvedVideoId,
-        playlistId: null, // guests never load playlists
+        videoId: item.videoId ?? null,
+        playlistId: useStaticIds ? hostIds : (item.playlistId ?? null),
         name: item.name || item.title,
         index,
         autoplay: false,
-        subIndex: currentSubIdx,
+        subIndex: subIndex ?? 0,
       });
 
-      // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
+      // Send YOUTUBE_PLAYLIST_INFO for sub-items map
       if (hostIds && hostIds.length > 0) {
         const titles = subMap[item.playlistId as string]?.titles || [];
         broadcast({

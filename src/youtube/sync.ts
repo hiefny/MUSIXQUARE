@@ -178,10 +178,12 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           log.debug('[YouTube Sync] Video mismatch but load in progress — skipping');
           return;
         }
-        // Single-video mode: load the correct video directly.
-        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loading via loadVideoById`);
-        if (player.loadVideoById) {
-          setYtAutoplayIntent(false); // prevent premature play from loadVideoById's PLAYING event
+        // Legacy: try playVideoAt first, fallback to loadVideoById
+        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}`);
+        if (hostSubIndex !== undefined && hostSubIndex >= 0 && player.playVideoAt) {
+          player.playVideoAt(hostSubIndex);
+          setYouTubeSubIndex(hostSubIndex);
+        } else if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
@@ -192,11 +194,16 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
     }
 
-    // Sub-index change (tracking only — no playVideoAt in single-video mode)
+    // Sub-index change
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
       setYouTubeSubIndex(hostSubIndex);
+      if (player.playVideoAt && player.getPlaylistIndex) {
+        if (player.getPlaylistIndex() !== hostSubIndex) {
+          player.playVideoAt(hostSubIndex);
+        }
+      }
     }
 
     // Drift correction — uses raw hostTime without the manual sync.localOffset.
@@ -553,40 +560,29 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        // Single-video mode: just load the correct video directly.
-        log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
-        if (player.loadVideoById) {
-          // Set intent=false so the pause-back guard catches any premature
-          // PLAYING from loadVideoById. The scheduled yt-clock-action below
-          // sets intent=true right before the authorized playVideo.
-          setYtAutoplayIntent(false);
+        // Legacy: try playVideoAt, fallback to loadVideoById
+        log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId}`);
+        const ytPlaylist = player.getPlaylist?.() || [];
+        if (subIndex !== undefined && subIndex >= 0 && player.playVideoAt && ytPlaylist.length > subIndex) {
+          player.playVideoAt(subIndex);
+          setYouTubeSubIndex(subIndex);
+          subIndexChanged = true;
+        } else if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
           if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
         }
-        // Schedule play using hostPlayAt for synchronized start
-        const mismatchHostPlayAt = Number(data.hostPlayAt) || 0;
-        if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
-          const waitForPlay = Math.max(500, mismatchHostPlayAt - getHostNow());
-          _autoSyncUntil = Date.now() + waitForPlay + 3000;
-          bus.emit('youtube:sync-loading', true);
-          setManagedTimer('yt-clock-action', () => {
-            const p = getYouTubePlayer();
-            if (p?.playVideo) {
-              setYtAutoplayIntent(true);
-              p.playVideo();
-            }
-            bus.emit('youtube:sync-loading', false);
-          }, waitForPlay);
-        } else {
-          _autoSyncUntil = Date.now() + 5000;
-        }
+        _autoSyncUntil = Date.now() + 5000;
         return;
       }
     }
 
-    // Track sub-index from host (no playVideoAt — single-video mode)
+    // Sub-index tracking + playVideoAt (legacy)
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
+      const currentIdx = player.getPlaylistIndex?.() ?? -1;
+      if (currentIdx !== subIndex && player.playVideoAt) {
+        player.playVideoAt(subIndex);
+      }
       setYouTubeSubIndex(subIndex);
     }
 

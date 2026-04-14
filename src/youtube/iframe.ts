@@ -24,8 +24,8 @@ import {
   getYtIOSWatchdog, setYtIOSWatchdog,
   replaceYtScope,
   isYtLoadInProgress, setYtLoadInProgress,
-  getYtAutoplayIntent, setYtAutoplayIntent,
-  getCachedYtDuration, setCachedYtDuration,
+  setYtAutoplayIntent,
+  setCachedYtDuration,
   setYouTubeSubIndex,
   setSubItemsData,
 } from './_state.ts';
@@ -34,41 +34,8 @@ import { fetchPlaylistSubTitles } from './search.ts';
 
 declare const YT: any;
 
-/** Tracks the last known YouTube video title to detect changes */
-let _lastYtVideoTitle = '';
-/**
- * Tracks the YouTube videoId that the duration cache is currently valid for.
- * Needed because player.getDuration() can return the OLD video's duration
- * briefly after loadVideoById — the "lock on first valid read" pattern would
- * otherwise cache the stale value and never update for subsequent videos.
- * Cleared on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
- */
-let _lastDurationVideoId = '';
-let _videoDataPollCount = 0;
-export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
-let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
+export let _lastYtStateBroadcast = 0;
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-/** Resolve a single video ID from the various parameter combinations.
- *  In single-video mode we never pass arrays to YouTube's loadPlaylist —
- *  instead we pick the one video at `subIndex` from the array. */
-function _resolveSingleVideoId(
-  videoId: string | null,
-  playlistId: string | string[] | null,
-  subIndex: number,
-): string | null {
-  if (videoId) return videoId;
-  if (Array.isArray(playlistId) && playlistId.length > 0) {
-    return playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
-  }
-  // String playlistId (e.g. 'PLxxx', 'RDxxx') — we can't resolve a single
-  // video from this without the YouTube API. Return null; the caller will
-  // fall through to creating a new player with the playlistId in playerVars
-  // (initial load only — subsequent loads use subItemsMap IDs).
-  return null;
-}
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
@@ -128,9 +95,8 @@ export function loadYouTubeVideo(
   }
   setEngineMode('youtube');
 
-  setCachedYtDuration(0); // Reset duration cache for new video
-  _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
-  _lastYtStateBroadcast = 0; // Allow immediate first broadcast for new session
+  setCachedYtDuration(0);
+  _lastYtStateBroadcast = 0;
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -226,32 +192,24 @@ function createYouTubePlayer(
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
   setYtAutoplayIntent(autoplay);
 
+  // Legacy-style player reuse: loadPlaylist or loadVideoById directly.
+  // No pause-back guard, no single-video enforcement — keep it simple.
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
     try {
-      // Single-video mode: always load exactly ONE video via loadVideoById.
-      // Never use loadPlaylist — YouTube's internal playlist engine scales
-      // memory with playlist size and crashes on 100+ items on mobile.
-      const resolvedId = _resolveSingleVideoId(videoId, playlistId, subIndex);
-      if (resolvedId) {
-        existingPlayer.loadVideoById(resolvedId);
-      } else {
-        log.warn('[YouTube] Could not resolve single videoId — no video to load');
+      if (playlistId) {
+        if (Array.isArray(playlistId)) {
+          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
+        } else {
+          existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+        }
+      } else if (videoId) {
+        existingPlayer.loadVideoById(videoId);
       }
-      // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
-      // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
+      if (!autoplay && existingPlayer.pauseVideo) existingPlayer.pauseVideo();
       setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
-
-      // Suppress heartbeat state-sync for 5s after loading a new video.
-      // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
-      // arrives before YOUTUBE_STATE and wakes the guest via state-sync
-      // (hostState=1, ytState≠1 → playVideo), causing the guest to play
-      // from position 0 while the host is still loading.
-      if (!autoplay) {
-        import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
-      }
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
@@ -271,30 +229,10 @@ function createYouTubePlayer(
     origin: window.location.origin,
   };
 
-  // Single-video mode: resolve to a single videoId when possible.
-  // YouTube's internal playlist engine scales memory with playlist size
-  // and crashes on 100+ items — avoid it wherever we can.
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      // ID array from subItemsMap — pick the one video at subIndex
-      const resolved = playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
-      if (resolved) videoId = resolved;
-      playlistId = null; // don't pass array to playerVars
-    } else if (videoId) {
-      // String playlistId + videoId: HOST initial load uses playerVars.list
-      // to discover playlist IDs via getPlaylist(). Guests never reach here
-      // because playlist.ts resolves to single videoId before broadcasting.
-      const hostConn = getState('network.hostConn');
-      if (!hostConn) {
-        // Host: use playlist loading for ID discovery, then switch to single-video
-        playerVars.listType = 'playlist';
-        playerVars.list = playlistId;
-        playerVars.index = subIndex;
-      }
-      // Guest: ignore playlistId, just use videoId (already set)
+      playerVars.playlist = playlistId.join(',');
     } else {
-      // String playlistId without videoId — rare edge case.
-      // Must use playlist engine (no other way to resolve first video).
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
       playerVars.index = subIndex;
@@ -417,131 +355,51 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   const player = getYouTubePlayer();
-  if (!player) return; // Player destroyed during async state transition
+  if (!player) return;
   const state = event.data;
 
+  // Legacy-style: simple state handling, no pause-back guard
   if (state === YT.PlayerState.PLAYING) {
-    // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
-    // Do NOT reset intent to true here — loadPlaylist() is async and can fire
-    // multiple PLAYING events (BUFFERING→PLAYING, internal restart). Resetting
-    // on the first one lets the second slip through, causing the guest to play
-    // before the host's scheduleYtAutoSync countdown completes.
-    // Intent is set to true by scheduleYtAutoSync callers (youtube:auto-play,
-    // youtube:sub-video-advanced, etc.) when they're ready for playback.
-    if (!getYtAutoplayIntent()) {
-      player?.pauseVideo?.();
-      showLoader(false);
-      // The video loaded and started playing (loadPlaylist async completion).
-      // If autoPlayTimer is still pending, fire it NOW — the video is ready.
-      // This replaces time-based guessing (1s delay) with event-based detection:
-      // YouTube tells us it's ready by firing PLAYING, so we can proceed.
-      if (getManagedTimer('autoPlayTimer')) {
-        clearManagedTimer('autoPlayTimer');
-        bus.emit('youtube:auto-play');
-      }
-      return; // Don't broadcast or update UI — we're reverting to paused
-    }
     showYouTubeSyncOverlay(false);
     showLoader(false);
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
-    showLoader(false);
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
+    clearManagedTimer('youtubeUILoop');
     clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      // Host: check if there's a next sub-video in subItemsMap.
-      // In single-video mode, ENDED fires at every sub-video boundary
-      // (YouTube can't auto-advance without its playlist engine).
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[currentTrack?.playlistId as string];
-      const currentSubIdx = getState('youtube.currentSubIndex') ?? -1;
-
-      if (subData?.ids && currentSubIdx >= 0 && currentSubIdx < subData.ids.length - 1) {
-        // More sub-videos available — load next one
-        const nextIdx = currentSubIdx + 1;
-        const nextVideoId = subData.ids[nextIdx];
-        log.debug(`[YouTube] Sub-video ended, advancing to sub ${nextIdx}: ${nextVideoId}`);
-        setYouTubeSubIndex(nextIdx);
-        setCachedYtDuration(0);
-        _lastYtVideoTitle = '';
-        _lastDurationVideoId = '';
-
-        // Update title from cache if available
-        const cachedTitle = subData.titles?.[nextIdx];
-        if (cachedTitle) {
-          const currentMeta = getState('player.currentTrackMeta') || {};
-          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
-        }
-
-        // Load next sub-video and sync with guests.
-        // Do NOT set autoplayIntent=true here — loadVideoById may trigger
-        // PLAYING, and the pause-back guard must catch it so the guest
-        // doesn't start before the 3s countdown completes.
-        // scheduleYtAutoSync sets intent=true right before its final playVideo.
-        const pl = getYouTubePlayer();
-        if (pl?.loadVideoById) {
-          setYtAutoplayIntent(false);
-          pl.loadVideoById(nextVideoId);
-          import('./sync.ts').then(mod => mod.suppressDriftUntil(3000)).catch(() => {});
-          import('../youtube/player.ts').then(mod => {
-            setYtAutoplayIntent(true);
-            mod.scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
-          }).catch(() => {});
-        }
-      } else {
-        // No more sub-videos — advance MUSIXQUARE playlist
-        clearManagedTimer('youtubeUILoop');
-        log.debug('[YouTube] Ended, playing next track...');
-        bus.emit('playlist:next-track');
-      }
+      log.debug('[YouTube] Ended, playing next track...');
+      bus.emit('playlist:next-track');
     } else {
-      // Guest: wait for host's next command (YOUTUBE_STATE with next video).
-      log.debug('[YouTube] Guest: video ended — waiting for host next-track');
+      // Guest: wait for host's command
+      log.debug('[YouTube] Guest: video ended — waiting for host');
       setManagedTimer('yt-guest-ended-fallback', () => {
         if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-          log.debug('[YouTube] Guest: no next-track from host — going IDLE');
           setAppState(APP_STATE.IDLE);
           bus.emit('youtube:stop-mode');
         }
       }, 5_000);
     }
-    return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
+    return;
   }
 
-  // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
+  // Host broadcasts state to guests (legacy: simple 300ms dedup)
   const hostConn = getState('network.hostConn');
-  const now = Date.now();
-  // CRITICAL: also skip while a scheduled sync countdown (yt-auto-sync) or
-  // its post-playVideo grace window (yt-sync-grace) is active. During that
-  // window the player transitions PAUSED → BUFFERING → PLAYING (pause,
-  // seek, wait, play) and onStateChange fires for each transition. If the
-  // 300ms UI-dedupe cooldown elapses during this ~1s+ window, onStateChange
-  // will broadcast an auxiliary YOUTUBE_STATE{state:2, no hostPlayAt} for
-  // the transient PAUSED state — which the guest interprets as "host paused"
-  // and cancels its pending yt-clock-action, leaving guest paused while
-  // host resumes at the end of the countdown. scheduleYtAutoSync already
-  // broadcasts the authoritative state+hostPlayAt at the start of its
-  // sequence, so suppressing these in-flight auxiliary broadcasts is safe.
-  const syncInFlight = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
-  // State-aware cooldown: only suppress if same state was broadcast within 300ms.
-  // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
-  // pause→play within 300ms), leaving guests stuck in the old state for 3s
-  // until the next heartbeat corrected it.
-  const isDuplicateState = (state === _lastYtBroadcastState) && (now - _lastYtStateBroadcast < 300);
-  if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
-    _lastYtStateBroadcast = now;
-    _lastYtBroadcastState = state;
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state,
-      time: player.getCurrentTime(),
-      subIndex: getState('youtube.currentSubIndex') ?? -1,
-      videoId: player.getVideoData?.()?.video_id || '',
-    });
+  if (!hostConn && player?.getCurrentTime) {
+    const now = Date.now();
+    if (now - _lastYtStateBroadcast > 300) {
+      _lastYtStateBroadcast = now;
+      broadcast({
+        type: MSG.YOUTUBE_STATE,
+        state,
+        time: player.getCurrentTime(),
+        subIndex: player.getPlaylistIndex?.() ?? -1,
+        videoId: player.getVideoData?.()?.video_id || '',
+      });
+    }
   }
 }
 
@@ -597,7 +455,7 @@ function updateYouTubeUI(): void {
     const rawDuration = player.getDuration?.() || 0;
     const state = player.getPlayerState?.() ?? -1;
 
-    // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
+    // iOS watchdog
     if (IS_IOS && state === -1) {
       if (!getYtIOSWatchdog()) setYtIOSWatchdog(Date.now());
       if (Date.now() - getYtIOSWatchdog()! > 3000) {
@@ -607,57 +465,24 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
-    // Single-video mode: no playlist index polling needed.
-    // Sub-video sequencing is driven by ENDED events, not getPlaylistIndex.
-
-    // Update track title and videoId cache.
-    // getVideoData() is an expensive cross-iframe call. Only call it when
-    // the sub-index changed (detected above) or every ~5 seconds (10th tick)
-    // as a fallback for non-playlist single videos. Legacy v1 never called
-    // getVideoData() during polling, and the current version's 2x/second
-    // calls were a major contributor to iframe memory pressure and crashes.
-    _videoDataPollCount = (_videoDataPollCount + 1) % 10;
-    const shouldPollVideoData = _videoDataPollCount === 0; // every 10th tick (~5s)
-
-    let currentVideoId = _lastDurationVideoId; // reuse cached value by default
-    if (shouldPollVideoData && player.getVideoData) {
-      const vData = player.getVideoData();
-      if (vData?.title && vData.title !== _lastYtVideoTitle) {
-        _lastYtVideoTitle = vData.title;
-        const currentMeta = getState('player.currentTrackMeta') || {};
-        setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
-      }
-      currentVideoId = vData?.video_id || '';
-
-      // Invalidate duration cache when videoId changes
-      if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
-        if (_lastDurationVideoId !== '') {
-          setCachedYtDuration(0);
+    // Sub-index tracking (legacy style: poll getPlaylistIndex)
+    if (player.getPlaylistIndex) {
+      const playlistIdx = player.getPlaylistIndex();
+      const cachedIdx = getState('youtube.currentSubIndex') ?? -1;
+      if (playlistIdx >= 0 && playlistIdx !== cachedIdx) {
+        setYouTubeSubIndex(playlistIdx);
+        setCachedYtDuration(0);
+        // Host: emit sub-video-advanced for sync
+        const hostConn = getState('network.hostConn');
+        if (!hostConn && cachedIdx !== -1) {
+          bus.emit('youtube:sub-video-advanced');
         }
-        _lastDurationVideoId = currentVideoId;
       }
     }
 
-    // Commit the latest rawDuration whenever it diverges meaningfully from
-    // the cache. The old "lock on first valid read" pattern was fragile: a
-    // transitional poll could land on (new videoId, stale rawDuration) or
-    // (stale videoId, stale rawDuration) and permanently pin the cache to
-    // the previous video's duration. Re-reading every poll is cheap, and
-    // a small threshold keeps the emit quiet when rawDuration is stable.
-    if (rawDuration > 0 && Math.abs(rawDuration - getCachedYtDuration()) > 0.05) {
-      setCachedYtDuration(rawDuration);
-    }
-
-    const cachedDuration = getCachedYtDuration();
-    // Always emit time-update even when duration is 0 (new video loading).
-    // Without this, the seekbar freezes on the previous track's position
-    // until getDuration() returns a valid value for the new video.
-    // The seekbar handler (ui:time-update) guards on `duration > 0` for
-    // slider.max, so a 0 duration just means the thumb won't move but
-    // the current time text still updates.
-    {
-      const displayDuration = cachedDuration > 0 ? cachedDuration : rawDuration;
-      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(displayDuration), currentTime, displayDuration);
+    // Legacy-style seekbar update: just emit current time + duration
+    if (rawDuration > 0) {
+      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(rawDuration), currentTime, rawDuration);
     }
   } catch {
     // Player not ready

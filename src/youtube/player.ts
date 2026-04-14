@@ -119,6 +119,7 @@ export function scheduleYtAutoSync(
       subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: p.getVideoData?.()?.video_id || '',
       state: p.getPlayerState?.() || 1,
+      isManual: true, // Trigger guest precision rendezvous
     });
     log.debug('[YouTube] Sync: Precision rendezvous follow-up sent');
   }, 2000);

@@ -62,6 +62,7 @@ vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
+  resetYouTubeSyncState: vi.fn(),
 }));
 
 vi.mock('../../ui/toast.ts', () => ({

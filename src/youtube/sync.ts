@@ -16,8 +16,33 @@ import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData, setYtAutoplayIntent } from './_state.ts';
+import type { YouTubePlayerInstance } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
+import {
+  PLAYLIST_MAX_ITEMS,
+  DRIFT_SEEK_THRESHOLD_SEC,
+  HOST_AD_STALE_THRESHOLD,
+  HOST_AD_STALE_DIFF_SEC,
+  POST_SCHEDULED_ACTION_COOLDOWN_MS,
+  IMMEDIATE_ACTION_COOLDOWN_MS,
+  LOAD_DRIFT_SUPPRESS_MS,
+  SHORT_WAIT_THRESHOLD_MS,
+  AUTO_SYNC_MAX_WAIT_MS,
+  MISMATCH_MIN_WAIT_MS,
+  SEEK_PLAY_GAP_MS,
+  RENDEZVOUS_MARGIN_SEC,
+  RENDEZVOUS_SNAPSHOT_MAX_AGE_MS,
+  RENDEZVOUS_COOLDOWN_MS,
+  RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS,
+  RENDEZVOUS_BUFFER_MAX_CHECKS,
+  RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS,
+  RENDEZVOUS_CALIBRATE_DELAY_MS,
+  RENDEZVOUS_DRIFT_SUPPRESS_MS,
+  LATENCY_EMA_RATE,
+  LATENCY_CLAMP_MAX_MS,
+  LATENCY_OUTLIER_REJECT_MS,
+} from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
@@ -61,7 +86,7 @@ export function broadcastYouTubeSync(isManual = false): void {
             try {
               const rawIds = player.getPlaylist();
               if (Array.isArray(rawIds) && rawIds.length > 1) {
-                const ids = rawIds.slice(0, 100);
+                const ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
                 const subMap = getState('youtube.subItemsMap') || {};
                 if (!subMap[pid] || subMap[pid].ids.length !== ids.length) {
                   updateSubItemIds(pid, ids);
@@ -114,39 +139,11 @@ export function broadcastYouTubeSync(isManual = false): void {
   }
 }
 
-// ─── Host Ad Detection (Guest-side) ──────────────────────────────
-
-let _lastHostSyncTime: number | null = null;
-let _hostTimeStaleCount = 0;
-let _hostAdPauseActive = false;
-const _HOST_AD_STALE_THRESHOLD = 3; // 3 consecutive stale frames ≈ 9s (reduces false positives from network jitter)
-
-export function resetAdDetection(): void {
-  _lastHostSyncTime = null;
-  _hostTimeStaleCount = 0;
-  _hostAdPauseActive = false;
-}
-
-// ─── Auto-Sync Cooldown ──────────────────────────────────────────
-// During auto-sync wait, suppress drift correction from handleYouTubeSync
-
-let _autoSyncUntil = 0;
-
-/** Suppress drift correction + state sync for the given duration.
- *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
- *  heartbeat state-sync from waking the guest prematurely. */
-export function suppressDriftUntil(ms: number): void {
-  // Use Math.max to never shorten an existing suppression window.
-  // handleYouTubeState may have set a longer window (waitMs + 1500)
-  // that this async call from iframe.ts must not overwrite.
-  _autoSyncUntil = Math.max(_autoSyncUntil, Date.now() + ms);
-}
-
-// ─── Host Position Snapshot Cache (Guest-side) ───────────────────
-// Updated on every MSG.YOUTUBE_SYNC heartbeat (~3s interval on host).
-// Consumed by guestRendezvousSync() to extrapolate host's current position
-// using the shared clock. hostClockAt is in host-clock milliseconds so
-// extrapolation composes directly with getHostNow().
+// ─── Guest-side Sync Runtime State ────────────────────────────────
+// All mutable guest-side state in one place. Previously scattered as
+// individual module-level `let` bindings — consolidated so that
+// resetYouTubeSyncState() has a single source of truth, and new fields
+// can be added without hunting through the file.
 
 interface HostPositionSnapshot {
   hostClockAt: number; // host-clock ms when snapshot was taken
@@ -154,22 +151,63 @@ interface HostPositionSnapshot {
   hostState: number; // YT PlayerState (1=playing, 2=paused, ...)
   _videoId?: string; // video ID at snapshot time (for calibration cross-check)
 }
-let _lastHostSnapshot: HostPositionSnapshot | null = null;
 
+interface GuestSyncRuntime {
+  /** Last host position seen in a PLAYING heartbeat (null if host is paused). */
+  lastHostSyncTime: number | null;
+  /** Count of consecutive heartbeats with near-identical hostTime — used for ad detection. */
+  hostTimeStaleCount: number;
+  /** True while the guest is paused in response to a host-side ad. */
+  hostAdPauseActive: boolean;
+  /** Date.now() expiry: until this moment, drift correction is suppressed. */
+  autoSyncUntil: number;
+  /** Freshest host position snapshot — consumed by rendezvous extrapolation. */
+  lastHostSnapshot: HostPositionSnapshot | null;
+  /** True while a guest rendezvous is active (buffer wait → scheduled play). */
+  rendezvousInProgress: boolean;
+  /** Cooldown timestamp to prevent rapid-fire rendezvous (YouTube API crash). */
+  lastRendezvousAt: number;
+}
+
+const _rt: GuestSyncRuntime = {
+  lastHostSyncTime: null,
+  hostTimeStaleCount: 0,
+  hostAdPauseActive: false,
+  autoSyncUntil: 0,
+  lastHostSnapshot: null,
+  rendezvousInProgress: false,
+  lastRendezvousAt: 0,
+};
+
+export function resetAdDetection(): void {
+  _rt.lastHostSyncTime = null;
+  _rt.hostTimeStaleCount = 0;
+  _rt.hostAdPauseActive = false;
+}
+
+/** Suppress drift correction + state sync for the given duration.
+ *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
+ *  heartbeat state-sync from waking the guest prematurely. */
+export function suppressDriftUntil(ms: number): void {
+  // Math.max never shortens an existing suppression window — handleYouTubeState
+  // may have set a longer window (waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS)
+  // that this async call from iframe.ts must not overwrite.
+  _rt.autoSyncUntil = Math.max(_rt.autoSyncUntil, Date.now() + ms);
+}
+
+// Updated on every MSG.YOUTUBE_SYNC heartbeat (~HEARTBEAT_INTERVAL_MS).
+// Consumed by guestRendezvousSync() to extrapolate host's current position
+// using the shared clock. hostClockAt is in host-clock milliseconds so
+// extrapolation composes directly with getHostNow().
 function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: number): void {
   const player = getYouTubePlayer();
-  _lastHostSnapshot = {
+  _rt.lastHostSnapshot = {
     hostClockAt: hostClock ?? getHostNow(),
     hostPosition: hostTime,
     hostState,
     _videoId: player?.getVideoData?.()?.video_id || '',
   };
 }
-
-// ─── Rendezvous Sync State (Guest-side) ──────────────────────────
-
-let _rendezvousInProgress = false;
-let _lastRendezvousAt = 0; // Cooldown to prevent rapid-fire (YouTube API crash)
 
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
@@ -181,7 +219,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const isManual = !!data.isManual;
 
   // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown
-  if (!isManual && Date.now() < _autoSyncUntil) return;
+  if (!isManual && Date.now() < _rt.autoSyncUntil) return;
 
   try {
     const hostTime = Number(data.time) || 0;
@@ -210,34 +248,34 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
     // ── Host ad detection ──
     if (hostState === 1) {
-      if (_lastHostSyncTime !== null && Math.abs(hostTime - _lastHostSyncTime) < 1.0) {
-        _hostTimeStaleCount++;
-        if (_hostTimeStaleCount >= _HOST_AD_STALE_THRESHOLD) {
-          if (!_hostAdPauseActive) {
-            _hostAdPauseActive = true;
+      if (_rt.lastHostSyncTime !== null && Math.abs(hostTime - _rt.lastHostSyncTime) < HOST_AD_STALE_DIFF_SEC) {
+        _rt.hostTimeStaleCount++;
+        if (_rt.hostTimeStaleCount >= HOST_AD_STALE_THRESHOLD) {
+          if (!_rt.hostAdPauseActive) {
+            _rt.hostAdPauseActive = true;
             if (player.pauseVideo) player.pauseVideo();
             showToast(t('toast.host_ad'));
             log.debug('[YouTube Sync] Host ad detected — pausing guest');
           }
-          _lastHostSyncTime = hostTime;
+          _rt.lastHostSyncTime = hostTime;
           return; // Skip drift correction while ad is playing
         }
       } else {
         // Host time is moving again
-        if (_hostAdPauseActive) {
-          _hostAdPauseActive = false;
+        if (_rt.hostAdPauseActive) {
+          _rt.hostAdPauseActive = false;
           if (player.playVideo) player.playVideo();
           log.debug('[YouTube Sync] Host ad ended — resuming guest');
         }
-        _hostTimeStaleCount = 0;
+        _rt.hostTimeStaleCount = 0;
       }
-      _lastHostSyncTime = hostTime;
+      _rt.lastHostSyncTime = hostTime;
     } else {
       // Host explicitly paused — reset ad detection
-      _hostTimeStaleCount = 0;
-      _lastHostSyncTime = null;
-      if (_hostAdPauseActive) {
-        _hostAdPauseActive = false;
+      _rt.hostTimeStaleCount = 0;
+      _rt.lastHostSyncTime = null;
+      if (_rt.hostAdPauseActive) {
+        _rt.hostAdPauseActive = false;
       }
     }
 
@@ -252,7 +290,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
         // Skip if another handler (handleYouTubeState) already initiated a
         // video load — calling loadVideoById again would interrupt it,
         // resetting buffering and extending the transition window.
-        if (Date.now() < _autoSyncUntil) {
+        if (Date.now() < _rt.autoSyncUntil) {
           log.debug('[YouTube Sync] Video mismatch detected but load already in progress — skipping');
           return;
         }
@@ -263,7 +301,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
             setYouTubeSubIndex(hostSubIndex);
           }
         }
-        _autoSyncUntil = Date.now() + 5000;
+        _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
         return;
       }
     }
@@ -289,7 +327,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       const currentTime = player.getCurrentTime();
       const drift = Math.abs(currentTime - compensatedTime);
 
-      if (drift > 3 && player.seekTo) {
+      if (drift > DRIFT_SEEK_THRESHOLD_SEC && player.seekTo) {
         log.debug(`[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`);
         player.seekTo(compensatedTime, true);
       }
@@ -343,18 +381,18 @@ export function guestRendezvousSync(): void {
 
   // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
   const now = Date.now();
-  if (_rendezvousInProgress || now - _lastRendezvousAt < 3000) {
+  if (_rt.rendezvousInProgress || now - _rt.lastRendezvousAt < RENDEZVOUS_COOLDOWN_MS) {
     log.debug('[Rendezvous] Debounced — in progress or cooldown');
     return;
   }
 
-  // Need a fresh-enough host snapshot (≤10s old)
-  if (!_lastHostSnapshot || (getHostNow() - _lastHostSnapshot.hostClockAt) > 10_000) {
+  // Need a fresh-enough host snapshot
+  if (!_rt.lastHostSnapshot || (getHostNow() - _rt.lastHostSnapshot.hostClockAt) > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
     showToast(t('toast.yt_rendezvous_no_data'));
     return;
   }
 
-  const snapshot = _lastHostSnapshot;
+  const snapshot = _rt.lastHostSnapshot;
 
   // If host is paused, there's no playback to rendezvous with — just align position
   if (snapshot.hostState !== 1) {
@@ -372,23 +410,23 @@ export function guestRendezvousSync(): void {
   clearManagedTimer('yt-rendezvous-calibrate');
 
   const guestPlayLatency = getState('youtube.guestPlayLatency') ?? 0;
-  const MARGIN_SEC = 1.5; // headroom for seek + buffer + network jitter
 
   // Extrapolate host's current position
   const nowHost = getHostNow();
   const hostPosNow = snapshot.hostPosition + (nowHost - snapshot.hostClockAt) / 1000;
-  const targetPosition = hostPosNow + MARGIN_SEC;
+  const targetPosition = hostPosNow + RENDEZVOUS_MARGIN_SEC;
 
   // Host-clock instant when host's audible playback will reach targetPosition
-  const tHostReachTarget = nowHost + MARGIN_SEC * 1000;
+  const tHostReachTarget = nowHost + RENDEZVOUS_MARGIN_SEC * 1000;
   // Guest should call playVideo() guestPlayLatency ms before that
   const playCallAtHostClock = tHostReachTarget - guestPlayLatency;
 
   log.debug(`[Rendezvous] Start: hostPosNow=${hostPosNow.toFixed(2)}s target=${targetPosition.toFixed(2)}s L_play=${guestPlayLatency}ms`);
 
-  _rendezvousInProgress = true;
-  _lastRendezvousAt = Date.now();
-  _autoSyncUntil = Date.now() + MARGIN_SEC * 1000 + 2000; // suppress drift fighter
+  _rt.rendezvousInProgress = true;
+  _rt.lastRendezvousAt = Date.now();
+  // Suppress drift fighter for MARGIN + RENDEZVOUS_DRIFT_SUPPRESS_MS
+  _rt.autoSyncUntil = Date.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
   bus.emit('youtube:sync-loading', true);
   showToast(t('toast.yt_rendezvous_start'));
 
@@ -404,11 +442,11 @@ export function guestRendezvousSync(): void {
 
   // Step 2: buffer gate — poll player state until PAUSED (2) or CUED (5)
   // YT states: -1=unstarted 0=ended 1=playing 2=paused 3=buffering 5=cued
-  const bufferDeadline = getHostNow() + MARGIN_SEC * 1000 - 150;
+  const bufferDeadline = getHostNow() + RENDEZVOUS_MARGIN_SEC * 1000 - RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS;
   let bufferChecks = 0;
 
   const checkBuffer = (): void => {
-    if (!_rendezvousInProgress) return; // cancelled
+    if (!_rt.rendezvousInProgress) return; // cancelled
     // Re-fetch player — it may have been destroyed during the polling gap
     const p = getYouTubePlayer();
     if (!p) { finishRendezvous(); return; }
@@ -425,17 +463,17 @@ export function guestRendezvousSync(): void {
       return;
     }
 
-    if (outOfTime || bufferChecks > 100) {
+    if (outOfTime || bufferChecks > RENDEZVOUS_BUFFER_MAX_CHECKS) {
       log.warn(`[Rendezvous] Buffer gate timeout after ${bufferChecks} checks — aborting`);
       showToast(t('toast.yt_rendezvous_timeout'));
       finishRendezvous();
       return;
     }
 
-    setManagedTimer('yt-rendezvous-buffer', checkBuffer, 50);
+    setManagedTimer('yt-rendezvous-buffer', checkBuffer, RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS);
   };
 
-  setManagedTimer('yt-rendezvous-buffer', checkBuffer, 50);
+  setManagedTimer('yt-rendezvous-buffer', checkBuffer, RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS);
 }
 
 function scheduleRendezvousPlay(
@@ -447,7 +485,7 @@ function scheduleRendezvousPlay(
   log.debug(`[Rendezvous] Scheduling playVideo in ${waitMs.toFixed(0)}ms`);
 
   setManagedTimer('yt-rendezvous-play', () => {
-    if (!_rendezvousInProgress) return; // cancelled during wait
+    if (!_rt.rendezvousInProgress) return; // cancelled during wait
     const p = getYouTubePlayer();
     if (!p) { finishRendezvous(); return; }
     try {
@@ -463,7 +501,7 @@ function scheduleRendezvousPlay(
 
     // Step 3: self-calibrate guestPlayLatency from measured drift (~800ms later)
     setManagedTimer('yt-rendezvous-calibrate', () => {
-      _rendezvousInProgress = false;
+      _rt.rendezvousInProgress = false;
       const pCal = getYouTubePlayer();
       if (!pCal) return; // player destroyed — skip calibration
       try {
@@ -485,21 +523,21 @@ function scheduleRendezvousPlay(
         const driftSec = guestPos - hostPosNowMeasured; // + = guest ahead, − = guest behind
         const driftMs = driftSec * 1000;
 
-        // Outlier rejection: if drift exceeds 2 seconds, the measurement is
-        // likely from a transitional state (buffering, seek in progress, ad).
-        // Applying it to the EMA would corrupt guestPlayLatency for 7-10
-        // subsequent rendezvous attempts. Skip silently.
-        if (Math.abs(driftMs) > 2000) {
-          log.debug(`[Rendezvous] Calibration skipped — drift ${driftMs.toFixed(0)}ms exceeds 2s outlier threshold`);
+        // Outlier rejection: drift samples larger than
+        // LATENCY_OUTLIER_REJECT_MS are likely from a transitional state
+        // (buffering, seek in progress, ad). Applying them to the EMA
+        // would corrupt guestPlayLatency for 7-10 subsequent rendezvous
+        // attempts. Skip silently.
+        if (Math.abs(driftMs) > LATENCY_OUTLIER_REJECT_MS) {
+          log.debug(`[Rendezvous] Calibration skipped — drift ${driftMs.toFixed(0)}ms exceeds outlier threshold`);
           return;
         }
 
         // Positive drift (guest ahead) means playVideo() fired too early → our L_play
         // estimate was too HIGH → DECREASE it. Hence minus sign.
         const current = getState('youtube.guestPlayLatency') ?? 0;
-        const LR = 0.3;
-        const nextRaw = current - driftMs * LR;
-        const next = Math.round(Math.max(0, Math.min(600, nextRaw)));
+        const nextRaw = current - driftMs * LATENCY_EMA_RATE;
+        const next = Math.round(Math.max(0, Math.min(LATENCY_CLAMP_MAX_MS, nextRaw)));
         if (next !== current) {
           setState('youtube.guestPlayLatency', next);
           try {
@@ -513,13 +551,13 @@ function scheduleRendezvousPlay(
       } catch (e) {
         log.debug('[Rendezvous] Calibration skipped:', e);
       }
-    }, 800);
+    }, RENDEZVOUS_CALIBRATE_DELAY_MS);
   }, waitMs);
 }
 
 function finishRendezvous(): void {
-  _rendezvousInProgress = false;
-  _autoSyncUntil = 0;
+  _rt.rendezvousInProgress = false;
+  _rt.autoSyncUntil = 0;
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
@@ -531,7 +569,7 @@ function finishRendezvous(): void {
  * disruptive action (pause/seek/video-change) during the guest's wait.
  */
 export function cancelGuestRendezvous(): void {
-  if (!_rendezvousInProgress) return;
+  if (!_rt.rendezvousInProgress) return;
   log.debug('[Rendezvous] Cancelled');
   clearManagedTimer('yt-rendezvous-calibrate');
   finishRendezvous();
@@ -545,18 +583,18 @@ export function cancelGuestRendezvous(): void {
  * drift correction fight a countdown that no longer exists.
  *
  * What gets reset:
- *   - _rendezvousInProgress → false (unblocks guestRendezvousSync re-entry)
- *   - _autoSyncUntil → 0 (re-enables drift correction immediately on next load)
- *   - _lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
+ *   - _rt.rendezvousInProgress → false (unblocks guestRendezvousSync re-entry)
+ *   - _rt.autoSyncUntil → 0 (re-enables drift correction immediately on next load)
+ *   - _rt.lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
  *   - resetAdDetection() for host-ad pause tracking
  *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate)
  *   - youtube:sync-loading overlay hidden
  */
 export function resetYouTubeSyncState(): void {
-  _rendezvousInProgress = false;
-  _lastRendezvousAt = 0;
-  _autoSyncUntil = 0;
-  _lastHostSnapshot = null;
+  _rt.rendezvousInProgress = false;
+  _rt.lastRendezvousAt = 0;
+  _rt.autoSyncUntil = 0;
+  _rt.lastHostSnapshot = null;
   resetAdDetection();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
@@ -587,7 +625,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
 
   // PAUSE/STOP always takes priority — cancel any pending auto-sync
   if (state === 2 || state === 0 || state === -1) {
-    _autoSyncUntil = 0;
+    _rt.autoSyncUntil = 0;
     clearManagedTimer('yt-clock-action');
     bus.emit('youtube:sync-loading', false);
     cancelGuestRendezvous(); // Host paused/stopped while guest was rendezvousing
@@ -597,11 +635,11 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   // previous host command before processing this one. Without this, a rapid
   // seek / play / seek sequence on the host would get processed as the very
   // first command on the guest while subsequent commands fell into an early
-  // return (we used to skip this function entirely during _autoSyncUntil,
+  // return (we used to skip this function entirely during _rt.autoSyncUntil,
   // which caused the guest to honour only the earliest scheduled play and
   // drop every later host-initiated state change until the cooldown expired).
   //
-  // The _autoSyncUntil cooldown is kept ONLY for handleYouTubeSync (the 3s
+  // The _rt.autoSyncUntil cooldown is kept ONLY for handleYouTubeSync (the 3s
   // periodic drift-correction broadcast) — its intent was to prevent drift
   // correction from fighting a scheduled play, not to block explicit host
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
@@ -611,12 +649,12 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
   // Without this, a pending yt-rendezvous-play timer fires alongside the
   // yt-clock-action timer, causing a double playVideo() desync.
-  if (state === 1 && _rendezvousInProgress) {
+  if (state === 1 && _rt.rendezvousInProgress) {
     cancelGuestRendezvous();
   }
 
   // Skip state sync while host is likely watching an ad
-  if (_hostAdPauseActive) return;
+  if (_rt.hostAdPauseActive) return;
 
   try {
     const time = Number(data.time) || 0;
@@ -660,8 +698,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         // wakes it 5+ seconds later with no countdown alignment.
         const mismatchHostPlayAt = Number(data.hostPlayAt) || 0;
         if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
-          const waitForPlay = Math.max(500, mismatchHostPlayAt - getHostNow());
-          _autoSyncUntil = Date.now() + waitForPlay + 3000;
+          const waitForPlay = Math.max(MISMATCH_MIN_WAIT_MS, mismatchHostPlayAt - getHostNow());
+          _rt.autoSyncUntil = Date.now() + waitForPlay + IMMEDIATE_ACTION_COOLDOWN_MS;
           bus.emit('youtube:sync-loading', true);
           setManagedTimer('yt-clock-action', () => {
             const p = getYouTubePlayer();
@@ -672,7 +710,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
             bus.emit('youtube:sync-loading', false);
           }, waitForPlay);
         } else {
-          _autoSyncUntil = Date.now() + 5000;
+          _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
         }
         return;
       }
@@ -692,7 +730,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
 
     // ENDED/UNSTARTED: stop immediately, skip all play/pause sync logic.
     // Without this, state=0 with non-zero hostPlayAt could fall into the
-    // short-wait or executeImmediate paths, wastefully setting _autoSyncUntil.
+    // short-wait or executeImmediate paths, wastefully setting _rt.autoSyncUntil.
     if (state === 0 || state === -1) {
       if (player.stopVideo) player.stopVideo();
       return;
@@ -705,8 +743,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
 
-      if (waitMs > 300 && waitMs < 3000 && state === 1) {
-        // ── Auto-sync path: significant wait (>300ms) + play command ──
+      if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
+        // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──
         // 1. Pause immediately for clean sync
         if (player.pauseVideo) player.pauseVideo();
 
@@ -719,7 +757,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         }
 
         // 4. Suppress drift correction during wait
-        _autoSyncUntil = Date.now() + waitMs + 1500;
+        _rt.autoSyncUntil = Date.now() + waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS;
 
         // 5. Show sync loading state on guest
         bus.emit('youtube:sync-loading', true);
@@ -737,8 +775,8 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         }, waitMs);
 
         log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
-      } else if (waitMs > 0 && waitMs <= 300) {
-        // Short wait (≤300ms) — schedule with brief pause-seek-play
+      } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
+        // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which
         // triggers a premature ENDED event and track-advance on the guest.
         const rawCompensated = time + (waitMs / 1000);
@@ -746,7 +784,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         if (compensatedTime >= 0 && duration >= 0) {
           bus.emit('ui:time-update', fmtTime(compensatedTime), fmtTime(duration), compensatedTime, duration);
         }
-        _autoSyncUntil = Date.now() + 3000;
+        _rt.autoSyncUntil = Date.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
         setManagedTimer('yt-clock-action', () => {
           const p = getYouTubePlayer();
           if (!p) return;
@@ -759,7 +797,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
               setManagedTimer('yt-seek-play', () => {
                 const p2 = getYouTubePlayer();
                 if (p2?.playVideo) { setYtAutoplayIntent(true); p2.playVideo(); }
-              }, 150);
+              }, SEEK_PLAY_GAP_MS);
             } else {
               setYtAutoplayIntent(true);
               p.playVideo();
@@ -793,7 +831,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
  *  Suppresses drift correction briefly so the next heartbeat
  *  doesn't overwrite the seek with a stale position. */
 function executeImmediate(
-  player: any, state: number, time: number, duration: number, subIndexChanged: boolean,
+  player: YouTubePlayerInstance, state: number, time: number, duration: number, subIndexChanged: boolean,
 ): void {
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
@@ -803,21 +841,21 @@ function executeImmediate(
   }
 
   // Suppress drift correction while YouTube buffers the seek.
-  _autoSyncUntil = Date.now() + 3000;
+  _rt.autoSyncUntil = Date.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
 
   if (state === 1 && player.playVideo) {
     if (!subIndexChanged && player.seekTo) {
-      // Pause-seek-play: seek while paused, then play after 150ms.
+      // Pause-seek-play: seek while paused, then play after SEEK_PLAY_GAP_MS.
       // Uses a SEPARATE timer name so a new YOUTUBE_STATE arriving during
-      // the 150ms gap doesn't cancel the pending playVideo without
-      // scheduling a replacement (yt-clock-action is cleared at the top
-      // of handleYouTubeState, but yt-seek-play is not).
+      // the gap doesn't cancel the pending playVideo without scheduling
+      // a replacement (yt-clock-action is cleared at the top of
+      // handleYouTubeState, but yt-seek-play is not).
       player.pauseVideo?.();
       player.seekTo(time, true);
       setManagedTimer('yt-seek-play', () => {
         const p = getYouTubePlayer();
         if (p?.playVideo) { setYtAutoplayIntent(true); p.playVideo(); }
-      }, 150);
+      }, SEEK_PLAY_GAP_MS);
     } else {
       setYtAutoplayIntent(true);
       player.playVideo();
@@ -857,8 +895,8 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
  */
 function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   const playlistId = data.playlistId as string;
-  const ids = ((data.ids as string[]) || []).slice(0, 100);
-  const titles = ((data.titles as string[]) || []).slice(0, 100);
+  const ids = ((data.ids as string[]) || []).slice(0, PLAYLIST_MAX_ITEMS);
+  const titles = ((data.titles as string[]) || []).slice(0, PLAYLIST_MAX_ITEMS);
 
   if (!playlistId) return;
 
@@ -873,7 +911,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 // ─── Handle YouTube Stop ──────────────────────────────────────────
 
 function handleYouTubeStop(): void {
-  _autoSyncUntil = 0;
+  _rt.autoSyncUntil = 0;
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
   clearManagedTimer('yt-clock-action');
@@ -899,7 +937,7 @@ export function initYouTubeSync(): void {
 
   // Reset ad detection when guest reconnects (receives new YouTube session)
   bus.on('youtube:load', () => {
-    _autoSyncUntil = 0;
+    _rt.autoSyncUntil = 0;
     resetAdDetection();
   });
 

@@ -5,9 +5,10 @@
  *
  * These tests exercise the REAL exported handlers of `src/youtube/sync.ts`
  * and `src/youtube/player.ts` against a fake YT player object under vitest
- * fake timers. Every test pins a specific regression from the recent
- * YouTube-sync fix sequence (commits 73788a3 → 93b8b78). If any of those
- * fixes gets reverted, the corresponding test fails loudly.
+ * fake timers. Every test pins a specific invariant of the current 2-stage
+ * synchronization protocol (post-85ad164): immediate host action + Stage 1
+ * broadcast (hostPlayAt=0), then a delayed Stage 2 precision rendezvous
+ * (YOUTUBE_SYNC with isManual=true) after STAGE2_RENDEZVOUS_BROADCAST_MS.
  *
  * Key design decisions:
  *   - Real core/timers.ts so `setManagedTimer` / `getManagedTimer` work
@@ -189,147 +190,97 @@ async function importSync() {
 
 describe('YouTube Sync — Regression Integration', () => {
 
-  // 1. scheduleYtAutoSync force-pauses even when state==PAUSED (regression for 9b0458e)
-  describe('scheduleYtAutoSync — force pause (commit 9b0458e)', () => {
-    it('calls pauseVideo even when player reports PAUSED state', async () => {
+  // 1. scheduleYtAutoSync performs immediate host action (seek + play)
+  describe('scheduleYtAutoSync — immediate host action (2-stage protocol, commit 85ad164)', () => {
+    it('calls seekTo then playVideo immediately when target state is PLAYING', async () => {
       const player = installPlayer({ __state: 2 /* PAUSED */, __currentTime: 30 });
       const { scheduleYtAutoSync } = await importPlayer();
 
       scheduleYtAutoSync(42);
 
       const ops = mutationOps(player);
-      // pauseVideo must be called regardless of reported state — otherwise a
-      // seek landing in the post-playVideo grace would see a lying PAUSED and
-      // skip pausing, causing "spinner up but video is actually playing".
-      expect(ops).toContain('pauseVideo');
+      // New protocol: host seeks + plays IMMEDIATELY (no force-pause preamble,
+      // no 1-second countdown). Stage 2 precision rendezvous follows later.
       expect(ops).toContain('seekTo');
-      // seekTo must be called AFTER pauseVideo (pause-then-seek = in-buffer, no rebuffer)
-      const pauseIdx = ops.indexOf('pauseVideo');
+      expect(ops).toContain('playVideo');
       const seekIdx = ops.indexOf('seekTo');
-      expect(pauseIdx).toBeLessThan(seekIdx);
+      const playIdx = ops.indexOf('playVideo');
+      expect(seekIdx).toBeLessThan(playIdx);
       expect(player.__log[seekIdx].args).toEqual([42, true]);
     });
 
-    it('broadcasts YOUTUBE_STATE with hostPlayAt ≈ getHostNow()+1000', async () => {
+    it('Stage 1 broadcast is YOUTUBE_STATE with hostPlayAt=0 (immediate reaction)', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
-      const tBefore = Date.now();
       scheduleYtAutoSync(10);
 
+      // Stage 1 only — Stage 2 fires after STAGE2_RENDEZVOUS_BROADCAST_MS
       expect(broadcast).toHaveBeenCalledTimes(1);
       const msg = (broadcast as any).mock.calls[0][0];
       expect(msg.type).toBe(MSG.YOUTUBE_STATE);
       expect(msg.state).toBe(1);
       expect(msg.time).toBe(10);
-      expect(msg.hostPlayAt).toBeGreaterThanOrEqual(tBefore + 1000);
-      expect(msg.hostPlayAt).toBeLessThanOrEqual(tBefore + 1005);
+      // hostPlayAt=0 signals "act immediately"; precision comes from Stage 2.
+      expect(msg.hostPlayAt).toBe(0);
     });
   });
 
-  // 2. scheduleYtAutoSync calls playVideo exactly 1000ms later (happy path)
-  describe('scheduleYtAutoSync — 1-second countdown', () => {
-    it('does NOT call playVideo before 1000ms', async () => {
-      const player = installPlayer({ __state: 2 });
-      const { scheduleYtAutoSync } = await importPlayer();
-
-      scheduleYtAutoSync(10);
-      player.__log.length = 0; // clear initial pause/seek
-      vi.advanceTimersByTime(999);
-
-      expect(player.__log.find(c => c.op === 'playVideo')).toBeUndefined();
-    });
-
-    it('calls playVideo at exactly 1000ms', async () => {
-      const player = installPlayer({ __state: 2 });
-      const { scheduleYtAutoSync } = await importPlayer();
-
-      scheduleYtAutoSync(10);
-      vi.advanceTimersByTime(1000);
-
-      expect(player.__log.find(c => c.op === 'playVideo')).toBeDefined();
-    });
-  });
-
-  // 3. Grace window stays active 500ms after playVideo (regression for c11173f)
-  describe('scheduleYtAutoSync — post-play grace window (commit c11173f)', () => {
-    it('yt-sync-grace timer is set after verifyPlay confirms PLAYING, gone 500ms later', async () => {
+  // 2. Stage 2 precision rendezvous fires after STAGE2_RENDEZVOUS_BROADCAST_MS
+  describe('scheduleYtAutoSync — Stage 2 precision rendezvous (commit 85ad164)', () => {
+    it('does NOT broadcast Stage 2 before STAGE2_RENDEZVOUS_BROADCAST_MS', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
 
       scheduleYtAutoSync(10);
-      // Before play, grace hasn't been set yet
-      expect(getManagedTimer('yt-sync-grace')).toBeNull();
+      (broadcast as any).mockClear(); // drop Stage 1
 
-      vi.advanceTimersByTime(1000);
-      // playVideo fired, but grace is set by verifyPlay (300ms later)
-      expect(getManagedTimer('yt-sync-grace')).toBeNull();
-
-      vi.advanceTimersByTime(300);
-      // T=1300: verifyPlay fires, sees PLAYING (fake player flips to 1 on playVideo), arms grace
-      expect(getManagedTimer('yt-sync-grace')).not.toBeNull();
-
-      vi.advanceTimersByTime(499);
-      // Still live at T=1799
-      expect(getManagedTimer('yt-sync-grace')).not.toBeNull();
-
-      vi.advanceTimersByTime(2); // -> T=1801
-      // Cleared after 500ms
-      expect(getManagedTimer('yt-sync-grace')).toBeNull();
+      vi.advanceTimersByTime(1999);
+      expect(broadcast).not.toHaveBeenCalled();
     });
 
-    it('seek during grace window re-routes through scheduleYtAutoSync (not bare seek)', async () => {
-      const player = installPlayer({ __state: 2, __duration: 300 });
-      const { initYouTube, scheduleYtAutoSync } = await importPlayer();
-      initYouTube(); // register bus listeners including youtube:seek-to
+    it('broadcasts YOUTUBE_SYNC with isManual=true at Stage 2', async () => {
+      installPlayer({ __state: 1, __currentTime: 10 });
+      const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
 
       scheduleYtAutoSync(10);
-      vi.advanceTimersByTime(1000); // now in grace window
-      // Player reports PAUSED (since playVideo is the last mutation but our fake
-      // doesn't flip until playVideo is actually called — which it was). Let's
-      // emulate the real YT IFrame API lag: the state still reads PAUSED for
-      // the first 30-100ms after playVideo. That's exactly the race this fix
-      // addresses.
-      player.__state = 2;
-      const { broadcast } = await import('../../network/peer.ts');
-      (broadcast as any).mockClear();
-      player.__log.length = 0;
+      (broadcast as any).mockClear(); // drop Stage 1
 
-      // Seek in the middle of the grace window via the bus
-      bus.emit('youtube:seek-to', 50);
-
-      // Instead of a bare seek, scheduleYtAutoSync should have been invoked:
-      // - player.pauseVideo called
-      // - player.seekTo(50, true) called
-      // - broadcast with state=1 (not state=2)
-      const ops = mutationOps(player);
-      expect(ops).toContain('pauseVideo');
-      expect(ops).toContain('seekTo');
-      expect((broadcast as any).mock.calls.length).toBeGreaterThanOrEqual(1);
-      const lastMsg = (broadcast as any).mock.calls[0][0];
-      expect(lastMsg.state).toBe(1); // state=1 is the tell-tale for scheduleYtAutoSync, bare seek uses state=2
-      expect(lastMsg.time).toBe(50);
+      vi.advanceTimersByTime(2000);
+      expect(broadcast).toHaveBeenCalled();
+      const stage2 = (broadcast as any).mock.calls[0][0];
+      expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
+      expect(stage2.isManual).toBe(true);
     });
   });
 
-  // 4. Last-action-wins: rapid scheduleYtAutoSync cancels prior timer (fdaf070)
-  describe('scheduleYtAutoSync — last-action-wins (commit fdaf070)', () => {
-    it('second scheduleYtAutoSync cancels the first — playVideo fires only once', async () => {
+  // 3. Rapid scheduleYtAutoSync calls debounce the Stage 2 broadcast
+  describe('scheduleYtAutoSync — Stage 2 debounce on rapid calls (commit 85ad164)', () => {
+    it('second scheduleYtAutoSync cancels the first Stage 2 — only ONE YOUTUBE_SYNC broadcast fires', async () => {
       const player = installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
 
       scheduleYtAutoSync(10);
       vi.advanceTimersByTime(500);
       scheduleYtAutoSync(20);
-      vi.advanceTimersByTime(1500); // 500 + 1500 = 2000, well past both timers
+      (broadcast as any).mockClear(); // drop Stage 1s
 
-      const playCalls = player.__log.filter(c => c.op === 'playVideo');
-      expect(playCalls).toHaveLength(1);
+      vi.advanceTimersByTime(2500); // well past Stage 2 deadline for the second schedule
+
+      // Stage 2 (YOUTUBE_SYNC) should fire exactly once — the first schedule's
+      // Stage 2 timer is canceled via clearManagedTimer('yt-auto-sync').
+      const stage2Calls = (broadcast as any).mock.calls.filter(
+        (c: any[]) => c[0]?.type === MSG.YOUTUBE_SYNC,
+      );
+      expect(stage2Calls).toHaveLength(1);
 
       // Final seek target must be 20, not 10 — "last action wins"
       const seeks = player.__log.filter(c => c.op === 'seekTo');
-      expect(seeks.length).toBeGreaterThanOrEqual(2); // one per schedule
+      expect(seeks.length).toBeGreaterThanOrEqual(2);
       expect(seeks[seeks.length - 1].args).toEqual([20, true]);
     });
   });

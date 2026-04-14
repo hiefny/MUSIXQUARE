@@ -22,6 +22,8 @@ import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { clearPreviewDebounce } from '../youtube/search.ts';
+import { guestRendezvousSync } from '../youtube/sync.ts';
+import { getYouTubePlayer, scheduleYtAutoSync } from '../youtube/player.ts';
 import { initSeekBar } from './seekbar.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -327,15 +329,13 @@ function handleMainSyncBtn(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) {
       // Guest path — self-heal rendezvous (SMPTE slave-sync style)
-      import('../youtube/sync.ts').then(mod => mod.guestRendezvousSync());
+      guestRendezvousSync();
     } else {
       // Host path — existing countdown: pause, re-broadcast with 1s lead,
       // everyone plays simultaneously at hostPlayAt
-      import('../youtube/player.ts').then(mod => {
-        const player = mod.getYouTubePlayer();
-        const currentTime = player?.getCurrentTime?.() ?? 0;
-        mod.scheduleYtAutoSync(currentTime);
-      });
+      const player = getYouTubePlayer();
+      const currentTime = player?.getCurrentTime?.() ?? 0;
+      scheduleYtAutoSync(currentTime);
     }
     return;
   }

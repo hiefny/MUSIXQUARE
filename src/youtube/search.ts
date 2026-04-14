@@ -11,11 +11,19 @@ import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
-import { updateSubItemTitle, updateSubItemTitlesBulk } from './_state.ts';
+import { updateSubItemTitlesBulk } from './_state.ts';
+import {
+  OEMBED_CACHE_MAX,
+  OEMBED_CACHE_TTL_MS,
+  OEMBED_FETCH_TIMEOUT_MS,
+  OEMBED_INITIAL_BATCH_SIZE,
+  OEMBED_BACKGROUND_THROTTLE_MS,
+  OEMBED_PREVIEW_DEBOUNCE_MS,
+} from './constants.ts';
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
-async function fetchWithTimeout(url: string, timeoutMs = 5000, externalSignal?: AbortSignal): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs = OEMBED_FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const id = window.setTimeout(() => controller.abort(), timeoutMs);
   // Forward external abort to our controller
@@ -55,16 +63,13 @@ export function extractYouTubePlaylistId(url: string): string | null {
 
 // ─── oEmbed Title Cache (LRU + TTL) ───────────────────────────────
 
-const OEMBED_CACHE_MAX = 100;
-const OEMBED_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
 const _oEmbedTitleCache = new Map<string, { title: string; ts: number }>();
 const _oEmbedInFlight = new Map<string, Promise<string | null>>();
 
 function _oEmbedCacheGet(key: string): string | null {
   const entry = _oEmbedTitleCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.ts > OEMBED_CACHE_TTL) {
+  if (Date.now() - entry.ts > OEMBED_CACHE_TTL_MS) {
     _oEmbedTitleCache.delete(key);
     return null;
   }
@@ -183,7 +188,7 @@ export function fetchYouTubePreview(url: string): void {
 
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-      const response = await fetchWithTimeout(oembedUrl, 5000, abort.signal);
+      const response = await fetchWithTimeout(oembedUrl, OEMBED_FETCH_TIMEOUT_MS, abort.signal);
       if (abort.signal.aborted) return;
       if (!response.ok) throw new Error('Video not found');
       const data = await response.json();
@@ -216,7 +221,7 @@ export function fetchYouTubePreview(url: string): void {
       freshStatus.style.color = 'var(--danger, #ef4444)';
       freshSetPlayBtnEnabled(false);
     }
-  }, 500);
+  }, OEMBED_PREVIEW_DEBOUNCE_MS);
 }
 
 // ─── Background Playlist Sub-Title Fetcher ─────────────────────────
@@ -278,7 +283,7 @@ export async function fetchPlaylistSubTitles(
         const videoId = ids[i];
         const response = await fetchWithTimeout(
           `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`,
-          5000,
+          OEMBED_FETCH_TIMEOUT_MS,
           abort.signal,
         );
         if (abort.signal.aborted) return;
@@ -291,10 +296,11 @@ export async function fetchPlaylistSubTitles(
           batchBuffer.push({ index: i, title: json.title });
           log.debug(`[YouTube Feed] Buffered Title [${i}]: ${json.title}`);
 
-          // Flush batch every 10 items (batch mode) OR every item (initial phase < 10) OR at the very end
-          const isInitialPhase = processedCount < 10;
+          // Flush batch every OEMBED_INITIAL_BATCH_SIZE items (batch mode)
+          // OR every item (initial phase) OR at the very end
+          const isInitialPhase = processedCount < OEMBED_INITIAL_BATCH_SIZE;
           const isLast = i === lastPendingIdx;
-          if (isInitialPhase || batchBuffer.length >= 10 || isLast) {
+          if (isInitialPhase || batchBuffer.length >= OEMBED_INITIAL_BATCH_SIZE || isLast) {
             updateSubItemTitlesBulk(playlistId, batchBuffer);
             
             const hostConn = getState('network.hostConn');
@@ -317,10 +323,10 @@ export async function fetchPlaylistSubTitles(
       }
 
       processedCount++;
-      // Adaptive throttling: 
-      // - First 10 items (High Priority window): use standard RETRY (200ms)
-      // - Background items (Low Priority): use 800ms to avoid hammering network/GC
-      const waitTime = processedCount <= 10 ? DELAY.RETRY : 800;
+      // Adaptive throttling:
+      // - First OEMBED_INITIAL_BATCH_SIZE items (High Priority window): standard RETRY (~200ms)
+      // - Background items (Low Priority): OEMBED_BACKGROUND_THROTTLE_MS to ease network/GC
+      const waitTime = processedCount <= OEMBED_INITIAL_BATCH_SIZE ? DELAY.RETRY : OEMBED_BACKGROUND_THROTTLE_MS;
       
       if (!abort.signal.aborted) {
         await delay(waitTime);

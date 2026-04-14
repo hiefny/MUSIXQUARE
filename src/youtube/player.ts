@@ -19,8 +19,14 @@ import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/tim
 import { setAppState } from '../player/transport.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
-
-const YT_AUTO_SYNC_MS = 1000; // 1s countdown before simultaneous play
+import {
+  YT_AUTO_SYNC_MS,
+  STAGE2_RENDEZVOUS_BROADCAST_MS,
+  TRACK_TRANSITION_COUNTDOWN_MS,
+  PLAYLIST_MAX_ITEMS,
+  PREV_TRACK_RESTART_THRESHOLD_SEC,
+  BROADCAST_SYNC_MIN_INTERVAL_MS,
+} from './constants.ts';
 
 // URL-input flow: when a user pastes a YouTube link and we're in IDLE state,
 // _addYouTubeToPlaylist sets this flag, loads the player with autoplay=false,
@@ -55,9 +61,11 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
+import { broadcastYouTubeSync, resetYouTubeSyncState } from './sync.ts';
 import { showToast } from '../ui/toast.ts';
 
-declare const YT: any;
+import type { YTNamespace } from './_state.ts';
+declare const YT: YTNamespace;
 
 // ─── Re-exports ────────────────────────────────────────────────────
 // External modules (e.g. sync.ts) import { getYouTubePlayer } from './player.ts'
@@ -108,16 +116,16 @@ export function scheduleYtAutoSync(
     title: player.getVideoData?.()?.title || '',
   });
 
-  // 3. Broadcast Stage 2: Precision Rendezvous (Fixed 2s delay)
+  // 3. Broadcast Stage 2: Precision Rendezvous (Fixed delay)
   // Ensures all guests reach perfect alignment regardless of buffering speed.
-  const waitMs = overrides?.countdownMs ?? 2000;
+  const waitMs = overrides?.countdownMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {
     const p = getYouTubePlayer();
     if (!p) return;
 
     markYtStateBroadcast();
-    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(true));
+    broadcastYouTubeSync(true);
     log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
   }, waitMs);
 }
@@ -144,11 +152,10 @@ export function stopYouTubeMode(): void {
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
 
-  // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
-  // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
-  //  which would kill the guest's YouTube player right after YOUTUBE_PLAY)
-  const currentState = getState('appState');
-
+  // Only leave YouTube mode (set appState to IDLE) when we're actually
+  // leaving — avoids spurious transitions from stopAllMedia→stopYouTubeMode
+  // inside loadYouTubeVideo which would kill the guest's YouTube player
+  // right after YOUTUBE_PLAY.
   if (wasInYouTube) {
     setAppState(APP_STATE.IDLE);
   }
@@ -182,13 +189,11 @@ export function stopYouTubeMode(): void {
   // Full reset of guest-side sync module state (rendezvous flag, host
   // snapshot, drift-correction cooldown, ad detection, rendezvous timers).
   // Without this, a mid-rendezvous mode exit would leak timers, leave
-  // _rendezvousInProgress=true (blocking next rendezvous), leave
-  // _autoSyncUntil pinned to a future timestamp (blocking drift correction),
-  // and leave _lastHostSnapshot pointing to stale host-clock data. Dynamic
-  // import keeps the dependency direction player.ts → sync.ts (sync.ts
-  // doesn't import from player.ts, so this is cycle-free, but staying
-  // dynamic matches the existing broadcastYouTubeSync pattern).
-  import('./sync.ts').then(mod => mod.resetYouTubeSyncState()).catch(() => { /* noop */ });
+  // rendezvousInProgress=true (blocking next rendezvous), leave
+  // autoSyncUntil pinned to a future timestamp (blocking drift correction),
+  // and leave lastHostSnapshot pointing to stale host-clock data.
+  // Static import is safe: sync.ts does not import from player.ts.
+  resetYouTubeSyncState();
 
   const player = getYouTubePlayer();
   if (player) {
@@ -226,6 +231,60 @@ export function stopYouTubeMode(): void {
   }
 
   log.debug('[YouTube] Mode stopped');
+}
+
+// ─── Sub-Video Navigation Helper ───────────────────────────────────
+
+/**
+ * Single-video navigation using the host-snapshotted subItemsMap.
+ * Never calls `playVideoAt` — the iframe's playlist engine is what OOMs on
+ * 200+ item playlists, so we keep the iframe on one video at a time.
+ *
+ * If the subItemsMap is empty, tries emergency population from
+ * `player.getPlaylist()` so that fast Next/Prev clicks work before the
+ * background snapshot/fetcher fires.
+ */
+function navigateSubVideo(
+  direction: 1 | -1,
+  callback: (success: boolean) => void,
+): void {
+  const player = getYouTubePlayer();
+  if (!player?.loadVideoById) { callback(false); return; }
+
+  try {
+    const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+    const pid = currentTrack?.playlistId as string;
+    if (!pid) { callback(false); return; }
+
+    let subData = (getState('youtube.subItemsMap') || {})[pid];
+
+    if ((!subData || !subData.ids.length) && player.getPlaylist) {
+      const rawIds = player.getPlaylist() || [];
+      if (rawIds.length > 0) {
+        const ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
+        updateSubItemIds(pid, ids);
+        subData = { ids, titles: [] }; // Locally use for this tick
+      }
+    }
+
+    const idx = getState('youtube.currentSubIndex') ?? -1;
+    const targetIdx = idx + direction;
+    const inBounds = direction === 1
+      ? (idx >= 0 && subData?.ids && idx < subData.ids.length - 1)
+      : (idx > 0 && !!subData?.ids);
+
+    if (inBounds && subData?.ids) {
+      const targetVideoId = subData.ids[targetIdx];
+      setYouTubeSubIndex(targetIdx);
+      player.loadVideoById(targetVideoId);
+      scheduleYtAutoSync(0, { subIndex: targetIdx, videoId: targetVideoId, skipSeek: true });
+      callback(true);
+      return;
+    }
+  } catch (e) {
+    log.debug(`[YouTube] navigate ${direction === 1 ? 'next' : 'prev'} error:`, e);
+  }
+  callback(false);
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
@@ -310,9 +369,9 @@ export function initYouTube(): void {
       // skipSeek:true — the freshly loaded video is already at position 0,
       // so seekTo(0) would be a wasted round-trip (and may trigger an
       // unwanted BUFFERING transition on CUED players).
-      // We use 2000ms here because playTrack already waited 1000ms (or on_ready took at least 1000ms),
-      // making the total safe delay for guests ~3 seconds.
-      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: 2000 });
+      // playTrack already waited ~1s (or on_ready took at least ~1s), so
+      // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
+      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
     }
   });
 
@@ -360,11 +419,11 @@ export function initYouTube(): void {
     // re-seeking would only introduce an extra BUFFERING round-trip.
     // 3s countdown for track transitions — guest needs time to load the
     // new video via loadVideoById before the synchronized play fires.
-    scheduleYtAutoSync(currentTime, { 
+    scheduleYtAutoSync(currentTime, {
       subIndex: nextIdx !== -1 ? nextIdx : undefined,
       videoId: nextVideoId,
-      skipSeek: true, 
-      countdownMs: 3000 
+      skipSeek: true,
+      countdownMs: TRACK_TRANSITION_COUNTDOWN_MS,
     });
   });
 
@@ -487,102 +546,40 @@ export function initYouTube(): void {
   });
 
   bus.on('youtube:try-next-internal', (callback) => {
-    const player = getYouTubePlayer();
-    if (!player?.loadVideoById || typeof callback !== 'function') { callback(false); return; }
-
-    const playlistItems = getState('playlist.items') || [];
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const currentTrack = playlistItems[currentTrackIndex];
-    const pid = currentTrack?.playlistId as string;
-
-    try {
-      // Single-video mode: always drive navigation via loadVideoById using
-      // the host-snapshotted subItemsMap. We never call playVideoAt — the
-      // iframe's playlist engine is what OOMs on 200+ item playlists, so we
-      // keep the iframe on one video at a time.
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      const pid = currentTrack?.playlistId as string;
-      if (!pid) { callback(false); return; }
-
-      let subMap = getState('youtube.subItemsMap') || {};
-      let subData = subMap[pid];
-
-      // Emergency population: if map is empty, try to grab IDs from player immediately.
-      // Helps when user clicks 'Next' before the background snapshot/fetcher fires.
-      if ((!subData || !subData.ids.length) && player.getPlaylist) {
-        const rawIds = player.getPlaylist() || [];
-        if (rawIds.length > 0) {
-          const ids = rawIds.slice(0, 100);
-          updateSubItemIds(pid, ids);
-          subData = { ids, titles: [] }; // Locally use for this tick
-        }
-      }
-
-      const idx = getState('youtube.currentSubIndex') ?? -1;
-      if (subData?.ids && idx >= 0 && idx < subData.ids.length - 1) {
-        const nextIdx = idx + 1;
-        const nextVideoId = subData.ids[nextIdx];
-        setYouTubeSubIndex(nextIdx);
-        player.loadVideoById(nextVideoId);
-        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true });
-        callback(true);
-        return;
-      }
-    } catch (e) { log.debug('[YouTube] try-next error:', e); }
-    callback(false);
+    if (typeof callback !== 'function') return;
+    navigateSubVideo(1, callback);
   });
 
   bus.on('youtube:try-prev-internal', (callback) => {
+    if (typeof callback !== 'function') return;
     const player = getYouTubePlayer();
-    if (!player || typeof callback !== 'function') { callback(false); return; }
+    if (!player) { callback(false); return; }
 
-    const playlistItems = getState('playlist.items') || [];
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const currentTrack = playlistItems[currentTrackIndex];
-    const pid = currentTrack?.playlistId as string;
-
+    // Special "restart" case: if we've played past the threshold, prev
+    // restarts the current track instead of jumping to the previous sub-video.
     try {
-      const currentTime = player.getCurrentTime();
-      if (currentTime > 3) {
-        // Restart current video with auto-sync
+      if (player.getCurrentTime() > PREV_TRACK_RESTART_THRESHOLD_SEC) {
         scheduleYtAutoSync(0);
         callback(true);
         return;
       }
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      const pid = currentTrack?.playlistId as string;
-      if (!pid) { callback(false); return; }
+    } catch (e) { log.debug('[YouTube] try-prev time read error:', e); }
 
-      let subMap = getState('youtube.subItemsMap') || {};
-      let subData = subMap[pid];
-
-      // Emergency population (same as try-next-internal)
-      if ((!subData || !subData.ids.length) && player.getPlaylist) {
-        const rawIds = player.getPlaylist() || [];
-        if (rawIds.length > 0) {
-          const ids = rawIds.slice(0, 100);
-          updateSubItemIds(pid, ids);
-          subData = { ids, titles: [] };
-        }
-      }
-
-      const idx = getState('youtube.currentSubIndex') ?? -1;
-      if (subData?.ids && idx > 0) {
-        const prevIdx = idx - 1;
-        const prevVideoId = subData.ids[prevIdx];
-        setYouTubeSubIndex(prevIdx);
-        player.loadVideoById(prevVideoId);
-        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true });
-        callback(true);
-        return;
-      }
-    } catch (e) { log.debug('[YouTube] try-prev error:', e); }
-    callback(false);
+    navigateSubVideo(-1, callback);
   });
 
+  // Broadcast throttle: prevents spam if the event is ever emitted rapidly.
+  // The heartbeat loop already self-throttles at HEARTBEAT_INTERVAL_MS (3s),
+  // but this floor defends against manual/programmatic emits.
+  let _lastBroadcastSyncAt = 0;
   bus.on('youtube:broadcast-sync', () => {
-    // Imported dynamically to avoid circular deps
-    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(false));
+    const now = Date.now();
+    if (now - _lastBroadcastSyncAt < BROADCAST_SYNC_MIN_INTERVAL_MS) {
+      log.debug('[YouTube] broadcast-sync throttled');
+      return;
+    }
+    _lastBroadcastSyncAt = now;
+    broadcastYouTubeSync(false);
   });
 
   // YouTube preview (from URL input)
@@ -801,7 +798,7 @@ export function initYouTube(): void {
         subIndex: subIdx,
         videoId: targetVideoId,
         skipSeek: true,
-        countdownMs: 3000,
+        countdownMs: TRACK_TRANSITION_COUNTDOWN_MS,
       });
     } else {
       // Different playlist item — load it with the target sub-index
@@ -824,10 +821,10 @@ export function initYouTube(): void {
     if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
         const rawIds = player.getPlaylist() || [];
-        if (rawIds.length > 100) {
+        if (rawIds.length > PLAYLIST_MAX_ITEMS) {
           showToast(t('youtube.playlist_truncated'));
         }
-        ids = rawIds.slice(0, 100);
+        ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
       } catch (e) { log.debug('[YouTube] getPlaylist() not ready:', e); }
     }
 
@@ -960,12 +957,13 @@ export function initYouTube(): void {
 
       // Send sync frame immediately. Single-video mode means the guest does
       // a quick loadVideoById (no async playlist engine load), so there's no
-      // need to delay. Use YOUTUBE_STATE (with hostPlayAt) when host is
-      // playing so the guest's auto-sync path handles pause → seek → timed
-      // play correctly; YOUTUBE_SYNC suffices when host is paused/at start.
+      // need to delay. Use YOUTUBE_STATE (with hostPlayAt) whenever host is
+      // playing — even at ytTime === 0 — so the guest's auto-sync path
+      // handles pause → seek → timed play correctly for a rendezvous-aligned
+      // start. YOUTUBE_SYNC suffices only when host is paused.
       // NOTE: only the late-joining conn receives this — existing guests are
       // NOT disturbed (no broadcast, no host pause).
-      if (autoplay && ytTime > 0) {
+      if (autoplay) {
         safeSend(conn, {
           type: MSG.YOUTUBE_STATE,
           state: 1,
@@ -975,7 +973,7 @@ export function initYouTube(): void {
           hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
         });
       } else {
-        // Host paused or at start — simple sync frame is fine
+        // Host paused — simple sync frame is fine
         safeSend(conn, {
           type: MSG.YOUTUBE_SYNC,
           time: ytTime,

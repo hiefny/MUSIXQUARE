@@ -33,23 +33,65 @@ import {
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
+import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
+import {
+  UI_LOOP_INTERVAL_MS,
+  HEARTBEAT_INTERVAL_MS,
+  STATE_BROADCAST_DEDUP_MS,
+  LOAD_DRIFT_SUPPRESS_MS,
+  IOS_WATCHDOG_MS,
+  CRASH_FAIL_THRESHOLD,
+  SCRIPT_LOAD_TIMEOUT_MS,
+  REFRESH_DISPLAY_DELAY_MS,
+  GUEST_ENDED_FALLBACK_MS,
+  PLAYLIST_MAX_ITEMS,
+  PLAYLIST_SNAPSHOT_DELAY_MS,
+  FIRST_TRACK_FISHER_INTERVAL_MS,
+  FIRST_TRACK_FISHER_MAX_POLLS,
+  VIDEO_DATA_POLL_EVERY_NTH_TICK,
+  DURATION_CACHE_EPSILON,
+} from './constants.ts';
 
-declare const YT: any;
+import type { YTNamespace } from './_state.ts';
+declare const YT: YTNamespace;
 
-/** Tracks the last known YouTube video title to detect changes */
-let _lastYtVideoTitle = '';
-/**
- * Tracks the YouTube videoId that the duration cache is currently valid for.
- * Needed because player.getDuration() can return the OLD video's duration
- * briefly after loadVideoById — the "lock on first valid read" pattern would
- * otherwise cache the stale value and never update for subsequent videos.
- * Cleared on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
- */
-let _lastDurationVideoId = '';
-let _videoDataPollCount = 0;
-export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
-let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
-export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
+// ─── Iframe Runtime State ─────────────────────────────────────────
+// All mutable iframe-layer module state in one place. Previously scattered
+// as individual `let` bindings; grouping them exposes the full set of
+// stateful fields the UI loop and onStateChange handlers touch.
+
+interface IframeRuntime {
+  /** Tracks the last known YouTube video title to detect changes. */
+  lastVideoTitle: string;
+  /**
+   * The videoId the duration cache is currently valid for. Needed because
+   * player.getDuration() can return the OLD video's duration briefly after
+   * loadVideoById — the "lock on first valid read" pattern would otherwise
+   * cache the stale value and never update for subsequent videos. Cleared
+   * on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
+   */
+  lastDurationVideoId: string;
+  /** Rolling counter 0..VIDEO_DATA_POLL_EVERY_NTH_TICK-1; getVideoData()
+   *  only fires when this wraps to 0. */
+  videoDataPollCount: number;
+  /** Cooldown timestamp: prevents duplicate broadcasts from UI + onStateChange. */
+  lastStateBroadcast: number;
+  /** Last broadcast player state (for state-aware dedup). */
+  lastBroadcastState: number;
+  /** Consecutive getCurrentTime() failures — trips the crash-recovery rebuild. */
+  crashFailCount: number;
+}
+
+const _ifr: IframeRuntime = {
+  lastVideoTitle: '',
+  lastDurationVideoId: '',
+  videoDataPollCount: 0,
+  lastStateBroadcast: 0,
+  lastBroadcastState: -1,
+  crashFailCount: 0,
+};
+
+export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
@@ -75,21 +117,21 @@ export function loadYouTubeVideo(
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
     clearManagedTimer('yt-sync-grace');
-    import('./sync.ts').then(mod => mod.resetYouTubeSyncState()).catch(() => { /* noop */ });
+    resetYouTubeSyncState();
 
     // Restart UI loop if it was cleared by the ENDED handler.
     // The ENDED→playTrack→loadYouTubeVideo path clears youtubeUILoop
     // in onStateChange(ENDED), but the YT-to-YT reuse path skips
     // onYouTubePlayerReady (which normally starts the loop).
     if (!getManagedTimer('youtubeUILoop')) {
-      setManagedTimer('youtubeUILoop', updateYouTubeUI, 500, { interval: true });
+      setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
     }
     // Same for host sync loop
     const hostConn = getState('network.hostConn');
     if (!hostConn && !getManagedTimer('youtubeSyncLoop')) {
       setManagedTimer('youtubeSyncLoop', () => {
         bus.emit('youtube:broadcast-sync');
-      }, 3000, { interval: true });
+      }, HEARTBEAT_INTERVAL_MS, { interval: true });
     }
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
@@ -110,9 +152,9 @@ export function loadYouTubeVideo(
   setEngineMode('youtube');
 
   setCachedYtDuration(0); // Reset duration cache for new video
-  _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
-  _lastYtStateBroadcast = 0; // Allow immediate first broadcast for new session
-  _lastYtBroadcastState = -1; // Reset so first state is never treated as duplicate
+  _ifr.lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
+  _ifr.lastStateBroadcast = 0; // Allow immediate first broadcast for new session
+  _ifr.lastBroadcastState = -1; // Reset so first state is never treated as duplicate
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -176,7 +218,7 @@ export function loadYouTubeVideo(
       showLoader(false);
       showToast(t('youtube.load_timeout'));
     }
-  }, 15000);
+  }, SCRIPT_LOAD_TIMEOUT_MS);
 
   bus.emit('ui:play-btn-state', true);
 
@@ -184,7 +226,7 @@ export function loadYouTubeVideo(
   // .video-wrapper which contains the YouTube iframe container, so
   // Fullscreen API works correctly for both local video and YouTube.
 
-  setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), 500);
+  setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), REFRESH_DISPLAY_DELAY_MS);
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
 }
 
@@ -234,7 +276,7 @@ function createYouTubePlayer(
       // (hostState=1, ytState≠1 → playVideo), causing the guest to play
       // from position 0 while the host is still loading.
       if (!autoplay) {
-        import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
+        suppressDriftUntil(LOAD_DRIFT_SUPPRESS_MS);
       }
       return;
     } catch (e) {
@@ -302,11 +344,11 @@ function onYouTubePlayerReady(): void {
   // ── Playlist Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
   if (!hostConn && pid && player?.getPlaylist) {
-    log.debug('[YouTube] Scheduling host-side playlist snapshot (3.5s):', pid);
-    setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), 3500);
+    log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
+    setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), PLAYLIST_SNAPSHOT_DELAY_MS);
 
-    // Aggressive First-Track Fisher: Poll every 100ms for 2s to catch the first video ID.
-    // This makes the 1st track highlight appear almost instantly even without a v= parameter.
+    // Aggressive First-Track Fisher: Poll fast to catch the first video ID.
+    // Makes the 1st track highlight appear almost instantly even without a v= parameter.
     let fisherCount = 0;
     setManagedTimer('yt-first-track-fisher', () => {
       try {
@@ -322,20 +364,20 @@ function onYouTubePlayerReady(): void {
           clearManagedTimer('yt-first-track-fisher');
         }
       } catch { /* ignore */ }
-      if (++fisherCount > 20) clearManagedTimer('yt-first-track-fisher');
-    }, 100, { interval: true });
+      if (++fisherCount > FIRST_TRACK_FISHER_MAX_POLLS) clearManagedTimer('yt-first-track-fisher');
+    }, FIRST_TRACK_FISHER_INTERVAL_MS, { interval: true });
   }
 
   // Start UI update loop
   clearManagedTimer('youtubeUILoop');
-  setManagedTimer('youtubeUILoop', updateYouTubeUI, 500, { interval: true });
+  setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
 
   // Only Host runs sync loop
   clearManagedTimer('youtubeSyncLoop');
   if (!hostConn) {
     setManagedTimer('youtubeSyncLoop', () => {
       bus.emit('youtube:broadcast-sync');
-    }, 3000, { interval: true });
+    }, HEARTBEAT_INTERVAL_MS, { interval: true });
   }
 
   // Apply volume
@@ -435,7 +477,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
           setAppState(APP_STATE.IDLE);
           bus.emit('youtube:stop-mode');
         }
-      }, 5_000);
+      }, GUEST_ENDED_FALLBACK_MS);
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
@@ -459,10 +501,10 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
   // pause→play within 300ms), leaving guests stuck in the old state for 3s
   // until the next heartbeat corrected it.
-  const isDuplicateState = (state === _lastYtBroadcastState) && (now - _lastYtStateBroadcast < 300);
+  const isDuplicateState = (state === _ifr.lastBroadcastState) && (now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS);
   if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
-    _lastYtStateBroadcast = now;
-    _lastYtBroadcastState = state;
+    _ifr.lastStateBroadcast = now;
+    _ifr.lastBroadcastState = state;
     broadcast({
       type: MSG.YOUTUBE_STATE,
       state,
@@ -476,9 +518,6 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
 // ─── YouTube UI Update Loop ────────────────────────────────────────
 
-let _ytCrashFailCount = 0;
-const YT_CRASH_THRESHOLD = 6; // 6 consecutive failures × 500ms = 3s unresponsive
-
 function updateYouTubeUI(): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
@@ -490,12 +529,12 @@ function updateYouTubeUI(): void {
   let currentTime: number;
   try {
     currentTime = player.getCurrentTime();
-    _ytCrashFailCount = 0; // Reset on success
+    _ifr.crashFailCount = 0; // Reset on success
   } catch {
-    _ytCrashFailCount++;
-    if (_ytCrashFailCount >= YT_CRASH_THRESHOLD) {
-      log.error(`[YouTube] iframe unresponsive (${_ytCrashFailCount} failures) — rebuilding player`);
-      _ytCrashFailCount = 0;
+    _ifr.crashFailCount++;
+    if (_ifr.crashFailCount >= CRASH_FAIL_THRESHOLD) {
+      log.error(`[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures) — rebuilding player`);
+      _ifr.crashFailCount = 0;
 
       // Reset guestPlayLatency — the last calibration before the crash may
       // have been measured against a dying iframe (stale getCurrentTime),
@@ -531,7 +570,7 @@ function updateYouTubeUI(): void {
     // state=5 (CUED) is a normal pre-play state, not a playback failure
     if (IS_IOS && state === -1) {
       if (!getYtIOSWatchdog()) setYtIOSWatchdog(Date.now());
-      if (Date.now() - getYtIOSWatchdog()! > 3000) {
+      if (Date.now() - getYtIOSWatchdog()! > IOS_WATCHDOG_MS) {
         showYouTubeSyncOverlay(true);
       }
     } else if (state === 1 || state === 2) {
@@ -548,9 +587,12 @@ function updateYouTubeUI(): void {
       const prevIdx = getCachedYtPlaylistIdx();
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
-      _lastYtVideoTitle = '';
-      _lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
-      _videoDataPollCount = 9; // Trigger getVideoData on the NEXT tick (not wait 5s)
+      _ifr.lastVideoTitle = '';
+      _ifr.lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
+      // Arm the counter so (N+1) % N === 0 on the NEXT tick → getVideoData
+      // fires immediately after a sub-index change instead of waiting for
+      // the usual ~5s cadence. `- 1` keeps this correct if N ever changes.
+      _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
 
       const hostConn = getState('network.hostConn');
 
@@ -598,27 +640,27 @@ function updateYouTubeUI(): void {
         if (cachedTitle) {
           const currentMeta = getState('player.currentTrackMeta') || currentTrack;
           setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
-          _lastYtVideoTitle = cachedTitle;
+          _ifr.lastVideoTitle = cachedTitle;
         }
       }
     }
 
     // Update track title and videoId cache.
     // getVideoData() is an expensive cross-iframe call. Only call it when
-    // the sub-index changed (detected above) or every ~5 seconds (10th tick)
-    // as a fallback for non-playlist single videos. Legacy v1 never called
+    // the sub-index changed (detected above) or every Nth tick as a
+    // fallback for non-playlist single videos. Legacy v1 never called
     // getVideoData() during polling, and the current version's 2x/second
     // calls were a major contributor to iframe memory pressure and crashes.
-    _videoDataPollCount = (_videoDataPollCount + 1) % 10;
+    _ifr.videoDataPollCount = (_ifr.videoDataPollCount + 1) % VIDEO_DATA_POLL_EVERY_NTH_TICK;
     const shouldPollVideoData = subIndexJustChanged
       ? false  // sub-index branch above already ran; title was set from subItemsMap
-      : (_videoDataPollCount === 0); // every 10th tick (~5s) for title/videoId sync
+      : (_ifr.videoDataPollCount === 0); // every Nth tick for title/videoId sync
 
-    let currentVideoId = _lastDurationVideoId; // reuse cached value by default
+    let currentVideoId = _ifr.lastDurationVideoId; // reuse cached value by default
     if (shouldPollVideoData && player.getVideoData) {
       const vData = player.getVideoData();
-      if (vData?.title && vData.title !== _lastYtVideoTitle) {
-        _lastYtVideoTitle = vData.title;
+      if (vData?.title && vData.title !== _ifr.lastVideoTitle) {
+        _ifr.lastVideoTitle = vData.title;
         const currentMeta = getState('player.currentTrackMeta');
         if (currentMeta) {
           setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
@@ -627,11 +669,11 @@ function updateYouTubeUI(): void {
       currentVideoId = vData?.video_id || '';
 
       // Invalidate duration cache when videoId changes
-      if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
-        if (_lastDurationVideoId !== '') {
+      if (currentVideoId && currentVideoId !== _ifr.lastDurationVideoId) {
+        if (_ifr.lastDurationVideoId !== '') {
           setCachedYtDuration(0);
         }
-        _lastDurationVideoId = currentVideoId;
+        _ifr.lastDurationVideoId = currentVideoId;
       }
     }
 
@@ -641,7 +683,7 @@ function updateYouTubeUI(): void {
     // (stale videoId, stale rawDuration) and permanently pin the cache to
     // the previous video's duration. Re-reading every poll is cheap, and
     // a small threshold keeps the emit quiet when rawDuration is stable.
-    if (rawDuration > 0 && Math.abs(rawDuration - getCachedYtDuration()) > 0.05) {
+    if (rawDuration > 0 && Math.abs(rawDuration - getCachedYtDuration()) > DURATION_CACHE_EPSILON) {
       setCachedYtDuration(rawDuration);
     }
 
@@ -725,11 +767,12 @@ function showYouTubeSyncOverlay(show: boolean): void {
         // Host/standalone → plain playVideo (no external reference to follow).
         const hostConn = getState('network.hostConn');
         if (hostConn) {
-          // Dynamic import to avoid circular iframe↔sync dependency
-          import('./sync.ts').then(mod => mod.guestRendezvousSync()).catch(err => {
+          try {
+            guestRendezvousSync();
+          } catch (err) {
             log.warn('[YouTube iOS gate] rendezvous failed, falling back to plain play:', err);
             try { player.playVideo(); } catch { /* noop */ }
-          });
+          }
         } else {
           try { player.playVideo(); } catch { /* noop */ }
         }
@@ -783,7 +826,7 @@ function _triggerPlaylistSnapshot(pid: string): void {
     const player = getYouTubePlayer();
     if (!player?.getPlaylist) return;
 
-    const ids = (player.getPlaylist() || []).slice(0, 100);
+    const ids = (player.getPlaylist() || []).slice(0, PLAYLIST_MAX_ITEMS);
     if (!Array.isArray(ids) || ids.length === 0) {
       log.debug('[YouTube Snapshot] Player returned empty list, giving up');
       return;

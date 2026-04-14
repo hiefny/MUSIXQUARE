@@ -10,15 +10,16 @@ import { getState, setState } from '../core/state.ts';
 import { bus } from '../core/events.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
-import { broadcast, safeSend } from '../network/peer.ts';
+import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
-import { loadYouTubeVideo, markYtStateBroadcast } from './iframe.ts';
-import { scheduleYtAutoSync, cancelYtAutoSync } from './player.ts';
+import { loadYouTubeVideo } from './iframe.ts';
+import { scheduleYtAutoSync } from './player.ts';
 import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
-declare const YT: any;
+import type { YTNamespace } from './_state.ts';
+declare const YT: YTNamespace;
 
 // ─── Network Handlers ──────────────────────────────────────────────
 
@@ -49,14 +50,27 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   loadYouTubeVideo(videoId, videoId ? null : playlistId, autoplay ?? false, subIndex ?? 0);
 }
 
-export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
-  const isGuest = !!getState('network.hostConn');
-  if (isGuest) return; // Only Host handles peer requests
-
+/**
+ * Common guard for host-side request handlers: the host must be acting as host
+ * (not a guest), and the incoming request must be from the designated operator.
+ * Returns `true` if the handler should proceed, `false` otherwise (caller must
+ * early-return). Rejection is logged with the request name for context.
+ */
+function guardHostRequest(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+  requestName: string,
+): boolean {
+  if (getState('network.hostConn')) return false; // Guest — not our job
   if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-play from non-OP: ${conn?.peer}`);
-    return;
+    log.warn(`[YouTube] Rejected ${requestName} from non-OP: ${conn?.peer}`);
+    return false;
   }
+  return true;
+}
+
+export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
+  if (!guardHostRequest(data, conn, 'request-youtube-play')) return;
 
   const player = getYouTubePlayer();
   if (player?.getCurrentTime) {
@@ -65,13 +79,7 @@ export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: Da
 }
 
 export function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
-  const isGuest = !!getState('network.hostConn');
-  if (isGuest) return; // Only Host handles peer requests
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-pause from non-OP: ${conn?.peer}`);
-    return;
-  }
+  if (!guardHostRequest(data, conn, 'request-youtube-pause')) return;
 
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
@@ -81,13 +89,7 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
 }
 
 export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: DataConnection): void {
-  const isGuest = !!getState('network.hostConn');
-  if (isGuest) return; // Only Host handles peer requests
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-toggle from non-OP: ${conn?.peer}`);
-    return;
-  }
+  if (!guardHostRequest(data, conn, 'request-youtube-toggle')) return;
 
   const player = getYouTubePlayer();
   if (!player) return;
@@ -106,13 +108,7 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
 }
 
 export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const isGuest = !!getState('network.hostConn');
-  if (isGuest) return; // Only Host handles peer requests
-
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[YouTube] Rejected request-youtube-sub-seek from non-OP: ${conn?.peer}`);
-    return;
-  }
+  if (!guardHostRequest(data, conn, 'request-youtube-sub-seek')) return;
 
   const subIdx = data.subIdx as number;
   const playlistIdx = data.playlistIdx as number | undefined;

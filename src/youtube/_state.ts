@@ -28,6 +28,35 @@ export interface YouTubePlayerInstance {
   setVolume(volume: number): void;
 }
 
+/**
+ * YouTube IFrame API global namespace (`window.YT`). Declared by the IFrame
+ * script loaded in `iframe.ts`. We type only the surface we actually use —
+ * the `Player` constructor and the `PlayerState` enum.
+ */
+export interface YTPlayerConfig {
+  width?: string | number;
+  height?: string | number;
+  videoId?: string;
+  playerVars?: Record<string, string | number>;
+  events?: {
+    onReady?: () => void;
+    onStateChange?: (event: { data: number }) => void;
+    onError?: (event: { data: number }) => void;
+  };
+}
+
+export interface YTNamespace {
+  Player: new (elementId: string | HTMLElement, config: YTPlayerConfig) => YouTubePlayerInstance;
+  PlayerState: {
+    readonly UNSTARTED: -1;
+    readonly ENDED: 0;
+    readonly PLAYING: 1;
+    readonly PAUSED: 2;
+    readonly BUFFERING: 3;
+    readonly CUED: 5;
+  };
+}
+
 let _youtubePlayer: YouTubePlayerInstance | null = null;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;

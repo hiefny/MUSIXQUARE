@@ -5,7 +5,6 @@
  * so that iframe.ts, handlers.ts, and player.ts can all share state
  * without circular dependencies.
  */
-import { log } from '../core/log.ts';
 import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
 

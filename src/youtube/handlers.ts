@@ -36,6 +36,12 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     return;
   }
 
+  // A new host command arrived — cancel any pending guest-ENDED fallback
+  // from a prior track's ENDED event. Without this, the 5s fallback can
+  // fire AFTER a new YOUTUBE_PLAY has already loaded the next track and
+  // drop the guest out of YouTube mode on its own.
+  clearManagedTimer('yt-guest-ended-fallback');
+
   // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
@@ -64,8 +70,10 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   let finalVideoId = videoId;
   let finalPlaylistId = playlistId;
 
-  // [수정] 조기 접속 게스트(Early Guest)가 아직 videoId를 모를 경우 어쩔 수 없이 playlistId로
-  // 임시 구동시켜 에러 150을 피해야 합니다. 단, 이미 캐싱된 리스트라면 즉시 단일 모드로 우회합니다.
+  // Early-guest fallback: if the host's payload only has a playlistId (no
+  // videoId) and we have cached IDs for that playlist, short-circuit to
+  // single-video mode. Without cached IDs we must fall through to the
+  // native playlist engine to avoid error 150.
   if (!finalVideoId && finalPlaylistId) {
     const subMap = getState('youtube.subItemsMap') || {};
     const knownIds = subMap[finalPlaylistId]?.ids;
@@ -75,7 +83,8 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     }
   }
 
-  // videoId가 존재하면 무조건 playlistId를 통제하여 순정 엔진 진입을 원천 차단합니다.
+  // When we have a videoId, force playlistId to null so the iframe's native
+  // playlist engine never takes over — single-video mode only.
   loadYouTubeVideo(finalVideoId, finalVideoId ? null : finalPlaylistId, autoplay ?? false, subIndex ?? 0);
 }
 

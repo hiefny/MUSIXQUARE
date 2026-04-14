@@ -46,10 +46,25 @@ import {
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
+/**
+ * Timestamp of the last manual broadcast (e.g. from the sub-video-advance
+ * hijack path). The scheduled heartbeat loop can fire ~100ms later with the
+ * same subIndex but a stale currentTime (the player is still buffering the
+ * freshly loaded video), which makes guests rewind. Skip non-manual
+ * broadcasts briefly after a manual one to let the player settle.
+ */
+const MANUAL_BROADCAST_DEDUP_MS = 500;
+let _lastManualBroadcastAt = 0;
+
 export function broadcastYouTubeSync(isManual = false): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
+
+  // Dedup heartbeats that immediately follow a manual broadcast. Manual
+  // broadcasts always pass through (the caller explicitly asked for a
+  // fresh sync).
+  if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
   // Suppress heartbeat while auto-sync countdown is active.
   // During the countdown the host is paused+seeking — getCurrentTime()
@@ -133,6 +148,7 @@ export function broadcastYouTubeSync(isManual = false): void {
       isManual,
       title: getState('player.currentTrackMeta')?.title,
     });
+    if (isManual) _lastManualBroadcastAt = Date.now();
     log.debug(`[YouTube] Broadcast sync: t=${currentTime}, s=${state}${isManual ? ' (Manual)' : ''}`);
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
@@ -216,19 +232,29 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
+  // Host is alive — cancel any pending guest-ENDED fallback. The 5s fallback
+  // would otherwise drop the guest out of YouTube mode even though the host
+  // is still broadcasting heartbeats for a freshly loaded next track.
+  clearManagedTimer('yt-guest-ended-fallback');
+
+  // Cache latest host position BEFORE the cooldown gate. The rendezvous
+  // button needs a fresh snapshot to work, and the cooldown's purpose is
+  // to suppress drift *correction*, not to freeze out snapshot updates.
+  // Without this, a guest stuck in a long autoSyncUntil window sees every
+  // heartbeat dropped and `guestRendezvousSync` reports "No host playback
+  // data yet" for the full duration of the cooldown.
+  const hostTime = Number(data.time) || 0;
+  const hostState = Number(data.state);
+  const hostSubIndex = data.subIndex as number | undefined;
+  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
+  updateHostSnapshot(hostTime, hostState, hostClock);
+
   const isManual = !!data.isManual;
 
   // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown
   if (!isManual && Date.now() < _rt.autoSyncUntil) return;
 
   try {
-    const hostTime = Number(data.time) || 0;
-    const hostState = Number(data.state);
-    const hostSubIndex = data.subIndex as number | undefined;
-    const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-
-    // Cache latest host position for rendezvous sync extrapolation
-    updateHostSnapshot(hostTime, hostState, hostClock);
 
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {

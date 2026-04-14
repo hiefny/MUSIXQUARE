@@ -323,37 +323,51 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
   const player = getYouTubePlayer();
 
-  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
+  // ── Playlist ID Snapshot & Single-Video Switch (Host Only) ──
+  // Works for ALL playlist types (Mix RD, regular PL).
+  // After snapshot, switch to loadVideoById to free YouTube's playlist
+  // engine memory — prevents crashes on 200+ item playlists.
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
-    const mixId = playlistId; // Captured for closure
-    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
-    // Wait a few seconds for YouTube to populate the internal playlist IDs
+  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
+    const snapshotId = playlistId;
+    log.debug('[YouTube] Scheduling playlist snapshot...');
     setManagedTimer('yt-mix-snapshot', () => {
       try {
-        // Re-fetch player — original capture may be stale after 3s
         const freshPlayer = getYouTubePlayer();
         if (!freshPlayer?.getPlaylist) return;
         const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
-          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
+          log.info(`[YouTube] Snapshotted ${ids.length} items:`, snapshotId);
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(mixId, ids, titles);
-          
-          // Broadcast to all guests so they use this static list instead of generating their own
+          setSubItemsData(snapshotId, ids, titles);
+
+          const currentSub = getState('youtube.currentSubIndex') ?? -1;
+          if (currentSub < 0) {
+            const idx = freshPlayer.getPlaylistIndex?.() ?? 0;
+            setYouTubeSubIndex(idx >= 0 ? idx : 0);
+          }
+
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: mixId,
+            playlistId: snapshotId,
             ids,
-            titles
+            titles,
           });
 
-          // Trigger background oEmbed title fetching
-          fetchPlaylistSubTitles(mixId, ids);
+          fetchPlaylistSubTitles(snapshotId, ids);
+
+          // Switch to single-video: free playlist engine memory.
+          // Preserve current position so playback doesn't jump.
+          const subIdx = getState('youtube.currentSubIndex') ?? 0;
+          const currentId = ids[subIdx] || ids[0];
+          const pos = freshPlayer.getCurrentTime?.() ?? 0;
+          if (currentId && freshPlayer.loadVideoById) {
+            log.info(`[YouTube] Freeing playlist engine → loadVideoById(${currentId}) at ${pos.toFixed(1)}s`);
+            freshPlayer.loadVideoById({ videoId: currentId, startSeconds: pos });
+          }
         }
       } catch (e) {
-        log.warn('[YouTube Mix] Snapshot failed:', e);
+        log.warn('[YouTube] Snapshot failed:', e);
       }
     }, 3000);
   }

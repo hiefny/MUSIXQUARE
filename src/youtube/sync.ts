@@ -15,7 +15,7 @@ import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData, setYtAutoplayIntent } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemTitle, setSubItemsData, setYtAutoplayIntent } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 
@@ -37,56 +37,9 @@ export function broadcastYouTubeSync(): void {
     const currentTime = player.getCurrentTime();
     const state = player.getPlayerState ? player.getPlayerState() : -1;
 
-    // Sub-index tracking for playlists
-    if (player.getPlaylistIndex) {
-      const sIdx = player.getPlaylistIndex();
-      const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-
-      if (sIdx !== currentYouTubeSubIndex) {
-        setYouTubeSubIndex(sIdx);
-
-        const playlist = getState('playlist.items') || [];
-        const currentTrackIndex = getState('playlist.currentTrackIndex');
-        const currentItem = playlist[currentTrackIndex];
-
-        if (currentItem?.playlistId) {
-          const pid = currentItem.playlistId as string;
-
-          // Get playlist IDs from player
-          if (player.getPlaylist) {
-            try {
-              const ids = player.getPlaylist();
-              if (ids?.length > 0) {
-                const subMap = getState('youtube.subItemsMap') || {};
-                if (!subMap[pid] || !subMap[pid].ids?.length) {
-                  updateSubItemIds(pid, ids);
-                }
-              }
-            } catch { /* noop */ }
-          }
-
-          // Get current video title
-          if (player.getVideoData) {
-            const vData = player.getVideoData();
-            if (vData?.title) {
-              const subMap = getState('youtube.subItemsMap') || {};
-              const existingTitle = subMap[pid]?.titles?.[sIdx];
-              if (existingTitle !== vData.title) {
-                updateSubItemTitle(pid, sIdx, vData.title);
-                broadcast({
-                  type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
-                  playlistId: pid,
-                  subIdx: sIdx,
-                  title: vData.title,
-                });
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Include current video ID for Mix playlist sync
+    // Single-video mode: subItemsMap is the source of truth for sub-index.
+    // No getPlaylistIndex/getPlaylist polling needed — sub-video sequencing
+    // is driven by ENDED events in iframe.ts.
     const videoId = player.getVideoData?.()?.video_id || '';
 
     broadcast({
@@ -134,13 +87,6 @@ export function suppressDriftUntil(ms: number): void {
   // that this async call from iframe.ts must not overwrite.
   _autoSyncUntil = Math.max(_autoSyncUntil, Date.now() + ms);
 }
-
-// ─── Video Mismatch Escalation ──────────────────────────────────
-// Track consecutive playVideoAt failures before escalating to loadPlaylist.
-// loadPlaylist is expensive (reloads entire playlist in iframe, causes
-// memory pressure on 100+ item playlists). Only use as last resort.
-let _mismatchPlayVideoAtFails = 0;
-const MISMATCH_ESCALATION_THRESHOLD = 3;
 
 // ─── Host Position Snapshot Cache (Guest-side) ───────────────────
 // Updated on every MSG.YOUTUBE_SYNC heartbeat (~3s interval on host).
@@ -227,81 +173,31 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
     const hostVideoId = (data.videoId as string) || '';
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
-      if (guestVideoId && hostVideoId === guestVideoId && _mismatchPlayVideoAtFails > 0) {
-        // playVideoAt succeeded — video now matches. Reset escalation counter.
-        _mismatchPlayVideoAtFails = 0;
-      }
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        // Skip if another handler (handleYouTubeState) already initiated a
-        // video load — calling loadVideoById again would interrupt it,
-        // resetting buffering and extending the transition window.
+        // Skip if another handler already initiated a load
         if (Date.now() < _autoSyncUntil) {
-          log.debug('[YouTube Sync] Video mismatch detected but load already in progress — skipping');
+          log.debug('[YouTube Sync] Video mismatch but load in progress — skipping');
           return;
         }
-        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}`);
-
-        // Strategy: try playVideoAt first (lightweight, preserves playlist context).
-        // Only escalate to loadPlaylist after 3 consecutive playVideoAt failures.
-        // loadPlaylist is expensive and causes iframe memory pressure / crashes
-        // on 100+ item playlists.
-        const ytPlaylist = player.getPlaylist?.() || [];
-        if (hostSubIndex !== undefined && hostSubIndex !== -1 && player.playVideoAt && ytPlaylist.length > 0 && hostSubIndex < ytPlaylist.length) {
-          player.playVideoAt(hostSubIndex);
-          setYouTubeSubIndex(hostSubIndex);
-          log.info(`[YouTube Sync] Attempting playVideoAt(${hostSubIndex}), fail count: ${_mismatchPlayVideoAtFails}`);
-          // Check on next heartbeat if it worked (videoId will match if successful)
-          _mismatchPlayVideoAtFails++;
-        } else if (_mismatchPlayVideoAtFails >= MISMATCH_ESCALATION_THRESHOLD) {
-          // playVideoAt failed 3+ times — escalate to loadPlaylist
-          _mismatchPlayVideoAtFails = 0;
-          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-          const subMap = getState('youtube.subItemsMap') || {};
-          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
-
-          if (hostIds && hostIds.length > 0 && hostSubIndex !== undefined && hostSubIndex >= 0 && player.loadPlaylist) {
-            const WINDOW = 25;
-            const sliceStart = Math.max(0, hostSubIndex - WINDOW);
-            const sliceEnd = Math.min(hostIds.length, hostSubIndex + WINDOW);
-            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
-            const adjustedIndex = hostSubIndex - sliceStart;
-            log.warn(`[YouTube Sync] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${slicedIds.length} IDs)`);
-            player.loadPlaylist(slicedIds, adjustedIndex, 0);
+        // Single-video mode: just load the correct video directly.
+        // No playlist engine, no escalation — loadVideoById is lightweight.
+        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loading via loadVideoById`);
+        if (player.loadVideoById) {
+          player.loadVideoById(hostVideoId);
+          if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
-          } else if (player.loadVideoById) {
-            log.warn(`[YouTube Sync] No host IDs — last resort loadVideoById`);
-            player.loadVideoById(hostVideoId);
-            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
-              setYouTubeSubIndex(hostSubIndex);
-            }
           }
-        } else {
-          // No playlist available for playVideoAt, increment fail counter
-          _mismatchPlayVideoAtFails++;
-          log.debug(`[YouTube Sync] No playlist for playVideoAt, fail count: ${_mismatchPlayVideoAtFails}`);
         }
         _autoSyncUntil = Date.now() + 5000;
         return;
       }
     }
 
-    // Sub-index change (non-Mix playlists: same order on all devices)
+    // Sub-index change (tracking only — no playVideoAt in single-video mode)
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
       setYouTubeSubIndex(hostSubIndex);
-
-      if (player.playVideoAt && player.getPlaylistIndex) {
-        const ytPlaylist = player.getPlaylist?.() || [];
-        if (hostSubIndex >= 0 && hostSubIndex < ytPlaylist.length && player.getPlaylistIndex() !== hostSubIndex) {
-          try {
-            player.playVideoAt(hostSubIndex);
-          } catch (e) {
-            log.warn('[YouTube Sync] playVideoAt failed, rolling back sub-index:', e);
-            setYouTubeSubIndex(currentSubIndex);
-          }
-        }
-      }
     }
 
     // Drift correction — uses raw hostTime without the manual sync.localOffset.
@@ -584,7 +480,6 @@ export function resetYouTubeSyncState(): void {
   _autoSyncUntil = 0;
   _lastHostSnapshot = null;
   _mixReloadedIds.clear();
-  _mismatchPlayVideoAtFails = 0;
   resetAdDetection();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
@@ -661,50 +556,14 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId}`);
-        const ytPlaylist = player.getPlaylist?.() || [];
-
-        // Strategy: try playVideoAt first (lightweight). Only escalate to
-        // loadPlaylist after repeated failures. This prevents iframe memory
-        // pressure from repeated playlist reloads on large (100+) playlists.
-        if (subIndex !== undefined && subIndex !== -1 && player.playVideoAt && ytPlaylist.length > 0 && subIndex < ytPlaylist.length) {
-          player.playVideoAt(subIndex);
-          setYouTubeSubIndex(subIndex);
+        // Single-video mode: just load the correct video directly.
+        log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
+        if (player.loadVideoById) {
+          player.loadVideoById(hostVideoId);
+          if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
           subIndexChanged = true;
-          _mismatchPlayVideoAtFails++;
-          log.info(`[YouTube State] Attempting playVideoAt(${subIndex}), fail count: ${_mismatchPlayVideoAtFails}`);
-        } else if (_mismatchPlayVideoAtFails >= MISMATCH_ESCALATION_THRESHOLD) {
-          _mismatchPlayVideoAtFails = 0;
-          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-          const subMap = getState('youtube.subItemsMap') || {};
-          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
-
-          if (hostIds && hostIds.length > 0 && subIndex !== undefined && subIndex >= 0) {
-            const WINDOW = 25;
-            const sliceStart = Math.max(0, subIndex - WINDOW);
-            const sliceEnd = Math.min(hostIds.length, subIndex + WINDOW);
-            const slicedIds = hostIds.slice(sliceStart, sliceEnd);
-            const adjustedIndex = subIndex - sliceStart;
-            log.warn(`[YouTube State] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${slicedIds.length} IDs)`);
-            if (player.loadPlaylist) {
-              player.loadPlaylist(slicedIds, adjustedIndex, 0);
-            }
-            setYouTubeSubIndex(subIndex);
-            subIndexChanged = true;
-          } else if (player.loadVideoById) {
-            log.warn(`[YouTube State] No host IDs — last resort loadVideoById`);
-            player.loadVideoById(hostVideoId);
-            if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
-            subIndexChanged = true;
-          }
-        } else {
-          _mismatchPlayVideoAtFails++;
-          log.debug(`[YouTube State] No playlist for playVideoAt, fail count: ${_mismatchPlayVideoAtFails}`);
         }
-        // Schedule a delayed play using hostPlayAt so the guest starts at
-        // the same time as the host, even though the video is reloading.
-        // Without this, the guest only plays when heartbeat state-sync
-        // wakes it 5+ seconds later with no countdown alignment.
+        // Schedule play using hostPlayAt for synchronized start
         const mismatchHostPlayAt = Number(data.hostPlayAt) || 0;
         if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
           const waitForPlay = Math.max(500, mismatchHostPlayAt - getHostNow());
@@ -725,26 +584,9 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
-    // Fallback: sub-index based (regular playlists)
+    // Track sub-index from host (no playVideoAt — single-video mode)
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
-      if (player.playVideoAt) {
-        const currentIdx = player.getPlaylistIndex?.() ?? -1;
-        // M4: bounds-check against guest's playlist length to avoid
-        // playVideoAt with an out-of-range index (Mix playlists can
-        // have different item counts across host and guest).
-        const ytPlaylist = player.getPlaylist?.() || [];
-        
-        // Ensure this is actually a playlist track before attempting playVideoAt.
-        // Standalone tracks will return empty playlist, but should NOT skip seekTo.
-        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-        const isPlaylistTrack = !!currentTrack?.playlistId;
-
-        if (isPlaylistTrack && currentIdx !== subIndex && ytPlaylist.length > subIndex) {
-          player.playVideoAt(subIndex);
-          setYouTubeSubIndex(subIndex);
-          subIndexChanged = true;
-        }
-      }
+      setYouTubeSubIndex(subIndex);
     }
 
     // SharedClock: schedule YouTube action at host-specified time
@@ -915,19 +757,9 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   setSubItemsData(playlistId, ids, titles);
 
-  // If this is a YouTube Mix (RD...) and we are currently playing it,
-  // force a reload ONCE using the static ID list to match the Host's sequence.
-  if (playlistId.startsWith('RD')) {
-    const currentPlaylist = getState('playlist.items')?.[getState('playlist.currentTrackIndex')]?.playlistId;
-    if (currentPlaylist === playlistId && !_mixReloadedIds.has(playlistId)) {
-      _mixReloadedIds.add(playlistId);
-      log.info('[YouTube Mix] Forcing guest reload (once) with host-snapshot IDs:', playlistId);
-      const subIndex = getState('youtube.currentSubIndex') ?? 0;
-      import('./iframe.ts').then(mod => {
-        mod.loadYouTubeVideo(null, ids, true, subIndex);
-      }).catch(err => log.error('[YouTube Mix] Failed to load iframe module:', err));
-    }
-  }
+  // Single-video mode: no playlist reload needed. Guest just stores the
+  // sub-item IDs for sequencing — the host sends the correct videoId
+  // via YOUTUBE_STATE for each track change.
 
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {

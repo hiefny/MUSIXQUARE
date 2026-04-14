@@ -26,7 +26,7 @@ import {
   isYtLoadInProgress, setYtLoadInProgress,
   getYtAutoplayIntent, setYtAutoplayIntent,
   getCachedYtDuration, setCachedYtDuration,
-  getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
+  setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
   setSubItemsData,
 } from './_state.ts';
@@ -49,6 +49,27 @@ let _videoDataPollCount = 0;
 export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
 let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/** Resolve a single video ID from the various parameter combinations.
+ *  In single-video mode we never pass arrays to YouTube's loadPlaylist —
+ *  instead we pick the one video at `subIndex` from the array. */
+function _resolveSingleVideoId(
+  videoId: string | null,
+  playlistId: string | string[] | null,
+  subIndex: number,
+): string | null {
+  if (videoId) return videoId;
+  if (Array.isArray(playlistId) && playlistId.length > 0) {
+    return playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
+  }
+  // String playlistId (e.g. 'PLxxx', 'RDxxx') — we can't resolve a single
+  // video from this without the YouTube API. Return null; the caller will
+  // fall through to creating a new player with the playlistId in playerVars
+  // (initial load only — subsequent loads use subItemsMap IDs).
+  return null;
+}
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
@@ -216,24 +237,14 @@ function createYouTubePlayer(
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
     try {
-      if (playlistId) {
-        if (Array.isArray(playlistId)) {
-          // Cap playlist size to prevent iframe crashes on 100+ item playlists.
-          // YouTube iframe memory usage scales with playlist length.
-          const WINDOW = 25;
-          let ids = playlistId;
-          let idx = subIndex;
-          if (ids.length > WINDOW * 2) {
-            const start = Math.max(0, subIndex - WINDOW);
-            ids = ids.slice(start, start + WINDOW * 2);
-            idx = subIndex - start;
-          }
-          existingPlayer.loadPlaylist(ids, idx, 0);
-        } else {
-          existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
-        }
-      } else if (videoId) {
-        existingPlayer.loadVideoById(videoId);
+      // Single-video mode: always load exactly ONE video via loadVideoById.
+      // Never use loadPlaylist — YouTube's internal playlist engine scales
+      // memory with playlist size and crashes on 100+ items on mobile.
+      const resolvedId = _resolveSingleVideoId(videoId, playlistId, subIndex);
+      if (resolvedId) {
+        existingPlayer.loadVideoById(resolvedId);
+      } else {
+        log.warn('[YouTube] Could not resolve single videoId — no video to load');
       }
       // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
@@ -269,18 +280,15 @@ function createYouTubePlayer(
 
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      // Cap playlist size — 100+ IDs crash YouTube iframe on mobile
-      const WINDOW = 25;
-      let ids = playlistId;
-      let idx = subIndex;
-      if (ids.length > WINDOW * 2) {
-        const start = Math.max(0, subIndex - WINDOW);
-        ids = ids.slice(start, start + WINDOW * 2);
-        idx = subIndex - start;
-      }
-      playerVars.playlist = ids.join(',');
-      playerVars.index = idx;
+      // Single-video mode: pick the one video at subIndex.
+      // Never feed YouTube an array — its internal playlist engine
+      // crashes on 100+ items.
+      const resolvedId = playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
+      if (resolvedId) videoId = resolvedId;
     } else {
+      // String playlistId (PLxxx, RDxxx): use YouTube's playlist loading
+      // ONLY for the initial load so getPlaylist() can populate subItemsMap.
+      // After that, all transitions use loadVideoById from subItemsMap.
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
       playerVars.index = subIndex;
@@ -422,29 +430,55 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     showLoader(false);
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
-    // Host: clear ALL loops and advance
-    // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
-    // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
-    // suppression (pause + wait for host) needs the loop running to detect
-    // the sub-index change. Only clear the sync broadcast loop (host-only).
     clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearManagedTimer('youtubeUILoop');
-      // Host: skip IDLE state transition to prevent UI flash — next-track
-      // will call stopAllMedia({ silent: true }) which handles state internally.
-      log.debug('[YouTube] Ended, playing next track...');
-      bus.emit('playlist:next-track');
+      // Host: check if there's a next sub-video in subItemsMap.
+      // In single-video mode, ENDED fires at every sub-video boundary
+      // (YouTube can't auto-advance without its playlist engine).
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const subMap = getState('youtube.subItemsMap') || {};
+      const subData = subMap[currentTrack?.playlistId as string];
+      const currentSubIdx = getState('youtube.currentSubIndex') ?? -1;
+
+      if (subData?.ids && currentSubIdx >= 0 && currentSubIdx < subData.ids.length - 1) {
+        // More sub-videos available — load next one
+        const nextIdx = currentSubIdx + 1;
+        const nextVideoId = subData.ids[nextIdx];
+        log.debug(`[YouTube] Sub-video ended, advancing to sub ${nextIdx}: ${nextVideoId}`);
+        setYouTubeSubIndex(nextIdx);
+        setCachedYtDuration(0);
+        _lastYtVideoTitle = '';
+        _lastDurationVideoId = '';
+
+        // Update title from cache if available
+        const cachedTitle = subData.titles?.[nextIdx];
+        if (cachedTitle) {
+          const currentMeta = getState('player.currentTrackMeta') || {};
+          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
+        }
+
+        // Load next sub-video and sync with guests
+        const pl = getYouTubePlayer();
+        if (pl?.loadVideoById) {
+          setYtAutoplayIntent(true);
+          pl.loadVideoById(nextVideoId);
+          import('./sync.ts').then(mod => mod.suppressDriftUntil(3000)).catch(() => {});
+          import('../youtube/player.ts').then(mod => {
+            mod.scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
+          }).catch(() => {});
+        }
+      } else {
+        // No more sub-videos — advance MUSIXQUARE playlist
+        clearManagedTimer('youtubeUILoop');
+        log.debug('[YouTube] Ended, playing next track...');
+        bus.emit('playlist:next-track');
+      }
     } else {
-      // Guest: DON'T go IDLE immediately — host is about to send YOUTUBE_STATE
-      // with the next video. If we set IDLE now, handleYouTubeState() would
-      // drop the message (appState !== PLAYING_YOUTUBE guard). Wait up to 5s
-      // for the host's next-track command; fall back to IDLE if nothing arrives.
+      // Guest: wait for host's next command (YOUTUBE_STATE with next video).
       log.debug('[YouTube] Guest: video ended — waiting for host next-track');
       setManagedTimer('yt-guest-ended-fallback', () => {
-        // Host never sent next track (e.g. playlist truly ended) — clean up
-        clearManagedTimer('youtubeUILoop');
         if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
           log.debug('[YouTube] Guest: no next-track from host — going IDLE');
           setAppState(APP_STATE.IDLE);
@@ -482,7 +516,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       type: MSG.YOUTUBE_STATE,
       state,
       time: player.getCurrentTime(),
-      subIndex: player.getPlaylistIndex?.() ?? -1,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
     });
   }
@@ -538,11 +572,9 @@ function updateYouTubeUI(): void {
 
   try {
     const rawDuration = player.getDuration?.() || 0;
-    const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
 
     // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
-    // state=5 (CUED) is a normal pre-play state, not a playback failure
     if (IS_IOS && state === -1) {
       if (!getYtIOSWatchdog()) setYtIOSWatchdog(Date.now());
       if (Date.now() - getYtIOSWatchdog()! > 3000) {
@@ -552,65 +584,8 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
-    // Reset cache when playlist sub-index changes (= different video)
-    if (playlistIdx !== getCachedYtPlaylistIdx()) {
-      const prevIdx = getCachedYtPlaylistIdx();
-      setCachedYtPlaylistIdx(playlistIdx);
-      setCachedYtDuration(0);
-      _lastYtVideoTitle = '';
-      _lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
-      _videoDataPollCount = 9; // Trigger getVideoData on the NEXT tick (not wait 5s)
-
-      const hostConn = getState('network.hostConn');
-
-      // ── Guest-side: suppress independent auto-advance ──────────────
-      // YouTube iframe auto-advances to the next video in a playlist
-      // independently on each device. In a Mix (RD...) playlist, the order
-      // is personalized per device, so the guest's "next" video is likely
-      // DIFFERENT from the host's. If we let the guest play freely,
-      // videoId mismatch detection (handleYouTubeSync, 3s heartbeat)
-      // eventually corrects it via loadVideoById, but this causes 3-6s
-      // of the guest playing the wrong video from position 0.
-      //
-      // Fix: immediately pause the guest and let the host's YOUTUBE_STATE
-      // (which arrives with the correct videoId and hostPlayAt within ~1s)
-      // drive the transition. This eliminates the wrong-video window.
-      if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
-        log.info(`[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`);
-        try { player.pauseVideo?.(); } catch { /* noop */ }
-        // Do NOT return here — fall through so title, duration, and seekbar
-        // UI updates still run. The pause is enough to suppress playback;
-        // returning early would freeze the UI on the previous track's metadata.
-      }
-
-      // ── Host-side: sub-video auto-advance detection ────────────────
-      // YouTube IFrame auto-advances between sub-videos in a playlist
-      // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
-      // path never runs and guests diverge until drift correction catches
-      // up. Detect the transition here and schedule an auto-sync (pause
-      // host briefly, broadcast hostPlayAt, resume everyone simultaneously).
-      if (!hostConn
-        && prevIdx !== -1
-        && playlistIdx >= 0
-        && !getManagedTimer('yt-auto-sync')
-        && !getManagedTimer('yt-sync-grace')
-      ) {
-        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
-        bus.emit('youtube:sub-video-advanced');
-      }
-
-      // Pre-emptive title update from subItemsMap (if available) for instant feedback
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      if (currentTrack?.playlistId && playlistIdx >= 0) {
-        const subMap = getState('youtube.subItemsMap') || {};
-        const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
-        if (cachedTitle) {
-          const currentMeta = getState('player.currentTrackMeta') || {};
-          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
-          _lastYtVideoTitle = cachedTitle;
-        }
-      }
-    }
+    // Single-video mode: no playlist index polling needed.
+    // Sub-video sequencing is driven by ENDED events, not getPlaylistIndex.
 
     // Update track title and videoId cache.
     // getVideoData() is an expensive cross-iframe call. Only call it when
@@ -619,9 +594,7 @@ function updateYouTubeUI(): void {
     // getVideoData() during polling, and the current version's 2x/second
     // calls were a major contributor to iframe memory pressure and crashes.
     _videoDataPollCount = (_videoDataPollCount + 1) % 10;
-    const shouldPollVideoData = (playlistIdx !== getCachedYtPlaylistIdx())  // sub-index just changed (already cached above)
-      ? false  // sub-index branch above already ran; title was set from subItemsMap
-      : (_videoDataPollCount === 0); // every 10th tick (~5s) for title/videoId sync
+    const shouldPollVideoData = _videoDataPollCount === 0; // every 10th tick (~5s)
 
     let currentVideoId = _lastDurationVideoId; // reuse cached value by default
     if (shouldPollVideoData && player.getVideoData) {

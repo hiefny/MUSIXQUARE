@@ -24,6 +24,8 @@ import {
   getYtIOSWatchdog, setYtIOSWatchdog,
   replaceYtScope,
   isYtLoadInProgress, setYtLoadInProgress,
+  isYtIndexing, setYtIndexing,
+  getYtIndexingCallback, setYtIndexingCallback,
   getYtAutoplayIntent, setYtAutoplayIntent,
   getCachedYtDuration, setCachedYtDuration,
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
@@ -84,6 +86,8 @@ interface IframeRuntime {
   lastPreemptIdx: number;
   /** True if we are intercepting a native playlist load via cuePlaylist purely to scrape IDs. */
   isScrapingPlaylist: boolean;
+  /** The playlistId currently being indexed/scraped. */
+  indexingPlaylistId: string | null;
 }
 
 const _ifr: IframeRuntime = {
@@ -95,6 +99,7 @@ const _ifr: IframeRuntime = {
   crashFailCount: 0,
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
+  indexingPlaylistId: null,
 };
 
 export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
@@ -107,6 +112,10 @@ export function loadYouTubeVideo(
   autoplay = true,
   subIndex = 0,
 ): void {
+  const indexing = isYtIndexing();
+  if (indexing) _ifr.indexingPlaylistId = playlistId;
+  else _ifr.indexingPlaylistId = null;
+
   const player = getYouTubePlayer();
 
   // YouTube-to-YouTube transition: reuse the existing player instance
@@ -244,8 +253,9 @@ function createYouTubePlayer(
   autoplay = true,
   subIndex = 0,
 ): void {
+  const indexing = isYtIndexing();
   const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+  if (currentState !== APP_STATE.PLAYING_YOUTUBE && !indexing) {
     log.warn('[YouTube] createYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
     setYtLoadInProgress(false);
     return;
@@ -278,7 +288,7 @@ function createYouTubePlayer(
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
     try {
-      if (needsScrape && playlistId) {
+      if ((needsScrape || indexing) && playlistId) {
         existingPlayer.cuePlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
       } else if (playlistId) {
         existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
@@ -323,7 +333,7 @@ function createYouTubePlayer(
     playerVars.listType = 'playlist';
     playerVars.list = playlistId;
     playerVars.index = subIndex;
-    if (needsScrape) playerVars.autoplay = 0;
+    if (needsScrape || indexing) playerVars.autoplay = 0;
   }
 
   const playerOptions: Record<string, any> = {
@@ -340,6 +350,7 @@ function createYouTubePlayer(
   if (videoId) playerOptions.videoId = videoId;
 
   setYouTubePlayer(new YT.Player('youtube-player', playerOptions));
+  setYouTubeSubIndex(subIndex);
 
   // A11y: add title to iframe once YouTube API creates it
   requestAnimationFrame(() => {
@@ -355,12 +366,21 @@ function onYouTubePlayerReady(): void {
   log.debug('[YouTube] Player ready');
 
   const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+  const indexing = isYtIndexing();
+  if (currentState !== APP_STATE.PLAYING_YOUTUBE && !indexing) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
   }
 
   const player = getYouTubePlayer();
+  const indexingPid = _ifr.indexingPlaylistId;
+  if (indexing && indexingPid && player?.cuePlaylist) {
+    const subIndex = getState('youtube.currentSubIndex') ?? 0;
+    player.cuePlaylist({ list: indexingPid, listType: 'playlist', index: subIndex, startSeconds: 0 });
+    // Don't start loops or sync yet
+    return;
+  }
+
   const currentTrack = getState('player.currentTrackMeta');
   const pid = currentTrack?.playlistId as string;
 
@@ -429,7 +449,8 @@ function onYouTubePlayerError(event: { data: number }): void {
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
   const currentState = getState('appState');
-  if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+  const indexing = isYtIndexing();
+  if (currentState !== APP_STATE.PLAYING_YOUTUBE && !indexing) return;
 
   const player = getYouTubePlayer();
   if (!player) return; // Player destroyed during async state transition
@@ -466,6 +487,18 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   } else if (state === YT.PlayerState.PAUSED) {
     showLoader(false);
     bus.emit('ui:update-play-state', false);
+  } else if (state === YT.PlayerState.CUED) {
+    if (indexing) {
+       log.info('[YouTube Indexing] CUED state reached, extracting IDs...');
+       const ids = player.getPlaylist() || [];
+       const callback = getYtIndexingCallback();
+       // IMPORTANT: Do NOT clear indexing state before the callback runs.
+       // The callback triggers loadYouTubeVideo -> stopYouTubeMode, which
+       // relies on isYtIndexing() to avoid clobbering the sub-index.
+       if (callback) callback(ids);
+       setYtIndexing(false);
+       setYtIndexingCallback(null);
+    }
   } else if (state === YT.PlayerState.ENDED) {
     // Host: clear ALL loops and advance
     // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the

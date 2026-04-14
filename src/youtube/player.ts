@@ -49,9 +49,13 @@ import {
   setYtAutoplayIntent,
   setYouTubeSubIndex,
   updateSubItemIds,
+  isYtIndexing,
+  setYtIndexing,
+  setYtIndexingCallback,
 } from './_state.ts';
 
 import { loadYouTubeVideo, refreshYouTubeDisplay, markYtStateBroadcast } from './iframe.ts';
+import { showLoader } from '../ui/toast.ts';
 
 import {
   handleYouTubePlay,
@@ -144,10 +148,11 @@ export function stopYouTubeMode(): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
-  // Preservation: do not reset sub-index to -1 if we are already in YouTube mode
-  // and just cycling players/videos (prevents highlight flickering).
-  if (!wasInYouTube) {
+  const currentState = getState('appState');
+  const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
+  // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
+  // This prevents clobbering the sub-index 0 set during the indexing callback.
+  if (!wasInYouTube && currentState !== APP_STATE.IDLE && !isYtIndexing() && !isYtLoadInProgress()) {
     setYouTubeSubIndex(-1);
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
@@ -625,11 +630,21 @@ export function initYouTube(): void {
     url: string,
   ): void {
     const playlist = getState('playlist.items') || [];
+    
+    // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
+    // force single-video mode to bypass the risky native playlist engine entirely.
+    let finalVideoId = videoId;
+    let finalPlaylistId = playlistId;
+    if (finalVideoId && finalPlaylistId) {
+       finalPlaylistId = null; 
+       log.debug(`[YouTube Index-Add] Forcing single-video mode for playlist ${playlistId} starting with ${videoId}`);
+    }
+
     const newTrack: PlaylistItem = {
       type: 'youtube',
       name: title,
       title: title,
-      videoId: videoId || null,
+      videoId: finalVideoId || null,
       playlistId: playlistId || null,
       isExpanded: !!playlistId, // Auto-expand playlist items
     };
@@ -637,61 +652,34 @@ export function initYouTube(): void {
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
 
-    // Trigger UI to reveal the track list immediately
+    // UI Triggers: Reveal the track list. 
+    // Note: setYouTubeSubIndex(0) is now correctly restored inside the isIdle block
+    // to avoid clobbering sub-indices of already-playing media.
     if (playlistId) {
       bus.emit('youtube:populate-sub-items', playlistId, newIndex);
     }
 
+    if (playlistId) {
+      const subMap = getState('youtube.subItemsMap') || {};
+      const existingIds = subMap[playlistId]?.ids || [];
+      // Only pre-populate if empty. Preserves indexed results if they already arrived.
+      if (videoId && existingIds.length <= 1) {
+        updateSubItemIds(playlistId, [videoId]);
+      }
+    }
+
     const currentState = getState('appState');
-    const isIdle = currentState === APP_STATE.IDLE;
+    const isIdle = (currentState === APP_STATE.IDLE || isYtIndexing());
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setState('player.currentTrackMeta', newTrack);
-      // Load YouTube with autoplay=FALSE so the 1-sec rendezvous countdown
-      // has a clean starting state. _pendingAutoSyncOnReady is checked by
-      // the 'youtube:player-ready' listener, which then triggers
-      // 'youtube:auto-play' → scheduleYtAutoSync → guests aligned.
-      //
-      // (Was previously loadYouTubeVideo(…, true) which auto-started
-      // playback with zero sync coordination.)
-      //
-      // IMPORTANT: set the flag AFTER loadYouTubeVideo, not before. The
-      // synchronous cascade `loadYouTubeVideo → player:stop-all-media →
-      // stopAllMedia → youtube:stop-mode → stopYouTubeMode` wipes
-      // `_pendingAutoSyncOnReady` as part of its idempotent cleanup. If
-      // we set the flag *before* that cascade runs, stopYouTubeMode
-      // clobbers it and the eventual youtube:player-ready callback
-      // silently skips scheduleYtAutoSync — the first URL-input play
-      // then races through raw YouTube autoplay with zero sync
-      // coordination, exactly the bug this flag was meant to fix.
-      let finalVideoId = videoId;
-      let finalPlaylistId = playlistId;
-
-      // ==========================================
-      // [강력한 OOM 해결 패치] 재입장 시 스크래핑 스킵 방어막
-      // 이미 200개의 ID 목록을 알고 있는 플레이리스트라면 1번 곡부터 순정 엔진을 켤 이유가 없음.
-      // ==========================================
-      if (!videoId && playlistId) {
-          const subMap = getState('youtube.subItemsMap') || {};
-          const knownIds = subMap[playlistId]?.ids;
-          if (knownIds && knownIds.length > 0) {
-             finalVideoId = knownIds[0];
-             finalPlaylistId = null; // 영구 단일모드 구동
-             log.info('[YouTube Fix] Known playlist loaded. Bypassing native engine instantly.');
-          }
-      }
-
+      setYouTubeSubIndex(0); // Moved back inside: only for new active tracks
+      
+      // Load YouTube with autoplay=FALSE for sync coordination.
       loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
       _pendingAutoSyncOnReady = true;
       setState('playlist.currentTrackIndex', newIndex);
-
-      // Final Pre-population Guard: Ensure index 0 and first ID are set AFTER player cleanup.
-      // This is the definitive fix for the immediate navigation / highlight flicker bug.
-      if (playlistId) {
-        setYouTubeSubIndex(0);
-        if (videoId) updateSubItemIds(playlistId, [videoId]);
-      }
     } else {
       showToast(t('youtube.added_to_playlist'));
     }
@@ -717,6 +705,7 @@ export function initYouTube(): void {
           // autoplay=false: guest also loads without iframe auto-start and
           // waits for host's hostPlayAt broadcast from scheduleYtAutoSync.
           autoplay: false,
+          subIndex: 0,
         });
       }
     }
@@ -790,7 +779,44 @@ export function initYouTube(): void {
     const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtnEl) playBtnEl.disabled = true;
 
-    _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
+    // Index-before-Add flow for new playlists
+    const subMap = getState('youtube.subItemsMap') || {};
+    if (playlistId && !subMap[playlistId]?.ids?.length) {
+       log.info(`[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`);
+       showLoader(true, "플레이리스트 목록을 분석 중입니다... 🎵");
+       
+       setYtIndexing(true);
+       setYtIndexingCallback((ids) => {
+          showLoader(false);
+          if (!ids || ids.length === 0) {
+             showToast(t('youtube.fetch_failed'));
+             return;
+          }
+          log.info(`[YouTube Index] Indexing complete! Captured ${ids.length} items. Adding to queue.`);
+          updateSubItemIds(playlistId!, ids);
+          
+          _addYouTubeToPlaylist(ids[0], playlistId, titleText, url);
+          
+          // Force highlight and expansion of the first track with a small delay
+          // to ensure the UI has finished adding the item to the DOM.
+          setTimeout(() => {
+            const currentPlaylist = getState('playlist.items');
+            const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistId);
+            if (actualIdx !== -1) {
+              const updated = [...currentPlaylist];
+              updated[actualIdx] = { ...updated[actualIdx], isExpanded: true };
+              setState('playlist.items', updated);
+              setYouTubeSubIndex(0);
+              bus.emit('youtube:populate-sub-items', playlistId!, actualIdx);
+            }
+          }, 250);
+       });
+       
+       // Trigger the player to index (via cuePlaylist in iframe.ts)
+       loadYouTubeVideo(videoId, playlistId, false);
+    } else {
+       _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
+    }
   });
 
   // YouTube refresh display (from tab switch)

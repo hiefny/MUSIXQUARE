@@ -64,6 +64,8 @@ let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
 let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
+let _isYtIndexing = false;
+let _ytIndexingCallback: ((ids: string[]) => void) | null = null;
 
 /**
  * Autoplay intent flag — set by createYouTubePlayer.
@@ -120,6 +122,14 @@ export function getCachedYtPlaylistIdx(): number {
   return _cachedYtPlaylistIdx;
 }
 
+export function isYtIndexing(): boolean {
+  return _isYtIndexing;
+}
+
+export function getYtIndexingCallback(): ((ids: string[]) => void) | null {
+  return _ytIndexingCallback;
+}
+
 // ─── Setters ───────────────────────────────────────────────────────
 
 export function setYouTubePlayer(player: YouTubePlayerInstance | null): void {
@@ -164,13 +174,22 @@ export function setCachedYtPlaylistIdx(idx: number): void {
   _cachedYtPlaylistIdx = idx;
 }
 
+export function setYtIndexing(indexing: boolean): void {
+  _isYtIndexing = indexing;
+}
+
+export function setYtIndexingCallback(cb: ((ids: string[]) => void) | null): void {
+  _ytIndexingCallback = cb;
+}
+
 /**
  * Central function: update YouTube sub-index + refresh playlist UI.
  * All code paths that change the current sub-video within a YouTube playlist
  * MUST use this function instead of calling setState directly.
  */
 export function setYouTubeSubIndex(index: number): void {
-  log.debug(`[YouTube State] setYouTubeSubIndex: ${getState('youtube.currentSubIndex')} -> ${index}`);
+  const old = getState('youtube.currentSubIndex');
+  if (old === index) return;
   setState('youtube.currentSubIndex', index);
 }
 
@@ -186,6 +205,8 @@ export function resetYouTubeModuleState(): void {
   _ytAutoplayIntent = true;
   _cachedYtDuration = 0;
   _cachedYtPlaylistIdx = -1;
+  _isYtIndexing = false;
+  _ytIndexingCallback = null;
 }
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────

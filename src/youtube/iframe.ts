@@ -240,13 +240,38 @@ function createYouTubePlayer(
       setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
 
-      // Suppress heartbeat state-sync for 5s after loading a new video.
-      // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
-      // arrives before YOUTUBE_STATE and wakes the guest via state-sync
-      // (hostState=1, ytState≠1 → playVideo), causing the guest to play
-      // from position 0 while the host is still loading.
       if (!autoplay) {
         import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
+      }
+
+      // Snapshot + single-video switch for reuse path too (onYouTubePlayerReady
+      // only runs for NEW players, not reuse). Without this, subItemsMap stays
+      // empty and try-next-internal can't find sub-videos.
+      const hostConn = getState('network.hostConn');
+      if (!hostConn && typeof playlistId === 'string') {
+        setManagedTimer('yt-mix-snapshot', () => {
+          try {
+            const p = getYouTubePlayer();
+            if (!p?.getPlaylist) return;
+            const snapIds = p.getPlaylist();
+            if (Array.isArray(snapIds) && snapIds.length > 0) {
+              log.info(`[YouTube] Reuse-path snapshot: ${snapIds.length} items`);
+              setSubItemsData(playlistId as string, snapIds, new Array(snapIds.length).fill(''));
+              const curSub = getState('youtube.currentSubIndex') ?? -1;
+              if (curSub < 0) setYouTubeSubIndex(p.getPlaylistIndex?.() ?? 0);
+              broadcast({ type: MSG.YOUTUBE_PLAYLIST_INFO, playlistId, ids: snapIds, titles: new Array(snapIds.length).fill('') });
+              fetchPlaylistSubTitles(playlistId as string, snapIds);
+              // Switch to single-video to free playlist engine memory
+              const si = getState('youtube.currentSubIndex') ?? 0;
+              const vid = snapIds[si] || snapIds[0];
+              const pos = p.getCurrentTime?.() ?? 0;
+              if (vid && p.loadVideoById) {
+                log.info(`[YouTube] Reuse-path: freeing playlist engine → ${vid} at ${pos.toFixed(1)}s`);
+                p.loadVideoById({ videoId: vid, startSeconds: pos });
+              }
+            }
+          } catch (e) { log.warn('[YouTube] Reuse-path snapshot failed:', e); }
+        }, 3000);
       }
       return;
     } catch (e) {

@@ -638,7 +638,24 @@ export function initYouTube(): void {
       // silently skips scheduleYtAutoSync — the first URL-input play
       // then races through raw YouTube autoplay with zero sync
       // coordination, exactly the bug this flag was meant to fix.
-      loadYouTubeVideo(videoId, playlistId, false);
+      let finalVideoId = videoId;
+      let finalPlaylistId = playlistId;
+
+      // ==========================================
+      // [강력한 OOM 해결 패치] 재입장 시 스크래핑 스킵 방어막
+      // 이미 200개의 ID 목록을 알고 있는 플레이리스트라면 1번 곡부터 순정 엔진을 켤 이유가 없음.
+      // ==========================================
+      if (!videoId && playlistId) {
+          const subMap = getState('youtube.subItemsMap') || {};
+          const knownIds = subMap[playlistId]?.ids;
+          if (knownIds && knownIds.length > 0) {
+             finalVideoId = knownIds[0];
+             finalPlaylistId = null; // 영구 단일모드 구동
+             log.info('[YouTube Fix] Known playlist loaded. Bypassing native engine instantly.');
+          }
+      }
+
+      loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
       _pendingAutoSyncOnReady = true;
       setState('playlist.currentTrackIndex', newIndex);
 

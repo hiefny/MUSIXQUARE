@@ -61,12 +61,10 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     });
   }
 
-  // Single-video mode: when the host sent a videoId, load JUST that video.
-  // The playlistId in the payload is for UI context (lookup into the local
-  // playlist.items[index].playlistId) — not something to feed to the
-  // iframe's playlist engine. Only when no videoId is present (legacy
-  // single-track-with-playlist-only payloads) do we fall back to playlistId.
-  loadYouTubeVideo(videoId, videoId ? null : playlistId, autoplay ?? false, subIndex ?? 0);
+  // [수정] 악명 높은 메모리 누수 방지를 위해 게스트는 무조건 playlistId를 통제(차단)합니다.
+  // videoId가 없을 때 playlistId를 넣던 기존 로직을 제거하고 무조건 null을 전달하여 
+  // 게스트 IFrame에 listType='playlist' 파라미터가 주입되는 것을 원천 차단합니다.
+  loadYouTubeVideo(videoId, null, autoplay ?? false, subIndex ?? 0);
 }
 
 /**

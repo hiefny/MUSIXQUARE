@@ -589,6 +589,24 @@ function updateYouTubeUI(): void {
       setCachedYtDuration(0);
       _ifr.lastVideoTitle = '';
       _ifr.lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
+
+      // ==========================================
+      // [강력한 OOM 해결 패치] Native 자동 스킵 방어막
+      // ==========================================
+      const hostConn = getState('network.hostConn');
+      if (!hostConn && prevIdx !== -1 && playlistIdx > 0) {
+        log.info(`[YouTube Fix] Native auto-advance detected (${prevIdx} -> ${playlistIdx}). Hijacking to Single-Video Mode.`);
+        
+        const subMap = getState('youtube.subItemsMap') || {};
+        const pid = (getState('player.currentTrackMeta') as any)?.playlistId;
+        
+        if (pid && subMap[pid] && subMap[pid].ids.length > playlistIdx) {
+           const targetVid = subMap[pid].ids[playlistIdx];
+           import('./iframe.ts').then(m => m.loadYouTubeVideo(targetVid, null, true, playlistIdx));
+           return;
+        }
+      }
+      // ==========================================
       // Arm the counter so (N+1) % N === 0 on the NEXT tick → getVideoData
       // fires immediately after a sub-index change instead of waiting for
       // the usual ~5s cadence. `- 1` keeps this correct if N ever changes.

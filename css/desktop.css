@@ -424,7 +424,7 @@
         --setup-ob-title-mb: 8px;
         --setup-ob-desc: clamp(13px, 1.1vw, 15px);
         --setup-nav-mt: 24px;
-        --setup-nav-arrow: block;
+        --setup-nav-arrow: flex;
         --setup-actions-top: 16px;
         --setup-actions-bottom: 40px;
 

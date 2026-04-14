@@ -880,15 +880,16 @@ export function initYouTube(): void {
       // the guest loads by playlistId, it gets a different video order and
       // the subIndex points to the wrong video. Sending the ID array makes
       // the guest load the exact same sequence as the host.
-      const isMix = typeof item.playlistId === 'string' && item.playlistId.startsWith('RD');
+      // Send the host's static ID array for ALL playlist types (not just Mix).
+      // Also send the CURRENT videoId (not item.videoId which is the original
+      // first video) so the guest loads the exact video the host is playing.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const useStaticIds = isMix && hostIds && hostIds.length > 0;
+      const useStaticIds = hostIds && hostIds.length > 0;
 
-      // Send YouTube play command so guest enters YouTube mode
       safeSend(conn, {
         type: MSG.YOUTUBE_PLAY,
-        videoId: useStaticIds ? null : (item.videoId || null),
+        videoId: currentVideoId || (useStaticIds ? null : (item.videoId || null)),
         playlistId: useStaticIds ? hostIds : (item.playlistId || null),
         name: item.name || item.title,
         index: currentTrackIndex,

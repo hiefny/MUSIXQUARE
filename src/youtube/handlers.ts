@@ -26,6 +26,7 @@ declare const YT: YTNamespace;
 export function handleYouTubePlay(data: Record<string, unknown>): void {
   const videoId = data.videoId as string | null;
   const playlistId = data.playlistId as string | null;
+  const name = data.name as string | null;
   const index = data.index as number | undefined;
   const autoplay = data.autoplay as boolean | undefined;
   const subIndex = data.subIndex as number | undefined;
@@ -40,6 +41,24 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
 
   if (index !== undefined) {
     setState('playlist.currentTrackIndex', index);
+  }
+
+  // Mirror host's playTrack(): set currentTrackMeta so the UI doesn't display
+  // "미디어 없음". Prefer the synced playlist entry (has the real title from
+  // PLAYLIST_UPDATE); fall back to a synthetic meta built from the broadcast's
+  // `name` field when the playlist hasn't landed yet (late-join races).
+  const playlist = getState('playlist.items') || [];
+  const playlistItem = (index !== undefined && index >= 0) ? playlist[index] : undefined;
+  if (playlistItem) {
+    setState('player.currentTrackMeta', playlistItem);
+  } else if (name || videoId) {
+    setState('player.currentTrackMeta', {
+      type: 'youtube',
+      name: name || '',
+      title: name || '',
+      videoId: videoId || null,
+      playlistId: playlistId || null,
+    });
   }
 
   // Single-video mode: when the host sent a videoId, load JUST that video.

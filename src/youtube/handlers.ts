@@ -137,16 +137,21 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   }
 
   const player = getYouTubePlayer();
-  if (player?.playVideoAt && typeof subIdx === 'number') {
-    player.playVideoAt(subIdx);
-    setYouTubeSubIndex(subIdx);
-
-    // Resolve videoId from subItemsMap — getVideoData() is stale right after playVideoAt
+  if (player?.loadVideoById && typeof subIdx === 'number') {
+    // Single-video mode: resolve videoId from subItemsMap and loadVideoById.
+    // No playVideoAt — keeps the iframe on one video at a time, avoiding
+    // the OOM crashes that the playlist engine causes on 200+ item lists.
     const playlist = getState('playlist.items') || [];
     const currentItem = playlist[currentTrackIndex];
     const subMap = getState('youtube.subItemsMap') || {};
     const ids = subMap[currentItem?.playlistId as string]?.ids || [];
-    const targetVideoId = ids[subIdx] || player.getVideoData?.()?.video_id || '';
+    const targetVideoId = ids[subIdx];
+    if (!targetVideoId) {
+      log.warn(`[YouTube] request-sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
+      return;
+    }
+    player.loadVideoById(targetVideoId);
+    setYouTubeSubIndex(subIdx);
 
     scheduleYtAutoSync(0, {
       subIndex: subIdx,

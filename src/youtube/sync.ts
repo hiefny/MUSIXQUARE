@@ -135,13 +135,6 @@ export function suppressDriftUntil(ms: number): void {
   _autoSyncUntil = Math.max(_autoSyncUntil, Date.now() + ms);
 }
 
-// ─── Video Mismatch Escalation ──────────────────────────────────
-// Track consecutive playVideoAt failures before escalating to loadPlaylist.
-// loadPlaylist is expensive (reloads entire playlist in iframe, causes
-// memory pressure on 100+ item playlists). Only use as last resort.
-let _mismatchPlayVideoAtFails = 0;
-const MISMATCH_ESCALATION_THRESHOLD = 3;
-
 // ─── Host Position Snapshot Cache (Guest-side) ───────────────────
 // Updated on every MSG.YOUTUBE_SYNC heartbeat (~3s interval on host).
 // Consumed by guestRendezvousSync() to extrapolate host's current position
@@ -223,14 +216,13 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       }
     }
 
-    // Video ID sync — fixes YouTube Mix (each device has different playlist order)
+    // Video ID sync — fixes videoId mismatch (YouTube Mix ordering, sub-advance, etc.)
+    // Single-video mode: always drive guest via loadVideoById. We never call
+    // playVideoAt / loadPlaylist — the iframe's playlist engine is what OOMs
+    // on 200+ item playlists, so the guest stays on one video at a time.
     const hostVideoId = (data.videoId as string) || '';
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
-      if (guestVideoId && hostVideoId === guestVideoId && _mismatchPlayVideoAtFails > 0) {
-        // playVideoAt succeeded — video now matches. Reset escalation counter.
-        _mismatchPlayVideoAtFails = 0;
-      }
       if (guestVideoId && hostVideoId !== guestVideoId) {
         // Skip if another handler (handleYouTubeState) already initiated a
         // video load — calling loadVideoById again would interrupt it,
@@ -239,64 +231,25 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           log.debug('[YouTube Sync] Video mismatch detected but load already in progress — skipping');
           return;
         }
-        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}`);
-
-        // Strategy: try playVideoAt first (lightweight, preserves playlist context).
-        // Only escalate to loadPlaylist after 3 consecutive playVideoAt failures.
-        // loadPlaylist is expensive and causes iframe memory pressure / crashes
-        // on 100+ item playlists.
-        const ytPlaylist = player.getPlaylist?.() || [];
-        if (hostSubIndex !== undefined && hostSubIndex !== -1 && player.playVideoAt && ytPlaylist.length > 0 && hostSubIndex < ytPlaylist.length) {
-          player.playVideoAt(hostSubIndex);
-          setYouTubeSubIndex(hostSubIndex);
-          log.info(`[YouTube Sync] Attempting playVideoAt(${hostSubIndex}), fail count: ${_mismatchPlayVideoAtFails}`);
-          // Check on next heartbeat if it worked (videoId will match if successful)
-          _mismatchPlayVideoAtFails++;
-        } else if (_mismatchPlayVideoAtFails >= MISMATCH_ESCALATION_THRESHOLD) {
-          // playVideoAt failed 3+ times — escalate to loadPlaylist
-          _mismatchPlayVideoAtFails = 0;
-          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-          const subMap = getState('youtube.subItemsMap') || {};
-          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
-
-          if (hostIds && hostIds.length > 0 && hostSubIndex !== undefined && hostSubIndex >= 0 && player.loadPlaylist) {
-            log.warn(`[YouTube Sync] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${hostIds.length} IDs)`);
-            player.loadPlaylist(hostIds, hostSubIndex, 0);
+        log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`);
+        if (player.loadVideoById) {
+          player.loadVideoById(hostVideoId);
+          if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
-          } else if (player.loadVideoById) {
-            log.warn(`[YouTube Sync] No host IDs — last resort loadVideoById`);
-            player.loadVideoById(hostVideoId);
-            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
-              setYouTubeSubIndex(hostSubIndex);
-            }
           }
-        } else {
-          // No playlist available for playVideoAt, increment fail counter
-          _mismatchPlayVideoAtFails++;
-          log.debug(`[YouTube Sync] No playlist for playVideoAt, fail count: ${_mismatchPlayVideoAtFails}`);
         }
         _autoSyncUntil = Date.now() + 5000;
         return;
       }
     }
 
-    // Sub-index change (non-Mix playlists: same order on all devices)
+    // Sub-index state alignment — videoId already matched above, so if the
+    // subIndex tracked in state still differs we just need to update state
+    // (no player call needed; iframe is already on the right videoId).
     const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
-      log.debug(`[YouTube Sync] Sub-index change: ${currentSubIndex} -> ${hostSubIndex}`);
+      log.debug(`[YouTube Sync] Sub-index state alignment: ${currentSubIndex} -> ${hostSubIndex}`);
       setYouTubeSubIndex(hostSubIndex);
-
-      if (player.playVideoAt && player.getPlaylistIndex) {
-        const ytPlaylist = player.getPlaylist?.() || [];
-        if (hostSubIndex >= 0 && hostSubIndex < ytPlaylist.length && player.getPlaylistIndex() !== hostSubIndex) {
-          try {
-            player.playVideoAt(hostSubIndex);
-          } catch (e) {
-            log.warn('[YouTube Sync] playVideoAt failed, rolling back sub-index:', e);
-            setYouTubeSubIndex(currentSubIndex);
-          }
-        }
-      }
     }
 
     // Drift correction — uses raw hostTime without the manual sync.localOffset.
@@ -581,7 +534,6 @@ export function resetYouTubeSyncState(): void {
   _autoSyncUntil = 0;
   _lastHostSnapshot = null;
   _mixReloadedIds.clear();
-  _mismatchPlayVideoAtFails = 0;
   resetAdDetection();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
@@ -659,40 +611,16 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId}`);
-        const ytPlaylist = player.getPlaylist?.() || [];
-
-        // Strategy: try playVideoAt first (lightweight). Only escalate to
-        // loadPlaylist after repeated failures. This prevents iframe memory
-        // pressure from repeated playlist reloads on large (100+) playlists.
-        if (subIndex !== undefined && subIndex !== -1 && player.playVideoAt && ytPlaylist.length > 0 && subIndex < ytPlaylist.length) {
-          player.playVideoAt(subIndex);
-          setYouTubeSubIndex(subIndex);
-          subIndexChanged = true;
-          _mismatchPlayVideoAtFails++;
-          log.info(`[YouTube State] Attempting playVideoAt(${subIndex}), fail count: ${_mismatchPlayVideoAtFails}`);
-        } else if (_mismatchPlayVideoAtFails >= MISMATCH_ESCALATION_THRESHOLD) {
-          _mismatchPlayVideoAtFails = 0;
-          const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-          const subMap = getState('youtube.subItemsMap') || {};
-          const hostIds = subMap[currentTrack?.playlistId as string]?.ids;
-
-          if (hostIds && hostIds.length > 0 && subIndex !== undefined && subIndex >= 0) {
-            log.warn(`[YouTube State] playVideoAt failed ${MISMATCH_ESCALATION_THRESHOLD}x — escalating to loadPlaylist (${hostIds.length} IDs)`);
-            if (player.loadPlaylist) {
-              player.loadPlaylist(hostIds, subIndex, 0);
-            }
+        // Single-video mode: loadVideoById directly. No playlist engine,
+        // no escalation tiers — one videoId at a time keeps the iframe
+        // within mobile memory limits.
+        log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`);
+        if (player.loadVideoById) {
+          player.loadVideoById(hostVideoId);
+          if (subIndex !== undefined && subIndex !== -1) {
             setYouTubeSubIndex(subIndex);
-            subIndexChanged = true;
-          } else if (player.loadVideoById) {
-            log.warn(`[YouTube State] No host IDs — last resort loadVideoById`);
-            player.loadVideoById(hostVideoId);
-            if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
-            subIndexChanged = true;
           }
-        } else {
-          _mismatchPlayVideoAtFails++;
-          log.debug(`[YouTube State] No playlist for playVideoAt, fail count: ${_mismatchPlayVideoAtFails}`);
+          subIndexChanged = true;
         }
         // Schedule a delayed play using hostPlayAt so the guest starts at
         // the same time as the host, even though the video is reloading.
@@ -718,25 +646,15 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       }
     }
 
-    // Fallback: sub-index based (regular playlists)
+    // Sub-index state alignment — videoId already matched above, so just
+    // update state if the tracked subIndex differs. No player call needed.
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
-      if (player.playVideoAt) {
-        const currentIdx = player.getPlaylistIndex?.() ?? -1;
-        // M4: bounds-check against guest's playlist length to avoid
-        // playVideoAt with an out-of-range index (Mix playlists can
-        // have different item counts across host and guest).
-        const ytPlaylist = player.getPlaylist?.() || [];
-        
-        // Ensure this is actually a playlist track before attempting playVideoAt.
-        // Standalone tracks will return empty playlist, but should NOT skip seekTo.
-        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-        const isPlaylistTrack = !!currentTrack?.playlistId;
-
-        if (isPlaylistTrack && currentIdx !== subIndex && ytPlaylist.length > subIndex) {
-          player.playVideoAt(subIndex);
-          setYouTubeSubIndex(subIndex);
-          subIndexChanged = true;
-        }
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const isPlaylistTrack = !!currentTrack?.playlistId;
+      const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
+      if (isPlaylistTrack && currentSubIndex !== subIndex) {
+        setYouTubeSubIndex(subIndex);
+        subIndexChanged = true;
       }
     }
 

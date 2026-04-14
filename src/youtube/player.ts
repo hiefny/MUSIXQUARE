@@ -741,31 +741,29 @@ export function initYouTube(): void {
   // YouTube sub-item seek (from playlist-view sub-item click)
   bus.on('youtube:sub-seek', (playlistIdx, subIdx, isCurrent) => {
     const player = getYouTubePlayer();
-    if (!player) return;
+    if (!player?.loadVideoById) return;
 
     if (isCurrent) {
-      // Same playlist — jump to sub-index via scheduleYtAutoSync so guests
-      // get a proper hostPlayAt countdown and video ID is read AFTER the
-      // transition (playVideoAt is async — getVideoData() returns stale ID
-      // if read immediately).
-      if (player.playVideoAt) {
-        player.playVideoAt(subIdx);
-        setYouTubeSubIndex(subIdx);
-
-        // Resolve the correct videoId from our cached sub-items map
-        // (YouTube iframe hasn't switched yet, so getVideoData() is stale).
-        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-        const subMap = getState('youtube.subItemsMap') || {};
-        const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
-        const targetVideoId = ids[subIdx] || player.getVideoData?.()?.video_id || '';
-
-        scheduleYtAutoSync(0, {
-          subIndex: subIdx,
-          videoId: targetVideoId,
-          skipSeek: true,
-          countdownMs: 3000,
-        });
+      // Same playlist — single-video mode: resolve the videoId from our
+      // host-snapshotted subItemsMap and loadVideoById directly. We don't
+      // call playVideoAt because that uses the iframe's playlist engine,
+      // which is exactly what we want to stop using on large playlists.
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const subMap = getState('youtube.subItemsMap') || {};
+      const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
+      const targetVideoId = ids[subIdx];
+      if (!targetVideoId) {
+        log.warn(`[YouTube] sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
+        return;
       }
+      player.loadVideoById(targetVideoId);
+      setYouTubeSubIndex(subIdx);
+      scheduleYtAutoSync(0, {
+        subIndex: subIdx,
+        videoId: targetVideoId,
+        skipSeek: true,
+        countdownMs: 3000,
+      });
     } else {
       // Different playlist item — load it with the target sub-index
       bus.emit('playlist:play-track', playlistIdx, subIdx);

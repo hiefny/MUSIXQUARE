@@ -602,7 +602,7 @@ function updateYouTubeUI(): void {
         
         if (pid && subMap[pid] && subMap[pid].ids.length > playlistIdx) {
            const targetVid = subMap[pid].ids[playlistIdx];
-           import('./iframe.ts').then(m => m.loadYouTubeVideo(targetVid, null, true, playlistIdx));
+           loadYouTubeVideo(targetVid, null, true, playlistIdx);
            return;
         }
       }
@@ -611,8 +611,6 @@ function updateYouTubeUI(): void {
       // fires immediately after a sub-index change instead of waiting for
       // the usual ~5s cadence. `- 1` keeps this correct if N ever changes.
       _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
-
-      const hostConn = getState('network.hostConn');
 
       // ── Guest-side: suppress independent auto-advance ──────────────
       // YouTube iframe auto-advances to the next video in a playlist

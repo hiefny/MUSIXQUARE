@@ -93,7 +93,7 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
       type: MSG.YOUTUBE_STATE,
       state: 2,
       time: player.getCurrentTime?.() || 0,
-      subIndex: getState('youtube.currentSubIndex') ?? -1,
+      subIndex: player.getPlaylistIndex?.() ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
     });
   }
@@ -118,7 +118,7 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
       markYtStateBroadcast();
       if (player.pauseVideo) {
         player.pauseVideo();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0, subIndex: getState('youtube.currentSubIndex') ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
+        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time: player.getCurrentTime?.() || 0, subIndex: player.getPlaylistIndex?.() ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
         markYtStateBroadcast();
       }
     } else {
@@ -151,19 +151,16 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   }
 
   const player = getYouTubePlayer();
-  if (player?.loadVideoById && typeof subIdx === 'number') {
-    // Single-video mode: resolve videoId from subItemsMap
-    const currentTrack = (getState('playlist.items') || [])[currentTrackIndex];
-    const subMap = getState('youtube.subItemsMap') || {};
-    const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
-    const targetVideoId = ids[subIdx] || '';
-    if (targetVideoId) {
-      player.loadVideoById(targetVideoId);
-      setYouTubeSubIndex(subIdx);
-      import('./player.ts').then(mod => {
-        mod.scheduleYtAutoSync(0, { subIndex: subIdx, videoId: targetVideoId, skipSeek: true, countdownMs: 3000 });
-      }).catch(() => {});
-    }
+  if (player?.playVideoAt && typeof subIdx === 'number') {
+    player.playVideoAt(subIdx);
+    setYouTubeSubIndex(subIdx);
+    broadcast({
+      type: MSG.YOUTUBE_STATE,
+      state: 1,
+      time: 0,
+      subIndex: subIdx,
+      videoId: player.getVideoData?.()?.video_id || '',
+    });
   }
 }
 

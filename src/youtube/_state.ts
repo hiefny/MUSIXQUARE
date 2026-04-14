@@ -33,6 +33,7 @@ let _ytAutoplayIntent = true;
  * Prevents YouTube API's getDuration() float jitter from flickering the UI.
  */
 let _cachedYtDuration = 0;
+let _cachedYtPlaylistIdx = -1;
 
 // ─── Getters ───────────────────────────────────────────────────────
 
@@ -66,6 +67,10 @@ export function getYtAutoplayIntent(): boolean {
 
 export function getCachedYtDuration(): number {
   return _cachedYtDuration;
+}
+
+export function getCachedYtPlaylistIdx(): number {
+  return _cachedYtPlaylistIdx;
 }
 
 // ─── Setters ───────────────────────────────────────────────────────
@@ -106,6 +111,10 @@ export function setYtAutoplayIntent(autoplay: boolean): void {
 
 export function setCachedYtDuration(duration: number): void {
   _cachedYtDuration = duration;
+}
+
+export function setCachedYtPlaylistIdx(idx: number): void {
+  _cachedYtPlaylistIdx = idx;
 }
 
 /**

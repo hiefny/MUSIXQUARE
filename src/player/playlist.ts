@@ -245,26 +245,28 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
-      // Guests get single videoId ONLY — never loadPlaylist (crashes on 200+ items).
-      // Host resolves the specific video from subItemsMap when available.
+      // For Mix playlists (RD...), send the host's cached static ID array
+      // instead of the playlistId. YouTube Mixes are personalized per device —
+      // sending the raw playlistId makes the guest load a different video order,
+      // requiring an expensive reload via _mixReloadedIds. Static IDs avoid that.
+      const isMix = typeof item.playlistId === 'string' && (item.playlistId as string).startsWith('RD');
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const currentSubIdx = subIndex ?? (getState('youtube.currentSubIndex') ?? 0);
-      const guestVideoId = (hostIds && hostIds.length > currentSubIdx)
-        ? hostIds[currentSubIdx]
-        : (item.videoId ?? null);
+      const useStaticIds = isMix && hostIds && hostIds.length > 0;
+
+      const playVideoId = useStaticIds ? null : (item.videoId ?? null);
+      const playPlaylistId = useStaticIds ? hostIds : (item.playlistId ?? null);
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
-        videoId: guestVideoId,
-        playlistId: null, // guests never load playlists
+        videoId: playVideoId,
+        playlistId: playPlaylistId,
         name: item.name || item.title,
         index,
         autoplay: false,
-        subIndex: currentSubIdx,
       });
 
-      // Send YOUTUBE_PLAYLIST_INFO for sub-items map
+      // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
       if (hostIds && hostIds.length > 0) {
         const titles = subMap[item.playlistId as string]?.titles || [];
         broadcast({

@@ -24,8 +24,9 @@ import {
   getYtIOSWatchdog, setYtIOSWatchdog,
   replaceYtScope,
   isYtLoadInProgress, setYtLoadInProgress,
-  setYtAutoplayIntent,
-  setCachedYtDuration,
+  getYtAutoplayIntent, setYtAutoplayIntent,
+  getCachedYtDuration, setCachedYtDuration,
+  getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
   setSubItemsData,
 } from './_state.ts';
@@ -34,7 +35,19 @@ import { fetchPlaylistSubTitles } from './search.ts';
 
 declare const YT: any;
 
-export let _lastYtStateBroadcast = 0;
+/** Tracks the last known YouTube video title to detect changes */
+let _lastYtVideoTitle = '';
+/**
+ * Tracks the YouTube videoId that the duration cache is currently valid for.
+ * Needed because player.getDuration() can return the OLD video's duration
+ * briefly after loadVideoById — the "lock on first valid read" pattern would
+ * otherwise cache the stale value and never update for subsequent videos.
+ * Cleared on loadYouTubeVideo / stopYouTubeMode so the next poll refreshes.
+ */
+let _lastDurationVideoId = '';
+let _videoDataPollCount = 0;
+export let _lastYtStateBroadcast = 0; // Cooldown to prevent duplicate broadcasts from UI + onStateChange
+let _lastYtBroadcastState = -1; // Last broadcast player state (for state-aware dedup)
 export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(); }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
@@ -95,8 +108,9 @@ export function loadYouTubeVideo(
   }
   setEngineMode('youtube');
 
-  setCachedYtDuration(0);
-  _lastYtStateBroadcast = 0;
+  setCachedYtDuration(0); // Reset duration cache for new video
+  _lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
+  _lastYtStateBroadcast = 0; // Allow immediate first broadcast for new session
   const sessionId = incrementSessionId();
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
@@ -192,24 +206,48 @@ function createYouTubePlayer(
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
   setYtAutoplayIntent(autoplay);
 
-  // Legacy-style player reuse: loadPlaylist or loadVideoById directly.
-  // No pause-back guard, no single-video enforcement — keep it simple.
+  // Reset sub-index cache so the sub-video auto-advance detector (in
+  // updateYouTubeUI) doesn't mistake the initial index of a freshly loaded
+  // track for a mid-playlist transition. The cache is populated on the
+  // first updateYouTubeUI tick after the player becomes ready.
+  setCachedYtPlaylistIdx(-1);
+
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
     try {
       if (playlistId) {
         if (Array.isArray(playlistId)) {
-          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
+          // Cap playlist size to prevent iframe crashes on 100+ item playlists.
+          // YouTube iframe memory usage scales with playlist length.
+          const WINDOW = 25;
+          let ids = playlistId;
+          let idx = subIndex;
+          if (ids.length > WINDOW * 2) {
+            const start = Math.max(0, subIndex - WINDOW);
+            ids = ids.slice(start, start + WINDOW * 2);
+            idx = subIndex - start;
+          }
+          existingPlayer.loadPlaylist(ids, idx, 0);
         } else {
           existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
         }
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
-      if (!autoplay && existingPlayer.pauseVideo) existingPlayer.pauseVideo();
+      // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
+      // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
       setYouTubeSubIndex(subIndex);
       setYtLoadInProgress(false);
+
+      // Suppress heartbeat state-sync for 5s after loading a new video.
+      // Without this, the host's heartbeat (state:1 from the PREVIOUS video)
+      // arrives before YOUTUBE_STATE and wakes the guest via state-sync
+      // (hostState=1, ytState≠1 → playVideo), causing the guest to play
+      // from position 0 while the host is still loading.
+      if (!autoplay) {
+        import('./sync.ts').then(mod => { mod.suppressDriftUntil(5000); }).catch(() => { /* noop */ });
+      }
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
@@ -231,7 +269,17 @@ function createYouTubePlayer(
 
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      playerVars.playlist = playlistId.join(',');
+      // Cap playlist size — 100+ IDs crash YouTube iframe on mobile
+      const WINDOW = 25;
+      let ids = playlistId;
+      let idx = subIndex;
+      if (ids.length > WINDOW * 2) {
+        const start = Math.max(0, subIndex - WINDOW);
+        ids = ids.slice(start, start + WINDOW * 2);
+        idx = subIndex - start;
+      }
+      playerVars.playlist = ids.join(',');
+      playerVars.index = idx;
     } else {
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
@@ -275,53 +323,37 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
 
   const player = getYouTubePlayer();
 
-  // ── Playlist Snapshot & Sync (Host Only) ──
-  // In single-video mode, we need subItemsMap populated for ALL playlist
-  // types (Mix RD, regular PL) so try-next/prev-internal can find sub-videos.
+  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
-    const snapshotId = playlistId;
-    log.debug('[YouTube] Scheduling playlist snapshot for subItemsMap...');
+  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
+    const mixId = playlistId; // Captured for closure
+    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
     // Wait a few seconds for YouTube to populate the internal playlist IDs
     setManagedTimer('yt-mix-snapshot', () => {
       try {
+        // Re-fetch player — original capture may be stale after 3s
         const freshPlayer = getYouTubePlayer();
         if (!freshPlayer?.getPlaylist) return;
         const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube] Snapshotting ${ids.length} items for subItemsMap:`, snapshotId);
+          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
+          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(snapshotId, ids, titles);
-
-          // Set initial sub-index if not already set
-          const currentSub = getState('youtube.currentSubIndex') ?? -1;
-          if (currentSub < 0) {
-            const currentIdx = freshPlayer.getPlaylistIndex?.() ?? 0;
-            setYouTubeSubIndex(currentIdx >= 0 ? currentIdx : 0);
-          }
-
+          setSubItemsData(mixId, ids, titles);
+          
+          // Broadcast to all guests so they use this static list instead of generating their own
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: snapshotId,
+            playlistId: mixId,
             ids,
             titles
           });
 
-          fetchPlaylistSubTitles(snapshotId, ids);
-
-          // Switch to single-video mode: free YouTube's playlist engine
-          // memory by loading just the current video. This prevents crashes
-          // on 200+ item playlists. Position is near 0 (just started) so
-          // the reset is harmless.
-          const subIdx = getState('youtube.currentSubIndex') ?? 0;
-          const currentId = ids[subIdx] || ids[0];
-          if (currentId && freshPlayer.loadVideoById) {
-            log.info(`[YouTube] Switching to single-video: ${currentId}`);
-            freshPlayer.loadVideoById(currentId);
-          }
+          // Trigger background oEmbed title fetching
+          fetchPlaylistSubTitles(mixId, ids);
         }
       } catch (e) {
-        log.warn('[YouTube] Playlist snapshot failed:', e);
+        log.warn('[YouTube Mix] Snapshot failed:', e);
       }
     }, 3000);
   }
@@ -359,51 +391,100 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
   const player = getYouTubePlayer();
-  if (!player) return;
+  if (!player) return; // Player destroyed during async state transition
   const state = event.data;
 
-  // Legacy-style: simple state handling, no pause-back guard
   if (state === YT.PlayerState.PLAYING) {
+    // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
+    // Do NOT reset intent to true here — loadPlaylist() is async and can fire
+    // multiple PLAYING events (BUFFERING→PLAYING, internal restart). Resetting
+    // on the first one lets the second slip through, causing the guest to play
+    // before the host's scheduleYtAutoSync countdown completes.
+    // Intent is set to true by scheduleYtAutoSync callers (youtube:auto-play,
+    // youtube:sub-video-advanced, etc.) when they're ready for playback.
+    if (!getYtAutoplayIntent()) {
+      player?.pauseVideo?.();
+      showLoader(false);
+      // The video loaded and started playing (loadPlaylist async completion).
+      // If autoPlayTimer is still pending, fire it NOW — the video is ready.
+      // This replaces time-based guessing (1s delay) with event-based detection:
+      // YouTube tells us it's ready by firing PLAYING, so we can proceed.
+      if (getManagedTimer('autoPlayTimer')) {
+        clearManagedTimer('autoPlayTimer');
+        bus.emit('youtube:auto-play');
+      }
+      return; // Don't broadcast or update UI — we're reverting to paused
+    }
     showYouTubeSyncOverlay(false);
     showLoader(false);
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
+    showLoader(false);
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.ENDED) {
-    clearManagedTimer('youtubeUILoop');
+    // Host: clear ALL loops and advance
+    // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
+    // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
+    // suppression (pause + wait for host) needs the loop running to detect
+    // the sub-index change. Only clear the sync broadcast loop (host-only).
     clearManagedTimer('youtubeSyncLoop');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
+      clearManagedTimer('youtubeUILoop');
+      // Host: skip IDLE state transition to prevent UI flash — next-track
+      // will call stopAllMedia({ silent: true }) which handles state internally.
       log.debug('[YouTube] Ended, playing next track...');
       bus.emit('playlist:next-track');
     } else {
-      // Guest: wait for host's command
-      log.debug('[YouTube] Guest: video ended — waiting for host');
+      // Guest: DON'T go IDLE immediately — host is about to send YOUTUBE_STATE
+      // with the next video. If we set IDLE now, handleYouTubeState() would
+      // drop the message (appState !== PLAYING_YOUTUBE guard). Wait up to 5s
+      // for the host's next-track command; fall back to IDLE if nothing arrives.
+      log.debug('[YouTube] Guest: video ended — waiting for host next-track');
       setManagedTimer('yt-guest-ended-fallback', () => {
+        // Host never sent next track (e.g. playlist truly ended) — clean up
+        clearManagedTimer('youtubeUILoop');
         if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+          log.debug('[YouTube] Guest: no next-track from host — going IDLE');
           setAppState(APP_STATE.IDLE);
           bus.emit('youtube:stop-mode');
         }
       }, 5_000);
     }
-    return;
+    return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
 
-  // Host broadcasts state to guests (legacy: simple 300ms dedup)
+  // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
   const hostConn = getState('network.hostConn');
-  if (!hostConn && player?.getCurrentTime) {
-    const now = Date.now();
-    if (now - _lastYtStateBroadcast > 300) {
-      _lastYtStateBroadcast = now;
-      broadcast({
-        type: MSG.YOUTUBE_STATE,
-        state,
-        time: player.getCurrentTime(),
-        subIndex: player.getPlaylistIndex?.() ?? -1,
-        videoId: player.getVideoData?.()?.video_id || '',
-      });
-    }
+  const now = Date.now();
+  // CRITICAL: also skip while a scheduled sync countdown (yt-auto-sync) or
+  // its post-playVideo grace window (yt-sync-grace) is active. During that
+  // window the player transitions PAUSED → BUFFERING → PLAYING (pause,
+  // seek, wait, play) and onStateChange fires for each transition. If the
+  // 300ms UI-dedupe cooldown elapses during this ~1s+ window, onStateChange
+  // will broadcast an auxiliary YOUTUBE_STATE{state:2, no hostPlayAt} for
+  // the transient PAUSED state — which the guest interprets as "host paused"
+  // and cancels its pending yt-clock-action, leaving guest paused while
+  // host resumes at the end of the countdown. scheduleYtAutoSync already
+  // broadcasts the authoritative state+hostPlayAt at the start of its
+  // sequence, so suppressing these in-flight auxiliary broadcasts is safe.
+  const syncInFlight = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
+  // State-aware cooldown: only suppress if same state was broadcast within 300ms.
+  // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
+  // pause→play within 300ms), leaving guests stuck in the old state for 3s
+  // until the next heartbeat corrected it.
+  const isDuplicateState = (state === _lastYtBroadcastState) && (now - _lastYtStateBroadcast < 300);
+  if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
+    _lastYtStateBroadcast = now;
+    _lastYtBroadcastState = state;
+    broadcast({
+      type: MSG.YOUTUBE_STATE,
+      state,
+      time: player.getCurrentTime(),
+      subIndex: player.getPlaylistIndex?.() ?? -1,
+      videoId: player.getVideoData?.()?.video_id || '',
+    });
   }
 }
 
@@ -457,9 +538,11 @@ function updateYouTubeUI(): void {
 
   try {
     const rawDuration = player.getDuration?.() || 0;
+    const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
 
-    // iOS watchdog
+    // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
+    // state=5 (CUED) is a normal pre-play state, not a playback failure
     if (IS_IOS && state === -1) {
       if (!getYtIOSWatchdog()) setYtIOSWatchdog(Date.now());
       if (Date.now() - getYtIOSWatchdog()! > 3000) {
@@ -469,24 +552,116 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
-    // Sub-index tracking (legacy style: poll getPlaylistIndex)
-    if (player.getPlaylistIndex) {
-      const playlistIdx = player.getPlaylistIndex();
-      const cachedIdx = getState('youtube.currentSubIndex') ?? -1;
-      if (playlistIdx >= 0 && playlistIdx !== cachedIdx) {
-        setYouTubeSubIndex(playlistIdx);
-        setCachedYtDuration(0);
-        // Host: emit sub-video-advanced for sync
-        const hostConn = getState('network.hostConn');
-        if (!hostConn && cachedIdx !== -1) {
-          bus.emit('youtube:sub-video-advanced');
+    // Reset cache when playlist sub-index changes (= different video)
+    if (playlistIdx !== getCachedYtPlaylistIdx()) {
+      const prevIdx = getCachedYtPlaylistIdx();
+      setCachedYtPlaylistIdx(playlistIdx);
+      setCachedYtDuration(0);
+      _lastYtVideoTitle = '';
+      _lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
+      _videoDataPollCount = 9; // Trigger getVideoData on the NEXT tick (not wait 5s)
+
+      const hostConn = getState('network.hostConn');
+
+      // ── Guest-side: suppress independent auto-advance ──────────────
+      // YouTube iframe auto-advances to the next video in a playlist
+      // independently on each device. In a Mix (RD...) playlist, the order
+      // is personalized per device, so the guest's "next" video is likely
+      // DIFFERENT from the host's. If we let the guest play freely,
+      // videoId mismatch detection (handleYouTubeSync, 3s heartbeat)
+      // eventually corrects it via loadVideoById, but this causes 3-6s
+      // of the guest playing the wrong video from position 0.
+      //
+      // Fix: immediately pause the guest and let the host's YOUTUBE_STATE
+      // (which arrives with the correct videoId and hostPlayAt within ~1s)
+      // drive the transition. This eliminates the wrong-video window.
+      if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
+        log.info(`[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`);
+        try { player.pauseVideo?.(); } catch { /* noop */ }
+        // Do NOT return here — fall through so title, duration, and seekbar
+        // UI updates still run. The pause is enough to suppress playback;
+        // returning early would freeze the UI on the previous track's metadata.
+      }
+
+      // ── Host-side: sub-video auto-advance detection ────────────────
+      // YouTube IFrame auto-advances between sub-videos in a playlist
+      // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
+      // path never runs and guests diverge until drift correction catches
+      // up. Detect the transition here and schedule an auto-sync (pause
+      // host briefly, broadcast hostPlayAt, resume everyone simultaneously).
+      if (!hostConn
+        && prevIdx !== -1
+        && playlistIdx >= 0
+        && !getManagedTimer('yt-auto-sync')
+        && !getManagedTimer('yt-sync-grace')
+      ) {
+        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
+        bus.emit('youtube:sub-video-advanced');
+      }
+
+      // Pre-emptive title update from subItemsMap (if available) for instant feedback
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      if (currentTrack?.playlistId && playlistIdx >= 0) {
+        const subMap = getState('youtube.subItemsMap') || {};
+        const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
+        if (cachedTitle) {
+          const currentMeta = getState('player.currentTrackMeta') || {};
+          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
+          _lastYtVideoTitle = cachedTitle;
         }
       }
     }
 
-    // Legacy-style seekbar update: just emit current time + duration
-    if (rawDuration > 0) {
-      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(rawDuration), currentTime, rawDuration);
+    // Update track title and videoId cache.
+    // getVideoData() is an expensive cross-iframe call. Only call it when
+    // the sub-index changed (detected above) or every ~5 seconds (10th tick)
+    // as a fallback for non-playlist single videos. Legacy v1 never called
+    // getVideoData() during polling, and the current version's 2x/second
+    // calls were a major contributor to iframe memory pressure and crashes.
+    _videoDataPollCount = (_videoDataPollCount + 1) % 10;
+    const shouldPollVideoData = (playlistIdx !== getCachedYtPlaylistIdx())  // sub-index just changed (already cached above)
+      ? false  // sub-index branch above already ran; title was set from subItemsMap
+      : (_videoDataPollCount === 0); // every 10th tick (~5s) for title/videoId sync
+
+    let currentVideoId = _lastDurationVideoId; // reuse cached value by default
+    if (shouldPollVideoData && player.getVideoData) {
+      const vData = player.getVideoData();
+      if (vData?.title && vData.title !== _lastYtVideoTitle) {
+        _lastYtVideoTitle = vData.title;
+        const currentMeta = getState('player.currentTrackMeta') || {};
+        setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
+      }
+      currentVideoId = vData?.video_id || '';
+
+      // Invalidate duration cache when videoId changes
+      if (currentVideoId && currentVideoId !== _lastDurationVideoId) {
+        if (_lastDurationVideoId !== '') {
+          setCachedYtDuration(0);
+        }
+        _lastDurationVideoId = currentVideoId;
+      }
+    }
+
+    // Commit the latest rawDuration whenever it diverges meaningfully from
+    // the cache. The old "lock on first valid read" pattern was fragile: a
+    // transitional poll could land on (new videoId, stale rawDuration) or
+    // (stale videoId, stale rawDuration) and permanently pin the cache to
+    // the previous video's duration. Re-reading every poll is cheap, and
+    // a small threshold keeps the emit quiet when rawDuration is stable.
+    if (rawDuration > 0 && Math.abs(rawDuration - getCachedYtDuration()) > 0.05) {
+      setCachedYtDuration(rawDuration);
+    }
+
+    const cachedDuration = getCachedYtDuration();
+    // Always emit time-update even when duration is 0 (new video loading).
+    // Without this, the seekbar freezes on the previous track's position
+    // until getDuration() returns a valid value for the new video.
+    // The seekbar handler (ui:time-update) guards on `duration > 0` for
+    // slider.max, so a 0 duration just means the thumb won't move but
+    // the current time text still updates.
+    {
+      const displayDuration = cachedDuration > 0 ? cachedDuration : rawDuration;
+      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(displayDuration), currentTime, displayDuration);
     }
   } catch {
     // Player not ready

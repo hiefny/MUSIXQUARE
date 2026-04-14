@@ -116,14 +116,7 @@ export function scheduleYtAutoSync(
     if (!p) return;
 
     markYtStateBroadcast();
-    broadcast({
-      type: MSG.YOUTUBE_SYNC,
-      time: p.getCurrentTime?.() || 0,
-      subIndex: getState('youtube.currentSubIndex') ?? -1,
-      videoId: p.getVideoData?.()?.video_id || '',
-      state: p.getPlayerState?.() || 1,
-      isManual: true, // Force all guests into Rendezvous mode
-    });
+    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(true));
     log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
   }, waitMs);
 }

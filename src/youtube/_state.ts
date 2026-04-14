@@ -11,7 +11,26 @@ import { getState, setState } from '../core/state.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
 
-let _youtubePlayer: any = null;
+export interface YouTubePlayerInstance {
+  loadVideoById(videoId: string): void;
+  loadPlaylist(args: string | string[] | { list: string; listType: string; index?: number; startSeconds?: number }, index?: number, startSeconds?: number): void;
+  cuePlaylist(args: string | string[], index: number, startSeconds: number): void;
+  pauseVideo(): void;
+  playVideo(): void;
+  stopVideo(): void;
+  destroy(): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  getCurrentTime(): number;
+  getDuration(): number;
+  getPlayerState(): number;
+  getPlaylistIndex(): number;
+  getVideoData(): { video_id?: string; title?: string; author?: string };
+  getPlaylist(): string[];
+  playVideoAt(index: number): void;
+  setVolume(volume: number): void;
+}
+
+let _youtubePlayer: YouTubePlayerInstance | null = null;
 let _currentYouTubeSessionId = 0;
 let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
@@ -37,7 +56,7 @@ let _cachedYtPlaylistIdx = -1;
 
 // ─── Getters ───────────────────────────────────────────────────────
 
-export function getYouTubePlayer(): any {
+export function getYouTubePlayer(): YouTubePlayerInstance | null {
   return _youtubePlayer;
 }
 
@@ -75,7 +94,7 @@ export function getCachedYtPlaylistIdx(): number {
 
 // ─── Setters ───────────────────────────────────────────────────────
 
-export function setYouTubePlayer(player: any): void {
+export function setYouTubePlayer(player: YouTubePlayerInstance | null): void {
   _youtubePlayer = player;
 }
 

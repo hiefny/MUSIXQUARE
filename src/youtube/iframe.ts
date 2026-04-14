@@ -315,7 +315,7 @@ function onYouTubePlayerReady(
   const player = getYouTubePlayer();
 
   // If we deferred a large array playlist to bypass the URL limit, load it now via postMessage.
-  if (Array.isArray(playlistId) && player.loadPlaylist) {
+  if (Array.isArray(playlistId) && player?.loadPlaylist) {
     log.debug(`[YouTube] Upgrading to full array playlist (${playlistId.length} items) via postMessage`);
     if (getYtAutoplayIntent()) {
       player.loadPlaylist(playlistId, subIndex, 0);

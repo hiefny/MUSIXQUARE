@@ -35,23 +35,7 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   }
 
   // Cancel any in-flight file transfer before switching to YouTube mode.
-  // Fixes: guest downloading a file when host switches to YouTube would
-  // finish the download and then run finalizeGuestFile, which overrides
-  // engineMode back to 'buffer', kills the iframe, and attaches the
-  // YouTube track's meta to an unrelated audio blob ("weird title").
-  const transferState = getState('transfer.state');
-  if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
-    log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
-    setState('transfer.skipIncomingFile', true);
-    setState('transfer.state', TRANSFER_STATE.IDLE);
-    setState('transfer.receivedCount', 0);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    clearManagedTimer('preloadWatchdog');
-    // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
-    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(e => { log.debug('[YouTube] clearReceiveState failed:', e); });
-    showLoader(false);
-  }
+  cancelInFlightTransfer();
 
   if (index !== undefined) {
     setState('playlist.currentTrackIndex', index);
@@ -61,8 +45,8 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
 }
 
 export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only Host
+  const isGuest = !!getState('network.hostConn');
+  if (isGuest) return; // Only Host handles peer requests
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-play from non-OP: ${conn?.peer}`);
@@ -76,8 +60,8 @@ export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: Da
 }
 
 export function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
+  const isGuest = !!getState('network.hostConn');
+  if (isGuest) return; // Only Host handles peer requests
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-pause from non-OP: ${conn?.peer}`);
@@ -101,8 +85,8 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
 }
 
 export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
+  const isGuest = !!getState('network.hostConn');
+  if (isGuest) return; // Only Host handles peer requests
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-toggle from non-OP: ${conn?.peer}`);
@@ -133,8 +117,8 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
 }
 
 export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
+  const isGuest = !!getState('network.hostConn');
+  if (isGuest) return; // Only Host handles peer requests
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected request-youtube-sub-seek from non-OP: ${conn?.peer}`);
@@ -178,8 +162,8 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
  * Sends cached IDs and titles from subItemsMap.
  */
 export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only Host handles this
+  const isGuest = !!getState('network.hostConn');
+  if (isGuest) return; // Only Host handles peer requests
 
   const pid = data.playlistId as string;
   if (!pid || !conn) return;
@@ -192,5 +176,25 @@ export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, 
       ids: subMap[pid].ids || [],
       titles: subMap[pid].titles || [],
     });
+  }
+}
+
+/**
+ * Encapsulates the cancellation of file transfers to prevent 
+ * leaky abstractions across module domains.
+ */
+function cancelInFlightTransfer(): void {
+  const transferState = getState('transfer.state');
+  if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
+    log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
+    setState('transfer.skipIncomingFile', true);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('transfer.receivedCount', 0);
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    clearManagedTimer('preloadWatchdog');
+    // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
+    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(e => { log.debug('[YouTube] clearReceiveState failed:', e); });
+    showLoader(false);
   }
 }

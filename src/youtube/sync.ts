@@ -179,10 +179,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
           log.debug('[YouTube Sync] Video mismatch but load in progress — skipping');
           return;
         }
-        // Single-video mode: just load the correct video directly.
-        // No playlist engine, no escalation — loadVideoById is lightweight.
+        // Single-video mode: load the correct video directly.
         log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loading via loadVideoById`);
         if (player.loadVideoById) {
+          setYtAutoplayIntent(false); // prevent premature play from loadVideoById's PLAYING event
           player.loadVideoById(hostVideoId);
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
@@ -559,6 +559,10 @@ function handleYouTubeState(data: Record<string, unknown>): void {
         // Single-video mode: just load the correct video directly.
         log.info(`[YouTube State] Video mismatch — loading ${hostVideoId}`);
         if (player.loadVideoById) {
+          // Set intent=false so the pause-back guard catches any premature
+          // PLAYING from loadVideoById. The scheduled yt-clock-action below
+          // sets intent=true right before the authorized playVideo.
+          setYtAutoplayIntent(false);
           player.loadVideoById(hostVideoId);
           if (subIndex !== undefined) setYouTubeSubIndex(subIndex);
           subIndexChanged = true;

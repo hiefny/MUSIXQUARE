@@ -464,13 +464,18 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
           setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
         }
 
-        // Load next sub-video and sync with guests
+        // Load next sub-video and sync with guests.
+        // Do NOT set autoplayIntent=true here — loadVideoById may trigger
+        // PLAYING, and the pause-back guard must catch it so the guest
+        // doesn't start before the 3s countdown completes.
+        // scheduleYtAutoSync sets intent=true right before its final playVideo.
         const pl = getYouTubePlayer();
         if (pl?.loadVideoById) {
-          setYtAutoplayIntent(true);
+          setYtAutoplayIntent(false);
           pl.loadVideoById(nextVideoId);
           import('./sync.ts').then(mod => mod.suppressDriftUntil(3000)).catch(() => {});
           import('../youtube/player.ts').then(mod => {
+            setYtAutoplayIntent(true);
             mod.scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
           }).catch(() => {});
         }

@@ -123,7 +123,6 @@ export function resetAdDetection(): void {
 // During auto-sync wait, suppress drift correction from handleYouTubeSync
 
 let _autoSyncUntil = 0;
-const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
 
 /** Suppress drift correction + state sync for the given duration.
  *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
@@ -523,7 +522,6 @@ export function cancelGuestRendezvous(): void {
  *   - _rendezvousInProgress → false (unblocks guestRendezvousSync re-entry)
  *   - _autoSyncUntil → 0 (re-enables drift correction immediately on next load)
  *   - _lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
- *   - _mixReloadedIds cleared (Mix reload suppression doesn't carry over)
  *   - resetAdDetection() for host-ad pause tracking
  *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate)
  *   - youtube:sync-loading overlay hidden
@@ -533,7 +531,6 @@ export function resetYouTubeSyncState(): void {
   _lastRendezvousAt = 0;
   _autoSyncUntil = 0;
   _lastHostSnapshot = null;
-  _mixReloadedIds.clear();
   resetAdDetection();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
@@ -832,20 +829,6 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   setSubItemsData(playlistId, ids, titles);
 
-  // If this is a YouTube Mix (RD...) and we are currently playing it,
-  // force a reload ONCE using the static ID list to match the Host's sequence.
-  if (playlistId.startsWith('RD')) {
-    const currentPlaylist = getState('playlist.items')?.[getState('playlist.currentTrackIndex')]?.playlistId;
-    if (currentPlaylist === playlistId && !_mixReloadedIds.has(playlistId)) {
-      _mixReloadedIds.add(playlistId);
-      log.info('[YouTube Mix] Forcing guest reload (once) with host-snapshot IDs:', playlistId);
-      const subIndex = getState('youtube.currentSubIndex') ?? 0;
-      import('./iframe.ts').then(mod => {
-        mod.loadYouTubeVideo(null, ids, true, subIndex);
-      }).catch(err => log.error('[YouTube Mix] Failed to load iframe module:', err));
-    }
-  }
-
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {
     fetchPlaylistSubTitles(playlistId, ids);
@@ -883,7 +866,6 @@ export function initYouTubeSync(): void {
   bus.on('youtube:load', () => {
     _autoSyncUntil = 0;
     resetAdDetection();
-    _mixReloadedIds.clear();
   });
 
   log.info('[YouTube Sync] Initialized');

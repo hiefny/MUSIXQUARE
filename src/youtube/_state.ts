@@ -13,8 +13,7 @@ import { getState, setState } from '../core/state.ts';
 
 export interface YouTubePlayerInstance {
   loadVideoById(videoId: string): void;
-  loadPlaylist(args: string | string[] | { list: string; listType: string; index?: number; startSeconds?: number }, index?: number, startSeconds?: number): void;
-  cuePlaylist(args: string | string[], index: number, startSeconds: number): void;
+  loadPlaylist(args: { list: string; listType: string; index?: number; startSeconds?: number }): void;
   pauseVideo(): void;
   playVideo(): void;
   stopVideo(): void;
@@ -26,7 +25,6 @@ export interface YouTubePlayerInstance {
   getPlaylistIndex(): number;
   getVideoData(): { video_id?: string; title?: string; author?: string };
   getPlaylist(): string[];
-  playVideoAt(index: number): void;
   setVolume(volume: number): void;
 }
 

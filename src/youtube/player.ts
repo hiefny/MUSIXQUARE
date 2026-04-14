@@ -193,7 +193,6 @@ export function stopYouTubeMode(): void {
   // on a null player, producing console errors and orphaned toasts.
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
-  clearManagedTimer('yt-bootstrap-sync');
   clearManagedTimer('yt-guest-ended-fallback');
 
   clearManagedTimer('yt-load-timeout');
@@ -909,35 +908,22 @@ export function initYouTube(): void {
         });
       }
 
-      // Delay the sync frame so the guest's async loadVideoById / loadPlaylist
-      // completes before the position arrives. An immediate YOUTUBE_SYNC would
-      // be overwritten by YouTube's iframe resetting to position 0 on load.
-      // Use YOUTUBE_STATE (not SYNC) with hostPlayAt so the guest's auto-sync
-      // path handles pause → seek → timed play correctly.
+      // Send sync frame immediately. Single-video mode means the guest does
+      // a quick loadVideoById (no async playlist engine load), so there's no
+      // need to delay. Use YOUTUBE_STATE (with hostPlayAt) when host is
+      // playing so the guest's auto-sync path handles pause → seek → timed
+      // play correctly; YOUTUBE_SYNC suffices when host is paused/at start.
       // NOTE: only the late-joining conn receives this — existing guests are
       // NOT disturbed (no broadcast, no host pause).
       if (autoplay && ytTime > 0) {
-        const BOOTSTRAP_DELAY = 2000;
-        setManagedTimer('yt-bootstrap-sync', () => {
-          if (!conn.open) return;
-          let freshTime = ytTime;
-          let freshSubIdx = subIdx;
-          let freshVideoId = currentVideoId;
-          try {
-            const freshPlayer = getYouTubePlayer();
-            if (freshPlayer?.getCurrentTime) freshTime = freshPlayer.getCurrentTime();
-            freshSubIdx = getState('youtube.currentSubIndex') ?? subIdx;
-            freshVideoId = freshPlayer?.getVideoData?.()?.video_id || currentVideoId;
-          } catch { /* noop */ }
-          safeSend(conn, {
-            type: MSG.YOUTUBE_STATE,
-            state: 1,
-            time: freshTime,
-            subIndex: freshSubIdx,
-            videoId: freshVideoId,
-            hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
-          });
-        }, BOOTSTRAP_DELAY);
+        safeSend(conn, {
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: ytTime,
+          subIndex: subIdx,
+          videoId: currentVideoId,
+          hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
+        });
       } else {
         // Host paused or at start — simple sync frame is fine
         safeSend(conn, {

@@ -24,7 +24,7 @@ declare const YT: any;
 
 export function handleYouTubePlay(data: Record<string, unknown>): void {
   const videoId = data.videoId as string | null;
-  const playlistId = data.playlistId as string | string[] | null;
+  const playlistId = data.playlistId as string | null;
   const index = data.index as number | undefined;
   const autoplay = data.autoplay as boolean | undefined;
   const subIndex = data.subIndex as number | undefined;

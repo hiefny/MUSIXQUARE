@@ -54,7 +54,7 @@ export function markYtStateBroadcast(): void { _lastYtStateBroadcast = Date.now(
 
 export function loadYouTubeVideo(
   videoId: string | null,
-  playlistId: string | string[] | null = null,
+  playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
@@ -161,10 +161,10 @@ export function loadYouTubeVideo(
         setYtLoadInProgress(false);
         return;
       }
-      createYouTubePlayer(videoId, playlistId as string | string[] | null, autoplay, subIndex);
+      createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
     };
   } else {
-    createYouTubePlayer(videoId, playlistId as string | string[] | null, autoplay, subIndex);
+    createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
   }
 
   // Safety timeout
@@ -191,7 +191,7 @@ export function loadYouTubeVideo(
 
 function createYouTubePlayer(
   videoId: string | null,
-  playlistId: string | string[] | null = null,
+  playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
@@ -218,12 +218,7 @@ function createYouTubePlayer(
     log.debug('[YouTube] Re-using existing player instance');
     try {
       if (playlistId) {
-        if (Array.isArray(playlistId)) {
-          // Full array — no windowing. loadPlaylist via postMessage has no URL limit.
-          existingPlayer.loadPlaylist(playlistId, subIndex, 0);
-        } else {
-          existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
-        }
+        existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
@@ -260,19 +255,9 @@ function createYouTubePlayer(
   };
 
   if (playlistId) {
-    if (Array.isArray(playlistId)) {
-      // 100+ IDs in playerVars.playlist create a massive iframe SRC URL that exceeds
-      // HTTP length limits, causing crashes on iOS/Mobile.
-      // Fix: start with just the target videoId, then upgrade to full playlist
-      // via loadPlaylist postMessage in onYouTubePlayerReady (no URL limit).
-      if (!videoId) {
-        videoId = playlistId[subIndex] || playlistId[0];
-      }
-    } else {
-      playerVars.listType = 'playlist';
-      playerVars.list = playlistId;
-      playerVars.index = subIndex;
-    }
+    playerVars.listType = 'playlist';
+    playerVars.list = playlistId;
+    playerVars.index = subIndex;
   }
 
   const playerOptions: Record<string, any> = {
@@ -280,7 +265,7 @@ function createYouTubePlayer(
     height: '100%',
     playerVars,
     events: {
-      onReady: () => onYouTubePlayerReady(playlistId, subIndex),
+      onReady: () => onYouTubePlayerReady(playlistId),
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
     },
@@ -300,8 +285,7 @@ function createYouTubePlayer(
 // ─── Player Events ─────────────────────────────────────────────────
 
 function onYouTubePlayerReady(
-  playlistId: string | string[] | null = null,
-  subIndex = 0,
+  playlistId: string | null = null,
 ): void {
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
@@ -314,23 +298,13 @@ function onYouTubePlayerReady(
 
   const player = getYouTubePlayer();
 
-  // If we deferred a large array playlist to bypass the URL limit, load it now via postMessage.
-  if (Array.isArray(playlistId) && player?.loadPlaylist) {
-    log.debug(`[YouTube] Upgrading to full array playlist (${playlistId.length} items) via postMessage`);
-    if (getYtAutoplayIntent()) {
-      player.loadPlaylist(playlistId, subIndex, 0);
-    } else {
-      player.cuePlaylist(playlistId, subIndex, 0);
-    }
-  }
-
   // ── Playlist Snapshot & Sync (Host Only) ──
   // Snapshot the resolved videoId list for ALL playlist types (PL and RD).
   // Mixes (RD) need this because YouTube generates them per-device.
   // Regular playlists (PL) need this so we can navigate via loadVideoById
   // instead of relying on the iframe's playlist engine (which OOMs on 200+ items).
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
+  if (!hostConn && playlistId && player?.getPlaylist) {
     const pid = playlistId; // Captured for closure
     log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
     // Wait a few seconds for YouTube to populate the internal playlist IDs

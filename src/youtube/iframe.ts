@@ -324,37 +324,41 @@ function onYouTubePlayerReady(
     }
   }
 
-  // ── YouTube Mix (RD...) Snapshot & Sync (Host Only) ──
+  // ── Playlist Snapshot & Sync (Host Only) ──
+  // Snapshot the resolved videoId list for ALL playlist types (PL and RD).
+  // Mixes (RD) need this because YouTube generates them per-device.
+  // Regular playlists (PL) need this so we can navigate via loadVideoById
+  // instead of relying on the iframe's playlist engine (which OOMs on 200+ items).
   const hostConn = getState('network.hostConn');
-  if (!hostConn && typeof playlistId === 'string' && playlistId.startsWith('RD') && player?.getPlaylist) {
-    const mixId = playlistId; // Captured for closure
-    log.debug('[YouTube Mix] Detected dynamic mix, scheduling host-side snapshot...');
+  if (!hostConn && typeof playlistId === 'string' && player?.getPlaylist) {
+    const pid = playlistId; // Captured for closure
+    log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
     // Wait a few seconds for YouTube to populate the internal playlist IDs
-    setManagedTimer('yt-mix-snapshot', () => {
+    setManagedTimer('yt-playlist-snapshot', () => {
       try {
         // Re-fetch player — original capture may be stale after 3s
         const freshPlayer = getYouTubePlayer();
         if (!freshPlayer?.getPlaylist) return;
         const ids = freshPlayer.getPlaylist();
         if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube Mix] Snapshotting ${ids.length} items for sync:`, mixId);
+          log.info(`[YouTube] Snapshotting ${ids.length} items for sync:`, pid);
           // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
           const titles = new Array(ids.length).fill('');
-          setSubItemsData(mixId, ids, titles);
-          
+          setSubItemsData(pid, ids, titles);
+
           // Broadcast to all guests so they use this static list instead of generating their own
           broadcast({
             type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: mixId,
+            playlistId: pid,
             ids,
             titles
           });
 
           // Trigger background oEmbed title fetching
-          fetchPlaylistSubTitles(mixId, ids);
+          fetchPlaylistSubTitles(pid, ids);
         }
       } catch (e) {
-        log.warn('[YouTube Mix] Snapshot failed:', e);
+        log.warn('[YouTube] Playlist snapshot failed:', e);
       }
     }, 3000);
   }

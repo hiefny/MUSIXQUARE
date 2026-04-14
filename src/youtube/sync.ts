@@ -76,7 +76,6 @@ export function resetAdDetection(): void {
 // During auto-sync wait, suppress drift correction from handleYouTubeSync
 
 let _autoSyncUntil = 0;
-const _mixReloadedIds = new Set<string>(); // Track which Mix IDs already reloaded (prevent 3s loop)
 
 /** Suppress drift correction + state sync for the given duration.
  *  Called from iframe.ts after loadVideoById/loadPlaylist to prevent
@@ -470,7 +469,6 @@ export function cancelGuestRendezvous(): void {
  *   - _rendezvousInProgress → false (unblocks guestRendezvousSync re-entry)
  *   - _autoSyncUntil → 0 (re-enables drift correction immediately on next load)
  *   - _lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
- *   - _mixReloadedIds cleared (Mix reload suppression doesn't carry over)
  *   - resetAdDetection() for host-ad pause tracking
  *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate)
  *   - youtube:sync-loading overlay hidden
@@ -479,7 +477,6 @@ export function resetYouTubeSyncState(): void {
   _rendezvousInProgress = false;
   _autoSyncUntil = 0;
   _lastHostSnapshot = null;
-  _mixReloadedIds.clear();
   resetAdDetection();
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
@@ -802,8 +799,7 @@ export function initYouTubeSync(): void {
   bus.on('youtube:load', () => {
     _autoSyncUntil = 0;
     resetAdDetection();
-    _mixReloadedIds.clear();
-  });
+    });
 
   log.info('[YouTube Sync] Initialized');
 }

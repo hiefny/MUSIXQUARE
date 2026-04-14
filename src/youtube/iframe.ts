@@ -26,7 +26,6 @@ import {
   isYtLoadInProgress, setYtLoadInProgress,
   getYtAutoplayIntent, setYtAutoplayIntent,
   getCachedYtDuration, setCachedYtDuration,
-  setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
   setSubItemsData,
 } from './_state.ts';
@@ -227,12 +226,6 @@ function createYouTubePlayer(
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
   setYtAutoplayIntent(autoplay);
 
-  // Reset sub-index cache so the sub-video auto-advance detector (in
-  // updateYouTubeUI) doesn't mistake the initial index of a freshly loaded
-  // track for a mid-playlist transition. The cache is populated on the
-  // first updateYouTubeUI tick after the player becomes ready.
-  setCachedYtPlaylistIdx(-1);
-
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
     log.debug('[YouTube] Re-using existing player instance');
@@ -278,17 +271,30 @@ function createYouTubePlayer(
     origin: window.location.origin,
   };
 
+  // Single-video mode: resolve to a single videoId when possible.
+  // YouTube's internal playlist engine scales memory with playlist size
+  // and crashes on 100+ items — avoid it wherever we can.
   if (playlistId) {
     if (Array.isArray(playlistId)) {
-      // Single-video mode: pick the one video at subIndex.
-      // Never feed YouTube an array — its internal playlist engine
-      // crashes on 100+ items.
-      const resolvedId = playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
-      if (resolvedId) videoId = resolvedId;
+      // ID array from subItemsMap — pick the one video at subIndex
+      const resolved = playlistId[Math.min(subIndex, playlistId.length - 1)] || playlistId[0];
+      if (resolved) videoId = resolved;
+      playlistId = null; // don't pass array to playerVars
+    } else if (videoId) {
+      // String playlistId + videoId: HOST initial load uses playerVars.list
+      // to discover playlist IDs via getPlaylist(). Guests never reach here
+      // because playlist.ts resolves to single videoId before broadcasting.
+      const hostConn = getState('network.hostConn');
+      if (!hostConn) {
+        // Host: use playlist loading for ID discovery, then switch to single-video
+        playerVars.listType = 'playlist';
+        playerVars.list = playlistId;
+        playerVars.index = subIndex;
+      }
+      // Guest: ignore playlistId, just use videoId (already set)
     } else {
-      // String playlistId (PLxxx, RDxxx): use YouTube's playlist loading
-      // ONLY for the initial load so getPlaylist() can populate subItemsMap.
-      // After that, all transitions use loadVideoById from subItemsMap.
+      // String playlistId without videoId — rare edge case.
+      // Must use playlist engine (no other way to resolve first video).
       playerVars.listType = 'playlist';
       playerVars.list = playlistId;
       playerVars.index = subIndex;
@@ -364,6 +370,16 @@ function onYouTubePlayerReady(playlistId: string | string[] | null = null): void
           });
 
           fetchPlaylistSubTitles(snapshotId, ids);
+
+          // Switch to single-video mode: load just the current video via
+          // loadVideoById, freeing YouTube's internal playlist engine memory.
+          // All subsequent navigation uses subItemsMap + loadVideoById.
+          const subIdx = getState('youtube.currentSubIndex') ?? 0;
+          const currentVideoId = ids[subIdx] || ids[0];
+          if (currentVideoId && freshPlayer.loadVideoById) {
+            log.debug(`[YouTube] Switching to single-video mode: ${currentVideoId}`);
+            freshPlayer.loadVideoById(currentVideoId);
+          }
         }
       } catch (e) {
         log.warn('[YouTube] Playlist snapshot failed:', e);

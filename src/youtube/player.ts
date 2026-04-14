@@ -69,91 +69,59 @@ export { loadYouTubeVideo } from './iframe.ts';
 // Every play/seek action delays 1s so all devices start simultaneously.
 
 /**
- * Schedule a YouTube play action with 1s sync delay.
- * Host: broadcast → pause → seek → wait 1s → play
- * Guest: receives hostPlayAt, waits until that moment, plays
+ * Immediate host action followed by a 2-second delayed rendezvous sync.
+ * Provides instant responsiveness for the host and immediate reaction for guests,
+ * with a precision "catch-up" (rendezvous) occurring 2 seconds later.
  */
 export function scheduleYtAutoSync(
   targetTime: number,
-  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; countdownMs?: number },
+  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; countdownMs?: number; state?: number },
 ): void {
   const player = getYouTubePlayer();
   if (!player) return;
 
-  // Cancel any pending sync
-  clearManagedTimer('yt-auto-sync');
+  const targetState = overrides?.state ?? 1; // Default to PLAYING
+  const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
+  const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
 
-  const countdown = overrides?.countdownMs ?? YT_AUTO_SYNC_MS;
-  const hostPlayAt = getHostNow() + countdown;
+  // 1. Host: Execute action immediately
+  if (!overrides?.skipSeek && targetTime >= 0) {
+    player.seekTo(targetTime, true);
+  }
+  if (targetState === 1) {
+    setYtAutoplayIntent(true);
+    player.playVideo?.();
+  } else if (targetState === 2) {
+    player.pauseVideo?.();
+  }
 
-  // 1. Broadcast to guests with 1s ahead
+  // 2. Immediate broadcast to guests (Reaction)
   markYtStateBroadcast();
   broadcast({
     type: MSG.YOUTUBE_STATE,
-    state: 1, // PLAYING
+    state: targetState,
     time: targetTime,
-    subIndex: overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1,
-    videoId: overrides?.videoId ?? player.getVideoData?.()?.video_id ?? '',
-    hostPlayAt,
+    subIndex,
+    videoId,
+    hostPlayAt: 0, // Direct sync signal
   });
 
-  // 2. Force-pause + seek for clean sync (while paused = no auto-play on
-  // mobile). NO `=== 1` guard here — we intentionally fire pauseVideo even
-  // when getPlayerState() reports PAUSED, because the reported state can
-  // lag reality during the post-playVideo transition window (the 500ms
-  // yt-sync-grace). If a seek arrives in that window and we trusted the
-  // stale PAUSED reading, we'd skip pausing, and YouTube's async state
-  // transition would complete moments later — player would be PLAYING
-  // while our sync spinner is spinning and the new countdown is armed,
-  // leading to "spinner up but video is actually playing" desync.
-  // pauseVideo on an already-paused / CUED / UNSTARTED player is a safe
-  // no-op per YouTube IFrame API.
-  player.pauseVideo?.();
-  if (!overrides?.skipSeek) player.seekTo(targetTime, true);
-  markYtStateBroadcast(); // Re-suppress after pause/seek triggers onStateChange
-
-  // 3. Show loading state
-  bus.emit('youtube:sync-loading', true);
-  showToast(t('toast.yt_sync_start'));
-
-  // 4. After countdown: play simultaneously
+  // 3. Schedule precision rendezvous broadcast (2 seconds later)
+  clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {
     const p = getYouTubePlayer();
-    if (!p?.playVideo) {
-      bus.emit('youtube:sync-loading', false);
-      return;
-    }
-    markYtStateBroadcast();
-    setYtAutoplayIntent(true);
-    p.playVideo();
+    if (!p) return;
 
-    // playVideo() is async — getPlayerState() may not reflect PLAYING
-    // immediately. Check after 300ms; if still not playing, retry.
-    let retries = 0;
-    const verifyPlay = (): void => {
-      const pl = getYouTubePlayer();
-      if (!pl) { bus.emit('youtube:sync-loading', false); return; }
-      const st = pl.getPlayerState?.() ?? -1;
-      if (st === 1 || st === 3) { // PLAYING or BUFFERING — success
-        bus.emit('youtube:sync-loading', false);
-        showToast(t('toast.yt_sync_done'));
-        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
-        return;
-      }
-      if (retries < 3) {
-        retries++;
-        markYtStateBroadcast();
-        setYtAutoplayIntent(true);
-        pl.playVideo?.();
-        setManagedTimer('yt-auto-sync', verifyPlay, 500);
-      } else {
-        // Give up retrying — clear loading state
-        bus.emit('youtube:sync-loading', false);
-        setManagedTimer('yt-sync-grace', () => { /* grace window marker */ }, 500);
-      }
-    };
-    setManagedTimer('yt-auto-sync', verifyPlay, 300);
-  }, countdown);
+    markYtStateBroadcast();
+    broadcast({
+      type: MSG.YOUTUBE_SYNC, // Rendezvous mode for fine-tuning
+      time: p.getCurrentTime?.() || 0,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
+      videoId: p.getVideoData?.()?.video_id || '',
+      state: p.getPlayerState?.() || 1,
+    });
+    log.debug('[YouTube] Sync: Precision rendezvous follow-up sent');
+  }, 2000);
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during countdown). */
@@ -170,14 +138,18 @@ export function stopYouTubeMode(): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  setYouTubeSubIndex(-1);
+  const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+  // Preservation: do not reset sub-index to -1 if we are already in YouTube mode
+  // and just cycling players/videos (prevents highlight flickering).
+  if (!wasInYouTube) {
+    setYouTubeSubIndex(-1);
+  }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
 
   // Only broadcast YOUTUBE_STOP when actually leaving YouTube mode
   // (prevents spurious stop from stopAllMedia→stopYouTubeMode inside loadYouTubeVideo
   //  which would kill the guest's YouTube player right after YOUTUBE_PLAY)
   const currentState = getState('appState');
-  const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
 
   if (wasInYouTube) {
     setAppState(APP_STATE.IDLE);
@@ -185,6 +157,9 @@ export function stopYouTubeMode(): void {
 
   clearManagedTimer('youtubeUILoop');
   clearManagedTimer('youtubeSyncLoop');
+  clearManagedTimer('yt-playlist-load-guard');
+  clearManagedTimer('yt-first-track-fisher');
+  clearManagedTimer('yt-playlist-snapshot');
   cancelYtAutoSync(); // Clear pending auto-sync timer + loading state
 
   // M2: Clear the guest-side yt-clock-action timer (scheduled by
@@ -422,12 +397,9 @@ export function initYouTube(): void {
 
   bus.on('youtube:stop-playback', () => {
     const player = getYouTubePlayer();
-    if (!player) return;
-    try {
-      player.stopVideo();
-      broadcast({ type: MSG.YOUTUBE_STATE, state: -1, time: 0, subIndex: getState('youtube.currentSubIndex') ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
-    } catch (e) {
-      log.error('[YouTube] Stop error:', e);
+    if (player?.pauseVideo) {
+      const time = player.getCurrentTime?.() || 0;
+      scheduleYtAutoSync(time, { state: 2 });
     }
   });
 
@@ -520,21 +492,54 @@ export function initYouTube(): void {
   bus.on('youtube:try-next-internal', (callback) => {
     const player = getYouTubePlayer();
     if (!player?.loadVideoById || typeof callback !== 'function') { callback(false); return; }
+
+    const playlistItems = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const currentTrack = playlistItems[currentTrackIndex];
+    const pid = currentTrack?.playlistId as string;
+
+    // Playlist Loading Guard: skip navigation if we're still initializing the playlist
+    // BUT allow if we already have IDs (handling the short-video edge case).
+    if (pid && getManagedTimer('yt-playlist-load-guard')) {
+      const subMap = getState('youtube.subItemsMap') || {};
+      const subData = subMap[pid];
+      if (!subData || !subData.ids.length) {
+        showToast(t('youtube.loading_playlist'));
+        callback(true); // Handled, but no-op
+        return;
+      }
+    }
+
     try {
       // Single-video mode: always drive navigation via loadVideoById using
       // the host-snapshotted subItemsMap. We never call playVideoAt — the
       // iframe's playlist engine is what OOMs on 200+ item playlists, so we
       // keep the iframe on one video at a time.
       const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[currentTrack?.playlistId as string];
+      const pid = currentTrack?.playlistId as string;
+      if (!pid) { callback(false); return; }
+
+      let subMap = getState('youtube.subItemsMap') || {};
+      let subData = subMap[pid];
+
+      // Emergency population: if map is empty, try to grab IDs from player immediately.
+      // Helps when user clicks 'Next' before the background snapshot/fetcher fires.
+      if ((!subData || !subData.ids.length) && player.getPlaylist) {
+        const rawIds = player.getPlaylist() || [];
+        if (rawIds.length > 0) {
+          const ids = rawIds.slice(0, 100);
+          updateSubItemIds(pid, ids);
+          subData = { ids, titles: [] }; // Locally use for this tick
+        }
+      }
+
       const idx = getState('youtube.currentSubIndex') ?? -1;
       if (subData?.ids && idx >= 0 && idx < subData.ids.length - 1) {
         const nextIdx = idx + 1;
         const nextVideoId = subData.ids[nextIdx];
         setYouTubeSubIndex(nextIdx);
         player.loadVideoById(nextVideoId);
-        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
+        scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true });
         callback(true);
         return;
       }
@@ -545,6 +550,23 @@ export function initYouTube(): void {
   bus.on('youtube:try-prev-internal', (callback) => {
     const player = getYouTubePlayer();
     if (!player || typeof callback !== 'function') { callback(false); return; }
+
+    const playlistItems = getState('playlist.items') || [];
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const currentTrack = playlistItems[currentTrackIndex];
+    const pid = currentTrack?.playlistId as string;
+
+    // Playlist Loading Guard (same as try-next)
+    if (pid && getManagedTimer('yt-playlist-load-guard')) {
+      const subMap = getState('youtube.subItemsMap') || {};
+      const subData = subMap[pid];
+      if (!subData || !subData.ids.length) {
+        showToast(t('youtube.loading_playlist'));
+        callback(true);
+        return;
+      }
+    }
+
     try {
       const currentTime = player.getCurrentTime();
       if (currentTime > 3) {
@@ -554,17 +576,29 @@ export function initYouTube(): void {
         return;
       }
       const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[currentTrack?.playlistId as string];
+      const pid = currentTrack?.playlistId as string;
+      if (!pid) { callback(false); return; }
+
+      let subMap = getState('youtube.subItemsMap') || {};
+      let subData = subMap[pid];
+
+      // Emergency population (same as try-next-internal)
+      if ((!subData || !subData.ids.length) && player.getPlaylist) {
+        const rawIds = player.getPlaylist() || [];
+        if (rawIds.length > 0) {
+          const ids = rawIds.slice(0, 100);
+          updateSubItemIds(pid, ids);
+          subData = { ids, titles: [] };
+        }
+      }
+
       const idx = getState('youtube.currentSubIndex') ?? -1;
       if (subData?.ids && idx > 0) {
         const prevIdx = idx - 1;
         const prevVideoId = subData.ids[prevIdx];
         setYouTubeSubIndex(prevIdx);
-        // Single-video mode: always loadVideoById (see try-next-internal).
         player.loadVideoById(prevVideoId);
-        // 1s auto-sync: guests load same subIndex, all play simultaneously
-        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true, countdownMs: 3000 });
+        scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true });
         callback(true);
         return;
       }
@@ -574,7 +608,7 @@ export function initYouTube(): void {
 
   bus.on('youtube:broadcast-sync', () => {
     // Imported dynamically to avoid circular deps
-    import('./sync.ts').then(mod => mod.broadcastYouTubeSync());
+    import('./sync.ts').then(mod => mod.broadcastYouTubeSync(true));
   });
 
   // YouTube preview (from URL input)
@@ -599,12 +633,33 @@ export function initYouTube(): void {
       title: title,
       videoId: videoId || null,
       playlistId: playlistId || null,
+      isExpanded: !!playlistId, // Auto-expand playlist items
     };
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
+
+    // Trigger UI to reveal the track list immediately
+    if (playlistId) {
+      bus.emit('youtube:populate-sub-items', playlistId, newIndex);
+    }
+
     const currentState = getState('appState');
     const isIdle = currentState === APP_STATE.IDLE;
+
+    // Apply a loading guard if this is a playlist, giving the player enough 
+    // time (4s) to populate its internal list before allowing navigation.
+    if (playlistId) {
+      log.debug('[YouTube] Applied playlist-load-guard:', playlistId);
+      bus.emit('youtube:sync-loading', true);
+      setManagedTimer('yt-playlist-load-guard', () => {
+        bus.emit('youtube:sync-loading', false);
+      }, 4000);
+
+      setManagedTimer('yt-playlist-load-guard', () => {
+        bus.emit('youtube:sync-loading', false);
+      }, 4000);
+    }
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
@@ -629,6 +684,13 @@ export function initYouTube(): void {
       loadYouTubeVideo(videoId, playlistId, false);
       _pendingAutoSyncOnReady = true;
       setState('playlist.currentTrackIndex', newIndex);
+
+      // Final Pre-population Guard: Ensure index 0 and first ID are set AFTER player cleanup.
+      // This is the definitive fix for the immediate navigation / highlight flicker bug.
+      if (playlistId) {
+        setYouTubeSubIndex(0);
+        if (videoId) updateSubItemIds(playlistId, [videoId]);
+      }
     } else {
       showToast(t('youtube.added_to_playlist'));
     }
@@ -699,7 +761,13 @@ export function initYouTube(): void {
     }
 
     const videoId = extractYouTubeVideoId(url);
-    const playlistId = extractYouTubePlaylistId(url);
+    let playlistId = extractYouTubePlaylistId(url);
+
+    // Filter out Mix playlists (RD...) if a video ID is present to avoid
+    // unintentional addition of auto-generated lists (Single-track intent)
+    if (videoId && playlistId && playlistId.startsWith('RD')) {
+      playlistId = null;
+    }
 
     if (!videoId && !playlistId) {
       showToast(t('youtube.invalid_link'));
@@ -757,6 +825,18 @@ export function initYouTube(): void {
       }
       player.loadVideoById(targetVideoId);
       setYouTubeSubIndex(subIdx);
+
+      // Pre-emptive title update for instant UI feedback
+      const cachedTitle = subMap[currentTrack.playlistId as string]?.titles?.[subIdx];
+      if (cachedTitle) {
+        const meta = getState('player.currentTrackMeta');
+        if (meta) setState('player.currentTrackMeta', { ...meta, title: cachedTitle });
+      }
+
+      // Prioritize fetching title for the newly selected index (if missing)
+      if (currentTrack.playlistId && ids.length > 0) {
+        fetchPlaylistSubTitles(currentTrack.playlistId as string, ids);
+      }
       scheduleYtAutoSync(0, {
         subIndex: subIdx,
         videoId: targetVideoId,
@@ -783,7 +863,11 @@ export function initYouTube(): void {
 
     if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
-        ids = player.getPlaylist() || [];
+        const rawIds = player.getPlaylist() || [];
+        if (rawIds.length > 100) {
+          showToast(t('youtube.playlist_truncated'));
+        }
+        ids = rawIds.slice(0, 100);
       } catch (e) { log.debug('[YouTube] getPlaylist() not ready:', e); }
     }
 
@@ -823,7 +907,13 @@ export function initYouTube(): void {
     }
 
     const videoId = extractYouTubeVideoId(url);
-    const playlistId = extractYouTubePlaylistId(url);
+    let playlistId = extractYouTubePlaylistId(url);
+
+    // Filter out Mix playlists (RD...) if a video ID is present
+    if (videoId && playlistId && playlistId.startsWith('RD')) {
+      playlistId = null;
+    }
+
     if (!videoId && !playlistId) {
       showToast(t('youtube.invalid_link'));
       return;

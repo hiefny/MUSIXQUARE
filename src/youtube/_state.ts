@@ -5,7 +5,7 @@
  * so that iframe.ts, handlers.ts, and player.ts can all share state
  * without circular dependencies.
  */
-
+import { log } from '../core/log.ts';
 import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
 
@@ -140,6 +140,7 @@ export function setCachedYtPlaylistIdx(idx: number): void {
  * MUST use this function instead of calling setState directly.
  */
 export function setYouTubeSubIndex(index: number): void {
+  log.debug(`[YouTube State] setYouTubeSubIndex: ${getState('youtube.currentSubIndex')} -> ${index}`);
   setState('youtube.currentSubIndex', index);
 }
 
@@ -204,4 +205,28 @@ export function setSubItemsData(playlistId: string, ids: string[], titles: strin
   const subMap = { ..._getSubMap() };
   subMap[playlistId] = { ids: ids || [], titles: titles || [] };
   setState('youtube.subItemsMap', _pruneSubMap(subMap));
+}
+/** Update multiple sub-item titles at once (minimizes setState calls). */
+export function updateSubItemTitlesBulk(playlistId: string, updates: { index: number; title: string }[]): void {
+  const subMap = _getSubMap();
+  const entry = subMap[playlistId];
+  if (!entry || updates.length === 0) return;
+
+  const newTitles = [...entry.titles];
+  let changed = false;
+
+  for (const update of updates) {
+    while (newTitles.length <= update.index) newTitles.push('');
+    if (newTitles[update.index] !== update.title) {
+      newTitles[update.index] = update.title;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    setState('youtube.subItemsMap', _pruneSubMap({ 
+      ...subMap, 
+      [playlistId]: { ...entry, titles: newTitles } 
+    }));
+  }
 }

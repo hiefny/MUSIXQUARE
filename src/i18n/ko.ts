@@ -96,7 +96,7 @@ const ko = {
   'playlist.remove_message': '이 미디어를 재생목록에서 지울까요?',
   'playlist.remove_yes': '지우기',
   'playlist.remove_no': '아니요',
-  'playlist.video_fallback': '영상 {{idx}}',
+  'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
 
   // ─── Role ────────────────────────────────────────────────────────
@@ -305,7 +305,9 @@ const ko = {
   'youtube.playing_in_3s': '3초 후 YouTube 재생...',
   'youtube.open_link': 'YouTube 링크 열기',
   'youtube.tap_to_play': '탭하여 재생',
-  'youtube.added_to_playlist': '재생 목록에 추가되었어요',
+  'youtube.added_to_playlist': '재생 목록에 추가되었습니다',
+  'youtube.playlist_truncated': '플레이리스트가 너무 길어 앞의 100곡만 가져왔어요.',
+  'youtube.loading_playlist': '재생목록 정보를 불러오는 중입니다... (약 4초)',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': '연결이 끊어졌어요',

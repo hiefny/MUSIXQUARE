@@ -98,7 +98,7 @@ const en: Record<I18nKey, string> = {
   'playlist.remove_message': 'Remove this media from the playlist?',
   'playlist.remove_yes': 'Remove',
   'playlist.remove_no': 'No',
-  'playlist.video_fallback': 'Video {{idx}}',
+  'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
 
   // ─── Role ────────────────────────────────────────────────────────
@@ -308,6 +308,8 @@ const en: Record<I18nKey, string> = {
   'youtube.open_link': 'Open YouTube link',
   'youtube.tap_to_play': 'TAP TO PLAY',
   'youtube.added_to_playlist': 'Added to playlist',
+  'youtube.playlist_truncated': 'Playlist is too long. Only the first 100 tracks were loaded.',
+  'youtube.loading_playlist': 'Loading playlist info... (approx. 4s)',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Disconnected',

@@ -28,6 +28,7 @@ import {
   getCachedYtDuration, setCachedYtDuration,
   getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
+  updateSubItemIds,
   setSubItemsData,
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -265,7 +266,7 @@ function createYouTubePlayer(
     height: '100%',
     playerVars,
     events: {
-      onReady: () => onYouTubePlayerReady(playlistId),
+      onReady: onYouTubePlayerReady,
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
     },
@@ -284,9 +285,7 @@ function createYouTubePlayer(
 
 // ─── Player Events ─────────────────────────────────────────────────
 
-function onYouTubePlayerReady(
-  playlistId: string | null = null,
-): void {
+function onYouTubePlayerReady(): void {
   setYtLoadInProgress(false);
   log.debug('[YouTube] Player ready');
 
@@ -297,44 +296,34 @@ function onYouTubePlayerReady(
   }
 
   const player = getYouTubePlayer();
+  const currentTrack = getState('player.currentTrackMeta');
+  const pid = currentTrack?.playlistId as string;
 
   // ── Playlist Snapshot & Sync (Host Only) ──
-  // Snapshot the resolved videoId list for ALL playlist types (PL and RD).
-  // Mixes (RD) need this because YouTube generates them per-device.
-  // Regular playlists (PL) need this so we can navigate via loadVideoById
-  // instead of relying on the iframe's playlist engine (which OOMs on 200+ items).
   const hostConn = getState('network.hostConn');
-  if (!hostConn && playlistId && player?.getPlaylist) {
-    const pid = playlistId; // Captured for closure
-    log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
-    // Wait a few seconds for YouTube to populate the internal playlist IDs
-    setManagedTimer('yt-playlist-snapshot', () => {
+  if (!hostConn && pid && player?.getPlaylist) {
+    log.debug('[YouTube] Scheduling host-side playlist snapshot (3.5s):', pid);
+    setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), 3500);
+
+    // Aggressive First-Track Fisher: Poll every 100ms for 2s to catch the first video ID.
+    // This makes the 1st track highlight appear almost instantly even without a v= parameter.
+    let fisherCount = 0;
+    setManagedTimer('yt-first-track-fisher', () => {
       try {
-        // Re-fetch player — original capture may be stale after 3s
-        const freshPlayer = getYouTubePlayer();
-        if (!freshPlayer?.getPlaylist) return;
-        const ids = freshPlayer.getPlaylist();
-        if (Array.isArray(ids) && ids.length > 0) {
-          log.info(`[YouTube] Snapshotting ${ids.length} items for sync:`, pid);
-          // Snapshot IDs and clear titles (let fetchPlaylistSubTitles fill them)
-          const titles = new Array(ids.length).fill('');
-          setSubItemsData(pid, ids, titles);
-
-          // Broadcast to all guests so they use this static list instead of generating their own
-          broadcast({
-            type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: pid,
-            ids,
-            titles
-          });
-
-          // Trigger background oEmbed title fetching
-          fetchPlaylistSubTitles(pid, ids);
+        const p = getYouTubePlayer();
+        const vid = p?.getVideoData?.()?.video_id;
+        if (vid) {
+          const subMap = getState('youtube.subItemsMap') || {};
+          const existing = subMap[pid]?.ids || [];
+          // Only update if we don't have IDs yet, or if it's currently a single-track list
+          if (existing.length <= 1) {
+            updateSubItemIds(pid, [vid]);
+          }
+          clearManagedTimer('yt-first-track-fisher');
         }
-      } catch (e) {
-        log.warn('[YouTube] Playlist snapshot failed:', e);
-      }
-    }, 3000);
+      } catch { /* ignore */ }
+      if (++fisherCount > 20) clearManagedTimer('yt-first-track-fisher');
+    }, 100, { interval: true });
   }
 
   // Start UI update loop
@@ -374,25 +363,29 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   const state = event.data;
 
   if (state === YT.PlayerState.PLAYING) {
+    // Host: If playlist sub-item data is still missing, attempt immediate snapshot.
+    // This allows immediate Next/Prev navigation and highlights as soon as playback starts.
+    const hostConn = getState('network.hostConn');
+    if (!hostConn) {
+      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const pid = currentTrack?.playlistId;
+      const subMap = getState('youtube.subItemsMap') || {};
+      if (pid && (!subMap[pid] || !subMap[pid].ids.length)) {
+        log.debug('[YouTube] Playback started — triggering immediate playlist snapshot');
+        _triggerPlaylistSnapshot(pid);
+      }
+    }
+
     // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
-    // Do NOT reset intent to true here — loadPlaylist() is async and can fire
-    // multiple PLAYING events (BUFFERING→PLAYING, internal restart). Resetting
-    // on the first one lets the second slip through, causing the guest to play
-    // before the host's scheduleYtAutoSync countdown completes.
-    // Intent is set to true by scheduleYtAutoSync callers (youtube:auto-play,
-    // youtube:sub-video-advanced, etc.) when they're ready for playback.
     if (!getYtAutoplayIntent()) {
       player?.pauseVideo?.();
       showLoader(false);
       // The video loaded and started playing (loadPlaylist async completion).
-      // If autoPlayTimer is still pending, fire it NOW — the video is ready.
-      // This replaces time-based guessing (1s delay) with event-based detection:
-      // YouTube tells us it's ready by firing PLAYING, so we can proceed.
       if (getManagedTimer('autoPlayTimer')) {
         clearManagedTimer('autoPlayTimer');
         bus.emit('youtube:auto-play');
       }
-      return; // Don't broadcast or update UI — we're reverting to paused
+      return; // Don't broadcast or update UI yet
     }
     showYouTubeSyncOverlay(false);
     showLoader(false);
@@ -777,4 +770,56 @@ export function refreshYouTubeDisplay(): void {
   }
 
   window.dispatchEvent(new Event('resize'));
+}
+
+/**
+ * Snapshot the resolved videoId list from the YouTube player's internal queue.
+ * This is the ONLY way to get the correct list for RD (Mixes) and also
+ * allows us to bypass the IFrame's OOM-prone playlist engine for PL-type lists.
+ */
+function _triggerPlaylistSnapshot(pid: string): void {
+  try {
+    const player = getYouTubePlayer();
+    if (!player?.getPlaylist) return;
+
+    const ids = (player.getPlaylist() || []).slice(0, 100);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      log.debug('[YouTube Snapshot] Player returned empty list, giving up');
+      return;
+    }
+
+    const subMap = getState('youtube.subItemsMap') || {};
+    const existingIds = subMap[pid]?.ids || [];
+
+    // CRITICAL: If the player is in single-video mode (loadVideoById), getPlaylist() 
+    // often returns an array of length 1. Do not overwrite our full list with this.
+    if (existingIds.length > 1 && ids.length <= 1) {
+      log.debug('[YouTube Snapshot] Ignoring skewed snapshot (single-video mode):', pid);
+      return;
+    }
+
+    log.info(`[YouTube Snapshot] Captured ${ids.length} items:`, pid);
+    
+    // Preserve any titles already fetched or cached
+    const existingTitles = subMap[pid]?.titles || [];
+    const titles = ids.map((_, idx) => existingTitles[idx] || '');
+
+    setSubItemsData(pid, ids, titles);
+
+    // Broadcast to guests so they use this static list for sub-navigation
+    broadcast({
+      type: MSG.YOUTUBE_PLAYLIST_INFO,
+      playlistId: pid,
+      ids,
+      titles
+    });
+
+    // Start fetching titles in the background
+    fetchPlaylistSubTitles(pid, ids);
+    
+    // Clear any pending snapshot timers as we just finished it
+    clearManagedTimer('yt-playlist-snapshot');
+  } catch (e) {
+    log.warn('[YouTube Snapshot] Error:', e);
+  }
 }

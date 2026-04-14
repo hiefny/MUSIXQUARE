@@ -11,7 +11,7 @@ import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
-import { updateSubItemTitle } from './_state.ts';
+import { updateSubItemTitle, updateSubItemTitlesBulk } from './_state.ts';
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
@@ -225,23 +225,11 @@ let _subTitleAbort: AbortController | null = null;
 
 /**
  * Background oEmbed fetcher for YouTube playlist sub-item titles.
- * Sequentially fetches titles with 200ms delay between requests.
- * Updates state, UI, and broadcasts to peers as titles arrive.
- *
- * Lazy mode (default): only fetches titles around the current sub-index
- * (±WINDOW items). Full 100-track fetches hammered the network with
- * 100 oEmbed requests, 100 setState spreads, and 100 broadcasts —
- * causing GC pressure and mobile crashes on long Mix sessions.
- *
- * When called again (e.g. playlist switch), the previous fetch loop
- * is cancelled via AbortController to avoid unnecessary network + setState.
  */
-const LAZY_WINDOW = 5; // fetch current ± 5 titles (11 total max)
-
 export async function fetchPlaylistSubTitles(
   playlistId: string,
   ids: string[],
-  options?: { fullFetch?: boolean },
+  _options?: { fullFetch?: boolean },
 ): Promise<void> {
   if (!ids || ids.length === 0) return;
 
@@ -257,30 +245,34 @@ export async function fetchPlaylistSubTitles(
   const abort = new AbortController();
   _subTitleAbort = abort;
 
-  // Determine which indices to fetch
   const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
-  let startIdx = 0;
-  let endIdx = ids.length;
-  if (!options?.fullFetch) {
-    startIdx = Math.max(0, currentSubIndex - LAZY_WINDOW);
-    endIdx = Math.min(ids.length, currentSubIndex + LAZY_WINDOW + 1);
-  }
 
-  log.debug(`[YouTube Feed] Title fetch for ${playlistId}: indices ${startIdx}-${endIdx - 1} of ${ids.length}`);
+  // Collect all indices that need fetching (missing titles)
+  const pendingIndices = ids
+    .map((_, index) => index)
+    .filter(index => !data.titles[index])
+    // Priority sort: closest to current playback first
+    .sort((a, b) => Math.abs(a - currentSubIndex) - Math.abs(b - currentSubIndex));
+
+  if (pendingIndices.length === 0) return;
+
+  log.debug(`[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`);
 
   try {
-    for (let i = startIdx; i < endIdx; i++) {
+    let processedCount = 0;
+    let batchBuffer: { index: number; title: string }[] = [];
+    const lastPendingIdx = pendingIndices[pendingIndices.length - 1];
+
+    for (const i of pendingIndices) {
       if (abort.signal.aborted) return;
 
+      // Double-check map entry still exists
       const currentMap = getState('youtube.subItemsMap') || {};
       const currentData = currentMap[playlistId];
       if (!currentData) break;
 
-      // Skip if already has title
-      if (currentData.titles[i]) {
-        // Skip delay when title is already cached — no network request needed
-        continue;
-      }
+      // Skip if title arrived during the loop via another path (e.g. state broadcast)
+      if (currentData.titles[i]) continue;
 
       try {
         const videoId = ids[i];
@@ -296,18 +288,27 @@ export async function fetchPlaylistSubTitles(
         if (abort.signal.aborted) return;
 
         if (json && json.title) {
-          updateSubItemTitle(playlistId, i, json.title);
+          batchBuffer.push({ index: i, title: json.title });
+          log.debug(`[YouTube Feed] Buffered Title [${i}]: ${json.title}`);
 
-          log.debug(`[YouTube Feed] Fetched Title [${i}]: ${json.title}`);
-
-          const hostConn = getState('network.hostConn');
-          if (!hostConn) {
-            broadcast({
-              type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
-              playlistId,
-              subIdx: i,
-              title: json.title,
-            });
+          // Flush batch every 10 items (batch mode) OR every item (initial phase < 10) OR at the very end
+          const isInitialPhase = processedCount < 10;
+          const isLast = i === lastPendingIdx;
+          if (isInitialPhase || batchBuffer.length >= 10 || isLast) {
+            updateSubItemTitlesBulk(playlistId, batchBuffer);
+            
+            const hostConn = getState('network.hostConn');
+            if (!hostConn) {
+              for (const update of batchBuffer) {
+                broadcast({
+                  type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
+                  playlistId,
+                  subIdx: update.index,
+                  title: update.title,
+                });
+              }
+            }
+            batchBuffer = [];
           }
         }
       } catch (e) {
@@ -315,8 +316,15 @@ export async function fetchPlaylistSubTitles(
         log.warn(`[YouTube Feed] Failed to fetch title for ${ids[i]}:`, e);
       }
 
-      // Throttle between network requests (not after cache hits)
-      if (!abort.signal.aborted) await delay(DELAY.RETRY);
+      processedCount++;
+      // Adaptive throttling: 
+      // - First 10 items (High Priority window): use standard RETRY (200ms)
+      // - Background items (Low Priority): use 800ms to avoid hammering network/GC
+      const waitTime = processedCount <= 10 ? DELAY.RETRY : 800;
+      
+      if (!abort.signal.aborted) {
+        await delay(waitTime);
+      }
     }
   } finally {
     if (_subTitleAbort === abort) _subTitleAbort = null;

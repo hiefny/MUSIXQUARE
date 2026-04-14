@@ -206,6 +206,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:playlist.items', debouncedUpdate);
   _busScope.on('state:playlist.currentTrackIndex', debouncedUpdate);
   _busScope.on('state:youtube.currentSubIndex', debouncedUpdate);
+  _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
   _busScope.on('state:appState', debouncedUpdate);
   _busScope.on('state:network.connectionType', debouncedUpdate);
 

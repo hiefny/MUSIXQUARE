@@ -1474,7 +1474,6 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
-        animation: fadeIn 0.2s ease-out;
     }
 
     .sub-track-item {

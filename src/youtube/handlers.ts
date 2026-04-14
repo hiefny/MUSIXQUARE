@@ -76,16 +76,7 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
     const time = player.getCurrentTime?.() || 0;
-    cancelYtAutoSync();
-    markYtStateBroadcast();
-    player.pauseVideo();
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state: 2,
-      time,
-      subIndex: getState('youtube.currentSubIndex') ?? -1,
-      videoId: player.getVideoData?.()?.video_id || '',
-    });
+    scheduleYtAutoSync(time, { state: 2 });
   }
 }
 
@@ -103,17 +94,10 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
   try {
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) {
-      // Pause: immediate, cancel any pending auto-sync
-      cancelYtAutoSync();
-      if (player.pauseVideo) {
-        const time = player.getCurrentTime?.() || 0;
-        markYtStateBroadcast();
-        broadcast({ type: MSG.YOUTUBE_STATE, state: 2, time, subIndex: getState('youtube.currentSubIndex') ?? -1, videoId: player.getVideoData?.()?.video_id || '' });
-        player.pauseVideo();
-        markYtStateBroadcast();
-      }
+      const time = player.getCurrentTime?.() || 0;
+      scheduleYtAutoSync(time, { state: 2 });
     } else {
-      // Play: 1s auto-sync delay
+      // Play
       scheduleYtAutoSync(player.getCurrentTime?.() || 0);
     }
   } catch (e) {
@@ -162,7 +146,6 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
       subIndex: subIdx,
       videoId: targetVideoId,
       skipSeek: true,
-      countdownMs: 3000,
     });
   }
 }

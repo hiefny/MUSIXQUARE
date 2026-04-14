@@ -21,7 +21,7 @@ import { showToast } from '../ui/toast.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
-export function broadcastYouTubeSync(): void {
+export function broadcastYouTubeSync(isManual = false): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
@@ -42,7 +42,10 @@ export function broadcastYouTubeSync(): void {
       const sIdx = player.getPlaylistIndex();
       const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
 
-      if (sIdx !== currentYouTubeSubIndex) {
+      // Only trust the IFrame's index if it's NOT -1 (single video mode).
+      // When we use loadVideoById, the iframe loses its playlist context and 
+      // returns -1. Overwriting our managed index with -1 would break navigation.
+      if (sIdx !== -1 && sIdx !== currentYouTubeSubIndex) {
         setYouTubeSubIndex(sIdx);
 
         const playlist = getState('playlist.items') || [];
@@ -52,17 +55,19 @@ export function broadcastYouTubeSync(): void {
         if (currentItem?.playlistId) {
           const pid = currentItem.playlistId as string;
 
-          // Get playlist IDs from player
+          // Only update IDs if the player returns a substantial list (> 1).
+          // Prevents the "1-item list poison" when in single-video mode.
           if (player.getPlaylist) {
             try {
-              const ids = player.getPlaylist();
-              if (ids?.length > 0) {
+              const rawIds = player.getPlaylist();
+              if (Array.isArray(rawIds) && rawIds.length > 1) {
+                const ids = rawIds.slice(0, 100);
                 const subMap = getState('youtube.subItemsMap') || {};
-                if (!subMap[pid] || !subMap[pid].ids?.length) {
+                if (!subMap[pid] || subMap[pid].ids.length !== ids.length) {
                   updateSubItemIds(pid, ids);
                 }
               }
-            } catch { /* noop */ }
+            } catch (e) { /* noop */ }
           }
 
           // Get current video title
@@ -100,7 +105,9 @@ export function broadcastYouTubeSync(): void {
       // at receive time, which is one-way-latency later and causes the
       // extrapolated position to be consistently behind by that latency.
       hostClock: getHostNow(),
+      isManual,
     });
+    log.debug(`[YouTube] Broadcast sync: t=${currentTime}, s=${state}${isManual ? ' (Manual)' : ''}`);
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
   }
@@ -181,6 +188,13 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
     // Cache latest host position for rendezvous sync extrapolation
     updateHostSnapshot(hostTime, hostState, hostClock);
+
+    // If this is a manual sync request from the host, trigger precision rendezvous immediately
+    if (data.isManual) {
+      log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
+      guestRendezvousSync();
+      return;
+    }
 
     // ── Host ad detection ──
     if (hostState === 1) {
@@ -822,8 +836,8 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
  */
 function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   const playlistId = data.playlistId as string;
-  const ids = data.ids as string[];
-  const titles = data.titles as string[];
+  const ids = ((data.ids as string[]) || []).slice(0, 100);
+  const titles = ((data.titles as string[]) || []).slice(0, 100);
 
   if (!playlistId) return;
 

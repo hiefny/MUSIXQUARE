@@ -482,7 +482,9 @@ export function initYouTube(): void {
         const nextIdx = idx + 1;
         const nextVideoId = subData.ids[nextIdx];
         setYouTubeSubIndex(nextIdx);
+        setYtAutoplayIntent(false); // prevent premature play from loadVideoById
         player.loadVideoById(nextVideoId);
+        setYtAutoplayIntent(true);
         scheduleYtAutoSync(0, { subIndex: nextIdx, videoId: nextVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
@@ -509,7 +511,9 @@ export function initYouTube(): void {
         const prevIdx = idx - 1;
         const prevVideoId = subData.ids[prevIdx];
         setYouTubeSubIndex(prevIdx);
+        setYtAutoplayIntent(false);
         player.loadVideoById(prevVideoId);
+        setYtAutoplayIntent(true);
         scheduleYtAutoSync(0, { subIndex: prevIdx, videoId: prevVideoId, skipSeek: true, countdownMs: 3000 });
         callback(true);
         return;
@@ -697,7 +701,9 @@ export function initYouTube(): void {
       const targetVideoId = ids[subIdx] || '';
 
       if (targetVideoId && player.loadVideoById) {
+        setYtAutoplayIntent(false);
         player.loadVideoById(targetVideoId);
+        setYtAutoplayIntent(true);
         setYouTubeSubIndex(subIdx);
 
         scheduleYtAutoSync(0, {
@@ -822,14 +828,21 @@ export function initYouTube(): void {
       const hostIds = subMap[item.playlistId as string]?.ids;
       const useStaticIds = isMix && hostIds && hostIds.length > 0;
 
-      // Send YouTube play command so guest enters YouTube mode
+      // Send YouTube play command so guest enters YouTube mode.
+      // Always send a resolved single videoId — guests never load playlists.
+      // Always autoplay=false — the delayed YOUTUBE_STATE with hostPlayAt
+      // handles synchronized play. Sending autoplay=true causes the guest
+      // to start playing from position 0 before the sync frame arrives.
+      const resolvedBootstrapVideoId = (useStaticIds && hostIds)
+        ? (hostIds[subIdx] || hostIds[0] || item.videoId || null)
+        : (item.videoId || null);
       conn.send({
         type: MSG.YOUTUBE_PLAY,
-        videoId: useStaticIds ? null : (item.videoId || null),
-        playlistId: useStaticIds ? hostIds : (item.playlistId || null),
+        videoId: resolvedBootstrapVideoId,
+        playlistId: null,
         name: item.name || item.title,
         index: currentTrackIndex,
-        autoplay,
+        autoplay: false,
         subIndex: subIdx,
       });
 

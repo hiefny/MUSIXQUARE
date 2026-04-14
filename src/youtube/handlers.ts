@@ -12,7 +12,7 @@ import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
-import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
+import { getYouTubePlayer, setYouTubeSubIndex, setYtAutoplayIntent } from './_state.ts';
 import { loadYouTubeVideo, markYtStateBroadcast } from './iframe.ts';
 import { scheduleYtAutoSync, cancelYtAutoSync } from './player.ts';
 import { showLoader } from '../ui/toast.ts';
@@ -158,7 +158,9 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
     const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
     const targetVideoId = ids[subIdx] || '';
     if (targetVideoId) {
+      setYtAutoplayIntent(false);
       player.loadVideoById(targetVideoId);
+      setYtAutoplayIntent(true);
       setYouTubeSubIndex(subIdx);
       import('./player.ts').then(mod => {
         mod.scheduleYtAutoSync(0, { subIndex: subIdx, videoId: targetVideoId, skipSeek: true, countdownMs: 3000 });

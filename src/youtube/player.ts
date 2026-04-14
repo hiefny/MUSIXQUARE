@@ -157,7 +157,6 @@ export function stopYouTubeMode(): void {
 
   clearManagedTimer('youtubeUILoop');
   clearManagedTimer('youtubeSyncLoop');
-  clearManagedTimer('yt-playlist-load-guard');
   clearManagedTimer('yt-first-track-fisher');
   clearManagedTimer('yt-playlist-snapshot');
   cancelYtAutoSync(); // Clear pending auto-sync timer + loading state
@@ -498,18 +497,6 @@ export function initYouTube(): void {
     const currentTrack = playlistItems[currentTrackIndex];
     const pid = currentTrack?.playlistId as string;
 
-    // Playlist Loading Guard: skip navigation if we're still initializing the playlist
-    // BUT allow if we already have IDs (handling the short-video edge case).
-    if (pid && getManagedTimer('yt-playlist-load-guard')) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[pid];
-      if (!subData || !subData.ids.length) {
-        showToast(t('youtube.loading_playlist'));
-        callback(true); // Handled, but no-op
-        return;
-      }
-    }
-
     try {
       // Single-video mode: always drive navigation via loadVideoById using
       // the host-snapshotted subItemsMap. We never call playVideoAt — the
@@ -555,17 +542,6 @@ export function initYouTube(): void {
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const currentTrack = playlistItems[currentTrackIndex];
     const pid = currentTrack?.playlistId as string;
-
-    // Playlist Loading Guard (same as try-next)
-    if (pid && getManagedTimer('yt-playlist-load-guard')) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[pid];
-      if (!subData || !subData.ids.length) {
-        showToast(t('youtube.loading_playlist'));
-        callback(true);
-        return;
-      }
-    }
 
     try {
       const currentTime = player.getCurrentTime();
@@ -646,20 +622,6 @@ export function initYouTube(): void {
 
     const currentState = getState('appState');
     const isIdle = currentState === APP_STATE.IDLE;
-
-    // Apply a loading guard if this is a playlist, giving the player enough 
-    // time (4s) to populate its internal list before allowing navigation.
-    if (playlistId) {
-      log.debug('[YouTube] Applied playlist-load-guard:', playlistId);
-      bus.emit('youtube:sync-loading', true);
-      setManagedTimer('yt-playlist-load-guard', () => {
-        bus.emit('youtube:sync-loading', false);
-      }, 4000);
-
-      setManagedTimer('yt-playlist-load-guard', () => {
-        bus.emit('youtube:sync-loading', false);
-      }, 4000);
-    }
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);

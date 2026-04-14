@@ -915,19 +915,10 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
   setSubItemsData(playlistId, ids, titles);
 
-  // If this is a YouTube Mix (RD...) and we are currently playing it,
-  // force a reload ONCE using the static ID list to match the Host's sequence.
-  if (playlistId.startsWith('RD')) {
-    const currentPlaylist = getState('playlist.items')?.[getState('playlist.currentTrackIndex')]?.playlistId;
-    if (currentPlaylist === playlistId && !_mixReloadedIds.has(playlistId)) {
-      _mixReloadedIds.add(playlistId);
-      log.info('[YouTube Mix] Forcing guest reload (once) with host-snapshot IDs:', playlistId);
-      const subIndex = getState('youtube.currentSubIndex') ?? 0;
-      import('./iframe.ts').then(mod => {
-        mod.loadYouTubeVideo(null, ids, true, subIndex);
-      }).catch(err => log.error('[YouTube Mix] Failed to load iframe module:', err));
-    }
-  }
+  // Mix reload REMOVED — was destroying and recreating the entire iframe
+  // with 200+ IDs, causing a massive memory spike that crashed mobile guests.
+  // The guest already receives host's static ID array in YOUTUBE_PLAY and
+  // has the correct video loaded. Drift correction handles any mismatch.
 
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {

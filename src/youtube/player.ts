@@ -105,6 +105,7 @@ export function scheduleYtAutoSync(
     subIndex,
     videoId,
     hostPlayAt: 0,
+    title: player.getVideoData?.()?.title || '',
   });
 
   // 3. Broadcast Stage 2: Precision Rendezvous (Fixed 2s delay)

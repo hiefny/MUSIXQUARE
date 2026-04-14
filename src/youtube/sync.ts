@@ -106,6 +106,7 @@ export function broadcastYouTubeSync(isManual = false): void {
       // extrapolated position to be consistently behind by that latency.
       hostClock: getHostNow(),
       isManual,
+      title: getState('player.currentTrackMeta')?.title,
     });
     log.debug(`[YouTube] Broadcast sync: t=${currentTime}, s=${state}${isManual ? ' (Manual)' : ''}`);
   } catch (e) {
@@ -196,6 +197,15 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
       log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
       guestRendezvousSync();
       return;
+    }
+
+    // Apply title from host to maintain metadata sync (fixes "No Media" for late joiners)
+    const hostTitle = data.title as string | undefined;
+    if (hostTitle) {
+      const currentMeta = getState('player.currentTrackMeta');
+      if (currentMeta && currentMeta.title !== hostTitle) {
+        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
+      }
     }
 
     // ── Host ad detection ──
@@ -615,6 +625,15 @@ function handleYouTubeState(data: Record<string, unknown>): void {
     // Without this, host seek/play commands don't update the snapshot,
     // so rendezvous pressed within 3s of a seek uses pre-seek position.
     updateHostSnapshot(time, state);
+
+    // Apply title from host to maintain metadata sync (fixes "No Media" during loading)
+    const hostTitle = data.title as string | undefined;
+    if (hostTitle) {
+      const currentMeta = getState('player.currentTrackMeta');
+      if (currentMeta && currentMeta.title !== hostTitle) {
+        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
+      }
+    }
 
     // Video ID sync — fixes Mix playlists where sub-index = different video
     let subIndexChanged = false;

@@ -216,7 +216,7 @@ export interface ProtocolMap {
   'youtube-play': { videoId?: string | null; playlistId?: string | string[] | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
   'youtube-stop': NoPayload;
   'youtube-state': { state: number; time: number; subIndex?: number; videoId?: string; hostPlayAt?: number };
-  'youtube-sync': { time: number; state: number; subIndex?: number; videoId?: string; hostClock?: number };
+  'youtube-sync': { time: number; state: number; subIndex?: number; videoId?: string; hostClock?: number; isManual?: boolean };
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 

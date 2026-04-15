@@ -590,12 +590,20 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {
-    // Host: clear ALL loops and advance
+    // Host: advance through sub-videos or fall through to next queue track.
     // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
     // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
     // suppression (pause + wait for host) needs the loop running to detect
-    // the sub-index change. Only clear the sync broadcast loop (host-only).
-    clearManagedTimer('youtubeSyncLoop');
+    // the sub-index change.
+    //
+    // NOTE: We deliberately do NOT touch youtubeSyncLoop here. Heartbeat
+    // ownership is single-source: onYouTubePlayerReady starts it,
+    // stopYouTubeMode stops it. ENDED is a transient state during
+    // sub-video advance — clearing here would have to be paired with a
+    // restart in every recovery branch, and missing one (the `advanced`
+    // branch) was the exact cause of the "host playback data not found
+    // after a few sub-videos" regression. Queue-ended cases go through
+    // playlist:next-track → stopYouTubeMode, which still clears it.
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -610,17 +618,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
       if (advanced) {
         log.debug('[YouTube] Ended, advancing to next sub-video...');
-        // Keep youtubeUILoop alive — loadVideoById fired by try-next keeps the
-        // player alive and the UI loop needs to keep tracking the new video.
-        // ALSO restart the sync broadcast loop. We cleared it above (since the
-        // ENDED branch is also reached when the entire queue ends, where it
-        // SHOULD stop), but here the player keeps playing the next sub-video
-        // and the heartbeat must keep flowing — otherwise guests' snapshots
-        // age past RENDEZVOUS_SNAPSHOT_MAX_AGE_MS within ~10s and rendezvous
-        // breaks until the host manually pauses/seeks/syncs.
-        setManagedTimer('youtubeSyncLoop', () => {
-          bus.emit('youtube:broadcast-sync');
-        }, HEARTBEAT_INTERVAL_MS, { interval: true });
+        // youtubeSyncLoop stays alive (see ENDED-branch comment above) —
+        // the player is being reused for the next sub-video, so the
+        // existing heartbeat keeps broadcasting fresh snapshots to guests.
         return;
       }
       clearManagedTimer('youtubeUILoop');

@@ -59,28 +59,19 @@ let _lastManualBroadcastAt = 0;
 export function broadcastYouTubeSync(isManual = false): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
-  if (!player || hostConn || !player.getCurrentTime) {
-    log.info(`[DIAG bc] skip entry: player=${!!player} hostConn=${!!hostConn} hasGetTime=${!!player?.getCurrentTime}`);
-    return;
-  }
+  if (!player || hostConn || !player.getCurrentTime) return;
 
   // Dedup heartbeats that immediately follow a manual broadcast. Manual
   // broadcasts always pass through (the caller explicitly asked for a
   // fresh sync).
-  if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) {
-    log.info(`[DIAG bc] skip dedup: age=${Date.now() - _lastManualBroadcastAt}ms`);
-    return;
-  }
+  if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
   // Suppress heartbeat while auto-sync countdown is active.
   // During the countdown the host is paused+seeking — getCurrentTime()
   // may return a stale (pre-seek) value. Broadcasting that stale position
   // causes ALL guests' drift correction to undo the seek, even though
   // they already received the correct position via YOUTUBE_STATE.
-  if (getManagedTimer('yt-auto-sync') || getManagedTimer('yt-sync-grace')) {
-    log.info(`[DIAG bc] skip timer: autoSync=${!!getManagedTimer('yt-auto-sync')} grace=${!!getManagedTimer('yt-sync-grace')}`);
-    return;
-  }
+  if (getManagedTimer('yt-auto-sync') || getManagedTimer('yt-sync-grace')) return;
 
   try {
     const currentTime = player.getCurrentTime();
@@ -158,7 +149,7 @@ export function broadcastYouTubeSync(isManual = false): void {
       title: getState('player.currentTrackMeta')?.title,
     });
     if (isManual) _lastManualBroadcastAt = Date.now();
-    log.info(`[DIAG bc] sent: t=${currentTime.toFixed(2)} s=${state} manual=${isManual}`);
+    log.debug(`[YouTube] Broadcast sync: t=${currentTime}, s=${state}${isManual ? ' (Manual)' : ''}`);
   } catch (e) {
     log.error('[YouTube Sync] broadcast error:', e);
   }
@@ -254,7 +245,6 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock);
-  log.info(`[DIAG sync-recv] t=${hostTime.toFixed(2)} s=${hostState} hostClock=${hostClock} → snapAt=${_rt.lastHostSnapshot?.hostClockAt} nowGuest=${getHostNow()}`);
 
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
@@ -428,8 +418,6 @@ export function guestRendezvousSync(): void {
 
   // Need a fresh-enough host snapshot
   if (!_rt.lastHostSnapshot || (getHostNow() - _rt.lastHostSnapshot.hostClockAt) > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
-    const age = _rt.lastHostSnapshot ? getHostNow() - _rt.lastHostSnapshot.hostClockAt : -1;
-    log.info(`[DIAG rendezvous] NO DATA: hasSnap=${!!_rt.lastHostSnapshot} age=${age}ms hostNow=${getHostNow()} snapAt=${_rt.lastHostSnapshot?.hostClockAt}`);
     showToast(t('toast.yt_rendezvous_no_data'));
     return;
   }

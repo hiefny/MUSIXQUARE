@@ -75,7 +75,7 @@ export function updatePlaylistUI(): void {
     const li = document.createElement('li');
     li.className = `track-item ${isCurrent ? 'active' : ''} ${item.playlistId ? 'is-playlist' : ''}`;
 
-    let displayName = item.name || item.title || t('common.unknown');
+    const displayName = item.name || item.title || t('common.unknown');
 
     let expandBtn = '';
     if (item.playlistId) {

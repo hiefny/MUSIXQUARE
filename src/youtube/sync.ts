@@ -107,7 +107,7 @@ export function broadcastYouTubeSync(isManual = false): void {
                   updateSubItemIds(pid, ids);
                 }
               }
-            } catch (e) { /* noop */ }
+            } catch { /* noop */ }
           }
 
           // Get current video title

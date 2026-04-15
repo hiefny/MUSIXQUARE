@@ -29,7 +29,7 @@ let _isHostClock = false;
 let _samples: ClockSample[] = [];
 let _bestOffset = 0;           // Current best estimate of (hostTime - localTime)
 let _pongsReceived = 0;
-let _pendingPings = new Map<number, number>(); // pingId → sentAt
+const _pendingPings = new Map<number, number>(); // pingId → sentAt
 
 // ─── Getters ──────────────────────────────────────────────────────
 

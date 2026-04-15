@@ -14,6 +14,7 @@ import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { showToast, showLoader } from './toast.ts';
+import { setManagedTimer } from '../core/timers.ts';
 
 let _langObserver: MutationObserver | null = null;
 
@@ -370,7 +371,7 @@ export function initConnect(): void {
     }).then(res => {
       if (res && res.action === 'ok') {
         showLoader(true, t('dialog.leaving_session'));
-        setTimeout(() => window.location.reload(), 300);
+        setManagedTimer('leave-session-reload', () => window.location.reload(), 300);
       }
     });
   };

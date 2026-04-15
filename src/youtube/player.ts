@@ -651,7 +651,7 @@ export function initYouTube(): void {
     
     // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
     // force single-video mode to bypass the risky native playlist engine entirely.
-    let finalVideoId = videoId;
+    const finalVideoId = videoId;
     let finalPlaylistId = playlistId;
     if (finalVideoId && finalPlaylistId) {
        finalPlaylistId = null; 
@@ -817,7 +817,7 @@ export function initYouTube(): void {
           
           // Force highlight and expansion of the first track with a small delay
           // to ensure the UI has finished adding the item to the DOM.
-          setTimeout(() => {
+          setManagedTimer('yt-playlist-indexed-highlight', () => {
             const currentPlaylist = getState('playlist.items');
             const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistId);
             if (actualIdx !== -1) {

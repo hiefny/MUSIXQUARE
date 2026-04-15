@@ -41,10 +41,21 @@ export function animateTransition(callback: () => void): void {
     if (!cb) return;
     let executed = false;
     try {
-      (document as unknown as Record<string, (...args: unknown[]) => void>).startViewTransition(() => {
+      // startViewTransition returns a ViewTransition object whose
+      // `ready` / `finished` / `updateCallbackDone` Promises reject when
+      // the transition is aborted (e.g. another transition supersedes
+      // this one, or the document visibility flips mid-animation). The
+      // callback still runs, so the abort has no user-facing impact —
+      // but an uncaught rejection lands in the global `unhandledrejection`
+      // handler and shows up in console as "InvalidStateError: Transition
+      // was aborted because of invalid state". Silence the benign ones.
+      const vt = (document as unknown as Record<string, (...args: unknown[]) => unknown>).startViewTransition(() => {
         executed = true;
         cb();
-      });
+      }) as { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> } | undefined;
+      vt?.ready?.catch(() => { /* noop — benign abort */ });
+      vt?.finished?.catch(() => { /* noop — benign abort */ });
+      vt?.updateCallbackDone?.catch(() => { /* noop — benign abort */ });
     } catch {
       if (!executed) cb();
     }

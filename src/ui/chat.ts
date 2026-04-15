@@ -655,7 +655,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     // Frozen chat — verify OP status from host's own peer list (don't trust client data)
     if (getState('network.chatFrozen')) {
       const peers = getState('network.connectedPeers');
-      const peerEntry = peers.find(p => p.id === senderPeerId);
+      const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
       const actualIsOp = peerEntry?.isOp ?? false;
       if (!actualIsOp) return;
     }
@@ -683,7 +683,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     // Host: derive from authoritative peer list
     const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
     const peers = getState('network.connectedPeers');
-    const peerEntry = peers.find(p => p.id === senderPeerId);
+    const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
     const isOp = peerEntry?.isOp ?? false;
     badge = isOp ? 'op' : undefined; // only host gets 'host' badge (set below)
     // Overwrite untrusted badge fields before relay
@@ -743,13 +743,13 @@ function isFromHost(conn?: DataConnection): boolean {
 
 function handleChatFreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
-  setState('network.chatFrozen', true);
+  (setState as (p: string, v: boolean) => void)('network.chatFrozen', true);
   addSystemChatMessage(t('chat.cmd_frozen'));
 }
 
 function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
-  setState('network.chatFrozen', false);
+  (setState as (p: string, v: boolean) => void)('network.chatFrozen', false);
   addSystemChatMessage(t('chat.cmd_unfrozen'));
 }
 
@@ -795,7 +795,7 @@ function handleChatNotice(data: Record<string, unknown>): void {
 function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
   const seconds = data.seconds as number || 0;
-  setState('network.slowmodeSeconds', seconds);
+  (setState as (p: string, v: number) => void)('network.slowmodeSeconds', seconds);
   addSystemChatMessage(seconds > 0
     ? t('chat.cmd_slowmode_on', { sec: seconds })
     : t('chat.cmd_slowmode_off'));
@@ -804,7 +804,7 @@ function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection
 function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
   const on = !!data.on;
-  setState('network.filterEnabled', on);
+  (setState as (p: string, v: boolean) => void)('network.filterEnabled', on);
   addSystemChatMessage(on
     ? t('chat.cmd_filter_on')
     : t('chat.cmd_filter_off'));

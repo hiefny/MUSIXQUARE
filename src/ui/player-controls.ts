@@ -447,15 +447,49 @@ export function initPlayerControls(): void {
       const videoWrapper = document.querySelector('.video-wrapper') as HTMLElement & { webkitRequestFullscreen?: () => void } | null;
       const target = videoWrapper || el;
 
-      const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement);
+      const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
+      const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement || isFakeFullscreen);
+
       if (!isFullscreen) {
-        if (target.requestFullscreen) target.requestFullscreen();
-        else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+        if (target.requestFullscreen) {
+          target.requestFullscreen().catch(() => {
+            videoWrapper?.classList.add('fake-fullscreen');
+            document.body.classList.add('has-fake-fullscreen');
+          });
+        } else if (target.webkitRequestFullscreen) {
+          target.webkitRequestFullscreen();
+          setTimeout(() => {
+            if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
+              videoWrapper?.classList.add('fake-fullscreen');
+              document.body.classList.add('has-fake-fullscreen');
+            }
+          }, 100);
+        } else {
+          videoWrapper?.classList.add('fake-fullscreen');
+          document.body.classList.add('has-fake-fullscreen');
+        }
       } else {
-        if (document.exitFullscreen) document.exitFullscreen();
-        else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+        if (isFakeFullscreen) {
+          videoWrapper?.classList.remove('fake-fullscreen');
+          document.body.classList.remove('has-fake-fullscreen');
+        } else {
+          if (document.exitFullscreen) document.exitFullscreen();
+          else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+        }
       }
-    } catch { /* ignore */ }
+    } catch { 
+      // On generic failure, toggle fake fullscreen
+      const videoWrapper = document.querySelector('.video-wrapper');
+      if (videoWrapper) {
+          if (!videoWrapper.classList.contains('fake-fullscreen')) {
+             videoWrapper.classList.add('fake-fullscreen');
+             document.body.classList.add('has-fake-fullscreen');
+          } else {
+             videoWrapper.classList.remove('fake-fullscreen');
+             document.body.classList.remove('has-fake-fullscreen');
+          }
+      }
+    }
   });
 
   // Role badge
@@ -557,7 +591,8 @@ export function initPlayerControls(): void {
     });
     ytInput.addEventListener('paste', (e) => {
       e.preventDefault();
-      const text = (e as ClipboardEvent).clipboardData?.getData('text/plain') || '';
+      const clipboard = (e as ClipboardEvent).clipboardData;
+      const text = clipboard?.getData('text/plain') || clipboard?.getData('text/uri-list') || clipboard?.getData('URL') || '';
       document.execCommand('insertText', false, text);
     });
   }

@@ -449,7 +449,7 @@ const en: Record<I18nKey, string> = {
   'setup.play_together_desc_html': 'When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.',
   'setup.spatial_audio_desc_html': 'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
   'setup.advanced_audio_desc_html': 'Match the host\'s settings<br>with reverb, EQ, virtual effects,<br>and more across the system.',
-  'youtube.enter_link_desc_html': 'Only public links can be played together.',
+  'youtube.enter_link_desc_html': 'Only public links can be watched together.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',

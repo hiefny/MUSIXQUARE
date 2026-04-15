@@ -49,7 +49,8 @@ function _updateHostCtrlLockUI(): void {
 
 // ─── Theme ───────────────────────────────────────────────────────
 
-export function setTheme(mode: string): void {
+export function setTheme(mode: string, save = true): void {
+  const originalMode = mode;
   // Migrate legacy 'system' → resolve to actual value
   if (mode === 'system') {
     mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -61,7 +62,9 @@ export function setTheme(mode: string): void {
   document.documentElement.setAttribute('data-theme', mode);
 
   // Persist preference
-  try { localStorage.setItem('musixquare-theme', mode); } catch { /* ignore */ }
+  if (save) {
+    try { localStorage.setItem('musixquare-theme', originalMode); } catch { /* ignore */ }
+  }
 
   // Update meta tags for PWA/browser integration
   document.documentElement.style.colorScheme = mode;
@@ -599,11 +602,11 @@ export function initSettings(): void {
     if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
   });
 
-  // Initial theme: restore from localStorage (defaults to dark; 'system' auto-resolves)
+  // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)
   try {
     const savedTheme = localStorage.getItem('musixquare-theme');
-    setTheme(savedTheme || 'dark');
-  } catch { setTheme('dark'); }
+    setTheme(savedTheme || 'system', false);
+  } catch { setTheme('system', false); }
 
   // Restore visualizer mode
   try {

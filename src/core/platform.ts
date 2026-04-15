@@ -192,17 +192,17 @@ function updateAppHeightNow(): void {
 
     if (isKbOpen && !wasKbOpen) {
       root.classList.add('keyboard-open');
-      // Freeze --app-height during keyboard animation to prevent jitter
-      _keyboardFreezeUntil = Date.now() + 350;
-      setManagedTimer('kb-height-settle', scheduleAppHeightUpdate, 400);
+      // No need for a settle timer — --app-height stays frozen while keyboard-open is present
       log.debug(`[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`);
     } else if (!isKbOpen && wasKbOpen) {
       const active = document.activeElement;
       const stillFocused = active?.matches('input, textarea, [contenteditable="true"]');
       if (!stillFocused) {
         root.classList.remove('keyboard-open');
+        // Brief freeze during close animation to prevent jitter
+        _keyboardFreezeUntil = Date.now() + 350;
+        setManagedTimer('kb-height-settle-close', scheduleAppHeightUpdate, 400);
         _stableViewportHeight = Math.max(kbVvH, Math.round(window.innerHeight));
-        _keyboardFreezeUntil = 0;
         log.debug('[Platform] Keyboard closed');
       }
     }
@@ -212,8 +212,12 @@ function updateAppHeightNow(): void {
     try { root.style.setProperty('--keyboard-overlap', `${overlap}px`); } catch (e) { log.debug('[Platform] --keyboard-overlap set failed:', e); }
   }
 
-  // Whether to freeze --app-height during keyboard animation (prevents jitter)
-  const shouldFreezeAppHeight = (IS_IOS || IS_ANDROID) && _keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil;
+  // Freeze --app-height while keyboard is open (prevents the "pop" after animation)
+  // AND briefly during close animation (prevents jitter as viewport expands back)
+  const shouldFreezeAppHeight = (IS_IOS || IS_ANDROID) && (
+    root.classList.contains('keyboard-open') ||
+    (_keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil)
+  );
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
   // on iOS standalone. Use the largest available height signal and set html

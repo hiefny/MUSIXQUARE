@@ -612,6 +612,15 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         log.debug('[YouTube] Ended, advancing to next sub-video...');
         // Keep youtubeUILoop alive — loadVideoById fired by try-next keeps the
         // player alive and the UI loop needs to keep tracking the new video.
+        // ALSO restart the sync broadcast loop. We cleared it above (since the
+        // ENDED branch is also reached when the entire queue ends, where it
+        // SHOULD stop), but here the player keeps playing the next sub-video
+        // and the heartbeat must keep flowing — otherwise guests' snapshots
+        // age past RENDEZVOUS_SNAPSHOT_MAX_AGE_MS within ~10s and rendezvous
+        // breaks until the host manually pauses/seeks/syncs.
+        setManagedTimer('youtubeSyncLoop', () => {
+          bus.emit('youtube:broadcast-sync');
+        }, HEARTBEAT_INTERVAL_MS, { interval: true });
         return;
       }
       clearManagedTimer('youtubeUILoop');

@@ -1127,7 +1127,7 @@ export function initChat(): void {
     chatInput.addEventListener('blur', () => {
       setManagedTimer('kb-blur-guard', () => {
         const active = document.activeElement;
-        if (!active?.matches?.('input, textarea, [contenteditable="true"]')) {
+        if (!active?.matches('input, textarea, [contenteditable="true"]')) {
           document.documentElement.classList.remove('keyboard-open');
         }
       }, 400);

@@ -198,7 +198,7 @@ function updateAppHeightNow(): void {
       log.debug(`[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`);
     } else if (!isKbOpen && wasKbOpen) {
       const active = document.activeElement;
-      const stillFocused = active?.matches?.('input, textarea, [contenteditable="true"]');
+      const stillFocused = active?.matches('input, textarea, [contenteditable="true"]');
       if (!stillFocused) {
         root.classList.remove('keyboard-open');
         _stableViewportHeight = Math.max(kbVvH, Math.round(window.innerHeight));

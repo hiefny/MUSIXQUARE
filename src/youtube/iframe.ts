@@ -37,6 +37,7 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
 import { getPendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -665,6 +666,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       subIndex: getState('youtube.currentSubIndex') ?? -1,
       videoId: player.getVideoData?.()?.video_id || '',
       title: player.getVideoData?.()?.title || '',
+      hostClock: getHostNow(),
     });
   }
 }

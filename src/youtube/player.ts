@@ -122,6 +122,7 @@ export function scheduleYtAutoSync(
     subIndex,
     videoId,
     hostPlayAt: 0,
+    hostClock: getHostNow(),
     title: player.getVideoData?.()?.title || '',
   });
 
@@ -366,6 +367,7 @@ export function initYouTube(): void {
           time: currentTime,
           subIndex: getState('youtube.currentSubIndex') ?? -1,
           videoId: player.getVideoData?.()?.video_id || '',
+          hostClock: getHostNow(),
         });
         player.pauseVideo();
         markYtStateBroadcast();
@@ -540,6 +542,7 @@ export function initYouTube(): void {
             time: target,
             subIndex: getState('youtube.currentSubIndex') ?? -1,
             videoId: player.getVideoData?.()?.video_id || '',
+            hostClock: getHostNow(),
           });
           player.seekTo(target, true);
           markYtStateBroadcast();
@@ -583,6 +586,7 @@ export function initYouTube(): void {
             time: seconds,
             subIndex: getState('youtube.currentSubIndex') ?? -1,
             videoId: player.getVideoData?.()?.video_id || '',
+            hostClock: getHostNow(),
           });
           player.seekTo(seconds, true);
           markYtStateBroadcast();
@@ -1059,6 +1063,7 @@ export function initYouTube(): void {
           subIndex: subIdx,
           videoId: currentVideoId,
           hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
+          hostClock: getHostNow(),
         });
       } else {
         // Host paused — simple sync frame is fine

@@ -653,8 +653,17 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   // the guest is stuck on "No host playback data" when they try to
   // rendezvous. Snapshot is pure data — no side effects pre-guard, and
   // every action-scheduling branch below still runs under the guard.
+  //
+  // Pass data.hostClock through so hostClockAt is anchored in host-clock
+  // ms. Without it, updateHostSnapshot falls back to getHostNow(), which
+  // on a freshly-joined guest returns raw Date.now() (offset=0 until the
+  // first pong lands). After calibration, age = getHostNow() - stale
+  // hostClockAt = offset itself, which is easily > 10s — and the guest
+  // sees "No host playback data" until the next heartbeat replaces the
+  // bad snapshot.
   const time = Number(data.time) || 0;
-  updateHostSnapshot(time, state);
+  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
+  updateHostSnapshot(time, state, hostClock);
 
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 

@@ -25,6 +25,7 @@ import { joinSession } from '../network/peer.ts';
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
 import { startGuestFlow, setGuestGoBack, handleSetupJoinWithRole } from './setup-guest.ts';
+import { animateTransition } from './dom.ts';
 import {
   BACK_SVG,
   syncDesktopLeftPanel,
@@ -124,10 +125,14 @@ function initSetupOverlay(): void {
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
 
-  setupShowCodeArea(false);
-  setupShowJoinArea(false);
-  setupShowRoleArea(false);
-  setupShowWelcome(true);
+  // Single transition for the role/code/join→welcome swap so the
+  // four DOM flips snapshot together instead of aborting each other.
+  animateTransition(() => {
+    setupShowCodeArea(false);
+    setupShowJoinArea(false);
+    setupShowRoleArea(false);
+    setupShowWelcome(true);
+  });
   setupSetGuestJoinBusy(false);
 
   setState('network.appRole', 'idle');

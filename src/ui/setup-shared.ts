@@ -173,45 +173,45 @@ export function hideSetupOverlay(): void {
   requestAnimationFrame(() => bus.emit('setup:app-entrance'));
 }
 
+// Bare DOM-toggling primitives. Callers that change MULTIPLE areas in
+// a row (role flow entry, welcome return, etc.) MUST wrap the batch in
+// a single animateTransition() — each area function used to self-wrap,
+// which meant a 4-step setup transition kicked off 4 separate
+// startViewTransition() calls, with each superseding/aborting the last
+// and spamming "InvalidStateError: Transition was aborted" rejections.
 export function setupShowCodeArea(show: boolean): void {
-  animateTransition(() => {
-    const box = setupEl('setup-code-area');
-    if (box) box.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
+  const box = setupEl('setup-code-area');
+  if (box) box.style.display = show ? 'flex' : 'none';
+  syncDesktopLeftPanel();
 }
 
 export function setupSetCode(code: string): void {
-  const el = setupEl('setup-code');
-  if (el) {
-    if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
-    else el.textContent = code || '------';
-  }
-  setupShowCodeArea(!!code);
+  animateTransition(() => {
+    const el = setupEl('setup-code');
+    if (el) {
+      if (el.tagName === 'INPUT') (el as HTMLInputElement).value = code || '------';
+      else el.textContent = code || '------';
+    }
+    setupShowCodeArea(!!code);
+  });
 }
 
 export function setupShowJoinArea(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-join-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
+  const el = setupEl('setup-join-area');
+  if (el) el.style.display = show ? 'flex' : 'none';
+  syncDesktopLeftPanel();
 }
 
 export function setupShowRoleArea(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-role-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
+  const el = setupEl('setup-role-area');
+  if (el) el.style.display = show ? 'flex' : 'none';
+  syncDesktopLeftPanel();
 }
 
 export function setupShowWelcome(show: boolean): void {
-  animateTransition(() => {
-    const el = setupEl('setup-welcome-area');
-    if (el) el.style.display = show ? 'flex' : 'none';
-    syncDesktopLeftPanel();
-  });
+  const el = setupEl('setup-welcome-area');
+  if (el) el.style.display = show ? 'flex' : 'none';
+  syncDesktopLeftPanel();
 }
 
 export function setupSetGuestJoinBusy(busy: boolean): void {

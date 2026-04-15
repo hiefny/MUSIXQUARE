@@ -25,6 +25,7 @@ import {
   setupShowCodeArea, setupShowJoinArea, setupShowWelcome, setupShowRoleArea,
   setupHighlightJoinRole, setupSetGuestJoinBusy, setupRenderActions,
 } from './setup-shared.ts';
+import { animateTransition } from './dom.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -60,10 +61,14 @@ export function startGuestFlow(): void {
 
   updateInviteCodeUI();
 
-  setupShowCodeArea(false);
-  setupShowJoinArea(false);
-  setupShowWelcome(false);
-  setupShowRoleArea(true);
+  // Single transition for the welcome→role swap so the four DOM flips
+  // snapshot together instead of aborting each other.
+  animateTransition(() => {
+    setupShowCodeArea(false);
+    setupShowJoinArea(false);
+    setupShowWelcome(false);
+    setupShowRoleArea(true);
+  });
 
   setupHighlightJoinRole(null);
   setupSetGuestJoinBusy(false);
@@ -153,8 +158,10 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
 function proceedToGuestCode(mode: number): void {
   setPendingGuestRoleMode(mode);
 
-  setupShowRoleArea(false);
-  setupShowJoinArea(true);
+  animateTransition(() => {
+    setupShowRoleArea(false);
+    setupShowJoinArea(true);
+  });
 
   setupRenderActions([
     { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },

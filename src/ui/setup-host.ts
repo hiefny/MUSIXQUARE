@@ -22,6 +22,7 @@ import {
   setupHighlightJoinRole, setupSetCode, setupRenderActions,
   hideSetupOverlay,
 } from './setup-shared.ts';
+import { animateTransition } from './dom.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -40,10 +41,14 @@ export function startHostFlow(): void {
   setState('setup.sessionStarted', false);
   setPendingSetupRole(null);
 
-  setupShowJoinArea(false);
-  setupShowCodeArea(false);
-  setupShowWelcome(false);
-  setupShowRoleArea(true);
+  // Single transition for the whole welcome→role swap so the four DOM
+  // flips snapshot together instead of superseding each other.
+  animateTransition(() => {
+    setupShowJoinArea(false);
+    setupShowCodeArea(false);
+    setupShowWelcome(false);
+    setupShowRoleArea(true);
+  });
 
   setupHighlightJoinRole(null);
 
@@ -77,8 +82,10 @@ async function proceedToHostCode(mode: number): Promise<void> {
     bus.emit('audio:set-channel-mode', mode);
   } catch (e) { log.warn(e); }
 
-  setupShowRoleArea(false);
-  setupShowCodeArea(true);
+  animateTransition(() => {
+    setupShowRoleArea(false);
+    setupShowCodeArea(true);
+  });
 
   const codeEl = setupEl('setup-code');
   if (codeEl) {

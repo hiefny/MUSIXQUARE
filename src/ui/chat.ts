@@ -1120,12 +1120,17 @@ export function initChat(): void {
     new MutationObserver(() => updateGhost()).observe(
       document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
-    // Handle iOS PWA keyboard safe-area gap inherently with focus state
-    chatInput.addEventListener('focus', () => {
-      document.documentElement.classList.add('keyboard-open');
-    });
+    // keyboard-open class is now managed by platform.ts via visualViewport
+    // detection — fires proactively before focus, preventing layout thrashing.
+    // Blur handler retained as safety-net cleanup (delayed) in case the
+    // visualViewport.resize event doesn't fire (e.g. external keyboard).
     chatInput.addEventListener('blur', () => {
-      document.documentElement.classList.remove('keyboard-open');
+      setManagedTimer('kb-blur-guard', () => {
+        const active = document.activeElement;
+        if (!active?.matches?.('input, textarea, [contenteditable="true"]')) {
+          document.documentElement.classList.remove('keyboard-open');
+        }
+      }, 400);
     });
   }
 

@@ -65,6 +65,8 @@ let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
 let _iosViewportProbe: HTMLDivElement | null = null;
+let _stableViewportHeight = 0;
+let _keyboardFreezeUntil = 0;
 
 function updateAppHeightNow(): void {
   const root = document.documentElement;
@@ -172,6 +174,47 @@ function updateAppHeightNow(): void {
     } catch (e) { log.debug('[Platform] iOS viewport probe failed:', e); }
   }
 
+  // ── Keyboard Detection (mobile only) ───────────────────────────
+  // Detect soft keyboard via visualViewport shrink, BEFORE focus event fires.
+  // Sets keyboard-open class and --keyboard-overlap CSS variable proactively.
+  if ((IS_IOS || IS_ANDROID) && vv) {
+    const kbVvH = Math.round(vv.height);
+    const wasKbOpen = root.classList.contains('keyboard-open');
+
+    // Track the stable (no-keyboard) viewport height
+    if (!wasKbOpen) {
+      _stableViewportHeight = Math.max(_stableViewportHeight, kbVvH, Math.round(window.innerHeight));
+    }
+
+    // Keyboard detected when viewport shrinks >15% from stable height
+    const kbShrink = _stableViewportHeight > 0 ? (_stableViewportHeight - kbVvH) : 0;
+    const isKbOpen = _stableViewportHeight > 100 && kbShrink > _stableViewportHeight * 0.15;
+
+    if (isKbOpen && !wasKbOpen) {
+      root.classList.add('keyboard-open');
+      // Freeze --app-height during keyboard animation to prevent jitter
+      _keyboardFreezeUntil = Date.now() + 350;
+      setManagedTimer('kb-height-settle', scheduleAppHeightUpdate, 400);
+      log.debug(`[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`);
+    } else if (!isKbOpen && wasKbOpen) {
+      const active = document.activeElement;
+      const stillFocused = active?.matches?.('input, textarea, [contenteditable="true"]');
+      if (!stillFocused) {
+        root.classList.remove('keyboard-open');
+        _stableViewportHeight = Math.max(kbVvH, Math.round(window.innerHeight));
+        _keyboardFreezeUntil = 0;
+        log.debug('[Platform] Keyboard closed');
+      }
+    }
+
+    // Set keyboard overlap CSS variable
+    const overlap = root.classList.contains('keyboard-open') ? Math.max(0, kbShrink) : 0;
+    try { root.style.setProperty('--keyboard-overlap', `${overlap}px`); } catch (e) { log.debug('[Platform] --keyboard-overlap set failed:', e); }
+  }
+
+  // Whether to freeze --app-height during keyboard animation (prevents jitter)
+  const shouldFreezeAppHeight = (IS_IOS || IS_ANDROID) && _keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil;
+
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
   // on iOS standalone. Use the largest available height signal and set html
   // element height directly. screen.height (hardware constant) is included as
@@ -183,7 +226,7 @@ function updateAppHeightNow(): void {
     const scrH = (window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0)
       ? Math.round(window.screen.height) : 0;
     const fullH = Math.max(ih, vvH, scrH);
-    if (fullH > 0) {
+    if (fullH > 0 && !shouldFreezeAppHeight) {
       try {
         root.style.height = `${fullH}px`;
         root.style.setProperty('--app-height', `${fullH}px`);
@@ -192,7 +235,7 @@ function updateAppHeightNow(): void {
   } else {
     // Clear any iOS standalone inline height override (e.g. after rotation)
     try { root.style.removeProperty('height'); } catch (e) { log.debug('[Platform] removeProperty failed:', e); }
-    if (h > 0) {
+    if (h > 0 && !shouldFreezeAppHeight) {
       try { root.style.setProperty('--app-height', `${h}px`); } catch (e) { log.debug('[Platform] --app-height set failed:', e); }
     }
   }
@@ -262,6 +305,8 @@ export function initPlatform(): void {
   try {
     window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
     window.addEventListener('orientationchange', () => {
+      // Reset stable viewport height — orientation changes the full viewport dimensions
+      _stableViewportHeight = 0;
       scheduleAppHeightUpdate();
       if (IS_ANDROID) setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
     }, { passive: true });

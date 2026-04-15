@@ -2449,6 +2449,14 @@
         view-transition-name: bottom-nav;
     }
 
+    /* Hide bottom-nav when soft keyboard is open — prevents floating in wrong position
+       and avoids layout thrashing from --app-height updates during keyboard animation */
+    html.keyboard-open .bottom-nav {
+        transform: translateY(100%) !important;
+        pointer-events: none;
+        transition: none !important;
+    }
+
     /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
     .nav-blur-halo {
         display: none;
@@ -5038,15 +5046,18 @@
             transform: translateY(-50%) !important;
         }
 
-        /* ── Super-Compact Landscape (< 351px height) ── */
+        /* ── Super-Compact Landscape (< 351px height) ──
+           Guarded with html:not(.keyboard-open) so the soft keyboard shrinking
+           the viewport doesn't trigger this compact layout transformation,
+           which would cause layout recalculation explosion. */
         @media (max-height: 350px) {
             /* Hide 'Help' tab in super-compact mode */
-            #nav-guide {
+            html:not(.keyboard-open) #nav-guide {
                 display: none !important;
             }
 
             /* Shift to horizontal icon-only layout */
-            .bottom-nav {
+            html:not(.keyboard-open) .bottom-nav {
                 flex-direction: row !important;
                 justify-content: space-evenly !important; /* Distribute icons across the sidebar width */
                 padding: 0 8px !important;
@@ -5057,7 +5068,7 @@
                 right: 0 !important;
             }
 
-            .bottom-nav button {
+            html:not(.keyboard-open) .bottom-nav button {
                 width: 40px !important;
                 min-width: 40px !important;
                 height: 40px !important;
@@ -5066,23 +5077,23 @@
                 border-radius: 12px !important;
             }
 
-            .bottom-nav button span {
+            html:not(.keyboard-open) .bottom-nav button span {
                 display: none !important;
             }
 
-            .bottom-nav button svg {
+            html:not(.keyboard-open) .bottom-nav button svg {
                 width: 19px !important;
                 height: 19px !important;
                 margin: 0 !important;
             }
 
             /* Stabilize vertical centering when icons have no text */
-            .bottom-nav {
+            html:not(.keyboard-open) .bottom-nav {
                 top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
             }
 
             /* Dashboard bottom area: badge on left, help on right */
-            .header-right {
+            html:not(.keyboard-open) .header-right {
                 justify-content: space-between !important;
                 padding-left: 13px !important;
                 padding-right: 0 !important;
@@ -5090,7 +5101,7 @@
             }
 
             /* New help button for super-compact mode */
-            .header-help-btn {
+            html:not(.keyboard-open) .header-help-btn {
                 display: flex !important;
                 background: transparent !important;
                 color: var(--text-sub) !important;
@@ -5110,22 +5121,22 @@
             }
 
             /* Active state: when the guide (help) tab is currently visible */
-            body:has(#tab-guide.active) .header-help-btn {
+            html:not(.keyboard-open) body:has(#tab-guide.active) .header-help-btn {
                 color: var(--primary) !important;
             }
 
-            .header-help-btn:active {
+            html:not(.keyboard-open) .header-help-btn:active {
                 background: var(--surface-2) !important;
             }
 
-            .header-help-btn svg {
+            html:not(.keyboard-open) .header-help-btn svg {
                 width: 19px !important;
                 height: 19px !important;
                 margin: 0 !important;
             }
 
             /* Hide ping latency in role badge — too cramped */
-            .badge-ping {
+            html:not(.keyboard-open) .badge-ping {
                 display: none !important;
             }
         }

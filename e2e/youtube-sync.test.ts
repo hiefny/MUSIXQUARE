@@ -157,15 +157,14 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     const hostOps = hostLog.map((e) => e.op);
     const guestOps = guestLog.map((e) => e.op);
 
-    // Host side: scheduleYtAutoSync force-pauses first, then plays
-    expect(hostOps).toContain('pauseVideo');
+    // Host side: scheduleYtAutoSync is the "immediate-action" path — the
+    // host plays right away for instant responsiveness (no pre-pause).
+    // Stage 2 rendezvous (broadcastYouTubeSync after
+    // STAGE2_RENDEZVOUS_BROADCAST_MS) handles precision alignment for
+    // guests whose initial reaction drifted.
     expect(hostOps).toContain('playVideo');
-    const hostPauseIdx = hostOps.indexOf('pauseVideo');
-    const hostPlayIdx = hostOps.indexOf('playVideo');
-    expect(hostPauseIdx).toBeLessThan(hostPlayIdx);
 
-    // Guest side: handleYouTubeState with hostPlayAt > 300ms runs the
-    // "auto-sync path" which pauses first, then plays at scheduled time
+    // Guest side: handleYouTubeState schedules playVideo at hostPlayAt.
     expect(guestOps).toContain('playVideo');
   });
 

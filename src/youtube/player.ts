@@ -28,13 +28,18 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
 } from './constants.ts';
 
-// URL-input flow: when a user pastes a YouTube link and we're in IDLE state,
-// _addYouTubeToPlaylist sets this flag, loads the player with autoplay=false,
-// and waits for the 'youtube:player-ready' bus event. The listener then
-// triggers youtube:auto-play (→ scheduleYtAutoSync) so the 1-sec rendezvous
-// countdown broadcasts hostPlayAt and every device plays in lockstep instead
-// of each running its own autoplay timing.
+// YouTube rendezvous-autoplay flag: set by any caller that loaded a track
+// with autoplay=false but wants playback to start once the player (or its
+// async load) is ready. Consumed by two paths:
+//   1. 'youtube:player-ready' (new player instance just initialized)
+//   2. iframe.ts onStateChange PLAYING branch (existing player, async
+//      loadPlaylist/loadVideoById completed)
+// Both route through 'youtube:auto-play' → scheduleYtAutoSync so the 1-sec
+// rendezvous countdown keeps host/guest aligned instead of each device
+// running its own autoplay timing.
 let _pendingAutoSyncOnReady = false;
+export function setPendingAutoSyncOnReady(v: boolean): void { _pendingAutoSyncOnReady = v; }
+export function getPendingAutoSyncOnReady(): boolean { return _pendingAutoSyncOnReady; }
 import { registerHandlers } from '../network/protocol.ts';
 import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
 import type { PlaylistItem } from '../types/index.ts';

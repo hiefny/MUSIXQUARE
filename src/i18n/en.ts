@@ -304,7 +304,6 @@ const en: Record<I18nKey, string> = {
   'youtube.fetching_info': 'Loading video info...',
   'youtube.fetch_failed': 'Could not load video info',
   'youtube.enter_link_toast': 'Please enter a YouTube link',
-  'youtube.playing_in_3s': 'Playing YouTube in 3 seconds...',
   'youtube.open_link': 'Open YouTube link',
   'youtube.tap_to_play': 'TAP TO PLAY',
   'youtube.added_to_playlist': 'Added to playlist',

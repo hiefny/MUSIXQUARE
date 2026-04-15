@@ -36,6 +36,7 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
+import { getPendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import {
   UI_LOOP_INTERVAL_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -133,7 +134,6 @@ export function loadYouTubeVideo(
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
     try { player!.stopVideo?.(); } catch { /* noop */ }
-    showLoader(true, t('youtube.playing_in_3s'));
     // Light cleanup: reset sync state without destroying the player
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
@@ -536,9 +536,12 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     if (!getYtAutoplayIntent()) {
       player?.pauseVideo?.();
       showLoader(false);
-      // The video loaded and started playing (loadPlaylist async completion).
-      if (getManagedTimer('autoPlayTimer')) {
-        clearManagedTimer('autoPlayTimer');
+      // Existing-player async load completed — if a caller (URL-input or
+      // playTrack) armed the rendezvous flag, consume it now so autoplay
+      // kicks in without waiting for another 'youtube:player-ready' (which
+      // only fires on brand-new player instances).
+      if (getPendingAutoSyncOnReady()) {
+        setPendingAutoSyncOnReady(false);
         bus.emit('youtube:auto-play');
       }
       return; // Don't broadcast or update UI yet

@@ -230,24 +230,28 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 function handleYouTubeSync(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
+
+  // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
+  // bootstrap frames arrive while the guest is still inside
+  // loadYouTubeVideo (appState !== PLAYING_YOUTUBE), so dropping the frame
+  // here leaves lastHostSnapshot null and the user hits "No host playback
+  // data" when trying to rendezvous — especially when joining while the
+  // host is on the 2nd/3rd sub-video and the next heartbeat is seconds
+  // away. The snapshot is pure data (no side effects), safe to persist
+  // pre-guard. The autoSyncUntil cooldown below still suppresses drift
+  // *correction*, and the guard still protects every side-effectful path.
+  const hostTime = Number(data.time) || 0;
+  const hostState = Number(data.state);
+  const hostSubIndex = data.subIndex as number | undefined;
+  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
+  updateHostSnapshot(hostTime, hostState, hostClock);
+
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
 
   // Host is alive — cancel any pending guest-ENDED fallback. The 5s fallback
   // would otherwise drop the guest out of YouTube mode even though the host
   // is still broadcasting heartbeats for a freshly loaded next track.
   clearManagedTimer('yt-guest-ended-fallback');
-
-  // Cache latest host position BEFORE the cooldown gate. The rendezvous
-  // button needs a fresh snapshot to work, and the cooldown's purpose is
-  // to suppress drift *correction*, not to freeze out snapshot updates.
-  // Without this, a guest stuck in a long autoSyncUntil window sees every
-  // heartbeat dropped and `guestRendezvousSync` reports "No host playback
-  // data yet" for the full duration of the cooldown.
-  const hostTime = Number(data.time) || 0;
-  const hostState = Number(data.state);
-  const hostSubIndex = data.subIndex as number | undefined;
-  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
 
@@ -633,21 +637,30 @@ export function resetYouTubeSyncState(): void {
 function handleYouTubeState(data: Record<string, unknown>): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
 
-  // Host sent a new command — cancel the guest ENDED fallback timer.
-  // (Guest defers IDLE transition on video end to wait for this message.)
-  clearManagedTimer('yt-guest-ended-fallback');
-
-  // Guard against malformed or missing state field. Number(undefined) → NaN,
-  // and `NaN === 1/2/0/-1` is always false, so a missing state would silently
-  // fall through to the generic code path below with unpredictable behaviour.
-  // Drop the message entirely if state isn't a finite YT player-state value.
+  // Validate state first so the pre-guard snapshot update below has a
+  // finite value. Number(undefined) → NaN, and `NaN === 1/2/0/-1` is
+  // always false, so a malformed message is dropped entirely here.
   const state = Number(data.state);
   if (!Number.isFinite(state)) {
     log.warn('[YouTube State] Dropping message with invalid state:', data.state);
     return;
   }
+
+  // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
+  // bootstrap YOUTUBE_STATE arrives while the guest is still loading the
+  // iframe (appState !== PLAYING_YOUTUBE), and without a saved snapshot
+  // the guest is stuck on "No host playback data" when they try to
+  // rendezvous. Snapshot is pure data — no side effects pre-guard, and
+  // every action-scheduling branch below still runs under the guard.
+  const time = Number(data.time) || 0;
+  updateHostSnapshot(time, state);
+
+  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+
+  // Host sent a new command — cancel the guest ENDED fallback timer.
+  // (Guest defers IDLE transition on video end to wait for this message.)
+  clearManagedTimer('yt-guest-ended-fallback');
 
   // PAUSE/STOP always takes priority — cancel any pending auto-sync
   if (state === 2 || state === 0 || state === -1) {
@@ -683,12 +696,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
   if (_rt.hostAdPauseActive) return;
 
   try {
-    const time = Number(data.time) || 0;
-
-    // Update host snapshot from explicit commands — not just heartbeats.
-    // Without this, host seek/play commands don't update the snapshot,
-    // so rendezvous pressed within 3s of a seek uses pre-seek position.
-    updateHostSnapshot(time, state);
+    // `time` and `state` already validated + snapshotted pre-guard above.
 
     // Apply title from host to maintain metadata sync (fixes "No Media" during loading)
     const hostTitle = data.title as string | undefined;

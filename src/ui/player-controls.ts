@@ -380,7 +380,7 @@ async function handleLogoReturnToMain(): Promise<void> {
 
     // Hard reload — clears all in-memory blobs, audio buffers, and stale state
     showLoader(true, t('dialog.leaving_session'));
-    setTimeout(() => window.location.reload(), 300);
+    setManagedTimer('logo-nav-reload', () => window.location.reload(), 300);
   } finally {
     _logoNavBusy = false;
   }

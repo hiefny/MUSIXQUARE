@@ -36,6 +36,12 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     return;
   }
 
+  // A new host command arrived — cancel any pending guest-ENDED fallback
+  // from a prior track's ENDED event. Without this, the 5s fallback can
+  // fire AFTER a new YOUTUBE_PLAY has already loaded the next track and
+  // drop the guest out of YouTube mode on its own.
+  clearManagedTimer('yt-guest-ended-fallback');
+
   // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
@@ -61,12 +67,25 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
     });
   }
 
-  // Single-video mode: when the host sent a videoId, load JUST that video.
-  // The playlistId in the payload is for UI context (lookup into the local
-  // playlist.items[index].playlistId) — not something to feed to the
-  // iframe's playlist engine. Only when no videoId is present (legacy
-  // single-track-with-playlist-only payloads) do we fall back to playlistId.
-  loadYouTubeVideo(videoId, videoId ? null : playlistId, autoplay ?? false, subIndex ?? 0);
+  let finalVideoId = videoId;
+  let finalPlaylistId = playlistId;
+
+  // Early-guest fallback: if the host's payload only has a playlistId (no
+  // videoId) and we have cached IDs for that playlist, short-circuit to
+  // single-video mode. Without cached IDs we must fall through to the
+  // native playlist engine to avoid error 150.
+  if (!finalVideoId && finalPlaylistId) {
+    const subMap = getState('youtube.subItemsMap') || {};
+    const knownIds = subMap[finalPlaylistId]?.ids;
+    if (knownIds && knownIds.length > 0) {
+      finalVideoId = knownIds[0];
+      finalPlaylistId = null;
+    }
+  }
+
+  // When we have a videoId, force playlistId to null so the iframe's native
+  // playlist engine never takes over — single-video mode only.
+  loadYouTubeVideo(finalVideoId, finalVideoId ? null : finalPlaylistId, autoplay ?? false, subIndex ?? 0);
 }
 
 /**

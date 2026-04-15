@@ -39,8 +39,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: E2E Tests
-        run: npx playwright test
+      # E2E suite lives in its own workflow (e2e.yml, manual dispatch).
+      # Serial 300-test run burns ~30 min per PR; keep fast CI gating
+      # to typecheck + lint + unit tests + build, and run E2E on demand.

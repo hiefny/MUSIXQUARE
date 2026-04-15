@@ -304,12 +304,13 @@ const en: Record<I18nKey, string> = {
   'youtube.fetching_info': 'Loading video info...',
   'youtube.fetch_failed': 'Could not load video info',
   'youtube.enter_link_toast': 'Please enter a YouTube link',
-  'youtube.playing_in_3s': 'Playing YouTube in 3 seconds...',
   'youtube.open_link': 'Open YouTube link',
   'youtube.tap_to_play': 'TAP TO PLAY',
   'youtube.added_to_playlist': 'Added to playlist',
   'youtube.playlist_truncated': 'Playlist is too long. Only the first 100 tracks were loaded.',
   'youtube.loading_playlist': 'Loading playlist info... (approx. 4s)',
+  'youtube.loading_large_playlist': 'Loading large playlist...',
+  'youtube.indexing_playlist': 'Analyzing playlist items...',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Disconnected',

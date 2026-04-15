@@ -69,7 +69,7 @@ export function forceStereoSdp(sdp: string): string {
     if (fmtpRegex.test(modified)) {
       modified = modified.replace(fmtpRegex, (line) => {
         // Strip out existing stereo-related params
-        let newLine = line.replace(/;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g, '');
+        const newLine = line.replace(/;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g, '');
         // Append our high-fidelity stereo params + sweet-spot bitrate (128kbps per track)
         return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1';
       });
@@ -235,7 +235,7 @@ function setupPeerEvents(): void {
     const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
     const type = mc.metadata?.type;
     if (type === 'system-audio' || type === 'system-audio-dual' || type === 'system-audio-stereo' || type === 'system-audio-synced') {
-      let channel = 'L';
+      let channel: string;
       if (type === 'system-audio-dual') channel = 'DUAL';
       else if (type === 'system-audio-stereo') channel = 'STEREO';
       else if (type === 'system-audio-synced') channel = 'SYNCED';

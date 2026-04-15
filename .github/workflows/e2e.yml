@@ -1,0 +1,40 @@
+name: E2E
+
+# Manual-dispatch only: the Playwright suite runs serially (workers: 1
+# due to shared PeerJS signaling) and takes ~30 min. Kicking it off on
+# every push/PR burns GitHub Actions minutes without gating value while
+# the suite has stale scenarios. Trigger from the Actions tab when you
+# want to verify E2E after fixing stale tests.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E Tests
+        run: npx playwright test

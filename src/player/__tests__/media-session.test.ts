@@ -133,13 +133,16 @@ describe('initMediaSession', () => {
     expect(fn).toHaveBeenCalledWith(2);
   });
 
-  it('play handler is blocked for non-operator guests', () => {
+  // Non-OP guests must still be able to play/pause — lock screen and
+  // hardware media buttons should always work (see media-session.ts
+  // isPlaybackBlocked comment). Only track changes and seek are blocked.
+  it('play handler still works for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setState('appState', APP_STATE.PAUSED);
     setState('playlist.currentTrackIndex', 0);
     _handlers['play']();
-    expect(togglePlay).not.toHaveBeenCalled();
+    expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler calls togglePlay when playing', () => {

@@ -94,7 +94,7 @@ export function triggerAppEntrance(): void {
       chatDrawer.classList.add('app-chat-entrance');
     }
     // Cleanup after all transitions complete
-    setTimeout(() => {
+    setManagedTimer('app-entrance-cleanup', () => {
       for (const [sel] of ENTRANCE_TARGETS) {
         const el = document.querySelector(sel) as HTMLElement | null;
         if (el) {
@@ -379,7 +379,7 @@ export function initSetup(): void {
           }
         } else {
           showLoader(true, t('dialog.leaving_session'));
-          setTimeout(() => window.location.reload(), 300);
+          setManagedTimer('reconnect-dialog-reload', () => window.location.reload(), 300);
         }
       }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
@@ -404,7 +404,7 @@ export function initSetup(): void {
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
     showLoader(true, t('dialog.leaving_session'));
-    setTimeout(() => window.location.reload(), 300);
+    setManagedTimer('kicked-from-session-reload', () => window.location.reload(), 300);
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -417,7 +417,7 @@ export function initSetup(): void {
     }).catch(e => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
         showLoader(true, t('dialog.leaving_session'));
-        setTimeout(() => window.location.reload(), 300);
+        setManagedTimer('kicked-explicit-reload', () => window.location.reload(), 300);
       });
   });
 

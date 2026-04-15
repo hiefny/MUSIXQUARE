@@ -65,7 +65,7 @@ function onBeat(): void {
     _overlay!.style.opacity = String(opacity);
     
     // Force reflow
-    _overlay!.offsetWidth; 
+    void _overlay!.offsetWidth;
     
     // Smooth Fade out (Ambient Long-Tail)
     _overlay!.style.transition = `opacity ${FADE_MS}ms cubic-bezier(.05, .7, .1, 1)`;

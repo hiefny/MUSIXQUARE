@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Profanity Filter
+ * MUSIXQUARE — Profanity Filter
  *
  * Lightweight filter using word lists from content-shield.
  * Replaces matched words with asterisks.

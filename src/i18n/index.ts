@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — i18n Engine (Key-Based)
+ * MUSIXQUARE — i18n Engine (Key-Based)
  *
  * Provides: t(), initI18n(), setLanguageMode(), getResolvedLanguage().
  * Translates DOM via data-i18n attributes + MutationObserver.

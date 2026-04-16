@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Session ID Management
+ * MUSIXQUARE — Session ID Management
  */
 
 import { log } from './log.ts';

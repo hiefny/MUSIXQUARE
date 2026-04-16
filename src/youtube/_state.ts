@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube Shared Module State
+ * MUSIXQUARE — YouTube Shared Module State
  *
  * Leaf-node module: holds module-level state and getters/setters
  * so that iframe.ts, handlers.ts, and player.ts can all share state

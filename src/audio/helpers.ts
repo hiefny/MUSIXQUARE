@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Web Audio Helpers
+ * MUSIXQUARE — Web Audio Helpers
  *
  * Utility functions replacing Tone.js abstractions:
  * - rampParam: replaces .rampTo()

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube Protocol Handlers
+ * MUSIXQUARE — YouTube Protocol Handlers
  *
  * Manages: Network message handlers for YouTube commands
  * (play, pause, toggle, sub-seek, playlist-info).

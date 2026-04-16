@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Chat Commands
+ * MUSIXQUARE — Chat Commands
  *
  * Parses and executes slash commands from chat input.
  * Local-only commands (/help, /users) never leave the device.

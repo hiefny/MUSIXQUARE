@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Relay Chain Management
+ * MUSIXQUARE — Relay Chain Management
  *
  * Manages: Upstream relay connection, downstream data peers,
  * relay file serving, preload relay, OPFS catch-up streaming.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube IFrame API
+ * MUSIXQUARE — YouTube IFrame API
  *
  * Manages: IFrame API script loading, player creation/destruction,
  * player event callbacks, UI update loop, iOS sync overlay,

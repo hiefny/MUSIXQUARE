@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Playlist Management
+ * MUSIXQUARE — Playlist Management
  *
  * Manages: playlist array, repeat/shuffle modes, playTrack,
  * playNextTrack, playPrevTrack, clearPreloadState.

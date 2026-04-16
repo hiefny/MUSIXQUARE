@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Host-Side Peer Connection Logic
+ * MUSIXQUARE — Host-Side Peer Connection Logic
  *
  * Manages: incoming guest connections, welcome messages, device list,
  * operator toggle, kick, max-guests resize.

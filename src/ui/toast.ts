@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Toast & Loader
+ * MUSIXQUARE — Toast & Loader
  *
  * Manages: Toast notifications, header loading bar.
  */

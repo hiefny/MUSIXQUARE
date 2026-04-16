@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — DOM Utilities
+ * MUSIXQUARE — DOM Utilities
  *
  * Manages: animateTransition, escapeHtml, updateTitleWithMarquee,
  * copyTextToClipboard.

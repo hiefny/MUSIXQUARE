@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Playback Shared Module State
+ * MUSIXQUARE — Playback Shared Module State
  *
  * Leaf-node module: holds module-level state and getters/setters
  * so that decode.ts, transport.ts, and playback.ts can all share state

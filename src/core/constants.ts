@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Constants
+ * MUSIXQUARE — Constants
  */
 
 // ─── App State ─────────────────────────────────────────────────────

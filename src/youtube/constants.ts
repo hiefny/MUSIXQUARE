@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube Module Constants
+ * MUSIXQUARE — YouTube Module Constants
  *
  * Centralizes all tunable parameters for the YouTube watch-together sync
  * protocol, iframe management, and playlist handling. Keeping these in one

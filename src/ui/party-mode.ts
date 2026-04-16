@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Party Mode (Visual Feedback)
+ * MUSIXQUARE — Party Mode (Visual Feedback)
  * 
  * Emergency Refactor:
  * - REMOVED all UI bouncing/scaling as it interferes with touch interactions.

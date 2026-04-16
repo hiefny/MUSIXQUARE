@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Platform Detection & Viewport Management
+ * MUSIXQUARE — Platform Detection & Viewport Management
  */
 
 import { log } from './log.ts';

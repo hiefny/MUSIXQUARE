@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Korean Translations (Source of Truth)
+ * MUSIXQUARE — Korean Translations (Source of Truth)
  *
  * All i18n keys are defined here. Other language files must
  * implement Record<I18nKey, string> to guarantee completeness.

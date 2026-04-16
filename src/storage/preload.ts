@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Preload System
+ * MUSIXQUARE — Preload System
  *
  * Manages: Host-side preload scheduling, background transfer to peers,
  * Guest-side preload receive (start/chunk/end), preload-ack, play-preloaded.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Playback Transport
+ * MUSIXQUARE — Playback Transport
  *
  * Manages: play/pause/stop/seek, native Web Audio API buffer lifecycle,
  * video sync, track position calculation.

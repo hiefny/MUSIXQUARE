@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Transfer: Receive Side
+ * MUSIXQUARE — File Transfer: Receive Side
  *
  * Handles FILE_PREPARE, FILE_START, FILE_RESUME, FILE_CHUNK, FILE_END,
  * FILE_WAIT. Manages chunk watchdog, reorder buffer, and early-chunk queue.

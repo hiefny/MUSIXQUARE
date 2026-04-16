@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Transfer Worker (OPFS File I/O)
+ * MUSIXQUARE — Transfer Worker (OPFS File I/O)
  * Ported from js/transfer.worker.js
  *
  * Handles heavy file I/O operations with session-aware locking.

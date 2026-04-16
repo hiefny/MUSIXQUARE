@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Guest-Side Peer Connection Logic
+ * MUSIXQUARE — Guest-Side Peer Connection Logic
  *
  * Manages: outgoing connection to host, reconnect retry, guest protocol handlers
  * (welcome, session full, device list, operator, kick, force-close-duplicate).

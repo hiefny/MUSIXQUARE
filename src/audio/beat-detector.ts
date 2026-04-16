@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — BPM Beat Detector
+ * MUSIXQUARE — BPM Beat Detector
  *
  * Detects BPM from the current AudioBuffer using energy-map autocorrelation
  * (proven v2 algorithm), then emits 'beat:pulse' events synced to the

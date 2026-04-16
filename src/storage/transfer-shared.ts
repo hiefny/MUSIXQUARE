@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Transfer: Shared Helpers
+ * MUSIXQUARE — File Transfer: Shared Helpers
  *
  * Utilities shared between transfer-send and transfer-receive.
  * Sub-files import from here (not from transfer.ts) to avoid circular deps.

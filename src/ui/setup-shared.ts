@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Setup Shared State & Helpers
+ * MUSIXQUARE — Setup Shared State & Helpers
  *
  * Shared module-level state, UI helper functions, onboarding slider,
  * desktop left-panel sync, and button rendering used by setup-host,

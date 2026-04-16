@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — AudioContext Singleton
+ * MUSIXQUARE — AudioContext Singleton
  *
  * Replaces Tone.js context management with a direct AudioContext.
  * All audio modules import from here instead of Tone.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Loading & Decoding
+ * MUSIXQUARE — File Loading & Decoding
  *
  * Manages: loadAndBroadcastFile (host), loadPreloadedTrack (guest),
  * finalizeGuestFile, clearPreviousTrackState.

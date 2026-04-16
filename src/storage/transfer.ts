@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Transfer (Facade)
+ * MUSIXQUARE — File Transfer (Facade)
  *
  * Re-exports send/receive APIs and registers protocol handlers.
  * Sub-modules: transfer-send.ts (send), transfer-receive.ts (receive),

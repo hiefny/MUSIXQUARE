@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Sync & Latency Management
+ * MUSIXQUARE — Sync & Latency Management
  *
  * Manages: Heartbeat, ping/pong latency, manual sync (nudge).
  */

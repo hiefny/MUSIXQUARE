@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Blob URL Manager
+ * MUSIXQUARE — Blob URL Manager
  *
  * Centralized Blob URL lifecycle management to prevent memory leaks.
  * Supports deferred revocation for URLs still attached to <video>.

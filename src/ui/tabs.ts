@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Tab Navigation
+ * MUSIXQUARE — Tab Navigation
  *
  * Manages: Tab switching (mobile bottom nav & desktop grid).
  */

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Playback Engine (Coordinator)
+ * MUSIXQUARE — Playback Engine (Coordinator)
  *
  * Orchestrates: protocol handler registration, bus event wiring.
  * Re-exports all public API from sub-modules.

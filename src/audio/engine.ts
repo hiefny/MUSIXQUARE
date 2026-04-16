@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Audio Engine (Native Web Audio API)
+ * MUSIXQUARE — Audio Engine (Native Web Audio API)
  *
  * Manages the entire audio graph:
  *   Player → Widener → Preamp → Split → Channel Routing → Merge

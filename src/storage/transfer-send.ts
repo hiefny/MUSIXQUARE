@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Transfer: Send Side
+ * MUSIXQUARE — File Transfer: Send Side
  *
  * broadcastFile (host → all peers) and unicastFile (host → single peer).
  */

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Setup Host Flow
+ * MUSIXQUARE — Setup Host Flow
  *
  * Host session creation: role selection -> code generation -> session start.
  *

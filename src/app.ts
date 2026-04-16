@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Application Bootstrap
+ * MUSIXQUARE — Application Bootstrap
  *
  * Module initialization order:
  * 1. core/   — constants, log, events, state, platform, session, blob-manager, timers
@@ -214,7 +214,7 @@ function initBeforeUnload(): void {
 // ── Bootstrap ──
 
 function bootstrap(): void {
-  log.info(`[App] MUSIXQUARE 3.0 bootstrap (instance: ${INSTANCE_ID})`);
+  log.info(`[App] MUSIXQUARE bootstrap (instance: ${INSTANCE_ID})`);
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {

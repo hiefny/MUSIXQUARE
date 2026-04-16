@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Central State Store
+ * MUSIXQUARE — Central State Store
  *
  * Single Source of Truth for app-wide reactive state.
  * Uses dot-separated paths and emits bus events on change.

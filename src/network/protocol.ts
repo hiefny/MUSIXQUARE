@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Message Protocol & Dispatch
+ * MUSIXQUARE — Message Protocol & Dispatch
  *
  * Manages: Message validation, handler registry, dispatch (handleData),
  * relay command routing (upstream/downstream), RELAYABLE_COMMANDS list.

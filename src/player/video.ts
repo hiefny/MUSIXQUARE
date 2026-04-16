@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Video Element & State Helpers
+ * MUSIXQUARE — Video Element & State Helpers
  *
  * Manages: videoElement reference, media type detection, idle/paused helper,
  * engine mode switching.

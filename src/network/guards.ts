@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Network Permission Guards
+ * MUSIXQUARE — Network Permission Guards
  *
  * Centralized permission checks extracted from scattered inline checks
  * across player, playlist, and UI modules.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube Search & URL Extraction
+ * MUSIXQUARE — YouTube Search & URL Extraction
  *
  * Manages: Video/Playlist ID extraction, oEmbed preview fetch,
  * oEmbed title cache.

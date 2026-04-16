@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Peer Module Shared State & Helpers (Leaf Node)
+ * MUSIXQUARE — Peer Module Shared State & Helpers (Leaf Node)
  *
  * Contains: PeerJS instance holder, peer slot management, ICE detection,
  * broadcast/send utilities, transport guards.

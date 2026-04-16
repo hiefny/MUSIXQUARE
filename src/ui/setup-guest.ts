@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Setup Guest Flow
+ * MUSIXQUARE — Setup Guest Flow
  *
  * Guest join: role selection -> code entry -> join session.
  *

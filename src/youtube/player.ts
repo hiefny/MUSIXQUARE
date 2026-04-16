@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — YouTube Player
+ * MUSIXQUARE — YouTube Player
  *
  * Module coordinator: stopYouTubeMode, initYouTube (bus event wiring),
  * and re-exports from sub-modules.

@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Seekbar Module
+ * MUSIXQUARE — Seekbar Module
  *
  * Manages: Seek slider, rAF interpolation loop, time display,
  * duration updates, YouTube time sync, ended-check polling.

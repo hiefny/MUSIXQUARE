@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Managed Timers Registry
+ * MUSIXQUARE — Managed Timers Registry
  *
  * Centralized timer management to prevent orphaned intervals/timeouts.
  * Timer names are plain strings — any module can register its own.

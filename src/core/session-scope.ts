@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — SessionScope
+ * MUSIXQUARE — SessionScope
  *
  * Unified async lifecycle management.
  * Wraps AbortController + managed timer registry so that

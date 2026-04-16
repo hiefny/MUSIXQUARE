@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Audio Constants
+ * MUSIXQUARE — Audio Constants
  *
  * Shared numeric constants for the audio graph, effects, and channel routing.
  * Centralised here to avoid magic numbers scattered across engine/effects/channel.

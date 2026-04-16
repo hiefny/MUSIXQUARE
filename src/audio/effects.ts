@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Audio Effects (Native Web Audio API)
+ * MUSIXQUARE — Audio Effects (Native Web Audio API)
  *
  * Manages: Reverb (wet/dry + damping), 5-band EQ, Virtual Bass,
  * Stereo Width, Preamp gain compensation.

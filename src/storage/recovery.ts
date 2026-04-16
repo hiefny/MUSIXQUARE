@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — File Recovery
+ * MUSIXQUARE — File Recovery
  *
  * Manages: Recovery request with progressive backoff,
  * host-side file serving (handleRequestCurrentFile, handleRequestDataRecovery).

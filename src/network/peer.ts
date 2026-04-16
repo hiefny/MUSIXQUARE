@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — PeerJS Coordinator
+ * MUSIXQUARE — PeerJS Coordinator
  *
  * Orchestrates: network initialization, PeerJS event wiring, session cleanup.
  * Re-exports public API from peer-state.ts, host.ts, guest.ts so that

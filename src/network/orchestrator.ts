@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Relay Orchestrator (Host-side)
+ * MUSIXQUARE — Relay Orchestrator (Host-side)
  *
  * Manages relay topology: evaluates each peer after ICE detection,
  * assigns local peers as relay nodes for remote peers,

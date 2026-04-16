@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Setup Flow (Orchestrator)
+ * MUSIXQUARE — Setup Flow (Orchestrator)
  *
  * Manages: Setup overlay initialization, onboarding, bus event wiring,
  * and re-exports from setup-host / setup-guest / setup-shared.

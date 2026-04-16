@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 3.0 — Channel Mode Routing
+ * MUSIXQUARE — Channel Mode Routing
  *
  * Manages channel routing (Stereo/Left/Right/Sub) for the standard per-device
  * speaker role feature (exposed in the UI as "Role: Stereo / Left / Right / Sub").

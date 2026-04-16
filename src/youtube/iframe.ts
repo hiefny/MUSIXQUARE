@@ -937,7 +937,14 @@ function showYouTubeSyncOverlay(show: boolean): void {
           // before rendezvous takes over. Pause does not revoke the unlock.
           player.pauseVideo?.();
         } catch (e) {
-          log.debug('[YouTube iOS gate] prime play/pause threw:', e);
+          // Prime failed — gesture was NOT captured. Keep the overlay up so the
+          // user can tap again; dismissing it here would leave the player
+          // permanently paused because downstream rendezvous playVideo() calls
+          // fire outside a gesture and iOS will silently reject them. Roll
+          // back the intent flag too so the pause-back guard stays armed.
+          log.warn('[YouTube iOS gate] prime play/pause threw — keeping overlay:', e);
+          setYtAutoplayIntent(false);
+          return;
         }
 
         showYouTubeSyncOverlay(false);

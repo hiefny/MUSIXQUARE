@@ -71,7 +71,7 @@ export function broadcastYouTubeSync(isManual = false): void {
   // may return a stale (pre-seek) value. Broadcasting that stale position
   // causes ALL guests' drift correction to undo the seek, even though
   // they already received the correct position via YOUTUBE_STATE.
-  if (getManagedTimer('yt-auto-sync') || getManagedTimer('yt-sync-grace')) return;
+  if (getManagedTimer('yt-auto-sync')) return;
 
   try {
     const currentTime = player.getCurrentTime();

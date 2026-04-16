@@ -138,7 +138,6 @@ export function loadYouTubeVideo(
     // Light cleanup: reset sync state without destroying the player
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
-    clearManagedTimer('yt-sync-grace');
     resetYouTubeSyncState();
 
     // Restart UI loop if it was cleared by the ENDED handler.
@@ -648,18 +647,18 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // Host broadcasts state to guests (skip if UI already broadcast within 300ms)
   const hostConn = getState('network.hostConn');
   const now = Date.now();
-  // CRITICAL: also skip while a scheduled sync countdown (yt-auto-sync) or
-  // its post-playVideo grace window (yt-sync-grace) is active. During that
-  // window the player transitions PAUSED → BUFFERING → PLAYING (pause,
-  // seek, wait, play) and onStateChange fires for each transition. If the
-  // 300ms UI-dedupe cooldown elapses during this ~1s+ window, onStateChange
-  // will broadcast an auxiliary YOUTUBE_STATE{state:2, no hostPlayAt} for
-  // the transient PAUSED state — which the guest interprets as "host paused"
-  // and cancels its pending yt-clock-action, leaving guest paused while
-  // host resumes at the end of the countdown. scheduleYtAutoSync already
-  // broadcasts the authoritative state+hostPlayAt at the start of its
-  // sequence, so suppressing these in-flight auxiliary broadcasts is safe.
-  const syncInFlight = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
+  // CRITICAL: skip while a scheduled rendezvous (yt-auto-sync) is active.
+  // During that window the player transitions PAUSED → BUFFERING → PLAYING
+  // (pause, seek, wait, play) and onStateChange fires for each transition.
+  // If the 300ms UI-dedupe cooldown elapses during this ~1s+ window,
+  // onStateChange will broadcast an auxiliary YOUTUBE_STATE{state:2, no
+  // hostPlayAt} for the transient PAUSED state — which the guest interprets
+  // as "host paused" and cancels its pending yt-clock-action, leaving guest
+  // paused while host resumes at the end of the rendezvous.
+  // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
+  // at the start of its sequence, so suppressing these in-flight auxiliary
+  // broadcasts is safe.
+  const syncInFlight = !!getManagedTimer('yt-auto-sync');
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
   // pause→play within 300ms), leaving guests stuck in the old state for 3s
@@ -807,7 +806,6 @@ function updateYouTubeUI(): void {
         && prevIdx !== -1
         && playlistIdx >= 0
         && !getManagedTimer('yt-auto-sync')
-        && !getManagedTimer('yt-sync-grace')
       ) {
         log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
         bus.emit('youtube:sub-video-advanced');

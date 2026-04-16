@@ -143,7 +143,6 @@ export function scheduleYtAutoSync(
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
-  clearManagedTimer('yt-sync-grace');
   bus.emit('youtube:sync-loading', false);
 }
 
@@ -525,13 +524,12 @@ export function initYouTube(): void {
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
         // See youtube:seek-to for why we need the midSync check — a pending
-        // yt-auto-sync stage-2 delay (or the post-playVideo grace window)
-        // keeps the player PAUSED while logically we are still in a play
-        // session, so a bare seek during that window would skip re-syncing
-        // and let the stale target's playVideo fire.
-        const midSync = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
+        // yt-auto-sync stage-2 delay keeps the player PAUSED while logically
+        // we are still in a play session, so a bare seek during that window
+        // would skip re-syncing and let the stale target's playVideo fire.
+        const midSync = !!getManagedTimer('yt-auto-sync');
         if (state === 1 || midSync) {
-          // Playing (or mid-rendezvous / grace) → (re)schedule auto-sync
+          // Playing (or mid-rendezvous) → (re)schedule auto-sync
           scheduleYtAutoSync(target);
         } else {
           // Actually paused by user → seek immediately, no delay
@@ -563,19 +561,15 @@ export function initYouTube(): void {
       const hostConn = getState('network.hostConn');
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
-        // Mid-sync detection — two phases:
-        //   - yt-auto-sync: stage-2 rendezvous delay before playVideo()
-        //   - yt-sync-grace: 500ms after playVideo() while YouTube IFrame
-        //     finishes its async PAUSED→PLAYING state transition
-        // Both are treated as "effectively playing" so a seek landing in
-        // either window (re)schedules a fresh sync instead of slipping
-        // through as a bare seek+state=2 while the player's reported
-        // state is still lying about being PAUSED.
-        const midSync = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
+        // Mid-sync detection: yt-auto-sync is the stage-2 rendezvous delay
+        // before playVideo(). A seek landing in that window (re)schedules a
+        // fresh sync instead of slipping through as a bare seek+state=2
+        // while the player's reported state is still lying about being PAUSED.
+        const midSync = !!getManagedTimer('yt-auto-sync');
         if (state === 1 || midSync) {
-          // Playing (or mid-sync countdown / grace) → (re)schedule auto-sync.
-          // scheduleYtAutoSync clears any pending yt-auto-sync up-front,
-          // so the old countdown is naturally superseded.
+          // Playing (or mid-sync) → (re)schedule auto-sync. scheduleYtAutoSync
+          // clears any pending yt-auto-sync up-front, so the old one is
+          // naturally superseded.
           scheduleYtAutoSync(seconds);
         } else {
           // Actually paused by user → seek immediately, no delay

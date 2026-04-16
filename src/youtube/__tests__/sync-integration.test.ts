@@ -461,9 +461,9 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 11. cancelYtAutoSync clears both timers
+  // 11. cancelYtAutoSync clears the auto-sync timer
   describe('cancelYtAutoSync', () => {
-    it('clears yt-auto-sync and yt-sync-grace timers', async () => {
+    it('clears the yt-auto-sync timer', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync, cancelYtAutoSync } = await importPlayer();
 
@@ -472,7 +472,6 @@ describe('YouTube Sync — Regression Integration', () => {
 
       cancelYtAutoSync();
       expect(getManagedTimer('yt-auto-sync')).toBeNull();
-      expect(getManagedTimer('yt-sync-grace')).toBeNull();
     });
   });
 });

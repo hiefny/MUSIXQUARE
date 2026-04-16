@@ -46,11 +46,6 @@ export const UI_LOOP_INTERVAL_MS = 500;
  *  fired within this gap is treated as noise (PAUSED→BUFFERING→PLAYING). */
 export const STATE_BROADCAST_DEDUP_MS = 300;
 
-/** Post-playVideo grace window — any YOUTUBE_STATE produced while this
- *  timer is armed is suppressed so onStateChange doesn't clobber the
- *  authoritative hostPlayAt broadcast with a transient PAUSED frame. */
-export const SYNC_GRACE_MS = 500;
-
 // ─── Drift Correction Cooldowns ──────────────────────────────────────
 // Window during which handleYouTubeSync's periodic drift correction is
 // suppressed so a scheduled action (seek+play) doesn't get fought by

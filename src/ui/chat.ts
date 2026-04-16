@@ -584,9 +584,9 @@ export function initChat(): void {
 
   // Render primitives emit this when a chat/whisper/notice DOM append completes.
   // Keeps drawer/unread state out of chat-render.ts (single-direction dep).
-  bus.on('chat:message-rendered', (sender: string, text: string, _isMine: boolean, shouldIncrementUnread: boolean) => {
+  bus.on('chat:message-rendered', (sender: string, text: string, isMine: boolean) => {
     updateChatPreview(sender, text);
-    if (shouldIncrementUnread) incrementUnread();
+    if (!isMine) incrementUnread();
   });
 
   // Bus event for toggling drawer from other modules

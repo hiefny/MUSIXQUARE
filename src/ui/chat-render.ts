@@ -227,10 +227,12 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
     container.scrollTop = container.scrollHeight;
   }
 
-  bus.emit('chat:message-rendered', sender, text, isMine, !isMine);
+  bus.emit('chat:message-rendered', sender, text, isMine);
 }
 
-// ─── Render: System Message (no preview update, no unread increment) ────
+// ─── Render: System Message ──────────────────────────────────────
+// System messages bypass `chat:message-rendered` on purpose: they're local
+// notices (command output, errors) that shouldn't touch preview/unread.
 
 export function addSystemChatMessage(text: string): void {
   const container = document.getElementById('chat-messages');
@@ -368,5 +370,5 @@ export function addNoticeChatMessage(sender: string, text: string): void {
   pruneOldMessages(container);
   container.scrollTop = container.scrollHeight;
 
-  bus.emit('chat:message-rendered', sender, text, false, true);
+  bus.emit('chat:message-rendered', sender, text, false);
 }

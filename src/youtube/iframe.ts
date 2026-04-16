@@ -44,6 +44,7 @@ import {
   STATE_BROADCAST_DEDUP_MS,
   LOAD_DRIFT_SUPPRESS_MS,
   IOS_WATCHDOG_MS,
+  UNAVAILABLE_STUCK_THRESHOLD_MS,
   CRASH_FAIL_THRESHOLD,
   SCRIPT_LOAD_TIMEOUT_MS,
   REFRESH_DISPLAY_DELAY_MS,
@@ -90,6 +91,11 @@ interface IframeRuntime {
   isScrapingPlaylist: boolean;
   /** The playlistId currently being indexed/scraped. */
   indexingPlaylistId: string | null;
+  /** Timestamp when the player first entered a "stuck" (non-playing) state.
+   *  Null while the player is PLAYING/PAUSED, or when one of the legitimate-
+   *  stall guards applies (iOS gate, tab hidden, scraping). See the
+   *  unavailable-video heuristic in updateYouTubeUI. */
+  unavailableStuckSince: number | null;
 }
 
 const _ifr: IframeRuntime = {
@@ -102,6 +108,7 @@ const _ifr: IframeRuntime = {
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
   indexingPlaylistId: null,
+  unavailableStuckSince: null,
 };
 
 export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
@@ -761,6 +768,42 @@ function updateYouTubeUI(): void {
       // Clearing on BUFFERING(3) would reset the timer if a stuck player
       // briefly flickers through BUFFERING during initialization.
       setYtIOSWatchdog(null);
+    }
+
+    // ── Unavailable-video heuristic (host-only) ────────────────────
+    // Some "unavailable" states (region lock, age-gate, certain private
+    // videos) render an error UI inside the iframe without firing
+    // onError through the API. Detect by measuring how long the player
+    // sits in a non-playing state, and auto-advance past the broken
+    // track. Host-only: a stuck guest is usually a local network issue,
+    // and skipping locally would diverge from host state.
+    //
+    // Excluded cases (each is a legitimate stall, not "unavailable"):
+    //   - iOS gate overlay visible — user hasn't tapped yet
+    //   - document.hidden — browser may throttle the iframe
+    //   - isScrapingPlaylist — CUED is intentional while indexing IDs
+    //   - PLAYING/PAUSED — video is fine (ads live here too)
+    const isHost = !getState('network.hostConn');
+    const STUCK_STATES = new Set([-1, 5, 3]); // UNSTARTED, CUED, BUFFERING
+    const iosOverlayVisible = document.getElementById('youtube-ios-sync-overlay')?.style.display === 'flex';
+    const stuckEligible = isHost
+      && STUCK_STATES.has(state)
+      && !iosOverlayVisible
+      && !document.hidden
+      && !_ifr.isScrapingPlaylist;
+    if (stuckEligible) {
+      if (!_ifr.unavailableStuckSince) _ifr.unavailableStuckSince = Date.now();
+      if (Date.now() - _ifr.unavailableStuckSince > UNAVAILABLE_STUCK_THRESHOLD_MS) {
+        log.error(`[YouTube] Player stuck in state ${state} — treating as unavailable, skipping`);
+        _ifr.unavailableStuckSince = null;
+        showToast(t('youtube.video_unavailable'));
+        let advanced = false;
+        bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+        if (!advanced) bus.emit('playlist:next-track');
+        return;
+      }
+    } else {
+      _ifr.unavailableStuckSince = null;
     }
 
     // Pre-empt slow native auto-advance. When the iframe's native playlist

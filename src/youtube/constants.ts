@@ -142,6 +142,16 @@ export const HOST_AD_STALE_DIFF_SEC = 1.0;
  *  overlay so the user can satisfy the iOS gesture requirement. */
 export const IOS_WATCHDOG_MS = 3000;
 
+/** Unavailable-video heuristic — if the host's player sits in a non-playing
+ *  state (UNSTARTED / CUED / BUFFERING) for this long without recovering AND
+ *  none of the legitimate-stall exceptions apply (iOS gate, tab hidden,
+ *  playlist scraping), treat the video as unplayable and auto-skip. Covers
+ *  the region-lock / age-gate cases where YouTube renders an error UI inside
+ *  the iframe but never fires onError through the API.
+ *  Chosen conservatively (18s) so slow networks and preroll-ad buffering
+ *  won't false-trigger. Ads are PLAYING-state so they never reach here. */
+export const UNAVAILABLE_STUCK_THRESHOLD_MS = 18000;
+
 /** Number of consecutive getCurrentTime() throws before we assume the iframe
  *  has crashed (sad-face icon) and rebuild the player.
  *  N × UI_LOOP_INTERVAL_MS = detection window (default: 6 × 500ms = 3s). */

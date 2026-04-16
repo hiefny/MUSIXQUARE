@@ -36,6 +36,7 @@ import {
   readState,
   waitForState,
   isVisible,
+  VALID_APP_STATES,
 } from './helpers/wait.ts';
 
 // ─── Local Helpers ───────────────────────────────────────────
@@ -169,11 +170,14 @@ async function startPlayback(hostPage: Page): Promise<void> {
   );
 }
 
-/** Assert host is still functional (not crashed) */
-async function assertHostAlive(hostPage: Page): Promise<void> {
-  const state = await readState(hostPage, 'appState');
-  expect(state).toBeDefined();
+/** Assert a page's appState is a valid enum value (not undefined / null / typo). */
+async function assertAppStateValid(page: Page): Promise<void> {
+  const state = await readState(page, 'appState');
+  expect(VALID_APP_STATES).toContain(state);
 }
+
+/** Assert host is still functional (not crashed) */
+const assertHostAlive = assertAppStateValid;
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/dQw4w9WgXcQ';
@@ -313,7 +317,7 @@ test.describe('Seek Position Chaos', () => {
       // Both should be functional
       await assertHostAlive(hostPage);
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -479,7 +483,7 @@ test.describe('Rapid Play/Pause Cycling', () => {
       // Both should survive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
 
       // Guest still connected
       const peers = await setup.hostPage.evaluate(() => {
@@ -541,7 +545,10 @@ test.describe('Rapid Track Navigation', () => {
 
       // Both should converge on same track (give guest time to sync)
       const hostIdx = await readState(setup.hostPage, 'playlist.currentTrackIndex');
-      expect(hostIdx).toBeDefined();
+      // -1 means "nothing loaded"; 0+ means a real track is selected. Either
+      // is a valid post-chaos state — we just want to reject undefined/null.
+      expect(typeof hostIdx).toBe('number');
+      expect(hostIdx).toBeGreaterThanOrEqual(-1);
 
       // Guest may take time to sync after rapid navigation
       await setup.guestPages[0].waitForFunction(
@@ -647,7 +654,7 @@ test.describe('Audio Settings Cascade + Disconnect', () => {
       // Surviving guest should be ok
       await assertHostAlive(setup.hostPage);
       const g2State = await readState(setup.guestPages[1], 'appState');
-      expect(g2State).toBeDefined();
+      expect(VALID_APP_STATES).toContain(g2State);
 
       // Final settings should be stable
       const vol = await readState(setup.hostPage, 'audio.masterVolume');
@@ -745,7 +752,7 @@ test.describe('Shuffle Repeat + Late Join', () => {
 
       await assertHostAlive(hostPage);
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -1146,7 +1153,7 @@ test.describe('Mode Toggle Storm', () => {
       // Both should be alive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1220,7 +1227,7 @@ test.describe('YouTube URL Switch', () => {
       // Both should be alive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1621,7 +1628,7 @@ test.describe('Channel Mode Switching', () => {
 
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1961,7 +1968,7 @@ test.describe('Upload During YouTube Mode', () => {
       // App should handle this gracefully (file may be queued or mode may switch)
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -2002,7 +2009,7 @@ test.describe('Rapid Operator Toggle', () => {
       // Both should survive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
 
       // Guest should still be connected
       const peers = await setup.hostPage.evaluate(() => {
@@ -2155,7 +2162,7 @@ test.describe('Play Stop Chat Race', () => {
 
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }

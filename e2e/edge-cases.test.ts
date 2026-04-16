@@ -29,6 +29,7 @@ import {
   waitForSelectorCount,
   waitForOverlayActive,
   waitForClass,
+  VALID_APP_STATES,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
@@ -286,7 +287,7 @@ test.describe('Edge Cases', () => {
 
       // Verify state is valid after setting volume to 0
       const state = await readState(pair.hostPage, 'appState');
-      expect(state).toBeDefined();
+      expect(VALID_APP_STATES).toContain(state);
     }
   });
 
@@ -298,7 +299,7 @@ test.describe('Edge Cases', () => {
 
       // App still functional
       const state = await readState(pair.hostPage, 'appState');
-      expect(state).toBeDefined();
+      expect(VALID_APP_STATES).toContain(state);
     }
   });
 
@@ -336,7 +337,7 @@ test.describe('Edge Cases', () => {
 
     // App should still be functional
     const state = await readState(pair.hostPage, 'appState');
-    expect(state).toBeDefined();
+    expect(VALID_APP_STATES).toContain(state);
   });
 
   // ── Invite Code Validation ──────────────────────────────────
@@ -367,19 +368,17 @@ test.describe('Edge Cases', () => {
   test('guest file input is not visible or disabled', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Guest should not have media source button or it should be disabled
+    // Guest should not have a WORKING media-source entry point: either the
+    // button is hidden, or it's disabled. Allow both — some UI variants keep
+    // the button visible but block the action via disabled state.
     const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
 
     if (mediaBtnVisible) {
-      // If visible, it should be disabled or the file input shouldn't work for guest
       const isDisabled = await pair.guestPage.locator('#btn-media-source').evaluate(el => {
         return el.hasAttribute('disabled') || el.classList.contains('disabled');
-      }).catch(() => false);
-      // Either disabled or just visible (some UIs show it but block the action)
-      expect(typeof isDisabled).toBe('boolean');
+      });
+      expect(isDisabled).toBe(true);
     }
-    // If not visible, that's the expected guest behavior
-    expect(true).toBe(true); // test passes if we reach here without crash
   });
 
   // ── Host Leaves — Guest Gets Notified ──────────────────────

@@ -15,7 +15,7 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState, waitForDeviceCount, waitForState, isVisible, waitForClass, openChatDrawer, sendChat, waitForChatMessage } from './helpers/wait.ts';
+import { waitForPlaylistCount, readState, waitForDeviceCount, waitForState, isVisible, waitForClass, openChatDrawer, sendChat, waitForChatMessage, VALID_APP_STATES } from './helpers/wait.ts';
 
 // YouTube test URLs
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
@@ -380,7 +380,7 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
 
       // Guest's settings are local, but host repeat mode should not affect guest crash
       const guestState = await readState(guestPage, 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       await guestContext.close();
     }

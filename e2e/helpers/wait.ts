@@ -4,6 +4,13 @@
  */
 import type { Page } from '@playwright/test';
 
+/** Valid appState enum values — mirrors src/core/constants.ts APP_STATE.
+ *  Used by chaos/recovery tests that want to assert "app is in some
+ *  legitimate state" without pinning the exact value. */
+export const VALID_APP_STATES = [
+  'IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE', 'PLAYING_SYSTEM_AUDIO',
+] as const;
+
 /**
  * Wait for an app state path to equal the expected value.
  * Accesses the app's internal getState via the module scope.

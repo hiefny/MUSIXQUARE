@@ -34,6 +34,7 @@ import {
   openChatDrawer,
   sendChat,
   waitForOverlayActive,
+  VALID_APP_STATES,
 } from './helpers/wait.ts';
 
 // ─── Local Helpers ───────────────────────────────────────────
@@ -74,6 +75,7 @@ async function cleanupChaosSetup(setup: ChaosSetup): Promise<void> {
   }
   await setup.hostContext.close().catch(() => {});
 }
+
 
 interface LateGuest {
   guestContext: BrowserContext;
@@ -421,7 +423,7 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
 
       // Host is still functional
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(hostState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(hostState);
 
       // New guest3 joins and gets full playlist via late-join sync
       guest3 = await joinAsLateGuest(browser, code);
@@ -508,16 +510,14 @@ test.describe('Operator + Chaos', () => {
       if (await isVisible(setup.hostPage, '.d-op-btn')) {
         const opBtn = setup.hostPage.locator('.d-op-btn').first();
         await opBtn.click();
+        // waitForState throws on timeout — reaching the next line IS the assertion
+        // that isOperator became true.
         await waitForState(lateGuest.guestPage, 'network.isOperator', true);
-
-        const isOp = await readState(lateGuest.guestPage, 'network.isOperator');
-        // Accept both true (grant succeeded) or false (toggle state issue)
-        expect(isOp === true || isOp === false).toBe(true);
       }
 
-      // App should not crash
+      // App should not crash: appState must be a valid enum value (not undefined).
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(hostState).toBeDefined();
+      expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE', 'PLAYING_SYSTEM_AUDIO']).toContain(hostState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await cleanupChaosSetup(setup);
@@ -571,7 +571,7 @@ test.describe('Mode Switch + Disconnect', () => {
 
       // Host should be functional (may or may not be PLAYING_YOUTUBE depending on load)
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(hostState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(hostState);
 
       // If YouTube loaded, guest2 should also see it
       if (hostState === 'PLAYING_YOUTUBE') {
@@ -590,8 +590,10 @@ test.describe('Mode Switch + Disconnect', () => {
         [hostState] as const,
         { timeout: 10_000 },
       );
+      // waitForFunction above already asserts lateState === hostState; this
+      // is just a belt-and-suspenders readback to pin the exact value for
+      // clearer failure output if the guard ever weakens.
       const lateState = await readState(lateGuest.guestPage, 'appState');
-      expect(lateState).toBeDefined();
       expect(lateState).toBe(hostState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
@@ -655,7 +657,7 @@ test.describe('Chat Flood + Mass Disconnect', () => {
 
       // Host app still functional
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(hostState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(hostState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1084,7 +1086,7 @@ test.describe('Settings Chain + Late Join', () => {
 
       // Guest is functional (did not crash)
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(guestState).toBeDefined();
+      expect(VALID_APP_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});

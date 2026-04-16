@@ -113,26 +113,10 @@ test.describe('Chat Commands', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await openChatDrawer(pair.hostPage);
 
-    // Debug: check if parseCommand exists in the bundle
-    const debugInfo = await pair.hostPage.evaluate(() => {
-      const input = document.getElementById('chat-input') as HTMLElement;
-      input.textContent = '/users';
-      // Check the text that sendChatMessage would read
-      const text = (input.textContent || '').trim();
-      return {
-        inputValue: text,
-        startsWith: text.startsWith('/'),
-        charCode0: text.charCodeAt(0),
-        length: text.length,
-      };
-    });
-    console.log('DEBUG:', debugInfo);
-
     await sendChat(pair.hostPage, '/users');
     await waitForChatMessage(pair.hostPage, '#0');
 
     const hostText = await getChatText(pair.hostPage);
-    console.log('HOST TEXT:', JSON.stringify(hostText));
     expect(hostText).toContain('#0');
     expect(hostText).toContain('HOST');
   });

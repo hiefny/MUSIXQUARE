@@ -34,6 +34,7 @@ import {
   sendChat,
   isVisible,
   waitForOverlayDismissed,
+  VALID_APP_STATES,
 } from './helpers/wait.ts';
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
@@ -379,8 +380,8 @@ test.describe('Concurrent Host+Guest Operations', () => {
     // Both should be functional
     const hostState = await readState(pair.hostPage, 'appState');
     const guestState = await readState(pair.guestPage, 'appState');
-    expect(hostState).toBeDefined();
-    expect(guestState).toBeDefined();
+    expect(VALID_APP_STATES).toContain(hostState);
+    expect(VALID_APP_STATES).toContain(guestState);
   });
 });
 
@@ -716,7 +717,7 @@ test.describe('Operator Privilege Scenarios', () => {
       } else {
         // Operator button might be a toggle that wasn't in grant state
         const guestState = await readState(pair.guestPage, 'appState');
-        expect(guestState).toBeDefined();
+        expect(VALID_APP_STATES).toContain(guestState);
       }
     }
   });
@@ -767,7 +768,7 @@ test.describe('Operator Privilege Scenarios', () => {
     expect(isOp).toBe(false);
 
     const guestState = await readState(pair.guestPage, 'appState');
-    expect(guestState).toBeDefined();
+    expect(VALID_APP_STATES).toContain(guestState);
   });
 });
 
@@ -889,7 +890,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
 
       // App should handle the overlap gracefully
       const state = await readState(pair.hostPage, 'appState');
-      expect(state).toBeDefined();
+      expect(VALID_APP_STATES).toContain(state);
     }
   });
 

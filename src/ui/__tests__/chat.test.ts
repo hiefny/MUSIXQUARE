@@ -60,13 +60,13 @@ describe('Chat Module', () => {
       expect(typeof mod.sendChatMessage).toBe('function');
     });
 
-    it('exports addChatMessage', async () => {
-      const mod = await import('../chat.ts');
+    it('exports addChatMessage from chat-render', async () => {
+      const mod = await import('../chat-render.ts');
       expect(typeof mod.addChatMessage).toBe('function');
     });
 
-    it('exports addSystemChatMessage', async () => {
-      const mod = await import('../chat.ts');
+    it('exports addSystemChatMessage from chat-render', async () => {
+      const mod = await import('../chat-render.ts');
       expect(typeof mod.addSystemChatMessage).toBe('function');
     });
 

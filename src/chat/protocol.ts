@@ -20,7 +20,7 @@ import {
   formatChatDisplayName,
   MAX_MSG_LENGTH,
   MAX_SENDER_LABEL_LENGTH,
-} from '../ui/chat.ts';
+} from '../ui/chat-render.ts';
 import type { DataConnection } from '../types/index.ts';
 
 // ─── Dedup ───────────────────────────────────────────────────────

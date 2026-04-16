@@ -11,7 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, RESERVED_NAMES } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
-import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '../ui/chat.ts';
+import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '../ui/chat-render.ts';
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';

@@ -465,6 +465,12 @@ interface BaseEventMap {
   'ui:toggle-chat-drawer': [];
   'chat:system-message': [text: string];
   'chat:notice-message': [sender: string, text: string];
+  /**
+   * Emitted by chat-render.ts when a chat/whisper/notice message is rendered
+   * into the DOM. ui/chat.ts listens to update the preview text and unread
+   * badge, keeping drawer state decoupled from render primitives.
+   */
+  'chat:message-rendered': [sender: string, text: string, isMine: boolean, incrementUnread: boolean];
 
   // ── YouTube ───────────────────────────────────────────────────────
   'youtube:sync-loading': [loading: boolean];

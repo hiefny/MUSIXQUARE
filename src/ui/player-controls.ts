@@ -458,7 +458,7 @@ export function initPlayerControls(): void {
           });
         } else if (target.webkitRequestFullscreen) {
           target.webkitRequestFullscreen();
-          setTimeout(() => {
+          setManagedTimer('webkit-fullscreen-fallback', () => {
             if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
               videoWrapper?.classList.add('fake-fullscreen');
               document.body.classList.add('has-fake-fullscreen');

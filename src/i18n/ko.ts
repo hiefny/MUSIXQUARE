@@ -294,6 +294,7 @@ const ko = {
   'youtube.ready': 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.',
   'youtube.thumbnail': 'YouTube 미리보기 썸네일',
   'youtube.load_fail': 'YouTube API 로드 실패. 인터넷 연결 확인!',
+  'youtube.video_unavailable': '재생할 수 없는 영상 — 다음 트랙으로 넘어가요',
   'youtube.load_timeout': 'YouTube 로드 시간 초과. 다시 시도해주세요.',
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
   'youtube.not_valid_link': '유효한 YouTube 링크가 아닙니다',

@@ -296,6 +296,7 @@ const en: Record<I18nKey, string> = {
   'youtube.ready': 'YouTube is ready! Press Play.',
   'youtube.thumbnail': 'YouTube preview thumbnail',
   'youtube.load_fail': 'Failed to load the YouTube API. Check your connection!',
+  'youtube.video_unavailable': 'Video unavailable — skipping to next track',
   'youtube.load_timeout': 'YouTube load timed out. Please try again.',
   'youtube.invalid_link': 'Invalid YouTube link',
   'youtube.not_valid_link': 'Not a valid YouTube link',

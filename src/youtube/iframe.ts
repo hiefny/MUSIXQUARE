@@ -494,10 +494,10 @@ function _pollIndexingPlaylist(prevCount: number, attempts: number): void {
 }
 
 function onYouTubePlayerError(event: { data: number }): void {
-  log.error('[YouTube] Player error:', event.data);
+  const code = event.data;
+  log.error('[YouTube] Player error:', code);
   setYtLoadInProgress(false);
   showLoader(false);
-  showToast(t('youtube.load_fail'));
 
   // Indexing in progress when the player errors out (e.g. invalid playlistId,
   // error 150): drop the callback and clear the flag so a subsequent
@@ -507,6 +507,26 @@ function onYouTubePlayerError(event: { data: number }): void {
     setYtIndexing(false);
     setYtIndexingCallback(null);
   }
+
+  // Unavailable video (100 = removed/private, 101 & 150 = embed disabled):
+  // there is no recovery path on this track — advance past it so the user
+  // isn't stranded. Host runs the advance logic; guests just show the
+  // toast and wait for the host's next-track broadcast (mirroring the
+  // ENDED handler's ownership model).
+  const UNAVAILABLE_CODES = new Set([100, 101, 150]);
+  if (UNAVAILABLE_CODES.has(code)) {
+    showToast(t('youtube.video_unavailable'));
+    const hostConn = getState('network.hostConn');
+    if (!hostConn) {
+      let advanced = false;
+      bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+      if (!advanced) bus.emit('playlist:next-track');
+    }
+    return;
+  }
+
+  // Generic fallback (e.g. code 2 invalid param, code 5 HTML5 engine)
+  showToast(t('youtube.load_fail'));
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {

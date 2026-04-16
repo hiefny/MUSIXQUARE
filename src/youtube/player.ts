@@ -22,7 +22,7 @@ import { getHostNow } from '../network/shared-clock.ts';
 import {
   YT_AUTO_SYNC_MS,
   STAGE2_RENDEZVOUS_BROADCAST_MS,
-  TRACK_TRANSITION_COUNTDOWN_MS,
+  TRACK_TRANSITION_RENDEZVOUS_MS,
   PLAYLIST_MAX_ITEMS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
@@ -475,7 +475,7 @@ export function initYouTube(): void {
       subIndex: nextIdx !== -1 ? nextIdx : undefined,
       videoId: nextVideoId,
       skipSeek: true,
-      rendezvousDelayMs: TRACK_TRANSITION_COUNTDOWN_MS,
+      rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
     });
   });
 
@@ -890,7 +890,7 @@ export function initYouTube(): void {
         subIndex: subIdx,
         videoId: targetVideoId,
         skipSeek: true,
-        rendezvousDelayMs: TRACK_TRANSITION_COUNTDOWN_MS,
+        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
       });
     } else {
       // Different playlist item — load it with the target sub-index

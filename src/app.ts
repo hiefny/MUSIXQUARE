@@ -238,7 +238,7 @@ function bootstrap(): void {
   safeInit('Video', initVideo);
   safeInit('MediaSession', initMediaSession);
 
-  // 4. Audio engine (deferred init — actual Tone.js init on user interaction)
+  // 4. Audio engine (deferred init — Web Audio API context on user interaction)
   // Engine, effects, channel register bus listeners at import time
   safeInit('EffectsHandlers', initEffectsHandlers);
   safeInit('BeatDetector', initBeatDetector);

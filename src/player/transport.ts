@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE 3.0 — Playback Transport
  *
- * Manages: play/pause/stop/seek, Tone.js BufferSource lifecycle,
+ * Manages: play/pause/stop/seek, native Web Audio API buffer lifecycle,
  * video sync, track position calculation.
  */
 

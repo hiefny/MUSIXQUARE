@@ -66,8 +66,8 @@ export function broadcastYouTubeSync(isManual = false): void {
   // fresh sync).
   if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
-  // Suppress heartbeat while auto-sync countdown is active.
-  // During the countdown the host is paused+seeking — getCurrentTime()
+  // Suppress heartbeat while the 2-stage rendezvous is in-flight.
+  // During the stage-2 delay the host just seeked — getCurrentTime()
   // may return a stale (pre-seek) value. Broadcasting that stale position
   // causes ALL guests' drift correction to undo the seek, even though
   // they already received the correct position via YOUTUBE_STATE.
@@ -378,7 +378,7 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 /**
  * Guest-initiated precise re-alignment, SMPTE slave-sync style.
  *
- * Unlike the host-side countdown (`scheduleYtAutoSync`), this does NOT
+ * Unlike the host-side 2-stage broadcast (`scheduleYtAutoSync`), this does NOT
  * disturb the host or other guests. The guest pre-seeks to a future host
  * position (host_pos_now + margin), pauses until buffer is ready, then
  * fires `playVideo()` at precisely the moment that guest's audible output

@@ -92,7 +92,7 @@ export { loadYouTubeVideo } from './iframe.ts';
  */
 export function scheduleYtAutoSync(
   targetTime: number,
-  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; countdownMs?: number; state?: number },
+  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; rendezvousDelayMs?: number; state?: number },
 ): void {
   const player = getYouTubePlayer();
   if (!player) return;
@@ -128,7 +128,7 @@ export function scheduleYtAutoSync(
 
   // 3. Broadcast Stage 2: Precision Rendezvous (Fixed delay)
   // Ensures all guests reach perfect alignment regardless of buffering speed.
-  const waitMs = overrides?.countdownMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
+  const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {
     const p = getYouTubePlayer();
@@ -140,7 +140,7 @@ export function scheduleYtAutoSync(
   }, waitMs);
 }
 
-/** Cancel any pending auto-sync (e.g. user paused during countdown). */
+/** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
   clearManagedTimer('yt-sync-grace');
@@ -388,17 +388,17 @@ export function initYouTube(): void {
       // was armed by loadYouTubeVideo's autoplay=false default).
       setYtAutoplayIntent(true);
       // Use scheduleYtAutoSync instead of raw playVideo so this path
-      // (host-side 3s autoPlayTimer after track add / end-of-video auto-advance)
-      // gets the same 1-second rendezvous countdown as every other host-
-      // initiated YouTube play, keeping guests aligned instead of forcing
-      // drift correction to clean up afterwards.
+      // (auto-play after track load or end-of-video auto-advance) goes
+      // through the same 2-stage rendezvous broadcast as every other
+      // host-initiated YouTube play, keeping guests aligned instead of
+      // forcing drift correction to clean up afterwards.
       //
       // skipSeek:true — the freshly loaded video is already at position 0,
       // so seekTo(0) would be a wasted round-trip (and may trigger an
       // unwanted BUFFERING transition on CUED players).
       // playTrack already waited ~1s (or on_ready took at least ~1s), so
       // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
-      scheduleYtAutoSync(0, { skipSeek: true, countdownMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
+      scheduleYtAutoSync(0, { skipSeek: true, rendezvousDelayMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
     }
   });
 
@@ -475,7 +475,7 @@ export function initYouTube(): void {
       subIndex: nextIdx !== -1 ? nextIdx : undefined,
       videoId: nextVideoId,
       skipSeek: true,
-      countdownMs: TRACK_TRANSITION_COUNTDOWN_MS,
+      rendezvousDelayMs: TRACK_TRANSITION_COUNTDOWN_MS,
     });
   });
 
@@ -525,13 +525,13 @@ export function initYouTube(): void {
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
         // See youtube:seek-to for why we need the midSync check — a pending
-        // yt-auto-sync countdown (or the post-playVideo grace window) keeps
-        // the player PAUSED while logically we are still in a play session,
-        // so a bare seek during that window would skip re-syncing and let
-        // the stale target's playVideo fire.
+        // yt-auto-sync stage-2 delay (or the post-playVideo grace window)
+        // keeps the player PAUSED while logically we are still in a play
+        // session, so a bare seek during that window would skip re-syncing
+        // and let the stale target's playVideo fire.
         const midSync = !!getManagedTimer('yt-auto-sync') || !!getManagedTimer('yt-sync-grace');
         if (state === 1 || midSync) {
-          // Playing (or mid-sync countdown / grace) → (re)schedule auto-sync
+          // Playing (or mid-rendezvous / grace) → (re)schedule auto-sync
           scheduleYtAutoSync(target);
         } else {
           // Actually paused by user → seek immediately, no delay
@@ -564,7 +564,7 @@ export function initYouTube(): void {
       if (!hostConn) {
         const state = player.getPlayerState?.() ?? -1;
         // Mid-sync detection — two phases:
-        //   - yt-auto-sync: 1s countdown before playVideo() is called
+        //   - yt-auto-sync: stage-2 rendezvous delay before playVideo()
         //   - yt-sync-grace: 500ms after playVideo() while YouTube IFrame
         //     finishes its async PAUSED→PLAYING state transition
         // Both are treated as "effectively playing" so a seek landing in
@@ -890,7 +890,7 @@ export function initYouTube(): void {
         subIndex: subIdx,
         videoId: targetVideoId,
         skipSeek: true,
-        countdownMs: TRACK_TRANSITION_COUNTDOWN_MS,
+        rendezvousDelayMs: TRACK_TRANSITION_COUNTDOWN_MS,
       });
     } else {
       // Different playlist item — load it with the target sub-index

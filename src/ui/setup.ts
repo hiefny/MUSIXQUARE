@@ -15,12 +15,11 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
-import { setManagedTimer, clearAllManagedTimers } from '../core/timers.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
-import { joinSession } from '../network/peer.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
@@ -276,7 +275,7 @@ export function initSetup(): void {
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
     try {
-      if (window.location.search.includes('join=') || /^\/\d{6}$/.test(window.location.pathname)) {
+      if (/^\/\d{6}$/.test(window.location.pathname)) {
         window.history.replaceState({}, '', '/' + window.location.hash);
       }
     } catch { /* noop */ }
@@ -357,28 +356,18 @@ export function initSetup(): void {
         secondaryText: t('dialog.go_back'),
       }).then(res => {
         if (res.action === 'ok') {
-          // Auto-reconnect using the last join code
+          // Hard-reset reconnect: reload the page and auto-join via the
+          // /CODE path. This guarantees a pristine state — no stale timers,
+          // PeerJS connections, audio contexts, or sync runtime leftovers.
+          // The auto-join URL detection in initSetupOverlay picks up the
+          // code on bootstrap and enters guest flow automatically.
           const lastCode = getState('network.lastJoinCode') || '';
           if (lastCode) {
-            log.info(`[Setup] Auto-reconnecting to ${lastCode} — resetting stale state`);
-
-            // Reset stale state from previous session to prevent "frozen" reconnect
-            clearAllManagedTimers();
-            bus.emit('player:stop-all-media');
-            setState('transfer.state', 'IDLE');
-            setState('transfer.skipIncomingFile', false);
-            setState('transfer.waitingForPreload', false);
-            setState('transfer.receivedCount', 0);
-            setState('transfer.meta', {});
-            setState('recovery.pending', false);
-            setState('recovery.retryCount', 0);
-            setState('preload.isPreloading', false);
-            setState('preload.nextFileBlob', null);
-            setState('preload.meta', null);
+            log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
             showLoader(true, t('setup.joining'));
-
-            // Note: isConnecting is set inside joinSession() — do NOT pre-set here
-            joinSession(lastCode);
+            setManagedTimer('reconnect-hard-reload', () => {
+              window.location.href = '/' + lastCode;
+            }, 300);
           } else {
             startGuestFlow();
           }
@@ -426,14 +415,13 @@ export function initSetup(): void {
       });
   });
 
-  // Check for /CODE path or ?join=CODE param
+  // Check for /CODE path (e.g. musixquare.com/123456)
   try {
     // Wipe any leftover join code from a previous (crashed/abandoned) session
     try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
 
     const pathMatch = window.location.pathname.match(/^\/(\d{6})$/);
-    const urlParams = new URLSearchParams(window.location.search);
-    const joinCode = pathMatch?.[1] || urlParams.get('join') || '';
+    const joinCode = pathMatch?.[1] || '';
 
     if (joinCode && /^\d{6}$/.test(joinCode)) {
       log.info(`[Setup] Auto-join code detected: ${joinCode}`);

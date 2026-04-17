@@ -864,6 +864,16 @@
         text-shadow: 0 0 6px rgba(var(--accent-rgb, 99, 102, 241), 0.4);
     }
 
+    /* Lock invite wrapper to 36px — matches .tab-action-btn's -4px effective
+       height so every tab-header has identical flex cross-axis sizing and
+       the .tab-title lands at the same Y across tabs regardless of the
+       font's line-height-normal metric. */
+    .settings-invite-wrapper {
+        height: 36px;
+        line-height: 1.2;
+        justify-content: center;
+    }
+
     .tab-action-btn {
         background: transparent;
         color: var(--text-sub);
@@ -1358,6 +1368,13 @@
         display: flex;
         align-items: center;
         gap: 0;
+        /* Horizontal counterpart of .tab-action-btn's -4px vertical trick:
+           each button has a 44px touch box containing a 36px visual circle,
+           so the rightmost button's visual edge sits 4px inside its touch
+           box. Shift the whole area right by 4px so the visual circle's
+           right edge aligns with the invite wrapper's text right edge on
+           the other tabs (which sits flush at the header's content edge). */
+        margin-right: -4px;
     }
 
     /* Speaker Active State — see canonical definition near line 4885+ */

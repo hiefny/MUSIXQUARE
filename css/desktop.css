@@ -146,6 +146,12 @@
         font-weight: 800;
         letter-spacing: -0.02em;
         color: var(--text-main);
+        /* Lock line-box to 36px (24 × 1.5) so the title's own height matches
+           the 36px right-side content (buttons / invite wrapper) in tab
+           headers. Without this, chat-header's lone title renders at 29px
+           line-box while tab-headers' flex cross-axis stays 36px, pushing
+           those titles ~3.5px lower via align-items: center. */
+        line-height: 1.5;
     }
 
     /* ---------------------------------------------------
@@ -187,7 +193,7 @@
     }
 
     #tab-settings {
-        padding: 0 8px;
+        padding: 0;
     }
 
     .play-header-desktop {

@@ -1072,6 +1072,21 @@
         pointer-events: auto;
     }
 
+    /* Mobile portrait: edge-to-edge rectangular video player (both local
+       video files and YouTube). Drops the 600px cap and 20px corner
+       rounding so the iframe/video fills the viewport width flush to
+       the screen edges — maximizes area on narrow portrait screens.
+       Safe for vertical content because .video-wrapper's aspect-ratio is
+       hard-locked to 16/9, so portrait videos letterbox inside the box
+       (height = viewport_width × 9/16, never overgrown). Landscape and
+       desktop keep the rounded constrained box. */
+    @media (orientation: portrait) and (max-width: 1279px) {
+        .video-wrapper {
+            max-width: none;
+            border-radius: 0;
+        }
+    }
+
     .track-box {
         flex-shrink: 0;
         text-align: center;

@@ -415,6 +415,7 @@ const ko = {
   'error.network_init_failed': '네트워크 초기화에 실패했어요',
   'error.no_host_id': '호스트 ID가 없어요',
   'error.peer_unavailable': '상대방을 찾을 수 없어요. 코드를 다시 확인해 주세요.',
+  'error.host_left': '호스트가 세션을 종료한 것 같아요',
   'error.network_issue': '네트워크 연결에 문제가 있어요. 인터넷 연결을 확인해 주세요.',
   'error.signal_server_fail': '시그널링 서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.',
   'error.server_disconnected': '서버와의 연결이 끊어졌어요.',

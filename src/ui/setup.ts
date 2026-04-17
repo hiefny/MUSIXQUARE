@@ -331,7 +331,20 @@ export function initSetup(): void {
     else if (msg === 'NETWORK_INIT_FAILED') userMsg = t('error.network_init_failed');
     else if (msg === 'NO_HOST_ID') userMsg = t('error.no_host_id');
     // PeerJS native error types
-    else if (peerType === 'peer-unavailable') userMsg = t('error.peer_unavailable');
+    else if (peerType === 'peer-unavailable') {
+      // Context-aware: if this is a post-reconnect attempt (flag set by the
+      // dialog handler before the hard-reset reload), the user clicked
+      // Reconnect — not "I typed a code". Telling them to "double-check the
+      // code" misleads. Show "host left" instead.
+      let isReconnectAttempt = false;
+      try {
+        isReconnectAttempt = !!sessionStorage.getItem('mxqr_reconnect_target');
+        sessionStorage.removeItem('mxqr_reconnect_target');
+      } catch { /* noop */ }
+      userMsg = isReconnectAttempt
+        ? t('error.host_left')
+        : t('error.peer_unavailable');
+    }
     else if (peerType === 'network') userMsg = t('error.network_issue');
     else if (peerType === 'server-error') userMsg = t('error.signal_server_fail');
     else if (peerType === 'socket-error' || peerType === 'socket-closed') userMsg = t('error.server_disconnected');
@@ -364,6 +377,10 @@ export function initSetup(): void {
           const lastCode = getState('network.lastJoinCode') || '';
           if (lastCode) {
             log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
+            // Mark this as a reconnect attempt — read after reload by the
+            // peer-unavailable error branch to swap the misleading "check
+            // your code" message for "host left".
+            try { sessionStorage.setItem('mxqr_reconnect_target', lastCode); } catch { /* noop */ }
             showLoader(true, t('setup.joining'));
             setManagedTimer('reconnect-hard-reload', () => {
               window.location.href = '/' + lastCode;

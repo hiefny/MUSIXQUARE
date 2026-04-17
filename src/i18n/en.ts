@@ -417,6 +417,7 @@ const en: Record<I18nKey, string> = {
   'error.network_init_failed': 'Network initialization failed',
   'error.no_host_id': 'No host ID found',
   'error.peer_unavailable': "Couldn't find the peer. Please double-check the code.",
+  'error.host_left': 'The host appears to have left the session',
   'error.network_issue': 'There is a network issue. Please check your internet connection.',
   'error.signal_server_fail': "Can't reach the signaling server. Please try again shortly.",
   'error.server_disconnected': 'Disconnected from the server.',

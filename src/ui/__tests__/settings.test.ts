@@ -95,10 +95,9 @@ describe('setTheme', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
-  it('persists system as resolved value in localStorage', () => {
+  it('persists system preference as-is in localStorage', () => {
     setTheme('system');
-    // 'system' resolves to 'light' (matchMedia returns false) — stored as resolved value
-    expect(localStorage.getItem('musixquare-theme')).toBe('light');
+    expect(localStorage.getItem('musixquare-theme')).toBe('system');
   });
 });
 

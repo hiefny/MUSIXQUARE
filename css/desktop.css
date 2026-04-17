@@ -137,6 +137,13 @@
         margin-bottom: 0;
     }
 
+    /* Chat panel has padding: 0 (unlike tab-playlist's padding: 0 4px),
+       so nudge the chat header's left padding by +4 to keep its title on
+       the same X as the other tab titles. */
+    .chat-drawer-header {
+        padding-left: 36px;
+    }
+
     /* Harmonize Header Typographies (Title, Menu, Chat, etc) */
     .tab-title,
     .chat-drawer-title,
@@ -162,7 +169,10 @@
         flex-direction: column;
         justify-content: flex-start;
         align-items: center;
-        padding: 0;
+        /* Wide column (1fr ≈ 660px at 1500 viewport) gets 8px breathing,
+           twice the 4px used on the narrow 420px columns (playlist/settings)
+           so every panel's content feels proportionally inset. */
+        padding: 0 8px;
         border-right: 1px solid var(--divider);
         min-width: 0;
         min-height: 0;
@@ -173,7 +183,10 @@
     }
 
     #tab-playlist {
-        padding: 0;
+        /* Narrow 420px column — half of tab-play's 8px so the inset feels
+           proportional. chat-drawer shares this column and keeps padding: 0
+           (compensated via .chat-drawer-header padding-left). */
+        padding: 0 4px;
         border-right: 1px solid var(--divider);
         border-bottom: 1px solid var(--divider);
     }
@@ -193,7 +206,10 @@
     }
 
     #tab-settings {
-        padding: 0;
+        /* Narrow 420px column — matches tab-playlist's 4px. Nested settings
+           controls get extra breathing via .settings-subtab-panel's own
+           8px inner padding (total 12px inset from panel edge). */
+        padding: 0 4px;
     }
 
     .play-header-desktop {
@@ -343,7 +359,10 @@
         gap: 4px;
         padding: 16px 20px 0;
         border-bottom: 1px solid var(--divider);
-        margin: 0 12px;
+        /* Deliberate prominent inset — the pill bar is a visual anchor, so
+           it sits 20px in from the panel's 4px padding edge (total 24px from
+           the panel border), visually wider than the sub-panel content. */
+        margin: 0 20px;
     }
 
     .subtab-pill {
@@ -372,6 +391,11 @@
     /* Sub-panels: only active visible */
     .settings-subtab-panel {
         display: none;
+        /* Extra 8px inner padding for nested settings controls (e.g., sliders,
+           section groups). Stacks on top of #tab-settings' 4px padding for a
+           12px total inset — deeper than playlist's 4px because settings
+           content is denser and benefits from more breathing. */
+        padding: 0 8px;
     }
 
     .settings-subtab-panel.active {

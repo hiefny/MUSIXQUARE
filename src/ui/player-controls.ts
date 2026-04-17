@@ -23,6 +23,7 @@ import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { clearPreviewDebounce } from '../youtube/search.ts';
 import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
+import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -739,7 +740,17 @@ export function initPlayerControls(): void {
 
   bus.on('state:appState', () => {
     const state = getState('appState');
-    const playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
+    let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
+    if (state === APP_STATE.PLAYING_YOUTUBE) {
+      // appState transitions to PLAYING_YOUTUBE the moment iframe creation
+      // starts (setEngineMode in iframe.ts), well before the video actually
+      // plays — assuming "playing" here would briefly show the pause icon
+      // over a silent loading iframe. Defer to the iframe's real PlayerState
+      // (1 = PLAYING). ui:update-play-state below refines this once YT
+      // emits its first PLAYING/PAUSED transition.
+      const ytPlayer = getYouTubePlayer();
+      playing = ytPlayer?.getPlayerState?.() === 1;
+    }
     updatePlayIcon(playing);
 
     // Clear YouTube sync spinner when leaving YouTube mode

@@ -22,8 +22,7 @@ import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { clearPreviewDebounce } from '../youtube/search.ts';
-import { guestRendezvousSync } from '../youtube/sync.ts';
-import { getYouTubePlayer, scheduleYtAutoSync } from '../youtube/player.ts';
+import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { initSeekBar } from './seekbar.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -324,18 +323,23 @@ function handleMainSyncBtn(): void {
     return;
   }
 
-  // YouTube mode: host fires countdown broadcast, guest fires rendezvous
+  // YouTube mode: both host and guest paths funnel into the rendezvous
+  // mechanism — the host's role is just to fire the trigger broadcast.
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     const hostConn = getState('network.hostConn');
     if (hostConn) {
-      // Guest path — self-heal rendezvous (SMPTE slave-sync style)
+      // Guest path — self-heal rendezvous against the cached host snapshot
       guestRendezvousSync();
     } else {
-      // Host path — existing countdown: pause, re-broadcast with 1s lead,
-      // everyone plays simultaneously at hostPlayAt
-      const player = getYouTubePlayer();
-      const currentTime = player?.getCurrentTime?.() ?? 0;
-      scheduleYtAutoSync(currentTime);
+      // Host path — broadcast a manual sync. Each guest's handleYouTubeSync
+      // sees isManual=true and triggers its own guestRendezvousSync, so
+      // every guest gets the same SMPTE-style precision alignment as a
+      // guest-initiated sync. No host-local seek/play side effect — sync
+      // should align guests TO host, not change host's own playback state.
+      // (Previously this went through scheduleYtAutoSync which fired a
+      // redundant Stage 1 "snap" broadcast 2s before the rendezvous-trigger
+      // Stage 2 — guests effectively aligned twice.)
+      broadcastYouTubeSync(true);
     }
     return;
   }

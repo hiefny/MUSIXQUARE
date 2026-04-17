@@ -170,10 +170,6 @@ export const GUEST_ENDED_FALLBACK_MS = 5000;
 
 // ─── Playlist / Sub-Item Data ────────────────────────────────────────
 
-/** Maximum sub-items stored per playlist. Keeps memory bounded on 200+
- *  track YouTube playlists that OOM the iframe's native engine. */
-export const PLAYLIST_MAX_ITEMS = 100;
-
 /** Delay after player-ready before snapshotting the iframe's internal
  *  queue. YouTube populates getPlaylist() lazily; too-early snapshots
  *  return [] or a single-element "current video" array. */

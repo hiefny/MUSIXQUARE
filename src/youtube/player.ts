@@ -23,7 +23,6 @@ import {
   YT_AUTO_SYNC_MS,
   STAGE2_RENDEZVOUS_BROADCAST_MS,
   TRACK_TRANSITION_RENDEZVOUS_MS,
-  PLAYLIST_MAX_ITEMS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
 } from './constants.ts';
@@ -247,8 +246,8 @@ export function stopYouTubeMode(): void {
 
 /**
  * Single-video navigation using the host-snapshotted subItemsMap.
- * Never calls `playVideoAt` — the iframe's playlist engine is what OOMs on
- * 200+ item playlists, so we keep the iframe on one video at a time.
+ * Never calls `playVideoAt` — we drive the iframe one video at a time via
+ * loadVideoById so the native playlist engine never runs.
  *
  * If the subItemsMap is empty, tries emergency population from
  * `player.getPlaylist()` so that fast Next/Prev clicks work before the
@@ -269,9 +268,8 @@ function navigateSubVideo(
     let subData = (getState('youtube.subItemsMap') || {})[pid];
 
     if ((!subData || !subData.ids.length) && player.getPlaylist) {
-      const rawIds = player.getPlaylist() || [];
-      if (rawIds.length > 0) {
-        const ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
+      const ids = player.getPlaylist() || [];
+      if (ids.length > 0) {
         updateSubItemIds(pid, ids);
         subData = { ids, titles: [] }; // Locally use for this tick
       }
@@ -288,7 +286,7 @@ function navigateSubVideo(
     // Re-read getPlaylist() and retry if the cached list was truncated.
     if (!inBounds && direction === 1 && player.getPlaylist) {
       try {
-        const freshIds = (player.getPlaylist() || []).slice(0, PLAYLIST_MAX_ITEMS);
+        const freshIds = player.getPlaylist() || [];
         if (freshIds.length > (subData?.ids?.length ?? 0)) {
           log.info(`[YouTube] navigate refresh: ${subData?.ids?.length ?? 0} -> ${freshIds.length} items`);
           updateSubItemIds(pid, freshIds);
@@ -648,7 +646,7 @@ export function initYouTube(): void {
     const playlist = getState('playlist.items') || [];
     
     // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
-    // force single-video mode to bypass the risky native playlist engine entirely.
+    // force single-video mode so the iframe's native playlist engine never runs.
     const finalVideoId = videoId;
     let finalPlaylistId = playlistId;
     if (finalVideoId && finalPlaylistId) {
@@ -856,8 +854,8 @@ export function initYouTube(): void {
     if (isCurrent) {
       // Same playlist — single-video mode: resolve the videoId from our
       // host-snapshotted subItemsMap and loadVideoById directly. We don't
-      // call playVideoAt because that uses the iframe's playlist engine,
-      // which is exactly what we want to stop using on large playlists.
+      // call playVideoAt because that hands control to the iframe's native
+      // playlist engine, which we deliberately keep dormant.
       const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
       const subMap = getState('youtube.subItemsMap') || {};
       const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
@@ -906,11 +904,7 @@ export function initYouTube(): void {
 
     if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
-        const rawIds = player.getPlaylist() || [];
-        if (rawIds.length > PLAYLIST_MAX_ITEMS) {
-          showToast(t('youtube.playlist_truncated'));
-        }
-        ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
+        ids = player.getPlaylist() || [];
       } catch (e) { log.debug('[YouTube] getPlaylist() not ready:', e); }
     }
 
@@ -1002,10 +996,10 @@ export function initYouTube(): void {
 
       // Single-video bootstrap: resolve the videoId the host is currently
       // playing and send THAT as the videoId. Never send the full ID array
-      // as playlistId (guest's iframe would build a 200+ item playlist
-      // engine and OOM). The original playlistId (string) is still sent
-      // for UI context (so the guest knows this video belongs to a
-      // playlist), and the host follows up with YOUTUBE_PLAYLIST_INFO to
+      // as playlistId — the guest must load by videoId only so its native
+      // playlist engine stays dormant. The original playlistId (string) is
+      // still sent for UI context (so the guest knows this video belongs to
+      // a playlist), and the host follows up with YOUTUBE_PLAYLIST_INFO to
       // populate the guest's subItemsMap for navigation.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;

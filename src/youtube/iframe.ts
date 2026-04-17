@@ -49,7 +49,6 @@ import {
   SCRIPT_LOAD_TIMEOUT_MS,
   REFRESH_DISPLAY_DELAY_MS,
   GUEST_ENDED_FALLBACK_MS,
-  PLAYLIST_MAX_ITEMS,
   PLAYLIST_SNAPSHOT_DELAY_MS,
   FIRST_TRACK_FISHER_INTERVAL_MS,
   FIRST_TRACK_FISHER_MAX_POLLS,
@@ -1067,8 +1066,9 @@ export function refreshYouTubeDisplay(): void {
 
 /**
  * Snapshot the resolved videoId list from the YouTube player's internal queue.
- * This is the ONLY way to get the correct list for RD (Mixes) and also
- * allows us to bypass the IFrame's OOM-prone playlist engine for PL-type lists.
+ * This is the ONLY way to get the correct list for RD (Mixes), and lets us
+ * drive navigation via loadVideoById so the iframe's native playlist engine
+ * stays dormant for PL-type lists.
  *
  * Retry counts are tracked per-playlistId so concurrent snapshots of
  * different playlists don't share/clobber each other's attempt state.
@@ -1086,7 +1086,7 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
     const subMap = getState('youtube.subItemsMap') || {};
     const existingIds = subMap[pid]?.ids || [];
 
-    const ids = (player.getPlaylist() || []).slice(0, PLAYLIST_MAX_ITEMS);
+    const ids = player.getPlaylist() || [];
 
     // YouTube's player sometimes returns a placeholder single-item list
     // before the real playlist has fully resolved. If we don't already

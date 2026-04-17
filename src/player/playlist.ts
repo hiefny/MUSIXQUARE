@@ -248,12 +248,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
       // Single-video broadcast: send the resolved videoId (NOT the playlist
       // ID array). The guest loads via loadVideoById only — its iframe never
-      // sees a multi-item playlist context, so the playlist engine that
-      // OOMs on 200+ items doesn't run. Original playlistId string is sent
-      // for UI context only (guest's handleYouTubePlay treats videoId as
-      // primary when both are present). For previously-snapshotted playlists
-      // we use the snapshot's first ID; for first-play, item.videoId is
-      // already the entry-point video.
+      // sees a multi-item playlist context, so the native playlist engine
+      // stays dormant. Original playlistId string is sent for UI context
+      // only (guest's handleYouTubePlay treats videoId as primary when both
+      // are present). For previously-snapshotted playlists we use the
+      // snapshot's first ID; for first-play, item.videoId is already the
+      // entry-point video.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
       const broadcastVideoId =

@@ -84,7 +84,7 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   }
 
   // When we have a videoId, force playlistId to null so the iframe's native
-  // playlist engine never takes over — single-video mode only.
+  // playlist engine stays dormant — single-video mode only.
   loadYouTubeVideo(finalVideoId, finalVideoId ? null : finalPlaylistId, autoplay ?? false, subIndex ?? 0);
 }
 
@@ -162,8 +162,8 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
   const player = getYouTubePlayer();
   if (player?.loadVideoById && typeof subIdx === 'number') {
     // Single-video mode: resolve videoId from subItemsMap and loadVideoById.
-    // No playVideoAt — keeps the iframe on one video at a time, avoiding
-    // the OOM crashes that the playlist engine causes on 200+ item lists.
+    // No playVideoAt — keeps the native playlist engine dormant so the
+    // iframe stays on one video at a time.
     const playlist = getState('playlist.items') || [];
     const currentItem = playlist[currentTrackIndex];
     const subMap = getState('youtube.subItemsMap') || {};

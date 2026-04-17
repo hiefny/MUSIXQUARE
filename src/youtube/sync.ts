@@ -20,7 +20,6 @@ import type { YouTubePlayerInstance } from './_state.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import {
-  PLAYLIST_MAX_ITEMS,
   DRIFT_SEEK_THRESHOLD_SEC,
   HOST_AD_STALE_THRESHOLD,
   HOST_AD_STALE_DIFF_SEC,
@@ -99,9 +98,8 @@ export function broadcastYouTubeSync(isManual = false): void {
           // Prevents the "1-item list poison" when in single-video mode.
           if (player.getPlaylist) {
             try {
-              const rawIds = player.getPlaylist();
-              if (Array.isArray(rawIds) && rawIds.length > 1) {
-                const ids = rawIds.slice(0, PLAYLIST_MAX_ITEMS);
+              const ids = player.getPlaylist();
+              if (Array.isArray(ids) && ids.length > 1) {
                 const subMap = getState('youtube.subItemsMap') || {};
                 if (!subMap[pid] || subMap[pid].ids.length !== ids.length) {
                   updateSubItemIds(pid, ids);
@@ -311,8 +309,8 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
 
     // Video ID sync — fixes videoId mismatch (YouTube Mix ordering, sub-advance, etc.)
     // Single-video mode: always drive guest via loadVideoById. We never call
-    // playVideoAt / loadPlaylist — the iframe's playlist engine is what OOMs
-    // on 200+ item playlists, so the guest stays on one video at a time.
+    // playVideoAt / loadPlaylist so the iframe's native playlist engine
+    // stays dormant and the guest stays on one video at a time.
     const hostVideoId = (data.videoId as string) || '';
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
@@ -725,8 +723,7 @@ function handleYouTubeState(data: Record<string, unknown>): void {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
         // Single-video mode: loadVideoById directly. No playlist engine,
-        // no escalation tiers — one videoId at a time keeps the iframe
-        // within mobile memory limits.
+        // no escalation tiers — one videoId at a time.
         log.info(`[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`);
         if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
@@ -938,8 +935,8 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
  */
 function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
   const playlistId = data.playlistId as string;
-  const ids = ((data.ids as string[]) || []).slice(0, PLAYLIST_MAX_ITEMS);
-  const titles = ((data.titles as string[]) || []).slice(0, PLAYLIST_MAX_ITEMS);
+  const ids = (data.ids as string[]) || [];
+  const titles = (data.titles as string[]) || [];
 
   if (!playlistId) return;
 

@@ -530,6 +530,28 @@ function scheduleRendezvousPlay(
     // Step 3: self-calibrate guestPlayLatency from measured drift (~800ms later)
     setManagedTimer('yt-rendezvous-calibrate', () => {
       _rt.rendezvousInProgress = false;
+
+      // Defense: bail if state has changed since this timer was scheduled.
+      // Host disconnect, mobile background+resume, or sleep/wake all leave
+      // the snapshot stale or the connection broken — calibrating against
+      // stale data would poison guestPlayLatency permanently (it's
+      // persisted to localStorage and inherited by future hard-reset
+      // rejoins). Each guard catches a distinct trigger; any one is enough
+      // to skip a corrupting update.
+      if (!getState('network.hostConn')) {
+        log.debug('[Rendezvous] Calibration skipped — host connection lost');
+        return;
+      }
+      const snapshotAge = getHostNow() - snapshot.hostClockAt;
+      if (snapshotAge > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
+        log.debug(`[Rendezvous] Calibration skipped — snapshot ${snapshotAge.toFixed(0)}ms stale`);
+        return;
+      }
+      if (typeof document !== 'undefined' && document.hidden) {
+        log.debug('[Rendezvous] Calibration skipped — page hidden (mobile background)');
+        return;
+      }
+
       const pCal = getYouTubePlayer();
       if (!pCal) return; // player destroyed — skip calibration
       try {

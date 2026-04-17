@@ -185,6 +185,7 @@ const ko = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',
   'setup.guest_button': '모임에 참여할래요',
+  'setup.back_to_home': '초기 화면으로 돌아가기',
   'setup.demo_button': '앱 체험하기 (데모)',
   'setup.how_to_connect': '이렇게 연결해요',
   'setup.set_role': '이 기기 역할 설정하기',

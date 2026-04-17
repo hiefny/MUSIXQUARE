@@ -187,6 +187,7 @@ const en: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",
   'setup.guest_button': 'Join a session',
+  'setup.back_to_home': 'Back to start screen',
   'setup.demo_button': 'Try it (Demo)',
   'setup.how_to_connect': 'How to connect',
   'setup.set_role': "Set this device's role",

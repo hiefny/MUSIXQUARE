@@ -103,7 +103,12 @@ export function startGuestFlow(): void {
   updateRoleBadge();
 }
 
-/** Render actions for invite-link flow: disabled "시작하기" + "내가 방장할래요" text link */
+/** Render actions for invite-link flow: primary "시작하기" (disabled until a
+ *  role is picked) plus a text-link escape hatch back to the root URL. The
+ *  back-link does a true hard navigation to '/' so a user who landed here
+ *  via /CODE (invite link or post-disconnect reconnect) and now wants to
+ *  start fresh isn't stuck — common case: host has actually left and the
+ *  peer-unavailable error message in setup.ts told them so. */
 function _renderInviteLinkActions(): void {
   const role = getPendingSetupRole();
   setupRenderActions([
@@ -115,6 +120,10 @@ function _renderInviteLinkActions(): void {
         if (r !== null) _handleInviteLinkJoin(r);
         else showToast(t('setup.select_role'));
       },
+    },
+    {
+      id: 'btn-setup-back-home', text: t('setup.back_to_home'), kind: 'text-link',
+      onClick: () => { window.location.href = '/'; },
     },
   ], 'vertical');
 }

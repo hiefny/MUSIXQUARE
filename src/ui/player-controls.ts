@@ -525,17 +525,12 @@ export function initPlayerControls(): void {
     });
   }
 
-  // Logo
+  // Logo — native <button>, so Enter/Space auto-fires click (no keydown handler needed)
   const logo = document.getElementById('app-logo') || document.querySelector('.app-logo');
   if (logo) {
     logo.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      handleLogoReturnToMain();
-    });
-    logo.addEventListener('keydown', (e) => {
-      if ((e as KeyboardEvent).key !== 'Enter' && (e as KeyboardEvent).key !== ' ') return;
-      e.preventDefault();
       handleLogoReturnToMain();
     });
   }
@@ -544,12 +539,8 @@ export function initPlayerControls(): void {
   $on('btn-prev', 'click', () => bus.emit('playlist:prev-track'));
   $on('play-btn', 'click', () => bus.emit('player:toggle-play'));
   $on('btn-next', 'click', () => bus.emit('playlist:next-track'));
+  // Mute button — native <button>, so Enter/Space auto-fires click
   $on('vol-icon-btn', 'click', () => toggleMute());
-  $on('vol-icon-btn', 'keydown', (e) => {
-    if ((e as KeyboardEvent).key !== 'Enter' && (e as KeyboardEvent).key !== ' ') return;
-    (e as KeyboardEvent).preventDefault();
-    toggleMute();
-  });
   $on('volume-slider', 'input', function (this: HTMLInputElement) { onVolInput(Number(this.value)); });
   $on('volume-slider', 'change', function (this: HTMLInputElement) { onVolChange(Number(this.value)); });
   $on('btn-sync', 'click', () => handleMainSyncBtn());

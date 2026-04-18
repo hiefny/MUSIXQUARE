@@ -483,6 +483,28 @@
         opacity: 1;
     }
 
+    /* Native <button> reset for bare-SVG icon buttons. Strips the browser
+       default background/border/padding/font so the button is visually
+       indistinguishable from the SVG it wraps. No :hover or :active rules
+       — clicking stays silent (tap-highlight-color: transparent is already
+       set globally), :focus-visible handles keyboard focus ring naturally. */
+    #vol-icon-btn,
+    #app-logo {
+        background: transparent;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+    }
+
+    /* Inline-flex wrap: collapse the default text line-box so the button's
+       height equals the child SVG's height, not line-height × font-size.
+       #app-logo already has display: flex via its .app-logo class. */
+    #vol-icon-btn {
+        display: inline-flex;
+        align-items: center;
+    }
+
     /* Logo SVG Styling */
     .app-logo {
         color: var(--text-main);

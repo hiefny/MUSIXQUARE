@@ -78,6 +78,7 @@
 import * as THREE from 'https://esm.sh/three@0.162.0';
 import { OrbitControls } from 'https://esm.sh/three@0.162.0/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'https://esm.sh/three@0.162.0/examples/jsm/environments/RoomEnvironment.js';
+import GUI from 'https://esm.sh/lil-gui@0.19.2';
 
 const canvas = document.getElementById('scene');
 
@@ -94,8 +95,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xc4c4c7);
 
-const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
-const DEFAULT_CAM = new THREE.Vector3(0, 0.5, 26);
+const camera = new THREE.PerspectiveCamera(10, window.innerWidth / window.innerHeight, 0.1, 1000);
+const DEFAULT_CAM = new THREE.Vector3(0, 0.5, 90);
 camera.position.copy(DEFAULT_CAM);
 
 // ─── Environment ──────────────────────────────────────
@@ -115,13 +116,11 @@ scene.add(fillLight);
 // Left cluster: 3 setup cards stacked & overlapping like a deck fanned slightly
 // Right cluster: main player + audio settings floating
 const PANELS = [
-  // Left — 3 setup cards (back → front, tightly fanned deck)
-  { file: '01-role-select.png',    pos: [-4.6,  1.1, -1.0], rotY:  0.32, rotX:  0.02, scale: 0.72 },
-  { file: '02-device-role.png',    pos: [-4.1, -0.1,  0.0], rotY:  0.30, rotX:  0.02, scale: 0.72 },
-  { file: '03-connect.png',        pos: [-3.6, -1.3,  1.0], rotY:  0.28, rotX:  0.02, scale: 0.72 },
-  // Right — main app hero pair
-  { file: '04-player.png',         pos: [ 2.8,  0.8,  1.0], rotY: -0.30, rotX: -0.02, scale: 1.00 },
-  { file: '05-audio-settings.png', pos: [ 5.9, -1.7,  0.6], rotY: -0.36, rotX:  0.02, scale: 0.72 }
+  { file: '01-role-select.png',    pos: [-4.50,  1.44, -0.15], rotY:  0.090, rotX:  0.200, rotZ: -0.100, scale: 0.72 },
+  { file: '02-device-role.png',    pos: [-3.50, -0.18,  0.35], rotY:  0.130, rotX:  0.000, rotZ:  0.100, scale: 0.72 },
+  { file: '03-connect.png',        pos: [-2.20, -1.55,  1.00], rotY:  0.270, rotX: -0.210, rotZ:  0.300, scale: 0.72 },
+  { file: '04-player.png',         pos: [ 2.20,  1.06,  3.50], rotY: -0.080, rotX: -0.130, rotZ: -0.080, scale: 1.00 },
+  { file: '05-audio-settings.png', pos: [ 4.20, -1.27,  1.85], rotY: -0.170, rotX: -0.390, rotZ: -0.040, scale: 0.72 }
 ];
 
 const ASSET_PATH = '../assets/screenshots-desktop/';
@@ -151,7 +150,7 @@ function buildPanel(tex, cfg) {
 
   const group = new THREE.Group();
   group.position.set(...cfg.pos);
-  group.rotation.set(cfg.rotX, cfg.rotY, 0);
+  group.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ || 0);
 
   // Screenshot front — pure color (no tone mapping washout)
   const screenMat = new THREE.MeshBasicMaterial({
@@ -237,19 +236,128 @@ controls.autoRotateSpeed = 0.35;
 controls.minDistance = 10;
 controls.maxDistance = 50;
 
-// ─── Subtle float animation for each panel ───────────
+// ─── Click-to-edit: select panel → lil-gui sliders ──
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let selectedIndex = -1;
+let editMode = false;   // true when a panel is selected — pauses float
+
+const gui = new GUI({ title: 'Controls' });
+
+// ─── Scene-level controls (always visible) ───────────
+const sceneState = {
+  fov: camera.fov,
+  camZ: camera.position.z
+};
+const sceneFolder = gui.addFolder('Camera');
+sceneFolder.add(sceneState, 'fov', 8, 70, 0.5).name('fov (lower = telephoto)').onChange(v => {
+  camera.fov = v;
+  camera.updateProjectionMatrix();
+});
+sceneFolder.add(sceneState, 'camZ', 5, 90, 0.5).name('distance').onChange(v => {
+  const dir = new THREE.Vector3(0, 0, 1); // along +Z relative to target
+  const target = controls.target.clone();
+  camera.position.copy(target).add(dir.multiplyScalar(v));
+  controls.update();
+});
+sceneFolder.open();
+
+// ─── Panel-specific controls (populated on click) ───
+let panelFolder = gui.addFolder('Panel');
+panelFolder.hide();
+const guiState = { x: 0, y: 0, z: 0, rotX: 0, rotY: 0, rotZ: 0 };
+
+function rebuildGUI() {
+  panelFolder.destroy();
+  panelFolder = gui.addFolder('Panel');
+
+  if (selectedIndex < 0) { panelFolder.hide(); return; }
+  const group = panelsGroup.children[selectedIndex];
+  const cfg = PANELS[selectedIndex];
+  panelFolder.title(`#${selectedIndex + 1} ${cfg.file}`);
+
+  guiState.x = group.position.x;
+  guiState.y = group.position.y;
+  guiState.z = group.position.z;
+  guiState.rotX = group.rotation.x;
+  guiState.rotY = group.rotation.y;
+  guiState.rotZ = group.rotation.z;
+
+  panelFolder.add(guiState, 'x', -12, 12, 0.05).onChange(v => {
+    group.position.x = v; PANELS[selectedIndex].pos[0] = v;
+  });
+  panelFolder.add(guiState, 'y', -8, 8, 0.05).onChange(v => {
+    group.position.y = v; PANELS[selectedIndex].pos[1] = v;
+  });
+  panelFolder.add(guiState, 'z', -6, 6, 0.05).onChange(v => {
+    group.position.z = v; PANELS[selectedIndex].pos[2] = v;
+  });
+  panelFolder.add(guiState, 'rotX', -Math.PI/2, Math.PI/2, 0.01).onChange(v => {
+    group.rotation.x = v; PANELS[selectedIndex].rotX = v;
+  });
+  panelFolder.add(guiState, 'rotY', -Math.PI, Math.PI, 0.01).onChange(v => {
+    group.rotation.y = v; PANELS[selectedIndex].rotY = v;
+  });
+  panelFolder.add(guiState, 'rotZ', -Math.PI/2, Math.PI/2, 0.01).onChange(v => {
+    group.rotation.z = v; PANELS[selectedIndex].rotZ = v;
+  });
+  panelFolder.add({
+    'Copy as code': () => {
+      const c = PANELS[selectedIndex];
+      const g = panelsGroup.children[selectedIndex];
+      const line = `  { file: '${c.file}', pos: [${g.position.x.toFixed(2).padStart(5)}, ${g.position.y.toFixed(2).padStart(5)}, ${g.position.z.toFixed(2).padStart(5)}], rotY: ${g.rotation.y.toFixed(3).padStart(6)}, rotX: ${g.rotation.x.toFixed(3).padStart(6)}, rotZ: ${g.rotation.z.toFixed(3).padStart(6)}, scale: ${c.scale} },`;
+      navigator.clipboard.writeText(line);
+      console.log('[copied]', line);
+    }
+  }, 'Copy as code');
+  panelFolder.add({
+    'Deselect (resume float)': () => { selectedIndex = -1; editMode = false; rebuildGUI(); }
+  }, 'Deselect (resume float)');
+  panelFolder.open();
+}
+
+function pickFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(panelsGroup.children, true);
+  if (hits.length === 0) return -1;
+  let g = hits[0].object;
+  while (g.parent && g.parent !== panelsGroup) g = g.parent;
+  return panelsGroup.children.indexOf(g);
+}
+
+// Distinguish click from drag — only pick if the mouse hasn't moved much
+let downPos = null;
+canvas.addEventListener('pointerdown', e => { downPos = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener('pointerup', e => {
+  if (!downPos) return;
+  const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
+  downPos = null;
+  if (Math.hypot(dx, dy) > 4) return; // treat as drag, ignore
+  const idx = pickFromEvent(e);
+  if (idx >= 0) {
+    selectedIndex = idx;
+    editMode = true;
+    rebuildGUI();
+  }
+});
+
+// ─── Subtle float animation (paused while editing) ───
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
   const t = clock.getElapsedTime();
 
-  // Gentle bob — each panel offset so they drift independently
-  panelsGroup.children.forEach((g, i) => {
-    const phase = i * 1.3;
-    g.position.y = PANELS[i].pos[1] + Math.sin(t * 0.5 + phase) * 0.08;
-    g.rotation.z = Math.sin(t * 0.3 + phase) * 0.008;
-  });
+  if (!editMode) {
+    panelsGroup.children.forEach((g, i) => {
+      const phase = i * 1.3;
+      g.position.y = PANELS[i].pos[1] + Math.sin(t * 0.5 + phase) * 0.08;
+      // keep rotation.z as baseline so GUI doesn't jitter when re-selected
+    });
+  }
 
   controls.update();
   renderer.render(scene, camera);

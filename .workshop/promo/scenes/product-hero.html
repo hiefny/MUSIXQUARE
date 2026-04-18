@@ -9,7 +9,7 @@
     margin: 0; padding: 0;
     width: 100%; height: 100%;
     overflow: hidden;
-    background: radial-gradient(ellipse at center, #e4e4e7 0%, #a1a1aa 100%);
+    background: radial-gradient(ellipse at center, #ededed 0%, #dedede 100%);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   canvas { display: block; }
@@ -78,22 +78,23 @@
 import * as THREE from 'https://esm.sh/three@0.162.0';
 import { OrbitControls } from 'https://esm.sh/three@0.162.0/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'https://esm.sh/three@0.162.0/examples/jsm/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'https://esm.sh/three@0.162.0/examples/jsm/geometries/RoundedBoxGeometry.js';
 import GUI from 'https://esm.sh/lil-gui@0.19.2';
 
 const canvas = document.getElementById('scene');
 
 // ─── Renderer ─────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0xc4c4c7, 1);
+renderer.setClearColor(0x000000, 0);  // transparent — body gradient shows through
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 // ─── Scene & Camera ───────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xc4c4c7);
+// background handled by body CSS gradient (controllable via GUI)
 
 const camera = new THREE.PerspectiveCamera(10, window.innerWidth / window.innerHeight, 0.1, 1000);
 const DEFAULT_CAM = new THREE.Vector3(0, 0.5, 90);
@@ -142,6 +143,32 @@ function loadTexture(file) {
   });
 }
 
+const screenMaterials = [];
+const bodyMaterials = [];
+const shadowData = [];  // { mesh, material, W, H } — for GUI batch update
+const shadowState = {
+  opacity: 0.10,
+  scaleX: 1.2,
+  scaleY: 0.34,
+  offsetY: 0.42  // distance below panel, as fraction of H
+};
+const CORNER_R = 0.12;  // panel corner radius
+
+function roundedRectShape(w, h, r) {
+  const s = new THREE.Shape();
+  const hw = w / 2, hh = h / 2;
+  s.moveTo(-hw + r, -hh);
+  s.lineTo( hw - r, -hh);
+  s.quadraticCurveTo( hw, -hh,  hw, -hh + r);
+  s.lineTo( hw,  hh - r);
+  s.quadraticCurveTo( hw,  hh,  hw - r,  hh);
+  s.lineTo(-hw + r,  hh);
+  s.quadraticCurveTo(-hw,  hh, -hw,  hh - r);
+  s.lineTo(-hw, -hh + r);
+  s.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+  return s;
+}
+
 function buildPanel(tex, cfg) {
   const aspect = tex.image.width / tex.image.height;
   const W = BASE_WIDTH * cfg.scale;
@@ -152,45 +179,77 @@ function buildPanel(tex, cfg) {
   group.position.set(...cfg.pos);
   group.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ || 0);
 
-  // Screenshot front — pure color (no tone mapping washout)
-  const screenMat = new THREE.MeshBasicMaterial({
+  // Screenshot front — diffuse texture + subtle emissive + clearcoat gloss
+  // Keeps UI contrast; gets highlights from env via clearcoat
+  const screenMat = new THREE.MeshPhysicalMaterial({
     map: tex,
+    emissive: 0xffffff,
+    emissiveMap: tex,
+    emissiveIntensity: 0.75,
+    metalness: 0.32,
+    roughness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 1.0,
+    envMapIntensity: 0.0,
+    transparent: true,
+    opacity: 0.90,
     toneMapped: false
   });
+  screenMaterials.push(screenMat);
 
-  // Panel body sides/back — glossy white-ish plastic
+  // Panel body sides/back — pure white glossy plastic
   const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf4f4f5,
+    color: 0xffffff,
     metalness: 0.0,
     roughness: 0.35,
     clearcoat: 0.6,
     clearcoatRoughness: 0.15,
-    envMapIntensity: 0.9
+    envMapIntensity: 0.9,
+    transparent: true,
+    opacity: 0.90
   });
+  bodyMaterials.push(bodyMat);
 
-  // BoxGeometry face order: [+X, -X, +Y, -Y, +Z (front), -Z (back)]
-  const geom = new THREE.BoxGeometry(W, H, DEPTH);
-  const mesh = new THREE.Mesh(geom, [
-    bodyMat, bodyMat, bodyMat, bodyMat,
-    screenMat,   // front face shows screenshot
-    bodyMat
-  ]);
-  group.add(mesh);
+  // Body: extrude the same rounded rect shape so front/back radius matches screen
+  const rectShape = roundedRectShape(W, H, CORNER_R);
+  const bodyGeom = new THREE.ExtrudeGeometry(rectShape, {
+    depth: DEPTH,
+    bevelEnabled: false,
+    curveSegments: 16
+  });
+  bodyGeom.translate(0, 0, -DEPTH / 2);
+  const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+  group.add(bodyMesh);
 
-  // Soft contact shadow below
+  // Screen: flat rounded rect plane in front, textured
+  const screenGeom = new THREE.ShapeGeometry(rectShape);
+  // Normalize UVs to [0,1] so the texture maps correctly to the rounded shape
+  const uv = screenGeom.attributes.uv.array;
+  for (let i = 0; i < uv.length; i += 2) {
+    uv[i]     = (uv[i]     + W / 2) / W;
+    uv[i + 1] = (uv[i + 1] + H / 2) / H;
+  }
+  screenGeom.attributes.uv.needsUpdate = true;
+  const screenMesh = new THREE.Mesh(screenGeom, screenMat);
+  screenMesh.position.z = DEPTH / 2 + 0.002;  // just in front of body
+  group.add(screenMesh);
+
+  // Soft contact shadow below (unit-sized geometry + scale so GUI can resize)
   const shadowTex = makeShadowTexture();
-  const shadowGeom = new THREE.PlaneGeometry(W * 1.5, H * 0.55);
+  const shadowGeom = new THREE.PlaneGeometry(1, 1);
   const shadowMat = new THREE.MeshBasicMaterial({
     map: shadowTex,
     transparent: true,
-    opacity: 0.28,
+    opacity: shadowState.opacity,
     depthWrite: false,
     toneMapped: false
   });
   const shadow = new THREE.Mesh(shadowGeom, shadowMat);
-  shadow.position.set(0, -H * 0.58, -DEPTH * 0.5);
+  shadow.scale.set(W * shadowState.scaleX, H * shadowState.scaleY, 1);
+  shadow.position.set(0, -H * shadowState.offsetY, -DEPTH * 0.5);
   shadow.rotation.x = -Math.PI / 2 * 0.12;
   group.add(shadow);
+  shadowData.push({ mesh: shadow, material: shadowMat, W, H });
 
   return group;
 }
@@ -261,6 +320,82 @@ sceneFolder.add(sceneState, 'camZ', 5, 90, 0.5).name('distance').onChange(v => {
   controls.update();
 });
 sceneFolder.open();
+
+// ─── Background gradient controls ────────────────────
+const bgState = { top: '#ededed', bottom: '#dedede', radial: true };
+function applyBg() {
+  const type = bgState.radial ? 'radial-gradient(ellipse at center' : 'linear-gradient(180deg';
+  document.body.style.background = `${type}, ${bgState.top} 0%, ${bgState.bottom} 100%)`;
+}
+const bgFolder = gui.addFolder('Background');
+bgFolder.addColor(bgState, 'top').name('top / inner').onChange(applyBg);
+bgFolder.addColor(bgState, 'bottom').name('bottom / outer').onChange(applyBg);
+bgFolder.add(bgState, 'radial').name('radial (else linear)').onChange(applyBg);
+bgFolder.add({
+  'Copy bg': () => {
+    const css = `background: ${bgState.radial ? 'radial-gradient(ellipse at center' : 'linear-gradient(180deg'}, ${bgState.top} 0%, ${bgState.bottom} 100%);`;
+    navigator.clipboard.writeText(css);
+    console.log('[copied]', css);
+  }
+}, 'Copy bg');
+bgFolder.close();
+
+// ─── Material controls (apply to all screen faces) ───
+const matState = {
+  opacity: 0.90,
+  emissiveIntensity: 0.75,
+  roughness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 1.0,
+  envMapIntensity: 0.0,
+  metalness: 0.32
+};
+const matFolder = gui.addFolder('Material (all panels)');
+function applyMat(prop, v) {
+  screenMaterials.forEach(m => { m[prop] = v; m.needsUpdate = true; });
+  // Body mirrors opacity so the whole panel translucency stays consistent
+  if (prop === 'opacity') {
+    bodyMaterials.forEach(m => { m[prop] = v; m.needsUpdate = true; });
+  }
+}
+matFolder.add(matState, 'opacity', 0, 1, 0.01).onChange(v => applyMat('opacity', v));
+matFolder.add(matState, 'emissiveIntensity', 0, 2, 0.01).onChange(v => applyMat('emissiveIntensity', v));
+matFolder.add(matState, 'roughness', 0, 1, 0.01).onChange(v => applyMat('roughness', v));
+matFolder.add(matState, 'clearcoat', 0, 1, 0.01).onChange(v => applyMat('clearcoat', v));
+matFolder.add(matState, 'clearcoatRoughness', 0, 1, 0.01).onChange(v => applyMat('clearcoatRoughness', v));
+matFolder.add(matState, 'envMapIntensity', 0, 3, 0.05).onChange(v => applyMat('envMapIntensity', v));
+matFolder.add(matState, 'metalness', 0, 1, 0.01).onChange(v => applyMat('metalness', v));
+matFolder.add({
+  'Copy material': () => {
+    const lines = Object.entries(matState).map(([k, v]) => `    ${k}: ${v.toFixed(3)},`).join('\n');
+    navigator.clipboard.writeText(lines);
+    console.log('[copied]\n' + lines);
+  }
+}, 'Copy material');
+matFolder.close();
+
+// ─── Shadow controls ────────────────────────────────
+const shadowFolder = gui.addFolder('Shadow');
+shadowFolder.add(shadowState, 'opacity', 0, 1, 0.01).onChange(v => {
+  shadowData.forEach(s => { s.material.opacity = v; s.material.needsUpdate = true; });
+});
+shadowFolder.add(shadowState, 'scaleX', 0.3, 4, 0.05).name('width').onChange(v => {
+  shadowData.forEach(s => s.mesh.scale.x = s.W * v);
+});
+shadowFolder.add(shadowState, 'scaleY', 0.1, 2, 0.02).name('height').onChange(v => {
+  shadowData.forEach(s => s.mesh.scale.y = s.H * v);
+});
+shadowFolder.add(shadowState, 'offsetY', 0.0, 1.5, 0.02).name('offset down').onChange(v => {
+  shadowData.forEach(s => s.mesh.position.y = -s.H * v);
+});
+shadowFolder.add({
+  'Copy shadow': () => {
+    const lines = Object.entries(shadowState).map(([k, v]) => `    ${k}: ${v.toFixed(3)},`).join('\n');
+    navigator.clipboard.writeText(lines);
+    console.log('[copied]\n' + lines);
+  }
+}, 'Copy shadow');
+shadowFolder.close();
 
 // ─── Panel-specific controls (populated on click) ───
 let panelFolder = gui.addFolder('Panel');

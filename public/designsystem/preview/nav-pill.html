@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
+.card{padding:22px 24px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+.nav{display:flex;gap:6px;background:var(--glass-bg);backdrop-filter:blur(16px);padding:10px 16px;border-radius:16px;}
+.item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 14px;color:#6B7684;cursor:pointer;font-size:10px;font-weight:500;}
+.item svg{width:24px;height:24px;fill:currentColor;}
+.item.active{color:var(--primary);}
+.pill{display:inline-flex;padding:8px 16px;border-radius:100px;font-size:13px;font-weight:700;}
+.p-on{background:var(--primary);color:#fff;}
+.p-off{background:var(--surface-2);color:var(--text-sub);}
+</style></head><body><div class="card">
+<div class="nav">
+  <div class="item active"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Home</div>
+  <div class="item"><svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>Playlist</div>
+  <div class="item"><svg viewBox="0 0 24 24"><path d="M12 4a4 4 0 110 8 4 4 0 010-8zm0 10c4.42 0 8 1.79 8 4v2H4v-2c0-2.21 3.58-4 8-4z"/></svg>Connect</div>
+  <div class="item"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.4-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 018.4 12 3.6 3.6 0 0112 8.4a3.6 3.6 0 013.6 3.6 3.6 3.6 0 01-3.6 3.6z"/></svg>Settings</div>
+</div>
+<span class="pill p-on">ACTIVE</span>
+<span class="pill p-off">idle</span>
+</div></body></html>

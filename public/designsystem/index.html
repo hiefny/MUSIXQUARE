@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>MUSIXQUARE Design System</title>
+  <link rel="icon" href="assets/favicon.svg">
+  <link rel="stylesheet" href="colors_and_type.css">
+  <style>
+    html, body { margin: 0; background: var(--bg); color: var(--text-main); }
+    body { font-family: var(--font-sans); }
+
+    /* ── Hero ───────────────────────────────────── */
+    .hero {
+      padding: 80px 48px 48px;
+      max-width: 1280px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr auto; gap: 48px;
+      align-items: end;
+    }
+    .hero .logo { width: min(520px, 60vw); color: var(--text-main); }
+    .hero .logo svg { width: 100%; height: auto; display: block; }
+    .hero .meta { text-align: right; font-size: 12px; color: var(--text-sub); line-height: 1.7; }
+    .hero .meta a { color: var(--text-main); text-decoration: none; border-bottom: 1px solid var(--surface-3); }
+    .hero .meta a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+    .hero .tag {
+      grid-column: 1 / -1; font-size: 20px; font-weight: 500;
+      color: var(--text-sub); max-width: 720px;
+      line-height: 1.5; margin-top: 8px;
+    }
+    .hero .tag strong { color: var(--text-main); font-weight: 700; }
+
+    /* ── Container ─────────────────────────────── */
+    .page { max-width: 1280px; margin: 0 auto; padding: 0 48px 120px; }
+
+    /* ── Section headers ───────────────────────── */
+    .section { margin-top: 88px; }
+    .section-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      border-bottom: 1px solid var(--surface-2);
+      padding-bottom: 16px; margin-bottom: 28px;
+    }
+    .section-head h2 {
+      margin: 0; font-size: 13px; font-weight: 800;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--text-main);
+    }
+    .section-head .num {
+      font-size: 11px; font-weight: 700;
+      color: var(--text-muted); font-variant-numeric: tabular-nums;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Block ─────────────────────────────────── */
+    .block { margin-bottom: 40px; }
+    .block-title {
+      font-size: 11px; font-weight: 800;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--text-sub); margin: 0 0 14px;
+    }
+
+    /* ── Rows ──────────────────────────────────── */
+    .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+
+    /* ── Color swatches ────────────────────────── */
+    .swatch {
+      width: 120px; height: 120px; border-radius: var(--radius-s);
+      padding: 12px 14px; box-sizing: border-box;
+      display: flex; flex-direction: column; justify-content: space-between;
+      font-size: 11px; font-weight: 700;
+      outline: 1px solid rgba(255,255,255,0.04); outline-offset: -1px;
+    }
+    .swatch .nm { mix-blend-mode: difference; color: #fff; }
+    .swatch .hx { mix-blend-mode: difference; color: #fff; font-weight: 600; opacity: 0.8; }
+    .swatch.primary .nm, .swatch.primary .hx { mix-blend-mode: normal; color: #fff; }
+
+    .dot-swatch { display: flex; align-items: center; gap: 12px; }
+    .dot-swatch .dot { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; }
+    .dot-swatch .meta .nm { font-size: 13px; font-weight: 700; }
+    .dot-swatch .meta .hx { font-size: 11px; color: var(--text-sub); font-weight: 600; }
+
+    /* ── Type specimens ────────────────────────── */
+    .spec { display: grid; grid-template-columns: 140px 1fr; gap: 10px 20px; align-items: baseline; }
+    .spec .tag {
+      font-size: 10px; font-weight: 800; color: var(--text-sub);
+      letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .spec .s28 { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; }
+    .spec .s24 { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; }
+    .spec .s20 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+    .spec .s16 { font-size: 16px; font-weight: 500; }
+    .spec .s14 { font-size: 14px; font-weight: 600; }
+    .spec .s12 { font-size: 12px; font-weight: 600; color: var(--text-sub); }
+
+    .display-glyph {
+      font-size: 160px; font-weight: 800; letter-spacing: -0.05em;
+      line-height: 0.9; color: var(--text-main);
+    }
+
+    .weight-row { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
+    .weight-row .w { display: flex; flex-direction: column; gap: 6px; }
+    .weight-row .gl { font-size: 64px; line-height: 1; letter-spacing: -0.03em; }
+    .weight-row .lab { font-size: 10px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; text-transform: uppercase; }
+
+    /* ── Spacing ───────────────────────────────── */
+    .spacing-row { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+    .spacing-unit { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .spacing-unit .bar { background: var(--primary); border-radius: 2px; }
+    .spacing-unit .lab { font-size: 10px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+
+    .radii-row { display: flex; gap: 30px; align-items: flex-end; flex-wrap: wrap; }
+    .radii-unit { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .radii-unit .chip { background: var(--surface-2); }
+    .radii-unit .lab { font-size: 10px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.08em; }
+
+    /* ── Tokens table ──────────────────────────── */
+    .tokens {
+      display: grid; grid-template-columns: auto auto 1fr; gap: 8px 24px;
+      font-size: 12px;
+    }
+    .tokens .tok { font-family: var(--font-sans); font-weight: 600; color: var(--text-main); }
+    .tokens .val { font-family: var(--font-sans); font-weight: 500; color: var(--text-sub); font-variant-numeric: tabular-nums; }
+    .tokens .use { color: var(--text-muted); }
+    .tokens .head { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-sub); padding-bottom: 6px; border-bottom: 1px solid var(--surface-2); }
+
+    /* ── Motion demo ───────────────────────────── */
+    .motion-card {
+      background: var(--surface-1); border-radius: var(--radius-m);
+      padding: 20px 22px;
+    }
+    .motion-card .nm { font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-sub); margin-bottom: 4px; }
+    .motion-card .fn { font-family: var(--font-sans); font-weight: 500; font-size: 12px; color: var(--text-main); margin-bottom: 14px; }
+    .motion-card .track { height: 4px; background: var(--surface-2); border-radius: 100px; position: relative; overflow: hidden; margin-bottom: 8px; }
+    .motion-card .bead {
+      position: absolute; top: -4px; width: 12px; height: 12px; border-radius: 50%;
+      background: var(--primary); animation: bead 2.4s infinite;
+    }
+    .motion-card.m1 .bead { animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+    .motion-card.m2 .bead { animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+    .motion-card.m3 .bead { animation-timing-function: cubic-bezier(0.08, 0.82, 0.17, 1); }
+    @keyframes bead {
+      0%   { left: 0%; }
+      50%  { left: calc(100% - 12px); }
+      100% { left: 0%; }
+    }
+    .motion-card .use { font-size: 11px; color: var(--text-muted); }
+
+    /* ── Component showcase ───────────────────── */
+    .comp { background: var(--surface-1); border-radius: var(--radius-m); padding: 24px; }
+    .comp .lbl {
+      font-size: 10px; font-weight: 800; color: var(--text-sub);
+      letter-spacing: 0.12em; text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      height: 48px; padding: 0 22px; border-radius: var(--radius-m);
+      font-size: 14px; font-weight: 700; border: none; cursor: pointer;
+      transition: transform 0.2s var(--ease-out), filter 0.2s var(--ease-out), background 0.2s var(--ease-out);
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary { background: var(--primary); color: #fff; }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.ghost { background: var(--surface-2); color: var(--text-main); }
+    .btn.ghost:hover { background: var(--surface-3); }
+    .btn svg { width: 18px; height: 18px; fill: currentColor; }
+    .fab {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: #fff; color: #000; border: none; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: transform 0.2s var(--ease-out);
+    }
+    .fab:hover { transform: scale(1.04); }
+    .fab:active { transform: scale(0.95); }
+    .fab svg { width: 28px; height: 28px; fill: currentColor; }
+
+    .pill {
+      display: inline-flex; align-items: center; padding: 6px 14px;
+      border-radius: 100px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    }
+    .pill.on { background: var(--primary); color: #fff; }
+    .pill.off { background: var(--surface-2); color: var(--text-sub); }
+    .pill.badge { background: var(--surface-3); color: var(--text-sub); font-size: 9px; letter-spacing: 0.1em; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 6px; }
+
+    /* Invite code */
+    .invite { display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 12px 0; }
+    .invite .lbl { font-size: 9px; font-weight: 800; color: var(--text-sub); letter-spacing: 0.14em; text-transform: uppercase; }
+    .invite .code { font-size: 56px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.12em; }
+    .invite .code .copied { color: var(--primary); text-shadow: 0 0 8px rgba(59,130,246,0.4); }
+
+    /* Playlist */
+    .pl { background: var(--surface-1); border-radius: var(--radius-m); overflow: hidden; }
+    .pl .item { display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer; min-height: 56px; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.04); }
+    .pl .item:last-child { box-shadow: none; }
+    .pl .idx { width: 22px; font-size: 13px; color: var(--text-muted); font-weight: 600; text-align: center; }
+    .pl .nm { flex: 1; font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+    .pl .dur { font-size: 11px; color: var(--text-sub); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .pl .item.active .idx, .pl .item.active .nm { color: var(--primary); font-weight: 700; }
+    .wave { display: inline-flex; gap: 2px; align-items: flex-end; width: 14px; height: 14px; }
+    .wave i { display: block; width: 3px; background: var(--primary); border-radius: 1px; animation: w 0.7s ease-in-out infinite alternate; }
+    .wave i:nth-child(1) { animation-delay: -0.2s; }
+    .wave i:nth-child(3) { animation-delay: -0.4s; }
+    @keyframes w { from { height: 20% } to { height: 100% } }
+
+    /* Glass chrome demo */
+    .glass-stage {
+      position: relative; min-height: 180px;
+      background:
+        radial-gradient(circle at 25% 30%, #3b82f6 0%, transparent 45%),
+        radial-gradient(circle at 75% 65%, #a855f7 0%, transparent 45%),
+        #111;
+      border-radius: var(--radius-m); padding: 24px;
+    }
+    .glass-nav {
+      position: absolute; left: 16px; right: 16px; bottom: 16px;
+      height: 64px; border-radius: 100px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      padding: 4px;
+    }
+    .glass-nav .tab {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; color: var(--grey-600); font-size: 10px; font-weight: 600;
+    }
+    .glass-nav .tab svg { width: 22px; height: 22px; fill: currentColor; }
+    .glass-nav .tab.active { color: var(--primary); }
+
+    /* Toast + dialog */
+    .chrome-row { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; }
+    .toast {
+      background: rgba(255,255,255,0.9); color: #000;
+      padding: 12px 22px; border-radius: 100px;
+      font-size: 13px; font-weight: 600; display: inline-block;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+    .dialog { background: var(--surface-1); border-radius: var(--radius-m); padding: 20px 22px; max-width: 320px; }
+    .dialog .dt { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
+    .dialog .dm { font-size: 13px; color: var(--text-sub); font-weight: 500; margin-bottom: 14px; }
+    .dialog .drow { display: flex; gap: 8px; justify-content: flex-end; }
+    .dialog .db { height: 34px; padding: 0 14px; border-radius: 10px; border: none; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .dialog .db.g { background: var(--surface-2); color: var(--text-main); }
+    .dialog .db.p { background: var(--primary); color: #fff; }
+
+    /* Icons grid */
+    .icon-grid { display: flex; flex-wrap: wrap; gap: 18px; }
+    .icon-grid .ic {
+      width: 48px; height: 48px; border-radius: var(--radius-s);
+      background: var(--surface-1);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-main); transition: color 0.2s var(--ease-out), background 0.2s var(--ease-out);
+      cursor: pointer;
+    }
+    .icon-grid .ic:hover { background: var(--surface-2); color: var(--primary); }
+    .icon-grid .ic svg { width: 22px; height: 22px; fill: currentColor; }
+
+    /* UI kit embed */
+    .embed {
+      background: var(--surface-1); border-radius: var(--radius-l);
+      padding: 32px; display: flex; gap: 32px; align-items: center; flex-wrap: wrap;
+    }
+    .embed iframe {
+      width: 410px; height: 864px; border: none;
+      border-radius: 36px; background: #000;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+      flex-shrink: 0;
+    }
+    .embed .body { flex: 1; min-width: 260px; }
+    .embed h3 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 10px; }
+    .embed p { font-size: 14px; line-height: 1.6; color: var(--text-sub); margin: 0 0 16px; }
+    .embed .open {
+      display: inline-flex; align-items: center; gap: 8px;
+      height: 44px; padding: 0 20px; border-radius: var(--radius-m);
+      background: var(--primary); color: #fff; text-decoration: none;
+      font-weight: 700; font-size: 14px;
+      transition: filter 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+    }
+    .embed .open:hover { filter: brightness(1.08); transform: translateY(-2px); }
+    .embed ul { font-size: 13px; color: var(--text-sub); line-height: 1.7; padding-left: 18px; margin: 16px 0 0; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--surface-2);
+      margin-top: 100px; padding: 32px 48px;
+      max-width: 1280px; margin-left: auto; margin-right: auto;
+      display: flex; justify-content: space-between;
+      font-size: 12px; color: var(--text-muted);
+    }
+    footer a { color: var(--text-sub); text-decoration: none; }
+    footer a:hover { color: var(--primary); }
+
+    @media (max-width: 720px) {
+      .hero, .page, footer { padding-left: 24px; padding-right: 24px; }
+      .hero { grid-template-columns: 1fr; }
+      .hero .meta { text-align: left; }
+      .spec { grid-template-columns: 80px 1fr; }
+      .display-glyph { font-size: 96px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HERO ───────────────────────────────────── -->
+<section class="hero">
+  <div class="logo">
+    <svg viewBox="43 12 214 24" fill="currentColor">
+      <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
+      <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/>
+      <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/>
+      <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"/>
+      <polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"/>
+      <path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"/>
+      <polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"/>
+      <path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"/>
+      <path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"/>
+      <rect x="237.2284599" y="12.7587935" width="18" height="4.5"/>
+      <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"/>
+      <rect x="237.2337931" y="30.7587928" width="18" height="4.5"/>
+    </svg>
+  </div>
+  <div class="meta">
+    Design System · v1.0<br>
+    <a href="https://musixquare.com" target="_blank">musixquare.com</a><br>
+    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank">github.com/hiefny/MUSIXQUARE</a>
+  </div>
+  <p class="tag">
+    Multi-device synchronized audio for the web.
+    <strong>Dark-first, flat, deep</strong> — one signature blue, no gradients, no shadows.
+    Korean-first voice, Toss-influenced chrome, Material-filled iconography.
+  </p>
+</section>
+
+<div class="page">
+
+<!-- ── 01 FOUNDATIONS ─────────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Foundations</h2><span class="num">01</span></div>
+
+  <!-- Color palette -->
+  <div class="block">
+    <h3 class="block-title">Palette · dark (default)</h3>
+    <div class="row">
+      <div class="swatch" style="background:#121212"><span class="nm">bg</span><span class="hx">#121212</span></div>
+      <div class="swatch" style="background:#1A1A1A"><span class="nm">surface-1</span><span class="hx">#1A1A1A</span></div>
+      <div class="swatch" style="background:#262626"><span class="nm">surface-2</span><span class="hx">#262626</span></div>
+      <div class="swatch" style="background:#404040"><span class="nm">surface-3</span><span class="hx">#404040</span></div>
+      <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
+    </div>
+  </div>
+
+  <div class="block">
+    <h3 class="block-title">Palette · light</h3>
+    <div class="row">
+      <div class="swatch" style="background:#f8f9fa;outline-color:rgba(0,0,0,0.06)"><span class="nm">bg</span><span class="hx">#F8F9FA</span></div>
+      <div class="swatch" style="background:#ffffff;outline-color:rgba(0,0,0,0.1)"><span class="nm">surface-1</span><span class="hx">#FFFFFF</span></div>
+      <div class="swatch" style="background:#f1f3f5;outline-color:rgba(0,0,0,0.06)"><span class="nm">surface-2</span><span class="hx">#F1F3F5</span></div>
+      <div class="swatch" style="background:#B7B9BB"><span class="nm">surface-3</span><span class="hx">#B7B9BB</span></div>
+      <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
+    </div>
+  </div>
+
+  <div class="block">
+    <h3 class="block-title">Text colors</h3>
+    <div class="row" style="gap: 28px;">
+      <div class="dot-swatch"><div class="dot" style="background:#ffffff;outline:1px solid rgba(255,255,255,0.1);outline-offset:-1px"></div><div class="meta"><div class="nm">text-main</div><div class="hx">#FFFFFF</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#a1a1aa"></div><div class="meta"><div class="nm">text-sub</div><div class="hx">#A1A1AA</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#71717a"></div><div class="meta"><div class="nm">text-muted</div><div class="hx">#71717A</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#6B7684"></div><div class="meta"><div class="nm">grey-600</div><div class="hx">#6B7684</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#8B95A1"></div><div class="meta"><div class="nm">grey-500</div><div class="hx">#8B95A1</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 02 TYPOGRAPHY ──────────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Typography</h2><span class="num">02</span></div>
+
+  <div class="grid-2">
+    <div>
+      <h3 class="block-title">Pretendard variable · 45–920</h3>
+      <div class="display-glyph">Aa 가</div>
+      <p style="color: var(--text-sub); font-size: 13px; margin-top: 16px; line-height: 1.6;">
+        Korean-first sans with tight metrics and good mono figures. SIL OFL 1.1. Self-hosted.
+      </p>
+    </div>
+    <div>
+      <h3 class="block-title">Scale</h3>
+      <div class="spec">
+        <span class="tag">28 / 800</span><span class="s28">메인 · Home</span>
+        <span class="tag">24 / 800</span><span class="s24">Set this device's role</span>
+        <span class="tag">20 / 700</span><span class="s20">Midnight Protocol</span>
+        <span class="tag">16 / 500</span><span class="s16">Enter 6-digit code</span>
+        <span class="tag">14 / 600</span><span class="s14">Load local file</span>
+        <span class="tag">12 / 600</span><span class="s12">00:42 / 03:18</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="block" style="margin-top: 40px;">
+    <h3 class="block-title">Weights</h3>
+    <div class="weight-row">
+      <div class="w"><span class="gl" style="font-weight:400">Aa</span><span class="lab">400 Regular</span></div>
+      <div class="w"><span class="gl" style="font-weight:500">Aa</span><span class="lab">500 Medium</span></div>
+      <div class="w"><span class="gl" style="font-weight:600">Aa</span><span class="lab">600 Semibold</span></div>
+      <div class="w"><span class="gl" style="font-weight:700">Aa</span><span class="lab">700 Bold</span></div>
+      <div class="w"><span class="gl" style="font-weight:800">Aa</span><span class="lab">800 Extrabold</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 03 SPACING & SHAPE ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Spacing &amp; shape</h2><span class="num">03</span></div>
+
+  <div class="grid-2">
+    <div>
+      <h3 class="block-title">Spacing scale</h3>
+      <div class="spacing-row">
+        <div class="spacing-unit"><div class="bar" style="width:4px;height:4px"></div><span class="lab">4</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:8px;height:8px"></div><span class="lab">8</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:12px;height:12px"></div><span class="lab">12</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:16px;height:16px"></div><span class="lab">16</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:24px;height:24px"></div><span class="lab">24</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:32px;height:32px"></div><span class="lab">32</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:40px;height:40px"></div><span class="lab">40</span></div>
+        <div class="spacing-unit"><div class="bar" style="width:56px;height:56px"></div><span class="lab">56</span></div>
+      </div>
+    </div>
+    <div>
+      <h3 class="block-title">Corner radii</h3>
+      <div class="radii-row">
+        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:14px"></div><span class="lab">14 · radius-s</span></div>
+        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:20px"></div><span class="lab">20 · radius-m</span></div>
+        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:32px"></div><span class="lab">32 · radius-l</span></div>
+        <div class="radii-unit"><div class="chip" style="width:120px;height:48px;border-radius:100px"></div><span class="lab">100 · pill</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block" style="margin-top: 48px;">
+    <h3 class="block-title">Motion · easings &amp; durations</h3>
+    <div class="grid-3">
+      <div class="motion-card m1">
+        <div class="nm">ease-out</div>
+        <div class="fn">cubic-bezier(0.2, 0.8, 0.2, 1)</div>
+        <div class="track"><div class="bead"></div></div>
+        <div class="use">Default interactions · 200–300ms</div>
+      </div>
+      <div class="motion-card m2">
+        <div class="nm">emphasized</div>
+        <div class="fn">cubic-bezier(0.22, 1, 0.36, 1)</div>
+        <div class="track"><div class="bead"></div></div>
+        <div class="use">Entrances, view transitions · 600–900ms</div>
+      </div>
+      <div class="motion-card m3">
+        <div class="nm">spring</div>
+        <div class="fn">cubic-bezier(0.08, 0.82, 0.17, 1)</div>
+        <div class="track"><div class="bead"></div></div>
+        <div class="use">Toasts, logo flip</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 04 COMPONENTS ──────────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Components</h2><span class="num">04</span></div>
+
+  <div class="grid-2">
+    <!-- Buttons -->
+    <div class="comp">
+      <div class="lbl">Buttons</div>
+      <div class="row" style="align-items: center;">
+        <button class="btn primary">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          Play media
+        </button>
+        <button class="btn ghost">
+          <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+          Sync
+        </button>
+        <button class="fab"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+      </div>
+      <div class="row" style="margin-top: 14px; align-items: center;">
+        <span class="pill on">LIVE</span>
+        <span class="pill off">idle</span>
+        <span class="pill badge">HOST-CTRL</span>
+        <span class="pill badge">SELF-CTRL</span>
+      </div>
+    </div>
+
+    <!-- Invite -->
+    <div class="comp">
+      <div class="lbl">Invite code</div>
+      <div class="invite">
+        <span class="lbl" style="margin:0">Enter this code on other devices</span>
+        <span class="code">4 9 <span class="copied">2</span> 8 1 5</span>
+      </div>
+    </div>
+
+    <!-- Playlist -->
+    <div class="comp" style="padding: 0; overflow: hidden;">
+      <div style="padding: 20px 24px 8px;" class="lbl">Playlist item</div>
+      <div class="pl">
+        <div class="item"><span class="idx">1</span><span class="nm">Aurora Hymn</span><span class="dur">3:42</span></div>
+        <div class="item active"><span class="idx">2</span><span class="nm"><span class="wave"><i></i><i></i><i></i></span>Midnight Protocol</span><span class="dur">4:08</span></div>
+        <div class="item"><span class="idx">3</span><span class="nm">Coastal Drift — Night Mix</span><span class="dur">5:21</span></div>
+      </div>
+    </div>
+
+    <!-- Toast + dialog -->
+    <div class="comp">
+      <div class="lbl">Toast &amp; dialog</div>
+      <div class="chrome-row">
+        <span class="toast">Invite code: 492815</span>
+        <span></span>
+      </div>
+      <div class="dialog" style="margin-top: 16px;">
+        <div class="dt">Leave Session</div>
+        <div class="dm">Return to the start screen? You'll be disconnected.</div>
+        <div class="drow"><button class="db g">Stay</button><button class="db p">Leave</button></div>
+      </div>
+    </div>
+
+    <!-- Glass nav -->
+    <div class="comp" style="grid-column: span 2;">
+      <div class="lbl">Glass chrome · fixed bottom nav</div>
+      <div class="glass-stage">
+        <div class="glass-nav">
+          <div class="tab active"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Home</div>
+          <div class="tab"><svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>Playlist</div>
+          <div class="tab"><svg viewBox="0 0 24 24"><path d="M12 4a4 4 0 110 8 4 4 0 010-8zm0 10c4.42 0 8 1.79 8 4v2H4v-2c0-2.21 3.58-4 8-4z"/></svg>Connect</div>
+          <div class="tab"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.4-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 018.4 12 3.6 3.6 0 0112 8.4a3.6 3.6 0 013.6 3.6 3.6 3.6 0 01-3.6 3.6z"/></svg>Settings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 05 ICONOGRAPHY ─────────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Iconography</h2><span class="num">05</span></div>
+  <p style="color: var(--text-sub); font-size: 14px; line-height: 1.6; max-width: 640px; margin: -12px 0 24px;">
+    Material Icons (Filled). 24×24 viewBox, single path, <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">fill="currentColor"</code>.
+    No icon font, no sprite — every icon is inline SVG. No emoji.
+  </p>
+  <div class="icon-grid">
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></div>
+    <div class="ic"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>
+  </div>
+</section>
+
+<!-- ── 06 TOKENS ──────────────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Tokens</h2><span class="num">06</span></div>
+  <p style="color: var(--text-sub); font-size: 14px; margin: -12px 0 24px;">
+    Full list in <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">colors_and_type.css</code>.
+  </p>
+  <div class="tokens">
+    <span class="head">Token</span><span class="head">Value</span><span class="head">Use</span>
+    <span class="tok">--bg</span><span class="val">#121212</span><span class="use">App background</span>
+    <span class="tok">--surface-1</span><span class="val">#1A1A1A</span><span class="use">Cards, header, nav resting</span>
+    <span class="tok">--surface-2</span><span class="val">#262626</span><span class="use">Inputs, buttons, dividers</span>
+    <span class="tok">--surface-3</span><span class="val">#404040</span><span class="use">Hover, active</span>
+    <span class="tok">--primary</span><span class="val">#3B82F6</span><span class="use">The only accent — blue</span>
+    <span class="tok">--text-main</span><span class="val">#FFFFFF</span><span class="use">Primary text</span>
+    <span class="tok">--text-sub</span><span class="val">#A1A1AA</span><span class="use">Secondary text</span>
+    <span class="tok">--text-muted</span><span class="val">#71717A</span><span class="use">Tertiary / disabled</span>
+    <span class="tok">--radius-s / m / l</span><span class="val">14 / 20 / 32</span><span class="use">Corner radii + 100px pill</span>
+    <span class="tok">--glass-bg</span><span class="val">rgba(38,38,38,0.75)</span><span class="use">Glass chrome (with blur 16px)</span>
+    <span class="tok">--font-sans</span><span class="val">Pretendard</span><span class="use">Variable 45–920, sole family</span>
+    <span class="tok">--ease-out</span><span class="val">cubic-bezier(0.2, 0.8, 0.2, 1)</span><span class="use">Default interactions</span>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <span>MUSIXQUARE Design System · v1.0</span>
+  <span>
+    <a href="README.md">README</a> &nbsp;·&nbsp;
+    <a href="ui_kits/app/index.html">UI Kit</a> &nbsp;·&nbsp;
+    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank">Source</a>
+  </span>
+</footer>
+
+</body>
+</html>

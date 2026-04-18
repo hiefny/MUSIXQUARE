@@ -1,0 +1,196 @@
+/* MUSIXQUARE Design System — colors + type tokens
+   Source: css/style.css :root and html[data-theme="light"]
+   Font: Pretendard (self-hosted via @font-face)
+*/
+
+/* ── Font ──────────────────────────────────────── */
+@font-face {
+  font-family: "Pretendard";
+  src: url("fonts/PretendardVariable.woff2") format("woff2-variations"),
+       url("../fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ── Palette (Dark default) ───────────────────── */
+  --bg:         #121212;
+  --surface-1:  #1A1A1A;   /* headers, nav, cards */
+  --surface-2:  #262626;   /* inputs, buttons */
+  --surface-3:  #404040;   /* hover, active */
+  --divider:    var(--surface-2);
+
+  --primary:    #3b82f6;   /* signature blue */
+  --primary-rgb: 59, 130, 246;
+  --accent:     var(--primary);
+
+  --text-main:  #ffffff;
+  --text-sub:   #a1a1aa;
+  --text-muted: #71717a;
+
+  /* Grey scale used by nav items (Toss adaptive) */
+  --grey-600: #6B7684;
+  --grey-500: #8B95A1;
+
+  /* ── Radii ────────────────────────────────────── */
+  --radius-s: 14px;
+  --radius-m: 20px;
+  --radius-l: 32px;
+  --radius-pill: 100px;
+
+  /* ── Glass / blur ─────────────────────────────── */
+  --glass-bg: rgba(38, 38, 38, 0.75);
+  --glass-border: transparent;
+  --glass-blur: 16px;
+
+  /* ── Scrollbar ────────────────────────────────── */
+  --scrollbar-thumb: rgba(255,255,255,0.2);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.4);
+
+  /* ── Spacing (derived from observed padding use) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 56px;
+
+  /* ── Chrome sizes ─────────────────────────────── */
+  --header-height: 60px;
+  --nav-height: 72px;
+
+  /* ── Motion ───────────────────────────────────── */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.08, 0.82, 0.17, 1);
+  --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 0.2s;
+  --dur-base: 0.3s;
+  --dur-slow: 0.6s;
+
+  /* ── Type ─────────────────────────────────────── */
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+
+  /* Size scale */
+  --fs-9:  9px;
+  --fs-10: 10px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-28: 28px;
+
+  /* Weights (Pretendard variable 45→920) */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  /* Letter spacing */
+  --ls-tight: -0.03em;   /* tab-title */
+  --ls-tight-sm: -0.5px; /* track-title */
+  --ls-wide: 0.10em;     /* invite-code */
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg:         #f8f9fa;
+  --surface-1:  #ffffff;
+  --surface-2:  #f1f3f5;
+  --surface-3:  #B7B9BB;
+  --divider:    var(--surface-3);
+  --text-main:  #212529;
+  --text-sub:   #495057;
+  --text-muted: #868e96;
+  --glass-bg:   rgba(255,255,255,0.85);
+  --glass-border: rgba(0,0,0,0.06);
+  --scrollbar-thumb: rgba(0,0,0,0.2);
+  --scrollbar-thumb-hover: rgba(0,0,0,0.4);
+}
+
+/* ── Semantic type classes ─────────────────────── */
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  color: var(--text-main);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tab-title,
+.type-display {
+  font-size: var(--fs-28);
+  font-weight: var(--fw-extrabold);
+  color: var(--text-main);
+  letter-spacing: var(--ls-tight);
+}
+
+.type-h2 {
+  font-size: var(--fs-24);
+  font-weight: var(--fw-extrabold);
+  color: var(--text-main);
+  letter-spacing: var(--ls-tight);
+}
+
+.track-title,
+.type-title {
+  font-size: var(--fs-20);
+  font-weight: var(--fw-bold);
+  color: var(--text-main);
+  letter-spacing: var(--ls-tight-sm);
+}
+
+.type-body {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-medium);
+  color: var(--text-main);
+}
+
+.type-body-sub {
+  font-size: var(--fs-15);
+  font-weight: var(--fw-medium);
+  color: var(--text-sub);
+}
+
+.type-label,
+.btn-label {
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+  color: var(--text-main);
+}
+
+.type-caption {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.type-badge {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  color: var(--text-sub);
+}
+
+.type-micro {
+  font-size: var(--fs-9);
+  font-weight: var(--fw-bold);
+  color: var(--text-sub);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+}
+
+.type-code {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-extrabold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--ls-wide);
+}

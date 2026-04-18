@@ -42,6 +42,38 @@
   status = 301
   force = true
 
+# Design system: serve /designsystem and /designsystem/ as the static index
+[[redirects]]
+  from = "/designsystem"
+  to = "/designsystem/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/designsystem/"
+  to = "/designsystem/index.html"
+  status = 200
+
+# Case-variant redirects → canonical lowercase (301)
+[[redirects]]
+  from = "/DESIGNSYSTEM"
+  to = "/designsystem/"
+  status = 301
+
+[[redirects]]
+  from = "/DESIGNSYSTEM/"
+  to = "/designsystem/"
+  status = 301
+
+[[redirects]]
+  from = "/DesignSystem"
+  to = "/designsystem/"
+  status = 301
+
+[[redirects]]
+  from = "/DesignSystem/"
+  to = "/designsystem/"
+  status = 301
+
 # SPA fallback: serve index.html for all routes
 [[redirects]]
   from = "/*"

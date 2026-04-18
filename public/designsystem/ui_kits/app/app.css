@@ -1,0 +1,319 @@
+/* App-specific UI kit styles on top of colors_and_type.css */
+
+.mq-app {
+  width: 390px;
+  height: 844px;
+  background: var(--bg);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Header */
+.mq-header {
+  height: 60px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  position: relative;
+  z-index: 10;
+}
+.mq-header .brand { color: var(--text-main); height: 18px; }
+.mq-header .brand svg { height: 100%; }
+.mq-header .right { display:flex; gap: 6px; }
+
+/* Bottom nav */
+.mq-nav {
+  position: absolute;
+  left: 16px; right: 16px; bottom: 20px;
+  height: 64px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-radius: 100px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 4px;
+  z-index: 20;
+}
+.mq-nav .tab {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; color: var(--grey-600); cursor: pointer;
+  font-size: 10px; font-weight: 600; border-radius: 100px;
+  transition: color 0.2s var(--ease-out);
+  background: transparent; border: none;
+}
+.mq-nav .tab svg { width: 22px; height: 22px; fill: currentColor; }
+.mq-nav .tab.active { color: var(--primary); }
+
+/* Body */
+.mq-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 110px;
+}
+.mq-body::-webkit-scrollbar { display: none; }
+
+/* Tab title */
+.mq-title {
+  font-size: 28px; font-weight: 800; letter-spacing: -0.03em;
+  margin: 18px 0 8px;
+}
+
+/* Icon button */
+.mq-iconbtn {
+  width: 40px; height: 40px; border: none; background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-main); cursor: pointer; border-radius: 50%;
+  transition: background 0.2s var(--ease-out);
+}
+.mq-iconbtn:hover { background: var(--surface-2); }
+.mq-iconbtn:active { transform: scale(0.95); }
+.mq-iconbtn svg { width: 22px; height: 22px; fill: currentColor; }
+
+/* Pill button (primary CTA) */
+.mq-cta {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; height: 56px; border-radius: var(--radius-m);
+  background: var(--primary); color: #fff;
+  font-size: 15px; font-weight: 700;
+  border: none; cursor: pointer;
+  transition: transform 0.2s var(--ease-out), filter 0.2s var(--ease-out);
+}
+.mq-cta:hover { filter: brightness(1.08); }
+.mq-cta:active { transform: scale(0.98); }
+.mq-cta.ghost { background: var(--surface-2); color: var(--text-main); }
+
+/* Card */
+.mq-card {
+  background: var(--surface-1);
+  border-radius: var(--radius-m);
+  padding: 18px 20px;
+}
+.mq-card + .mq-card { margin-top: 12px; }
+.mq-card-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mq-card-hdr h3 {
+  margin: 0; font-size: 15px; font-weight: 700;
+}
+.mq-badge {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.1em;
+  padding: 3px 8px; border-radius: 6px;
+  background: var(--surface-3); color: var(--text-sub);
+  text-transform: uppercase;
+}
+
+/* FAB / circular transport */
+.mq-fab {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: #fff; color: #000;
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
+  transition: transform 0.2s var(--ease-out);
+}
+.mq-fab:hover { transform: scale(1.04); }
+.mq-fab:active { transform: scale(0.96); }
+.mq-fab svg { width: 32px; height: 32px; fill: currentColor; }
+
+/* Transport row */
+.mq-transport {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  margin-top: 16px;
+}
+.mq-transport .mq-iconbtn { width: 48px; height: 48px; }
+.mq-transport .mq-iconbtn svg { width: 26px; height: 26px; }
+
+/* Visualizer (fake) */
+.mq-viz {
+  aspect-ratio: 1 / 1; width: 100%;
+  background: var(--surface-1);
+  border-radius: var(--radius-l);
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.mq-viz .ring {
+  position: absolute; inset: 22%;
+  border: 2px solid var(--primary); border-radius: 50%;
+  opacity: 0.25;
+}
+.mq-viz .bars {
+  display: flex; gap: 4px; align-items: flex-end; height: 60%;
+}
+.mq-viz .bars i {
+  display: block; width: 5px; background: var(--primary);
+  border-radius: 3px; animation: mqwave 0.9s ease-in-out infinite alternate;
+}
+@keyframes mqwave { from { height: 8% } to { height: 80% } }
+
+/* Track title */
+.mq-track .title {
+  font-size: 20px; font-weight: 700; letter-spacing: -0.5px;
+  margin: 0;
+}
+.mq-track .artist {
+  font-size: 13px; font-weight: 500; color: var(--text-sub); margin-top: 2px;
+}
+
+/* Seek */
+.mq-seek { margin-top: 14px; }
+.mq-seek-bar {
+  height: 4px; background: var(--surface-2); border-radius: 100px;
+  position: relative; overflow: hidden;
+}
+.mq-seek-bar > i {
+  display: block; height: 100%; background: var(--primary);
+  border-radius: 100px;
+}
+.mq-seek-times {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--text-sub); margin-top: 6px;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+
+/* Role picker */
+.mq-roles {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+.mq-role {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--surface-1); border: none;
+  border-radius: var(--radius-m); padding: 18px;
+  color: var(--text-sub); cursor: pointer; text-align: left;
+  transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+}
+.mq-role:hover { background: var(--surface-2); transform: translateY(-2px); }
+.mq-role svg { width: 28px; height: 28px; fill: currentColor; }
+.mq-role.active { background: var(--primary); color: #fff; }
+.mq-role .label { font-size: 15px; font-weight: 700; }
+.mq-role .hint { font-size: 11px; font-weight: 500; opacity: 0.85; }
+
+/* Invite code */
+.mq-invite {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 28px 0;
+}
+.mq-invite .lbl {
+  font-size: 9px; font-weight: 800; color: var(--text-sub);
+  letter-spacing: 0.14em; text-transform: uppercase;
+}
+.mq-invite .code {
+  font-size: 52px; font-weight: 800;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.12em;
+}
+
+/* Playlist list */
+.mq-list .row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 0; cursor: pointer; min-height: 56px;
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.04);
+}
+.mq-list .row:last-child { box-shadow: none; }
+.mq-list .idx {
+  width: 22px; font-size: 13px; color: var(--text-muted); font-weight: 600;
+  text-align: center;
+}
+.mq-list .nm { flex: 1; font-size: 15px; font-weight: 500; }
+.mq-list .dur {
+  font-size: 11px; color: var(--text-sub); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.mq-list .row.active .nm,
+.mq-list .row.active .idx { color: var(--primary); font-weight: 700; }
+
+/* Start screen */
+.mq-start {
+  display: flex; flex-direction: column; height: 100%;
+  padding: 40px 20px 120px; gap: 28px;
+  align-items: center; text-align: center;
+}
+.mq-start .hero-logo { color: var(--text-main); height: 32px; margin-top: 40px; }
+.mq-start .hero-logo svg { height: 100%; }
+.mq-start .tagline {
+  font-size: 16px; font-weight: 500; color: var(--text-sub); line-height: 1.5;
+}
+.mq-start .tagline br { line-height: 1.5; }
+.mq-start .actions { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: auto; }
+.mq-start .demo {
+  background: transparent; border: none; color: var(--text-sub);
+  font-size: 13px; font-weight: 600; cursor: pointer; padding: 10px;
+}
+
+/* Role hero illustration */
+.mq-role-hero {
+  width: 100%; aspect-ratio: 3 / 2; background: var(--surface-1);
+  border-radius: var(--radius-l);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--primary);
+}
+.mq-role-hero svg { width: 50%; height: 50%; fill: currentColor; opacity: 0.4; }
+
+/* Device chip */
+.mq-device {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 4px;
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.04);
+}
+.mq-device:last-child { box-shadow: none; }
+.mq-device .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.25);
+}
+.mq-device .nm { flex: 1; font-size: 14px; font-weight: 600; }
+.mq-device .role {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-sub); padding: 4px 10px; border-radius: 100px;
+  background: var(--surface-2);
+}
+
+/* Slider */
+.mq-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; background: var(--surface-2);
+  border-radius: 100px; outline: none; cursor: pointer;
+}
+.mq-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff;
+}
+.mq-slider::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; background: #fff; border: none;
+}
+
+/* Segmented */
+.mq-seg {
+  display: flex; gap: 4px; background: var(--surface-2);
+  padding: 3px; border-radius: 100px;
+}
+.mq-seg button {
+  flex: 1; height: 32px; border: none; background: transparent;
+  color: var(--text-sub); font-size: 12px; font-weight: 700;
+  border-radius: 100px; cursor: pointer;
+}
+.mq-seg button.active { background: var(--surface-1); color: var(--text-main); }
+
+/* Toast */
+.mq-toast-wrap {
+  position: absolute; top: 72px; left: 0; right: 0;
+  display: flex; justify-content: center; pointer-events: none; z-index: 30;
+}
+.mq-toast {
+  background: rgba(255,255,255,0.9);
+  color: #000; padding: 10px 20px; border-radius: 100px;
+  font-size: 13px; font-weight: 600;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  animation: mq-toast-in 0.4s var(--ease-spring);
+}
+@keyframes mq-toast-in {
+  from { transform: translateY(-16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

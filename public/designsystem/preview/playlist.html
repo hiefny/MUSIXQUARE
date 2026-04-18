@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
+.card{padding:18px 24px;}
+.list{background:var(--surface-1);border-radius:20px;overflow:hidden;}
+.item{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer;min-height:56px;}
+.item+.item{box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);}
+.idx{width:24px;font-size:14px;font-weight:600;color:var(--text-muted);text-align:center;}
+.nm{flex:1;font-size:16px;font-weight:500;}
+.dur{font-size:12px;color:var(--text-sub);font-weight:600;font-variant-numeric:tabular-nums;}
+.item.active .idx,.item.active .nm{color:var(--primary);font-weight:700;}
+.wave{display:inline-flex;gap:2px;align-items:flex-end;width:14px;height:14px;margin-right:6px;}
+.wave i{display:block;width:3px;background:var(--primary);border-radius:1px;animation:w 0.6s ease-in-out infinite alternate;}
+.wave i:nth-child(1){animation-delay:-0.2s;height:40%;}
+.wave i:nth-child(2){height:80%;}
+.wave i:nth-child(3){animation-delay:-0.4s;height:60%;}
+@keyframes w{from{height:20%}to{height:100%}}
+</style></head><body><div class="card">
+<div class="list">
+  <div class="item"><span class="idx">1</span><span class="nm">Aurora Hymn</span><span class="dur">3:42</span></div>
+  <div class="item active"><span class="idx">2</span><span class="nm"><span class="wave"><i></i><i></i><i></i></span>Midnight Protocol</span><span class="dur">4:08</span></div>
+  <div class="item"><span class="idx">3</span><span class="nm">Coastal Drift — Night Mix</span><span class="dur">5:21</span></div>
+</div>
+</div></body></html>

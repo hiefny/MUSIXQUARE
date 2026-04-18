@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSIXQUARE – Product Hero</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, #e4e4e7 0%, #a1a1aa 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  canvas { display: block; }
+
+  .overlay {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 14px; align-items: center;
+    font-size: 11px; letter-spacing: 0.08em;
+    color: #71717a; text-transform: uppercase;
+    user-select: none;
+    transition: opacity 0.3s ease;
+    opacity: 0.7;
+  }
+  .overlay.hidden { opacity: 0; }
+  .overlay kbd {
+    display: inline-block;
+    min-width: 18px; padding: 3px 6px;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.8);
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 10px; font-weight: 600;
+    color: #52525b;
+    text-align: center;
+  }
+
+  .brand {
+    position: fixed;
+    top: 24px; left: 24px;
+    font-size: 10px; letter-spacing: 0.24em;
+    color: #a1a1aa;
+    text-transform: uppercase;
+    font-weight: 700;
+    user-select: none;
+    transition: opacity 0.3s ease;
+  }
+  .brand.hidden { opacity: 0; }
+
+  .loading {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #f8f9fa;
+    z-index: 100;
+    transition: opacity 0.4s ease;
+    font-size: 11px; letter-spacing: 0.2em;
+    color: #a1a1aa; text-transform: uppercase;
+  }
+  .loading.hidden { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="brand">MUSIXQUARE</div>
+<div class="loading" id="loading">Loading textures…</div>
+<div class="overlay">
+  <span><kbd>Space</kbd> pause</span>
+  <span><kbd>R</kbd> reset</span>
+  <span><kbd>H</kbd> hide UI</span>
+  <span>drag to orbit · scroll to zoom</span>
+</div>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.162.0';
+import { OrbitControls } from 'https://esm.sh/three@0.162.0/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'https://esm.sh/three@0.162.0/examples/jsm/environments/RoomEnvironment.js';
+
+const canvas = document.getElementById('scene');
+
+// ─── Renderer ─────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0xc4c4c7, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// ─── Scene & Camera ───────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc4c4c7);
+
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
+const DEFAULT_CAM = new THREE.Vector3(0, 0.5, 26);
+camera.position.copy(DEFAULT_CAM);
+
+// ─── Environment ──────────────────────────────────────
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// ─── Lights ──────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+keyLight.position.set(4, 8, 6);
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xccddff, 0.35);
+fillLight.position.set(-6, 2, 4);
+scene.add(fillLight);
+
+// ─── Panel layout ────────────────────────────────────
+// Left cluster: 3 setup cards stacked & overlapping like a deck fanned slightly
+// Right cluster: main player + audio settings floating
+const PANELS = [
+  // Left — 3 setup cards (back → front, tightly fanned deck)
+  { file: '01-role-select.png',    pos: [-4.6,  1.1, -1.0], rotY:  0.32, rotX:  0.02, scale: 0.72 },
+  { file: '02-device-role.png',    pos: [-4.1, -0.1,  0.0], rotY:  0.30, rotX:  0.02, scale: 0.72 },
+  { file: '03-connect.png',        pos: [-3.6, -1.3,  1.0], rotY:  0.28, rotX:  0.02, scale: 0.72 },
+  // Right — main app hero pair
+  { file: '04-player.png',         pos: [ 2.8,  0.8,  1.0], rotY: -0.30, rotX: -0.02, scale: 1.00 },
+  { file: '05-audio-settings.png', pos: [ 5.9, -1.7,  0.6], rotY: -0.36, rotX:  0.02, scale: 0.72 }
+];
+
+const ASSET_PATH = '../assets/screenshots-desktop/';
+const BASE_WIDTH = 6.0; // unit-width for scale=1.0
+
+// ─── Load textures, build panels ─────────────────────
+const loader = new THREE.TextureLoader();
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+function loadTexture(file) {
+  return new Promise((resolve, reject) => {
+    loader.load(ASSET_PATH + file, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = maxAniso;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      resolve(tex);
+    }, undefined, reject);
+  });
+}
+
+function buildPanel(tex, cfg) {
+  const aspect = tex.image.width / tex.image.height;
+  const W = BASE_WIDTH * cfg.scale;
+  const H = W / aspect;
+  const DEPTH = 0.055;
+
+  const group = new THREE.Group();
+  group.position.set(...cfg.pos);
+  group.rotation.set(cfg.rotX, cfg.rotY, 0);
+
+  // Screenshot front — pure color (no tone mapping washout)
+  const screenMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    toneMapped: false
+  });
+
+  // Panel body sides/back — glossy white-ish plastic
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf4f4f5,
+    metalness: 0.0,
+    roughness: 0.35,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.15,
+    envMapIntensity: 0.9
+  });
+
+  // BoxGeometry face order: [+X, -X, +Y, -Y, +Z (front), -Z (back)]
+  const geom = new THREE.BoxGeometry(W, H, DEPTH);
+  const mesh = new THREE.Mesh(geom, [
+    bodyMat, bodyMat, bodyMat, bodyMat,
+    screenMat,   // front face shows screenshot
+    bodyMat
+  ]);
+  group.add(mesh);
+
+  // Soft contact shadow below
+  const shadowTex = makeShadowTexture();
+  const shadowGeom = new THREE.PlaneGeometry(W * 1.5, H * 0.55);
+  const shadowMat = new THREE.MeshBasicMaterial({
+    map: shadowTex,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const shadow = new THREE.Mesh(shadowGeom, shadowMat);
+  shadow.position.set(0, -H * 0.58, -DEPTH * 0.5);
+  shadow.rotation.x = -Math.PI / 2 * 0.12;
+  group.add(shadow);
+
+  return group;
+}
+
+// Canvas-based radial gradient for soft contact shadow
+function makeShadowTexture() {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  g.addColorStop(0,    'rgba(0,0,0,0.9)');
+  g.addColorStop(0.4,  'rgba(0,0,0,0.4)');
+  g.addColorStop(1,    'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const panelsGroup = new THREE.Group();
+scene.add(panelsGroup);
+
+Promise.all(PANELS.map(p => loadTexture(p.file).then(tex => ({ tex, cfg: p }))))
+  .then(loaded => {
+    loaded.forEach(({ tex, cfg }) => {
+      panelsGroup.add(buildPanel(tex, cfg));
+    });
+    document.getElementById('loading').classList.add('hidden');
+  })
+  .catch(err => {
+    console.error('Texture load failed:', err);
+    document.getElementById('loading').textContent = 'Failed to load screenshots';
+  });
+
+// ─── Controls ────────────────────────────────────────
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.autoRotate = false;
+controls.autoRotateSpeed = 0.35;
+controls.minDistance = 10;
+controls.maxDistance = 50;
+
+// ─── Subtle float animation for each panel ───────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Gentle bob — each panel offset so they drift independently
+  panelsGroup.children.forEach((g, i) => {
+    const phase = i * 1.3;
+    g.position.y = PANELS[i].pos[1] + Math.sin(t * 0.5 + phase) * 0.08;
+    g.rotation.z = Math.sin(t * 0.3 + phase) * 0.008;
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ─── Interactions ────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    controls.autoRotate = !controls.autoRotate;
+  } else if (e.code === 'KeyR') {
+    camera.position.copy(DEFAULT_CAM);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  } else if (e.code === 'KeyH') {
+    document.querySelector('.overlay').classList.toggle('hidden');
+    document.querySelector('.brand').classList.toggle('hidden');
+  }
+});
+
+// ─── Resize ──────────────────────────────────────────
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+</script>
+</body>
+</html>

@@ -407,6 +407,8 @@ const en: Record<I18nKey, string> = {
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
+  'error.decode_timeout': 'Decoding "{{name}}" took too long. Skipping to next track.',
+  'error.all_tracks_failed': 'No playable tracks in the playlist.',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",
   'error.network_generic': 'A network error occurred',

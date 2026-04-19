@@ -8,6 +8,7 @@
 
 import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
+import type { PlaylistItem } from '../types/index.ts';
 // ─── Module State ──────────────────────────────────────────────────
 
 let _playerNode: AudioBufferSourceNode | null = null;
@@ -19,6 +20,7 @@ let _pendingPlayTime: number | undefined;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
 let _loadScope: SessionScope | null = null;
+const _failedTrackKeys = new Set<string>();
 
 // ─── PlayerNode ────────────────────────────────────────────────────
 
@@ -117,4 +119,65 @@ export function setLoadScope(scope: SessionScope | null): void {
 export function replaceLoadScope(): SessionScope {
   _loadScope = SessionScope.replace(_loadScope);
   return _loadScope;
+}
+
+// ─── Failed Track Tracking ────────────────────────────────────────
+// Remembers which tracks failed to decode (timeout, corrupt, unsupported) so
+// we can skip them on auto-advance without looping forever.
+//
+// Keys are content-based, not index-based, so removing/reordering/adding
+// tracks mid-session doesn't invalidate the memory:
+//   • Local file  → "file:{name}:{size}:{lastModified}"
+//                   (three fields together give effectively unique identity
+//                    — same name with different size or mtime is a different
+//                    file, so user re-uploading a modified version retries)
+//   • YouTube     → "yt:{videoId}"
+//   • Name-only   → "name:{name}" (fallback when file handle isn't attached,
+//                   e.g. guest viewing a remote playlist entry)
+//
+// The Set is cleared in two cases:
+//   1. When getFailedTrackCount() reaches playlist.length — every track
+//      failed, so we stop and reset for the next attempt.
+//   2. Never elsewhere — keys naturally become irrelevant if the underlying
+//      track is removed from the playlist (the key still lives in the Set
+//      but nothing will check for it).
+
+export function getTrackKeyFromFile(file: File | Blob | null | undefined): string | null {
+  if (!file) return null;
+  const f = file as File;
+  if (typeof f.name === 'string' && typeof f.lastModified === 'number') {
+    return `file:${f.name}:${f.size}:${f.lastModified}`;
+  }
+  // Blob without name/lastModified — size-only fallback (very low uniqueness,
+  // but better than nothing for the rare guest-side raw-Blob path)
+  return `blob:${file.size}`;
+}
+
+export function getTrackKeyFromItem(item: PlaylistItem | null | undefined): string | null {
+  if (!item) return null;
+  if (item.type === 'youtube') {
+    return item.videoId ? `yt:${item.videoId}` : null;
+  }
+  if (item.type === 'file' && item.file) {
+    return getTrackKeyFromFile(item.file);
+  }
+  // File handle not attached (e.g. remote playlist view on guest) — fall back
+  // to name. Less unique but still allows same-session skip behaviour.
+  return item.name ? `name:${item.name}` : null;
+}
+
+export function markTrackFailed(key: string | null | undefined): void {
+  if (key) _failedTrackKeys.add(key);
+}
+
+export function isTrackFailed(key: string | null | undefined): boolean {
+  return key ? _failedTrackKeys.has(key) : false;
+}
+
+export function getFailedTrackCount(): number {
+  return _failedTrackKeys.size;
+}
+
+export function clearFailedTracks(): void {
+  _failedTrackKeys.clear();
 }

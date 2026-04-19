@@ -640,17 +640,45 @@ export function skipTime(sec: number): void {
 
 // ─── Adjust Sync ───────────────────────────────────────────────────
 
+/**
+ * How long to wait after the last nudge click before re-playing the audio.
+ *
+ * Why debounce: each nudge bumps sync.localOffset synchronously (so the
+ * displayed value reacts instantly), but we also need to restart the
+ * AudioBufferSourceNode so the actual audio jumps to the new offset
+ * position. If the user mashes the button, a naïve "call play() per click"
+ * runs into the play-lock queue — and that queue captures getTrackPosition()
+ * at CLICK TIME. By the time the lock releases (100-300ms later) the
+ * captured position is stale; playing from it drops the audio behind
+ * wall-clock by the elapsed amount. Symptom: "reset doesn't line up".
+ *
+ * Instead, every click just updates localOffset + resets a 60ms timer.
+ * The final timer firing reads a FRESH getTrackPosition() and calls
+ * play() once. One node re-creation per burst, always at the right spot.
+ */
+const NUDGE_REPLAY_DEBOUNCE_MS = 60;
+
 export function adjustSync(val: number): void {
   const localOffset = getState('sync.localOffset') || 0;
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
   const currentState = getState('appState');
-  if (!isIdleOrPaused(currentState)) {
-    play(getTrackPosition());
+  if (isIdleOrPaused(currentState)) {
+    // Paused: localOffset is stored and applied on next play(pausedAt) via
+    // startedAt. Don't modify pausedAt — it would cancel out the offset.
+    return;
   }
-  // Paused: localOffset is stored and applied on next play(pausedAt) via startedAt.
-  // Don't modify pausedAt — it would cancel out the offset in startedAt calculation.
+
+  // Debounce: coalesce bursts of rapid clicks into one re-play. getTrackPosition
+  // is read inside the timer so it reflects the offset accumulated across the
+  // entire burst, not just the first click.
+  clearManagedTimer('sync-nudge-replay');
+  setManagedTimer('sync-nudge-replay', () => {
+    // Re-check app state at fire time — user may have paused during the burst.
+    if (isIdleOrPaused(getState('appState'))) return;
+    play(getTrackPosition());
+  }, NUDGE_REPLAY_DEBOUNCE_MS);
 }
 
 // ─── Check Video Sync ──────────────────────────────────────────────

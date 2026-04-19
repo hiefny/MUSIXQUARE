@@ -36,6 +36,27 @@ export function handleAutoSync(): void {
   setState('sync.localOffset', 0);
   bus.emit('sync:display-update');
   showToast(t('toast.sync_reset'));
+
+  // Cancel any pending nudge replay from a click burst — otherwise its
+  // deferred play() could fire AFTER our reset replay and re-introduce
+  // whatever (now-zero) offset it captured. Belt-and-suspenders: the
+  // zeroing above already means that deferred play() would compute the
+  // same position, but explicit cancel removes the extra round trip.
+  clearManagedTimer('sync-nudge-replay');
+
+  // Zeroing localOffset only flips the number. The audio buffer source was
+  // started with a startedAt that baked in the OLD offset, so it keeps
+  // playing from the offset position until a fresh play() recomputes
+  // startedAt from the new (zero) offset. Without this, "Reset" just
+  // changes the displayed value while the audio remains desynced, and
+  // the only recovery is a host seek or pause+play.
+  Promise.all([
+    import('../player/transport.ts'),
+    import('../player/video.ts'),
+  ]).then(([transport, video]) => {
+    if (video.isIdleOrPaused(getState('appState'))) return;
+    transport.play(transport.getTrackPosition());
+  }).catch(e => log.error('[Sync] Failed to import modules for auto-sync replay:', e));
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────

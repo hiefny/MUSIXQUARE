@@ -14,7 +14,8 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
@@ -30,7 +31,7 @@ import {
   getCurrentAudioBuffer,
   getPlayerNode,
   incrementLoadToken,
-  getPendingPlayTime, setPendingPlayTime,
+  setPendingPlayTime,
   isPlayPreloadedInProgress,
   setLastClearedTrackName,
 } from './_state.ts';
@@ -129,45 +130,59 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     return;
   }
 
-  // Stale audio guard: verify loaded file matches expected name
+  // ⭐ Lifecycle gate (Phase 3 THE BUG FIX).
+  //
+  // If we're in AWAITING_PRELOAD for this track, the "stale audio" we're
+  // about to detect below is EXPECTED — we haven't consumed the preload
+  // blob yet, so transfer.meta still reflects the previous track. The old
+  // stale-audio-recovery timer would kick in 5s later and request a full
+  // re-download (0%-restart), wasting the almost-finished preload.
+  //
+  // In AWAITING_PRELOAD, just defer the play time. When the preload blob
+  // finalizes and loadPreloadedTrack runs, it consumes pendingPlayTime and
+  // plays at the correct host-scheduled instant.
+  const lifecycle = getState('playback.lifecycle');
+  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) {
+    setPendingPlayTime(time);
+    // Drive the state machine for observability (it's a stay transition).
+    transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
+    log.debug(`[Guest] PLAY arrived while AWAITING_PRELOAD — deferring to preload waiter (time=${time})`);
+    return;
+  }
+
+  // Stale-audio guard (Phase 4: 5s recovery timer DELETED).
+  //
+  // Previously this block armed a 5s timer that issued REQUEST_CURRENT_FILE
+  // if meta.name != expected when PLAY arrived. That timer's original
+  // purpose — catching a "preload still finalizing" race — is now handled
+  // by the AWAITING_PRELOAD short-circuit above and the state machine's
+  // supersede transitions on FILE_PREPARE.
+  //
+  // With those in place, any name mismatch reaching this point is either:
+  //   (a) a transient out-of-order message (next handler supersedes us)
+  //   (b) a genuine inconsistency already handled by the index-mismatch
+  //       branch above (line ~88)
+  // Issuing REQUEST_CURRENT_FILE here would race with in-flight transfers
+  // and cause the very "0% re-download" symptom the refactor killed. So we
+  // just store the pending play time and trust the surrounding machinery
+  // to put us in the right state.
   const meta = getState('transfer.meta');
   const playlist = getState('playlist.items') || [];
   const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
   const loadedName = (meta?.name as string) || '';
   if (expectedName && loadedName && expectedName !== loadedName) {
-    log.warn(`[Guest] Stale audio detected: loaded=${loadedName}, expected=${expectedName}`);
+    log.warn(`[Guest] Name mismatch on PLAY (loaded=${loadedName}, expected=${expectedName}) — deferring to pending play time; next FILE_PREPARE will supersede.`);
     setPendingPlayTime(time);
-    // Request the correct file from host after a short delay to allow in-flight
-    // transfers to complete. Without this, the guest permanently blocks.
-    setManagedTimer('stale-audio-recovery', () => {
-      if (getPendingPlayTime() !== undefined) {
-        // Transport guard: remote guest without relay can't receive file data
-        if (isRemoteGuest() && !hasActiveRelay()) {
-          log.info('[Guest] Stale audio recovery skipped — remote without relay');
-          showLoader(false);
-          return;
-        }
-        // Skip if transfer is already in progress — file is arriving, no need to re-request
-        const transferState = getState('transfer.state');
-        if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
-          log.info(`[Guest] Stale audio recovery skipped — transfer in progress (${transferState})`);
-          return;
-        }
-        // Check by name match instead of buffer existence — a stale buffer
-        // may still be loaded (different track name), blocking recovery
-        const currentMeta = getState('transfer.meta');
-        const currentName = (currentMeta?.name as string) || '';
-        if (!currentName || currentName !== expectedName) {
-          log.info('[Guest] Stale audio recovery: requesting current file from host');
-          const freshIndex = getState('playlist.currentTrackIndex');
-          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: expectedName, index: freshIndex, reason: 'stale_audio' });
-        }
-      }
-    }, 5000);
     return;
   }
 
   if (getCurrentAudioBuffer() || getVideoElement()?.src) {
+    // Lifecycle (Phase 3 dual-write): we have a decoded buffer → we're in
+    // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
+    // transition() handles same-track seek, resume from PAUSED, restart from
+    // READY — see Section 4 of the design doc.
+    transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
+
     // Shared Clock: schedule play at the host-specified time
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     if (hostPlayAt > 0) {
@@ -225,11 +240,19 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
 
+  const time = Number(data.time) || 0;
+  const endOfPlaylist = !!data.endOfPlaylist;
+
+  // Lifecycle (Phase 3 dual-write): PAUSE is a global rule when
+  // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
+  // to PAUSED per Section 4.
+  transition({ type: 'PAUSE', time, endOfPlaylist });
+
   // Host reached end of playlist (Repeat OFF). Short-circuit: skip the
   // regular pause() path which would flash a "일시정지" toast before the
   // "재생목록 끝" toast overwrites it. Just stop everything and clear
   // the stale track meta so title/indicator mirror the host's reset.
-  if (data.endOfPlaylist) {
+  if (endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
     setState('player.currentTrackMeta', null);
     // Mirror host's deselected state so operator guest's togglePlay
@@ -241,7 +264,6 @@ function handlePauseMsg(data: Record<string, unknown>): void {
     return;
   }
 
-  const time = Number(data.time) || 0;
   pause(time);
 }
 
@@ -467,12 +489,10 @@ export function initPlayback(): void {
     }
 
     setState('transfer.skipIncomingFile', true);
-    setState('transfer.waitingForPreload', true);
 
     // Try to activate immediately if blob is already available
     const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
-      setState('transfer.waitingForPreload', false);
       const newToken = incrementLoadToken();
       loadPreloadedTrack(index, newToken);
     } else {
@@ -514,10 +534,11 @@ export function initPlayback(): void {
       function onWatchdogFire(): void {
         if (disposed) return;
         cleanup();
-        if (!getState('transfer.waitingForPreload')) return;
+        // Phase 4: lifecycle drives the check. If we've left AWAITING_PRELOAD
+        // the blob arrived or got superseded — no recovery needed.
+        if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
-        setState('transfer.waitingForPreload', false);
-        setState('transfer.skipIncomingFile', false);
+          setState('transfer.skipIncomingFile', false);
         showLoader(false);
         // Fallback: request file from host
         const hostConn = getState('network.hostConn');
@@ -532,9 +553,11 @@ export function initPlayback(): void {
         }
       }
 
-      // Clear watchdog if blob arrives in time (waitingForPreload set to false)
-      const _unsubWatchdog = bus.on('state:transfer.waitingForPreload', (val: unknown) => {
-        if (val === false) cleanup();
+      // Clear watchdog when we transition out of AWAITING_PRELOAD (blob
+      // arrived → DECODING, superseded → DOWNLOADING, etc.).
+      // Phase 4: subscribe to lifecycle instead of the legacy flag.
+      const _unsubWatchdog = bus.on('state:playback.lifecycle', (val: unknown) => {
+        if (val !== PLAYBACK_STATE.AWAITING_PRELOAD) cleanup();
       });
 
       // Progress-aware reset: watch preload.sessionState changes. When the
@@ -542,7 +565,7 @@ export function initPlayback(): void {
       // stall timer. Respect the absolute ceiling to prevent runaway waits.
       const _unsubProgress = bus.on('state:preload.sessionState', () => {
         if (disposed) return;
-        if (!getState('transfer.waitingForPreload')) return;
+        if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
 
         // Absolute ceiling — give up even if progress is still happening
         if (Date.now() - watchdogStart > PRELOAD_WATCHDOG_MAX_MS) {

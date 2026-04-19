@@ -16,6 +16,7 @@ import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import { incrementLoadToken, getCurrentAudioBuffer, setCurrentAudioBuffer } from './_state.ts';
 import { getVideoElement } from './video.ts';
+import { transition } from './lifecycle.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
@@ -1040,6 +1041,11 @@ export function initPlaylist(): void {
   bus.on('player:ended', () => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
+
+    // Lifecycle (Phase 3 dual-write): host-local TRACK_ENDED. Drives host's
+    // parallel-observed lifecycle to IDLE. Guests learn via the subsequent
+    // PAUSE broadcast, which drives their own transition.
+    transition({ type: 'TRACK_ENDED' });
 
     const token = ++_endedAdvanceToken;
     const repeatMode = getState('playlist.repeatMode') || 0;

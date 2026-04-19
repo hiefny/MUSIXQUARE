@@ -5,7 +5,7 @@
 // NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
 //       Removed duplicate const enums that were never imported.
 
-import type { AppStateValue, TransferStateValue, MsgType } from '../core/constants.ts';
+import type { AppStateValue, TransferStateValue, MsgType, PlaybackStateValue, LoadSourceValue } from '../core/constants.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
@@ -269,7 +269,10 @@ export interface StateTree {
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
     skipIncomingFile: boolean;
-    waitingForPreload: boolean;
+    /**
+     * Phase 4 removed `waitingForPreload` from this slice. Use
+     * `playback.lifecycle === 'AWAITING_PRELOAD'` instead.
+     */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
     staleChunkBurstStart: number;
     /** Count of consecutive stale-session chunks rejected in the current burst. */
@@ -352,6 +355,22 @@ export interface StateTree {
   };
   recovery: { pending: boolean; retryCount: number; pendingFileName: string; pendingFileIndex: number | undefined };
   systemAudio: { isSharing: boolean; isReceiving: boolean; hostMuteLocal: boolean };
+  /**
+   * Guest-side track playback lifecycle. Orthogonal to `appState` (mode).
+   * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
+   * See `.workshop/design/playback-state-machine.md` for the full table.
+   *
+   * During the migration (Steps 1-4 of the plan), this field is observed in
+   * parallel with the legacy flags (`transfer.waitingForPreload`,
+   * `transfer.skipIncomingFile`, etc). Once all handlers are rewired, the
+   * legacy flags are deleted.
+   */
+  playback: {
+    lifecycle: PlaybackStateValue;
+    loadSource: LoadSourceValue | null;
+    pendingPlayTime: number | undefined;
+    pendingPausedAt: number | undefined;
+  };
 }
 
 // ─── State Path Utilities ────────────────────────────────────────────

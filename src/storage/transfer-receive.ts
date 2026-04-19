@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME, PLAYBACK_STATE } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
@@ -17,6 +17,7 @@ import { safeSend, sendToHost, isRemoteGuest, hasActiveRelay, waitForGuestConnec
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import { transition } from '../player/lifecycle.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -130,6 +131,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   // Demo track: fetch directly from server instead of P2P transfer
   if (data.name === DEMO_FILE_NAME) {
+    // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
+    // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
+    transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
     setState('transfer.skipIncomingFile', true);
     bus.emit('player:stop-all-media');
     const demoIndex = Number(data.index);
@@ -162,10 +166,13 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     }
   }
 
-  // Always clear stuck preload waiting state on new file-prepare
-  if (getState('transfer.waitingForPreload')) {
-    log.debug('[file-prepare] Clearing stale waitingForPreload flag');
-    setState('transfer.waitingForPreload', false);
+  // Phase 4: lifecycle is authoritative. If we were AWAITING_PRELOAD, the
+  // transition() call later in this handler supersedes us correctly. The
+  // legacy flag is still dual-written in other paths during migration, so
+  // we defensively clear it if set (harmless once the flag is deleted in
+  // Phase 4.3).
+  if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+    log.debug('[file-prepare] AWAITING_PRELOAD → will be superseded below');
   }
   clearManagedTimer('preloadWatchdog');
   setState('recovery.retryCount', 0);
@@ -209,7 +216,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
   if (isMismatch) {
     log.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`);
-    setState('transfer.waitingForPreload', false);
     setState('transfer.skipIncomingFile', false);
     clearManagedTimer('preloadWatchdog');
     // Clear stale preload state
@@ -229,6 +235,14 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       setState('playlist.currentTrackIndex', data.index as number);
     }
 
+    // Lifecycle (Phase 3 dual-write): FILE_PREPARE where blob already assembled
+    // → promote straight to DECODING via the preload-promoted path.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: data.index as number,
+      name: data.name as string,
+    });
     setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
 
@@ -245,6 +259,15 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   const isSameTrackByName = data.name && currentTransferMeta?.name === data.name;
   if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName)) {
     log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
+    // Lifecycle (Phase 3 dual-write): same file already loaded. No state
+    // change — replay-current fires and the existing PLAYING/READY/PAUSED
+    // state keeps its audio buffer.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'same-file',
+      index: data.index as number,
+      name: data.name as string,
+    });
     setState('transfer.skipIncomingFile', true);
     showLoader(false);
     // Honor host's auto-play delay if provided — otherwise the guest would
@@ -273,11 +296,19 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
+      // Lifecycle (Phase 3 dual-write): preload still downloading for THIS
+      // track → AWAITING_PRELOAD. This mirrors the PLAY_PRELOADED
+      // blob-waiting branch; both lead to the same waiter semantics.
+      transition({
+        type: 'FILE_PREPARE',
+        variant: 'preload-waiting',
+        index: data.index as number,
+        name: data.name as string,
+      });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
       setState('recovery.pendingFileName', data.name as string || '');
       setState('recovery.pendingFileIndex', data.index as number);
-      setState('transfer.waitingForPreload', true);
       setState('transfer.skipIncomingFile', true);
 
       if (data.index !== undefined) {
@@ -288,9 +319,11 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer('preloadWatchdog', () => {
-        if (getState('transfer.waitingForPreload')) {
+        // Phase 4: check lifecycle instead of the legacy flag. If the state
+        // machine has moved on (to DECODING, DOWNLOADING, etc.), the preload
+        // succeeded or was superseded and we must not recover.
+        if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
           log.warn('[Guest] Preload wait timed out. Force recovering...');
-          setState('transfer.waitingForPreload', false);
           showLoader(false);
           setState('transfer.skipIncomingFile', false);
 
@@ -304,7 +337,6 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   // Normal flow: No preload available, prepare for download
   setState('transfer.skipIncomingFile', false);
-  setState('transfer.waitingForPreload', false);
 
   // Check if same file (resume scenario) — read BEFORE updating pending info
   const meta = getState('transfer.meta');
@@ -320,8 +352,25 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
+    // Lifecycle (Phase 3 dual-write): resume scenario — we had partial data
+    // for this file, now the host is restarting transfer. Stay in (or enter)
+    // DOWNLOADING with the recovery-resume source.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'resume',
+      index: data.index as number,
+      name: data.name as string,
+    });
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
+    // Lifecycle (Phase 3 dual-write): fresh download — no preload match, no
+    // resume. Transition to DOWNLOADING with fresh source.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'fresh',
+      index: data.index as number,
+      name: data.name as string,
+    });
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);

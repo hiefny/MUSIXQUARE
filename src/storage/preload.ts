@@ -18,6 +18,7 @@ import { registerHandlers } from '../network/protocol.ts';
 import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
+import { transition } from '../player/lifecycle.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -467,7 +468,6 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   }
 
   // Clear any stuck waiting state from previous preload
-  setState('transfer.waitingForPreload', false);
 
   // Validate required metadata
   if (!data.name || !data.total || (data.total as number) <= 0) {
@@ -537,8 +537,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   setManagedTimer('preloadWatchdog', () => {
     log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
     showLoader(false);
-    setState('transfer.waitingForPreload', false);
-    // If main transfer is still in progress, restore its loader
+      // If main transfer is still in progress, restore its loader
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.RECEIVING) {
       const meta = getState('transfer.meta');
@@ -810,6 +809,9 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   if (isMatch) {
     // Preloaded file available — activate it directly via playback module
     log.debug('[Guest] Using preloaded file for track', index);
+    // Lifecycle (Phase 3 dual-write): blob is ready in memory → promote to DECODING.
+    // The subsequent loadPreloadedTrack flow will emit DECODE_SUCCESS on completion.
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name });
     setState('recovery.pendingFileIndex', index);
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
@@ -850,6 +852,10 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   // finalize on its own; we just need to wait for it without panicking.
   if (isDownloadingSame) {
     log.debug('[Guest] Preload in progress — delegating to waiter (storage:use-preloaded)');
+    // Lifecycle (Phase 3 dual-write): enter AWAITING_PRELOAD. A subsequent
+    // PLAY arrival in this state must NOT fire stale-audio-recovery — that
+    // logic is gated in playback.ts::handlePlay on the lifecycle check.
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index, name });
     setState('recovery.pendingFileIndex', index);
     showLoader(true, t('transfer.download_finishing'));
     bus.emit('storage:use-preloaded', index, name);
@@ -865,11 +871,14 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
 
   // Fallback: no preloaded file available — request from host
   log.warn('[Guest] No preloaded file for track', index, '— requesting from Host');
+  // Lifecycle (Phase 3 dual-write): no preload session exists for this
+  // track. Enter DOWNLOADING (fresh) via the recovery fallback. The actual
+  // REQUEST_DATA_RECOVERY fires below after a small jitter.
+  transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index, name });
   _activePlayPreloadedIndex = undefined;
 
   // Ensure incoming file transfer is not skipped
   setState('transfer.skipIncomingFile', false);
-  setState('transfer.waitingForPreload', false);
   setState('recovery.pendingFileIndex', index);
   setState('recovery.pendingFileName', name);
   showLoader(true, t('transfer.file_requesting'));
@@ -977,13 +986,18 @@ export function initPreload(): void {
       // Hide preload loader (background preload complete)
       showLoader(false);
 
-      // If guest was waiting for this preloaded file, trigger playback
-      const waitingForPreload = getState('transfer.waitingForPreload');
+      // If guest was waiting for this preloaded file, trigger playback.
+      // Phase 4: lifecycle is authoritative; the legacy flag is still set
+      // in parallel during dual-write but we read from the state machine.
+      const isAwaiting = getState('playback.lifecycle') === 'AWAITING_PRELOAD';
       const pendingFileIndex = getState('recovery.pendingFileIndex');
-      if (waitingForPreload && pendingFileIndex === nextTrackIndex) {
+      if (isAwaiting && pendingFileIndex === nextTrackIndex) {
         log.debug('[Preload] Guest was waiting for this track. Playing now.');
-        setState('transfer.waitingForPreload', false);
-        bus.emit('storage:use-preloaded', nextTrackIndex, filename);
+        // Lifecycle (Phase 3 dual-write): the blob we were AWAITING_PRELOAD for
+        // is now assembled → promote to DECODING. No-op if we're in any other
+        // state (e.g. background preload for next track while currently PLAYING).
+        transition({ type: 'PRELOAD_FILE_READY', index: nextTrackIndex });
+              bus.emit('storage:use-preloaded', nextTrackIndex, filename);
       }
     } catch (e) {
       log.error('[Preload] preload-file-ready handler failed:', e);

@@ -36,6 +36,7 @@ import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts'
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
+import { transition } from './lifecycle.ts';
 
 // ─── Decode Timeout Helper ─────────────────────────────────────────
 // 10s is a generous upper bound for legitimate audio/video decoding. Normal
@@ -128,6 +129,11 @@ export async function loadAndBroadcastFile(
     setCurrentAudioBuffer(audioBuffer);
     log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
+    // Lifecycle (Phase 3 dual-write): host-side decode completed → READY.
+    // Host is also a guest-of-itself for this machine; transition() is a
+    // no-op in non-audio modes (guards inside the helper).
+    transition({ type: 'DECODE_SUCCESS' });
+
     // Emit duration immediately from decoded buffer (primary source)
     if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
       bus.emit('ui:duration-update', audioBuffer.duration);
@@ -197,6 +203,11 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', null);
 
     const timedOut = isDecodeTimeout(err);
+    // Lifecycle (Phase 3 dual-write): decode failed → FAILED. markTrackFailed
+    // below handles the failed-set; the state machine distinguishes only
+    // "decoded OK vs decode failed" here, so the timeout/error variants
+    // share the same transition.
+    transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(
       timedOut
         ? t('error.decode_timeout', { name: file.name })
@@ -355,6 +366,9 @@ export async function loadPreloadedTrack(
     setCurrentAudioBuffer(audioBuffer);
     log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
 
+    // Lifecycle (Phase 3 dual-write): preload blob decoded → READY.
+    transition({ type: 'DECODE_SUCCESS' });
+
     const isVideo = isMediaVideo(localBlob, activeMeta);
     setEngineMode(isVideo ? 'video' : 'buffer');
 
@@ -383,7 +397,6 @@ export async function loadPreloadedTrack(
     // Reset transfer guards — transfer.state must be READY so next preload loader shows
     setState('transfer.state', 'READY');
     setState('transfer.skipIncomingFile', true);
-    setState('transfer.waitingForPreload', false);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
@@ -418,6 +431,8 @@ export async function loadPreloadedTrack(
     const timedOut = isDecodeTimeout(e);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
+    // Lifecycle (Phase 3 dual-write): preload decode failed → FAILED.
+    transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(
       timedOut
         ? t('error.decode_timeout', { name })
@@ -428,13 +443,21 @@ export async function loadPreloadedTrack(
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
     setState('transfer.skipIncomingFile', false);
-    setState('transfer.waitingForPreload', false);
     clearManagedTimer('preloadWatchdog');
 
     // On decode timeout, the file itself is unplayable — asking host for a
     // recovery copy would just re-trigger the same timeout. Skip recovery and
     // wait for host to advance to the next track on its own.
-    if (timedOut) return;
+    //
+    // Also mark the track as failed so that a subsequent manual click on the
+    // same entry (while still in this session) doesn't re-run the 10s timeout
+    // loop. The failed-set is keyed by file identity (name+size+lastModified)
+    // so uploading a different file with the same playlist slot still retries.
+    if (timedOut) {
+      const failedKey = getTrackKeyFromFile(localBlob);
+      markTrackFailed(failedKey);
+      return;
+    }
 
     // Non-timeout failure (e.g. partial download, network error) — request
     // recovery from host. Recovery path has its own retry ceiling so this
@@ -465,7 +488,8 @@ export function clearPreviousTrackState(reason = ''): void {
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
-  clearManagedTimer('stale-audio-recovery');
+  // Note: stale-audio-recovery timer was deleted in Phase 4. Left a
+  // clearManagedTimer here would be a no-op, so we drop it.
 
   // Redundant sync: only reset timers and name tracking, keep audio buffer intact
   if (reason === 'redundant-sync') return;
@@ -557,6 +581,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
     setCurrentAudioBuffer(audioBuffer);
 
+    // Lifecycle (Phase 3 dual-write): main-transfer file decoded → READY.
+    transition({ type: 'DECODE_SUCCESS' });
+
     // Set blob BEFORE setEngineMode so updateBodyModeClass reads the correct file
     setState('files.currentFileBlob', file);
 
@@ -630,6 +657,8 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const timedOut = isDecodeTimeout(err);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
+    // Lifecycle (Phase 3 dual-write): guest main-transfer decode failed → FAILED.
+    transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(
       timedOut
         ? t('error.decode_timeout', { name })

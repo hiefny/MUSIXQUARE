@@ -148,9 +148,24 @@ async function preloadNextTrack(): Promise<void> {
   if (repeatMode === 2) {
     nextIdx = currentTrackIndex; // Repeat One
   } else if (isShuffle && playlist.length > 1) {
-    do {
-      nextIdx = Math.floor(Math.random() * playlist.length);
-    } while (nextIdx === currentTrackIndex);
+    // Ask playlist.ts for the next slot in its Fisher-Yates permutation so
+    // the preload matches exactly what playNextTrack will pick. Falls back
+    // to a safe random pick if the order isn't ready (first-run edge case).
+    try {
+      const mod = await import('../player/playlist.ts');
+      const hinted = mod.getShuffleNextIndex();
+      if (hinted >= 0 && hinted < playlist.length && hinted !== currentTrackIndex) {
+        nextIdx = hinted;
+      } else {
+        do {
+          nextIdx = Math.floor(Math.random() * playlist.length);
+        } while (nextIdx === currentTrackIndex);
+      }
+    } catch {
+      do {
+        nextIdx = Math.floor(Math.random() * playlist.length);
+      } while (nextIdx === currentTrackIndex);
+    }
   } else {
     nextIdx = currentTrackIndex + 1;
     if (nextIdx >= playlist.length) {

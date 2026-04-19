@@ -635,6 +635,18 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // Host: skip IDLE state transition to prevent UI flash — next-track
       // will call stopAllMedia({ silent: true }) which handles state internally.
       //
+      // Repeat-one (natural end only): restart the current video in place.
+      // We intentionally handle this HERE rather than inside playNextTrack,
+      // because playNextTrack is also called from manual Next buttons and
+      // media-session skip — those should advance normally regardless of
+      // repeat-one, matching Spotify / Apple Music behaviour.
+      const repeatMode = getState('playlist.repeatMode') || 0;
+      if (repeatMode === 2) {
+        log.debug('[YouTube] Ended with repeat-one, restarting current video...');
+        bus.emit('youtube:seek-to', 0);
+        return;
+      }
+
       // Single-video mode: try to advance to the next sub-video within the
       // current YouTube playlist first (via loadVideoById, using snapshotted
       // subItemsMap). Only fall back to the MUSIXQUARE queue's next track

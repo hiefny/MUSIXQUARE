@@ -227,18 +227,48 @@ export async function loadAndBroadcastFile(
           showToast(t('error.all_tracks_failed'));
           clearFailedTracks();
         } else {
-          // Find the next playlist slot whose track hasn't been marked failed.
-          let nextIdx = (failedIdx + 1) % playlist.length;
-          let probes = 0;
-          while (
-            probes < playlist.length &&
-            isTrackFailed(getTrackKeyFromItem(playlist[nextIdx]))
-          ) {
-            nextIdx = (nextIdx + 1) % playlist.length;
-            probes++;
+          // Walk order candidates in priority:
+          //   (1) preloaded next — preserves shuffle intent when host already
+          //       staged the shuffle-next, and avoids wasting the preload
+          //   (2) shuffle — random non-failed (when shuffle ON)
+          //   (3) sequential — (failedIdx + 1) % length (when shuffle OFF)
+          const isShuffle = getState('playlist.isShuffle');
+          const preloadIdx = getState('preload.nextTrackIndex');
+
+          const isGoodCandidate = (i: number): boolean =>
+            i >= 0 && i < playlist.length && i !== failedIdx &&
+            !isTrackFailed(getTrackKeyFromItem(playlist[i]));
+
+          let nextIdx = -1;
+
+          // (1) preloaded next (matches what playNextTrack would pick)
+          if (isGoodCandidate(preloadIdx)) {
+            nextIdx = preloadIdx;
           }
 
-          if (!isTrackFailed(getTrackKeyFromItem(playlist[nextIdx])) && nextIdx !== failedIdx) {
+          // (2) shuffle — pick a random non-failed track
+          if (nextIdx === -1 && isShuffle) {
+            const pool: number[] = [];
+            for (let i = 0; i < playlist.length; i++) {
+              if (isGoodCandidate(i)) pool.push(i);
+            }
+            if (pool.length > 0) {
+              nextIdx = pool[Math.floor(Math.random() * pool.length)];
+            }
+          }
+
+          // (3) sequential fallback (also used for non-shuffle)
+          if (nextIdx === -1) {
+            for (let probe = 1; probe <= playlist.length; probe++) {
+              const candidate = (failedIdx + probe) % playlist.length;
+              if (isGoodCandidate(candidate)) {
+                nextIdx = candidate;
+                break;
+              }
+            }
+          }
+
+          if (nextIdx !== -1) {
             setManagedTimer('decode-fail-advance', () => {
               // Dynamic import to avoid a static cycle with playlist.ts
               import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));

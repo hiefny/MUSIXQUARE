@@ -618,7 +618,7 @@ export function initPlayerControls(): void {
     if (autoEl) {
       const offset = getClockOffset();
       const ms = Math.round(offset);
-      autoEl.innerText = ms > 0 ? `+${ms}ms` : `${ms}ms`;
+      autoEl.innerText = ms > 0 ? `+${ms}` : `${ms}`;
     }
   });
 
@@ -811,7 +811,9 @@ export function initPlayerControls(): void {
   });
 
   // Sync display update (dual: auto + manual)
-  const fmtMs = (ms: number) => ms > 0 ? `+${ms}ms` : `${ms}ms`;
+  // Unit ("ms") is shown in the column label, not appended to the value,
+  // so 4-digit offsets (e.g. +1022) don't visually crowd the small tile.
+  const fmtMs = (ms: number) => ms > 0 ? `+${ms}` : `${ms}`;
 
   bus.on('sync:display-update', () => {
     const localOffset = getState('sync.localOffset') || 0;

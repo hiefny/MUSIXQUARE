@@ -82,8 +82,8 @@ const en: Record<I18nKey, string> = {
   'player.play_together': 'Play together',
   'player.play_speakers': 'Play through speakers',
   'player.manual_sync_title': 'Manual Sync',
-  'player.auto_sync_label': 'Auto',
-  'player.manual_sync_label': 'Manual',
+  'player.auto_sync_label': 'Auto (ms)',
+  'player.manual_sync_label': 'Manual (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Expand/collapse playlist',

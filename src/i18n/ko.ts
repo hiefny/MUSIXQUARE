@@ -80,8 +80,8 @@ const ko = {
   'player.play_together': '동시에 재생',
   'player.play_speakers': '스피커로 재생하기',
   'player.manual_sync_title': '수동 싱크 조절',
-  'player.auto_sync_label': '자동 싱크',
-  'player.manual_sync_label': '수동 싱크',
+  'player.auto_sync_label': '자동 싱크 (ms)',
+  'player.manual_sync_label': '수동 싱크 (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': '플레이리스트 펼치기/접기',

@@ -538,6 +538,163 @@ describe('regression: preload-handoff bug', () => {
   });
 });
 
+// ─── Integration scenarios: the three cases from the design doc ────
+
+describe('integration: design-doc acceptance scenarios', () => {
+  // Scenario (a): preload completes BEFORE host advances.
+  // Expected flow: IDLE → DECODING → READY → PLAYING. No AWAITING_PRELOAD.
+  it('(a) preload completes before advance → DECODING straight from IDLE', () => {
+    forceState(PLAYBACK_STATE.IDLE);
+
+    // Host sends PLAY_PRELOADED; guest has blob already.
+    expect(transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' }))
+      .toBe(PLAYBACK_STATE.DECODING);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.PRELOAD_PROMOTED);
+
+    // Decode completes.
+    expect(transition({ type: 'DECODE_SUCCESS' })).toBe(PLAYBACK_STATE.READY);
+
+    // Host sends PLAY.
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.PLAYING);
+  });
+
+  // Scenario (b): advance DURING preload — the bug we're fixing.
+  // Expected flow: IDLE → AWAITING_PRELOAD → [stall while chunks arrive]
+  //                → DECODING → READY → PLAYING.
+  // Critical invariant: PLAY arriving mid-AWAITING_PRELOAD does NOT leave
+  //                     AWAITING_PRELOAD (no stale-audio recovery trip).
+  it('(b) ⭐ advance during preload → stays in AWAITING_PRELOAD until blob ready', () => {
+    forceState(PLAYBACK_STATE.IDLE);
+
+    // Host sends PLAY_PRELOADED; blob is still assembling.
+    expect(transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' }))
+      .toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+
+    // Some PRELOAD_CHUNKs arrive while we wait — state unchanged.
+    expect(transition({ type: 'PRELOAD_CHUNK' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(transition({ type: 'PRELOAD_CHUNK' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+
+    // Host's PLAY arrives while we're still awaiting. THE FIX: we stay
+    // in AWAITING_PRELOAD. Before the refactor this would have armed the
+    // stale-audio-recovery timer and torpedoed the preload.
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true }))
+      .toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+
+    // PRELOAD_END then OPFS finalize.
+    expect(transition({ type: 'PRELOAD_END' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(transition({ type: 'PRELOAD_FILE_READY', index: 1 })).toBe(PLAYBACK_STATE.DECODING);
+
+    // Decode → ready → play (pending play time will be consumed by the
+    // handler calling loadPreloadedTrack, which reads pendingPlayTime).
+    expect(transition({ type: 'DECODE_SUCCESS' })).toBe(PLAYBACK_STATE.READY);
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.PLAYING);
+  });
+
+  // Scenario (c): advance BEFORE preload even started.
+  // Expected flow: IDLE → DOWNLOADING (via PLAY_PRELOADED no-session fallback)
+  //                → DECODING → READY → PLAYING.
+  it('(c) advance before preload started → DOWNLOADING fallback', () => {
+    forceState(PLAYBACK_STATE.IDLE);
+
+    // PLAY_PRELOADED arrives but no matching session exists.
+    expect(transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index: 1, name: 'b.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
+
+    // Host's recovery path kicks in: FILE_PREPARE → FILE_START → chunks.
+    // We're already DOWNLOADING; FILE_PREPARE (fresh) is a same-state
+    // supersede that keeps us moving.
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+
+    // Chunks, then FILE_END.
+    expect(transition({ type: 'FILE_START', sessionId: 1 })).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_CHUNK' })).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_END' })).toBe(PLAYBACK_STATE.DECODING);
+    expect(transition({ type: 'DECODE_SUCCESS' })).toBe(PLAYBACK_STATE.READY);
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.PLAYING);
+  });
+});
+
+// ─── Edge-case integration tests ───────────────────────────────────
+
+describe('integration: edge cases', () => {
+  // Rapid track switch: user hits Next A→B→C→D within 100ms. Each new
+  // FILE_PREPARE supersedes. The final state reflects the last track.
+  it('rapid supersede: A → B → C → D, only D survives', () => {
+    forceState(PLAYBACK_STATE.PLAYING);  // was playing A
+
+    // User clicks Next → host broadcasts FILE_PREPARE for B.
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+
+    // Before B finishes, user clicks Next again → C.
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'c.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+
+    // And again → D.
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 3, name: 'd.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+
+    // D's chunks complete → D plays.
+    expect(transition({ type: 'FILE_END' })).toBe(PLAYBACK_STATE.DECODING);
+    expect(transition({ type: 'DECODE_SUCCESS' })).toBe(PLAYBACK_STATE.READY);
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.PLAYING);
+  });
+
+  // Load-token mismatch happens when an async decode completes after a
+  // newer load has started. The machine stays wherever the newer flow
+  // put it — the stale decode's DECODE_SUCCESS never fires because the
+  // handler guards with a token check before calling transition().
+  it('load-token mismatch: stale event leaves state untouched', () => {
+    forceState(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'LOAD_TOKEN_MISMATCH' })).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  // Preload stall: the 10s no-progress watchdog fires mid-wait. We
+  // fall back to fresh download via REQUEST_DATA_RECOVERY.
+  it('preload stall → fresh download fallback', () => {
+    forceState(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(transition({ type: 'PRELOAD_STALL' })).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
+  });
+
+  // Decode timeout in DECODING → FAILED; guest waits for host's next FILE_PREPARE.
+  it('decode timeout recovery: FAILED → wait for host → new track', () => {
+    forceState(PLAYBACK_STATE.DECODING);
+    expect(transition({ type: 'DECODE_TIMEOUT' })).toBe(PLAYBACK_STATE.FAILED);
+
+    // Host auto-advanced to the next track.
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'next.mp3' }))
+      .toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  // Host sends PAUSE(endOfPlaylist=true) at any point in the pipeline.
+  // Global rule: always → IDLE + loadSource null.
+  it('PAUSE endOfPlaylist is a global reset regardless of current state', () => {
+    const states: PlaybackStateValue[] = [
+      PLAYBACK_STATE.DOWNLOADING,
+      PLAYBACK_STATE.AWAITING_PRELOAD,
+      PLAYBACK_STATE.DECODING,
+      PLAYBACK_STATE.READY,
+      PLAYBACK_STATE.PLAYING,
+      PLAYBACK_STATE.PAUSED,
+    ];
+    for (const s of states) {
+      forceState(s);
+      expect(transition({ type: 'PAUSE', time: 0, endOfPlaylist: true })).toBe(PLAYBACK_STATE.IDLE);
+      expect(getState('playback.loadSource')).toBe(null);
+    }
+  });
+
+  // Preload for the NEXT track (not current) arriving while we're PLAYING
+  // must not disturb the PLAYING state.
+  it('PRELOAD_FILE_READY for next track while PLAYING → stay', () => {
+    forceState(PLAYBACK_STATE.PLAYING);
+    expect(transition({ type: 'PRELOAD_FILE_READY', index: 99 })).toBe(PLAYBACK_STATE.PLAYING);
+  });
+});
+
 // ─── peekTransition (read-only) ────────────────────────────────────
 
 describe('peekTransition', () => {

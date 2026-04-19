@@ -28,12 +28,47 @@ import {
   setPlayPreloadedInProgress,
   getLastClearedTrackName, setLastClearedTrackName,
   replaceLoadScope,
+  markTrackFailed, isTrackFailed, clearFailedTracks,
+  getTrackKeyFromFile, getTrackKeyFromItem,
 } from './_state.ts';
 
 import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
+
+// ─── Decode Timeout Helper ─────────────────────────────────────────
+// 10s is a generous upper bound for legitimate audio/video decoding. Normal
+// MP3/AAC decodes in <500ms; lossless FLAC in a few seconds; even a 30-hour
+// podcast decodes fine because the browser streams-decodes. What DOES fall
+// into the timeout bucket: pathological bitrates (e.g., 50,000 kbps WAV),
+// corrupt headers, or codec/container mismatches that cause the decoder to
+// hang. In those cases we'd rather skip than freeze the tab.
+
+const DECODE_TIMEOUT_MS = 10_000;
+const DECODE_TIMEOUT_TAG = '__decode_timeout__';
+
+async function decodeWithTimeout(
+  arrayBuffer: ArrayBuffer,
+  label = 'decode'
+): Promise<AudioBuffer> {
+  const ctx = getAudioContext();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${DECODE_TIMEOUT_TAG}:${label}:${DECODE_TIMEOUT_MS}ms`));
+    }, DECODE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([ctx.decodeAudioData(arrayBuffer), timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+function isDecodeTimeout(err: unknown): boolean {
+  return err instanceof Error && err.message.includes(DECODE_TIMEOUT_TAG);
+}
 
 // ─── Load And Broadcast File (Host) ────────────────────────────────
 
@@ -66,9 +101,9 @@ export async function loadAndBroadcastFile(
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
 
-    // Decode audio
+    // Decode audio (with 10s timeout to avoid hanging on pathological files)
     const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
+    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'host-load');
 
     // Re-verify after async decode
     if (loadToken !== undefined && getLoadToken() !== myToken) {
@@ -160,7 +195,58 @@ export async function loadAndBroadcastFile(
     log.error(err);
     // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
     setState('files.currentFileBlob', null);
-    showToast(t('error.load_failed', { msg: (err as Error).message }));
+
+    const timedOut = isDecodeTimeout(err);
+    showToast(
+      timedOut
+        ? t('error.decode_timeout', { name: file.name })
+        : t('error.load_failed', { msg: (err as Error).message })
+    );
+
+    // Auto-advance to the next playable track (host only — guests follow host).
+    // We only do this on the host side; guests receive the next FILE_START from
+    // the host after host itself advances, so guests don't need independent skip.
+    const hostConn = getState('network.hostConn');
+    if (!hostConn) {
+      const failedIdx = getState('playlist.currentTrackIndex');
+      const playlist = getState('playlist.items') || [];
+
+      if (failedIdx >= 0 && playlist.length > 1) {
+        // Key by the file itself, not by index. This way, if the user reorders
+        // or removes tracks after a failure, the "failed" memory stays attached
+        // to the actual bad file rather than a now-stale slot number.
+        const failedKey = getTrackKeyFromFile(file) ?? getTrackKeyFromItem(playlist[failedIdx]);
+        markTrackFailed(failedKey);
+
+        // Count playable (non-failed) tracks remaining. If none, stop.
+        const playableCount = playlist.reduce(
+          (n, item) => n + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
+          0
+        );
+        if (playableCount === 0) {
+          showToast(t('error.all_tracks_failed'));
+          clearFailedTracks();
+        } else {
+          // Find the next playlist slot whose track hasn't been marked failed.
+          let nextIdx = (failedIdx + 1) % playlist.length;
+          let probes = 0;
+          while (
+            probes < playlist.length &&
+            isTrackFailed(getTrackKeyFromItem(playlist[nextIdx]))
+          ) {
+            nextIdx = (nextIdx + 1) % playlist.length;
+            probes++;
+          }
+
+          if (!isTrackFailed(getTrackKeyFromItem(playlist[nextIdx])) && nextIdx !== failedIdx) {
+            setManagedTimer('decode-fail-advance', () => {
+              // Dynamic import to avoid a static cycle with playlist.ts
+              import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
+            }, 600);
+          }
+        }
+      }
+    }
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {
       showLoader(false);
@@ -214,7 +300,7 @@ export async function loadPreloadedTrack(
     showToast(t('toast.decoding_audio'));
 
     const arrayBuffer = await localBlob.arrayBuffer();
-    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
+    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'preload');
 
     // Re-verify after async decode
     if (loadToken !== undefined && getLoadToken() !== myToken) {
@@ -298,7 +384,15 @@ export async function loadPreloadedTrack(
     setPendingPlayTime(undefined);
     log.error('[Preload] Activation failed:', e);
     showLoader(false);
-    showToast(t('transfer.preload_fail'));
+
+    const timedOut = isDecodeTimeout(e);
+    const meta = getState('transfer.meta');
+    const name = (meta?.name as string) || '';
+    showToast(
+      timedOut
+        ? t('error.decode_timeout', { name })
+        : t('transfer.preload_fail')
+    );
 
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -307,12 +401,18 @@ export async function loadPreloadedTrack(
     setState('transfer.waitingForPreload', false);
     clearManagedTimer('preloadWatchdog');
 
-    // Request recovery from host
+    // On decode timeout, the file itself is unplayable — asking host for a
+    // recovery copy would just re-trigger the same timeout. Skip recovery and
+    // wait for host to advance to the next track on its own.
+    if (timedOut) return;
+
+    // Non-timeout failure (e.g. partial download, network error) — request
+    // recovery from host. Recovery path has its own retry ceiling so this
+    // won't infinite-loop.
     const playlist = getState('playlist.items') || [];
-    const meta = getState('transfer.meta');
     const idx = getState('playlist.currentTrackIndex');
-    const name = (playlist[idx] as unknown as Record<string, string>)?.name || (meta?.name as string) || '';
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: idx, reason: 'preload_activation_failed' });
+    const recoveryName = (playlist[idx] as unknown as Record<string, string>)?.name || name;
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: recoveryName, index: idx, reason: 'preload_activation_failed' });
   }
 }
 
@@ -419,7 +519,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     const arrayBuffer = await file.arrayBuffer();
     if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (pre-decode), aborting'); return; }
-    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
+    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'guest-finalize');
     if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (post-decode), aborting'); return; }
 
     if (getCurrentAudioBuffer()) {
@@ -496,11 +596,24 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Guest] Decoding failed', err);
-    showToast(t('error.audio_decode_fail'));
+
+    const timedOut = isDecodeTimeout(err);
+    const meta = getState('transfer.meta');
+    const name = (meta?.name as string) || '';
+    showToast(
+      timedOut
+        ? t('error.decode_timeout', { name })
+        : t('error.audio_decode_fail')
+    );
 
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
+
+    // On decode timeout, the file is genuinely unplayable — recovery would
+    // re-fetch the same bad bytes and time out again. Skip recovery and wait
+    // for the host to advance to the next track.
+    if (timedOut) return;
 
     // Use recovery with retry limit (3 attempts + backoff) instead of unlimited sendToHost
     sendRecoveryRequest(0);

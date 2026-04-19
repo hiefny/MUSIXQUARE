@@ -85,9 +85,24 @@ export { loadYouTubeVideo } from './iframe.ts';
 // Every play/seek action delays 1s so all devices start simultaneously.
 
 /**
- * Immediate host action followed by a 2-second delayed rendezvous sync.
- * Provides instant responsiveness for the host and immediate reaction for guests,
- * with a precision "catch-up" (rendezvous) occurring 2 seconds later.
+ * Immediate host action + guest-side precision rendezvous broadcast.
+ *
+ * Two paths based on call context:
+ *
+ * A) **Immediate-rendezvous** (pure PLAY / SEEK on the same video):
+ *    Skip the YOUTUBE_STATE "rough seek" broadcast and fire
+ *    YOUTUBE_SYNC{isManual:true} immediately. Guests run a single
+ *    `guestRendezvousSync()` instead of executeImmediate-then-rendezvous,
+ *    halving iframe state churn and closing the 2s gap that was letting
+ *    drift correction fire mid-rendezvous.
+ *
+ * B) **2-stage** (transitions + pause):
+ *    Broadcast YOUTUBE_STATE immediately (Stage 1) so guests can
+ *    `loadVideoById` / sync sub-index, then fire the precision rendezvous
+ *    after `rendezvousDelayMs` (Stage 2). Pause stays here because
+ *    handleYouTubeState's pause-priority guard cancels any in-progress
+ *    guest rendezvous — bypassing it would let a stale rendezvous play
+ *    override the new paused state.
  */
 export function scheduleYtAutoSync(
   targetTime: number,
@@ -111,6 +126,24 @@ export function scheduleYtAutoSync(
     player.pauseVideo?.();
   }
 
+  // Path A: PLAY/SEEK on the same video → skip Stage 1, fire rendezvous now.
+  const useImmediateRendezvous =
+    targetState === 1 &&
+    !overrides?.videoId &&
+    overrides?.subIndex === undefined &&
+    overrides?.rendezvousDelayMs === undefined;
+
+  if (useImmediateRendezvous) {
+    // Cancel any pending Stage 2 from a prior transition so the immediate
+    // sync isn't double-fired by a leftover yt-auto-sync timer.
+    clearManagedTimer('yt-auto-sync');
+    markYtStateBroadcast();
+    broadcastYouTubeSync(true);
+    log.debug('[YouTube] Sync: Immediate precision rendezvous (Stage 1 skipped)');
+    return;
+  }
+
+  // Path B (transition / pause): 2-stage broadcast.
   // 2. Broadcast Stage 1: Immediate Reaction
   // Guests will perform a rough seek/play to minimize initial lag.
   markYtStateBroadcast();

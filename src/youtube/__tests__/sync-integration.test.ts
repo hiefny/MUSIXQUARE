@@ -5,10 +5,15 @@
  *
  * These tests exercise the REAL exported handlers of `src/youtube/sync.ts`
  * and `src/youtube/player.ts` against a fake YT player object under vitest
- * fake timers. Every test pins a specific invariant of the current 2-stage
- * synchronization protocol (post-85ad164): immediate host action + Stage 1
- * broadcast (hostPlayAt=0), then a delayed Stage 2 precision rendezvous
- * (YOUTUBE_SYNC with isManual=true) after STAGE2_RENDEZVOUS_BROADCAST_MS.
+ * fake timers. The sync protocol has two paths in `scheduleYtAutoSync`:
+ *   - Path A (immediate-rendezvous): pure PLAY/SEEK on the same video —
+ *     skips Stage 1 entirely and fires YOUTUBE_SYNC{isManual:true}
+ *     immediately so guests run a single guestRendezvousSync().
+ *   - Path B (2-stage, post-85ad164): transitions (videoId/subIndex/
+ *     rendezvousDelayMs override) or pause — broadcasts YOUTUBE_STATE
+ *     with hostPlayAt=0 immediately, then YOUTUBE_SYNC{isManual:true}
+ *     at Stage 2 after STAGE2_RENDEZVOUS_BROADCAST_MS so guests have
+ *     time to loadVideoById before precision sync.
  *
  * Key design decisions:
  *   - Real core/timers.ts so `setManagedTimer` / `getManagedTimer` work
@@ -190,8 +195,9 @@ async function importSync() {
 
 describe('YouTube Sync — Regression Integration', () => {
 
-  // 1. scheduleYtAutoSync performs immediate host action (seek + play)
-  describe('scheduleYtAutoSync — immediate host action (2-stage protocol, commit 85ad164)', () => {
+  // Path A: pure PLAY/SEEK on the same video — immediate-rendezvous shortcut.
+  // No Stage 1 YOUTUBE_STATE; the precision YOUTUBE_SYNC fires immediately.
+  describe('scheduleYtAutoSync — Path A: immediate-rendezvous (pure PLAY/SEEK)', () => {
     it('calls seekTo then playVideo immediately when target state is PLAYING', async () => {
       const player = installPlayer({ __state: 2 /* PAUSED */, __currentTime: 30 });
       const { scheduleYtAutoSync } = await importPlayer();
@@ -199,8 +205,7 @@ describe('YouTube Sync — Regression Integration', () => {
       scheduleYtAutoSync(42);
 
       const ops = mutationOps(player);
-      // New protocol: host seeks + plays IMMEDIATELY (no force-pause preamble,
-      // no 1-second countdown). Stage 2 precision rendezvous follows later.
+      // Host action is unchanged across both paths: seek immediately, then play.
       expect(ops).toContain('seekTo');
       expect(ops).toContain('playVideo');
       const seekIdx = ops.indexOf('seekTo');
@@ -209,44 +214,95 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.__log[seekIdx].args).toEqual([42, true]);
     });
 
-    it('Stage 1 broadcast is YOUTUBE_STATE with hostPlayAt=0 (immediate reaction)', async () => {
-      installPlayer({ __state: 2 });
+    it('skips Stage 1 — single immediate YOUTUBE_SYNC{isManual:true} broadcast', async () => {
+      installPlayer({ __state: 2, __currentTime: 0 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
       scheduleYtAutoSync(10);
 
-      // Stage 1 only — Stage 2 fires after STAGE2_RENDEZVOUS_BROADCAST_MS
+      // Path A skips the YOUTUBE_STATE rough-seek broadcast so the guest
+      // runs a single guestRendezvousSync() instead of executeImmediate
+      // followed by another rendezvous — halves iframe state churn and
+      // closes the 2s window where drift correction was firing mid-rendezvous.
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      const msg = (broadcast as any).mock.calls[0][0];
+      expect(msg.type).toBe(MSG.YOUTUBE_SYNC);
+      expect(msg.isManual).toBe(true);
+    });
+
+    it('does NOT set the yt-auto-sync timer (no Stage 2 to schedule)', async () => {
+      installPlayer({ __state: 2 });
+      const { scheduleYtAutoSync } = await importPlayer();
+
+      scheduleYtAutoSync(10);
+
+      expect(getManagedTimer('yt-auto-sync')).toBeNull();
+    });
+
+    it('rapid calls each fire their own immediate YOUTUBE_SYNC (last seek wins)', async () => {
+      const player = installPlayer({ __state: 2 });
+      const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+
+      scheduleYtAutoSync(10);
+      vi.advanceTimersByTime(500);
+      scheduleYtAutoSync(20);
+
+      // Both manual broadcasts go through (isManual bypasses the dedup window).
+      const syncCalls = (broadcast as any).mock.calls.filter(
+        (c: any[]) => c[0]?.type === MSG.YOUTUBE_SYNC,
+      );
+      expect(syncCalls).toHaveLength(2);
+
+      // Host's local seekTo still updates the player; "last action wins".
+      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      expect(seeks.length).toBeGreaterThanOrEqual(2);
+      expect(seeks[seeks.length - 1].args).toEqual([20, true]);
+    });
+  });
+
+  // Path B: transitions (videoId/subIndex/rendezvousDelayMs override) and
+  // pause keep the original 2-stage protocol so guests can loadVideoById
+  // before precision sync (post-85ad164).
+  describe('scheduleYtAutoSync — Path B: 2-stage (transitions)', () => {
+    it('Stage 1 broadcast is YOUTUBE_STATE with hostPlayAt=0 when videoId override is set', async () => {
+      installPlayer({ __state: 2 });
+      const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+
+      // videoId override marks this as a transition → Path B
+      scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
+
+      // Stage 1 only at this point — Stage 2 fires after STAGE2_RENDEZVOUS_BROADCAST_MS.
       expect(broadcast).toHaveBeenCalledTimes(1);
       const msg = (broadcast as any).mock.calls[0][0];
       expect(msg.type).toBe(MSG.YOUTUBE_STATE);
       expect(msg.state).toBe(1);
       expect(msg.time).toBe(10);
+      expect(msg.videoId).toBe('NEW_VID');
       // hostPlayAt=0 signals "act immediately"; precision comes from Stage 2.
       expect(msg.hostPlayAt).toBe(0);
     });
-  });
 
-  // 2. Stage 2 precision rendezvous fires after STAGE2_RENDEZVOUS_BROADCAST_MS
-  describe('scheduleYtAutoSync — Stage 2 precision rendezvous (commit 85ad164)', () => {
-    it('does NOT broadcast Stage 2 before STAGE2_RENDEZVOUS_BROADCAST_MS', async () => {
+    it('does NOT broadcast Stage 2 before STAGE2_RENDEZVOUS_BROADCAST_MS (=2000ms)', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
-      scheduleYtAutoSync(10);
+      scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
       (broadcast as any).mockClear(); // drop Stage 1
 
       vi.advanceTimersByTime(1999);
       expect(broadcast).not.toHaveBeenCalled();
     });
 
-    it('broadcasts YOUTUBE_SYNC with isManual=true at Stage 2', async () => {
+    it('broadcasts YOUTUBE_SYNC{isManual:true} at Stage 2', async () => {
       installPlayer({ __state: 1, __currentTime: 10 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
-      scheduleYtAutoSync(10);
+      scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
       (broadcast as any).mockClear(); // drop Stage 1
 
       vi.advanceTimersByTime(2000);
@@ -255,18 +311,15 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
       expect(stage2.isManual).toBe(true);
     });
-  });
 
-  // 3. Rapid scheduleYtAutoSync calls debounce the Stage 2 broadcast
-  describe('scheduleYtAutoSync — Stage 2 debounce on rapid calls (commit 85ad164)', () => {
-    it('second scheduleYtAutoSync cancels the first Stage 2 — only ONE YOUTUBE_SYNC broadcast fires', async () => {
+    it('rapid transitions debounce Stage 2 — only ONE YOUTUBE_SYNC fires', async () => {
       const player = installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
-      scheduleYtAutoSync(10);
+      scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
       vi.advanceTimersByTime(500);
-      scheduleYtAutoSync(20);
+      scheduleYtAutoSync(20, { videoId: 'NEW_VID' });
       (broadcast as any).mockClear(); // drop Stage 1s
 
       vi.advanceTimersByTime(2500); // well past Stage 2 deadline for the second schedule
@@ -462,12 +515,14 @@ describe('YouTube Sync — Regression Integration', () => {
   });
 
   // 11. cancelYtAutoSync clears the auto-sync timer
+  // Path A doesn't set the yt-auto-sync timer at all, so this test exercises
+  // Path B (transition) where the Stage 2 timer is what cancelYtAutoSync targets.
   describe('cancelYtAutoSync', () => {
-    it('clears the yt-auto-sync timer', async () => {
+    it('clears the yt-auto-sync timer set by Path B (transition)', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync, cancelYtAutoSync } = await importPlayer();
 
-      scheduleYtAutoSync(10);
+      scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
       expect(getManagedTimer('yt-auto-sync')).not.toBeNull();
 
       cancelYtAutoSync();

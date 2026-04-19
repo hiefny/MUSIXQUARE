@@ -269,7 +269,10 @@ export interface StateTree {
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
     skipIncomingFile: boolean;
-    waitingForPreload: boolean;
+    /**
+     * Phase 4 removed `waitingForPreload` from this slice. Use
+     * `playback.lifecycle === 'AWAITING_PRELOAD'` instead.
+     */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
     staleChunkBurstStart: number;
     /** Count of consecutive stale-session chunks rejected in the current burst. */

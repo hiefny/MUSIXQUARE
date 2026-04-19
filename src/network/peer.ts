@@ -369,7 +369,6 @@ export function leaveSession(): void {
     'transfer.currentSessionId': 0,
     'transfer.activeBroadcastSession': null,
     'transfer.skipIncomingFile': false,
-    'transfer.waitingForPreload': false,
     // Reset stale-chunk burst detection counters so a reconnect doesn't
     // carry over a mid-burst window from the prior session and trip the
     // early-recovery heuristic prematurely on its first post-reconnect chunk.

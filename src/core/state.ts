@@ -67,7 +67,7 @@ function createInitialState(): StateTree {
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
       skipIncomingFile: false,
-      waitingForPreload: false,
+      // Phase 4: waitingForPreload removed; use playback.lifecycle
       staleChunkBurstStart: 0,
       staleChunkBurstCount: 0,
     },

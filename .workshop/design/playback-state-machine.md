@@ -360,7 +360,7 @@ caught by a grep check in CI.
 | Flag | Disposition | Rationale |
 |---|---|---|
 | `transfer.waitingForPreload` | **deleted** | equals `lifecycle === AWAITING_PRELOAD` |
-| `transfer.skipIncomingFile` | **deleted** | chunks arriving in non-DOWNLOADING states are dropped by the handler matrix; no flag needed |
+| `transfer.skipIncomingFile` | **deferred to post-launch** | target is to gate `handleFileStart/Chunk/End/Resume` on `lifecycle === DOWNLOADING` instead of a flag, but that refactor touches core transfer code paths; the flag is redundant but not harmful, so we ship the launch with it and clean up in a v1.1 pass |
 | `preload.isPreloading` | **kept (host-only)** | host-side scheduling signal, not part of guest lifecycle |
 | `transfer.state` | **kept** | tracks download wire state (IDLE/RECEIVING/PROCESSING/READY); useful for UI loader. Semantic: "chunk pipeline phase", not lifecycle |
 | `recovery.pendingFileIndex` / `pendingFileName` | **merged** | becomes `playback.pendingRecoveryTarget: { index, name } \| null` |

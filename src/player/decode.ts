@@ -397,7 +397,6 @@ export async function loadPreloadedTrack(
     // Reset transfer guards — transfer.state must be READY so next preload loader shows
     setState('transfer.state', 'READY');
     setState('transfer.skipIncomingFile', true);
-    setState('transfer.waitingForPreload', false);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
@@ -444,7 +443,6 @@ export async function loadPreloadedTrack(
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
     setState('transfer.skipIncomingFile', false);
-    setState('transfer.waitingForPreload', false);
     clearManagedTimer('preloadWatchdog');
 
     // On decode timeout, the file itself is unplayable — asking host for a
@@ -490,7 +488,8 @@ export function clearPreviousTrackState(reason = ''): void {
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
-  clearManagedTimer('stale-audio-recovery');
+  // Note: stale-audio-recovery timer was deleted in Phase 4. Left a
+  // clearManagedTimer here would be a no-op, so we drop it.
 
   // Redundant sync: only reset timers and name tracking, keep audio buffer intact
   if (reason === 'redundant-sync') return;

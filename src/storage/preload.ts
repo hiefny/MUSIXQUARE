@@ -947,9 +947,36 @@ export function initPreload(): void {
       // and bumps the session ID, but the OPFS worker may still signal completion
       // for the old session. Accepting it would set preload.nextFileBlob to a stale
       // file, causing handlePlayPreloaded to use the wrong track.
+      //
+      // HOTFIX (2026-04-20): there's ONE case where a "stale" completion is not
+      // actually stale — we explicitly want it. When the user advances to a
+      // track whose preload was still assembling, we transition the lifecycle
+      // to AWAITING_PRELOAD for that track (recovery.pendingFileIndex records
+      // it). Host then schedules the NEXT preload, which bumps
+      // latestPreloadSessionId. When OUR target's OPFS write finally resolves
+      // moments later, the naïve guard drops it because its session ID is now
+      // behind latest. Result: guest stalls in AWAITING_PRELOAD for 10s, then
+      // the watchdog triggers a 0% re-download — the exact behaviour the
+      // Phase 3 refactor was meant to kill.
+      //
+      // So: if the "stale" session is the one we're actively awaiting, accept
+      // the completion. The newer session keeps progressing in the background;
+      // when it eventually finishes, its own preload-file-ready call will
+      // overwrite preload.meta / nextFileBlob with its data.
       if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
-        log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}`);
-        return;
+        const lifecycle = getState('playback.lifecycle');
+        const pendingIdx = getState('recovery.pendingFileIndex');
+        const sessionForFile = getState('preload.sessionState').get(sessionId);
+        const isOurAwaitTarget =
+          lifecycle === 'AWAITING_PRELOAD' &&
+          !!sessionForFile &&
+          pendingIdx === sessionForFile.index;
+
+        if (!isOurAwaitTarget) {
+          log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}`);
+          return;
+        }
+        log.info(`[Preload] Accepting "stale" OPFS completion — we're AWAITING_PRELOAD for track ${sessionForFile!.index} (SID ${sessionId}, latest ${latestPreloadSessionId})`);
       }
 
       const file = await readFileFromOpfs(filename, true);

@@ -46,7 +46,14 @@ import {
 
 export type PlaybackEvent =
   // ── File transfer (main pipeline) ──
-  | { type: 'FILE_PREPARE'; variant: 'fresh' | 'same-file' | 'preload-match' | 'demo' | 'resume'; index: number; name: string }
+  // Variants:
+  //   fresh          — no preload match; start new download
+  //   same-file      — already loaded; replay-current path
+  //   preload-match  — preload blob is assembled; go straight to DECODING
+  //   preload-waiting — preload session exists but blob not yet ready (transfer-receive race)
+  //   demo           — demo file served via HTTP fetch (preload-style load)
+  //   resume         — FILE_PREPARE of a file whose receivedCount > 0 (recovery resume)
+  | { type: 'FILE_PREPARE'; variant: 'fresh' | 'same-file' | 'preload-match' | 'preload-waiting' | 'demo' | 'resume'; index: number; name: string }
   | { type: 'FILE_START'; sessionId: number }
   | { type: 'FILE_CHUNK' }         // progress tick; handler dedup/drop logic owns specifics
   | { type: 'FILE_END' }
@@ -103,10 +110,11 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
   if (from === PLAYBACK_STATE.IDLE) {
     switch (ev.type) {
       case 'FILE_PREPARE':
-        if (ev.variant === 'preload-match') return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
-        if (ev.variant === 'demo')          return { next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
-        if (ev.variant === 'same-file')     return { stay: true };  // rare; replay-current path
-        if (ev.variant === 'resume')        return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.RECOVERY_RESUME };
+        if (ev.variant === 'preload-match')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'preload-waiting') return { next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'demo')            return { next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'same-file')       return { stay: true };  // rare; replay-current path
+        if (ev.variant === 'resume')          return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.RECOVERY_RESUME };
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready')    return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
@@ -136,8 +144,9 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PREPARE_WATCHDOG_TIMEOUT':
         return { stay: true };  // recovery request emitted by handler; state unchanged
       case 'FILE_PREPARE':
-        if (ev.variant === 'same-file')    return { stay: true };  // resume branch; or rare intra-session same-file ack
-        if (ev.variant === 'preload-match')return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'same-file')       return { stay: true };  // resume branch; or rare intra-session same-file ack
+        if (ev.variant === 'preload-match')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'preload-waiting') return { next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };  // supersede
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
@@ -169,8 +178,9 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_CEILING':
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
       case 'FILE_PREPARE':
-        if (ev.variant === 'same-file')    return { stay: true };  // dedup on re-broadcast
-        if (ev.variant === 'preload-match')return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'same-file')       return { stay: true };  // dedup on re-broadcast
+        if (ev.variant === 'preload-match')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
+        if (ev.variant === 'preload-waiting') return { stay: true };  // already awaiting same preload
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };  // supersede
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };

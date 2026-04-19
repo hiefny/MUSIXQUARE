@@ -58,6 +58,11 @@ describe('lifecycle: from IDLE', () => {
     expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
+  it('FILE_PREPARE preload-waiting → AWAITING_PRELOAD (preload session active, blob not ready)', () => {
+    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-waiting', index: 0, name: 'a.mp3' });
+    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+  });
+
   it('FILE_PREPARE same-file → stay (rare in IDLE)', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'same-file', index: 0, name: 'a.mp3' });
     expect(r).toEqual({ stay: true });
@@ -218,6 +223,11 @@ describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
 
   it('FILE_PREPARE same-file (dedup on re-broadcast) → stay', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'same-file', index: 0, name: 'a.mp3' });
+    expect(r).toEqual({ stay: true });
+  });
+
+  it('FILE_PREPARE preload-waiting (dedup, already awaiting same preload) → stay', () => {
+    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-waiting', index: 0, name: 'a.mp3' });
     expect(r).toEqual({ stay: true });
   });
 

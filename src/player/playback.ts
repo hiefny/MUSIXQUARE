@@ -14,7 +14,8 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
@@ -129,6 +130,26 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     return;
   }
 
+  // ⭐ Lifecycle gate (Phase 3 THE BUG FIX).
+  //
+  // If we're in AWAITING_PRELOAD for this track, the "stale audio" we're
+  // about to detect below is EXPECTED — we haven't consumed the preload
+  // blob yet, so transfer.meta still reflects the previous track. The old
+  // stale-audio-recovery timer would kick in 5s later and request a full
+  // re-download (0%-restart), wasting the almost-finished preload.
+  //
+  // In AWAITING_PRELOAD, just defer the play time. When the preload blob
+  // finalizes and loadPreloadedTrack runs, it consumes pendingPlayTime and
+  // plays at the correct host-scheduled instant.
+  const lifecycle = getState('playback.lifecycle');
+  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) {
+    setPendingPlayTime(time);
+    // Drive the state machine for observability (it's a stay transition).
+    transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
+    log.debug(`[Guest] PLAY arrived while AWAITING_PRELOAD — deferring to preload waiter (time=${time})`);
+    return;
+  }
+
   // Stale audio guard: verify loaded file matches expected name
   const meta = getState('transfer.meta');
   const playlist = getState('playlist.items') || [];
@@ -168,6 +189,12 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   }
 
   if (getCurrentAudioBuffer() || getVideoElement()?.src) {
+    // Lifecycle (Phase 3 dual-write): we have a decoded buffer → we're in
+    // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
+    // transition() handles same-track seek, resume from PAUSED, restart from
+    // READY — see Section 4 of the design doc.
+    transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
+
     // Shared Clock: schedule play at the host-specified time
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     if (hostPlayAt > 0) {
@@ -225,11 +252,19 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
 
+  const time = Number(data.time) || 0;
+  const endOfPlaylist = !!data.endOfPlaylist;
+
+  // Lifecycle (Phase 3 dual-write): PAUSE is a global rule when
+  // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
+  // to PAUSED per Section 4.
+  transition({ type: 'PAUSE', time, endOfPlaylist });
+
   // Host reached end of playlist (Repeat OFF). Short-circuit: skip the
   // regular pause() path which would flash a "일시정지" toast before the
   // "재생목록 끝" toast overwrites it. Just stop everything and clear
   // the stale track meta so title/indicator mirror the host's reset.
-  if (data.endOfPlaylist) {
+  if (endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
     setState('player.currentTrackMeta', null);
     // Mirror host's deselected state so operator guest's togglePlay
@@ -241,7 +276,6 @@ function handlePauseMsg(data: Record<string, unknown>): void {
     return;
   }
 
-  const time = Number(data.time) || 0;
   pause(time);
 }
 

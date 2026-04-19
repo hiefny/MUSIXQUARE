@@ -17,6 +17,7 @@ import { safeSend, sendToHost, isRemoteGuest, hasActiveRelay, waitForGuestConnec
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import { transition } from '../player/lifecycle.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -130,6 +131,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   // Demo track: fetch directly from server instead of P2P transfer
   if (data.name === DEMO_FILE_NAME) {
+    // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
+    // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
+    transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
     setState('transfer.skipIncomingFile', true);
     bus.emit('player:stop-all-media');
     const demoIndex = Number(data.index);
@@ -229,6 +233,14 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       setState('playlist.currentTrackIndex', data.index as number);
     }
 
+    // Lifecycle (Phase 3 dual-write): FILE_PREPARE where blob already assembled
+    // → promote straight to DECODING via the preload-promoted path.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: data.index as number,
+      name: data.name as string,
+    });
     setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
 
@@ -245,6 +257,15 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   const isSameTrackByName = data.name && currentTransferMeta?.name === data.name;
   if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName)) {
     log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
+    // Lifecycle (Phase 3 dual-write): same file already loaded. No state
+    // change — replay-current fires and the existing PLAYING/READY/PAUSED
+    // state keeps its audio buffer.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'same-file',
+      index: data.index as number,
+      name: data.name as string,
+    });
     setState('transfer.skipIncomingFile', true);
     showLoader(false);
     // Honor host's auto-play delay if provided — otherwise the guest would
@@ -273,6 +294,15 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
+      // Lifecycle (Phase 3 dual-write): preload still downloading for THIS
+      // track → AWAITING_PRELOAD. This mirrors the PLAY_PRELOADED
+      // blob-waiting branch; both lead to the same waiter semantics.
+      transition({
+        type: 'FILE_PREPARE',
+        variant: 'preload-waiting',
+        index: data.index as number,
+        name: data.name as string,
+      });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
       setState('recovery.pendingFileName', data.name as string || '');
@@ -320,8 +350,25 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
+    // Lifecycle (Phase 3 dual-write): resume scenario — we had partial data
+    // for this file, now the host is restarting transfer. Stay in (or enter)
+    // DOWNLOADING with the recovery-resume source.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'resume',
+      index: data.index as number,
+      name: data.name as string,
+    });
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
+    // Lifecycle (Phase 3 dual-write): fresh download — no preload match, no
+    // resume. Transition to DOWNLOADING with fresh source.
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'fresh',
+      index: data.index as number,
+      name: data.name as string,
+    });
     bus.emit('storage:clear-previous-track', 'file-prepare');
     if (data.index !== undefined) {
       setState('playlist.currentTrackIndex', data.index as number);

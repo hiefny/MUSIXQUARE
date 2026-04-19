@@ -85,6 +85,21 @@ export async function loadAndBroadcastFile(
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
 
+  // Lifecycle: host has the file locally (no download phase). Transition
+  // straight into DECODING so the subsequent transition(DECODE_SUCCESS)
+  // after decode completes lands cleanly on READY rather than being
+  // rejected from IDLE/PLAYING. The `preload-match` variant captures
+  // "blob is ready, promote to decoding" which matches host semantics.
+  {
+    const trackIdx = getState('playlist.currentTrackIndex');
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: typeof trackIdx === 'number' ? Math.max(0, trackIdx) : 0,
+      name: file.name,
+    });
+  }
+
   try {
     await initAudio();
     if (getAudioContext().state === 'suspended') await ensureRunning();

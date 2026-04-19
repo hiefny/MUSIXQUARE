@@ -473,6 +473,12 @@ export function initPlayback(): void {
       return;
     }
 
+    // Lifecycle: all chunks received and assembled → DOWNLOADING → DECODING.
+    // finalizeGuestFile will emit DECODE_SUCCESS next; without this FILE_END
+    // beat, that transition would be rejected because we'd still look to
+    // the state machine like we're DOWNLOADING.
+    transition({ type: 'FILE_END' });
+
     await finalizeGuestFile(file);
   });
 

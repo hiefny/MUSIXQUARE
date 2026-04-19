@@ -963,20 +963,40 @@ export function initPreload(): void {
       // the completion. The newer session keeps progressing in the background;
       // when it eventually finishes, its own preload-file-ready call will
       // overwrite preload.meta / nextFileBlob with its data.
-      if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
-        const lifecycle = getState('playback.lifecycle');
-        const pendingIdx = getState('recovery.pendingFileIndex');
-        const sessionForFile = getState('preload.sessionState').get(sessionId);
-        const isOurAwaitTarget =
-          lifecycle === 'AWAITING_PRELOAD' &&
-          !!sessionForFile &&
-          pendingIdx === sessionForFile.index;
+      // Resolve how to classify this completion. Two sources of "which track
+      // is this for?":
+      //   (a) preload.sessionState.get(sessionId) — authoritative, but may be
+      //       GONE because cleanupStalePreloadSessions() purges finalized
+      //       sessions when the NEXT PRELOAD_START arrives. That's the crux
+      //       of the beta regression: session 2 finalizes → PRELOAD_START(3)
+      //       cleans session 2 up → OPFS completion for 2 fires → lookup
+      //       misses → we wrongly think it's stale → drop.
+      //   (b) filename compared against the playlist entry at
+      //       recovery.pendingFileIndex — our AWAITING_PRELOAD target.
+      //
+      // Fall through to (b) when (a) is missing AND we're AWAITING_PRELOAD.
+      const sessionForFile = getState('preload.sessionState').get(sessionId);
+      const lifecycle = getState('playback.lifecycle');
+      const pendingIdx = getState('recovery.pendingFileIndex');
+      const playlist = getState('playlist.items') || [];
+      const awaitedName = (lifecycle === 'AWAITING_PRELOAD' &&
+        typeof pendingIdx === 'number' && pendingIdx >= 0)
+        ? (playlist[pendingIdx]?.name ?? '')
+        : '';
+      const isOurAwaitTarget =
+        lifecycle === 'AWAITING_PRELOAD' &&
+        !!filename &&
+        !!awaitedName &&
+        filename === awaitedName;
 
+      if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
+        // "Stale" per the old guard's definition — but accept if it matches
+        // our wait target by filename (handles the session-cleanup race).
         if (!isOurAwaitTarget) {
-          log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}`);
+          log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`);
           return;
         }
-        log.info(`[Preload] Accepting "stale" OPFS completion — we're AWAITING_PRELOAD for track ${sessionForFile!.index} (SID ${sessionId}, latest ${latestPreloadSessionId})`);
+        log.info(`[Preload] Accepting "stale" OPFS completion — matches our AWAITING_PRELOAD target by filename (${filename}, SID ${sessionId}, latest ${latestPreloadSessionId}, session ${sessionForFile ? 'present' : 'cleaned up'})`);
       }
 
       const file = await readFileFromOpfs(filename, true);
@@ -988,14 +1008,36 @@ export function initPreload(): void {
       // Store as preload blob
       setState('preload.nextFileBlob', file);
 
-      const sessionState = getState('preload.sessionState');
-      const session = sessionState.get(sessionId);
       const preloadMeta = getState('preload.meta');
 
-      setState('preload.meta', session || preloadMeta);
-
-      const nextTrackIndex = (session?.index ?? (preloadMeta?.index as number)) ?? -1;
-      setState('preload.nextTrackIndex', nextTrackIndex);
+      // Build the right meta to publish. If the session is still around, use
+      // it (the normal case). Otherwise, if we're honouring our await target,
+      // reconstruct meta from the playlist + the File so downstream readers
+      // (loadPreloadedTrack's localMeta) see track-2 info instead of the
+      // newer preload's stale track-3 info that lives in `preloadMeta`.
+      let resolvedNextTrackIndex: number;
+      if (sessionForFile) {
+        setState('preload.meta', sessionForFile);
+        resolvedNextTrackIndex = sessionForFile.index;
+      } else if (isOurAwaitTarget) {
+        const reconstructed = {
+          name: filename,
+          index: pendingIdx as number,
+          mime: file.type || '',
+          total: 0,  // best-effort; loadPreloadedTrack doesn't rely on total
+          size: file.size,
+          sessionId,
+        };
+        setState('preload.meta', reconstructed);
+        resolvedNextTrackIndex = pendingIdx as number;
+      } else {
+        // Normal non-stale completion with no session record — fall back to
+        // whatever meta we had. Should be rare.
+        setState('preload.meta', preloadMeta);
+        resolvedNextTrackIndex = (preloadMeta?.index as number) ?? -1;
+      }
+      setState('preload.nextTrackIndex', resolvedNextTrackIndex);
+      const nextTrackIndex = resolvedNextTrackIndex;
 
       // Send PRELOAD_ACK to host now that OPFS file is confirmed ready
       if (nextTrackIndex >= 0) {

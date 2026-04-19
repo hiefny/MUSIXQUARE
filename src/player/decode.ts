@@ -434,7 +434,16 @@ export async function loadPreloadedTrack(
     // On decode timeout, the file itself is unplayable — asking host for a
     // recovery copy would just re-trigger the same timeout. Skip recovery and
     // wait for host to advance to the next track on its own.
-    if (timedOut) return;
+    //
+    // Also mark the track as failed so that a subsequent manual click on the
+    // same entry (while still in this session) doesn't re-run the 10s timeout
+    // loop. The failed-set is keyed by file identity (name+size+lastModified)
+    // so uploading a different file with the same playlist slot still retries.
+    if (timedOut) {
+      const failedKey = getTrackKeyFromFile(localBlob);
+      markTrackFailed(failedKey);
+      return;
+    }
 
     // Non-timeout failure (e.g. partial download, network error) — request
     // recovery from host. Recovery path has its own retry ceiling so this

@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { MSG, DEFAULT_MAX_GUEST_SLOTS, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, DEFAULT_MAX_GUEST_SLOTS, APP_STATE, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -386,6 +386,11 @@ export function leaveSession(): void {
     // Preload
     'preload.nextFileBlob': null,
     'preload.meta': null,
+    // Playback lifecycle (new state machine — reset on session leave)
+    'playback.lifecycle': PLAYBACK_STATE.IDLE,
+    'playback.loadSource': null,
+    'playback.pendingPlayTime': undefined,
+    'playback.pendingPausedAt': undefined,
     // Sync
     'sync.localOffset': 0,
     // Player

@@ -24,6 +24,37 @@ export const TRANSFER_STATE = {
 
 export type TransferStateValue = (typeof TRANSFER_STATE)[keyof typeof TRANSFER_STATE];
 
+// ─── Playback Lifecycle State ──────────────────────────────────────
+// Guest-side track lifecycle. Orthogonal to APP_STATE (mode); this describes
+// WHAT PHASE within the local-file/video mode we're in. For YouTube and
+// system-audio modes this stays at IDLE (they have their own lifecycle paths).
+//
+// See .workshop/design/playback-state-machine.md for the full transition
+// table and migration plan. Every transition goes through
+// src/player/lifecycle.ts::transition(); direct setState calls to
+// playback.lifecycle outside that helper are forbidden.
+export const PLAYBACK_STATE = {
+  IDLE: 'IDLE',                         // nothing loaded, no operation pending
+  DOWNLOADING: 'DOWNLOADING',           // main transfer (FILE_PREPARE → FILE_START → chunks)
+  AWAITING_PRELOAD: 'AWAITING_PRELOAD', // PLAY_PRELOADED received, preload blob not yet assembled
+  DECODING: 'DECODING',                 // blob in hand, running decodeAudioData
+  READY: 'READY',                       // decoded buffer loaded, waiting for PLAY
+  PLAYING: 'PLAYING',                   // actively producing audio
+  PAUSED: 'PAUSED',                     // decoded buffer present, not advancing
+  FAILED: 'FAILED',                     // decode timeout / unsupported / corrupt — awaiting host advance
+} as const;
+
+export type PlaybackStateValue = (typeof PLAYBACK_STATE)[keyof typeof PLAYBACK_STATE];
+
+/** How a track entered the pipeline. Attribute of the active load, not a state. */
+export const LOAD_SOURCE = {
+  FRESH: 'fresh',                       // full main-transfer download (FILE_PREPARE → FILE_END)
+  PRELOAD_PROMOTED: 'preload-promoted', // started as preload, promoted to current
+  RECOVERY_RESUME: 'recovery-resume',   // partial prior download, resumed via FILE_RESUME
+} as const;
+
+export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
+
 // ─── File Transfer ─────────────────────────────────────────────────
 export const CHUNK_SIZE = 16384; // 16KB per chunk
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog

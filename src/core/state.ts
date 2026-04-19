@@ -6,7 +6,7 @@
  */
 
 import { bus } from './events.ts';
-import { APP_STATE, TRANSFER_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } from './constants.ts';
+import { APP_STATE, TRANSFER_STATE, PLAYBACK_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } from './constants.ts';
 
 // 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
 // to enable typed state:${StatePath} events without circular dependency.
@@ -169,6 +169,13 @@ function createInitialState(): StateTree {
       isSharing: false,
       isReceiving: false,
       hostMuteLocal: true,
+    },
+
+    playback: {
+      lifecycle: PLAYBACK_STATE.IDLE,
+      loadSource: null,
+      pendingPlayTime: undefined,
+      pendingPausedAt: undefined,
     },
 
   };

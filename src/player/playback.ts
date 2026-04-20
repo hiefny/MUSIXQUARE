@@ -107,7 +107,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // fetch from the server; any other file falls back to the "same
     // Wi-Fi" guidance UI.
     if (isRemoteGuest() && !hasActiveRelay()) {
-      if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined)) return;
+      if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || (data.name as string) || '';
       setState('player.currentTrackMeta', {
@@ -229,7 +229,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // before PLAY, so currentTrackIndex already matches and we skipped
     // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
     if (isRemoteGuest() && !hasActiveRelay()) {
-      if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined)) return;
+      if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       const playlist2 = getState('playlist.items') || [];
       setState('player.currentTrackMeta', {
         type: 'file',
@@ -253,11 +253,29 @@ function handlePlayMsg(data: Record<string, unknown>): void {
  * branches (index-mismatch and no-buffer) so either message-arrival order
  * lands on the same path.
  */
-function tryFetchDemoForRemote(index: number, dataName: string | undefined): boolean {
+function tryFetchDemoForRemote(index: number, dataName: string | undefined, time: number): boolean {
   const playlist = getState('playlist.items') || [];
   const name = playlist[index]?.name || dataName || '';
   if (name !== DEMO_FILE_NAME) return false;
   log.debug('[Guest] Remote — fetching demo from server');
+
+  // Title fallback: playlist[index] may be empty if PLAYLIST_UPDATE hasn't
+  // landed yet. Synthesize a demo-flavoured meta so the UI isn't stuck on
+  // "미디어 없음" during the HTTP fetch. loadPreloadedTrack will overwrite
+  // with the real playlist entry after decode.
+  const item = playlist[index];
+  setState('player.currentTrackMeta', item ?? {
+    type: 'file',
+    name,
+    title: name.replace(/\.[^/.]+$/, ''),
+    videoId: null,
+    playlistId: null,
+  });
+
+  // Preserve host's play time so loadPreloadedTrack can seek (with age
+  // compensation) once decode finishes — without this the post-fetch
+  // handler sees pendingPlayTime=undefined and never calls play().
+  setPendingPlayTime(time);
   transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
   setState('transfer.skipIncomingFile', true);
   fetchDemoFromServer(index).catch(e => log.error('[Guest] Demo fetch failed:', e));

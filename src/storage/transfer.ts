@@ -23,7 +23,8 @@ import {
 
 // ─── Re-exports ──────────────────────────────────────────────────────
 
-export { broadcastFile, unicastFile } from './transfer-send.ts';
+export { broadcastFile, unicastFile, cancelOutgoingFileTransfers } from './transfer-send.ts';
+export { cancelIncomingFileTransfer } from './transfer-receive.ts';
 export { isArrayBuffer } from './transfer-shared.ts';
 
 // ─── Register Handlers ──────────────────────────────────────────────

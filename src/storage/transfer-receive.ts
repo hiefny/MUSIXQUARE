@@ -976,3 +976,32 @@ export function clearReceiveState(): void {
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
 }
+
+// ─── Cancel In-Flight Incoming Transfer (guest-only) ─────────────────
+
+/**
+ * Abort an in-flight main download on the guest side.
+ * Called when the host signals the playlist has been emptied — drops
+ * buffered chunks, resets transfer state, and tells the OPFS worker to
+ * discard the partially written file.
+ */
+export function cancelIncomingFileTransfer(reason: string): void {
+  const state = getState('transfer.state');
+  if (state !== TRANSFER_STATE.RECEIVING) return;
+
+  log.info(`[Transfer] Cancelling incoming transfer: ${reason}`);
+
+  clearManagedTimer('chunkWatchdog');
+  clearManagedTimer('prepareWatchdog');
+
+  fileReorderBuffer.clear();
+  _pendingEarlyChunks.length = 0;
+  nextExpectedChunk = 0;
+
+  setState('transfer.state', TRANSFER_STATE.IDLE);
+  setState('transfer.receivedCount', 0);
+  setState('transfer.meta', {});
+
+  postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+  showLoader(false);
+}

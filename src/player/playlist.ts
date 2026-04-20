@@ -23,6 +23,7 @@ import {
   setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
 } from '../audio/effects.ts';
 import { postWorkerCommand } from '../storage/opfs.ts';
+import { cancelIncomingFileTransfer, cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -726,6 +727,9 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
   if (incoming.length === 0 && prevLength > 0) {
     stopAllMedia();
     clearPreloadState();
+    // Abort any in-flight main download — otherwise chunks already in the
+    // data channel keep being written to OPFS to completion.
+    cancelIncomingFileTransfer('playlist-emptied');
     bus.emit('storage:clear-previous-track', 'playlist-emptied');
     // Mirror host's empty-playlist reset: clear track meta so the title
     // display reverts to "미디어 없음" instead of lingering on the last
@@ -1106,6 +1110,9 @@ export function initPlaylist(): void {
       // Empty playlist — stop everything and clear all stale state
       stopAllMedia();
       clearPreloadState();
+      // Abort any in-flight broadcast/unicast so guests aren't forced to
+      // finish downloading a file that's no longer in the playlist.
+      cancelOutgoingFileTransfers();
       setState('playlist.currentTrackIndex', -1);
       setState('player.currentTrackMeta', null);
       setState('files.currentFileBlob', null);

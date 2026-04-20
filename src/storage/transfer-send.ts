@@ -238,3 +238,25 @@ export async function unicastFile(
     }
   }
 }
+
+// ─── Cancel All Outgoing Transfers ───────────────────────────────────
+
+/**
+ * Cancel any in-flight outgoing file transfers (host-only).
+ * Used when the host empties the playlist so guests stop receiving a
+ * file that's no longer needed. Both broadcastFile loops (via
+ * _broadcastScope) and unicastFile loops (via _activeUnicasts) check
+ * their scope each iteration and exit on the next tick.
+ */
+export function cancelOutgoingFileTransfers(): void {
+  if (_broadcastScope) {
+    _broadcastScope.dispose();
+    _broadcastScope = null;
+  }
+  setState('transfer.activeBroadcastSession', null);
+
+  for (const scope of _activeUnicasts.values()) {
+    scope.dispose();
+  }
+  _activeUnicasts.clear();
+}

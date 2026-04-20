@@ -107,16 +107,9 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // fetch from the server; any other file falls back to the "same
     // Wi-Fi" guidance UI.
     if (isRemoteGuest() && !hasActiveRelay()) {
+      if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined)) return;
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || (data.name as string) || '';
-      if (name === DEMO_FILE_NAME) {
-        log.debug('[Guest] Remote late-join on demo — fetching from server');
-        transition({ type: 'FILE_PREPARE', variant: 'demo', index: incomingIndex, name });
-        setState('transfer.skipIncomingFile', true);
-        fetchDemoFromServer(incomingIndex)
-          .catch(e => log.error('[Guest] Demo fetch failed:', e));
-        return;
-      }
       setState('player.currentTrackMeta', {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
@@ -231,8 +224,12 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       bus.emit('sync:arm-initial');
     }
   } else {
-    // Remote guest: no file will arrive, show guide (transport guard)
+    // Remote guest: no file will arrive via P2P. For the demo, fall back
+    // to an HTTP fetch (covers the case where PLAYLIST_UPDATE arrived
+    // before PLAY, so currentTrackIndex already matches and we skipped
+    // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
     if (isRemoteGuest() && !hasActiveRelay()) {
+      if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined)) return;
       const playlist2 = getState('playlist.items') || [];
       setState('player.currentTrackMeta', {
         type: 'file',
@@ -248,6 +245,23 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     setPendingPlayTime(time);
     log.debug(`[Guest] Storing pending play time: ${time}`);
   }
+}
+
+/**
+ * Remote-guest helper: if the track at `index` is the demo, kick off the
+ * HTTP fetch from the server and return true. Used in two PLAY-handler
+ * branches (index-mismatch and no-buffer) so either message-arrival order
+ * lands on the same path.
+ */
+function tryFetchDemoForRemote(index: number, dataName: string | undefined): boolean {
+  const playlist = getState('playlist.items') || [];
+  const name = playlist[index]?.name || dataName || '';
+  if (name !== DEMO_FILE_NAME) return false;
+  log.debug('[Guest] Remote — fetching demo from server');
+  transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
+  setState('transfer.skipIncomingFile', true);
+  fetchDemoFromServer(index).catch(e => log.error('[Guest] Demo fetch failed:', e));
+  return true;
 }
 
 function handlePauseMsg(data: Record<string, unknown>): void {

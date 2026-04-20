@@ -32,6 +32,7 @@ import {
   getPlayerNode,
   incrementLoadToken,
   setPendingPlayTime,
+  getPendingPlayTimeSetAt,
   isPlayPreloadedInProgress,
   setLastClearedTrackName,
 } from './_state.ts';
@@ -278,7 +279,7 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   setPendingPlayTime(time);
   transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
   setState('transfer.skipIncomingFile', true);
-  fetchDemoFromServer(index, time).catch(e => log.error('[Guest] Demo fetch failed:', e));
+  fetchDemoFromServer(index, time, getPendingPlayTimeSetAt()).catch(e => log.error('[Guest] Demo fetch failed:', e));
   return true;
 }
 

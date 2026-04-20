@@ -18,7 +18,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
-import { getPendingPlayTime, setPendingPlayTime } from '../player/_state.ts';
+import { getPendingPlayTime, setPendingPlayTime, getPendingPlayTimeSetAt } from '../player/_state.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -55,7 +55,7 @@ function startChunkWatchdog(): void {
 
 // ─── Internal Helpers ────────────────────────────────────────────────
 
-export async function fetchDemoFromServer(index: number, guardedPlayAt?: number): Promise<void> {
+export async function fetchDemoFromServer(index: number, guardedPlayAt?: number, guardedPlaySetAt?: number): Promise<void> {
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
 
@@ -90,14 +90,14 @@ export async function fetchDemoFromServer(index: number, guardedPlayAt?: number)
     setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''), index, size: file.size, mime: 'audio/mpeg' });
     showLoader(false);
 
-    // Defensive: if the caller passed a play-at hint and nothing currently
-    // holds a pendingPlayTime, restore it right before handing off to
-    // loadPreloadedTrack. During the multi-second fetch window, stopAllMedia
-    // or a superseding transition may have cleared pendingPlayTime, leaving
-    // loadPreloadedTrack with nothing to seek to and therefore no play().
+    // Defensive: preserve pending play time if the HTTP fetch race cleared it
     if (guardedPlayAt !== undefined && getPendingPlayTime() === undefined) {
-      setPendingPlayTime(guardedPlayAt);
+      setPendingPlayTime(guardedPlayAt, guardedPlaySetAt);
     }
+
+    // THE BUG FIX: advance state machine past AWAITING_PRELOAD lock
+    transition({ type: 'PRELOAD_FILE_READY', index });
+
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
@@ -163,13 +163,20 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
         // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
         transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
         setState('transfer.skipIncomingFile', true);
+
+        // Preserve pendingPlayTime before stopAllMedia clears it, since we 
+        // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
+        const pendingTime = getPendingPlayTime();
+        const pendingSetAt = getPendingPlayTimeSetAt();
         bus.emit('player:stop-all-media');
+        
         const demoIndex = Number(data.index);
         const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
         if (data.index !== undefined) {
           setState('playlist.currentTrackIndex', safeDemoIndex);
         }
-        fetchDemoFromServer(safeDemoIndex);
+        
+        fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt);
         return;
       }
       showRemoteGuideUI(data);
@@ -626,7 +633,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   // preload) from re-showing the loader after finalizeGuestFile finishes.
   const transferState = getState('transfer.state');
   if ((transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.PROCESSING) &&
-      incomingSid <= getState('transfer.localSessionId')) {
+    incomingSid <= getState('transfer.localSessionId')) {
     return;
   }
 

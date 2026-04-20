@@ -83,9 +83,13 @@ export function getPendingPlayTime(): number | undefined {
   return _pendingPlayTime;
 }
 
-export function setPendingPlayTime(time: number | undefined): void {
+export function setPendingPlayTime(time: number | undefined, setAt?: number): void {
   _pendingPlayTime = time;
-  _pendingPlayTimeSetAt = time === undefined ? 0 : Date.now();
+  _pendingPlayTimeSetAt = time === undefined ? 0 : (setAt ?? Date.now());
+}
+
+export function getPendingPlayTimeSetAt(): number {
+  return _pendingPlayTimeSetAt;
 }
 
 /**

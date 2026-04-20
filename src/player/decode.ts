@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
@@ -204,13 +204,9 @@ export async function loadAndBroadcastFile(
     const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
 
-    // Broadcast file to peers — skip demo: guests fetch it directly from
-    // the server via HTTP (see transfer-receive.ts handleFilePrepare). A
-    // parallel P2P broadcast races against the HTTP fetch and, because
-    // handleFileStart's isNewSession branch unconditionally clears
-    // transfer.skipIncomingFile, guests end up downloading the demo twice.
+    // Broadcast file to peers
     const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && sessionId !== null && file.name !== DEMO_FILE_NAME) {
+    if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
       broadcastFile(file, sessionId)
         .catch(e => log.error('[Host] broadcastFile failed:', e));

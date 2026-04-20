@@ -129,24 +129,12 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
     return;
   }
 
-  // Demo track: fetch directly from server instead of P2P transfer
-  if (data.name === DEMO_FILE_NAME) {
-    // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
-    // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
-    transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
-    setState('transfer.skipIncomingFile', true);
-    bus.emit('player:stop-all-media');
-    const demoIndex = Number(data.index);
-    const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
-    if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', safeDemoIndex);
-    }
-    fetchDemoFromServer(safeDemoIndex);
-    return;
-  }
-
-  // Remote guests: block file transfer unless relay is active
+  // Remote guests (no local P2P path): demo → HTTP fetch from server,
+  // other files → guide UI. Local guests always fall through to the
+  // normal P2P receive path below (even for the demo), so the host's
+  // broadcastFile has one coherent audience.
   if (isRemoteGuest() && !hasActiveRelay()) {
+    let confirmedRemote = true;
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
@@ -155,12 +143,25 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       if (resolved === 'local') {
         log.info(`[Transfer] connectionType resolved: local — proceeding`);
         showLoader(false);
-        // Fall through to normal handling below
-      } else {
-        showRemoteGuideUI(data);
+        confirmedRemote = false;
+      }
+    }
+
+    if (confirmedRemote) {
+      if (data.name === DEMO_FILE_NAME) {
+        // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
+        // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
+        transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
+        setState('transfer.skipIncomingFile', true);
+        bus.emit('player:stop-all-media');
+        const demoIndex = Number(data.index);
+        const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
+        if (data.index !== undefined) {
+          setState('playlist.currentTrackIndex', safeDemoIndex);
+        }
+        fetchDemoFromServer(safeDemoIndex);
         return;
       }
-    } else {
       showRemoteGuideUI(data);
       return;
     }

@@ -14,13 +14,13 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
-import { unicastFile } from '../storage/transfer.ts';
+import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
@@ -100,19 +100,23 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       return;
     }
 
-    // Fresh join (currentTrackIndex was -1): the file will be sent automatically
-    // by the orchestrator:peer-evaluated handler after ICE detection completes.
-    // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
-    // if the request arrives after the orchestrator sets isDataTarget=true.
-    if (currentTrackIndex === -1) {
-      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-evaluated');
-      return;
-    }
-
-    // No preload — request file from host (transport guard)
+    // Remote guest without relay: orchestrator won't unicast the file
+    // (isDataTarget=false) and a REQUEST_CURRENT_FILE would route over
+    // TURN. Handle this case up-front — it applies to both fresh-join
+    // and mid-stream track switches. The demo gets an HTTP fallback
+    // fetch from the server; any other file falls back to the "same
+    // Wi-Fi" guidance UI.
     if (isRemoteGuest() && !hasActiveRelay()) {
       const playlist = getState('playlist.items') || [];
-      const name = playlist[incomingIndex]?.name || '';
+      const name = playlist[incomingIndex]?.name || (data.name as string) || '';
+      if (name === DEMO_FILE_NAME) {
+        log.debug('[Guest] Remote late-join on demo — fetching from server');
+        transition({ type: 'FILE_PREPARE', variant: 'demo', index: incomingIndex, name });
+        setState('transfer.skipIncomingFile', true);
+        fetchDemoFromServer(incomingIndex)
+          .catch(e => log.error('[Guest] Demo fetch failed:', e));
+        return;
+      }
       setState('player.currentTrackMeta', {
         type: 'file',
         title: t('toast.same_wifi_file_title'),
@@ -124,6 +128,18 @@ function handlePlayMsg(data: Record<string, unknown>): void {
       log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
       return;
     }
+
+    // Fresh join (currentTrackIndex was -1): the file will be sent automatically
+    // by the orchestrator:peer-evaluated handler after ICE detection completes.
+    // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
+    // if the request arrives after the orchestrator sets isDataTarget=true.
+    if (currentTrackIndex === -1) {
+      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-evaluated');
+      return;
+    }
+
+    // Mid-stream track switch on a local guest with no preload — ask host
+    // to re-send the current file.
     const playlist = getState('playlist.items') || [];
     const name = playlist[incomingIndex]?.name || '';
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });

@@ -24,7 +24,7 @@ import {
   getCurrentAudioBuffer, setCurrentAudioBuffer,
   getLoadToken,
   getActiveLoadSessionId, incrementLoadSessionId,
-  getPendingPlayTime, setPendingPlayTime,
+  getPendingPlayTime, setPendingPlayTime, getPendingPlayTimeAge,
   setPlayPreloadedInProgress,
   getLastClearedTrackName, setLastClearedTrackName,
   replaceLoadScope,
@@ -440,12 +440,15 @@ export async function loadPreloadedTrack(
 
     setPlayPreloadedInProgress(false);
 
-    // Consume pending play time
+    // Consume pending play time — compensate for elapsed wall clock so the
+    // guest doesn't resume at the host's past position (remote-demo HTTP
+    // fetch can take several seconds during which the host keeps playing).
     const localOffset = getState('sync.localOffset') || 0;
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
-      const target = pendingTime + localOffset;
-      log.debug(`[Preload] Pending play at ${target.toFixed(1)}s`);
+      const age = getPendingPlayTimeAge();
+      const target = pendingTime + age + localOffset;
+      log.debug(`[Preload] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
       setPendingPlayTime(undefined);
     }
@@ -666,12 +669,14 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       }
     }
 
-    // Consume pending play time and start playback (position may be stale)
+    // Consume pending play time — compensate for elapsed wall clock so the
+    // guest doesn't resume at the host's past position after a slow decode.
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const localOffset = getState('sync.localOffset') || 0;
-      const target = pendingTime + localOffset;
-      log.debug(`[Guest] Pending play at ${target.toFixed(1)}s`);
+      const age = getPendingPlayTimeAge();
+      const target = pendingTime + age + localOffset;
+      log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
       setPendingPlayTime(undefined);
     }

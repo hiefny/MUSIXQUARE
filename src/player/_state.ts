@@ -17,6 +17,7 @@ let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _pendingPlayTime: number | undefined;
+let _pendingPlayTimeSetAt = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
 let _loadScope: SessionScope | null = null;
@@ -84,6 +85,18 @@ export function getPendingPlayTime(): number | undefined {
 
 export function setPendingPlayTime(time: number | undefined): void {
   _pendingPlayTime = time;
+  _pendingPlayTimeSetAt = time === undefined ? 0 : Date.now();
+}
+
+/**
+ * Seconds elapsed since pendingPlayTime was set. Consumers add this to
+ * the stored time to estimate the host's current playback position —
+ * important when decode/fetch takes several seconds (e.g. remote guest's
+ * HTTP fetch for the demo), during which the host keeps playing forward.
+ */
+export function getPendingPlayTimeAge(): number {
+  if (_pendingPlayTime === undefined || _pendingPlayTimeSetAt === 0) return 0;
+  return (Date.now() - _pendingPlayTimeSetAt) / 1000;
 }
 
 // ─── Preloaded In Progress ─────────────────────────────────────────

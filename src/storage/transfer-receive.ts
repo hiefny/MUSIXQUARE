@@ -54,7 +54,7 @@ function startChunkWatchdog(): void {
 
 // ─── Internal Helpers ────────────────────────────────────────────────
 
-async function fetchDemoFromServer(index: number): Promise<void> {
+export async function fetchDemoFromServer(index: number): Promise<void> {
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
 

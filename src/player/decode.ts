@@ -19,6 +19,7 @@ import { broadcastFile } from '../storage/transfer.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
+import { isSystemAudioActive } from '../audio/system-capture.ts';
 
 import {
   getCurrentAudioBuffer, setCurrentAudioBuffer,
@@ -104,7 +105,13 @@ export async function loadAndBroadcastFile(
   }
 
   try {
-    await initAudio();
+    if (!isSystemAudioActive()) {
+      // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
+      await Promise.race([
+        initAudio(),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
+    }
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
     // Create blob URL eagerly for video element; actual state publication
@@ -340,8 +347,14 @@ export async function loadPreloadedTrack(
 
   setPlayPreloadedInProgress(true);
 
-  try {
-    await initAudio();
+    try {
+      if (!isSystemAudioActive()) {
+        await Promise.race([
+          initAudio(),
+          new Promise(resolve => setTimeout(resolve, 2000))
+        ]);
+        if (getAudioContext().state === 'suspended') await ensureRunning();
+      }
 
     if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
       log.warn(`[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);

@@ -555,12 +555,16 @@ export function initPlayback(): void {
     // Try to activate immediately if blob is already available
     const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
+      if (isPlayPreloadedInProgress()) {
+        log.debug('[Playback] Activation already in progress, ignoring redundant use-preloaded');
+        return;
+      }
       const newToken = incrementLoadToken();
       loadPreloadedTrack(index, newToken);
     } else {
       // Blob not ready yet — set progress-aware watchdog. Will be triggered
       // by opfs:file-ready → storage:preload-file-ready → use-preloaded re-emit.
-      log.debug('[Playback] Preload blob not ready yet, waiting...');
+      log.debug('[Playback] Preload blob not ready yet, waiting for download completion...');
 
       // Approach B: progress-aware watchdog
       // ────────────────────────────────────

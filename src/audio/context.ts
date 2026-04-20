@@ -32,6 +32,10 @@ export function getCurrentTime(): number {
 export async function ensureRunning(): Promise<void> {
   const ctx = getAudioContext();
   if (ctx.state !== 'running') {
-    await ctx.resume();
+    // Add a race to prevent hanging on browsers that don't resolve resume() without a gesture
+    await Promise.race([
+      ctx.resume(),
+      new Promise(resolve => setTimeout(resolve, 500))
+    ]);
   }
 }

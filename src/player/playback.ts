@@ -278,7 +278,7 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   setPendingPlayTime(time);
   transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
   setState('transfer.skipIncomingFile', true);
-  fetchDemoFromServer(index).catch(e => log.error('[Guest] Demo fetch failed:', e));
+  fetchDemoFromServer(index, time).catch(e => log.error('[Guest] Demo fetch failed:', e));
   return true;
 }
 

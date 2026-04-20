@@ -18,6 +18,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
+import { getPendingPlayTime, setPendingPlayTime } from '../player/_state.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -54,7 +55,7 @@ function startChunkWatchdog(): void {
 
 // ─── Internal Helpers ────────────────────────────────────────────────
 
-export async function fetchDemoFromServer(index: number): Promise<void> {
+export async function fetchDemoFromServer(index: number, guardedPlayAt?: number): Promise<void> {
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
 
@@ -88,6 +89,15 @@ export async function fetchDemoFromServer(index: number): Promise<void> {
     setState('preload.nextFileBlob', file);
     setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''), index, size: file.size, mime: 'audio/mpeg' });
     showLoader(false);
+
+    // Defensive: if the caller passed a play-at hint and nothing currently
+    // holds a pendingPlayTime, restore it right before handing off to
+    // loadPreloadedTrack. During the multi-second fetch window, stopAllMedia
+    // or a superseding transition may have cleared pendingPlayTime, leaving
+    // loadPreloadedTrack with nothing to seek to and therefore no play().
+    if (guardedPlayAt !== undefined && getPendingPlayTime() === undefined) {
+      setPendingPlayTime(guardedPlayAt);
+    }
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);

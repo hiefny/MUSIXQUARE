@@ -287,7 +287,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'System debug info',
   'chat.cmd_u_party': '/party on|off',
   'chat.cmd_d_party': 'Toggle party mode',
-  'chat.debug_copied': 'Debug info copied. Send it to the developer if you found a bug.',
+  'chat.debug_copied': 'Debug info copied.\nSend it to the developer if you found a bug.',
   'chat.seek_to': 'Seek to {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -301,7 +301,7 @@ const en: Record<I18nKey, string> = {
   'youtube.load_timeout': 'YouTube load timed out. Please try again.',
   'youtube.invalid_link': 'Invalid YouTube link',
   'youtube.not_valid_link': 'Not a valid YouTube link',
-  'youtube.effects_disabled': 'Watch YouTube together — advanced audio effects are disabled.',
+  'youtube.effects_disabled': 'Watch YouTube together.\nAdvanced audio effects are disabled.',
   'youtube.enter_link_placeholder': 'Enter a video or playlist link',
   'youtube.fetching_info': 'Loading video info...',
   'youtube.fetch_failed': 'Could not load video info',
@@ -309,7 +309,6 @@ const en: Record<I18nKey, string> = {
   'youtube.open_link': 'Open YouTube link',
   'youtube.tap_to_play': 'TAP TO PLAY',
   'youtube.added_to_playlist': 'Added to playlist',
-  'youtube.loading_playlist': 'Loading playlist info... (approx. 4s)',
   'youtube.loading_large_playlist': 'Loading large playlist...',
   'youtube.indexing_playlist': 'Analyzing playlist items...',
 
@@ -407,7 +406,7 @@ const en: Record<I18nKey, string> = {
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
-  'error.decode_timeout': 'Decoding "{{name}}" took too long. Skipping to next track.',
+  'error.decode_timeout': 'Decoding "{{name}}" took too long.\nSkipping to next track.',
   'error.all_tracks_failed': 'No playable tracks in the playlist.',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",
@@ -421,7 +420,7 @@ const en: Record<I18nKey, string> = {
   'error.no_host_id': 'No host ID found',
   'error.peer_unavailable': "Couldn't find the peer. Please double-check the code.",
   'error.host_left': 'The host appears to have left the session',
-  'error.network_issue': 'There is a network issue. Please check your internet connection.',
+  'error.network_issue': 'There is a network issue.\nPlease check your internet connection.',
   'error.signal_server_fail': "Can't reach the signaling server. Please try again shortly.",
   'error.server_disconnected': 'Disconnected from the server.',
   'error.session_id_unavailable': "Session ID is unavailable. Please try again.",

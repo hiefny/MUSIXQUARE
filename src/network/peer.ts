@@ -109,32 +109,37 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
 
+  // Direct URLs only (no .netlify.app → .com redirect, which breaks CORS in some WebViews)
   const turnEndpoints = [
-    '/.netlify/functions/get-turn-config',
-    'https://musixquare.netlify.app/.netlify/functions/get-turn-config',
+    '/.netlify/functions/get-turn-config',                            // same-origin (works for musixquare.com)
+    'https://musixquare.com/.netlify/functions/get-turn-config',      // cross-origin (Toss WebView, etc.) — direct, no redirect
   ];
 
   for (const url of turnEndpoints) {
     try {
       const resp = await fetch(url);
-      if (resp.ok) {
-        const { username, credential } = await resp.json() as { username: string; credential: string };
-        if (username && credential) {
-          iceServers.push(
-            { urls: 'turn:standard.relay.metered.ca:443', username, credential },
-            { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
-            { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
-          );
-          log.info('[Network] TURN credentials loaded (Metered.ca)');
-          break;
-        }
+      if (!resp.ok) {
+        log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
+        continue;
       }
-    } catch {
-      // Try next endpoint
+      const { username, credential } = await resp.json() as { username: string; credential: string };
+      if (!username || !credential) {
+        log.warn(`[Network] TURN fetch returned empty credentials: ${url}`);
+        continue;
+      }
+      iceServers.push(
+        { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+        { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
+        { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+      );
+      log.info(`[Network] TURN credentials loaded (Metered.ca) via ${url}`);
+      break;
+    } catch (e) {
+      log.warn(`[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   if (iceServers.length <= 2) {
-    log.debug('[Network] TURN config unavailable — STUN only');
+    log.warn('[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)');
   }
 
   const peerOpts: PeerOptions = {

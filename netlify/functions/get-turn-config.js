@@ -19,6 +19,7 @@ exports.handler = async (event) => {
     /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i,        // local dev
     /^https:\/\/[^/]*\.toss\.im$/i,                          // Toss in-app
     /^https:\/\/[^/]*\.toss-internal\.com$/i,                 // Toss internal
+    /^https:\/\/[^/]*\.tossmini\.com$/i,                      // Apps in Toss WebView (e.g. musixquare.apps.tossmini.com)
     /^https:\/\/musixquare\.netlify\.app$/i,                  // production
   ];
 

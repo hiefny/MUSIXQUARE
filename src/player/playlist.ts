@@ -87,6 +87,29 @@ export function resetShuffleOrder(): void {
   _shufflePosition = 0;
 }
 
+/**
+ * Splice a removed playlist index out of _shuffleOrder so the pseudo-random
+ * pass survives track removal — instead of ensureShuffleOrderValid later
+ * detecting a length mismatch and regenerating a brand-new permutation
+ * (which breaks the prev→next round-trip guarantee).
+ */
+function adjustShuffleOrderForRemoval(removedIndex: number): void {
+  if (_shuffleOrder.length === 0) return;
+  const posOfRemoved = _shuffleOrder.indexOf(removedIndex);
+  if (posOfRemoved < 0) return;
+
+  _shuffleOrder.splice(posOfRemoved, 1);
+  // Playlist indices above the removed slot shifted down by one
+  for (let i = 0; i < _shuffleOrder.length; i++) {
+    if (_shuffleOrder[i] > removedIndex) _shuffleOrder[i]--;
+  }
+  // Cursor past the removed position pulls back; clamp when list empties
+  if (_shufflePosition > posOfRemoved) _shufflePosition--;
+  if (_shufflePosition >= _shuffleOrder.length) {
+    _shufflePosition = Math.max(0, _shuffleOrder.length - 1);
+  }
+}
+
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
 export function toggleRepeat(): void {
@@ -1106,6 +1129,13 @@ export function initPlaylist(): void {
     playlist.splice(index, 1);
     setState('playlist.items', playlist);
 
+    // Keep the Fisher-Yates shuffle pass consistent across the removal so
+    // prev/next round-trips don't jump to unexpected tracks.
+    adjustShuffleOrderForRemoval(index);
+
+    let needsPlayRestart = false;
+    let newIdx = currentTrackIndex;
+
     if (playlist.length === 0) {
       // Empty playlist — stop everything and clear all stale state
       stopAllMedia();
@@ -1117,14 +1147,16 @@ export function initPlaylist(): void {
       setState('player.currentTrackMeta', null);
       setState('files.currentFileBlob', null);
       setState('transfer.meta', {});
+      newIdx = -1;
     } else if (isCurrentTrack) {
       // Was playing the removed track — play previous or adjusted index
-      const newIdx = Math.min(index, playlist.length - 1);
+      newIdx = Math.min(index, playlist.length - 1);
       setState('playlist.currentTrackIndex', newIdx);
-      playTrack(newIdx);
+      needsPlayRestart = true;
     } else if (index < currentTrackIndex) {
       // Removed before current — shift index down
-      setState('playlist.currentTrackIndex', currentTrackIndex - 1);
+      newIdx = currentTrackIndex - 1;
+      setState('playlist.currentTrackIndex', newIdx);
     }
 
     // Invalidate preload if the removed track shifted/invalidated the preloaded index
@@ -1135,9 +1167,10 @@ export function initPlaylist(): void {
       if (playlist.length > 0) schedulePreload();
     }
 
-    // Broadcast updated playlist to all guests
-    const updatedPlaylist = getState('playlist.items') || [];
-    const metaList = updatedPlaylist.map(item => ({
+    // Broadcast the updated playlist BEFORE kicking off any replay. Otherwise
+    // playTrack fires FILE_PREPARE/PLAY first and guests momentarily sit on
+    // the old playlist with the new currentTrackIndex.
+    const metaList = playlist.map(item => ({
       type: item.type,
       name: item.name,
       title: item.title || item.name,
@@ -1147,8 +1180,12 @@ export function initPlaylist(): void {
     broadcast({
       type: MSG.PLAYLIST_UPDATE,
       list: metaList,
-      currentTrackIndex: getState('playlist.currentTrackIndex'),
+      currentTrackIndex: newIdx,
     });
+
+    if (needsPlayRestart) {
+      playTrack(newIdx);
+    }
   });
 
   // Host: Send playlist state to newly connected peer (late-join bootstrap)

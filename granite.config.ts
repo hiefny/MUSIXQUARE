@@ -5,7 +5,7 @@ export default defineConfig({
   brand: {
     displayName: '뮤직스퀘어',
     primaryColor: '#4281F1',
-    icon: 'https://static.toss.im/appsintoss/21069/f90941fa-567d-4d3a-a708-0c19adeac0d7.png',
+    icon: 'https://static.toss.im/appsintoss/21069/cad8ac0c-7202-4d24-8ef2-9fbe4a004579.png',
   },
   web: {
     host: 'localhost',

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
@@ -437,8 +437,8 @@ export async function loadPreloadedTrack(
         bus.emit('sync:auto-sync');
       }, 500);
     }
-
     setPlayPreloadedInProgress(false);
+    showLoader(false);
 
     // Consume pending play time — compensate for elapsed wall clock so the
     // guest doesn't resume at the host's past position (remote-demo HTTP
@@ -447,11 +447,21 @@ export async function loadPreloadedTrack(
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const age = getPendingPlayTimeAge();
-      const target = pendingTime + age + localOffset;
-      log.debug(`[Preload] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
+      let target = pendingTime + age + localOffset;
+
+      // Wrap target time for demo tracks to avoid seeking past the end (silence)
+      if (localMeta?.name === DEMO_FILE_NAME && audioBuffer.duration > 0) {
+        target = target % audioBuffer.duration;
+      }
+
+      log.info(`[Preload] Activating demo/preload playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
       setPendingPlayTime(undefined);
+    } else {
+      log.info('[Preload] No pending play time, staying in READY state');
     }
+
+    showLoader(false);
 
   } catch (e: unknown) {
     setPlayPreloadedInProgress(false);

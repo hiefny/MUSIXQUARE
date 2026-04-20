@@ -25,6 +25,7 @@ import { getPendingPlayTime, setPendingPlayTime, getPendingPlayTimeSetAt } from 
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let nextExpectedChunk = 0;
 let lastChunkTime = 0;
+let _demoFetchPromise: Promise<void> | null = null;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Chunk Watchdog ──────────────────────────────────────────────────
@@ -56,6 +57,29 @@ function startChunkWatchdog(): void {
 // ─── Internal Helpers ────────────────────────────────────────────────
 
 export async function fetchDemoFromServer(index: number, guardedPlayAt?: number, guardedPlaySetAt?: number): Promise<void> {
+  // If connection type is unknown, wait before deciding to fetch from server.
+  // This prevents local guests from hitting the HTTP demo path during bootstrap.
+  if (isRemoteGuest() && getState('network.connectionType') === 'unknown') {
+    const resolvedType = await waitForGuestConnectionType(2000);
+    if (resolvedType === 'local' || hasActiveRelay()) {
+      log.debug('[Transfer] Resolved to local/relay during demo fetch — aborting HTTP path');
+      return;
+    }
+  }
+
+  if (_demoFetchPromise) return _demoFetchPromise;
+
+  _demoFetchPromise = _doFetchDemoFromServer(index, guardedPlayAt, guardedPlaySetAt);
+
+  try {
+    await _demoFetchPromise;
+  } finally {
+    _demoFetchPromise = null;
+  }
+}
+
+async function _doFetchDemoFromServer(index: number, guardedPlayAt?: number, guardedPlaySetAt?: number): Promise<void> {
+  const guardedPlaySetAtValue = guardedPlaySetAt ?? getPendingPlayTimeSetAt();
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
 
@@ -92,7 +116,7 @@ export async function fetchDemoFromServer(index: number, guardedPlayAt?: number,
 
     // Defensive: preserve pending play time if the HTTP fetch race cleared it
     if (guardedPlayAt !== undefined && getPendingPlayTime() === undefined) {
-      setPendingPlayTime(guardedPlayAt, guardedPlaySetAt);
+      setPendingPlayTime(guardedPlayAt, guardedPlaySetAtValue);
     }
 
     // THE BUG FIX: advance state machine past AWAITING_PRELOAD lock

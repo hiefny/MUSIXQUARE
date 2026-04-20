@@ -31,24 +31,9 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 
 ---
 
-## Getting Started
-
-### Live Version (Recommended)
+## How to Use
 
 **https://musixquare.com** — no install needed.
-
-### Local Development
-
-```bash
-npm install
-npm run dev
-```
-
-> Requires HTTPS or `localhost` for WebRTC, Service Worker, and OPFS.
-
----
-
-## How to Use
 
 ### Host
 
@@ -64,16 +49,6 @@ npm run dev
 1. Open the app and tap **"Join a session"**
 2. Enter the **6-digit code**
 3. Select your speaker role (Stereo / Left / Right / Woofer)
-
----
-
-## Deployment
-
-- **Hosting**: Netlify (auto-deploys from `main` branch)
-- **Build**: `npm run build` → `dist/`
-- **TURN Server**: Netlify Function (`netlify/functions/get-turn-config.js`) with Metered.ca credentials
-- **Font**: Pretendard self-hosted (`css/pretendard.css` + `fonts/`)
-- **PWA**: `manifest.webmanifest` + `service-worker.js` included
 
 ---
 

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
@@ -204,9 +204,13 @@ export async function loadAndBroadcastFile(
     const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
 
-    // Broadcast file to peers
+    // Broadcast file to peers — skip demo: guests fetch it directly from
+    // the server via HTTP (see transfer-receive.ts handleFilePrepare). A
+    // parallel P2P broadcast races against the HTTP fetch and, because
+    // handleFileStart's isNewSession branch unconditionally clears
+    // transfer.skipIncomingFile, guests end up downloading the demo twice.
     const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && sessionId !== null) {
+    if (connectedPeers.length > 0 && sessionId !== null && file.name !== DEMO_FILE_NAME) {
       showToast(t('transfer.file_sending'));
       broadcastFile(file, sessionId)
         .catch(e => log.error('[Host] broadcastFile failed:', e));
@@ -384,6 +388,17 @@ export async function loadPreloadedTrack(
     setCurrentAudioBuffer(audioBuffer);
     log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
 
+    // Guest: refresh track title from playlist — finalizeGuestFile sets this
+    // on the P2P download path, but the preload/demo path never did, leaving
+    // the UI stuck on the previous track's title.
+    const hostConn = getState('network.hostConn');
+    if (hostConn) {
+      const playlist = getState('playlist.items') || [];
+      if (playlist[targetIndex]) {
+        setState('player.currentTrackMeta', playlist[targetIndex]);
+      }
+    }
+
     // Lifecycle (Phase 3 dual-write): preload blob decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
@@ -420,7 +435,6 @@ export async function loadPreloadedTrack(
     clearManagedTimer('preloadWatchdog');
 
     // Auto-sync after settle
-    const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
       setManagedTimer('playback-preload-auto-sync', () => {
         log.debug('[Guest] Post-preload auto-sync');

@@ -103,15 +103,21 @@ export function startGuestFlow(): void {
   updateRoleBadge();
 }
 
-/** Render actions for invite-link flow: primary "시작하기" (disabled until a
- *  role is picked) plus a text-link escape hatch back to the root URL. The
- *  back-link does a true hard navigation to '/' so a user who landed here
- *  via /CODE (invite link or post-disconnect reconnect) and now wants to
- *  start fresh isn't stuck — common case: host has actually left and the
- *  peer-unavailable error message in setup.ts told them so. */
+/** Render actions for invite-link flow: small back icon + primary "시작하기"
+ *  (disabled until a role is picked). The back icon does a true hard
+ *  navigation to '/' so a user who landed here via /CODE (invite link or
+ *  post-disconnect reconnect) and now wants to start fresh isn't stuck —
+ *  common case: host has actually left and the peer-unavailable error
+ *  message in setup.ts told them so. Uses the same horizontal-with-back
+ *  layout as the normal host/guest code screens so the role-select area
+ *  keeps a single-row action bar (mobile diagram real estate). */
 function _renderInviteLinkActions(): void {
   const role = getPendingSetupRole();
   setupRenderActions([
+    {
+      id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only',
+      onClick: () => { window.location.href = '/'; },
+    },
     {
       id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary',
       disabled: role === null,
@@ -121,11 +127,7 @@ function _renderInviteLinkActions(): void {
         else showToast(t('setup.select_role'));
       },
     },
-    {
-      id: 'btn-setup-back-home', text: t('setup.back_to_home'), kind: 'text-link',
-      onClick: () => { window.location.href = '/'; },
-    },
-  ], 'vertical');
+  ], 'horizontal-with-back');
 }
 
 /** Called when a role card is tapped in invite-link mode — enable the start button */

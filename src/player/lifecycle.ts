@@ -158,7 +158,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_CHUNK':
       case 'PRELOAD_END':
       case 'PRELOAD_FILE_READY':
-        return { stay: true };  // preload for a different (next) track coexists
+        return { next: PLAYBACK_STATE.DECODING };  // Safety promotion: if HTTP demo fetch finishes during P2P download
       case 'LOAD_TOKEN_MISMATCH':
         return { stay: true };  // handler aborts; machine unchanged
       default:               return { reject: `${ev.type} not expected in DOWNLOADING` };
@@ -180,7 +180,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'FILE_PREPARE':
         if (ev.variant === 'same-file')       return { stay: true };  // dedup on re-broadcast
         if (ev.variant === 'preload-match')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
-        if (ev.variant === 'preload-waiting') return { stay: true };  // already awaiting same preload
+        if (ev.variant === 'preload-waiting' || ev.variant === 'demo') return { stay: true };  // already awaiting same preload/demo
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };  // supersede
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };

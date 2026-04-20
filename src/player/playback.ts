@@ -22,7 +22,7 @@ import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
-import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay, waitForGuestConnectionType } from '../network/peer.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -66,7 +66,7 @@ let _activePreloadWaiterCleanup: (() => void) | null = null;
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
-function handlePlayMsg(data: Record<string, unknown>): void {
+async function handlePlayMsg(data: Record<string, unknown>): Promise<void> {
   // Ignore PLAY during system audio mode (live stream, not file-based)
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 
@@ -107,7 +107,13 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // and mid-stream track switches. The demo gets an HTTP fallback
     // fetch from the server; any other file falls back to the "same
     // Wi-Fi" guidance UI.
-    if (isRemoteGuest() && !hasActiveRelay()) {
+    let confirmedRemote = isRemoteGuest();
+    if (confirmedRemote && getState('network.connectionType') === 'unknown') {
+      const type = await waitForGuestConnectionType(2000);
+      confirmedRemote = (type === 'remote');
+    }
+
+    if (confirmedRemote && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || (data.name as string) || '';
@@ -229,7 +235,13 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // to an HTTP fetch (covers the case where PLAYLIST_UPDATE arrived
     // before PLAY, so currentTrackIndex already matches and we skipped
     // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
-    if (isRemoteGuest() && !hasActiveRelay()) {
+    let confirmedRemote = isRemoteGuest();
+    if (confirmedRemote && getState('network.connectionType') === 'unknown') {
+      const type = await waitForGuestConnectionType(2000);
+      confirmedRemote = (type === 'remote');
+    }
+
+    if (confirmedRemote && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       const playlist2 = getState('playlist.items') || [];
       setState('player.currentTrackMeta', {

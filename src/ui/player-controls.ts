@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { APP_STATE, MSG, DEMO_FILE_NAME } from '../core/constants.ts';
 import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -82,13 +82,16 @@ function refreshTrackTitle(): void {
       ? t('system_audio.receiving')
       : (item.title || item.name || t('common.unknown'));
 
-  // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title
+  // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title.
+  // Exception: the demo file is reachable over HTTP from the server for remote
+  // guests too, so keep showing its real title while the fetch/decode runs.
   const isRemote = getState('network.connectionType') === 'remote';
   const isLocalFile = item.type === 'file';
   const hasNoBlob = !getState('files.currentFileBlob');
   const isGuest = !!getState('network.hostConn');
+  const isDemo = item.name === DEMO_FILE_NAME;
 
-  if (isGuest && isRemote && isLocalFile && hasNoBlob) {
+  if (isGuest && isRemote && isLocalFile && hasNoBlob && !isDemo) {
     title = t('toast.same_wifi_file_title');
   }
 

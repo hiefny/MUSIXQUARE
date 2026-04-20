@@ -73,7 +73,7 @@ export function getShuffleNextIndex(): number {
   const playlist = getState('playlist.items') || [];
   if (playlist.length <= 1) return -1;
 
-  let next = _shufflePosition + 1;
+  const next = _shufflePosition + 1;
   if (next >= _shuffleOrder.length) {
     if (repeatMode === 1) return _shuffleOrder[0];  // peek; advance happens on play
     return -1;  // end of shuffle pass without repeat-all
@@ -533,7 +533,7 @@ export function playNextTrack(): void {
       const anchor = _shuffleOrder.indexOf(currentTrackIndex);
       if (anchor >= 0) _shufflePosition = anchor;
 
-      let nextPos = _shufflePosition + 1;
+      const nextPos = _shufflePosition + 1;
       if (nextPos >= _shuffleOrder.length) {
         if (repeatMode === 1) {
           // Exhausted one pass — reshuffle for a fresh permutation and start over

@@ -56,6 +56,9 @@ async function decodeWithTimeout(
   const ctx = getAudioContext();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
+    // One-shot timeout race for decodeAudioData; cleared in finally below.
+    // setManagedTimer is name-keyed and not suited for per-call concurrent decodes.
+    // eslint-disable-next-line no-restricted-globals
     timeoutId = setTimeout(() => {
       reject(new Error(`${DECODE_TIMEOUT_TAG}:${label}:${DECODE_TIMEOUT_MS}ms`));
     }, DECODE_TIMEOUT_MS);

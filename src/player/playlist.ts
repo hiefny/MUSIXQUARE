@@ -15,7 +15,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import { incrementLoadToken, getCurrentAudioBuffer, setCurrentAudioBuffer } from './_state.ts';
-import { getVideoElement, isMediaVideo } from './video.ts';
+import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
@@ -256,7 +256,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   const _currentIdx = getState('playlist.currentTrackIndex');
   const _item = playlist[index];
   const _isSameTrack = index === _currentIdx;
-  const _hasAudioLoaded = !!(getCurrentAudioBuffer() || getVideoElement()?.src);
+  const _hasAudioLoaded = !!getCurrentAudioBuffer();
   const _isLocalFileTrack = !!_item && _item.type !== 'youtube' && !!_item.file;
 
   if (!hostConn && _isSameTrack && _hasAudioLoaded && _isLocalFileTrack) {

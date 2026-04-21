@@ -18,7 +18,6 @@ import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constant
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
-import { getVideoElement } from './video.ts';
 import { readFileFromOpfs } from '../storage/opfs.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
@@ -39,7 +38,7 @@ import {
 
 import {
   play, pause, stopAllMedia,
-  getTrackPosition, checkVideoSync, handleEnded,
+  getTrackPosition, handleEnded,
   skipTime,
 } from './transport.ts';
 
@@ -186,7 +185,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     return;
   }
 
-  if (getCurrentAudioBuffer() || getVideoElement()?.src) {
+  if (getCurrentAudioBuffer()) {
     // Lifecycle (Phase 3 dual-write): we have a decoded buffer → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, restart from
@@ -205,14 +204,8 @@ function handlePlayMsg(data: Record<string, unknown>): void {
         // Compensate: host has been playing during waitMs, so advance position
         const compensatedTime = time + (waitMs / 1000);
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
-        const hasBuffer = !!getCurrentAudioBuffer();
-        if (hasBuffer) {
-          play(compensatedTime, waitMs / 1000);
-        } else {
-          // Video-only: fall back to setTimeout (Web Audio scheduling not available)
-          setManagedTimer('clock-play', () => play(compensatedTime), waitMs);
-        }
-        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms${hasBuffer ? ', WebAudio' : ', setTimeout'})`);
+        play(compensatedTime, waitMs / 1000);
+        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`);
         bus.emit('sync:arm-initial');
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
@@ -390,8 +383,6 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
   } else {
     setState('player.pausedAt', time);
-    const videoElement = getVideoElement();
-    if (videoElement) try { videoElement.currentTime = time; } catch { /* noop */ }
     broadcast({ type: MSG.PAUSE, time });
   }
   // SharedClock handles sync
@@ -423,11 +414,6 @@ export function initPlayback(): void {
     [MSG.REQUEST_SKIP_TIME]: handleRequestSkipTime,
   });
 
-  // Video sync timer tick
-  bus.on('worker:timer-tick', (id) => {
-    if (id === 'video-sync') checkVideoSync();
-  });
-
   // Stop all media (called from youtube player before loading)
   bus.on('player:stop-all-media', () => {
     stopAllMedia();
@@ -438,7 +424,7 @@ export function initPlayback(): void {
   // so don't start playing until then" — prevents the 3-second drift
   // window when host re-clicks a currently-playing track.
   bus.on('playback:replay-current', (delayMs?: number) => {
-    if (!(getCurrentAudioBuffer() || getVideoElement()?.src)) return;
+    if (!getCurrentAudioBuffer()) return;
 
     const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');

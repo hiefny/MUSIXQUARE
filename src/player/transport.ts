@@ -15,7 +15,7 @@ import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/tim
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
-import { getVideoElement, isIdleOrPaused, isMediaVideo } from './video.ts';
+import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -76,10 +76,9 @@ export function getTrackPosition(): number {
   }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
-  const videoElement = getVideoElement();
   const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
     ? _currentAudioBuffer.duration
-    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
+    : 0;
 
   let pos = 0;
   const startedAt = getState('player.startedAt') || 0;
@@ -108,8 +107,6 @@ export function getTrackPosition(): number {
     } else {
       pos = (getCurrentTime() - startedAt) + localOffset;
     }
-  } else if (videoElement?.src && videoElement.readyState >= 1) {
-    pos = videoElement.currentTime;
   }
 
   if (isNaN(pos)) pos = 0;
@@ -152,14 +149,6 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
 
   getLoadScope()?.dispose();
   setLoadScope(null);
-  const videoElement = getVideoElement();
-
-  // 1. Stop video
-  if (videoElement) {
-    videoElement.pause();
-    videoElement.removeAttribute('src');
-    videoElement.load();
-  }
 
   try { BlobURLManager.revoke(); } catch (e) { log.debug('[Transport] BlobURL revoke:', e); }
   try { BlobURLManager.flushDeferred('stopAllMedia'); } catch (e) { log.debug('[Transport] BlobURL flush:', e); }
@@ -238,8 +227,6 @@ export function seekTo(time: number): void {
   } else {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
-    const videoElement = getVideoElement();
-    if (videoElement) try { videoElement.currentTime = time; } catch (e) { log.debug('[Transport] seek while paused:', e); }
     broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
   }
 }
@@ -310,11 +297,9 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
-  const videoElement = getVideoElement();
-  const hasVideoSource = !!(videoElement?.src?.startsWith('blob:'));
   const hasBufferSource = !!_currentAudioBuffer;
 
-  if (!hasVideoSource && !hasBufferSource) {
+  if (!hasBufferSource) {
     log.warn('[Play] No media source available');
     return;
   }
@@ -339,7 +324,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
   const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
     ? _currentAudioBuffer.duration
-    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
+    : 0;
   if (duration > 0) {
     if (safeOffset > duration) safeOffset = duration;
     if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
@@ -378,19 +363,6 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     // scheduleDelay = 0: immediate start (host or local play)
     const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
     newNode.start(startWhen, safeOffset);
-
-    // Sync visuals (muted video)
-    if (videoElement?.src) {
-      videoElement.currentTime = safeOffset;
-      videoElement.muted = true;
-      videoElement.play().catch(() => { /* noop */ });
-    }
-  } else if (hasVideoSource && videoElement?.src) {
-    // Video-only playback (no audio buffer) — play video with its own audio track
-    // Video-only: scheduleDelay not applicable (upstream uses setTimeout fallback)
-    videoElement.currentTime = safeOffset;
-    videoElement.muted = false;
-    videoElement.play().catch(() => { /* noop */ });
   }
 
   // Update timing
@@ -402,16 +374,9 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
 
-  const meta = getState('transfer.meta');
-  const currentFileBlob = getState('files.currentFileBlob');
-  const isVideo = isMediaVideo(currentFileBlob, meta);
-  const newState = isVideo ? APP_STATE.PLAYING_VIDEO : APP_STATE.PLAYING_AUDIO;
-  setAppState(newState);
+  setAppState(APP_STATE.PLAYING_AUDIO);
 
   bus.emit('visualizer:start');
-  if (isVideo) {
-    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'video-sync', interval: 2000 });
-  }
   bus.emit('ui:loop-start');
 }
 
@@ -430,16 +395,9 @@ export function pause(forcedTime?: number): void {
 
   stopPlayerNode();
 
-  const videoElement = getVideoElement();
-  if (videoElement) {
-    try { videoElement.pause(); } catch (e) { log.debug('[Transport] video pause:', e); }
-    try { videoElement.currentTime = pausePos; } catch (e) { log.debug('[Transport] video seek on pause:', e); }
-  }
-
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
   showToast(t('common.pause'));
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
 }
 
 // ─── Handle Track Ended ────────────────────────────────────────────
@@ -450,18 +408,11 @@ export function handleEnded(): void {
 
   const currentState = getState('appState');
   const _currentAudioBuffer = getCurrentAudioBuffer();
-  const videoElement = getVideoElement();
 
   const hasBufferDuration = !!(_currentAudioBuffer &&
     Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.1);
 
-  const usesVideoElement = currentState === APP_STATE.PLAYING_VIDEO;
-  if (!hasBufferDuration && usesVideoElement && videoElement && videoElement.readyState < 1) return;
-
-  const duration = hasBufferDuration
-    ? _currentAudioBuffer!.duration
-    : (videoElement ? videoElement.duration : 0);
-
+  const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
   if (isIdleOrPaused(currentState)) return;
   if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
@@ -617,11 +568,10 @@ export function skipTime(sec: number): void {
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const current = getTrackPosition();
   let target = current + sec;
-  const videoElement = getVideoElement();
   const rawBufDur = _currentAudioBuffer?.duration;
   const duration = (rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0)
     ? rawBufDur
-    : (videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
+    : 0;
 
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
@@ -681,28 +631,3 @@ export function adjustSync(val: number): void {
   }, NUDGE_REPLAY_DEBOUNCE_MS);
 }
 
-// ─── Check Video Sync ──────────────────────────────────────────────
-
-export function checkVideoSync(): void {
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState) || currentState === APP_STATE.PLAYING_YOUTUBE) return;
-
-  const videoElement = getVideoElement();
-  if (!videoElement?.src) return;
-
-  const targetTime = getTrackPosition();
-  const actualTime = videoElement.currentTime;
-  const drift = Math.abs(actualTime - targetTime);
-
-  if (drift > 0.3) {
-    if (videoElement.seeking) return;
-    log.debug(`[SyncCheck] Correcting video drift: ${drift.toFixed(3)}s`);
-
-    if (drift >= 1.9 && videoElement.paused) {
-      log.warn('[SyncCheck] Video appears frozen. Attempting kickstart...');
-      videoElement.play().catch(e => { log.debug('[Transport] video kickstart:', e); });
-    }
-
-    videoElement.currentTime = targetTime;
-  }
-}

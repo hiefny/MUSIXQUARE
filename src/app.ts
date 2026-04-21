@@ -46,7 +46,6 @@ import { initRecovery } from './storage/recovery.ts';
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
-import { initVideo } from './player/video.ts';
 import { initMediaSession } from './player/media-session.ts';
 
 // ── YouTube ──
@@ -235,7 +234,6 @@ function bootstrap(): void {
   // 3. Player & Media
   safeInit('Playback', initPlayback);
   safeInit('Playlist', initPlaylist);
-  safeInit('Video', initVideo);
   safeInit('MediaSession', initMediaSession);
 
   // 4. Audio engine (deferred init — Web Audio API context on user interaction)

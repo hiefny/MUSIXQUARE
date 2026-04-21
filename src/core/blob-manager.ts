@@ -2,7 +2,9 @@
  * MUSIXQUARE — Blob URL Manager
  *
  * Centralized Blob URL lifecycle management to prevent memory leaks.
- * Supports deferred revocation for URLs still attached to <video>.
+ * Historically supported deferred revocation while a URL was attached to a
+ * local <video>; since local-video playback was dropped, nothing holds a
+ * long-lived reference to these URLs and the defer branch is a no-op.
  */
 
 import { DELAY } from './constants.ts';
@@ -13,13 +15,6 @@ interface RevokeOptions {
   force?: boolean;
 }
 
-/** Reference to the main video element (set by UI layer) */
-let _videoElement: HTMLVideoElement | null = null;
-
-export function setVideoElement(el: HTMLVideoElement | null): void {
-  _videoElement = el;
-}
-
 export const BlobURLManager = {
   _activeURL: null as string | null,
   _preparingURL: null as string | null,
@@ -27,12 +22,9 @@ export const BlobURLManager = {
   _deferredUntilDetached: new Set<string>(),
   MAX_PENDING: 5,
 
-  _isUrlAttached(url: string): boolean {
-    try {
-      return !!(url && _videoElement && _videoElement.src === url);
-    } catch {
-      return false;
-    }
+  _isUrlAttached(_url: string): boolean {
+    // Local <video> was removed; blob URLs are never attached to a live element.
+    return false;
   },
 
   _clearScheduled(url: string): void {

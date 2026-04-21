@@ -13,7 +13,7 @@ import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constant
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
-import { getVideoElement, isMediaVideo, setEngineMode } from './video.ts';
+import { setEngineMode } from './video.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from '../storage/opfs.ts';
 import { broadcastFile } from '../storage/transfer.ts';
 import { schedulePreload } from '../storage/preload.ts';
@@ -119,7 +119,7 @@ export async function loadAndBroadcastFile(
     // would resolve to currentFileBlob with the PREVIOUS track's meta,
     // causing recovery.ts findMatchingBlob() to match the wrong file or
     // fall through its no-hint branch with stale metadata.
-    const url = BlobURLManager.create(file) || '';
+    BlobURLManager.create(file);
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
@@ -161,13 +161,6 @@ export async function loadAndBroadcastFile(
       bus.emit('ui:duration-update', audioBuffer.duration);
     }
 
-    // Visual sync
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
-
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     // Atomic publish: meta first, then blob — both in the same synchronous
     // tick so any subscriber (e.g. recovery.ts findMatchingBlob) always
@@ -176,32 +169,7 @@ export async function loadAndBroadcastFile(
     setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
     setState('files.currentFileBlob', file);
 
-
-    if (videoElement) {
-      const cleanupMeta = () => {
-        videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
-        videoElement.removeEventListener('error', onMetaError);
-      };
-      const onMetaLoaded = () => {
-        cleanupMeta();
-        if (myLoadId !== getActiveLoadSessionId()) return;
-        const dur = getCurrentAudioBuffer() ? getCurrentAudioBuffer()!.duration : videoElement.duration;
-        if (dur && Number.isFinite(dur)) {
-          bus.emit('ui:duration-update', dur);
-        }
-        BlobURLManager.confirm();
-      };
-      const onMetaError = () => {
-        cleanupMeta();
-        log.warn('[Playback] Video loadedmetadata failed — confirming blob URL');
-        BlobURLManager.confirm();
-      };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
-      videoElement.addEventListener('error', onMetaError, { once: true });
-      videoElement.load();
-    } else {
-      BlobURLManager.confirm();
-    }
+    BlobURLManager.confirm();
 
     // Enable play button
     const hostConn = getState('network.hostConn');
@@ -405,24 +373,15 @@ export async function loadPreloadedTrack(
     // Lifecycle (Phase 3 dual-write): preload blob decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
-    const isVideo = isMediaVideo(localBlob, activeMeta);
-    setEngineMode(isVideo ? 'video' : 'buffer');
+    setEngineMode('buffer');
 
-    // Visual sync
-    const url = BlobURLManager.create(localBlob) || '';
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
+    BlobURLManager.create(localBlob);
 
     const dur = audioBuffer.duration;
     if (Number.isFinite(dur)) {
       bus.emit('ui:duration-update', dur);
     }
     BlobURLManager.confirm();
-
-    if (videoElement) videoElement.load();
 
     // Clear preload state
     setState('preload.nextFileBlob', null);
@@ -574,12 +533,6 @@ export function clearPreviousTrackState(reason = ''): void {
 
   BlobURLManager.revoke();
 
-  const videoElement = getVideoElement();
-  if (videoElement) {
-    videoElement.pause();
-    videoElement.removeAttribute('src');
-    videoElement.load();
-  }
   try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch { /* noop */ }
 
   // Physically delete OLD current file from OPFS
@@ -632,43 +585,15 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     // Lifecycle (Phase 3 dual-write): main-transfer file decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
-    // Set blob BEFORE setEngineMode so updateBodyModeClass reads the correct file
     setState('files.currentFileBlob', file);
+    setEngineMode('buffer');
 
-    const meta = getState('transfer.meta');
-    const isVideo = isMediaVideo(file, meta);
-    setEngineMode(isVideo ? 'video' : 'buffer');
-
-    const url = BlobURLManager.create(file) || '';
-    const videoElement = getVideoElement();
-    if (videoElement) {
-      videoElement.src = url;
-      videoElement.muted = true;
-    }
+    BlobURLManager.create(file);
 
     if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
       bus.emit('ui:duration-update', audioBuffer.duration);
     }
     BlobURLManager.confirm();
-
-    if (videoElement) {
-      const cleanupMeta = () => {
-        videoElement.removeEventListener('loadedmetadata', onMetaLoaded);
-        videoElement.removeEventListener('error', onMetaError);
-      };
-      const onMetaLoaded = () => {
-        cleanupMeta();
-        const dur = getCurrentAudioBuffer() ? getCurrentAudioBuffer()!.duration : videoElement.duration;
-        if (dur && Number.isFinite(dur)) bus.emit('ui:duration-update', dur);
-      };
-      const onMetaError = () => {
-        cleanupMeta();
-        log.warn('[Guest] Video loadedmetadata failed during finalize');
-      };
-      videoElement.addEventListener('loadedmetadata', onMetaLoaded, { once: true });
-      videoElement.addEventListener('error', onMetaError, { once: true });
-      videoElement.load();
-    }
 
     // Reset guards
     setState('transfer.state', TRANSFER_STATE.READY);

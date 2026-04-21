@@ -154,18 +154,13 @@
 
 <!-- ── 00 AUG ─────────────────────── -->
 <section class="section">
-  <div class="section-head"><h2>Aug 2025 · The Web Audio sketchbook</h2><span class="num">00</span></div>
+  <div class="section-head"><h2>Aug 2025 · Building with Web Audio</h2><span class="num">00</span></div>
   <div class="prose">
     <p>
-      The project starts as a <strong>solo-device music visualizer</strong>.
-      <code>old.html</code> — 1,246 lines of Tailwind + Canvas + purple rings — let you
-      pick an audio file, watch bass/mid/treble rings pulse, and (optionally) ask Gemini
-      for the artist and synced LRC lyrics.
+      The project starts as a <strong>solo-device music app</strong>. <code>old.html</code> — 1,246 lines of Tailwind + Canvas with a purple theme — let you pick an audio file, watch frequency rings pulse, and ask Gemini for synced lyrics.
     </p>
     <p>
-      Single device, no network. But the <em>per-band frequency analysis</em> —
-      <code>AnalyserNode</code> plumbing, configurable cutoffs, bass/mid/treble
-      smoothing — lays the groundwork for every audio decision that comes after.
+      A single device. But the <em>per-band frequency analysis</em> — <code>AnalyserNode</code> plumbing, configurable cutoffs, frequency-band smoothing — lays the groundwork for the audio engine.
     </p>
   </div>
 </section>
@@ -175,9 +170,7 @@
   <div class="section-head"><h2>Oct 2025 · First P2P sync</h2><span class="num">01</span></div>
   <div class="prose" style="margin-bottom: 20px;">
     <p>
-      Two phones, PeerJS over WebRTC, and the first real attempt at keeping them aligned.
-      <code>sync.html</code> ships a <strong>dual-strategy sync algorithm</strong> that
-      the production app didn't match in sophistication until April 2026.
+      Two phones, PeerJS over WebRTC — the first real attempt at device sync. <code>sync.html</code> already ships a <strong>dual-strategy sync algorithm</strong>, and production didn't reach that level again until April 2026.
     </p>
   </div>
   <ul class="log">
@@ -191,7 +184,7 @@
     </li>
     <li>
       <div class="lead">Soft-sync via <code>playbackRate</code> (0.05s–0.5s)</div>
-      <div class="body">Smaller drift gets corrected by nudging <code>playbackRate</code> between <strong>0.95×</strong> and <strong>1.05×</strong> — the guest slowly catches up or slows down without an audible jump.</div>
+      <div class="body">Smaller drift gets corrected by nudging <code>playbackRate</code> — the guest catches up or slows down smoothly without an audible skip.</div>
     </li>
     <li>
       <div class="lead">1-second heartbeat</div>
@@ -199,7 +192,7 @@
     </li>
     <li>
       <div class="lead">Audio-reactive visual</div>
-      <div class="body">A circle that scales with <code>playbackRate</code>, so you can <em>see</em> the sync correction happening. Shipping UI-as-debugger from day one.</div>
+      <div class="body">A circle that scales with <code>playbackRate</code>, so you can <em>see</em> the sync correction happening.</div>
     </li>
   </ul>
 </section>
@@ -218,7 +211,7 @@
   <ul class="log">
     <li>
       <div class="lead">PeerJS handshake + ID exchange</div>
-      <div class="body">Tap to copy your ID, paste the other device's ID, press Connect. That's the entire pairing flow.</div>
+      <div class="body">Tap to copy your ID, paste the other device's ID, press Connect.</div>
     </li>
     <li>
       <div class="lead">File transfer over P2P</div>
@@ -244,11 +237,7 @@
   <div class="section-head"><h2>Dec 2025 · v1.0 – v1.2 · The channel lab</h2><span class="num">03</span></div>
   <div class="prose" style="margin-bottom: 20px;">
     <p>
-      Back to a single device, but asking the opposite question. If October cracked
-      open <em>per-band analysis</em> and November cracked open <em>device sync</em>,
-      December cracks open <strong>channel routing</strong> —
-      <code>ChannelMerger</code>, per-channel <code>GainNode</code>s, a dedicated
-      subwoofer LPF. The audio-graph scaffolding MUSIXQUARE ships today is born here.
+      Back to a single device. If October cracked open <em>per-band analysis</em> and November cracked open <em>device sync</em>, December cracks open <strong>channel routing</strong> — <code>ChannelMerger</code>, per-channel <code>GainNode</code>s, a dedicated subwoofer LPF. The audio-graph scaffolding MUSIXQUARE ships today is born here.
     </p>
   </div>
   <ul class="log">
@@ -258,7 +247,7 @@
     </li>
     <li>
       <div class="lead">v1.1 · Live visualizer + dark theme</div>
-      <div class="body">HTML5 Canvas wired to <code>AnalyserNode</code> for real-time frequency spectrum. Tailwind dark-mode palette — the look that still anchors the app today.</div>
+      <div class="body">HTML5 Canvas wired to <code>AnalyserNode</code> for real-time frequency spectrum. Tailwind dark-mode palette, still in use today.</div>
     </li>
     <li>
       <div class="lead">v1.2 · Subwoofer channel</div>
@@ -273,11 +262,11 @@
       <div class="body">"Start" overlay removed; any screen touch unlocks <code>AudioContext</code>. Emoji get swapped for Material Icons — dark-mode legibility.</div>
     </li>
     <li>
-      <div class="lead">Late Dec · Name + shape lock-in</div>
+      <div class="lead">Late Dec · Name + design system locked in</div>
       <div class="body"><strong>MUSIXQUARE</strong> the name, <strong>#3b82f6</strong> the signature blue, <code>MUSI&lt;XQUARE&gt;</code> wordmark with fade — all settle into their current form. The 5-tab nav (Play / Playlist / Connect / Settings / Help) and Light / Dark / System theme switcher arrive together.</div>
     </li>
     <li>
-      <div class="lead">Late Dec · First full audio chain</div>
+      <div class="lead">Late Dec · Full audio chain</div>
       <div class="body"><code>BiquadFilter → ChannelSplitter → per-channel Gain → Merger → Dry/Wet → Convolver → Analyser → destination</code>. The Convolver gets swapped for Tone.js a few weeks later, but the routing pattern is the one MUSIXQUARE still uses.</div>
     </li>
   </ul>
@@ -310,8 +299,8 @@
       <div class="body">Tone.js-powered reverb (mix / decay / pre-delay / low-cut / high-cut), 5-band graphic EQ + Preamp, Virtual Surround width, Virtual Bass level.</div>
     </li>
     <li>
-      <div class="lead">7.1 surround channel grid</div>
-      <div class="body">FL / FR / Center / LFE / Side L·R / Rear L·R — a working 8-channel role picker. <strong>Later parked for UX complexity</strong> — the one now sitting at roadmap #4.</div>
+      <div class="lead">7.1 surround channels</div>
+      <div class="body">FL / FR / Center / LFE / Side L·R / Rear L·R — a working 8-channel role picker. <strong>Later parked for UX complexity</strong> — now at roadmap #4, likely to come back if demand piles up.</div>
     </li>
     <li>
       <div class="lead">Nudge Sync overlay</div>
@@ -319,23 +308,19 @@
     </li>
     <li>
       <div class="lead">Onboarding, help, demo, theme switcher</div>
-      <div class="body">3-slide carousel, help modal with Host/Guest explainer, "Try the demo" button, Light / Dark / System theme picker. All already drawn.</div>
+      <div class="body">3-slide carousel, help modal with Host/Guest explainer, "Try the demo" button, Light / Dark / System theme picker.</div>
     </li>
   </ul>
   <div class="prose" style="margin-top: 20px;">
     <p>
-      <strong>Jan 25</strong>, first commit. Then the sketchbook begins —
-      <span class="quote">"Update app.js", "what?", "handle", "13"</span>. The 1,131
-      commits that follow over the next three months are refinements: sync algorithm
-      overhauls, module boundaries, tests, responsive layouts, YouTube and system-audio
-      modes. <em>The shape was already drawn.</em>
+      After months of loose file management, <strong>Jan 25</strong> — first commit.
     </p>
   </div>
 </section>
 
 <!-- ── 04 FEB ─────────────────────── -->
 <section class="section">
-  <div class="section-head"><h2>Feb · The TURN moment</h2><span class="num">05</span></div>
+  <div class="section-head"><h2>Feb · TURN-ing point</h2><span class="num">05</span></div>
   <ul class="log">
     <li>
       <div class="lead">Remote connections unlocked</div>
@@ -347,14 +332,14 @@
     </li>
     <li>
       <div class="lead">Host-ad auto-pause</div>
-      <div class="body">Guests pause automatically when the host's YouTube hits an ad — no more hearing commercials through the sub.</div>
+      <div class="body">Guests pause automatically when the host's YouTube hits an ad.</div>
     </li>
     <li>
       <div class="lead">MUSIXQUARE 2.0 rewrite begins</div>
       <div class="body">The 12,000-line <code>app.js</code> starts breaking into TypeScript ES modules under <code>src/</code>.</div>
     </li>
     <li>
-      <div class="lead">Type-safe everywhere</div>
+      <div class="lead">TypeScript introduced</div>
       <div class="body">71 P2P protocol messages, EventBus handlers, and state paths get real types. Build fails before runtime fails.</div>
     </li>
     <li>
@@ -369,12 +354,12 @@
   <div class="section-head"><h2>Mar · Playing house</h2><span class="num">06</span></div>
   <ul class="log">
     <li>
-      <div class="lead">E2E test fortress</div>
-      <div class="body">174 Playwright tests covering late-join, chaos, and complex multi-device scenarios. Shipping breaks less.</div>
+      <div class="lead">E2E test playground</div>
+      <div class="body">174 Playwright tests covering late-join, chaos, and complex multi-device scenarios.</div>
     </li>
     <li>
       <div class="lead">Logo animation</div>
-      <div class="body">The X splits on its diagonal, R draws into place, ghost underlays with a 500ms reveal.</div>
+      <div class="body">MUSIXQUARE animates like handwriting.</div>
     </li>
     <li>
       <div class="lead">Chat system</div>
@@ -382,26 +367,26 @@
     </li>
     <li>
       <div class="lead">Beat detection</div>
-      <div class="body">High-precision BPM analyzer with Phase Sync — the logo pulses to the track.</div>
+      <div class="body">High-precision BPM analyzer with Phase Sync — an easter egg where the logo pulses to the track.</div>
     </li>
     <li>
       <div class="lead">Spectrum visualizer</div>
-      <div class="body">A classic bar spectrum joins the original circular visualizer.</div>
+      <div class="body">A classic line spectrum joins the circular visualizer.</div>
     </li>
     <li>
       <div class="lead">Mobile landscape redesign</div>
-      <div class="body">2-column dashboard layout, right-side sidebar, fade scrollbar. The big-screen-in-your-hand layout finally works.</div>
+      <div class="body">2-column dashboard layout, right-side sidebar, fade scrollbar. Mobile landscape layout finally works.</div>
     </li>
     <li>
       <div class="lead">Promo video pipeline</div>
-      <div class="body">First rendered trailer scenes land — the groundwork for everything shipping in April.</div>
+      <div class="body">First rendered trailer scenes land — useful assets for the April promo videos.</div>
     </li>
   </ul>
 </section>
 
 <!-- ── 06 APR ─────────────────────── -->
 <section class="section">
-  <div class="section-head"><h2>Apr · Sync you can trust</h2><span class="num">07</span></div>
+  <div class="section-head"><h2>Apr · More reliable sync</h2><span class="num">07</span></div>
   <ul class="log">
     <li>
       <div class="lead">SharedClock architecture</div>
@@ -417,19 +402,19 @@
     </li>
     <li>
       <div class="lead">YouTube 2-stage sync</div>
-      <div class="body">Guest syncs go through a mandatory rendezvous handshake. Unavailable videos (errors 100/101/150) auto-skip so a single bad link doesn't stall the party.</div>
+      <div class="body">Guest syncs go through a mandatory rendezvous handshake. Unavailable videos (errors 100/101/150) auto-skip.</div>
     </li>
     <li>
-      <div class="lead">Shorter QR codes</div>
+      <div class="lead">QR code optimization</div>
       <div class="body">Uppercase-alphanumeric encoding + path-based join URL — lower error-correction, cleaner scan.</div>
     </li>
     <li>
-      <div class="lead">Edge-to-edge mobile video</div>
+      <div class="lead">Mobile video UI</div>
       <div class="body">Mobile portrait video fills the screen; YouTube mode gets its own fullscreen button.</div>
     </li>
     <li>
-      <div class="lead">Three.js product scenes</div>
-      <div class="body">A 3D glass music note and floating UI card scenes — the press/promo visuals you're probably seeing right now.</div>
+      <div class="lead">Three.js promo assets</div>
+      <div class="body">A 3D glass music note and floating UI card scenes — used across press and promo.</div>
     </li>
     <li>
       <div class="lead">9 new locales prepared</div>

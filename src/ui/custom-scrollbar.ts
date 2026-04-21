@@ -197,8 +197,12 @@ export function initCustomScrollbar(container: HTMLElement): void {
     track.style.opacity = '1';
   });
 
-  // Touch support for thumb drag
-  thumb.addEventListener('touchstart', (e) => {
+  // Touch support for thumb drag.
+  // Must be non-passive so preventDefault() can suppress the browser's own
+  // touch-scrolling gesture — otherwise mobile scrolls the page at the same
+  // time and the header/chrome drifts along with the drag.
+  const onThumbTouchStart = (e: TouchEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
     clearTimeout(state.fadeTimer);
@@ -206,7 +210,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     state.dragStartY = e.touches[0].clientY;
     state.dragStartScroll = container.scrollTop;
     thumb.classList.add('dragging');
-  }, { passive: true });
+  };
 
   const onMouseMove = (e: MouseEvent) => {
     if (!state.isDragging) return;
@@ -217,8 +221,12 @@ export function initCustomScrollbar(container: HTMLElement): void {
     container.scrollTop = state.dragStartScroll + ((e.clientY - state.dragStartY) / trackHeight) * maxScroll;
   };
 
-  const onTouchMove = (e: TouchEvent) => {
+  // Touchmove fires on the original touch target (thumb) for the lifetime of
+  // the gesture, even if the finger wanders off — so binding on `thumb` (not
+  // window) is sufficient and lets us keep non-passive scoped locally.
+  const onThumbTouchMove = (e: TouchEvent) => {
     if (!state.isDragging) return;
+    e.preventDefault();
     const { scrollHeight, clientHeight } = container;
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
@@ -235,17 +243,22 @@ export function initCustomScrollbar(container: HTMLElement): void {
     showTrack();
   };
 
+  thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
+  thumb.addEventListener('touchmove', onThumbTouchMove, { passive: false });
+  thumb.addEventListener('touchend', onDragEnd);
+  thumb.addEventListener('touchcancel', onDragEnd);
+
   window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('touchmove', onTouchMove, { passive: true });
   window.addEventListener('mouseup', onDragEnd);
-  window.addEventListener('touchend', onDragEnd);
 
   state.cleanup = [
     () => container.removeEventListener('scroll', onScroll),
+    () => thumb.removeEventListener('touchstart', onThumbTouchStart),
+    () => thumb.removeEventListener('touchmove', onThumbTouchMove),
+    () => thumb.removeEventListener('touchend', onDragEnd),
+    () => thumb.removeEventListener('touchcancel', onDragEnd),
     () => window.removeEventListener('mousemove', onMouseMove),
-    () => window.removeEventListener('touchmove', onTouchMove),
     () => window.removeEventListener('mouseup', onDragEnd),
-    () => window.removeEventListener('touchend', onDragEnd),
     () => orientationMql.removeEventListener('change', onLayoutChange),
     cleanupCompactListener,
   ];

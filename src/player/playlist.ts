@@ -1015,9 +1015,9 @@ function handleFilesSelected(files: FileList | null): void {
 
   if (rejected.length > 0) {
     showToast(
-      rejected.length === 1
-        ? t('toast.video_not_music_one', { name: rejected[0] })
-        : t('toast.video_not_music_many', { count: rejected.length })
+      accepted.length === 0
+        ? t('toast.video_only_rejected')
+        : t('toast.video_excluded')
     );
   }
 

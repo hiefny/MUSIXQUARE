@@ -399,7 +399,7 @@ export function guestRendezvousSync(): void {
   const player = getYouTubePlayer();
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) {
-    showToast(t('toast.sync_not_available'));
+    showToast(t('toast.sync_not_ready'));
     return;
   }
   if (!player.getCurrentTime || !player.seekTo || !player.pauseVideo || !player.playVideo) {

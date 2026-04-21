@@ -323,7 +323,7 @@ function handleMainSyncBtn(): void {
 
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
   if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-    showToast(t('toast.sync_not_available'));
+    showToast(t('toast.sync_not_in_system_audio'));
     return;
   }
 

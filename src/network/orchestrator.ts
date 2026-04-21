@@ -37,6 +37,22 @@ type ConnectedPeer = StateTree['network']['connectedPeers'][number];
 /** remotePeerId → relayPeerId */
 const relayAssignments = new Map<string, string>();
 
+/**
+ * Minimum peer count (guests, host excluded) to enable the relay topology.
+ * Below this, every peer — local or remote — gets data directly from host.
+ *
+ * Why: in a small room (≤3 guests) the whole relay machinery is more trouble
+ * than it's worth. Host→direct to everyone stays well under the multicast
+ * fanout limit, and skipping assignRelayForPeer side-steps an entire class
+ * of mid-join races where ICE briefly misclassifies a LAN peer as remote,
+ * a relay gets assigned, the downstream peer dials and starts receiving
+ * forwarded chunks, and ~1s later the classification flips back to local —
+ * too late to avoid a double-send from host (unicast) and the relay guest
+ * (forwarded). Above the threshold the traditional relay topology kicks in,
+ * with TURN-cost policy for true remote peers still enforced.
+ */
+const RELAY_ACTIVATION_MIN_PEERS = 4;
+
 // ─── Exported Lookups ────────────────────────────────────────────────
 
 /**
@@ -91,6 +107,19 @@ function evaluatePeer(peerId: string): void {
   if (!peer || peer.status !== 'connected') return;
 
   const connType = peer.connectionType;
+
+  // Small-room bypass: below the activation threshold, every peer is a
+  // direct data target. This drops the relay assignment (if any was queued
+  // from an earlier ICE flap) so a briefly-remote-classified peer can't
+  // keep a stale downstream open on some other guest.
+  if (peers.length < RELAY_ACTIVATION_MIN_PEERS) {
+    if (relayAssignments.has(peerId)) {
+      removeRelayAssignment(peerId);
+    }
+    setPeerDataTarget(peerId, true);
+    bus.emit('orchestrator:peer-evaluated', peerId);
+    return;
+  }
 
   if (connType === 'local') {
     // Local peer: ensure direct data target

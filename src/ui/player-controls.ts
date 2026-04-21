@@ -763,9 +763,11 @@ export function initPlayerControls(): void {
           // Guest: keep original label + color (opacity already set by hostConn listener)
           if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
         } else {
-          // Host: show stop button
+          // Host: show stop button. Keep data-i18n in sync so the
+          // language-switch retranslation picks the right key instead of
+          // treating this node as untranslated.
           mediaBtnLabel.textContent = t('system_audio.stop');
-          mediaBtnLabel.removeAttribute('data-i18n');
+          mediaBtnLabel.setAttribute('data-i18n', 'system_audio.stop');
         }
       } else {
         if (!mediaBtnLabel.getAttribute('data-i18n')) {

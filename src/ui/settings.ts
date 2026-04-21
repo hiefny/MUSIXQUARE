@@ -602,6 +602,14 @@ export function initSettings(): void {
     if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
   });
 
+  // Language switch → re-render device list so status/grant-revoke button
+  // labels pick up the new locale (those strings are composed at render
+  // time via t() and don't carry data-i18n attributes).
+  _busScope.on('i18n:changed', () => {
+    const list = getState('network.connectedPeers') || [];
+    renderDeviceList(list as unknown as Array<Record<string, unknown>>);
+  });
+
   // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)
   try {
     const savedTheme = localStorage.getItem('musixquare-theme');

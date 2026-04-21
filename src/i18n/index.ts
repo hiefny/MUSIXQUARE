@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import ko from './ko.ts';
 import en from './en.ts';
 
@@ -147,6 +148,10 @@ function _applyLanguage(resolved: ResolvedLang): void {
 
   _ensureObserver();
   _translateSubtree(document.body || document.documentElement);
+
+  // Notify components that cache translated strings outside of data-i18n
+  // attributes (toast text, dialog contents, dynamically rendered lists, etc.).
+  bus.emit('i18n:changed', resolved);
 }
 
 function _updateSelector(mode: string): void {

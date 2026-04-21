@@ -482,6 +482,7 @@ interface BaseEventMap {
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
   'ui:toggle-chat-drawer': [];
+  'i18n:changed': [lang: string];
   'chat:system-message': [text: string];
   'chat:notice-message': [sender: string, text: string];
   /**

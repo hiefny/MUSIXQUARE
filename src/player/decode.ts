@@ -10,7 +10,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import { getVideoElement, isMediaVideo, setEngineMode } from './video.ts';
@@ -107,10 +107,7 @@ export async function loadAndBroadcastFile(
   try {
     if (!isSystemAudioActive()) {
       // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
-      await Promise.race([
-        initAudio(),
-        new Promise(resolve => setTimeout(resolve, 2000))
-      ]);
+      await Promise.race([initAudio(), delay(2000)]);
     }
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
@@ -349,10 +346,7 @@ export async function loadPreloadedTrack(
 
     try {
       if (!isSystemAudioActive()) {
-        await Promise.race([
-          initAudio(),
-          new Promise(resolve => setTimeout(resolve, 2000))
-        ]);
+        await Promise.race([initAudio(), delay(2000)]);
         if (getAudioContext().state === 'suspended') await ensureRunning();
       }
 

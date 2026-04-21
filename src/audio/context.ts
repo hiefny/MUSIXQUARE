@@ -5,6 +5,8 @@
  * All audio modules import from here instead of Tone.
  */
 
+import { delay } from '../core/timers.ts';
+
 let _ctx: AudioContext | null = null;
 
 /**
@@ -33,9 +35,6 @@ export async function ensureRunning(): Promise<void> {
   const ctx = getAudioContext();
   if (ctx.state !== 'running') {
     // Add a race to prevent hanging on browsers that don't resolve resume() without a gesture
-    await Promise.race([
-      ctx.resume(),
-      new Promise(resolve => setTimeout(resolve, 500))
-    ]);
+    await Promise.race([ctx.resume(), delay(500)]);
   }
 }

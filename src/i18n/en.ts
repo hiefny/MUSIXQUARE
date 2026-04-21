@@ -77,7 +77,7 @@ const en: Record<I18nKey, string> = {
   'player.play_media': 'Play media',
   'player.play_media_action': 'Play media',
   'player.add_media': 'Add media',
-  'player.play_start': 'Play',
+  'player.play_start': 'Add to Queue',
   'player.select_media': 'Select media to play',
   'player.play_together': 'Play together',
   'player.play_speakers': 'Play through speakers',

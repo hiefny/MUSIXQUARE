@@ -75,7 +75,7 @@ const ko = {
   'player.play_media': '미디어 재생',
   'player.play_media_action': '미디어 재생하기',
   'player.add_media': '미디어 추가',
-  'player.play_start': '재생 시작',
+  'player.play_start': '대기열에 추가',
   'player.select_media': '재생할 미디어를 선택해주세요',
   'player.play_together': '동시에 재생',
   'player.play_speakers': '스피커로 재생하기',

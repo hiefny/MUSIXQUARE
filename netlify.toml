@@ -64,6 +64,17 @@
   to = "/roadmap/index.html"
   status = 200
 
+# Changelog: serve /changelog and /changelog/ as the static index
+[[redirects]]
+  from = "/changelog"
+  to = "/changelog/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/changelog/"
+  to = "/changelog/index.html"
+  status = 200
+
 # Case-variant redirects → canonical lowercase (301)
 [[redirects]]
   from = "/DESIGNSYSTEM"

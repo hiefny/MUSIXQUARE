@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>Changelog · MUSIXQUARE</title>
+  <link rel="icon" href="../favicon.svg">
+  <link rel="stylesheet" href="../designsystem/colors_and_type.css">
+  <style>
+    html, body { margin: 0; background: var(--bg); color: var(--text-main); }
+    body { font-family: var(--font-sans); }
+
+    /* ── Hero ───────────────────────────────────── */
+    .hero {
+      padding: 80px 48px 48px;
+      max-width: 1280px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr auto; gap: 48px;
+      align-items: end;
+    }
+    .hero .logo { width: min(520px, 60vw); color: var(--text-main); }
+    .hero .logo svg { width: 100%; height: auto; display: block; }
+    .hero .meta { text-align: right; font-size: 12px; color: var(--text-sub); line-height: 1.7; }
+    .hero .meta a { color: var(--text-main); text-decoration: none; border-bottom: 1px solid var(--surface-3); }
+    .hero .meta a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+    .hero .tag {
+      grid-column: 1 / -1; font-size: 20px; font-weight: 500;
+      color: var(--text-sub); max-width: 720px;
+      line-height: 1.5; margin-top: 8px;
+    }
+    .hero .tag strong { color: var(--text-main); font-weight: 700; }
+    .hero .tag em { font-style: normal; color: var(--primary); font-weight: 700; }
+
+    /* ── Container ─────────────────────────────── */
+    .page { max-width: 1280px; margin: 0 auto; padding: 0 48px 120px; }
+
+    /* ── Section headers ───────────────────────── */
+    .section { margin-top: 88px; }
+    .section-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      border-bottom: 1px solid var(--surface-2);
+      padding-bottom: 16px; margin-bottom: 28px;
+    }
+    .section-head h2 {
+      margin: 0; font-size: 13px; font-weight: 800;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--text-main);
+    }
+    .section-head .num {
+      font-size: 11px; font-weight: 700;
+      color: var(--text-muted); font-variant-numeric: tabular-nums;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Prose block (Dec origin, Jan narrative) ── */
+    .prose {
+      background: var(--surface-1); border-radius: var(--radius-m);
+      padding: 28px 32px;
+      font-size: 16px; line-height: 1.75; color: var(--text-sub);
+      max-width: 780px;
+    }
+    .prose p { margin: 0; }
+    .prose p + p { margin-top: 16px; }
+    .prose strong { color: var(--text-main); font-weight: 700; }
+    .prose em { color: var(--primary); font-style: normal; font-weight: 700; }
+    .prose .quote {
+      color: var(--text-muted); font-style: italic; font-weight: 500;
+    }
+    .prose code {
+      background: var(--surface-2); padding: 2px 6px; border-radius: 4px;
+      font-size: 14px; font-family: var(--font-sans); font-weight: 600;
+      color: var(--text-main);
+    }
+
+    /* ── Log list (monthly bullets) ───────────── */
+    .log {
+      list-style: none; padding: 0; margin: 0;
+      display: grid; gap: 14px;
+    }
+    .log li {
+      background: var(--surface-1); border-radius: var(--radius-m);
+      padding: 20px 24px;
+      display: grid; grid-template-columns: 1fr;
+      gap: 6px;
+      border: 1px solid transparent;
+      transition: border-color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+    }
+    .log li:hover { border-color: var(--surface-3); transform: translateY(-1px); }
+    .log .lead {
+      font-size: 15px; font-weight: 700; letter-spacing: -0.01em;
+      color: var(--text-main);
+    }
+    .log .body {
+      font-size: 14px; line-height: 1.6; color: var(--text-sub);
+      font-weight: 500;
+    }
+    .log .body code {
+      background: var(--surface-2); padding: 2px 6px; border-radius: 4px;
+      font-size: 13px; font-family: var(--font-sans); font-weight: 600;
+      color: var(--text-main);
+    }
+    .log .body strong { color: var(--text-main); font-weight: 700; }
+
+    /* ── Footer ─────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--surface-2);
+      margin-top: 100px; padding: 32px 48px;
+      max-width: 1280px; margin-left: auto; margin-right: auto;
+      display: flex; justify-content: space-between;
+      font-size: 12px; color: var(--text-muted);
+    }
+    footer a { color: var(--text-sub); text-decoration: none; }
+    footer a:hover { color: var(--primary); }
+
+    @media (max-width: 720px) {
+      .hero, .page, footer { padding-left: 24px; padding-right: 24px; }
+      .hero { grid-template-columns: 1fr; }
+      .hero .meta { text-align: left; }
+      .prose { padding: 22px 24px; font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HERO ───────────────────────────────────── -->
+<section class="hero">
+  <div class="logo">
+    <svg viewBox="43 12 214 24" fill="currentColor">
+      <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
+      <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/>
+      <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/>
+      <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"/>
+      <polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"/>
+      <path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"/>
+      <polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"/>
+      <path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"/>
+      <path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"/>
+      <rect x="237.2284599" y="12.7587935" width="18" height="4.5"/>
+      <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"/>
+      <rect x="237.2337931" y="30.7587928" width="18" height="4.5"/>
+    </svg>
+  </div>
+  <div class="meta">
+    Changelog · v1.0<br>
+    <a href="https://musixquare.com" target="_blank">musixquare.com</a><br>
+    <a href="../designsystem/">design system</a><br>
+    <a href="../roadmap/">roadmap</a>
+  </div>
+  <p class="tag">
+    Nine months of iteration, compressed into one scroll. Where the <em>idea</em> started,
+    how it pivoted, and what shipped along the way.
+  </p>
+</section>
+
+<div class="page">
+
+<!-- ── 00 AUG ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Aug 2025 · The Web Audio sketchbook</h2><span class="num">00</span></div>
+  <div class="prose">
+    <p>
+      The project starts as a <strong>solo-device music visualizer</strong>.
+      <code>old.html</code> — 1,246 lines of Tailwind + Canvas + purple rings — let you
+      pick an audio file, watch bass/mid/treble rings pulse, and (optionally) ask Gemini
+      for the artist and synced LRC lyrics.
+    </p>
+    <p>
+      Single device, no network. But the <em>per-band frequency analysis</em> —
+      <code>AnalyserNode</code> plumbing, configurable cutoffs, bass/mid/treble
+      smoothing — lays the groundwork for every audio decision that comes after.
+    </p>
+  </div>
+</section>
+
+<!-- ── 01 OCT ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Oct 2025 · First P2P sync</h2><span class="num">01</span></div>
+  <div class="prose" style="margin-bottom: 20px;">
+    <p>
+      Two phones, PeerJS over WebRTC, and the first real attempt at keeping them aligned.
+      <code>sync.html</code> ships a <strong>dual-strategy sync algorithm</strong> that
+      the production app didn't match in sophistication until April 2026.
+    </p>
+  </div>
+  <ul class="log">
+    <li>
+      <div class="lead">The signature blue lands</div>
+      <div class="body"><code>--accent-color: #3b82f6</code> appears for the first time — three months before the MUSIXQUARE name is chosen. The wordmark, the tabs, the buttons, all still carry this exact hex today.</div>
+    </li>
+    <li>
+      <div class="lead">Hard-sync jump (drift &gt; 0.5s)</div>
+      <div class="body">If the guest falls more than half a second off, snap to the host's <code>currentTime</code>. Blunt, but recovers from any desync.</div>
+    </li>
+    <li>
+      <div class="lead">Soft-sync via <code>playbackRate</code> (0.05s–0.5s)</div>
+      <div class="body">Smaller drift gets corrected by nudging <code>playbackRate</code> between <strong>0.95×</strong> and <strong>1.05×</strong> — the guest slowly catches up or slows down without an audible jump.</div>
+    </li>
+    <li>
+      <div class="lead">1-second heartbeat</div>
+      <div class="body"><code>setInterval</code> fires sync payloads every second: <code>{ time, paused, playbackRate, timestamp }</code>. Network delay is approximated from the timestamp delta.</div>
+    </li>
+    <li>
+      <div class="lead">Audio-reactive visual</div>
+      <div class="body">A circle that scales with <code>playbackRate</code>, so you can <em>see</em> the sync correction happening. Shipping UI-as-debugger from day one.</div>
+    </li>
+  </ul>
+</section>
+
+<!-- ── 02 NOV ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Nov 2025 · Simpler sync, local nudge</h2><span class="num">02</span></div>
+  <div class="prose" style="margin-bottom: 20px;">
+    <p>
+      A clean-slate rewrite. October's rate-scaling algorithm is thrown out in favor of
+      a <strong>3-second countdown</strong> that both sides arm at the same moment,
+      then <code>setTimeout</code> to the same local deadline. Simpler, more reliable,
+      and easier to reason about. Per-device offset gets a dedicated UI for the first time.
+    </p>
+  </div>
+  <ul class="log">
+    <li>
+      <div class="lead">PeerJS handshake + ID exchange</div>
+      <div class="body">Tap to copy your ID, paste the other device's ID, press Connect. That's the entire pairing flow.</div>
+    </li>
+    <li>
+      <div class="lead">File transfer over P2P</div>
+      <div class="body">The host's MP3 ships to the guest as a <code>Blob</code>, cached in an <code>ObjectURL</code>, ready to play.</div>
+    </li>
+    <li>
+      <div class="lead">Countdown-based simultaneous start</div>
+      <div class="body">A <code>play-command</code> with <code>delay: 3000</code>. Both sides <code>setTimeout</code> to the same local deadline. Simple, already works.</div>
+    </li>
+    <li>
+      <div class="lead">Per-device offset nudge</div>
+      <div class="body">±0.05s buttons adjust only the local device; an <code>isLocalAdjusting</code> flag blocks the seek from broadcasting. The <strong>direct ancestor</strong> of today's Nudge Sync.</div>
+    </li>
+    <li>
+      <div class="lead">iOS audio-unlock trick</div>
+      <div class="body"><code>play() → pause() → currentTime = 0</code> to satisfy iOS Safari's user-gesture requirement. Still in the codebase today.</div>
+    </li>
+  </ul>
+</section>
+
+<!-- ── 02 DEC ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Dec 2025 · v1.0 – v1.2 · The channel lab</h2><span class="num">03</span></div>
+  <div class="prose" style="margin-bottom: 20px;">
+    <p>
+      Back to a single device, but asking the opposite question. If October cracked
+      open <em>per-band analysis</em> and November cracked open <em>device sync</em>,
+      December cracks open <strong>channel routing</strong> —
+      <code>ChannelMerger</code>, per-channel <code>GainNode</code>s, a dedicated
+      subwoofer LPF. The audio-graph scaffolding MUSIXQUARE ships today is born here.
+    </p>
+  </div>
+  <ul class="log">
+    <li>
+      <div class="lead">v1.0 · Stereo oscillator lab</div>
+      <div class="body">220 Hz sine (left) + 440 Hz triangle (right) routed through <code>ChannelMerger</code> and per-channel <code>GainNode</code>s — first real test of stereo crossfading at the Web Audio level.</div>
+    </li>
+    <li>
+      <div class="lead">v1.1 · Live visualizer + dark theme</div>
+      <div class="body">HTML5 Canvas wired to <code>AnalyserNode</code> for real-time frequency spectrum. Tailwind dark-mode palette — the look that still anchors the app today.</div>
+    </li>
+    <li>
+      <div class="lead">v1.2 · Subwoofer channel</div>
+      <div class="body">Independent toggle with a 120 Hz low-pass filter. The first hint that roles (not just channels) could drive the UX.</div>
+    </li>
+    <li>
+      <div class="lead">v1.2 · L / Stereo / R tab controls</div>
+      <div class="body">Three-tab channel picker with a pink active state — the direct ancestor of today's role grid.</div>
+    </li>
+    <li>
+      <div class="lead">v1.2 · Auto-start + Material Icons</div>
+      <div class="body">"Start" overlay removed; any screen touch unlocks <code>AudioContext</code>. Emoji get swapped for Material Icons — dark-mode legibility.</div>
+    </li>
+    <li>
+      <div class="lead">Late Dec · Name + shape lock-in</div>
+      <div class="body"><strong>MUSIXQUARE</strong> the name, <strong>#3b82f6</strong> the signature blue, <code>MUSI&lt;XQUARE&gt;</code> wordmark with fade — all settle into their current form. The 5-tab nav (Play / Playlist / Connect / Settings / Help) and Light / Dark / System theme switcher arrive together.</div>
+    </li>
+    <li>
+      <div class="lead">Late Dec · First full audio chain</div>
+      <div class="body"><code>BiquadFilter → ChannelSplitter → per-channel Gain → Merger → Dry/Wet → Convolver → Analyser → destination</code>. The Convolver gets swapped for Tone.js a few weeks later, but the routing pattern is the one MUSIXQUARE still uses.</div>
+    </li>
+  </ul>
+</section>
+
+<!-- ── 03 JAN ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Jan · Everything but the git log</h2><span class="num">04</span></div>
+  <div class="prose" style="margin-bottom: 20px;">
+    <p>
+      Between December's v1.2 channel lab and the first commit on <strong>Jan 25</strong>,
+      the three threads — October's <em>frequency analysis</em>, November's <em>P2P sync</em>,
+      December's <em>channel routing</em> — merged into a single app. That month of
+      intense iteration was only ever saved as the final file, never the steps in
+      between. By the time git history starts, <strong>MUSIXQUARE already exists in
+      recognizable shape</strong>:
+    </p>
+  </div>
+  <ul class="log">
+    <li>
+      <div class="lead">The five-tab nav</div>
+      <div class="body">Play / Playlist / Connect / Settings / Chat — the same pattern that ships today.</div>
+    </li>
+    <li>
+      <div class="lead">Host / Guest + QR-code invite</div>
+      <div class="body">Scan to join. Copy link. Host panel, guest panel, role badge — all already wired.</div>
+    </li>
+    <li>
+      <div class="lead">Full audio-effect chain</div>
+      <div class="body">Tone.js-powered reverb (mix / decay / pre-delay / low-cut / high-cut), 5-band graphic EQ + Preamp, Virtual Surround width, Virtual Bass level.</div>
+    </li>
+    <li>
+      <div class="lead">7.1 surround channel grid</div>
+      <div class="body">FL / FR / Center / LFE / Side L·R / Rear L·R — a working 8-channel role picker. <strong>Later parked for UX complexity</strong> — the one now sitting at roadmap #4.</div>
+    </li>
+    <li>
+      <div class="lead">Nudge Sync overlay</div>
+      <div class="body">±1 / ±10 ms buttons with a total-offset display. November's <code>isLocalAdjusting</code> flag, grown into an actual UI.</div>
+    </li>
+    <li>
+      <div class="lead">Onboarding, help, demo, theme switcher</div>
+      <div class="body">3-slide carousel, help modal with Host/Guest explainer, "Try the demo" button, Light / Dark / System theme picker. All already drawn.</div>
+    </li>
+  </ul>
+  <div class="prose" style="margin-top: 20px;">
+    <p>
+      <strong>Jan 25</strong>, first commit. Then the sketchbook begins —
+      <span class="quote">"Update app.js", "what?", "handle", "13"</span>. The 1,131
+      commits that follow over the next three months are refinements: sync algorithm
+      overhauls, module boundaries, tests, responsive layouts, YouTube and system-audio
+      modes. <em>The shape was already drawn.</em>
+    </p>
+  </div>
+</section>
+
+<!-- ── 04 FEB ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Feb · The TURN moment</h2><span class="num">05</span></div>
+  <ul class="log">
+    <li>
+      <div class="lead">Remote connections unlocked</div>
+      <div class="body">Metered.ca TURN server integrated; WebRTC now reaches across networks for the first time.</div>
+    </li>
+    <li>
+      <div class="lead">Drift-aware sync</div>
+      <div class="body">3-sample RTT replaces naive timestamps. Devices stay aligned even over flaky Wi-Fi.</div>
+    </li>
+    <li>
+      <div class="lead">Host-ad auto-pause</div>
+      <div class="body">Guests pause automatically when the host's YouTube hits an ad — no more hearing commercials through the sub.</div>
+    </li>
+    <li>
+      <div class="lead">MUSIXQUARE 2.0 rewrite begins</div>
+      <div class="body">The 12,000-line <code>app.js</code> starts breaking into TypeScript ES modules under <code>src/</code>.</div>
+    </li>
+    <li>
+      <div class="lead">Type-safe everywhere</div>
+      <div class="body">71 P2P protocol messages, EventBus handlers, and state paths get real types. Build fails before runtime fails.</div>
+    </li>
+    <li>
+      <div class="lead">i18n key-based system</div>
+      <div class="body">Hard-coded Korean strings → semantic keys with compile-time validation. Groundwork for every language shipping later.</div>
+    </li>
+  </ul>
+</section>
+
+<!-- ── 05 MAR ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Mar · Playing house</h2><span class="num">06</span></div>
+  <ul class="log">
+    <li>
+      <div class="lead">E2E test fortress</div>
+      <div class="body">174 Playwright tests covering late-join, chaos, and complex multi-device scenarios. Shipping breaks less.</div>
+    </li>
+    <li>
+      <div class="lead">Logo animation</div>
+      <div class="body">The X splits on its diagonal, R draws into place, ghost underlays with a 500ms reveal.</div>
+    </li>
+    <li>
+      <div class="lead">Chat system</div>
+      <div class="body">Slash commands (<code>/debug</code>, <code>/nick</code>), autocomplete dropdowns, profanity filter, grouped-by-minute bubbles.</div>
+    </li>
+    <li>
+      <div class="lead">Beat detection</div>
+      <div class="body">High-precision BPM analyzer with Phase Sync — the logo pulses to the track.</div>
+    </li>
+    <li>
+      <div class="lead">Spectrum visualizer</div>
+      <div class="body">A classic bar spectrum joins the original circular visualizer.</div>
+    </li>
+    <li>
+      <div class="lead">Mobile landscape redesign</div>
+      <div class="body">2-column dashboard layout, right-side sidebar, fade scrollbar. The big-screen-in-your-hand layout finally works.</div>
+    </li>
+    <li>
+      <div class="lead">Promo video pipeline</div>
+      <div class="body">First rendered trailer scenes land — the groundwork for everything shipping in April.</div>
+    </li>
+  </ul>
+</section>
+
+<!-- ── 06 APR ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>Apr · Sync you can trust</h2><span class="num">07</span></div>
+  <ul class="log">
+    <li>
+      <div class="lead">SharedClock architecture</div>
+      <div class="body">Host clock becomes the single source of truth. Every device plays <strong>at time X</strong>, not <strong>now</strong> — drift becomes correctable instead of inevitable.</div>
+    </li>
+    <li>
+      <div class="lead">Unified Sync v6.1</div>
+      <div class="body">Heartbeat + SharedClock + Latency collapse into one system that works for local files <em>and</em> YouTube.</div>
+    </li>
+    <li>
+      <div class="lead">Nudge sync panel</div>
+      <div class="body">Visible inter-device clock offset, manual offset slider, dual Auto/Manual display.</div>
+    </li>
+    <li>
+      <div class="lead">YouTube 2-stage sync</div>
+      <div class="body">Guest syncs go through a mandatory rendezvous handshake. Unavailable videos (errors 100/101/150) auto-skip so a single bad link doesn't stall the party.</div>
+    </li>
+    <li>
+      <div class="lead">Shorter QR codes</div>
+      <div class="body">Uppercase-alphanumeric encoding + path-based join URL — lower error-correction, cleaner scan.</div>
+    </li>
+    <li>
+      <div class="lead">Edge-to-edge mobile video</div>
+      <div class="body">Mobile portrait video fills the screen; YouTube mode gets its own fullscreen button.</div>
+    </li>
+    <li>
+      <div class="lead">Three.js product scenes</div>
+      <div class="body">A 3D glass music note and floating UI card scenes — the press/promo visuals you're probably seeing right now.</div>
+    </li>
+    <li>
+      <div class="lead">9 new locales prepared</div>
+      <div class="body">Translation files for ja, es, zh-CN, zh-TW, de, fr, pt-BR, it, ru — fully covered, UI wiring parked until demand shows up.</div>
+    </li>
+    <li>
+      <div class="lead">Public <code>/designsystem</code> and <code>/roadmap</code></div>
+      <div class="body">Design reference + a transparent list of every technical limit we know about. You're reading the third one.</div>
+    </li>
+  </ul>
+</section>
+
+</div>
+
+<footer>
+  <span>MUSIXQUARE Changelog · v1.0</span>
+  <span>
+    <a href="../roadmap/">Roadmap</a> &nbsp;·&nbsp;
+    <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;
+    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank">Source</a>
+  </span>
+</footer>
+
+</body>
+</html>

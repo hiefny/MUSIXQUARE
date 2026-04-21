@@ -15,7 +15,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import { incrementLoadToken, getCurrentAudioBuffer, setCurrentAudioBuffer } from './_state.ts';
-import { getVideoElement } from './video.ts';
+import { getVideoElement, isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
@@ -998,13 +998,35 @@ function handleFilesSelected(files: FileList | null): void {
     return;
   }
 
-  const playlist = [...(getState('playlist.items') || [])];
-  let addedCount = 0;
-
+  // MUSIXQUARE is music-only — videos are served through the YouTube path.
+  // Screens the file picker's accept filter can miss (drag-and-drop isn't wired
+  // today, but "All files" override in the dialog still reaches here).
+  const accepted: File[] = [];
+  const rejected: string[] = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     if (!file) continue;
+    if (isMediaVideo(file)) {
+      rejected.push(file.name);
+    } else {
+      accepted.push(file);
+    }
+  }
 
+  if (rejected.length > 0) {
+    showToast(
+      rejected.length === 1
+        ? t('toast.video_not_music_one', { name: rejected[0] })
+        : t('toast.video_not_music_many', { count: rejected.length })
+    );
+  }
+
+  if (accepted.length === 0) return;
+
+  const playlist = [...(getState('playlist.items') || [])];
+  let addedCount = 0;
+
+  for (const file of accepted) {
     const newTrack: PlaylistItem = {
       type: 'file',
       file,

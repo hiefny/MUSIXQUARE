@@ -352,6 +352,8 @@ const ko = {
   'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
   'toast.click_copy_invite': '클릭하여 초대코드 복사',
   'toast.cant_select_file': '파일을 선택할 수 없어요',
+  'toast.video_not_music_one': '{{name}}은(는) 음악 파일이 아니에요. 동영상은 유튜브 링크로 추가해 주세요.',
+  'toast.video_not_music_many': '{{count}}개 파일은 음악이 아니에요. 동영상은 유튜브 링크로 추가해 주세요.',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
   'toast.auto_play_canceled': '자동 재생을 취소했어요',

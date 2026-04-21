@@ -21,7 +21,16 @@ export function isIdleOrPaused(state: string): boolean {
 
 // ─── Upload-time guard: reject video files ────────────────────────
 
-const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v'];
+const VIDEO_EXTENSIONS = [
+  'mp4', 'm4v', 'mkv', 'webm', 'mov', 'qt',
+  'avi', 'wmv', 'asf',
+  '3gp', '3g2',
+  'flv', 'f4v',
+  'mpeg', 'mpg', 'mpe', 'mp2',
+  'ts', 'm2ts', 'mts',
+  'ogv',
+  'vob', 'dv', 'mxf',
+];
 
 export function isMediaVideo(blob: Blob | File | null, metadata?: Record<string, unknown> | null): boolean {
   if (!blob) return false;

@@ -431,6 +431,8 @@ const en: Record<I18nKey, string> = {
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',
+  'dialog.external_link_title': 'Open external page',
+  'dialog.external_link_msg': 'You may lose your current session.',
   'dialog.leaving_session': 'Leaving session...',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready. Refresh to update.',
@@ -470,7 +472,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Legal Notice',
-  'legal.content_html': '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" style="color:inherit;text-decoration:underline">Design System</a>',
+  'legal.content_html': '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a>',
 };
 
 export default en;

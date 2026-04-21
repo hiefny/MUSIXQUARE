@@ -538,6 +538,35 @@ export function initPlayerControls(): void {
     });
   }
 
+  // External static-page links (Changelog / Roadmap / Design System) in the
+  // legal block. Navigation would reload the page and drop any active session,
+  // so gate it behind the same confirm dialog the header logo uses. Delegate
+  // at document level — the legal block's innerHTML is reset on every
+  // `i18n:changed`, so per-anchor listeners would be wiped.
+  const EXTERNAL_PAGE_PATHS = ['/changelog', '/roadmap', '/designsystem'];
+  document.addEventListener('click', async (e) => {
+    const anchor = (e.target as HTMLElement | null)?.closest?.('a');
+    if (!anchor || !(anchor instanceof HTMLAnchorElement)) return;
+    if (!anchor.closest('.legal-desc')) return;
+    const href = anchor.getAttribute('href') || '';
+    if (!EXTERNAL_PAGE_PATHS.some(p => href === p || href.startsWith(p + '/'))) return;
+
+    const hostConn = getState('network.hostConn');
+    const appRole = getState('network.appRole');
+    const hasSession = !!(hostConn || appRole === 'host');
+    if (!hasSession) return; // no session → let the browser navigate normally
+
+    e.preventDefault();
+    const res = await showDialog({
+      title: t('dialog.external_link_title'),
+      message: t('dialog.external_link_msg'),
+      buttonText: t('common.ok'),
+      secondaryText: t('common.stay'),
+      defaultFocus: 'secondary',
+    });
+    if (res.action === 'ok') window.location.href = href;
+  });
+
   // Player buttons
   $on('btn-prev', 'click', () => bus.emit('playlist:prev-track'));
   $on('play-btn', 'click', () => bus.emit('player:toggle-play'));

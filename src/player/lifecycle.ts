@@ -157,6 +157,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_START':
       case 'PRELOAD_CHUNK':
       case 'PRELOAD_END':
+        return { stay: true };  // next-track preload runs alongside the current download
       case 'PRELOAD_FILE_READY':
         return { next: PLAYBACK_STATE.DECODING };  // Safety promotion: if HTTP demo fetch finishes during P2P download
       case 'LOAD_TOKEN_MISMATCH':

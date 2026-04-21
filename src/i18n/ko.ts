@@ -67,7 +67,6 @@ const ko = {
   'player.seek': '재생 위치 조절',
   'player.volume': '볼륨 조절',
   'player.toggle_mute': '음소거 전환',
-  'player.fullscreen': '전체화면 전환',
   'player.prev_track': '이전 트랙',
   'player.next_track': '다음 트랙',
   'player.repeat_mode': '반복 모드 변경',

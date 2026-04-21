@@ -87,7 +87,7 @@
     /* Override YouTube mode's off-screen hack (base layer hides #tab-play
        when not .active with left:-100vw, opacity:0) — desktop shows all panels */
     }
-    body.mode-video #tab-play:not(.active) {
+    body.mode-youtube #tab-play:not(.active) {
         position: relative;
         left: 0;
         opacity: 1;

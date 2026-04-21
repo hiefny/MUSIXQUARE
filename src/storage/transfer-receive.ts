@@ -945,8 +945,8 @@ export function handleFileEnd(data: Record<string, unknown>): void {
 }
 
 export function handleFileWait(): void {
-  log.debug('[Guest] Relay has no data yet, waiting for forwarded data...');
-  showToast(t('transfer.relay_wait'));
+  log.debug('[Guest] FILE_WAIT received — source (host or relay) has no data ready yet');
+  showToast(t('transfer.file_wait'));
 
   clearManagedTimer('relayWaitTimeout');
   setManagedTimer('relayWaitTimeout', () => {

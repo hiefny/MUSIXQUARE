@@ -386,7 +386,7 @@ const ko = {
   'transfer.demo_loading_short': '데모 음원 로딩 중...',
   'transfer.file_requesting': '파일 요청 중...',
   'transfer.file_sending': '파일을 보내고 있어요…',
-  'transfer.relay_wait': '릴레이 대기 중... 잠시만 기다려주세요',
+  'transfer.file_wait': '파일 대기 중... 잠시만 기다려주세요',
   'transfer.relay_no_response': '릴레이 응답 없음. Host에서 직접 수신...',
   'transfer.preload_done': '프리로드된 파일 사용!',
   'transfer.preload_waiting': '프리로드 완료 대기 중...',

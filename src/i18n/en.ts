@@ -388,7 +388,7 @@ const en: Record<I18nKey, string> = {
   'transfer.demo_loading_short': 'Loading demo track...',
   'transfer.file_requesting': 'Requesting file...',
   'transfer.file_sending': 'Sending file\u2026',
-  'transfer.relay_wait': 'Waiting for relay... please hold on',
+  'transfer.file_wait': 'Waiting for file... please hold on',
   'transfer.relay_no_response': 'No relay response. Receiving directly from Host...',
   'transfer.preload_done': 'Using preloaded file!',
   'transfer.preload_waiting': 'Waiting for preload to complete...',

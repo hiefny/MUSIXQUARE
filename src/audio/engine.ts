@@ -345,15 +345,12 @@ async function _doInitAudio(): Promise<void> {
   _graph.masterGain.connect(_graph.analyser);
   _graph.masterGain.connect(ctx.destination);
 
-  // iOS Silent Mode Bypass
+  // iOS Silent Mode Bypass — kicks a muted <audio> element so the page's
+  // audio output isn't routed to the silent channel on iOS.
   try {
     const silentAudio = document.getElementById('silent-trigger') as HTMLAudioElement | null;
     if (silentAudio) {
       silentAudio.play().catch(e => log.debug('[Audio] Silent Audio play failed', e));
-    }
-    const videoEl = document.getElementById('main-video') as HTMLVideoElement | null;
-    if (videoEl) {
-      try { await videoEl.play(); videoEl.pause(); } catch (e) { log.debug('[Audio] Video unlock failed', e); }
     }
   } catch (e) {
     log.debug('[Audio] iOS unlock attempt failed:', e);

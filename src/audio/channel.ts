@@ -166,7 +166,7 @@ export function toggleSurroundMode(enabled: boolean): void {
 
   // Instant refresh: restart playback at current position if currently playing
   const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     bus.emit('audio:surround-toggled');
   }
 }

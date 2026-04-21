@@ -524,7 +524,7 @@ export function clearPreviousTrackState(reason = ''): void {
 
   // Reset state to IDLE
   const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO || currentState === APP_STATE.PAUSED) {
+  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PAUSED) {
     setAppState(APP_STATE.IDLE);
   }
 

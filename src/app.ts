@@ -124,7 +124,6 @@ function initKeyboardShortcuts(): void {
 
     const currentState = getState('appState');
     const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
-                      currentState === APP_STATE.PLAYING_VIDEO ||
                       currentState === APP_STATE.PLAYING_YOUTUBE;
 
     if (e.key === ' ' || e.code === 'Space') {
@@ -179,7 +178,7 @@ function initWakeLock(): void {
         ctx.resume().then(() => {
           log.info('[App] AudioContext resumed successfully');
           const currentState = getState('appState');
-          if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+          if (currentState === APP_STATE.PLAYING_AUDIO) {
             applySettingsAsync();
           }
         }).catch(err => {

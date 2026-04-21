@@ -41,7 +41,7 @@ export function setPartyMode(on: boolean): void { _partyMode = on; }
 export function initBeatDetector(): void {
   bus.on('state:appState', (value) => {
     const state = value as string;
-    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
+    if (state === APP_STATE.PLAYING_AUDIO) {
       void analyzeAndStart();
     } else {
       // Non-playing state: stop loop AND release buffer memory
@@ -56,7 +56,7 @@ export function initBeatDetector(): void {
   // state:appState won't fire again. Listen for buffer swaps to re-analyze BPM.
   bus.on('player:buffer-changed', () => {
     const state = getState('appState') as string;
-    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
+    if (state === APP_STATE.PLAYING_AUDIO) {
       void analyzeAndStart();
     }
   });
@@ -252,7 +252,7 @@ function tick(): void {
   _animId = requestAnimationFrame(tick);
 
   const state = getState('appState');
-  if (state !== APP_STATE.PLAYING_AUDIO && state !== APP_STATE.PLAYING_VIDEO) {
+  if (state !== APP_STATE.PLAYING_AUDIO) {
     _lastBeatIdx = -1;
     return;
   }

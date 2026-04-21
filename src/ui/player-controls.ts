@@ -448,57 +448,7 @@ export function initPlayerControls(): void {
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
-  $on('btn-fullscreen', 'click', () => {
-    try {
-      const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
-      const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-      const videoWrapper = document.querySelector('.video-wrapper') as HTMLElement & { webkitRequestFullscreen?: () => void } | null;
-      const target = videoWrapper || el;
-
-      const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
-      const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement || isFakeFullscreen);
-
-      if (!isFullscreen) {
-        if (target.requestFullscreen) {
-          target.requestFullscreen().catch(() => {
-            videoWrapper?.classList.add('fake-fullscreen');
-            document.body.classList.add('has-fake-fullscreen');
-          });
-        } else if (target.webkitRequestFullscreen) {
-          target.webkitRequestFullscreen();
-          setManagedTimer('webkit-fullscreen-fallback', () => {
-            if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
-              videoWrapper?.classList.add('fake-fullscreen');
-              document.body.classList.add('has-fake-fullscreen');
-            }
-          }, 100);
-        } else {
-          videoWrapper?.classList.add('fake-fullscreen');
-          document.body.classList.add('has-fake-fullscreen');
-        }
-      } else {
-        if (isFakeFullscreen) {
-          videoWrapper?.classList.remove('fake-fullscreen');
-          document.body.classList.remove('has-fake-fullscreen');
-        } else {
-          if (document.exitFullscreen) document.exitFullscreen();
-          else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-        }
-      }
-    } catch { 
-      // On generic failure, toggle fake fullscreen
-      const videoWrapper = document.querySelector('.video-wrapper');
-      if (videoWrapper) {
-          if (!videoWrapper.classList.contains('fake-fullscreen')) {
-             videoWrapper.classList.add('fake-fullscreen');
-             document.body.classList.add('has-fake-fullscreen');
-          } else {
-             videoWrapper.classList.remove('fake-fullscreen');
-             document.body.classList.remove('has-fake-fullscreen');
-          }
-      }
-    }
-  });
+  // btn-fullscreen removed — local video is gone; YouTube uses its own native controls.
 
   // Role badge
   const roleBadge = document.getElementById('role-badge');
@@ -734,7 +684,7 @@ export function initPlayerControls(): void {
 
   bus.on('state:appState', () => {
     const state = getState('appState');
-    let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
+    let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     if (state === APP_STATE.PLAYING_YOUTUBE) {
       // appState transitions to PLAYING_YOUTUBE the moment iframe creation
       // starts (setEngineMode in iframe.ts), well before the video actually
@@ -917,7 +867,7 @@ export function initPlayerControls(): void {
 
   bus.on('state:appState', () => {
     const state = getState('appState');
-    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
       startTabTitleMarquee();
     } else {
       stopTabTitleMarquee();

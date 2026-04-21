@@ -79,7 +79,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (!conn?.open) return;
   const hostTime = Date.now();  // Capture BEFORE async import
   const appState = getState('appState');
-  const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO || appState === APP_STATE.PLAYING_VIDEO;
+  const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO;
 
   // Dynamic import for getTrackPosition to avoid circular dep
   if (isFilePlaying) {
@@ -90,7 +90,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
       // import resolve. Sending a stale PLAYING_AUDIO pong causes the guest
       // to start playing while the host is actually paused.
       const freshAppState = getState('appState');
-      const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO || freshAppState === APP_STATE.PLAYING_VIDEO;
+      const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO;
       try {
         conn.send({
           type: MSG.SYNC_PONG,
@@ -136,11 +136,11 @@ function handleSyncPong(data: Record<string, unknown>): void {
 
   // 3. File mode drift correction
   const appState = getState('appState');
-  if (appState !== APP_STATE.PLAYING_AUDIO && appState !== APP_STATE.PLAYING_VIDEO) return;
+  if (appState !== APP_STATE.PLAYING_AUDIO) return;
 
   // Skip if host is not playing (appState in pong tells us)
   const hostAppState = data.appState as string;
-  if (hostAppState !== APP_STATE.PLAYING_AUDIO && hostAppState !== APP_STATE.PLAYING_VIDEO) return;
+  if (hostAppState !== APP_STATE.PLAYING_AUDIO) return;
   if (!Number.isFinite(position)) return;
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
@@ -315,7 +315,7 @@ export function initSync(): void {
   // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
   bus.on('state:appState', () => {
     const s = getState('appState');
-    const isPlaying = s === APP_STATE.PLAYING_AUDIO || s === APP_STATE.PLAYING_VIDEO;
+    const isPlaying = s === APP_STATE.PLAYING_AUDIO;
     if (isPlaying && !_wasPlaying) {
       armInitialSync();
     }

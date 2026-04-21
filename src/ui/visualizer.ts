@@ -166,8 +166,8 @@ export function startVisualizer(): void {
 
   function draw(): void {
     const currentState = getState('appState');
-    // YouTube/Video mode: analyser isn't connected or canvas is CSS-hidden, skip draw
-    if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+    // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
 
     // Self-correct after resize — avoids stale dimensions during the 100ms
     // gap between resize event and startVisualizer() re-init.
@@ -327,7 +327,7 @@ function startSpectrumVisualizer(): void {
 
   function draw(): void {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE || currentState === APP_STATE.PLAYING_VIDEO) { _animationId = null; return; }
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
 
     // Self-correct after resize
     const curW = canvas!.width / (window.devicePixelRatio || 1);

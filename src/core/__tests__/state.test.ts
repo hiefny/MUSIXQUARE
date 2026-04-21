@@ -91,7 +91,7 @@ describe('State Store', () => {
 
   describe('resetState', () => {
     it('restores all defaults', () => {
-      setState('appState', 'PLAYING_VIDEO');
+      setState('appState', 'PAUSED');
       setState('audio.masterVolume', 0.1);
       resetState();
       expect(getState('appState')).toBe('IDLE');

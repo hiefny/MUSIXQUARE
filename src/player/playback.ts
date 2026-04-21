@@ -378,7 +378,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+  if (currentState === APP_STATE.PLAYING_AUDIO) {
     play(time);
     broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
   } else {
@@ -460,7 +460,7 @@ export function initPlayback(): void {
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+    if (currentState === APP_STATE.PLAYING_AUDIO) {
       play(getTrackPosition());
     }
   });
@@ -671,7 +671,7 @@ export function initPlayback(): void {
       // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
       if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
         conn.send({ type: MSG.SYSTEM_AUDIO_START });
-      } else if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+      } else if (currentState === APP_STATE.PLAYING_AUDIO) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as string | null;
         // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.

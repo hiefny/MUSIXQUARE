@@ -221,7 +221,7 @@ export function seekTo(time: number): void {
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO) {
+  if (currentState === APP_STATE.PLAYING_AUDIO) {
     play(time);
     broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
   } else {
@@ -354,7 +354,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     newNode.addEventListener('ended', () => {
       if (endedToken !== getLoadToken()) return;
       const state = getState('appState');
-      if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_VIDEO) {
+      if (state === APP_STATE.PLAYING_AUDIO) {
         handleEnded();
       }
     });
@@ -454,7 +454,7 @@ export function togglePlay(): void {
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
   if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 
-  const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
+  const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO;
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
@@ -577,7 +577,7 @@ export function skipTime(sec: number): void {
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_VIDEO;
+  const isPlaying = currentState === APP_STATE.PLAYING_AUDIO;
 
   if (isPlaying) {
     play(target);

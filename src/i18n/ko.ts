@@ -429,8 +429,6 @@ const ko = {
   'dialog.return_home_title': '세션 나가기',
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
-  'dialog.external_link_title': '외부 페이지로 이동',
-  'dialog.external_link_msg': '현재 세션과 연결이 끊길 수 있어요.',
   'dialog.leaving_session': '세션 나가는 중...',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.',
@@ -470,7 +468,7 @@ const ko = {
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '법적 고지',
-  'legal.content_html': '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 사적 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 관련 안내</strong><br>뮤직스퀘어의 오디오 공유 방식은 P2P 방식으로 작동해요. 오디오, 파일, 채팅 데이터는 서버를 거치지 않고 기기 간에 직접 전송되며, 서버에 저장되지 않아요. 다만 기기 간 연결을 위해 IP 주소가 시그널링 서버를 경유할 수 있어요. 이 정보는 연결 수립 목적으로만 사용되며, 별도로 수집하거나 보관하지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a>',
+  'legal.content_html': '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 사적 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 관련 안내</strong><br>뮤직스퀘어의 오디오 공유 방식은 P2P 방식으로 작동해요. 오디오, 파일, 채팅 데이터는 서버를 거치지 않고 기기 간에 직접 전송되며, 서버에 저장되지 않아요. 다만 기기 간 연결을 위해 IP 주소가 시그널링 서버를 경유할 수 있어요. 이 정보는 연결 수립 목적으로만 사용되며, 별도로 수집하거나 보관하지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a>',
 } as const;
 
 export default ko;

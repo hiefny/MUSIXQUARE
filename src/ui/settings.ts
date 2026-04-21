@@ -134,17 +134,41 @@ function formatReverbValDisp(param: string, v: number): void {
 
 // ─── Audio Effects Helpers ────────────────────────────────────────
 
+/**
+ * During system-audio sharing the host's effect chain is only heard by the
+ * guests (the host still hears raw system audio). Nudge the host with a
+ * toast the first time they commit a change after a short cooldown.
+ *
+ * Returns `true` when the host is in sharing mode — callers that would
+ * normally show a generic warning (e.g. distortion_warn) can use this to
+ * skip theirs and avoid stacking.
+ */
+const _GUEST_ONLY_TOAST_COOLDOWN_MS = 5000;
+let _guestOnlyToastLastAt = 0;
+function _notifyGuestOnlyEffects(): boolean {
+  if (getState('network.hostConn')) return false; // this client is a guest
+  if (getState('appState') !== APP_STATE.PLAYING_SYSTEM_AUDIO) return false;
+  const now = Date.now();
+  if (now - _guestOnlyToastLastAt > _GUEST_ONLY_TOAST_COOLDOWN_MS) {
+    _guestOnlyToastLastAt = now;
+    showToast(t('system_audio.effects_guest_only'));
+  }
+  return true;
+}
+
 function updateAudioEffect(type: string, param: string, value: number, isPreview = false): void {
   // Update value display
   if (type === 'reverb') formatReverbValDisp(param, value);
   else if (type === 'cutoff') _setDisp('val-cutoff', value + ' Hz');
 
   bus.emit('audio:update-effect', type, param, value, isPreview);
+  if (!isPreview && type !== 'cutoff') _notifyGuestOnlyEffects();
 }
 
 function setEQ(band: number, value: number, isPreview = false): void {
   _setDisp(`eq-val-${band}`, value > 0 ? `+${value}` : String(value));
   bus.emit('audio:set-eq', band, value, isPreview);
+  if (!isPreview) _notifyGuestOnlyEffects();
 }
 
 
@@ -336,7 +360,11 @@ function setSurroundOn(on: boolean): void {
   document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
-  if (on) showToast(t('toast.distortion_warn'));
+  if (on) {
+    // Host sharing system audio: route to guest-only notice instead of
+    // distortion warning to avoid stacking two toasts.
+    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
+  }
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
@@ -352,7 +380,9 @@ function setVBassOn(on: boolean): void {
   document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
   // ON: 60%, OFF: 0%
   bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
-  if (on) showToast(t('toast.distortion_warn'));
+  if (on) {
+    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
+  }
 }
 
 // ─── Device List ─────────────────────────────────────────────────
@@ -472,8 +502,10 @@ export function initSettings(): void {
       // Off resets reverb; Hall/Space apply preset; Advanced is UI-only
       if (type === 'off') {
         bus.emit('audio:reverb-type-change', 'off');
+        _notifyGuestOnlyEffects();
       } else if (type !== 'advanced') {
         bus.emit('audio:reverb-type-change', type);
+        _notifyGuestOnlyEffects();
       }
     });
   });

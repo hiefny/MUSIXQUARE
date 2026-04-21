@@ -463,6 +463,7 @@ const ko = {
   'system_audio.stopped': '시스템 오디오 공유가 중단됐어요. 재생목록 항목이 재생돼요.',
   'system_audio.many_devices_warning': '시스템 오디오 공유 시 연결된 기기가 많으면 끊길 수 있어요.',
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
+  'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 게스트에게만 적용돼요',
   'system_audio.desktop_only': 'Windows 또는 Mac의 Chrome에서만 사용할 수 있어요.',
 
   // ─── Legal ────────────────────────────────────────────────────────

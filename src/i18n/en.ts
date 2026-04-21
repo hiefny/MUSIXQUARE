@@ -465,6 +465,7 @@ const en: Record<I18nKey, string> = {
   'system_audio.stopped': 'System audio sharing ended. Resuming playlist.',
   'system_audio.many_devices_warning': 'System audio sharing may stutter with many devices connected.',
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',
+  'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to guests only.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
 
   // ─── Legal ────────────────────────────────────────────────────────

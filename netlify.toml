@@ -53,6 +53,17 @@
   to = "/designsystem/index.html"
   status = 200
 
+# Roadmap: serve /roadmap and /roadmap/ as the static index
+[[redirects]]
+  from = "/roadmap"
+  to = "/roadmap/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/roadmap/"
+  to = "/roadmap/index.html"
+  status = 200
+
 # Case-variant redirects → canonical lowercase (301)
 [[redirects]]
   from = "/DESIGNSYSTEM"

@@ -770,7 +770,8 @@ export function initPlayerControls(): void {
           mediaBtnLabel.setAttribute('data-i18n', 'system_audio.stop');
         }
       } else {
-        if (!mediaBtnLabel.getAttribute('data-i18n')) {
+        const currentKey = mediaBtnLabel.getAttribute('data-i18n');
+        if (!currentKey || currentKey === 'system_audio.stop') {
           mediaBtnLabel.textContent = t('player.play_media');
           mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
         }

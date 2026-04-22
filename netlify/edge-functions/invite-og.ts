@@ -25,8 +25,11 @@
  *   pinning a broken response.
  */
 
-import satori from "npm:satori@0.26";
-import { Resvg, initWasm } from "npm:@resvg/resvg-wasm@2.6";
+// URL imports (esm.sh) — more reliable than npm: specifiers on
+// Netlify's Deno-based Edge Function runtime. Versions pinned to
+// match devDependencies so local smoke tests stay aligned.
+import satori from "https://esm.sh/satori@0.26.3";
+import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-wasm@2.6.2";
 
 // ─── Lazy-loaded assets (per container) ──────────────────────────
 let wasmReady: Promise<void> | null = null;

@@ -27,7 +27,7 @@
  * any reason) pass through untouched.
  */
 
-import type { Context } from "@netlify/edge-functions";
+import type { Context } from "https://edge.netlify.com";
 
 const ORIGIN = "https://musixquare.com";
 

@@ -122,7 +122,7 @@
         <p class="lp-eyebrow">Room code</p>
         <h2 class="lp-h2">Six digits.<br>Nothing else.</h2>
         <p class="lp-lead">Start a session, share six digits. Anyone with a browser joins in seconds.</p>
-        <div class="lp-code" aria-label="Example room code">
+        <div class="lp-code" data-code-cycle aria-label="Example room code">
           <em>4</em><em>9</em><em>2</em><em>8</em><em>1</em><em>5</em>
         </div>
         <p class="lp-code__caption">No signup. No install. Any modern browser.</p>
@@ -140,16 +140,38 @@
 
     <hr class="lp-divider">
 
-    <section class="lp-section" data-animate>
-      <p class="lp-eyebrow">Precision sync</p>
-      <h2 class="lp-h2">Frame-perfect.<br>Across networks.</h2>
-      <dl class="lp-specs">
-        <div><dt>Audio sync</dt><dd>±12 ms, NTP-measured</dd></div>
-        <div><dt>Video</dt><dd>Frame-accurate YouTube playback</dd></div>
-        <div><dt>Transport</dt><dd>Peer-to-peer, WebRTC</dd></div>
-        <div><dt>Effects</dt><dd>5-band EQ · Reverb · Web Audio API</dd></div>
-        <div><dt>Platforms</dt><dd>iOS · Android · macOS · Windows</dd></div>
-      </dl>
+    <section class="lp-section lp-section--split" data-animate>
+      <div class="lp-split__copy">
+        <p class="lp-eyebrow">Precision sync</p>
+        <h2 class="lp-h2">Frame-perfect.<br>Across networks.</h2>
+        <p class="lp-lead">Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.</p>
+        <dl class="lp-specs">
+          <div><dt>Video</dt><dd>Frame-accurate YouTube playback</dd></div>
+          <div><dt>Transport</dt><dd>Peer-to-peer, WebRTC</dd></div>
+          <div><dt>Effects</dt><dd>5-band EQ · Reverb · Web Audio API</dd></div>
+          <div><dt>Platforms</dt><dd>iOS · Android · macOS · Windows</dd></div>
+        </dl>
+      </div>
+      <aside class="lp-split__aside">
+        <div class="lp-sync" data-sync-clock>
+          <div>
+            <div class="lp-sync__label">Host</div>
+            <div class="lp-sync__timecode" data-sync-tc="host">00:29.<em>472</em></div>
+          </div>
+          <div class="lp-sync__divider"></div>
+          <dl class="lp-sync__rows">
+            <div>
+              <dt>peer-1</dt>
+              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer1" data-offset="9">00:29.463</span><span class="lp-sync__delta">−9 ms</span></dd>
+            </div>
+            <div>
+              <dt>peer-2</dt>
+              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer2" data-offset="32">00:29.440</span><span class="lp-sync__delta">−32 ms</span></dd>
+            </div>
+          </dl>
+          <p class="lp-sync__meta">60-sample window · 1 s probe · NTP-style</p>
+        </div>
+      </aside>
     </section>
 
     <hr class="lp-divider">

@@ -104,11 +104,110 @@ function initCopyInvite(): void {
   });
 }
 
+function pad(n: number, len: number): string {
+  return String(n).padStart(len, '0');
+}
+
+function formatSec(totalMs: number): string {
+  const ms = Math.max(0, Math.floor(totalMs));
+  const mm = Math.floor(ms / 60000);
+  const ss = Math.floor((ms % 60000) / 1000);
+  return `${pad(mm, 2)}:${pad(ss, 2)}`;
+}
+
+function formatMsPart(totalMs: number): string {
+  const ms = Math.max(0, Math.floor(totalMs)) % 1000;
+  return pad(ms, 3);
+}
+
+function initSyncClock(): void {
+  const root = document.querySelector<HTMLElement>('[data-sync-clock]');
+  if (!root) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const host = root.querySelector<HTMLElement>('[data-sync-tc="host"]');
+  const peers = root.querySelectorAll<HTMLElement>('[data-sync-tc^="peer"]');
+  if (!host || peers.length === 0) return;
+
+  // Preserve the <em> structure for the host ms part (primary color).
+  const hostEm = host.querySelector('em');
+  // First text node (the "00:29." part before the em)
+  let hostPrefixNode: Text | null = null;
+  for (const n of host.childNodes) {
+    if (n.nodeType === Node.TEXT_NODE) { hostPrefixNode = n as Text; break; }
+  }
+
+  // Count 00:00.000 → 00:32.000 continuously, then hold dark for 1s.
+  // [0s,   2s]  fade in  (opacity 0 → 1 while counting 0→2)
+  // [2s,  30s]  full opacity (counting 2→30)
+  // [30s, 32s]  fade out (opacity 1 → 0 while counting 30→32)
+  // [32s, 33s]  dark pause (opacity 0, host display reset to 0)
+  const FADE_IN_END = 2_000;
+  const FADE_OUT_START = 30_000;
+  const FADE_OUT_END = 32_000;
+  const CYCLE_MS = 33_000;
+  const start = performance.now();
+
+  function render(): void {
+    const elapsed = (performance.now() - start) % CYCLE_MS;
+    let hostMs: number;
+    let opacity: number;
+
+    if (elapsed < FADE_IN_END) {
+      hostMs = elapsed;
+      opacity = elapsed / FADE_IN_END;                                    // 0 → 1
+    } else if (elapsed < FADE_OUT_START) {
+      hostMs = elapsed;
+      opacity = 1;
+    } else if (elapsed < FADE_OUT_END) {
+      hostMs = elapsed;
+      opacity = 1 - (elapsed - FADE_OUT_START) / (FADE_OUT_END - FADE_OUT_START); // 1 → 0
+    } else {
+      hostMs = 0;                                                         // pre-reset during dark
+      opacity = 0;
+    }
+
+    if (hostPrefixNode) hostPrefixNode.nodeValue = `${formatSec(hostMs)}.`;
+    if (hostEm) hostEm.textContent = formatMsPart(hostMs);
+    host!.style.opacity = opacity.toFixed(2);
+
+    peers.forEach((el) => {
+      const offset = Number(el.dataset.offset ?? 0);
+      const peerMs = hostMs - offset;
+      el.textContent = `${formatSec(peerMs)}.${formatMsPart(peerMs)}`;
+      el.style.opacity = opacity.toFixed(2);
+    });
+
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+}
+
+function initCodeCycle(): void {
+  const code = document.querySelector<HTMLElement>('[data-code-cycle]');
+  if (!code) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const digits = code.querySelectorAll<HTMLElement>('em');
+  if (digits.length === 0) return;
+
+  let i = 0;
+  digits[i].classList.add('is-lit');
+  setInterval(() => {
+    digits[i].classList.remove('is-lit');
+    i = (i + 1) % digits.length;
+    digits[i].classList.add('is-lit');
+  }, 1000);
+}
+
 function boot(): void {
   initReveal();
   initSmoothAnchor();
   initScrollProgress();
   initCopyInvite();
+  initSyncClock();
+  initCodeCycle();
 }
 
 if (document.readyState === 'loading') {

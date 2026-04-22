@@ -770,7 +770,13 @@ export function initYouTube(): void {
         const updated = [...currentPlaylist];
         updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
         setState('playlist.items', updated);
-        setState('player.currentTrackMeta', updated[newIndex]);
+        // Only refresh currentTrackMeta when the newly-titled track IS the
+        // currently playing one. Queue additions from the Add-to-Queue path
+        // land at newIndex > currentTrackIndex; blindly writing here would
+        // clobber the playing track's title with the queued track's title.
+        if (getState('playlist.currentTrackIndex') === newIndex) {
+          setState('player.currentTrackMeta', updated[newIndex]);
+        }
 
         // Broadcast updated title to peers (Host only)
         if (!getState('network.hostConn')) {

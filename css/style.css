@@ -1896,6 +1896,7 @@
         border-radius: var(--radius-m);
         font-size: 14px;
         font-weight: 700;
+        font-family: inherit;
         cursor: pointer;
         display: flex;
         flex-direction: column;
@@ -1904,6 +1905,11 @@
         gap: 8px;
         transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
         border: 2px solid var(--surface-2);
+        /* Native-button resets — .ch-opt is <button> for Tab-focus a11y.
+           Keep browser default :focus-visible outline so keyboard users
+           get the OS-consistent focus ring. */
+        appearance: none;
+        -webkit-appearance: none;
     }
 
     .ch-opt svg {

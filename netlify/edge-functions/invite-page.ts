@@ -73,59 +73,73 @@ export default async function handler(
 
   const lang: "ko" | "en" = url.searchParams.get("l") === "en" ? "en" : "ko";
 
-  // Let Netlify's pipeline (SPA fallback) resolve to index.html, then rewrite.
+  // Let Netlify's pipeline (SPA fallback) resolve to index.html first.
+  // Anything below this point that throws should NOT kill the page —
+  // crawlers get the original (homepage) OG card, which is the same
+  // graceful-degradation behavior they'd have if this function didn't
+  // exist at all.
   const response = await context.next();
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/html")) return response;
 
-  const html = await response.text();
-  const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, lang);
+  try {
+    const html = await response.text();
+    const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, lang);
 
-  const rewritten = html
-    .replace(
-      /<meta property="og:url" content="[^"]*">/,
-      `<meta property="og:url" content="${esc(pageUrl)}">`,
-    )
-    .replace(
-      /<meta property="og:title" content="[^"]*">/,
-      `<meta property="og:title" content="${esc(title)}">`,
-    )
-    .replace(
-      /<meta property="og:description" content="[^"]*">/,
-      `<meta property="og:description" content="${esc(description)}">`,
-    )
-    .replace(
-      /<meta property="og:image" content="[^"]*">/,
-      `<meta property="og:image" content="${esc(imageUrl)}">`,
-    )
-    .replace(
-      /<meta property="og:image:alt" content="[^"]*">/,
-      `<meta property="og:image:alt" content="${esc(alt)}">`,
-    )
-    .replace(
-      /<meta name="twitter:title" content="[^"]*">/,
-      `<meta name="twitter:title" content="${esc(title)}">`,
-    )
-    .replace(
-      /<meta name="twitter:description" content="[^"]*">/,
-      `<meta name="twitter:description" content="${esc(description)}">`,
-    )
-    .replace(
-      /<meta name="twitter:image" content="[^"]*">/,
-      `<meta name="twitter:image" content="${esc(imageUrl)}">`,
-    );
+    const rewritten = html
+      .replace(
+        /<meta property="og:url" content="[^"]*">/,
+        `<meta property="og:url" content="${esc(pageUrl)}">`,
+      )
+      .replace(
+        /<meta property="og:title" content="[^"]*">/,
+        `<meta property="og:title" content="${esc(title)}">`,
+      )
+      .replace(
+        /<meta property="og:description" content="[^"]*">/,
+        `<meta property="og:description" content="${esc(description)}">`,
+      )
+      .replace(
+        /<meta property="og:image" content="[^"]*">/,
+        `<meta property="og:image" content="${esc(imageUrl)}">`,
+      )
+      .replace(
+        /<meta property="og:image:alt" content="[^"]*">/,
+        `<meta property="og:image:alt" content="${esc(alt)}">`,
+      )
+      .replace(
+        /<meta name="twitter:title" content="[^"]*">/,
+        `<meta name="twitter:title" content="${esc(title)}">`,
+      )
+      .replace(
+        /<meta name="twitter:description" content="[^"]*">/,
+        `<meta name="twitter:description" content="${esc(description)}">`,
+      )
+      .replace(
+        /<meta name="twitter:image" content="[^"]*">/,
+        `<meta name="twitter:image" content="${esc(imageUrl)}">`,
+      );
 
-  const headers = new Headers(response.headers);
-  headers.set("Content-Type", "text/html; charset=utf-8");
-  headers.set("Cache-Control", "public, max-age=60, s-maxage=900");
-  headers.set("X-Invite-Rewrite", code);
-  headers.set("X-Invite-Lang", lang);
-  headers.delete("Content-Length"); // response body byte length changed
+    const headers = new Headers(response.headers);
+    headers.set("Content-Type", "text/html; charset=utf-8");
+    headers.set("Cache-Control", "public, max-age=60, s-maxage=900");
+    headers.set("X-Invite-Rewrite", code);
+    headers.set("X-Invite-Lang", lang);
+    headers.delete("Content-Length"); // response body byte length changed
 
-  return new Response(rewritten, {
-    status: response.status,
-    headers,
-  });
+    return new Response(rewritten, {
+      status: response.status,
+      headers,
+    });
+  } catch (err) {
+    // Fall through to the original response unchanged. The crawler gets
+    // the homepage card; the join flow still works for the actual user
+    // because SPA JS reads window.location.pathname client-side.
+    const headers = new Headers(response.headers);
+    headers.set("X-Invite-Rewrite-Error", err instanceof Error ? err.message : "unknown");
+    headers.delete("Content-Length");
+    return new Response(response.body, { status: response.status, headers });
+  }
 }
 
 export const config = {

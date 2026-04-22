@@ -266,28 +266,10 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  // IME buffer purge for iOS Safari's Korean/Japanese composition state
-  // that survives a bare contentEditable toggle and leaks the previous
-  // message's last char ("요안녕하세요" instead of "안녕하세요") on the
-  // next send.
-  //
-  // Prior attempt used removeAttribute('contenteditable') for a deeper
-  // detach, but that broke post-send focus on all platforms — the
-  // element lost focusability during the attribute remove/re-add gap,
-  // so the user had to tap the input again before typing. Rolled back
-  // to the value-toggle path; added the two things that still help iOS
-  // without touching focusability:
-  //   1. Synthetic compositionend with empty data — tells the IME
-  //      there is nothing pending to commit.
-  //   2. Clear selection ranges so the caret state doesn't anchor to
-  //      a stale text node.
-  //
-  // If iOS still leaks after this, the next layer is a blur+rAF+refocus
-  // hard reset (accepts a visible keyboard flash).
-  input.dispatchEvent(new CompositionEvent('compositionend', { data: '' }));
+  // Final Boss IME fix: Toggle contentEditable to forcefully kill the OS-level
+  // composition buffer without needing a visible blur/focus flash.
   (input as any).contentEditable = 'false';
   input.innerHTML = '';
-  try { window.getSelection()?.removeAllRanges(); } catch { /* cross-origin safety */ }
   void input.offsetHeight; // Force reflow
   (input as any).contentEditable = 'true';
   input.dispatchEvent(new Event('input', { bubbles: true }));

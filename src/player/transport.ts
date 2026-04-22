@@ -40,9 +40,20 @@ import { showToast } from '../ui/toast.ts';
 
 export function fmtTime(s: number): string {
   if (!Number.isFinite(s)) return '0:00';
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+  const total = Math.max(0, Math.floor(s));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const ss = sec < 10 ? `0${sec}` : `${sec}`;
+  // Hours segment only appears at ≥1h — keeps short tracks as "m:ss"
+  // (the vast majority) and promotes long tracks (podcasts, DJ sets,
+  // multi-hour YouTube livestreams) to "h:mm:ss" with a zero-padded
+  // minutes field so the digit count is stable inside that hour.
+  if (h > 0) {
+    const mm = m < 10 ? `0${m}` : `${m}`;
+    return `${h}:${mm}:${ss}`;
+  }
+  return `${m}:${ss}`;
 }
 
 // ─── App State Helper ─────────────────────────────────────────────

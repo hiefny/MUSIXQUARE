@@ -41,9 +41,9 @@ function esc(s: string): string {
 function buildMeta(code: string, origin: string) {
   const imageUrl = `${origin}/og/invite/${code}.png`;
   const pageUrl = `${origin}/${code}`;
-  const title = `You're invited · Code ${code} · MUSIXQUARE`;
+  const title = `Session ${code} · MUSIXQUARE`;
   const description = `Join a MUSIXQUARE session with code ${code}.`;
-  const alt = `MUSIXQUARE invite · Code ${code}`;
+  const alt = `MUSIXQUARE · Session ${code}`;
 
   return { imageUrl, pageUrl, title, description, alt };
 }

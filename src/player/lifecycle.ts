@@ -174,7 +174,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_START':
         return { stay: true };  // progress drives the waiter
       case 'PRELOAD_FILE_READY':
-        return { next: PLAYBACK_STATE.DECODING };  // ⭐ THE FIX: promote blob
+        return { next: PLAYBACK_STATE.DECODING };  // promote blob
       case 'PRELOAD_STALL':
       case 'PRELOAD_CEILING':
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
@@ -187,7 +187,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         if (ev.variant === 'blob-ready')   return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         if (ev.variant === 'blob-waiting') return { stay: true };  // already awaiting
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
-      case 'PLAY':           return { stay: true };  // ⭐ THE FIX: store pendingPlayTime, NO recovery
+      case 'PLAY':           return { stay: true };  // store pendingPlayTime, no recovery
       case 'PAUSE':          return { stay: true };  // store pausedAt
       case 'LOAD_TOKEN_MISMATCH': return { stay: true };
       default:               return { reject: `${ev.type} not expected in AWAITING_PRELOAD` };

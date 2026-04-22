@@ -139,7 +139,7 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     return;
   }
 
-  // ⭐ Lifecycle gate (Phase 3 THE BUG FIX).
+  // Lifecycle gate.
   //
   // If we're in AWAITING_PRELOAD for this track, the "stale audio" we're
   // about to detect below is EXPECTED — we haven't consumed the preload

@@ -1,6 +1,7 @@
 /.claude
 node_modules/
 dist/
+.vite/
 *.ait
 promo/frames/
 promo/output/

@@ -27,7 +27,9 @@
  * any reason) pass through untouched.
  */
 
-import type { Context } from "https://edge.netlify.com";
+// Netlify's bundler auto-maps this to https://edge.netlify.com/v1/index.ts
+// via the edge-bundler import map — see build log's resolved importMapData.
+import type { Context } from "@netlify/edge-functions";
 
 const ORIGIN = "https://musixquare.com";
 

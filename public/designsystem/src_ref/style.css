@@ -1492,12 +1492,22 @@
     .playing-indicator {
         display: none;
         align-items: flex-end;
+        justify-content: center;
         gap: 2px;
         width: 16px;
         height: 12px;
     }
 
-    .track-item.active .playing-indicator,
+    /* Main track items: always visible & sized to match .btn-playlist-remove (28×28)
+       so host and guest rows share identical height */
+    .track-item .playing-indicator {
+        display: flex;
+        width: 28px;
+        height: 28px;
+        flex-shrink: 0;
+        align-items: center;
+    }
+
     .sub-track-item.active .playing-indicator {
         display: flex;
     }
@@ -1508,6 +1518,13 @@
         background: var(--primary);
         border-radius: 1px;
         animation: playingWave 0.6s ease-in-out infinite alternate;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .track-item.active .playing-indicator .bar,
+    .sub-track-item.active .playing-indicator .bar {
+        opacity: 1;
     }
 
     .playing-indicator .bar:nth-child(2) {

@@ -539,6 +539,22 @@
         flex-direction: column;
     }
 
+    /* When an overlay is active, `inert` on body children already blocks
+       interaction on the side panels (set in dom.ts). Add a visual dim so the
+       spatial cue matches the blocked state. Setup overlay covers the whole
+       viewport on desktop, so this is harmless there. */
+    #tab-playlist,
+    .chat-drawer,
+    #tab-settings {
+        transition: opacity 0.2s ease;
+    }
+
+    body.overlay-open #tab-playlist,
+    body.overlay-open .chat-drawer,
+    body.overlay-open #tab-settings {
+        opacity: 0.4;
+    }
+
     #media-source-overlay .setup-card.full-screen,
     #youtube-url-overlay .setup-card.full-screen {
         position: relative;

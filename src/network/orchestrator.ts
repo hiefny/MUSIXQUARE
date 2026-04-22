@@ -262,6 +262,18 @@ function handlePeerDisconnect(peerId: string): void {
   // 3. If a local peer left, some remotes on host-fallback might now have no relay options
   //    (This is a no-op if nothing changed, but ensures consistency)
   reassignOrphanedRemotes();
+
+  // 4. If the disconnect pushed peers.length below RELAY_ACTIVATION_MIN_PEERS
+  //    (e.g. 4→3 transition), any still-attached remote peer that was sitting
+  //    at isDataTarget=false with a relay assignment no longer matches the
+  //    small-room "all direct" policy. Re-evaluate every remaining peer so
+  //    threshold crossings are consistent with the welcome state.
+  const remaining = getConnectedPeers();
+  for (const p of remaining) {
+    if (p.id !== peerId && p.status === 'connected') {
+      evaluatePeer(p.id);
+    }
+  }
 }
 
 /**

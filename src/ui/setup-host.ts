@@ -20,7 +20,6 @@ import {
   setupEl, stopObAutoSlide,
   setupShowJoinArea, setupShowCodeArea, setupShowWelcome, setupShowRoleArea,
   setupHighlightJoinRole, setupSetCode, setupRenderActions,
-  setupFocusFirstRoleOption,
   hideSetupOverlay,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
@@ -70,8 +69,6 @@ export function startHostFlow(): void {
       },
     },
   ], 'horizontal-with-back');
-
-  setupFocusFirstRoleOption();
 }
 
 async function proceedToHostCode(mode: number): Promise<void> {

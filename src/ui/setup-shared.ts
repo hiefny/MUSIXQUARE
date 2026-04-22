@@ -225,29 +225,6 @@ export function setupSetGuestJoinBusy(busy: boolean): void {
   }
 }
 
-/**
- * Move keyboard focus to the first role button in #setup-role-grid.
- * Called after the host/guest flow swaps welcome → role-select screen
- * so Tab users land on the left-speaker button (DOM order) instead of
- * the "back" action rendered after the grid in #setup-actions.
- *
- * Deferred to the next frame so setupShowRoleArea's display/visibility
- * flip is committed before focus runs (hidden elements can't receive
- * focus even if focus() is called on them synchronously).
- */
-export function setupFocusFirstRoleOption(): void {
-  // Double rAF so the View Transitions API (animateTransition) has a chance
-  // to commit the setupShowRoleArea(true) display flip AND the freshly re-
-  // rendered setup-actions DOM lays out before we focus. A single rAF fires
-  // before the transition callback finalizes in some browsers.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const first = document.querySelector<HTMLButtonElement>('#setup-role-grid .ch-opt');
-      first?.focus();
-    });
-  });
-}
-
 export function setupHighlightJoinRole(mode: number | null): void {
   const opts = document.querySelectorAll<HTMLElement>('#setup-role-grid .ch-opt[data-join-ch]');
   opts.forEach(o => o.classList.remove('selected'));

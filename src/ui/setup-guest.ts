@@ -24,7 +24,6 @@ import {
   setupEl, stopObAutoSlide,
   setupShowCodeArea, setupShowJoinArea, setupShowWelcome, setupShowRoleArea,
   setupHighlightJoinRole, setupSetGuestJoinBusy, setupRenderActions,
-  setupFocusFirstRoleOption,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 
@@ -99,8 +98,6 @@ export function startGuestFlow(): void {
       },
     ], 'horizontal-with-back');
   }
-
-  setupFocusFirstRoleOption();
 
   setState('network.myDeviceLabel', t('common.guest'));
   updateRoleBadge();

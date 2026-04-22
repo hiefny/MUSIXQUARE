@@ -23,7 +23,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const code = process.argv[2] || "839412";
 const lang = process.argv[3] === "en" ? "en" : "ko";
 
-function buildCard({ code, lang }) {
+function buildCard({ code, lang, wordmarkDataUrl }) {
   const greeting = lang === "ko" ? "초대됐어요" : "You're invited";
 
   return {
@@ -49,10 +49,12 @@ function buildCard({ code, lang }) {
           },
         },
         {
-          type: "div",
+          type: "img",
           props: {
-            style: { fontSize: 88, fontWeight: 800, marginTop: 16, letterSpacing: -2 },
-            children: "MUSIXQUARE",
+            src: wordmarkDataUrl,
+            width: 712,
+            height: 80,
+            style: { marginTop: 16 },
           },
         },
         {
@@ -77,13 +79,18 @@ function buildCard({ code, lang }) {
 }
 
 async function main() {
-  const bold = await readFile(path.join(repoRoot, "public/fonts/og-pretendard-bold.ttf"));
-  const extrabold = await readFile(path.join(repoRoot, "public/fonts/og-pretendard-extrabold.ttf"));
+  const [bold, extrabold, wordmarkRaw] = await Promise.all([
+    readFile(path.join(repoRoot, "public/fonts/og-pretendard-bold.ttf")),
+    readFile(path.join(repoRoot, "public/fonts/og-pretendard-extrabold.ttf")),
+    readFile(path.join(repoRoot, "public/designsystem/assets/logo-wordmark.svg"), "utf8"),
+  ]);
+  const wordmarkDataUrl =
+    `data:image/svg+xml;utf8,${encodeURIComponent(wordmarkRaw.replace(/currentColor/g, "white"))}`;
 
   console.log(`▸ Rendering code=${code} lang=${lang}`);
 
   const t0 = performance.now();
-  const svg = await satori(buildCard({ code, lang }), {
+  const svg = await satori(buildCard({ code, lang, wordmarkDataUrl }), {
     width: 1200,
     height: 630,
     fonts: [

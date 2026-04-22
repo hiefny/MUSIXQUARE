@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 // ─── Card templates ──────────────────────────────────────────────
-function card({ eyebrow, headline, tagline }) {
+function card({ wordmarkDataUrl, headline, tagline }) {
   return {
     type: "div",
     props: {
@@ -43,15 +43,13 @@ function card({ eyebrow, headline, tagline }) {
       },
       children: [
         {
-          type: "div",
+          type: "img",
           props: {
-            style: {
-              fontSize: 32,
-              fontWeight: 700,
-              opacity: 0.75,
-              letterSpacing: 4,
-            },
-            children: eyebrow,
+            // Brand wordmark SVG, eyebrow-sized (~8.9:1 aspect).
+            src: wordmarkDataUrl,
+            width: 250,
+            height: 28,
+            style: { opacity: 0.85 },
           },
         },
         {
@@ -88,7 +86,6 @@ const CARDS = [
   {
     outFile: "public/og-roadmap.png",
     props: {
-      eyebrow: "MUSIXQUARE",
       headline: "Roadmap",
       tagline: "Every known limit · Documented",
     },
@@ -96,7 +93,6 @@ const CARDS = [
   {
     outFile: "public/og-changelog.png",
     props: {
-      eyebrow: "MUSIXQUARE",
       headline: "Changelog",
       tagline: "The build log · Oct 2025 → now",
     },
@@ -104,16 +100,22 @@ const CARDS = [
 ];
 
 async function main() {
-  const [bold, extrabold, wasm] = await Promise.all([
+  const [bold, extrabold, wasm, wordmarkRaw] = await Promise.all([
     readFile(path.join(repoRoot, "public/fonts/og-pretendard-bold.ttf")),
     readFile(path.join(repoRoot, "public/fonts/og-pretendard-extrabold.ttf")),
     readFile(path.join(repoRoot, "node_modules/@resvg/resvg-wasm/index_bg.wasm")),
+    readFile(path.join(repoRoot, "public/designsystem/assets/logo-wordmark.svg"), "utf8"),
   ]);
   await initWasm(wasm);
 
+  // Bake white fill into the wordmark SVG (Satori <img> doesn't propagate
+  // currentColor), then embed as a data URL.
+  const wordmarkDataUrl =
+    `data:image/svg+xml;utf8,${encodeURIComponent(wordmarkRaw.replace(/currentColor/g, "white"))}`;
+
   for (const { outFile, props } of CARDS) {
     const t0 = performance.now();
-    const svg = await satori(card(props), {
+    const svg = await satori(card({ wordmarkDataUrl, ...props }), {
       width: 1200,
       height: 630,
       fonts: [

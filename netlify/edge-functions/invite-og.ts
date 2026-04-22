@@ -36,6 +36,7 @@ import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-wasm@2.6.2";
 let wasmReady: Promise<void> | null = null;
 let boldFont: ArrayBuffer | null = null;
 let extraboldFont: ArrayBuffer | null = null;
+let wordmarkDataUrl: string | null = null;
 
 async function loadAssets(origin: string): Promise<void> {
   if (!wasmReady) {
@@ -56,6 +57,16 @@ async function loadAssets(origin: string): Promise<void> {
     const resp = await fetch(new URL("/fonts/og-pretendard-extrabold.ttf", origin));
     if (!resp.ok) throw new Error(`ExtraBold font fetch failed: HTTP ${resp.status}`);
     extraboldFont = await resp.arrayBuffer();
+  }
+  if (!wordmarkDataUrl) {
+    // Pull the brand wordmark from the design system, bake a white fill
+    // (Satori's <img> doesn't propagate currentColor from the host tree),
+    // and cache the resulting data URL for the container lifetime.
+    const resp = await fetch(new URL("/designsystem/assets/logo-wordmark.svg", origin));
+    if (!resp.ok) throw new Error(`Wordmark fetch failed: HTTP ${resp.status}`);
+    const raw = await resp.text();
+    const white = raw.replace(/currentColor/g, "white");
+    wordmarkDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(white)}`;
   }
 }
 
@@ -96,15 +107,14 @@ function buildCard({ code, lang }: CardProps): unknown {
           },
         },
         {
-          type: "div",
+          type: "img",
           props: {
-            style: {
-              fontSize: 88,
-              fontWeight: 800,
-              marginTop: 16,
-              letterSpacing: -2,
-            },
-            children: "MUSIXQUARE",
+            // Brand wordmark SVG (white fill). Width/height mirror the
+            // previous 88px ExtraBold text weight at the card's aspect.
+            src: wordmarkDataUrl,
+            width: 712,
+            height: 80,
+            style: { marginTop: 16 },
           },
         },
         {

@@ -31,8 +31,6 @@
 // via the edge-bundler import map — see build log's resolved importMapData.
 import type { Context } from "@netlify/edge-functions";
 
-const ORIGIN = "https://musixquare.com";
-
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -41,9 +39,9 @@ function esc(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function buildMeta(code: string, lang: "ko" | "en") {
-  const imageUrl = `${ORIGIN}/og/invite/${code}.png?l=${lang}`;
-  const pageUrl = `${ORIGIN}/${code}${lang === "en" ? "?l=en" : ""}`;
+function buildMeta(code: string, lang: "ko" | "en", origin: string) {
+  const imageUrl = `${origin}/og/invite/${code}.png?l=${lang}`;
+  const pageUrl = `${origin}/${code}${lang === "en" ? "?l=en" : ""}`;
 
   const title =
     lang === "ko"
@@ -86,7 +84,11 @@ export default async function handler(
 
   try {
     const html = await response.text();
-    const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, lang);
+    // Use the request's origin so OG URLs stay on the same host the
+    // crawler was visiting. On production this is musixquare.com; on
+    // Deploy Preview it's deploy-preview-*.netlify.app. This is what
+    // lets SNS debuggers actually preview the card on a PR branch.
+    const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, lang, url.origin);
 
     const rewritten = html
       .replace(

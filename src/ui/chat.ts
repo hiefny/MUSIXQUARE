@@ -266,14 +266,26 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  // Final Boss IME fix: Toggle contentEditable to forcefully kill the OS-level 
-  // composition buffer without needing a visible blur/focus flash.
-  (input as any).contentEditable = 'false';
+  // IME buffer purge — layered defense for iOS Safari's Korean/Japanese
+  // composition state, which survives a contentEditable toggle alone and
+  // leaks the previous message's last char ("요안녕하세요" instead of
+  // "안녕하세요") as a prefix on the next send:
+  //   1. Synthetic compositionend with empty data — tells the IME there
+  //      is nothing pending to commit.
+  //   2. Drop the contenteditable attribute entirely (not just set its
+  //      value to "false") to fully detach from the IME session. Safari
+  //      binds composition to the attribute's presence, not its value.
+  //   3. Clear the DOM, clear selection ranges, force reflow.
+  //   4. Re-add contenteditable and refocus on the next frame so the
+  //      re-attached IME session starts with a clean buffer.
+  input.dispatchEvent(new CompositionEvent('compositionend', { data: '' }));
+  input.removeAttribute('contenteditable');
   input.innerHTML = '';
+  try { window.getSelection()?.removeAllRanges(); } catch { /* cross-origin safety */ }
   void input.offsetHeight; // Force reflow
-  (input as any).contentEditable = 'true';
+  input.setAttribute('contenteditable', 'true');
   input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.focus();
+  requestAnimationFrame(() => input.focus());
 }
 
 // ─── Event Delegation ────────────────────────────────────────────

@@ -96,6 +96,46 @@
   to = "/designsystem/"
   status = 301
 
+[[redirects]]
+  from = "/CHANGELOG"
+  to = "/changelog/"
+  status = 301
+
+[[redirects]]
+  from = "/CHANGELOG/"
+  to = "/changelog/"
+  status = 301
+
+[[redirects]]
+  from = "/Changelog"
+  to = "/changelog/"
+  status = 301
+
+[[redirects]]
+  from = "/Changelog/"
+  to = "/changelog/"
+  status = 301
+
+[[redirects]]
+  from = "/ROADMAP"
+  to = "/roadmap/"
+  status = 301
+
+[[redirects]]
+  from = "/ROADMAP/"
+  to = "/roadmap/"
+  status = 301
+
+[[redirects]]
+  from = "/Roadmap"
+  to = "/roadmap/"
+  status = 301
+
+[[redirects]]
+  from = "/Roadmap/"
+  to = "/roadmap/"
+  status = 301
+
 # SPA fallback: serve index.html for all routes
 [[redirects]]
   from = "/*"

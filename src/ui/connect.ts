@@ -62,10 +62,15 @@ async function generateQR(containerId: string): Promise<void> {
   container.replaceChildren(loadingP);
 
   try {
-    // QR: uppercase alphanumeric mode for smallest QR
+    // QR: uppercase alphanumeric mode for smallest QR — no lang param
+    // (scans go straight to join flow, where OG previews don't apply)
     const qrUrl = `MUSIXQUARE.COM/${sessionCode}`;
-    // Clipboard: normal readable URL
-    const shareUrl = `${location.origin}/${sessionCode}`;
+    // Clipboard: normal readable URL. Append ?l=en when the host's
+    // resolved language is English so the invite-page Edge Function
+    // serves an English-led preview card. Korean is the default, so we
+    // leave the URL clean for Korean hosts.
+    const langSuffix = getResolvedLanguage() === 'en' ? '?l=en' : '';
+    const shareUrl = `${location.origin}/${sessionCode}${langSuffix}`;
 
     // Generate SVG string — transparent background, currentColor-friendly
     const svgString = await QRCode.toString(qrUrl, {

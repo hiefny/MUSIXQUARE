@@ -57,6 +57,7 @@ import { initBeatDetector } from './audio/beat-detector.ts';
 
 // ── UI ──
 import { initOverlayOpenObserver, initOverlayInertObserver } from './ui/dom.ts';
+import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog } from './ui/dialog.ts';
 import { initTabs } from './ui/tabs.ts';
@@ -226,6 +227,7 @@ function bootstrap(): void {
   safeInit('OverlayObserver', initOverlayOpenObserver);
   safeInit('OverlayInert', initOverlayInertObserver);
   safeInit('Toast', initToast);
+  safeInit('EmailCopy', initEmailCopyLinks);
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
   safeInit('I18n', initI18n);

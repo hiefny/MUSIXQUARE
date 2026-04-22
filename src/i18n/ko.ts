@@ -341,6 +341,7 @@ const ko = {
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': '복사하지 못했어요',
+  'toast.email_copied': '이메일 주소가 복사됐어요!',
   'toast.host_only': 'Host만 실행할 수 있어요.',
   'toast.host_only_media': '방장만 미디어를 추가할 수 있어요.',
   'toast.host_only_youtube': '방장만 유튜브 링크를 추가할 수 있어요.',
@@ -360,7 +361,7 @@ const ko = {
   'dialog.continue': '계속하기',
   'connect.slot_guide.aria': '모드별 권장 인원 안내 열기',
   'connect.slot_guide.title': '모드별 권장 인원',
-  'connect.slot_guide.body': '연결된 게스트 수가 증가하면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 네트워크 상관 없이 최대 32명 권장\n• 로컬 파일 공유: 로컬 네트워크에서 최대 8명 권장\n• 시스템 오디오 공유: 로컬 네트워크에서 최대 4명 권장',
+  'connect.slot_guide.body': '연결된 게스트가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
   'toast.auto_play_canceled': '자동 재생을 취소했어요',
@@ -446,11 +447,11 @@ const ko = {
   'dialog.go_back': '돌아가기',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
-  'help.local_recommended_html': '동일 네트워크에 연결하면 모든 기능을 이용할 수 있어요.<ul class="help-list"><li>모든 기기를 <strong>동일 네트워크</strong>에 연결해주세요.</li><li>VPN/사내 보안망이 켜져 있으면 연결이 안 될 수 있어요.</li><li>연결이 안 되면 방장의 핫스팟에 연결 후 앱을 새로고침해주세요.</li></ul>',
-  'setup.how_to_connect_html': '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인 → \u201C시작할래요!\u201D</li><li><strong>참가자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력 → 역할 선택(원본/왼쪽/오른쪽/저음)</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정하실 수 있어요</strong>.</li></ul>',
+  'help.local_recommended_html': '동일 네트워크에 연결하면 모든 기능을 이용할 수 있어요.<ul class="help-list"><li>모든 기기를 <strong>동일 네트워크</strong>에 연결해주세요.</li><li>VPN/사내 보안망이 켜져 있으면 연결이 안 될 수 있어요.</li><li>연결이 안 되면 방장의 핫스팟에 연결 후 새로고침해주세요.</li></ul>',
+  'setup.how_to_connect_html': '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참가자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정하실 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html': '참가자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html': '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 원격 네트워크 이용 가능. 채널 분리와 음향효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 시스템 오디오 송출. 방장이 Windows나 Mac인 경우 이용 가능</li></ul>',
-  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>데모 트랙 정보:</strong> AI Generated Music</li><li><strong>기타 문의:</strong> contact@musixquare.com</li></ul>',
+  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>데모 트랙 정보:</strong> AI Generated Music</li><li><strong>기타 문제:</strong> 네트워크 설정을 완료하고 모든 기기의 앱을 다시 시작해주세요. 불편하신 사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}} 님이 접속했어요',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
@@ -477,7 +478,7 @@ const ko = {
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '법적 고지',
-  'legal.content_html': '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 사적 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 관련 안내</strong><br>뮤직스퀘어의 오디오 공유 방식은 P2P 방식으로 작동해요. 오디오, 파일, 채팅 데이터는 서버를 거치지 않고 기기 간에 직접 전송되며, 서버에 저장되지 않아요. 다만 기기 간 연결을 위해 IP 주소가 시그널링 서버를 경유할 수 있어요. 이 정보는 연결 수립 목적으로만 사용되며, 별도로 수집하거나 보관하지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a>',
+  'legal.content_html': '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 사적 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 관련 안내</strong><br>뮤직스퀘어의 오디오 공유 방식은 P2P 방식으로 작동해요. 오디오, 파일, 채팅 데이터는 서버를 거치지 않고 기기 간에 직접 전송되며, 서버에 저장되지 않아요. 다만 기기 간 연결을 위해 IP 주소가 시그널링 서버를 경유할 수 있어요. 이 정보는 연결 수립 목적으로만 사용되며, 별도로 수집하거나 보관하지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 } as const;
 
 export default ko;

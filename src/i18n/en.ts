@@ -343,6 +343,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': "Couldn't copy",
+  'toast.email_copied': 'Email address copied!',
   'toast.host_only': 'Only Host can run this.',
   'toast.host_only_media': 'Only the host can add media.',
   'toast.host_only_youtube': 'Only the host can add YouTube links.',
@@ -361,8 +362,8 @@ const en: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message': 'System audio sharing is stable with up to ~4 guests on a local network.\n\nContinue?',
   'dialog.continue': 'Continue',
   'connect.slot_guide.aria': 'Open recommended guest count guide',
-  'connect.slot_guide.title': 'Recommended guests per mode',
-  'connect.slot_guide.body': 'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32 regardless of network\n• Local file sharing: up to 8 on a local network\n• System audio sharing: up to 4 on a local network',
+  'connect.slot_guide.title': 'Number of Guests',
+  'connect.slot_guide.body': 'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
   'toast.auto_play_canceled': 'Auto-play canceled',
@@ -448,11 +449,11 @@ const en: Record<I18nKey, string> = {
   'dialog.go_back': 'Go back',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
-  'help.local_recommended_html': 'All features are available when connected to the same network.<ul class="help-list"><li>Connect all devices to the <strong>same Wi\u2011Fi</strong>.</li><li>A VPN or corporate firewall may block the connection.</li><li>If it doesn\'t connect, join the host\'s hotspot and refresh the app.</li></ul>',
-  'setup.how_to_connect_html': 'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 check code \u2192 \u201CLet\'s go!\u201D</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 enter code \u2192 choose role (Original/Left/Right/Bass)</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
+  'help.local_recommended_html': 'All features are available when connected to the same network.<ul class="help-list"><li>Connect all devices to the <strong>same Wi\u2011Fi</strong>.</li><li>A VPN or corporate firewall may block the connection.</li><li>If it doesn\'t connect, join the host\'s hotspot and refresh.</li></ul>',
+  'setup.how_to_connect_html': 'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 choose role \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 choose role \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
   'player.play_speakers_html': 'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html': 'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Works over remote networks. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Stream system audio. Available when host is on Windows or Mac</li></ul>',
-  'help.need_help_html': '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Demo track info:</strong> AI Generated Music</li><li><strong>Other inquiries:</strong> contact@musixquare.com</li></ul>',
+  'help.need_help_html': '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Demo track info:</strong> AI Generated Music</li><li><strong>Other issues:</strong> Complete your network setup and restart the app on all devices. If anything is still off, feel free to reach out via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
   'chat.peer_disconnected': '{{name}} left',
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
@@ -479,7 +480,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Legal Notice',
-  'legal.content_html': '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a>',
+  'legal.content_html': '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default en;

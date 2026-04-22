@@ -1646,14 +1646,6 @@
         align-items: center;
     }
 
-    /* When a header hosts a small ⓘ info button beside the title, collapse
-       the row's default space-between so the button sits right next to the
-       title instead of flying to the opposite edge. */
-    .section-header-row:has(.slot-guide-btn) {
-        justify-content: flex-start;
-        gap: 6px;
-    }
-
     .slot-guide-btn {
         background: transparent;
         border: none;

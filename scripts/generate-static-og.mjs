@@ -97,6 +97,13 @@ const CARDS = [
       tagline: "The build log · Oct 2025 → now",
     },
   },
+  {
+    outFile: "public/og-designsystem.png",
+    props: {
+      headline: "Design System",
+      tagline: "Geometric · Dark · Minimal",
+    },
+  },
 ];
 
 async function main() {

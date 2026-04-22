@@ -73,14 +73,6 @@ function getConnectedPeers(): readonly ConnectedPeer[] {
   return getState('network.connectedPeers') || [];
 }
 
-function getDownstreamCount(relayPeerId: string): number {
-  let count = 0;
-  for (const v of relayAssignments.values()) {
-    if (v === relayPeerId) count++;
-  }
-  return count;
-}
-
 /** Update isDataTarget on a connected peer (immutable update) */
 function setPeerDataTarget(peerId: string, value: boolean): void {
   const peers = getConnectedPeers();
@@ -122,7 +114,7 @@ function evaluatePeer(peerId: string): void {
   }
 
   if (connType === 'local') {
-    // Local peer: ensure direct data target
+    // Local peer: host-direct data target.
     setPeerDataTarget(peerId, true);
 
     // If this peer was previously assigned a relay (reclassified remote→local), remove it
@@ -130,72 +122,25 @@ function evaluatePeer(peerId: string): void {
       removeRelayAssignment(peerId);
     }
 
-    // New local peer available: check if any orphaned remotes can now use it
-    reassignOrphanedRemotes();
-
     // Signal that evaluation is complete — isDataTarget is now set
     bus.emit('orchestrator:peer-evaluated', peerId);
   } else if (connType === 'remote') {
-    assignRelayForPeer(peerId);
+    // Hard TURN-cost policy: remote peers do NOT receive file data or
+    // system-audio streams. Host-direct would bill TURN egress, and the
+    // previously-considered "local guest as relay" path also rides TURN
+    // on the local↔remote leg (the two guests are on different networks,
+    // so ICE resolves via TURN). Both routes risk runaway Metered.ca
+    // usage, so block them. Remote peers stay connected for control
+    // messages (play/pause/chat/YouTube sync) and Demo-track HTTP fetch,
+    // which are the only sanctioned TURN uses.
+    if (relayAssignments.has(peerId)) {
+      removeRelayAssignment(peerId);
+    }
+    setPeerDataTarget(peerId, false);
 
-    // Signal that evaluation is complete — relay assignment done
     bus.emit('orchestrator:peer-evaluated', peerId);
   }
   // 'unknown' → ignore, event will fire again when detection completes
-}
-
-/**
- * Find the best local peer to relay for a remote peer.
- */
-function assignRelayForPeer(remotePeerId: string): void {
-  const peers = getConnectedPeers();
-  const remotePeer = peers.find(p => p.id === remotePeerId);
-  if (!remotePeer) return;
-
-  // Find local relay candidates
-  const candidates = peers.filter(p =>
-    p.id !== remotePeerId &&
-    p.connectionType === 'local' &&
-    p.status === 'connected' &&
-    p.conn && (p.conn as DataConnection).open,
-  );
-
-  if (candidates.length === 0) {
-    // No local relay available → remote peer stays without file data.
-    // TURN cost policy: file data NEVER flows through TURN (relay/TURN).
-    // Remote peer can still receive control messages (play/pause/chat/YouTube).
-    // TODO(pro): Allow host-direct TURN fallback for Pro tier users.
-    setPeerDataTarget(remotePeerId, false);
-    relayAssignments.delete(remotePeerId);
-    log.info(`[Orchestrator] No local relay for ${remotePeer.label || remotePeerId} → no file data (TURN blocked)`);
-    return;
-  }
-
-  // Sort by downstream count (ascending), then joinOrder (ascending = more stable)
-  candidates.sort((a, b) => {
-    const loadA = getDownstreamCount(a.id);
-    const loadB = getDownstreamCount(b.id);
-    if (loadA !== loadB) return loadA - loadB;
-    return (a.joinOrder || 0) - (b.joinOrder || 0);
-  });
-
-  const relay = candidates[0];
-  const relayId = relay.id;
-
-  // Skip if already assigned to this relay
-  if (relayAssignments.get(remotePeerId) === relayId) return;
-
-  // Assign
-  setPeerDataTarget(remotePeerId, false);
-  relayAssignments.set(remotePeerId, relayId);
-
-  // Send ASSIGN_DATA_SOURCE to the remote peer
-  safeSend(remotePeer.conn as DataConnection, {
-    type: MSG.ASSIGN_DATA_SOURCE,
-    targetId: relayId,
-  });
-
-  log.info(`[Orchestrator] Assigned ${relay.label || relayId} as relay for ${remotePeer.label || remotePeerId} (load: ${getDownstreamCount(relayId)})`);
 }
 
 /**
@@ -239,35 +184,21 @@ function removeRelayAssignment(peerId: string): void {
 function handlePeerDisconnect(peerId: string): void {
   if (!isHost()) return;
 
-  // 1. Clean up if disconnected peer was a downstream
+  // 1. Drop the disconnected peer's own relay assignment (if any — legacy-safe).
   relayAssignments.delete(peerId);
 
-  // 2. Find all peers that were using the disconnected peer as relay
-  const orphaned: string[] = [];
-  for (const [downstream, relay] of relayAssignments.entries()) {
+  // 2. Drop any stale assignments where the disconnected peer was used as a
+  //    relay. Remote peers don't get re-assigned — they receive control-only
+  //    under the TURN-cost policy, so there's no "find another relay" step.
+  for (const [downstream, relay] of Array.from(relayAssignments.entries())) {
     if (relay === peerId) {
-      orphaned.push(downstream);
+      relayAssignments.delete(downstream);
     }
   }
 
-  if (orphaned.length > 0) {
-    log.info(`[Orchestrator] Relay node ${peerId} disconnected, reassigning ${orphaned.length} downstream peer(s)`);
-    for (const downstreamId of orphaned) {
-      relayAssignments.delete(downstreamId);
-      // Re-evaluate: find another local relay, or no file data if none available
-      assignRelayForPeer(downstreamId);
-    }
-  }
-
-  // 3. If a local peer left, some remotes on host-fallback might now have no relay options
-  //    (This is a no-op if nothing changed, but ensures consistency)
-  reassignOrphanedRemotes();
-
-  // 4. If the disconnect pushed peers.length below RELAY_ACTIVATION_MIN_PEERS
-  //    (e.g. 4→3 transition), any still-attached remote peer that was sitting
-  //    at isDataTarget=false with a relay assignment no longer matches the
-  //    small-room "all direct" policy. Re-evaluate every remaining peer so
-  //    threshold crossings are consistent with the welcome state.
+  // 3. Threshold crossing re-evaluation: when the disconnect pushes peers.length
+  //    below RELAY_ACTIVATION_MIN_PEERS (e.g. 4→3 transition), any still-
+  //    attached peer's isDataTarget needs to match the small-room policy.
   const remaining = getConnectedPeers();
   for (const p of remaining) {
     if (p.id !== peerId && p.status === 'connected') {
@@ -276,23 +207,6 @@ function handlePeerDisconnect(peerId: string): void {
   }
 }
 
-/**
- * Check for remote peers without relay assignments and try to assign them.
- * Called when the local peer pool changes (new local joins, or old local leaves).
- */
-function reassignOrphanedRemotes(): void {
-  const peers = getConnectedPeers();
-
-  for (const p of peers) {
-    if (
-      p.connectionType === 'remote' &&
-      p.status === 'connected' &&
-      !relayAssignments.has(p.id)
-    ) {
-      assignRelayForPeer(p.id);
-    }
-  }
-}
 
 // ─── Initialize ──────────────────────────────────────────────────────
 
@@ -305,21 +219,13 @@ export function initOrchestrator(): void {
     handlePeerDisconnect(peerId);
   });
 
-  // When relay node reports downstream peer lost, clear stale assignment and reassign.
-  // The relay node is a guest — its bus event is local-only, so it sends a protocol message.
-  registerHandler(MSG.RELAY_DOWNSTREAM_LOST, (data: ProtocolMsg<'relay-downstream-lost'>, conn: DataConnection) => {
+  // RELAY_DOWNSTREAM_LOST cleanup — under the TURN-cost policy no new relay
+  // assignments happen, but legacy relay connections from old sessions can
+  // still fire this on close. Just drop the stale entry.
+  registerHandler(MSG.RELAY_DOWNSTREAM_LOST, (data: ProtocolMsg<'relay-downstream-lost'>) => {
     if (!isHost()) return;
     const lostPeerId = data.lostPeerId;
-    if (!lostPeerId) return;
-    // Verify sender is the assigned relay for lostPeerId to prevent spoofing
-    const assignedRelay = relayAssignments.get(lostPeerId);
-    if (assignedRelay && conn?.peer && assignedRelay !== conn.peer) {
-      log.warn(`[Orchestrator] RELAY_DOWNSTREAM_LOST from ${conn.peer} but assigned relay is ${assignedRelay} — ignoring`);
-      return;
-    }
-    log.info(`[Orchestrator] Relay reported downstream lost: ${lostPeerId}`);
-    relayAssignments.delete(lostPeerId);
-    assignRelayForPeer(lostPeerId);
+    if (lostPeerId) relayAssignments.delete(lostPeerId);
   });
 
   // Clear assignments on session leave (sessionCode becomes '')

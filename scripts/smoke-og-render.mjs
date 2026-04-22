@@ -52,7 +52,7 @@ function buildCard({ code, wordmarkDataUrl }) {
           props: {
             src: wordmarkDataUrl,
             width: 712,
-            height: 80,
+            height: 87,
             style: { marginTop: 16 },
           },
         },

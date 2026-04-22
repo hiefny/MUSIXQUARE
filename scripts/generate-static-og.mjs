@@ -45,10 +45,12 @@ function card({ wordmarkDataUrl, headline, tagline }) {
         {
           type: "img",
           props: {
-            // Brand wordmark SVG, eyebrow-sized (~8.9:1 aspect).
+            // Brand wordmark SVG, eyebrow-sized. Height follows the
+            // 8.23:1 aspect of the wordmark viewBox (43 12 214 26) —
+            // the 26-unit height preserves the Q's descender tail.
             src: wordmarkDataUrl,
             width: 250,
-            height: 28,
+            height: 30,
             style: { opacity: 0.85 },
           },
         },

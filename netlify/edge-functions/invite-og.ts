@@ -108,11 +108,12 @@ function buildCard({ code }: CardProps): unknown {
         {
           type: "img",
           props: {
-            // Brand wordmark SVG (white fill). Width/height mirror the
-            // previous 88px ExtraBold text weight at the card's aspect.
+            // Brand wordmark SVG (white fill). Height 87 follows the
+            // 8.23:1 aspect of viewBox (43 12 214 26) — the Q's
+            // descender tail would clip at the prior 80 height.
             src: wordmarkDataUrl,
             width: 712,
-            height: 80,
+            height: 87,
             style: { marginTop: 16 },
           },
         },

@@ -451,7 +451,7 @@ const ko = {
   'setup.how_to_connect_html': '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참가자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정하실 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html': '참가자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html': '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 원격 네트워크 이용 가능. 채널 분리와 음향효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 시스템 오디오 송출. 방장이 Windows나 Mac인 경우 이용 가능</li></ul>',
-  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>데모 트랙 정보:</strong> AI Generated Music</li><li><strong>기타 문제:</strong> 네트워크 설정을 완료하고 모든 기기의 앱을 다시 시작해주세요. 불편하신 사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
+  'help.need_help_html': '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 서버 오류일 수 있어요. 이런 경우 두 기기를 같은 네트워크에 연결해주세요.</li><li><strong>연결이 불안정해요:</strong> 네트워크 품질이 낮을 수 있어요. 공유기 가까이로 이동해 보세요.</li><li><strong>기타 문제:</strong> 네트워크 설정을 완료하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}} 님이 접속했어요',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',

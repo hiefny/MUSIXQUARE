@@ -182,7 +182,11 @@ export async function startSystemAudioCapture(): Promise<void> {
   broadcast({ type: MSG.SYSTEM_AUDIO_START });
   bus.emit('system-audio:streams-ready');
 
-  // 10. Start visualizer
+  // 10. Advisory toast — latency is unavoidable, and the host's
+  // desktop speakers would otherwise drown out the distributed feed.
+  bus.emit('ui:show-toast', t('system_audio.started'));
+
+  // 11. Start visualizer
   bus.emit('visualizer:start');
 
   // 11. Listen for browser "Stop sharing" button

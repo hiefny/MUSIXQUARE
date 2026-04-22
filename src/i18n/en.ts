@@ -472,6 +472,7 @@ const en: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'Audio sharing was cancelled.',
   'system_audio.no_audio_track': '"Share audio" was not enabled. Please try again.',
   'system_audio.stop': 'Stop Sharing',
+  'system_audio.started': 'System audio sharing may have slight latency.\nLower your source device volume as much as possible.',
   'system_audio.stopped': 'System audio sharing ended. Resuming playlist.',
   'system_audio.many_devices_warning': 'System audio sharing may stutter with many devices connected.',
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',

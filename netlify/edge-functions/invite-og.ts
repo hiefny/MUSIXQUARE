@@ -73,11 +73,10 @@ async function loadAssets(origin: string): Promise<void> {
 // ─── Card template ───────────────────────────────────────────────
 interface CardProps {
   code: string;
-  lang: "ko" | "en";
 }
 
-function buildCard({ code, lang }: CardProps): unknown {
-  const greeting = lang === "ko" ? "초대됐어요" : "You're invited";
+function buildCard({ code }: CardProps): unknown {
+  const greeting = "You're invited";
 
   return {
     type: "div",
@@ -145,13 +144,12 @@ export default async function handler(request: Request): Promise<Response | unde
   if (!match) return;
 
   const code = match[1];
-  const lang: "ko" | "en" = url.searchParams.get("l") === "en" ? "en" : "ko";
 
   try {
     await loadAssets(url.origin);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const svg = await satori(buildCard({ code, lang }) as any, {
+    const svg = await satori(buildCard({ code }) as any, {
       width: 1200,
       height: 630,
       fonts: [
@@ -169,7 +167,6 @@ export default async function handler(request: Request): Promise<Response | unde
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=86400, s-maxage=604800",
         "X-Invite-Code": code,
-        "X-Invite-Lang": lang,
         "X-OG-Source": "satori",
       },
     });

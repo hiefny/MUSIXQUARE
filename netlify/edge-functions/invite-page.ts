@@ -7,16 +7,15 @@
  * intercepts that response and rewrites the og:* / twitter:* meta so
  * the preview card reflects the invite instead:
  *
- *   og:image     → /og/invite/{code}.png?l={lang}   (dynamic, generated)
+ *   og:image     → /og/invite/{code}.png   (dynamic, generated)
  *   og:title     → "You're invited · Code {code} · MUSIXQUARE"
- *   og:desc      → bilingual join prompt including the code
+ *   og:desc      → English join prompt including the code
  *   og:url       → https://musixquare.com/{code}
  *   og:image:alt → accessibility text with the code
  *
- * Lang selection: ?l=en → English-led copy; anything else (default) →
- * Korean-led copy. The app's share-URL builder (ui/connect.ts) appends
- * ?l=ko|en based on the host's resolved language, so Korean hosts
- * produce Korean preview cards and English hosts produce English ones.
+ * Copy is English-only. The Korean variant was dropped because the
+ * Korean invite text read as spammy and the subsetted Korean glyphs
+ * rendered poorly at card size.
  *
  * Cache policy:
  *   Browser 60s, CDN 15m. Same code → same rewrite, so aggressive
@@ -39,21 +38,12 @@ function esc(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function buildMeta(code: string, lang: "ko" | "en", origin: string) {
-  const imageUrl = `${origin}/og/invite/${code}.png?l=${lang}`;
-  const pageUrl = `${origin}/${code}${lang === "en" ? "?l=en" : ""}`;
-
-  const title =
-    lang === "ko"
-      ? `초대됐어요 · ${code} · MUSIXQUARE`
-      : `You're invited · Code ${code} · MUSIXQUARE`;
-
-  const description =
-    lang === "ko"
-      ? `${code} 코드로 MUSIXQUARE 세션에 참여하세요 · Join with code ${code}`
-      : `Join a MUSIXQUARE session with code ${code} · ${code} 코드로 함께 들어요`;
-
-  const alt = lang === "ko" ? `MUSIXQUARE 초대 · 코드 ${code}` : `MUSIXQUARE invite · Code ${code}`;
+function buildMeta(code: string, origin: string) {
+  const imageUrl = `${origin}/og/invite/${code}.png`;
+  const pageUrl = `${origin}/${code}`;
+  const title = `You're invited · Code ${code} · MUSIXQUARE`;
+  const description = `Join a MUSIXQUARE session with code ${code}.`;
+  const alt = `MUSIXQUARE invite · Code ${code}`;
 
   return { imageUrl, pageUrl, title, description, alt };
 }
@@ -71,8 +61,6 @@ export default async function handler(
   const code = segments[0];
   if (!/^\d{6}$/.test(code)) return;
 
-  const lang: "ko" | "en" = url.searchParams.get("l") === "en" ? "en" : "ko";
-
   // Let Netlify's pipeline (SPA fallback) resolve to index.html first.
   // Anything below this point that throws should NOT kill the page —
   // crawlers get the original (homepage) OG card, which is the same
@@ -88,7 +76,7 @@ export default async function handler(
     // crawler was visiting. On production this is musixquare.com; on
     // Deploy Preview it's deploy-preview-*.netlify.app. This is what
     // lets SNS debuggers actually preview the card on a PR branch.
-    const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, lang, url.origin);
+    const { imageUrl, pageUrl, title, description, alt } = buildMeta(code, url.origin);
 
     const rewritten = html
       .replace(
@@ -128,7 +116,6 @@ export default async function handler(
     headers.set("Content-Type", "text/html; charset=utf-8");
     headers.set("Cache-Control", "public, max-age=60, s-maxage=900");
     headers.set("X-Invite-Rewrite", code);
-    headers.set("X-Invite-Lang", lang);
     headers.delete("Content-Length"); // response body byte length changed
 
     return new Response(rewritten, {

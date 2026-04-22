@@ -24,20 +24,14 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 // ─── Target text (every glyph used anywhere in the OG card family) ─
-// The three cards that share these fonts:
-//   • invite-og (dynamic per code)   — "You're invited / 초대됐어요 / MUSIXQUARE / 000000"
-//   • og-roadmap (static)            — "MUSIXQUARE / Roadmap / Every known limit · Documented"
-//   • og-changelog (static)          — "MUSIXQUARE / Changelog / The build log · Oct 2025 → now"
-//
-// Rather than tracking each card's exact glyph set, we include all
-// A–Z / a–z / 0–9 plus a small Korean set and common punctuation.
-// The full Latin alphabet adds ~8 KB per weight — well worth it for
-// flexibility when future copy lands.
+// English-only since the invite card's Korean variant was dropped.
+// Shared by invite-og (dynamic), og-roadmap, og-changelog, og-designsystem.
+// Full Latin A–Z / a–z / 0–9 plus common punctuation — adds ~8 KB per
+// weight but buys flexibility if card copy changes.
 const TARGET_TEXT = [
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   "abcdefghijklmnopqrstuvwxyz",
   "0123456789",
-  "초대됐어요코드",
   "·—→.,:;'\"() ",
 ].join("");
 

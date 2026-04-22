@@ -6,7 +6,7 @@
  * locally before pushing to a Deploy Preview. Writes the output SVG to
  * scratch/invite-og-smoke.svg — open in a browser to visually check.
  *
- * Usage: node scripts/smoke-og-render.mjs [code] [lang]
+ * Usage: node scripts/smoke-og-render.mjs [code]
  *   node scripts/smoke-og-render.mjs              → 839412 ko
  *   node scripts/smoke-og-render.mjs 123456 en    → 123456 en
  */
@@ -21,10 +21,9 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 const code = process.argv[2] || "839412";
-const lang = process.argv[3] === "en" ? "en" : "ko";
 
-function buildCard({ code, lang, wordmarkDataUrl }) {
-  const greeting = lang === "ko" ? "초대됐어요" : "You're invited";
+function buildCard({ code, wordmarkDataUrl }) {
+  const greeting = "You're invited";
 
   return {
     type: "div",
@@ -87,10 +86,10 @@ async function main() {
   const wordmarkDataUrl =
     `data:image/svg+xml;utf8,${encodeURIComponent(wordmarkRaw.replace(/currentColor/g, "white"))}`;
 
-  console.log(`▸ Rendering code=${code} lang=${lang}`);
+  console.log(`▸ Rendering code=${code}`);
 
   const t0 = performance.now();
-  const svg = await satori(buildCard({ code, lang, wordmarkDataUrl }), {
+  const svg = await satori(buildCard({ code, wordmarkDataUrl }), {
     width: 1200,
     height: 630,
     fonts: [
@@ -101,7 +100,7 @@ async function main() {
   const t1 = performance.now();
 
   await mkdir(path.join(repoRoot, "scratch"), { recursive: true });
-  const svgPath = path.join(repoRoot, `scratch/invite-og-smoke-${code}-${lang}.svg`);
+  const svgPath = path.join(repoRoot, `scratch/invite-og-smoke-${code}.svg`);
   await writeFile(svgPath, svg);
 
   // Rasterize to PNG with resvg-wasm (same pipeline as the Edge Function)
@@ -111,7 +110,7 @@ async function main() {
   const resvg = new Resvg(svg, { fitTo: { mode: "width", value: 1200 } });
   const png = resvg.render().asPng();
   const t3 = performance.now();
-  const pngPath = path.join(repoRoot, `scratch/invite-og-smoke-${code}-${lang}.png`);
+  const pngPath = path.join(repoRoot, `scratch/invite-og-smoke-${code}.png`);
   await writeFile(pngPath, png);
 
   console.log(`  satori: ${(t1 - t0).toFixed(0)} ms   svg=${(svg.length / 1024).toFixed(1)} KB`);

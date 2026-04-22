@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BlobURLManager, setVideoElement } from '../blob-manager.ts';
+import { BlobURLManager } from '../blob-manager.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -29,8 +29,6 @@ beforeEach(() => {
   BlobURLManager._preparingURL = null;
   BlobURLManager._pendingRevocations.clear();
   BlobURLManager._deferredUntilDetached.clear();
-
-  setVideoElement(null);
 
   // Stub URL methods
   vi.stubGlobal('URL', {
@@ -139,23 +137,12 @@ describe('BlobURLManager', () => {
       expect(revokedUrls).toContain('blob:delayed');
     });
 
-    it('defers revocation when URL is attached to video', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:attached';
-      setVideoElement(video);
+    it('force-revokes immediately regardless of pending state', () => {
+      BlobURLManager.safeRevoke('blob:pending', { delayMs: 5000 });
+      expect(BlobURLManager._pendingRevocations.has('blob:pending')).toBe(true);
 
-      BlobURLManager.safeRevoke('blob:attached');
-      expect(revokedUrls).not.toContain('blob:attached');
-      expect(BlobURLManager._deferredUntilDetached.has('blob:attached')).toBe(true);
-    });
-
-    it('force-revokes even when attached', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:force-me';
-      setVideoElement(video);
-
-      BlobURLManager.safeRevoke('blob:force-me', { force: true, delayMs: 0 });
-      expect(revokedUrls).toContain('blob:force-me');
+      BlobURLManager.safeRevoke('blob:pending', { force: true, delayMs: 0 });
+      expect(revokedUrls).toContain('blob:pending');
     });
 
     it('evicts oldest on queue overflow', () => {
@@ -169,20 +156,6 @@ describe('BlobURLManager', () => {
       // oldest (q-1) should have been revoked
       expect(revokedUrls).toContain('blob:q-1');
     });
-
-    it('defers oldest on overflow if attached to video', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:q-1';
-      setVideoElement(video);
-
-      for (let i = 1; i <= 5; i++) {
-        BlobURLManager.safeRevoke(`blob:q-${i}`, { delayMs: 10000 });
-      }
-
-      // 6th should try to evict oldest, but oldest is attached → defer
-      BlobURLManager.safeRevoke('blob:q-6', { delayMs: 10000 });
-      expect(BlobURLManager._deferredUntilDetached.has('blob:q-1')).toBe(true);
-    });
   });
 
   describe('flushDeferred()', () => {
@@ -191,24 +164,13 @@ describe('BlobURLManager', () => {
       expect(revokedUrls).toHaveLength(0);
     });
 
-    it('revokes deferred URLs that are no longer attached', () => {
+    it('revokes deferred URLs (never attached under current no-video design)', () => {
       BlobURLManager._deferredUntilDetached.add('blob:old');
       BlobURLManager.flushDeferred('test');
       // flushDeferred calls safeRevoke(url, { force: true }) which schedules with delay
       vi.advanceTimersByTime(10000);
       expect(revokedUrls).toContain('blob:old');
       expect(BlobURLManager._deferredUntilDetached.has('blob:old')).toBe(false);
-    });
-
-    it('keeps deferred URLs that are still attached', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:still-playing';
-      setVideoElement(video);
-
-      BlobURLManager._deferredUntilDetached.add('blob:still-playing');
-      BlobURLManager.flushDeferred();
-      expect(revokedUrls).not.toContain('blob:still-playing');
-      expect(BlobURLManager._deferredUntilDetached.has('blob:still-playing')).toBe(true);
     });
   });
 
@@ -246,22 +208,12 @@ describe('BlobURLManager', () => {
   });
 
   describe('_isUrlAttached()', () => {
-    it('returns false when no video element', () => {
-      expect(BlobURLManager._isUrlAttached('blob:test')).toBe(false);
-    });
-
-    it('returns false for mismatched URL', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:other';
-      setVideoElement(video);
-      expect(BlobURLManager._isUrlAttached('blob:test')).toBe(false);
-    });
-
-    it('returns true for matching URL', () => {
-      const video = document.createElement('video');
-      video.src = 'blob:match';
-      setVideoElement(video);
-      expect(BlobURLManager._isUrlAttached('blob:match')).toBe(true);
+    // Local <video> playback was removed, so no URL is ever considered
+    // attached. The method is kept as a hook for future re-introduction
+    // but currently short-circuits to false unconditionally.
+    it('always returns false (local-video playback was removed)', () => {
+      expect(BlobURLManager._isUrlAttached('blob:anything')).toBe(false);
+      expect(BlobURLManager._isUrlAttached('blob:other')).toBe(false);
     });
   });
 });

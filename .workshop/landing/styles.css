@@ -83,51 +83,17 @@ svg {
   transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.lp-logo,
-.lp-try {
+.lp-logo {
   position: relative;
   z-index: 1;
-}
-
-.lp-logo {
   height: 100%;
   display: flex;
   align-items: center;
   color: var(--text-main);
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-
-.lp-logo:hover {
-  opacity: 0.7;
-}
-
-.lp-logo svg {
-  height: 16px;
-  width: auto;
-}
-
-.lp-try {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 36px;
-  padding: 0 18px;
-  background: var(--primary);
-  color: var(--text-main);
-  border-radius: var(--radius-s);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-
-.lp-try:hover {
-  opacity: 0.86;
-}
-
-.lp-try:active {
-  transform: scale(0.98);
-}
+.lp-logo:hover { opacity: 0.7; }
+.lp-logo svg { height: 16px; width: auto; }
 
 /* ── Layout ─────────────────────────────────────────────── */
 

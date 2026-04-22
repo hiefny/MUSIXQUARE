@@ -1713,9 +1713,15 @@
         overflow: hidden;
         opacity: 1;
         padding-top: 24px;
+        visibility: visible;
+        /* visibility transitions instantly when opening so Tab/screen-reader
+           access returns the moment the panel starts expanding. Closing gets
+           the 0.35s delay (see .collapsed below) so focusable controls only
+           become invisible after the collapse animation finishes. */
         transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
             opacity 0.25s ease,
-            padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+            padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+            visibility 0s;
     }
 
     #woofer-cutoff-control:not(.collapsed) {
@@ -1738,6 +1744,13 @@
         opacity: 0;
         padding-top: 0;
         pointer-events: none;
+        visibility: hidden;
+        /* Override just the visibility channel to delay until collapse finishes;
+           keeps max-height/opacity/padding-top on their original easing. */
+        transition: max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+            opacity 0.25s ease,
+            padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+            visibility 0s 0.35s;
     }
 
     /* Graphic EQ */

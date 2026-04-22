@@ -1910,6 +1910,7 @@
            get the OS-consistent focus ring. */
         appearance: none;
         -webkit-appearance: none;
+        -webkit-tap-highlight-color: transparent;
     }
 
     .ch-opt svg {

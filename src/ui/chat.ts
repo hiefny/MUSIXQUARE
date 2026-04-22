@@ -266,14 +266,33 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  // Final Boss IME fix: Toggle contentEditable to forcefully kill the OS-level
-  // composition buffer without needing a visible blur/focus flash.
-  (input as any).contentEditable = 'false';
-  input.innerHTML = '';
-  void input.offsetHeight; // Force reflow
-  (input as any).contentEditable = 'true';
+  // iOS Korean IME leak fix: a contentEditable toggle alone leaves the
+  // OS-level composition buffer with the last committed char of the
+  // previous message ("요안녕하세요" instead of "안녕하세요" on the next
+  // send). Transferring focus to an off-screen dummy <input> for one
+  // synchronous tick forces iOS to close the IME session bound to
+  // chat-input; returning focus immediately starts a clean session.
+  // Keyboard stays up because iOS preserves it across focusable
+  // elements inside the same user-gesture stack.
+  //
+  // See .workshop/iosinputtest.html for the A/B that landed on this
+  // (variant 15: dummySwapSync). Simpler alternatives (compositionend
+  // dispatch, Selection.removeAllRanges, contenteditable removeAttr)
+  // either didn't stop the leak or dropped post-send focus.
+  const dummy = document.getElementById('chat-ime-dummy') as HTMLInputElement | null;
+  if (dummy) {
+    dummy.focus();
+    input.innerHTML = '';
+    input.focus();
+  } else {
+    // Fallback for unexpected DOM: legacy toggle (leak still possible on iOS).
+    (input as any).contentEditable = 'false';
+    input.innerHTML = '';
+    void input.offsetHeight;
+    (input as any).contentEditable = 'true';
+    input.focus();
+  }
   input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.focus();
 }
 
 // ─── Event Delegation ────────────────────────────────────────────

@@ -1050,6 +1050,13 @@
         </div>
         <div class="chat-drawer-input">
             <div class="chat-input-wrapper">
+                <!-- iOS Korean IME leak workaround: transient focus sink. On send,
+                     we focus this dummy briefly to force the OS-level composition
+                     buffer to close, then return focus to #chat-input. Off-screen
+                     and aria-hidden so it never takes tab order or AT focus. -->
+                <input type="text" id="chat-ime-dummy" tabindex="-1" aria-hidden="true"
+                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                    style="position:absolute; left:-9999px; top:0; opacity:0; width:1px; height:1px; pointer-events:none;">
                 <div class="chat-input" id="chat-input" contenteditable="true" role="textbox" aria-label=""
                     data-i18n-aria-label="chat.input_label" data-placeholder="메시지 입력..."
                     data-i18n-data-placeholder="chat.placeholder" autocomplete="off" autocorrect="off"

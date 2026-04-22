@@ -832,9 +832,19 @@ export function initYouTube(): void {
     const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtnEl) playBtnEl.disabled = true;
 
-    // Index-before-Add flow for new playlists
+    // Index-before-Add flow for new playlists — only when IDLE. Indexing
+    // takes over the iframe (loadYouTubeVideo fires player:stop-all-media
+    // unconditionally), which would kill local-audio playback and break
+    // the "Add to Queue" contract the button label promises. When
+    // something's already playing, defer: add the playlist with just the
+    // entry-point videoId, and let playTrack() in playlist.ts handle the
+    // real indexing when the user actually plays it. Users pasting a
+    // YouTube URL with an auto-attached `&list=PL...` parameter (very
+    // common from YouTube share links) hit this path — previously the
+    // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    if (playlistId && !subMap[playlistId]?.ids?.length) {
+    const appIsIdle = getState('appState') === APP_STATE.IDLE;
+    if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
        log.info(`[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`);
        showLoader(true, t('youtube.indexing_playlist'));
        

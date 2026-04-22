@@ -1,54 +1,174 @@
 /**
  * Netlify Edge Function: invite-og
  *
- * Serves per-invite-code OG images at /og/invite/{code}.png
+ * Serves dynamic OG images at /og/invite/{6-digit-code}.png with an
+ * optional ?l=ko|en language hint. The image is a 1200×630 bilingual
+ * invite card — Pretendard-rendered brand wordmark, "You're invited" /
+ * "초대됐어요" greeting, and the code in a tracked-out 96px tabular-ish
+ * numeral box.
  *
- * Phase 2 (current): Returns the main og-image.png as a placeholder so the
- *   routing, caching, and response pipeline can be verified on Deploy
- *   Preview before we wire up Satori + Resvg.
- *
- * Phase 3+: Replaces the fetch fallback with a Satori-rendered 1200×630
- *   PNG containing the 6-digit code and a bilingual "You're invited ·
- *   초대됐어요" line.
+ * Pipeline (per container cold start):
+ *   1. Fetch Resvg WASM from /og-resvg.wasm (one-time initWasm)
+ *   2. Fetch Pretendard Bold + ExtraBold subsets from /fonts/
+ *   3. Initialize WASM
+ *   Cold-start cost ≈ 200–400 ms; warm requests only pay Satori render
+ *   (~50–150 ms) plus Resvg rasterization (~30–80 ms).
  *
  * Cache policy:
- *   - Browser: 24h (max-age=86400)
- *   - CDN: 7 days (s-maxage=604800)
- *   Same code resolves to the same image, so aggressive caching is safe.
- *   Crawlers (Facebookexternalhit, Twitterbot, KakaoTalk) each hit once
- *   per unique code; subsequent requests are served from CDN without
- *   re-invoking the function.
+ *   Browser 24 h, CDN 7 d. Same code → same image, so aggressive caching
+ *   is safe. Each crawler (Facebookexternalhit, Twitterbot, KakaoTalk,
+ *   LinkedInBot) hits once per code; subsequent hits are edge-cached.
+ *
+ * Error handling:
+ *   Any failure in asset load / Satori / Resvg returns 500 with a plain
+ *   text body and Cache-Control: no-store so crawlers retry without
+ *   pinning a broken response.
  */
 
+import satori from "npm:satori@0.26";
+import { Resvg, initWasm } from "npm:@resvg/resvg-wasm@2.6";
+
+// ─── Lazy-loaded assets (per container) ──────────────────────────
+let wasmReady: Promise<void> | null = null;
+let boldFont: ArrayBuffer | null = null;
+let extraboldFont: ArrayBuffer | null = null;
+
+async function loadAssets(origin: string): Promise<void> {
+  if (!wasmReady) {
+    wasmReady = (async () => {
+      const resp = await fetch(new URL("/og-resvg.wasm", origin));
+      if (!resp.ok) throw new Error(`WASM fetch failed: HTTP ${resp.status}`);
+      await initWasm(await resp.arrayBuffer());
+    })();
+  }
+  await wasmReady;
+
+  if (!boldFont) {
+    const resp = await fetch(new URL("/fonts/og-pretendard-bold.ttf", origin));
+    if (!resp.ok) throw new Error(`Bold font fetch failed: HTTP ${resp.status}`);
+    boldFont = await resp.arrayBuffer();
+  }
+  if (!extraboldFont) {
+    const resp = await fetch(new URL("/fonts/og-pretendard-extrabold.ttf", origin));
+    if (!resp.ok) throw new Error(`ExtraBold font fetch failed: HTTP ${resp.status}`);
+    extraboldFont = await resp.arrayBuffer();
+  }
+}
+
+// ─── Card template ───────────────────────────────────────────────
+interface CardProps {
+  code: string;
+  lang: "ko" | "en";
+}
+
+function buildCard({ code, lang }: CardProps): unknown {
+  const greeting = lang === "ko" ? "초대됐어요" : "You're invited";
+
+  return {
+    type: "div",
+    props: {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "100%",
+        height: "100%",
+        background: "linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)",
+        color: "white",
+        fontFamily: "Pretendard",
+      },
+      children: [
+        {
+          type: "div",
+          props: {
+            style: {
+              fontSize: 40,
+              fontWeight: 700,
+              opacity: 0.92,
+              letterSpacing: -0.5,
+            },
+            children: greeting,
+          },
+        },
+        {
+          type: "div",
+          props: {
+            style: {
+              fontSize: 88,
+              fontWeight: 800,
+              marginTop: 16,
+              letterSpacing: -2,
+            },
+            children: "MUSIXQUARE",
+          },
+        },
+        {
+          type: "div",
+          props: {
+            style: {
+              display: "flex",
+              marginTop: 56,
+              padding: "28px 56px",
+              background: "rgba(255, 255, 255, 0.22)",
+              borderRadius: 24,
+              fontSize: 96,
+              fontWeight: 800,
+              letterSpacing: 14,
+            },
+            children: code,
+          },
+        },
+      ],
+    },
+  };
+}
+
+// ─── Handler ──────────────────────────────────────────────────────
 export default async function handler(request: Request): Promise<Response | undefined> {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/og\/invite\/(\d{6})\.png$/);
   if (!match) return;
 
   const code = match[1];
-  const lang = url.searchParams.get("l") === "en" ? "en" : "ko";
+  const lang: "ko" | "en" = url.searchParams.get("l") === "en" ? "en" : "ko";
 
-  // Phase 2 placeholder: fetch the main og-image and return it as-is.
-  // Phase 3 will replace this block with Satori JSX → SVG → Resvg → PNG.
-  const placeholderUrl = new URL("/og-image.png", url.origin);
-  const upstream = await fetch(placeholderUrl);
+  try {
+    await loadAssets(url.origin);
 
-  if (!upstream.ok) {
-    return new Response("Placeholder fetch failed", { status: 502 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const svg = await satori(buildCard({ code, lang }) as any, {
+      width: 1200,
+      height: 630,
+      fonts: [
+        { name: "Pretendard", data: boldFont!, weight: 700, style: "normal" },
+        { name: "Pretendard", data: extraboldFont!, weight: 800, style: "normal" },
+      ],
+    });
+
+    const resvg = new Resvg(svg, { fitTo: { mode: "width", value: 1200 } });
+    const png = resvg.render().asPng();
+
+    return new Response(png, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=86400, s-maxage=604800",
+        "X-Invite-Code": code,
+        "X-Invite-Lang": lang,
+        "X-OG-Source": "satori",
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return new Response(`OG generation failed: ${message}`, {
+      status: 500,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
   }
-
-  const body = await upstream.arrayBuffer();
-
-  return new Response(body, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=86400, s-maxage=604800",
-      "X-Invite-Code": code,
-      "X-Invite-Lang": lang,
-      "X-OG-Source": "placeholder-phase-2",
-    },
-  });
 }
 
 export const config = {

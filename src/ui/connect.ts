@@ -329,6 +329,19 @@ export function initConnect(): void {
   initStepper('max-device-stepper');
   initStepper('desktop-max-device-stepper');
 
+  // Slot-guide ⓘ buttons (mobile + desktop). Same info dialog either way.
+  const openSlotGuide = () => {
+    showDialog({
+      title: t('connect.slot_guide.title'),
+      message: t('connect.slot_guide.body'),
+      buttonText: t('common.ok'),
+    });
+  };
+  const slotGuideMobile = document.getElementById('slot-guide-btn-mobile');
+  const slotGuideDesktop = document.getElementById('slot-guide-btn-desktop');
+  slotGuideMobile?.addEventListener('click', openSlotGuide);
+  slotGuideDesktop?.addEventListener('click', openSlotGuide);
+
   // QR refresh when connect tab is opened
   _busScope.on('ui:connect-tab-opened', () => {
     refreshAllQR();

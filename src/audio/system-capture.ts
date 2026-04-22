@@ -9,12 +9,14 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { APP_STATE, MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
+import { showDialog } from '../ui/dialog.ts';
+import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -62,6 +64,21 @@ export async function startSystemAudioCapture(): Promise<void> {
   const connectedPeers = getState('network.connectedPeers');
   if (connectedPeers.length >= 4) {
     bus.emit('ui:show-toast', t('system_audio.many_devices_warning'));
+  }
+
+  // 0.6 Large-room soft warning: only when the host has opted into a bigger
+  // slot cap (≥6). Once per session. The dialog's confirm click re-asserts
+  // user activation so the getDisplayMedia call below still works.
+  const maxSlots = getState('network.maxGuestSlots') ?? 3;
+  if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasSysAudioWarned()) {
+    const res = await showDialog({
+      title: t('dialog.large_room_sysaudio.title'),
+      message: t('dialog.large_room_sysaudio.message'),
+      buttonText: t('dialog.continue'),
+      secondaryText: t('common.cancel'),
+    });
+    if (res.action !== 'ok') return;
+    markSysAudioWarned();
   }
 
   // 1. Capture FIRST (user gesture must be synchronous call stack)

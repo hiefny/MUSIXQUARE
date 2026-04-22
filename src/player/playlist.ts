@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, APP_STATE, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
@@ -30,6 +30,8 @@ import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import { showDialog } from '../ui/dialog.ts';
+import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
 // A persistent permutation of playlist indices so that prev/next in shuffle
@@ -989,7 +991,7 @@ async function loadDemoMedia(): Promise<void> {
 
 // ─── Handle Files Selected ────────────────────────────────────────
 
-function handleFilesSelected(files: FileList | null): void {
+async function handleFilesSelected(files: FileList | null): Promise<void> {
   if (!files || files.length === 0) return;
 
   const hostConn = getState('network.hostConn');
@@ -1022,6 +1024,20 @@ function handleFilesSelected(files: FileList | null): void {
   }
 
   if (accepted.length === 0) return;
+
+  // Large-room soft warning: only when the host has explicitly bumped the
+  // slot cap into "big party" territory, and only once per session.
+  const maxSlots = getState('network.maxGuestSlots') ?? 3;
+  if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasFileShareWarned()) {
+    const res = await showDialog({
+      title: t('dialog.large_room_file.title'),
+      message: t('dialog.large_room_file.message'),
+      buttonText: t('dialog.continue'),
+      secondaryText: t('common.cancel'),
+    });
+    if (res.action !== 'ok') return;
+    markFileShareWarned();
+  }
 
   const playlist = [...(getState('playlist.items') || [])];
   let addedCount = 0;

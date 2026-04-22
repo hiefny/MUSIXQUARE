@@ -1646,6 +1646,44 @@
         align-items: center;
     }
 
+    /* When a header hosts a small ⓘ info button beside the title, collapse
+       the row's default space-between so the button sits right next to the
+       title instead of flying to the opposite edge. */
+    .section-header-row:has(.slot-guide-btn) {
+        justify-content: flex-start;
+        gap: 6px;
+    }
+
+    .slot-guide-btn {
+        background: transparent;
+        border: none;
+        padding: 4px;
+        margin: 0;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        font-family: inherit;
+        appearance: none;
+        -webkit-appearance: none;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 0.15s ease;
+    }
+
+    .slot-guide-btn:hover,
+    .slot-guide-btn:focus-visible {
+        color: var(--text-main);
+    }
+
+    .slot-guide-btn svg {
+        width: 18px;
+        height: 18px;
+        fill: currentColor;
+        display: block;
+    }
+
     /* Target only the very first section (Language) directly inside .tab-body */
     #tab-settings>.tab-body>.section-group:first-of-type .section-header-row,
     #tab-settings .settings-subtab-panel>.section-group:first-of-type .section-header-row,

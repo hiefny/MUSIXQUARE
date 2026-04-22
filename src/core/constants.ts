@@ -73,6 +73,10 @@ export const DELAY = {
 export const DEFAULT_MAX_GUEST_SLOTS = 3;
 export const MIN_GUEST_SLOTS = 1;
 export const MAX_GUEST_SLOTS_LIMIT = 32;
+/** Show "this mode is recommended for small rooms" dialog only when the host
+ *  has opted into a larger room (slot cap ≥ this). Users sticking to the
+ *  default 3 won't see the warning for file-share / system-audio entry. */
+export const WARN_WHEN_MAX_SLOTS_AT_LEAST = 6;
 export const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────

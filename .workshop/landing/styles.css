@@ -1,0 +1,652 @@
+/* MUSIXQUARE landing — mirrors the main app's design system directly.
+   Geometric. Dark. Minimal. No invented tokens. */
+
+:root {
+  --bg: #121212;
+  --surface-1: #1A1A1A;
+  --surface-2: #262626;
+  --surface-3: #404040;
+  --text-main: #ffffff;
+  --text-sub: #a1a1aa;
+  --text-muted: #71717a;
+  --primary: #3b82f6;
+  --radius-s: 14px;
+  --radius-m: 20px;
+  --glass-bg: rgba(38, 38, 38, 0.75);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 0.2s;
+  --dur-base: 0.3s;
+  --header-h: 60px;
+  --pad-x: 48px;
+  --max-w: 1440px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text-main);
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+}
+
+a { color: inherit; text-decoration: none; }
+svg { display: block; }
+
+/* ── Header ─────────────────────────────────────────────── */
+
+.lp-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 100;
+  overflow: hidden;
+}
+
+/* Mirrors the main app's .header-progress-bg — fills header height-wise,
+   animates width to match scroll position. */
+.lp-header-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  background-color: var(--primary);
+  opacity: 0.15;
+  z-index: 0;
+  pointer-events: none;
+  transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.lp-logo, .lp-try { position: relative; z-index: 1; }
+
+.lp-logo {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  color: var(--text-main);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.lp-logo:hover { opacity: 0.7; }
+.lp-logo svg { height: 18px; width: auto; }
+
+.lp-try {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 18px;
+  background: var(--text-main);
+  color: var(--bg);
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.lp-try:hover { opacity: 0.86; }
+.lp-try:active { transform: scale(0.98); }
+
+/* ── Layout ─────────────────────────────────────────────── */
+
+main { padding-top: var(--header-h); }
+
+.lp-section {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 140px var(--pad-x);
+  min-height: calc(100vh - var(--header-h));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.lp-hero {
+  padding-top: 80px;
+  padding-bottom: 80px;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: center;
+  gap: 48px;
+}
+.lp-hero__copy { max-width: 560px; }
+
+@media (min-width: 1024px) {
+  .lp-hero {
+    grid-template-columns: 1.15fr 1fr;
+    gap: 0 80px;
+    align-items: center;
+  }
+  .lp-hero__copy { grid-column: 1; }
+  .lp-hero__visual { grid-column: 2; justify-self: center; }
+}
+
+.lp-hero__visual {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  perspective: 1600px;
+  width: 100%;
+}
+
+.lp-phone-3d {
+  width: clamp(240px, 30vw, 340px);
+  aspect-ratio: 9 / 19.5;
+  position: relative;
+  transform: rotateY(-14deg) rotateX(6deg);
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  transition: transform 800ms var(--ease-out);
+  will-change: transform;
+}
+
+.lp-phone-3d__frame {
+  position: absolute;
+  inset: 0;
+  transform: translateZ(14px);
+  border: 1px solid var(--surface-3);
+  border-radius: 36px;
+  overflow: hidden;
+  background: #000;
+}
+.lp-phone-3d__frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Right-side thickness — inset top/bottom by the frame's border-radius so the
+   strip only covers the straight middle section and doesn't poke past the
+   rounded corners. */
+.lp-phone-3d__side {
+  position: absolute;
+  top: 36px;
+  bottom: 36px;
+  right: -14px;
+  width: 28px;
+  transform: rotateY(90deg);
+  transform-origin: center center;
+  background: linear-gradient(to right,
+    #3a3a3a 0%,
+    #1a1a1a 20%,
+    #050505 50%,
+    #1a1a1a 80%,
+    #3a3a3a 100%);
+}
+
+@media (max-width: 1023px) {
+  .lp-hero__visual {
+    margin-top: 32px;
+    width: 100%;
+    justify-content: center;
+  }
+  .lp-phone-3d {
+    width: clamp(220px, 70vw, 320px);
+    transform: rotateY(-8deg) rotateX(3deg);
+  }
+}
+
+.lp-divider {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  border: 0;
+  border-top: 1px solid var(--surface-2);
+  height: 0;
+}
+
+/* ── Typography ─────────────────────────────────────────── */
+
+.lp-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 32px;
+  font-variant-numeric: tabular-nums;
+}
+.lp-eyebrow[data-num]::before {
+  content: attr(data-num);
+  color: var(--text-sub);
+  margin-right: 14px;
+}
+
+.lp-h1 {
+  font-size: clamp(44px, 8vw, 104px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+  margin: 0 0 32px;
+  color: var(--text-main);
+}
+
+.lp-h2 {
+  font-size: clamp(36px, 5.5vw, 72px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  margin: 0 0 28px;
+  color: var(--text-main);
+}
+
+.lp-lead {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--text-sub);
+  max-width: 540px;
+  margin: 0 0 40px;
+  font-weight: 400;
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 28px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--text-main);
+  background: var(--text-main);
+  color: var(--bg);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  cursor: pointer;
+}
+.lp-btn:hover { opacity: 0.86; }
+.lp-btn:active { transform: scale(0.98); }
+
+.lp-btn--ghost {
+  background: transparent;
+  color: var(--text-main);
+  border-color: var(--surface-3);
+}
+.lp-btn--ghost:hover {
+  opacity: 1;
+  border-color: var(--text-main);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.lp-btn--lg {
+  height: 56px;
+  padding: 0 36px;
+  font-size: 15px;
+}
+
+.lp-btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Device array (section 01) ──────────────────────────── */
+
+.lp-array {
+  display: grid;
+  grid-template-columns: 1fr 3fr 1fr;
+  align-items: end;
+  justify-items: center;
+  gap: clamp(16px, 3.2vw, 48px);
+  margin: 48px auto 0;
+  padding: 24px 0;
+  width: 100%;
+  max-width: 1060px;
+}
+
+.lp-dev {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 1.6vw, 24px);
+  width: 100%;
+}
+
+.lp-dev__frame {
+  width: 100%;
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  background: #000;
+  overflow: hidden;
+  display: block;
+}
+.lp-dev__frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lp-dev--phone .lp-dev__frame {
+  aspect-ratio: 1179 / 2556;
+  border-radius: 18px;
+}
+.lp-dev--laptop .lp-dev__frame {
+  aspect-ratio: 3 / 2;
+  border-radius: 6px;
+}
+.lp-dev--laptop .lp-dev__hinge {
+  width: 108%;
+  height: 3px;
+  background: var(--surface-3);
+  border-radius: 0 0 4px 4px;
+  margin-top: -1px;
+}
+
+.lp-dev figcaption {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Split section (copy left, aside right on desktop) ──── */
+
+.lp-section--split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 56px;
+  align-items: center;
+}
+@media (min-width: 1024px) {
+  .lp-section--split {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 440px);
+    gap: clamp(40px, 5vw, 80px);
+  }
+}
+.lp-split__copy { min-width: 0; }
+.lp-split__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+/* ── QR code ────────────────────────────────────────────── */
+
+.lp-qr {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 24px;
+  background: var(--surface-1);
+  border-radius: var(--radius-m);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lp-qr svg {
+  width: 100%;
+  height: 100%;
+}
+.lp-qr svg path {
+  fill: var(--text-main);
+  stroke: var(--text-main);
+}
+
+/* ── Copy invite link button ────────────────────────────── */
+
+.lp-copy-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.lp-copy-link svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+.lp-copy-link:hover { background: var(--surface-3); }
+.lp-copy-link:active { background: var(--surface-3); transform: scale(0.97); }
+
+/* ── Toast (mirrors main app) ───────────────────────────── */
+
+.lp-toast {
+  position: fixed;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 200;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+              transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+.lp-toast > span {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #000;
+  padding: 14px 28px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lp-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15),
+              transform 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
+}
+
+/* ── Room code display (section 02) ─────────────────────── */
+
+.lp-code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(10px, 1.6vw, 22px);
+  margin: 16px 0 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1em;
+}
+.lp-code em {
+  font-style: normal;
+  font-size: clamp(48px, 8.5vw, 112px);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text-main);
+}
+.lp-code em:nth-child(3) {
+  color: var(--primary);
+  text-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
+}
+
+.lp-code__caption {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Spec list (section 03) ─────────────────────────────── */
+
+.lp-specs {
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: 640px;
+}
+.lp-specs > div {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--surface-2);
+  align-items: baseline;
+}
+.lp-specs > div:first-child { border-top: 1px solid var(--surface-2); }
+.lp-specs dt {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+.lp-specs dd {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-main);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── CTA ────────────────────────────────────────────────── */
+
+.lp-cta {
+  align-items: flex-start;
+  min-height: 70vh;
+}
+.lp-cta .lp-lead { margin-bottom: 40px; }
+
+/* ── Footer ─────────────────────────────────────────────── */
+
+.lp-footer {
+  border-top: 1px solid var(--surface-2);
+  padding: 32px var(--pad-x);
+}
+.lp-footer__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.lp-footer__copy { color: var(--text-muted); }
+.lp-footer__nav { display: flex; gap: 24px; }
+.lp-footer__nav a {
+  color: var(--text-sub);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.lp-footer__nav a:hover { color: var(--text-main); }
+
+/* ── Reveal (staggered children) ────────────────────────── */
+
+[data-animate] > * {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out);
+}
+[data-animate].is-visible > * {
+  opacity: 1;
+  transform: translateY(0);
+}
+[data-animate].is-visible > *:nth-child(1) { transition-delay: 0ms; }
+[data-animate].is-visible > *:nth-child(2) { transition-delay: 80ms; }
+[data-animate].is-visible > *:nth-child(3) { transition-delay: 160ms; }
+[data-animate].is-visible > *:nth-child(4) { transition-delay: 240ms; }
+[data-animate].is-visible > *:nth-child(5) { transition-delay: 320ms; }
+
+/* Device-array inner stagger (fires once the section is revealed) */
+.lp-array > * {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out);
+}
+[data-animate].is-visible .lp-array > *:nth-child(1) { opacity: 1; transform: translateY(0); transition-delay: 320ms; }
+[data-animate].is-visible .lp-array > *:nth-child(2) { opacity: 1; transform: translateY(0); transition-delay: 400ms; }
+[data-animate].is-visible .lp-array > *:nth-child(3) { opacity: 1; transform: translateY(0); transition-delay: 480ms; }
+
+/* Hero copy inner stagger */
+.lp-hero__copy > *,
+.lp-split__copy > * {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out);
+}
+[data-animate].is-visible .lp-hero__copy > *:nth-child(1),
+[data-animate].is-visible .lp-split__copy > *:nth-child(1) { opacity: 1; transform: translateY(0); transition-delay: 40ms; }
+[data-animate].is-visible .lp-hero__copy > *:nth-child(2),
+[data-animate].is-visible .lp-split__copy > *:nth-child(2) { opacity: 1; transform: translateY(0); transition-delay: 120ms; }
+[data-animate].is-visible .lp-hero__copy > *:nth-child(3),
+[data-animate].is-visible .lp-split__copy > *:nth-child(3) { opacity: 1; transform: translateY(0); transition-delay: 200ms; }
+[data-animate].is-visible .lp-hero__copy > *:nth-child(4),
+[data-animate].is-visible .lp-split__copy > *:nth-child(4) { opacity: 1; transform: translateY(0); transition-delay: 280ms; }
+[data-animate].is-visible .lp-split__copy > *:nth-child(5) { opacity: 1; transform: translateY(0); transition-delay: 360ms; }
+
+/* ── Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  :root { --pad-x: 24px; --header-h: 56px; }
+  .lp-section { padding: 96px var(--pad-x); }
+  .lp-hero { padding-top: 56px; padding-bottom: 56px; }
+  .lp-lead { font-size: 16px; }
+
+  /* Two-row device array: phones on top, laptop spans below. */
+  .lp-array {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "left  right"
+      "mid   mid";
+    gap: 28px 16px;
+    padding: 16px 0;
+    align-items: end;
+  }
+  .lp-dev:nth-child(1) { grid-area: left; }
+  .lp-dev:nth-child(2) { grid-area: mid; }
+  .lp-dev:nth-child(3) { grid-area: right; }
+  .lp-dev { gap: 10px; }
+  .lp-dev--phone { max-width: 140px; }
+  .lp-dev--laptop { max-width: 360px; }
+  .lp-dev--phone .lp-dev__frame { border-radius: 14px; }
+
+  /* Phones reveal together, laptop last */
+  [data-animate].is-visible .lp-array > *:nth-child(1) { transition-delay: 320ms; }
+  [data-animate].is-visible .lp-array > *:nth-child(3) { transition-delay: 320ms; }
+  [data-animate].is-visible .lp-array > *:nth-child(2) { transition-delay: 480ms; }
+
+  /* QR + copy-link tighter on phones */
+  .lp-split__aside { max-width: 280px; }
+
+  .lp-specs > div { grid-template-columns: 1fr; gap: 6px; padding: 14px 0; }
+  .lp-footer__inner { flex-direction: column; align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

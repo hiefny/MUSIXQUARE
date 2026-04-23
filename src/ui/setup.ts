@@ -284,7 +284,7 @@ export function initSetup(): void {
   bus.on('setup:guest-join-failure', (_error) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
-    showToast(t('network.cant_join_wifi'));
+    showToast(t('network.cant_join'));
 
     // Always hide loader — auto-reconnect flow shows loader before joinSession,
     // so we must hide it on failure to prevent permanent loader display (#103).

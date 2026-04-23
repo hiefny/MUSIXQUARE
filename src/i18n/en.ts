@@ -313,8 +313,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Disconnected',
-  'network.cant_join': "Can't join",
-  'network.cant_join_wifi': "Couldn't find the session.\nPlease check your network.",
+  'network.cant_join': "Couldn't find the session.\nPlease check your network.",
   'network.session_full': 'Session is full',
   'network.session_full_detail': 'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
   'network.relay_timeout': 'Relay connection timed out',

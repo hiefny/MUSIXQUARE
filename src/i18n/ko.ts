@@ -311,8 +311,7 @@ const ko = {
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': '연결이 끊어졌어요',
-  'network.cant_join': '참가할 수 없어요',
-  'network.cant_join_wifi': "세션을 찾을 수 없어요.\n네트워크를 확인해 주세요.",
+  'network.cant_join': "세션을 찾을 수 없어요.\n네트워크를 확인해 주세요.",
   'network.session_full': '세션이 가득 찼어요',
   'network.session_full_detail': '연결 가능한 기기 한도에 도달했어요.\n연결할 수 있는 기기 수는 "연결"탭에서 설정할 수 있어요.',
   'network.relay_timeout': 'Relay 연결 시간초과',

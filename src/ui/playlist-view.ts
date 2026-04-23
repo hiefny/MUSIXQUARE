@@ -102,11 +102,7 @@ export function updatePlaylistUI(): void {
       ? `<button type="button" class="btn-playlist-remove" data-remove-idx="${idx}" aria-label="${escapeHtml(t('playlist.remove_title'))}">
            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
          </button>`
-      : `<div class="playing-indicator">
-           <div class="bar"></div>
-           <div class="bar"></div>
-           <div class="bar"></div>
-         </div>`;
+      : '';
 
     li.innerHTML = `
       <div class="track-idx">${idx + 1}</div>
@@ -152,11 +148,7 @@ export function updatePlaylistUI(): void {
           sli.innerHTML = `
             <span class="sub-idx">${sIdx + 1}</span>
             <span class="sub-name">${escapeHtml(sTitle)}</span>
-            <div class="playing-indicator">
-              <div class="bar"></div>
-              <div class="bar"></div>
-              <div class="bar"></div>
-            </div>
+
           `;
 
           sli.onclick = (e) => {

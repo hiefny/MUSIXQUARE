@@ -184,6 +184,9 @@ main {
   transition: transform 800ms var(--ease-out);
   will-change: transform;
 }
+.lp-phone-3d[data-phone-tilt] {
+  transition: transform 120ms linear;
+}
 
 .lp-phone-3d__frame {
   position: absolute;
@@ -700,12 +703,82 @@ main {
 /* ── CTA ────────────────────────────────────────────────── */
 
 .lp-cta {
-  align-items: flex-start;
-  min-height: 70vh;
+  align-items: center;
+  min-height: 90vh;
+  position: relative;
+  overflow: hidden;
+  justify-content: center;
+  padding-top: clamp(180px, 18vw, 280px);
+  padding-bottom: clamp(180px, 18vw, 280px);
 }
 
 .lp-cta .lp-lead {
   margin-bottom: 40px;
+}
+
+/* Boost the CTA headline to match the hero H1 scale. */
+.lp-cta .lp-h2 {
+  font-size: clamp(56px, 9vw, 128px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  margin-bottom: 24px;
+}
+
+.lp-cta__inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.lp-cta__wordmark {
+  position: absolute;
+  width: 150%;
+  height: auto;
+  display: block;
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.3;
+  vector-effect: non-scaling-stroke;
+  user-select: none;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Top-left: shows "MUSIX" — right half overflows past the section.
+   SVG is 2× section width, left-aligned, so only x=0..50% of the mark is visible. */
+.lp-cta__wordmark--top {
+  left: 0;
+  top: -3vw;
+  width: 200%;
+  transform: none;
+}
+
+/* Bottom-right: shows "QUARE" — mirror of top. */
+.lp-cta__wordmark--bottom {
+  right: 0;
+  bottom: -3vw;
+  width: 200%;
+  transform: none;
+}
+
+.lp-cta__wordmark polygon,
+.lp-cta__wordmark rect,
+.lp-cta__wordmark path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.3;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 720px) {
+  .lp-cta {
+    min-height: 75vh;
+    padding-top: 140px;
+    padding-bottom: 140px;
+  }
+  .lp-cta__wordmark--top { top: -2vw; }
+  .lp-cta__wordmark--bottom { bottom: -2vw; }
 }
 
 /* ── Footer ─────────────────────────────────────────────── */

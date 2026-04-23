@@ -201,10 +201,53 @@ function initCodeCycle(): void {
   }, 1000);
 }
 
+function initPhoneTilt(): void {
+  const phone = document.querySelector<HTMLElement>('[data-phone-tilt]');
+  if (!phone) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const base = { rx: 6, ry: -14 };
+  let raf = 0;
+  let targetRx = base.rx, targetRy = base.ry, targetTy = 0;
+  let curRx = base.rx, curRy = base.ry, curTy = 0;
+
+  const onMove = (e: PointerEvent) => {
+    const dx = (e.clientX - window.innerWidth / 2) / window.innerWidth;
+    const dy = (e.clientY - window.innerHeight / 2) / window.innerHeight;
+    targetRy = base.ry + dx * 10;
+    targetRx = base.rx - dy * 8;
+  };
+  const onScroll = () => {
+    const r = phone.getBoundingClientRect();
+    const vh = window.innerHeight || 1;
+    const prog = 1 - (r.top + r.height / 2) / vh;
+    const clamped = Math.max(-0.4, Math.min(1, prog));
+    targetTy = clamped * -18;
+  };
+  const tick = () => {
+    raf = 0;
+    curRx += (targetRx - curRx) * 0.08;
+    curRy += (targetRy - curRy) * 0.08;
+    curTy += (targetTy - curTy) * 0.08;
+    phone.style.transform =
+      `translateY(${curTy.toFixed(2)}px) rotateY(${curRy.toFixed(2)}deg) rotateX(${curRx.toFixed(2)}deg)`;
+    if (Math.abs(targetRx - curRx) > 0.01 || Math.abs(targetRy - curRy) > 0.01 || Math.abs(targetTy - curTy) > 0.05) {
+      raf = requestAnimationFrame(tick);
+    }
+  };
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(tick); };
+  window.addEventListener('pointermove', (e) => { onMove(e); schedule(); }, { passive: true });
+  window.addEventListener('scroll', () => { onScroll(); schedule(); }, { passive: true });
+  window.addEventListener('resize', () => { onScroll(); schedule(); }, { passive: true });
+  onScroll();
+  schedule();
+}
+
 function boot(): void {
   initReveal();
   initSmoothAnchor();
   initScrollProgress();
+  initPhoneTilt();
   initCopyInvite();
   initSyncClock();
   initCodeCycle();

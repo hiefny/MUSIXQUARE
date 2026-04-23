@@ -1372,8 +1372,8 @@
 
     .track-item {
         background: transparent;
-        padding: 16px 16px;
-        min-height: 60px;
+        padding: 14px 16px;
+        min-height: 56px;
         box-sizing: border-box;
         border-radius: var(--radius-m);
         display: flex;

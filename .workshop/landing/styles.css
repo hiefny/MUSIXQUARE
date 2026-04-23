@@ -772,7 +772,7 @@ main {
 /* Bottom-right: shows "QUARE" — mirror of top. */
 .lp-cta__wordmark--bottom {
   right: 0;
-  bottom: -3vw;
+  bottom: -5vw;
   width: 200%;
   transform: translateX(3vw) !important;
 }
@@ -794,11 +794,11 @@ main {
   }
 
   .lp-cta__wordmark--top {
-    top: -2vw;
+    top: -3vw;
   }
 
   .lp-cta__wordmark--bottom {
-    bottom: -2vw;
+    bottom: -5vw;
   }
 }
 

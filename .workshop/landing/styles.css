@@ -752,8 +752,8 @@ main {
   height: auto;
   display: block;
   fill: none;
-  stroke: rgba(255, 255, 255, 0.2);
-  stroke-width: 0.3;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 1;
   vector-effect: non-scaling-stroke;
   user-select: none;
   pointer-events: none;
@@ -781,8 +781,8 @@ main {
 .lp-cta__wordmark rect,
 .lp-cta__wordmark path {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.2);
-  stroke-width: 0.3;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 

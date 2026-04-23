@@ -95,6 +95,31 @@ svg {
 .lp-logo:hover { opacity: 0.7; }
 .lp-logo svg { height: 16px; width: auto; }
 
+/* Mirror the main app's .role-badge.connected pill (HOST/GUEST style). */
+.lp-try {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  position: relative;
+  z-index: 1;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.lp-try__dot {
+  width: 6px;
+  height: 6px;
+  background: #fff;
+  border-radius: 50%;
+}
+.lp-try:hover { opacity: 0.86; }
+.lp-try:active { transform: scale(0.98); }
+
 /* ── Layout ─────────────────────────────────────────────── */
 
 main {

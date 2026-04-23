@@ -92,8 +92,15 @@ svg {
   color: var(--text-main);
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-.lp-logo:hover { opacity: 0.7; }
-.lp-logo svg { height: 16px; width: auto; }
+
+.lp-logo:hover {
+  opacity: 0.7;
+}
+
+.lp-logo svg {
+  height: 16px;
+  width: auto;
+}
 
 /* Mirror the main app's .role-badge.connected pill (HOST/GUEST style). */
 .lp-try {
@@ -111,14 +118,21 @@ svg {
   z-index: 1;
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
+
 .lp-try__dot {
   width: 6px;
   height: 6px;
   background: #fff;
   border-radius: 50%;
 }
-.lp-try:hover { opacity: 0.86; }
-.lp-try:active { transform: scale(0.98); }
+
+.lp-try:hover {
+  opacity: 0.86;
+}
+
+.lp-try:active {
+  transform: scale(0.98);
+}
 
 /* ── Layout ─────────────────────────────────────────────── */
 
@@ -184,6 +198,7 @@ main {
   transition: transform 800ms var(--ease-out);
   will-change: transform;
 }
+
 .lp-phone-3d[data-phone-tilt] {
   transition: transform 120ms linear;
 }
@@ -751,7 +766,7 @@ main {
   left: 0;
   top: -3vw;
   width: 200%;
-  transform: none;
+  transform: translateX(3vw) !important;
 }
 
 /* Bottom-right: shows "QUARE" — mirror of top. */
@@ -759,7 +774,7 @@ main {
   right: 0;
   bottom: -3vw;
   width: 200%;
-  transform: none;
+  transform: translateX(3vw) !important;
 }
 
 .lp-cta__wordmark polygon,
@@ -777,8 +792,14 @@ main {
     padding-top: 140px;
     padding-bottom: 140px;
   }
-  .lp-cta__wordmark--top { top: -2vw; }
-  .lp-cta__wordmark--bottom { bottom: -2vw; }
+
+  .lp-cta__wordmark--top {
+    top: -2vw;
+  }
+
+  .lp-cta__wordmark--bottom {
+    bottom: -2vw;
+  }
 }
 
 /* ── Footer ─────────────────────────────────────────────── */

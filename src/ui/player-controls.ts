@@ -449,54 +449,46 @@ export function initPlayerControls(): void {
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
   $on('btn-fullscreen', 'click', () => {
+    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+    const videoWrapper = document.querySelector('.video-wrapper') as (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
+    const target = videoWrapper || el;
+
+    const enterFake = () => {
+      videoWrapper?.classList.add('fake-fullscreen');
+      document.body.classList.add('has-fake-fullscreen');
+    };
+    const exitFake = () => {
+      videoWrapper?.classList.remove('fake-fullscreen');
+      document.body.classList.remove('has-fake-fullscreen');
+    };
+
+    const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
+    const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement || isFakeFullscreen);
+
     try {
-      const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
-      const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-      const videoWrapper = document.querySelector('.video-wrapper') as HTMLElement & { webkitRequestFullscreen?: () => void } | null;
-      const target = videoWrapper || el;
-
-      const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
-      const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement || isFakeFullscreen);
-
       if (!isFullscreen) {
         if (target.requestFullscreen) {
-          target.requestFullscreen().catch(() => {
-            videoWrapper?.classList.add('fake-fullscreen');
-            document.body.classList.add('has-fake-fullscreen');
-          });
+          target.requestFullscreen().catch(enterFake);
         } else if (target.webkitRequestFullscreen) {
           target.webkitRequestFullscreen();
+          // webkit's call is sync and silent on failure — verify after a tick.
           setManagedTimer('webkit-fullscreen-fallback', () => {
-            if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
-              videoWrapper?.classList.add('fake-fullscreen');
-              document.body.classList.add('has-fake-fullscreen');
-            }
+            if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
           }, 100);
         } else {
-          videoWrapper?.classList.add('fake-fullscreen');
-          document.body.classList.add('has-fake-fullscreen');
+          enterFake();
         }
-      } else {
-        if (isFakeFullscreen) {
-          videoWrapper?.classList.remove('fake-fullscreen');
-          document.body.classList.remove('has-fake-fullscreen');
-        } else {
-          if (document.exitFullscreen) document.exitFullscreen();
-          else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-        }
+      } else if (isFakeFullscreen) {
+        exitFake();
+      } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen();
       }
-    } catch { 
-      // On generic failure, toggle fake fullscreen
-      const videoWrapper = document.querySelector('.video-wrapper');
-      if (videoWrapper) {
-          if (!videoWrapper.classList.contains('fake-fullscreen')) {
-             videoWrapper.classList.add('fake-fullscreen');
-             document.body.classList.add('has-fake-fullscreen');
-          } else {
-             videoWrapper.classList.remove('fake-fullscreen');
-             document.body.classList.remove('has-fake-fullscreen');
-          }
-      }
+    } catch {
+      // Synchronous webkit call can throw — fall back to fake fullscreen toggle.
+      if (isFakeFullscreen) exitFake(); else enterFake();
     }
   });
 

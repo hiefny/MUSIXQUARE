@@ -5469,6 +5469,102 @@
             width: 24px !important;
         }
     }
+    .fullscreen-btn {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.6);
+        border: none;
+        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        transition: opacity 0.3s;
+        opacity: 0;
+        /* Hidden by default */
+        z-index: 10;
+    }
+
+    .video-wrapper:hover .fullscreen-btn,
+    .video-wrapper:active .fullscreen-btn {
+        opacity: 1;
+    }
+
+    /* YouTube mode: always show fullscreen button (no hover on mobile) */
+    .mode-youtube .fullscreen-btn {
+        opacity: 0.35;
+    }
+
+    .mode-youtube .fullscreen-btn:active {
+        opacity: 1;
+    }
+
+    .fullscreen-btn svg {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+    }
+
+    /* Fake Fullscreen for Mobile Devices (when native API is blocked) */
+    body.has-fake-fullscreen header { display: none !important; }
+    body.has-fake-fullscreen .bottom-nav { display: none !important; }
+
+    body.has-fake-fullscreen .tab-content.active { 
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        transform: none !important; 
+        z-index: 99999 !important;
+        /* Disable touch scroll container which creates buggy containing blocks on iOS */
+        -webkit-overflow-scrolling: auto !important;
+    }
+
+    body.has-fake-fullscreen .tab-body { 
+        position: static !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        padding: 0 !important; 
+        margin: 0 !important;
+        overflow: hidden !important; 
+    }
+
+    .video-wrapper.fake-fullscreen {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        z-index: 100000 !important;
+        background-color: black !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        /* Override base .video-wrapper constraints */
+        aspect-ratio: auto !important;
+        max-width: none !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    .video-wrapper.fake-fullscreen .fullscreen-btn {
+        z-index: 100001;
+        bottom: 24px;
+        right: 24px;
+    }
 }
 
 /* end @layer base */

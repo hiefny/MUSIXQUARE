@@ -69,6 +69,7 @@ const en: Record<I18nKey, string> = {
   'player.seek': 'Seek',
   'player.volume': 'Adjust volume',
   'player.toggle_mute': 'Toggle mute',
+  'player.fullscreen': 'Toggle fullscreen',
   'player.prev_track': 'Previous track',
   'player.next_track': 'Next track',
   'player.repeat_mode': 'Change repeat mode',

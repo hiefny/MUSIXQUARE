@@ -824,6 +824,13 @@ main {
 
 /* ── Remote / Chat bubble demo ──────────────────────────── */
 
+.lp-caveat {
+  margin: 16px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .lp-chat {
   display: flex;
   flex-direction: column;

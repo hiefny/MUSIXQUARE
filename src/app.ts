@@ -192,6 +192,19 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized (native API)');
 }
 
+// ── Session Leave Guard ──
+//
+// Warn before navigating away during an active session, and — as a side effect —
+// disable bfcache while a session is active. Without bfcache, forward navigation
+// after a back triggers a full reload, avoiding the stale-UI case where the peer
+// socket was killed by the browser but the cached state still showed "connected".
+window.addEventListener('beforeunload', (e) => {
+  const role = getState('network.appRole');
+  if (role === 'idle') return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 // ── Global Error Handlers ──
 
 window.onerror = (msg, src, line, col, err) => {

@@ -17,12 +17,22 @@ export function updateLoader(percent: number): void {
   }
 }
 
-export function showLoader(show: boolean, txt?: string): void {
+// Ref-counted loader holders. Each unique `id` is one "hold"; the loader
+// stays visible while any hold is active. Callers without an explicit id
+// share a default slot — existing single-slot usage is unchanged. Callers
+// that need to overlap with other flows should pass a unique id so one
+// flow's hide doesn't prematurely close another flow's loader.
+const _loaderHolders = new Set<string>();
+const DEFAULT_LOADER_ID = '_default';
+
+export function showLoader(show: boolean, txt?: string, id?: string): void {
+  const key = id ?? DEFAULT_LOADER_ID;
   const header = document.getElementById('main-header');
   const loadingText = document.getElementById('header-loading-text');
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
 
   if (show) {
+    _loaderHolders.add(key);
     clearManagedTimer('loader-reset');
     // Suppress View Transitions while the loading CSS transition plays
     // (1s transform + buffer) to prevent snapshot-replay double-animation
@@ -33,6 +43,8 @@ export function showLoader(show: boolean, txt?: string): void {
       progressBg.style.width = '0%';
     }
   } else {
+    _loaderHolders.delete(key);
+    if (_loaderHolders.size > 0) return;
     // Suppress through the reverse CSS transition as well
     suppressViewTransitions(1200);
     header?.classList.remove('loading');

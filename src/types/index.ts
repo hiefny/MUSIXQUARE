@@ -334,7 +334,7 @@ export interface StateTree {
   files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
   youtube: {
     currentSubIndex: number;
-    subItemsMap: Record<string, { ids: string[]; titles: string[] }>;
+    subItemsMap: Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;
     /**
      * Guest-only: estimated `playVideo()` call → audible output latency (ms).
      * Used by the rendezvous sync (guest-initiated, host-nondisruptive) to

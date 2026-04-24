@@ -567,6 +567,9 @@ export function initPlayerControls(): void {
       showToast(t('system_audio.desktop_only'));
     }
   });
+  if (!canCaptureSystemAudio()) {
+    document.getElementById('btn-system-audio')?.classList.add('unsupported');
+  }
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
   // Demo button (Help tab — desktop + mobile)

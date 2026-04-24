@@ -13,6 +13,9 @@ import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { safeSend } from '../network/peer.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+
+const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
@@ -20,15 +23,45 @@ function toggleExpansion(idx: number): void {
   const playlist = getState('playlist.items');
   if (!playlist[idx]) return;
 
+  const expanding = !playlist[idx].isExpanded;
   const updated = [...playlist];
-  updated[idx] = { ...updated[idx], isExpanded: !updated[idx].isExpanded };
+  updated[idx] = { ...updated[idx], isExpanded: expanding };
   setState('playlist.items', updated);
 
-  // When expanding a YouTube playlist, trigger sub-item population
-  if (updated[idx].isExpanded && updated[idx].playlistId) {
-    bus.emit('youtube:populate-sub-items', updated[idx].playlistId, idx);
-  }
+  const playlistId = updated[idx].playlistId;
+  if (!playlistId) return;
 
+  const timerKey = `sub-items-timeout-${playlistId}`;
+
+  if (expanding) {
+    // Clear any stale loadError flag from a previous failed attempt
+    const subMap = getState('youtube.subItemsMap') || {};
+    const existing = subMap[playlistId];
+    if (existing?.loadError) {
+      setState('youtube.subItemsMap', {
+        ...subMap,
+        [playlistId]: { ids: existing.ids || [], titles: existing.titles || [] },
+      });
+    }
+
+    bus.emit('youtube:populate-sub-items', playlistId, idx);
+
+    // Mark as errored if sub-items don't arrive in time, so the UI can
+    // replace the "loading..." row with a fallback message instead of
+    // spinning forever on YouTube API throttling or network failure.
+    setManagedTimer(timerKey, () => {
+      const currentMap = getState('youtube.subItemsMap') || {};
+      const entry = currentMap[playlistId];
+      if (!entry || !entry.ids || entry.ids.length === 0) {
+        setState('youtube.subItemsMap', {
+          ...currentMap,
+          [playlistId]: { ids: [], titles: [], loadError: true },
+        });
+      }
+    }, SUB_ITEMS_LOAD_TIMEOUT_MS);
+  } else {
+    clearManagedTimer(timerKey);
+  }
 }
 
 // ─── Remove Track Dialog ─────────────────────────────────────────
@@ -62,7 +95,9 @@ export function updatePlaylistUI(): void {
   const savedScrollTop = ul.scrollTop;
   ul.innerHTML = '';
   if (playlist.length === 0) {
-    ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t('playlist.empty_hint'))}</li>`;
+    const isHost = !getState('network.hostConn');
+    const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
+    ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t(key))}</li>`;
     return;
   }
 
@@ -166,6 +201,8 @@ export function updatePlaylistUI(): void {
           };
           subUl.appendChild(sli);
         });
+      } else if (subData?.loadError) {
+        subUl.innerHTML = `<li class="sub-track-item error">${escapeHtml(t('playlist.sub_load_failed'))}</li>`;
       } else {
         subUl.innerHTML = `<li class="sub-track-item loading">${escapeHtml(t('playlist.loading_info'))}</li>`;
       }

@@ -4592,6 +4592,10 @@
         transform: scale(0.97);
     }
 
+    .file-select-btn.unsupported {
+        opacity: 0.5;
+    }
+
     .file-select-btn span {
         font-size: 15px;
         font-weight: 600;

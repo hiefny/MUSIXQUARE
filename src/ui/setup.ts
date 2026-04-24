@@ -383,8 +383,8 @@ export function initSetup(): void {
             // your code" message for "host left".
             try { sessionStorage.setItem('mxqr_reconnect_target', lastCode); } catch { /* noop */ }
             showLoader(true, t('setup.joining'));
-            markIntentionalNav();
             setManagedTimer('reconnect-hard-reload', () => {
+              markIntentionalNav();
               window.location.href = '/' + lastCode;
             }, 300);
           } else {
@@ -392,8 +392,10 @@ export function initSetup(): void {
           }
         } else {
           showLoader(true, t('dialog.leaving_session'));
-          markIntentionalNav();
-          setManagedTimer('reconnect-dialog-reload', () => window.location.reload(), 300);
+          setManagedTimer('reconnect-dialog-reload', () => {
+            markIntentionalNav();
+            window.location.reload();
+          }, 300);
         }
       }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
@@ -418,8 +420,10 @@ export function initSetup(): void {
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
     showLoader(true, t('dialog.leaving_session'));
-    markIntentionalNav();
-    setManagedTimer('kicked-from-session-reload', () => window.location.reload(), 300);
+    setManagedTimer('kicked-from-session-reload', () => {
+      markIntentionalNav();
+      window.location.reload();
+    }, 300);
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -432,8 +436,10 @@ export function initSetup(): void {
     }).catch(e => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
         showLoader(true, t('dialog.leaving_session'));
-        markIntentionalNav();
-        setManagedTimer('kicked-explicit-reload', () => window.location.reload(), 300);
+        setManagedTimer('kicked-explicit-reload', () => {
+          markIntentionalNav();
+          window.location.reload();
+        }, 300);
       });
   });
 

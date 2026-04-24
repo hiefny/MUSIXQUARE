@@ -386,8 +386,12 @@ export function initConnect(): void {
     }).then(res => {
       if (res && res.action === 'ok') {
         showLoader(true, t('dialog.leaving_session'));
-        markIntentionalNav();
-        setManagedTimer('leave-session-reload', () => window.location.reload(), 300);
+        // Flip the intentional-nav flag from inside the timer callback so
+        // a cancelled/cleared timer can't leave the flag stuck true.
+        setManagedTimer('leave-session-reload', () => {
+          markIntentionalNav();
+          window.location.reload();
+        }, 300);
       }
     });
   };

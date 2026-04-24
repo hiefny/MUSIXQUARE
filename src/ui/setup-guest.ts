@@ -26,6 +26,7 @@ import {
   setupHighlightJoinRole, setupSetGuestJoinBusy, setupRenderActions,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
+import { markIntentionalNav } from '../core/page-lifecycle.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ function _renderInviteLinkActions(): void {
   setupRenderActions([
     {
       id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only',
-      onClick: () => { window.location.href = '/'; },
+      onClick: () => { markIntentionalNav(); window.location.href = '/'; },
     },
     {
       id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary',

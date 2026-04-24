@@ -22,7 +22,7 @@ import { getState, setState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { isIntentionalNav } from './core/page-lifecycle.ts';
+import { isIntentionalNav, markIntentionalNav } from './core/page-lifecycle.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -234,13 +234,33 @@ window.addEventListener('unhandledrejection', (e) => {
 //
 // `pagehide` only fires when the page is actually being unloaded (tab
 // close confirmed, navigation committed, etc.) — not on "Stay" — so it
-// runs the cleanup once, at the right time. `persisted` guards against
-// bfcache entry (not expected here due to the beforeunload above, but
-// defensive).
+// runs the cleanup once, at the right time. `persisted === true` means
+// the browser is stashing the page in bfcache (a later `pageshow` with
+// the same flag will fire if/when it's restored); we deliberately SKIP
+// the cleanup in that case so the session can come back intact.
+//
+// The companion `pageshow` handler below covers the edge where bfcache
+// restore happens but the underlying peer/audio graph is already dead
+// (e.g. the user came back after a long nap): force a reload so the
+// cached UI can't lie about a "connected" session that no longer exists.
 function initPageLifecycle(): void {
   window.addEventListener('pagehide', (e) => {
     if (e.persisted) return;
     try { leaveSession(); } catch { /* noop */ }
+  });
+
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return; // fresh load, nothing to reconcile
+    const role = getState('network.appRole');
+    if (role === 'idle') return; // landing — bfcache restore is safe
+    // Session-active page restored from bfcache. PeerJS connections, RTCs,
+    // AudioContext, and managed timers are all in an undefined state at
+    // this point — the safest recovery is a fresh load. The beforeunload
+    // guard is already bypassed (we're re-entering, not leaving), so this
+    // reload doesn't prompt the user.
+    log.info('[App] Restored from bfcache with active session — reloading for fresh state');
+    markIntentionalNav();
+    window.location.reload();
   });
 }
 

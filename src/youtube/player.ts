@@ -692,6 +692,9 @@ export function initYouTube(): void {
       name: title,
       title: title,
       videoId: finalVideoId || null,
+      // Preserve original playlistId in state so the playlist UI can still
+      // show the sub-item list even when single-video mode is enforced for
+      // iframe load. finalPlaylistId (null) is used only for broadcast/load.
       playlistId: playlistId || null,
       isExpanded: !!playlistId, // Auto-expand playlist items
     };
@@ -746,8 +749,12 @@ export function initYouTube(): void {
       if (isIdle) {
         broadcast({
           type: MSG.YOUTUBE_PLAY,
-          videoId,
-          playlistId,
+          // Use the single-video-mode-forced IDs so guests receive the same
+          // playlist intent host is operating under. handlers.ts reapplies
+          // the safeguard, but broadcasting the authoritative pair keeps
+          // the payload self-consistent for debugging and future relays.
+          videoId: finalVideoId,
+          playlistId: finalPlaylistId,
           index: newIndex,
           // autoplay=false: guest also loads without iframe auto-start and
           // waits for host's hostPlayAt broadcast from scheduleYtAutoSync.

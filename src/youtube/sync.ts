@@ -17,6 +17,7 @@ import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex, updateSubItemIds, updateSubItemTitle, setSubItemsData, setYtAutoplayIntent } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
+import { invalidateYtDurationCache } from './iframe.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import {
@@ -325,6 +326,10 @@ function handleYouTubeSync(data: Record<string, unknown>): void {
         log.info(`[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`);
         if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
+          // The new video's duration isn't reported until the iframe buffers
+          // it. Invalidate the cache now so the seekbar doesn't keep showing
+          // the previous video's total time during the load window.
+          invalidateYtDurationCache();
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
           }

@@ -112,6 +112,16 @@ const _ifr: IframeRuntime = {
 
 export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
 
+/**
+ * Invalidate the duration cache — call after any external `loadVideoById`
+ * so the next poll reads the new video's real duration instead of the
+ * previous one's stale value.
+ */
+export function invalidateYtDurationCache(): void {
+  setCachedYtDuration(0);
+  _ifr.lastDurationVideoId = '';
+}
+
 // ─── Load YouTube Video ────────────────────────────────────────────
 
 export function loadYouTubeVideo(

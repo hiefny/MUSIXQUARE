@@ -22,7 +22,7 @@ import { getState, setState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { isIntentionalNav, markIntentionalNav } from './core/page-lifecycle.ts';
+import { initPageLifecycleHandlers, markIntentionalNav, isIntentionalNav } from './core/page-lifecycle.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -193,27 +193,6 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized (native API)');
 }
 
-// ── Session Leave Guard ──
-//
-// Warn before navigating away during an active session, and — as a side effect —
-// disable bfcache while a session is active. Without bfcache, forward navigation
-// after a back triggers a full reload, avoiding the stale-UI case where the peer
-// socket was killed by the browser but the cached state still showed "connected".
-//
-// App-driven navigations (leave-session reload, kick-reload, SW update,
-// reconnect redirect…) already got explicit user confirmation through a
-// custom dialog — surfacing the browser's native confirm on top of that
-// is redundant and confusing. Such call sites call `markIntentionalNav()`
-// from `core/page-lifecycle.ts` before triggering `location.reload()` /
-// `location.href = …` to suppress this handler.
-window.addEventListener('beforeunload', (e) => {
-  if (isIntentionalNav()) return;
-  const role = getState('network.appRole');
-  if (role === 'idle') return;
-  e.preventDefault();
-  e.returnValue = '';
-});
-
 // ── Global Error Handlers ──
 
 window.onerror = (msg, src, line, col, err) => {
@@ -224,45 +203,11 @@ window.addEventListener('unhandledrejection', (e) => {
   log.error('[Global] Unhandled rejection:', e.reason);
 });
 
-// ── Page Lifecycle Cleanup ──
-//
-// Previously this cleanup ran from `beforeunload`, which has a subtle but
-// load-bearing bug: beforeunload listeners run even when the user picks
-// "Stay" in the confirmation, so `leaveSession()` would wipe the peer +
-// player + timer state before we knew whether the user was actually
-// leaving. Choosing "Stay" then left the tab open with a dead session.
-//
-// `pagehide` only fires when the page is actually being unloaded (tab
-// close confirmed, navigation committed, etc.) — not on "Stay" — so it
-// runs the cleanup once, at the right time. `persisted === true` means
-// the browser is stashing the page in bfcache (a later `pageshow` with
-// the same flag will fire if/when it's restored); we deliberately SKIP
-// the cleanup in that case so the session can come back intact.
-//
-// The companion `pageshow` handler below covers the edge where bfcache
-// restore happens but the underlying peer/audio graph is already dead
-// (e.g. the user came back after a long nap): force a reload so the
-// cached UI can't lie about a "connected" session that no longer exists.
-function initPageLifecycle(): void {
-  window.addEventListener('pagehide', (e) => {
-    if (e.persisted) return;
-    try { leaveSession(); } catch { /* noop */ }
-  });
-
-  window.addEventListener('pageshow', (e) => {
-    if (!e.persisted) return; // fresh load, nothing to reconcile
-    const role = getState('network.appRole');
-    if (role === 'idle') return; // landing — bfcache restore is safe
-    // Session-active page restored from bfcache. PeerJS connections, RTCs,
-    // AudioContext, and managed timers are all in an undefined state at
-    // this point — the safest recovery is a fresh load. The beforeunload
-    // guard is already bypassed (we're re-entering, not leaving), so this
-    // reload doesn't prompt the user.
-    log.info('[App] Restored from bfcache with active session — reloading for fresh state');
-    markIntentionalNav();
-    window.location.reload();
-  });
-}
+// Page-lifecycle (beforeunload / pagehide / pageshow) handling lives in
+// `core/page-lifecycle.ts`. It's dependency-injected so the branching can
+// be unit-tested without dragging in the full bootstrap graph. See that
+// file for the rationale behind each branch and the app-wide rule about
+// `markIntentionalNav()`.
 
 // ── Back-Button Guard ──
 //
@@ -451,7 +396,12 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
-  safeInit('PageLifecycle', initPageLifecycle);
+  safeInit('PageLifecycle', () => initPageLifecycleHandlers({
+    getRole: () => getState('network.appRole'),
+    leaveSession,
+    reload: () => window.location.reload(),
+    log,
+  }));
   safeInit('BackButtonGuard', initBackButtonGuard);
 
   // 12. System compatibility check (deferred to not block bootstrap)
@@ -467,6 +417,10 @@ function bootstrap(): void {
       isAudioReady,
       applySettings,
       setChannelMode,
+      // Page-lifecycle flag bindings — exposed so devtools (and preview
+      // sanity probes) touch the same module instance as the bootstrap.
+      markIntentionalNav,
+      isIntentionalNav,
     };
     (window as unknown as Record<string, unknown>).__MXQR = debugObj;
   }

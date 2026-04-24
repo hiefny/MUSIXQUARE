@@ -200,9 +200,13 @@ export const RELAYABLE_MSG_TYPES = [
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
 
 // ─── Rename Validation ──────────────────────────────────────────────
+// Names the host may reclaim (own identity across locales).
+export const HOST_SELF_NAMES = ['host', '방장', '호스트'] as const;
+
 export const RESERVED_NAMES = [
-  'host', 'guest', 'admin', 'operator', 'op', 'mod', 'moderator',
-  'system', 'server', 'bot', '방장', '호스트', '관리자', '운영자',
+  ...HOST_SELF_NAMES,
+  'guest', 'admin', 'operator', 'op', 'mod', 'moderator',
+  'system', 'server', 'bot', '관리자', '운영자',
 ] as const;
 
 // ─── Misc ──────────────────────────────────────────────────────────

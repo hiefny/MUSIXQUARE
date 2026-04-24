@@ -8,7 +8,7 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, RESERVED_NAMES } from '../core/constants.ts';
+import { MSG, RESERVED_NAMES, HOST_SELF_NAMES } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import { addSystemChatMessage, addWhisperMessage, addNoticeChatMessage } from '../ui/chat-render.ts';
@@ -231,8 +231,10 @@ function cmdNick(_: string[], rawArgs: string): void {
   if (!newName) { addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_nick') })); return; }
   if (newName.length > 20) { addSystemChatMessage(t('chat.cmd_nick_too_long')); return; }
   const isHostSelf = !getState('network.hostConn');
-  if (RESERVED_NAMES.some(r => newName.toLowerCase() === r.toLowerCase())) {
-    if (!isHostSelf || !['host', '방장', '호스트'].includes(newName.toLowerCase())) {
+  const nameLower = newName.toLowerCase();
+  const isHostRestore = isHostSelf && (HOST_SELF_NAMES as readonly string[]).includes(nameLower);
+  if (RESERVED_NAMES.some(r => nameLower === r.toLowerCase())) {
+    if (!isHostRestore) {
       addSystemChatMessage(t('connect.rename_reserved'));
       return;
     }
@@ -241,7 +243,6 @@ function cmdNick(_: string[], rawArgs: string): void {
     addSystemChatMessage(t('connect.rename_reserved'));
     return;
   }
-  const isHostRestore = isHostSelf && ['host', '방장', '호스트'].includes(newName.toLowerCase());
   if (!isHostRestore && containsProfanity(newName)) {
     addSystemChatMessage(t('connect.rename_profanity'));
     return;
@@ -481,7 +482,7 @@ function cmdDebug(): void {
 function cmdParty(args: string[]): void {
   const flag = args[0]?.toLowerCase();
   if (flag !== 'on' && flag !== 'off') {
-    addSystemChatMessage('/party on|off');
+    addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_party') }));
     return;
   }
   const on = flag === 'on';
@@ -490,10 +491,10 @@ function cmdParty(args: string[]): void {
   if (on) {
     const bpm = getDetectedBPM();
     addSystemChatMessage(bpm > 0
-      ? `🎉 Party mode ON — ${bpm} BPM`
-      : '🎉 Party mode ON — BPM detecting...');
+      ? t('chat.party_on_bpm', { bpm })
+      : t('chat.party_on_detecting'));
   } else {
-    addSystemChatMessage('Party mode OFF');
+    addSystemChatMessage(t('chat.party_off'));
   }
 }
 

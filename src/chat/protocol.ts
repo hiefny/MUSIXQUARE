@@ -27,6 +27,50 @@ import type { DataConnection } from '../types/index.ts';
 
 const _recentMsgIds = new Set<string>();
 
+// ─── Server-side Rate Limit (host only) ─────────────────────────
+//
+// Client-side slowmode (ui/chat.ts) is enforceable only by well-behaved
+// guests. A malicious peer can bypass sendChatMessage() and push raw CHAT
+// frames over the DataConnection. Without a host-side cap, one peer can
+// hose the relay loop and flood every other guest.
+//
+// Token-bucket per peer: BURST messages instant, then one every REFILL_MS.
+// This runs on the host before relay, so a floodbot costs at most BURST
+// messages of host CPU and 0 messages of downstream bandwidth.
+
+const CHAT_RATE_BURST = 10;
+const CHAT_RATE_REFILL_MS = 1000; // ~1 msg/sec sustained after burst
+const _rateBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+
+function allowChatFromPeer(peerId: string): boolean {
+  if (!peerId) return true; // can't rate-limit without an id; fail open
+  const now = Date.now();
+  let bucket = _rateBuckets.get(peerId);
+  if (!bucket) {
+    bucket = { tokens: CHAT_RATE_BURST, lastRefill: now };
+    _rateBuckets.set(peerId, bucket);
+  }
+  const elapsed = now - bucket.lastRefill;
+  if (elapsed > 0) {
+    const refill = Math.floor(elapsed / CHAT_RATE_REFILL_MS);
+    if (refill > 0) {
+      bucket.tokens = Math.min(CHAT_RATE_BURST, bucket.tokens + refill);
+      bucket.lastRefill = now;
+    }
+  }
+  if (bucket.tokens <= 0) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+/**
+ * Drop any rate-limit state for a peer (call on peer disconnect so the
+ * bucket map doesn't grow unbounded across long-lived sessions).
+ */
+export function resetChatRateLimit(peerId: string): void {
+  _rateBuckets.delete(peerId);
+}
+
 // ─── Host Guard ──────────────────────────────────────────────────
 
 /**
@@ -62,9 +106,12 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   const hostConn = getState('network.hostConn');
 
-  // ── Host-side enforcement: mute, freeze ──
+  // ── Host-side enforcement: rate limit, mute, freeze ──
   if (!hostConn && !isMine) {
     const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
+    // Rate limit: silently drop frames over the burst+refill threshold so
+    // a flooding peer can't saturate the relay path to every other guest.
+    if (!allowChatFromPeer(senderPeerId)) return;
     // Muted user — silently drop
     if (getState('network.mutedPeers').has(senderPeerId)) return;
     // Frozen chat — verify OP status from host's own peer list (don't trust client data)
@@ -235,5 +282,11 @@ export function registerChatProtocolHandlers(): void {
     [MSG.CHAT_SLOWMODE]: handleChatSlowmode,
     [MSG.CHAT_FILTER]: handleChatFilter,
     [MSG.CHAT_SYSTEM]: handleChatSystem,
+  });
+
+  // Drop rate-limit buckets for peers that leave, so the map doesn't
+  // accumulate entries across long-running host sessions.
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    resetChatRateLimit(peerId);
   });
 }

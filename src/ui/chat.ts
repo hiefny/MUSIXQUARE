@@ -155,18 +155,27 @@ function initChatSwipeToDismiss(): void {
   header.addEventListener('touchcancel', endDrag);
 
   // Mouse events (for small-screen PC users)
-  // Attach window listeners only during active drag to prevent permanent leak
-  const onMouseMove = (e: MouseEvent) => moveDrag(e.clientY);
-  const onMouseUp = () => {
-    endDrag();
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
+  // Attach window listeners only during active drag to prevent permanent leak.
+  // An AbortController lets us nuke every window listener atomically — including
+  // the blur fallback for the "mousedown then tab-switch without mouseup" case
+  // that would otherwise strand dangling handlers.
+  let dragAC: AbortController | null = null;
+  const teardownDrag = () => {
+    dragAC?.abort();
+    dragAC = null;
   };
+  const onMouseUp = () => { endDrag(); teardownDrag(); };
   header.addEventListener('mousedown', (e: MouseEvent) => {
+    // If a previous drag never received mouseup (tab switch, devtools grab),
+    // abort its listeners before starting a new one so they don't accumulate.
+    teardownDrag();
     startDrag(e.clientY);
     e.preventDefault(); // prevent text selection while dragging
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    dragAC = new AbortController();
+    const { signal } = dragAC;
+    window.addEventListener('mousemove', (ev: MouseEvent) => moveDrag(ev.clientY), { signal });
+    window.addEventListener('mouseup', onMouseUp, { signal });
+    window.addEventListener('blur', onMouseUp, { signal });
   });
 
   // Header click to close (tap or click without drag)
@@ -199,10 +208,10 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const cmd = parseCommand(text);
   if (cmd) {
-    (input as any).contentEditable = 'false';
+    input.contentEditable = 'false';
     input.innerHTML = '';
     void input.offsetHeight; // Force reflow
-    (input as any).contentEditable = 'true';
+    input.contentEditable = 'true';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
     executeCommand(cmd);
@@ -287,10 +296,10 @@ export function sendChatMessage(): void {
     input.focus();
   } else {
     // Fallback for unexpected DOM: legacy toggle (leak still possible on iOS).
-    (input as any).contentEditable = 'false';
+    input.contentEditable = 'false';
     input.innerHTML = '';
     void input.offsetHeight;
-    (input as any).contentEditable = 'true';
+    input.contentEditable = 'true';
     input.focus();
   }
   input.dispatchEvent(new Event('input', { bubbles: true }));

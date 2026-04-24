@@ -4322,7 +4322,7 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 7px;
-        background: #FF0000;
+        background: #FF0033;
         /* Clean YouTube Red */
         border: none;
         color: #ffffff;
@@ -4441,7 +4441,7 @@
 
     /* Explicitly keep the YouTube icon red in light mode */
     [data-theme="light"] .file-select-btn .btn-icon-bg.youtube svg {
-        fill: #FF0000;
+        fill: #FF0033;
     }
 
     /* ── Nudge Sync Overlay ─────────────────────────────────────── */
@@ -4669,7 +4669,7 @@
     }
 
     .btn-icon-bg.youtube {
-        color: #FF0000;
+        color: #FF0033;
     }
 
     .file-select-btn:hover .btn-icon-bg {
@@ -4678,7 +4678,7 @@
     }
 
     .file-select-btn:hover .btn-icon-bg.youtube {
-        color: #FF0000;
+        color: #FF0033;
     }
 
     .btn-icon-bg svg {

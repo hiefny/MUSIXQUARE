@@ -16,6 +16,7 @@ const ko = {
   'common.start': '시작하기',
   'common.info': '안내',
   'common.stay': '남아있기',
+  'common.leave': '나가기',
   'common.granted': '부여됨',
   'common.revoked': '회수됨',
   'common.stop': '정지',

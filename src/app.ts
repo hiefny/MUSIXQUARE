@@ -282,10 +282,12 @@ function initBackButtonGuard(): void {
     void (async () => {
       try {
         const result = await showDialog({
+          // "어디로" 돌아가는지는 브라우저 history에 따라 사용자마다 다르니
+          // (랜딩, 외부 사이트, 빈 탭…) 문구는 "무엇이" 일어나는지만 말한다.
           title: t('dialog.return_home_title'),
-          message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
-          buttonText: t('dialog.go_back'),
-          secondaryText: t('common.cancel'),
+          message: t('dialog.return_home_detail'),
+          buttonText: t('common.leave'),
+          secondaryText: t('common.stay'),
           defaultFocus: 'secondary',
         });
         if (result.action === 'ok') {

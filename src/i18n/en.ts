@@ -18,6 +18,7 @@ const en: Record<I18nKey, string> = {
   'common.start': 'Start',
   'common.info': 'Info',
   'common.stay': 'Stay',
+  'common.leave': 'Leave',
   'common.granted': 'granted',
   'common.revoked': 'revoked',
   'common.stop': 'Stop',

@@ -4182,6 +4182,49 @@
         }
     }
 
+    /* Pinned notice banner: host/OP notices stay visible above the feed */
+    .chat-pinned-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 16px;
+        background: rgba(255, 193, 7, 0.12);
+        flex-shrink: 0;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .chat-pinned-notice:active {
+        background: rgba(255, 193, 7, 0.2);
+    }
+
+    .chat-pinned-notice[hidden] {
+        display: none;
+    }
+
+    .chat-pinned-notice-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .chat-pinned-notice-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #ffc107;
+        margin-bottom: 4px;
+    }
+
+    .chat-pinned-notice-text {
+        font-size: 13px;
+        color: var(--text-main);
+        line-height: 1.4;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
     /* Chat scroll wrapper: flex child of chat-drawer */
     .chat-scroll-wrapper {
         flex: 1;

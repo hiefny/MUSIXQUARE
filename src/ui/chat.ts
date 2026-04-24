@@ -24,6 +24,7 @@ import {
   addChatMessage,
   addSystemChatMessage,
   addNoticeChatMessage,
+  clearPinnedNotice,
   formatChatDisplayName,
   MAX_MSG_LENGTH,
 } from './chat-render.ts';
@@ -644,6 +645,17 @@ export function initChat(): void {
     if (container) {
       container.innerHTML = '';
       addSystemChatMessage(t('chat.cmd_clear'));
+    }
+    clearPinnedNotice();
+  });
+
+  // Pinned notice: tap anywhere on the banner to dismiss
+  const pinnedBanner = document.getElementById('chat-pinned-notice');
+  pinnedBanner?.addEventListener('click', clearPinnedNotice);
+  pinnedBanner?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      clearPinnedNotice();
     }
   });
 

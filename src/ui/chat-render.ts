@@ -370,5 +370,25 @@ export function addNoticeChatMessage(sender: string, text: string): void {
   pruneOldMessages(container);
   container.scrollTop = container.scrollHeight;
 
+  // Also pin above the feed so a fast-scrolling chat doesn't bury it.
+  setPinnedNotice(sender, text);
+
   bus.emit('chat:message-rendered', sender, text, false);
+}
+
+// ─── Pinned Notice Banner ────────────────────────────────────────
+
+export function setPinnedNotice(sender: string, text: string): void {
+  const banner = document.getElementById('chat-pinned-notice');
+  const label = document.getElementById('chat-pinned-notice-label');
+  const body = document.getElementById('chat-pinned-notice-text');
+  if (!banner || !label || !body) return;
+  label.textContent = `${t('chat.cmd_notice_prefix')} — ${sender}`;
+  body.textContent = text;
+  banner.hidden = false;
+}
+
+export function clearPinnedNotice(): void {
+  const banner = document.getElementById('chat-pinned-notice');
+  if (banner) banner.hidden = true;
 }

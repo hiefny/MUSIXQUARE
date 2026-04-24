@@ -241,6 +241,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Slow mode disabled',
   'chat.cmd_slowmode_wait': 'Wait {{sec}}s before sending',
   'chat.cmd_notice_prefix': 'Notice',
+  'chat.pinned_close': 'Dismiss notice',
   'chat.cmd_whisper_from': 'Whisper from {{name}}',
   'chat.cmd_whisper_to': 'Whisper to {{name}}',
   'chat.cmd_target_not_found': 'Target not found: {{target}}',

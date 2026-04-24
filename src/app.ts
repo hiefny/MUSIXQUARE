@@ -18,7 +18,7 @@ import { log } from './core/log.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
-import { getState, snapshot } from './core/state.ts';
+import { getState, setState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { setManagedTimer } from './core/timers.ts';
@@ -59,7 +59,7 @@ import { initBeatDetector } from './audio/beat-detector.ts';
 import { initOverlayOpenObserver, initOverlayInertObserver } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
-import { initDialog } from './ui/dialog.ts';
+import { initDialog, showDialog } from './ui/dialog.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
@@ -223,6 +223,86 @@ function initBeforeUnload(): void {
   });
 }
 
+// ── Back-Button Guard ──
+//
+// `beforeunload` above can't actually catch the back button cleanly — by the
+// time the dialog shows, the browser has already begun tearing down the
+// page (PeerJS DataChannel / RTCPeerConnection get pulled out from under
+// us, and even if the user picks "stay", the session is unrecoverable).
+//
+// History API trick: when a session goes active, push one guard entry onto
+// the stack. When the user presses back the browser pops that entry and
+// fires `popstate` — NOT a real page unload — so the page stays intact and
+// we show a custom dialog instead. On dialog confirm we call leaveSession()
+// explicitly; on cancel we re-push the guard entry so the next back press
+// re-fires popstate rather than escaping to the real previous page.
+//
+// Arming is event-driven (idle → non-idle) rather than seeded at bootstrap:
+// seeding at bootstrap would make the back button in the landing/idle view
+// silently consume the guard entry on first press, which looks broken.
+//
+// Complements (does not replace) `beforeunload`: tab close, refresh, and
+// direct URL changes still route through the beforeunload confirmation.
+function initBackButtonGuard(): void {
+  let _confirmInFlight = false;
+  let _guardActive = false;
+
+  const seedGuard = () => {
+    try {
+      history.pushState({ mxqrGuard: true }, '', location.href);
+      _guardActive = true;
+    } catch (e) {
+      log.warn('[App] Back-button guard seed failed:', e);
+    }
+  };
+
+  // Arm the guard the moment we enter a session. Re-arming later (e.g.
+  // role flips host↔guest mid-session) is a no-op because the guard is
+  // already active.
+  bus.on('state:network.appRole', () => {
+    const role = getState('network.appRole');
+    if (role !== 'idle' && !_guardActive) {
+      seedGuard();
+    }
+  });
+
+  window.addEventListener('popstate', () => {
+    // Any popstate consumes a stack entry — our guard included.
+    _guardActive = false;
+
+    const role = getState('network.appRole');
+    if (role === 'idle') return; // landing / not in a session
+    if (_confirmInFlight) return;
+
+    // Re-seed so the NEXT back press re-fires popstate rather than
+    // escaping to the real previous page while the dialog is open.
+    seedGuard();
+
+    _confirmInFlight = true;
+    void (async () => {
+      try {
+        const result = await showDialog({
+          title: t('dialog.return_home_title'),
+          message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
+          buttonText: t('dialog.go_back'),
+          secondaryText: t('common.cancel'),
+          defaultFocus: 'secondary',
+        });
+        if (result.action === 'ok') {
+          try { leaveSession(); } catch (e) { log.warn('[App] leaveSession failed:', e); }
+          // appRole → 'idle' now makes subsequent popstate handlers
+          // early-return; the lingering guard entry is harmless because
+          // it silently pops on the user's next real back press.
+        }
+      } catch (e) {
+        log.warn('[App] Back-button dialog failed:', e);
+      } finally {
+        _confirmInFlight = false;
+      }
+    })();
+  });
+}
+
 // ── Bootstrap ──
 
 function bootstrap(): void {
@@ -329,6 +409,7 @@ function bootstrap(): void {
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
   safeInit('BeforeUnload', initBeforeUnload);
+  safeInit('BackButtonGuard', initBackButtonGuard);
 
   // 12. System compatibility check (deferred to not block bootstrap)
   setManagedTimer('sys-compat-check', checkSystemCompatibility, 100);
@@ -337,6 +418,7 @@ function bootstrap(): void {
   if (import.meta.env?.DEV) {
     const debugObj = {
       state: snapshot,
+      setState,
       bus,
       initAudio,
       isAudioReady,

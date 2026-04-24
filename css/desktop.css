@@ -746,19 +746,21 @@
         position: absolute;
     }
 
-    /* Chat scroll: desktop layout */
+    /* Chat scroll: desktop layout. Padding is symmetric now that the custom
+       overlay scrollbar sits fixed and doesn't eat content width (was 24/16
+       in the native-scrollbar era). */
     .chat-drawer-messages {
         overflow-y: auto;
         overflow-x: hidden;
-        padding-left: 24px;
+        padding-left: 16px;
         padding-right: 16px;
         height: 100%;
     }
 
-    /* System messages: full-bleed override for desktop padding (24px left, 16px right) */
+    /* System messages: full-bleed override to reach both padding edges */
     .chat-group.system .chat-row {
-        width: calc(100% + 40px);
-        margin: 0 -16px 0 -24px;
+        width: calc(100% + 32px);
+        margin: 0 -16px;
     }
 
     .track-item {

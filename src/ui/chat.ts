@@ -308,6 +308,7 @@ export function sendChatMessage(): void {
 // ─── Event Delegation ────────────────────────────────────────────
 
 let _chatDelegationAC: AbortController | null = null;
+let _langObserver: MutationObserver | null = null;
 
 function initChatEventDelegation(): void {
   // Tear down previous listeners on re-init
@@ -593,9 +594,12 @@ export function initChat(): void {
       }
     });
 
-    // Re-render ghost text on language change
-    new MutationObserver(() => updateGhost()).observe(
-      document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    // Re-render ghost text on language change. Store the observer ref so
+    // re-init (HMR, future re-wiring) disconnects the prior one instead of
+    // stacking. Matches the connect.ts _langObserver pattern.
+    if (_langObserver) _langObserver.disconnect();
+    _langObserver = new MutationObserver(() => updateGhost());
+    _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
     // keyboard-open class is now managed by platform.ts via visualViewport
     // detection — fires proactively before focus, preventing layout thrashing.

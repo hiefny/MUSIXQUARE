@@ -6,7 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE, MSG, DEMO_FILE_NAME } from '../core/constants.ts';
 import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
@@ -440,7 +440,14 @@ let _langObserver: MutationObserver | null = null;
 
 // ─── Init ────────────────────────────────────────────────────────
 
+const _busScope = createBusScope();
+
 export function initPlayerControls(): void {
+  // Release any prior-init subscriptions so HMR / future re-init paths
+  // don't stack duplicate handlers. Matches the pattern in connect.ts
+  // and playlist-view.ts.
+  _busScope.dispose();
+
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener(evt, fn);
@@ -600,17 +607,17 @@ export function initPlayerControls(): void {
   installAndroidRangeScrollFix();
 
   // Volume sync
-  bus.on('audio:volume-changed', () => {
+  _busScope.on('audio:volume-changed', () => {
     syncVolumeSlider();
   });
 
   // Role badge update events
-  bus.on('network:role-badge-update', () => {
+  _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
   });
 
   // Latency update → refresh role badge + clock offset display
-  bus.on('sync:latency-update', () => {
+  _busScope.on('sync:latency-update', () => {
     updateRoleBadge();
     const autoEl = document.getElementById('auto-sync-value');
     if (autoEl) {
@@ -621,12 +628,12 @@ export function initPlayerControls(): void {
   });
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
-  bus.on('state:network.connectionType', () => {
+  _busScope.on('state:network.connectionType', () => {
     refreshTrackTitle();
   });
 
   // Guest: dim media source button (host-only action)
-  bus.on('state:network.hostConn', () => {
+  _busScope.on('state:network.hostConn', () => {
     const mediaBtn = document.getElementById('btn-media-source');
     if (mediaBtn) {
       mediaBtn.style.opacity = getState('network.hostConn') ? '0.15' : '';
@@ -650,7 +657,7 @@ export function initPlayerControls(): void {
   _langObserver.observe(document.documentElement, { attributeFilter: ['lang'] });
 
   // Peer disconnected: update UI
-  bus.on('network:peer-disconnected', (peerId) => {
+  _busScope.on('network:peer-disconnected', (peerId) => {
     log.info(`[UI] Peer disconnected: ${peerId}`);
     updateRoleBadge();
   });
@@ -665,7 +672,7 @@ export function initPlayerControls(): void {
   });
 
   // Invite code update events
-  bus.on('ui:settings-tab-opened', () => {
+  _busScope.on('ui:settings-tab-opened', () => {
     updateInviteCodeUI();
   });
 
@@ -680,18 +687,18 @@ export function initPlayerControls(): void {
   }
 
   // OPFS error handler (prevent silent error swallowing)
-  bus.on('opfs:error', (error, filename) => {
+  _busScope.on('opfs:error', (error, filename) => {
     log.error(`[OPFS] Error for ${filename}:`, error);
     showToast(t('toast.file_save_error', { name: filename || 'unknown' }));
   });
 
-  bus.on('opfs:read-error', (data) => {
+  _busScope.on('opfs:read-error', (data) => {
     const d = data as Record<string, unknown>;
     log.error('[OPFS] Read error:', d?.filename, d?.error);
     showToast(t('toast.file_read_error', { name: String(d?.filename || 'unknown') }));
   });
 
-  bus.on('opfs:session-mismatch', (data) => {
+  _busScope.on('opfs:session-mismatch', (data) => {
     const d = data as Record<string, unknown>;
     log.warn('[OPFS] Session mismatch:', d?.filename);
     showToast(t('toast.session_mismatch'));
@@ -700,7 +707,7 @@ export function initPlayerControls(): void {
   // ── Bus Event Bridge ──────────────────────────────────────────
 
   // Toast
-  bus.on('ui:show-toast', (message) => {
+  _busScope.on('ui:show-toast', (message) => {
     showToast(message);
   });
 
@@ -708,7 +715,7 @@ export function initPlayerControls(): void {
   // bus.on handlers removed: no module emits these events.
 
   // Play button state (enabled/disabled)
-  bus.on('ui:play-btn-state', (enabled) => {
+  _busScope.on('ui:play-btn-state', (enabled) => {
     const btn = document.getElementById('play-btn');
     if (btn) {
       (btn as HTMLButtonElement).disabled = !enabled;
@@ -727,7 +734,7 @@ export function initPlayerControls(): void {
     }
   }
 
-  bus.on('state:appState', () => {
+  _busScope.on('state:appState', () => {
     const state = getState('appState');
     let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     if (state === APP_STATE.PLAYING_YOUTUBE) {
@@ -780,34 +787,34 @@ export function initPlayerControls(): void {
   });
 
   // YouTube pause/play doesn't change appState — still need this event
-  bus.on('ui:update-play-state', (playing) => {
+  _busScope.on('ui:update-play-state', (playing) => {
     if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
       updatePlayIcon(playing);
     }
   });
 
   // YouTube auto-sync loading spinner on play button
-  bus.on('youtube:sync-loading', (loading) => {
+  _busScope.on('youtube:sync-loading', (loading) => {
     const btn = document.getElementById('play-btn');
     if (btn) btn.classList.toggle('yt-syncing', !!loading);
   });
 
   // Player actions
-  bus.on('player:toggle-play', () => {
+  _busScope.on('player:toggle-play', () => {
     togglePlay();
   });
 
   // Playlist actions
-  bus.on('playlist:toggle-repeat', () => {
+  _busScope.on('playlist:toggle-repeat', () => {
     toggleRepeat();
   });
 
-  bus.on('playlist:toggle-shuffle', () => {
+  _busScope.on('playlist:toggle-shuffle', () => {
     toggleShuffle();
   });
 
   // Metadata update (track title in player UI)
-  bus.on('state:player.currentTrackMeta', () => {
+  _busScope.on('state:player.currentTrackMeta', () => {
     refreshTrackTitle();
   });
 
@@ -816,7 +823,7 @@ export function initPlayerControls(): void {
   // so 4-digit offsets (e.g. +1022) don't visually crowd the small tile.
   const fmtMs = (ms: number) => ms > 0 ? `+${ms}` : `${ms}`;
 
-  bus.on('sync:display-update', () => {
+  _busScope.on('sync:display-update', () => {
     const localOffset = getState('sync.localOffset') || 0;
     const manualEl = document.getElementById('manual-sync-value');
     const autoEl = document.getElementById('auto-sync-value');
@@ -896,7 +903,7 @@ export function initPlayerControls(): void {
       : DEFAULT_TITLE;
   }
 
-  bus.on('state:player.currentTrackMeta', () => {
+  _busScope.on('state:player.currentTrackMeta', () => {
     const item = getState('player.currentTrackMeta');
     if (item) {
       _tabTitleTrack = item.name === 'system-audio'
@@ -910,7 +917,7 @@ export function initPlayerControls(): void {
     }
   });
 
-  bus.on('state:appState', () => {
+  _busScope.on('state:appState', () => {
     const state = getState('appState');
     if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
       startTabTitleMarquee();
@@ -920,7 +927,7 @@ export function initPlayerControls(): void {
   });
 
   // YouTube pause/play doesn't change appState — handle via play-state event
-  bus.on('ui:update-play-state', (playing) => {
+  _busScope.on('ui:update-play-state', (playing) => {
     if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
     if (playing) {
       startTabTitleMarquee();

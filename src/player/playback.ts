@@ -509,10 +509,23 @@ export function initPlayback(): void {
     // sessionId against transfer.localSessionId and drop if superseded.
     // finalizeGuestFile has its own load-token guard internally, but
     // skipping here avoids an unnecessary decode of a now-stale file.
+    //
+    // FALLBACK (2026-04-25): a "stale" session may actually be the file
+    // we still need. In a rapid A→B→A bounce, A's localSid gets bumped
+    // past A's original sessionId while A's OPFS finalize is still in
+    // flight; dropping it here stalls the guest at 100% until the chunk
+    // watchdog fires a full re-download (~12-60s). Accept the completion
+    // when its filename matches the current transfer target — mirrors
+    // the preload.ts HOTFIX for the same race class.
     const localSid = getState('transfer.localSessionId');
     if (_sessionId && localSid && _sessionId < localSid) {
-      log.debug(`[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}`);
-      return;
+      const currentName = getState('transfer.meta')?.name || '';
+      const matchesCurrent = !!filename && !!currentName && filename === currentName;
+      if (!matchesCurrent) {
+        log.debug(`[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`);
+        return;
+      }
+      log.info(`[Playback] Accepting "stale" OPFS completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`);
     }
 
     const file = await readFileFromOpfs(filename, false);
@@ -524,10 +537,15 @@ export function initPlayback(): void {
 
     // Re-check session after async readFileFromOpfs — the read itself is
     // async and the session may have advanced while we were waiting.
+    // Same fallback applies: accept when filename still matches.
     const sidAfterRead = getState('transfer.localSessionId');
     if (_sessionId && sidAfterRead && _sessionId < sidAfterRead) {
-      log.debug(`[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`);
-      return;
+      const currentNameAfter = getState('transfer.meta')?.name || '';
+      const stillMatches = !!filename && !!currentNameAfter && filename === currentNameAfter;
+      if (!stillMatches) {
+        log.debug(`[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`);
+        return;
+      }
     }
 
     // Lifecycle: all chunks received and assembled → DOWNLOADING → DECODING.

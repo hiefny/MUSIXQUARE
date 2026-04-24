@@ -267,7 +267,7 @@ main {
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 0.98;
-  margin: 0 0 32px;
+  margin: 0 0 32px -0.04em;
   color: var(--text-main);
 }
 
@@ -276,7 +276,7 @@ main {
   font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 1.05;
-  margin: 0 0 28px;
+  margin: 0 0 28px -0.04em;
   color: var(--text-main);
 }
 

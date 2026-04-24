@@ -4207,11 +4207,32 @@
         min-width: 0;
     }
 
+    .chat-pinned-notice-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 4px;
+    }
+
     .chat-pinned-notice-label {
         font-size: 11px;
         font-weight: 700;
         color: #ffc107;
-        margin-bottom: 4px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Decorative affordance only — parent .chat-pinned-notice handles the click */
+    .chat-pinned-notice-close {
+        width: 10px;
+        height: 10px;
+        flex-shrink: 0;
+        color: #ffc107;
+        opacity: 0.55;
+        pointer-events: none;
     }
 
     .chat-pinned-notice-text {

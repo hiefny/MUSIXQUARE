@@ -228,6 +228,9 @@ export function loadYouTubeVideo(
         log.error('[YouTube] Failed to load API script');
         setYtScriptLoading(false);
         setYtLoadInProgress(false);
+        // Cancel the safety timer so we don't double-toast 15s later
+        // with `youtube.load_timeout` on top of this `load_fail`.
+        clearManagedTimer('yt-load-timeout');
         tag.remove(); // Remove broken script tag so retry can re-insert
         showToast(t('youtube.load_fail'));
       };
@@ -1097,6 +1100,20 @@ export function refreshYouTubeDisplay(): void {
  */
 const SNAPSHOT_MAX_RETRIES = 20;
 const _snapshotRetryCounts = new Map<string, number>();
+
+/**
+ * Clear any pending playlist-snapshot retry timers + counter map. Called by
+ * `stopYouTubeMode()` — without this, the 20-retry cap keeps firing against
+ * a destroyed player (the early-return at `getYouTubePlayer()` makes each
+ * call a no-op, but the timers pollute the registry and the Map leaks pids
+ * across sessions).
+ */
+export function clearSnapshotRetries(): void {
+  for (const pid of _snapshotRetryCounts.keys()) {
+    clearManagedTimer(`yt-snapshot-retry-${pid}`);
+  }
+  _snapshotRetryCounts.clear();
+}
 
 function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
   if (!isRetry) _snapshotRetryCounts.set(pid, 0);

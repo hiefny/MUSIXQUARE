@@ -191,8 +191,12 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   setState('player.pausedAt', 0);
 
   // Stop seekbar animation (silent mode leaves appState as PLAYING,
-  // but audio is stopped — rAF must not interpolate stale positions)
-  bus.emit('ui:seek-reset');
+  // but audio is stopped — rAF must not interpolate stale positions).
+  // For silent transitions (track change, preload swap) the new track's
+  // duration-update + loop-start follow immediately; emitting seek-reset
+  // here would flash the bar to 0:00 between the two. handleEnded and
+  // stopPlayback already emit `ui:seek-reset` explicitly on their paths.
+  if (!opts?.silent) bus.emit('ui:seek-reset');
 }
 
 // ─── Seek ──────────────────────────────────────────────────────────

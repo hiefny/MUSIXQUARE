@@ -498,7 +498,21 @@ export function guestRendezvousSync(): void {
 
     if (outOfTime || bufferChecks > RENDEZVOUS_BUFFER_MAX_CHECKS) {
       log.warn(`[Rendezvous] Buffer gate timeout after ${bufferChecks} checks — aborting`);
-      showToast(t('toast.yt_rendezvous_timeout'));
+      // If the host is playing, fall back to a plain playVideo() so the
+      // guest doesn't sit paused for up to one heartbeat (≤3s) waiting for
+      // drift-correction to unpause it. Position will converge on the next
+      // heartbeat's drift math — we just need to avoid the visible stall
+      // and the misleading "Sync failed" toast when recovery is automatic.
+      if (snapshot.hostState === 1) {
+        try {
+          setYtAutoplayIntent(true);
+          p.playVideo();
+        } catch (e) {
+          log.warn('[Rendezvous] fallback playVideo threw:', e);
+        }
+      } else {
+        showToast(t('toast.yt_rendezvous_timeout'));
+      }
       finishRendezvous();
       return;
     }

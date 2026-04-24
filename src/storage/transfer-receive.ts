@@ -125,7 +125,9 @@ async function _doFetchDemoFromServer(index: number, guardedPlayAt?: number, gua
     bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
-    showToast(t('transfer.demo_load_fail'));
+    // The translated string ends with ":" — append the error to avoid a
+    // dangling colon in the toast (matches playlist.ts:987 usage).
+    showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message || ''}`.trim());
     showLoader(false);
     // Fallback: allow normal P2P transfer
     setState('transfer.skipIncomingFile', false);
@@ -664,12 +666,17 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   // Buffer early chunks that arrive before FILE_START sets up the session
   if (transferState === TRANSFER_STATE.IDLE && !fileReorderBuffer.has(incomingSid)) {
     _pendingEarlyChunks.push(data);
-    // Overflow protection: drop oldest chunk from a DIFFERENT session first
+    // Overflow protection: drop oldest chunk from a DIFFERENT session first.
+    // If all queued chunks are from the current session, drop the NEWEST
+    // (pop, not shift) — losing chunk-0 would stall the reorder drain until
+    // the chunk watchdog fires (~12s) and triggers recovery. Losing the
+    // highest-index chunk is cheap: the host's live broadcast typically
+    // re-sends it shortly after, and the reorder loop starts from chunk-0.
     if (_pendingEarlyChunks.length > 200) {
       const currentSid = (data as Record<string, unknown>).sessionId;
       const staleIdx = _pendingEarlyChunks.findIndex(c => (c as Record<string, unknown>).sessionId !== currentSid);
       if (staleIdx >= 0) _pendingEarlyChunks.splice(staleIdx, 1);
-      else _pendingEarlyChunks.shift();
+      else _pendingEarlyChunks.pop();
     }
     return;
   }

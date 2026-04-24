@@ -68,6 +68,14 @@ export function showToast(msg: unknown): void {
     }
 
     msgEl.innerText = text;
+    // If `.show` is already on (back-to-back toasts), briefly remove it and
+    // force a reflow so the entrance animation replays — otherwise the new
+    // text swaps in mid-display without any visual cue.
+    if (t.classList.contains('show')) {
+      t.classList.remove('show');
+      // Access offsetWidth to flush pending style changes before re-adding.
+      void t.offsetWidth;
+    }
     t.classList.add('show');
 
     setManagedTimer('toast-hide', () => {

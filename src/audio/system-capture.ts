@@ -34,7 +34,6 @@ let _stereoUpmix: GainNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
-  currentTrackIndex: number;
   currentTrackMeta: unknown;
   channelMode: number;
 } | null = null;
@@ -111,10 +110,11 @@ export async function startSystemAudioCapture(): Promise<void> {
   }
 
   // 2. Save previous state
+  // Note: `playlist.currentTrackIndex` isn't captured — `stopAllMedia({silent:true})`
+  // below doesn't clobber it, so state is preserved in place and nothing to restore.
   _preSysAudioState = {
     appState: getState('appState'),
     pausedAt: getState('player.pausedAt'),
-    currentTrackIndex: getState('playlist.currentTrackIndex'),
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
   };

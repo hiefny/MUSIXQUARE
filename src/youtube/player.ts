@@ -58,7 +58,7 @@ import {
   setYtIndexingCallback,
 } from './_state.ts';
 
-import { loadYouTubeVideo, refreshYouTubeDisplay, markYtStateBroadcast } from './iframe.ts';
+import { loadYouTubeVideo, refreshYouTubeDisplay, markYtStateBroadcast, clearSnapshotRetries } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
 import {
@@ -219,6 +219,7 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
+  clearSnapshotRetries();
 
   // Disconnect relay upstream so stale relay doesn't pump chunks when
   // switching to file mode. Guest-only — host doesn't have upstreamDataConn.

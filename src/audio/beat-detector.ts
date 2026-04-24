@@ -109,7 +109,6 @@ async function analyzeAndStart(): Promise<void> {
     setState('audio.detectedBPM', _bpm);
 
     log.info(`[BeatDetector] ${_bpm} BPM via library in ${ms.toFixed(0)}ms`);
-    bus.emit('beat:detected', _bpm, _phase);
 
     startBeatLoop();
   } catch (err) {

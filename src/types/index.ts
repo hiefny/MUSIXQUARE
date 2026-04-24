@@ -443,7 +443,6 @@ interface BaseEventMap {
   'audio:surround-toggled': [];
 
   // ── Beat Detection ──────────────────────────────────────────────
-  'beat:detected': [bpm: number, phase: number];
   'beat:pulse': [bpm: number, beatIndex: number];
 
   // ── Player ────────────────────────────────────────────────────────
@@ -451,7 +450,6 @@ interface BaseEventMap {
   'player:toggle-play': [];
   'player:stop-all-media': [];
   'playback:replay-current': [delayMs?: number];
-  'player:sync-video-volume': [volume: number];
   'player:check-ended': [];
   'player:buffer-changed': [];
 

@@ -29,13 +29,15 @@ const WORKER_TIMER_IDS = ['video-sync'];
 export function setTransferWorker(worker: Worker): void {
   _transferWorker = worker;
   _transferWorker.onmessage = handleTransferWorkerMessage;
-  worker.onerror = (e) => { log.error('[Worker] Unhandled error:', e); };
+  // onerror is assigned in app.ts after this call; assigning here would be
+  // silently overwritten (property assignment, not addEventListener). Keep
+  // the single-owner convention in app.ts.
 }
 
 export function setSyncWorker(worker: Worker): void {
   _syncWorker = worker;
   _syncWorker.onmessage = handleSyncWorkerMessage;
-  worker.onerror = (e) => { log.error('[Worker] Unhandled error:', e); };
+  // See note in setTransferWorker — onerror is owned by app.ts.
 }
 
 // ─── Command Dispatch ───────────────────────────────────────────────
@@ -214,11 +216,17 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         // Safety net: if OPFS_END was dropped while state is PROCESSING,
         // the transfer is stuck forever (no watchdog, no OPFS_FILE_READY).
         // Reset state so the UI doesn't stay on "수신 중... 100%".
+        //
+        // Use IDLE (not READY) for symmetry with the START_FAILED/LOCKED
+        // branch above: the worker dropped the END command, so the file
+        // on disk is unfinalized and NOT actually playable. Marking READY
+        // would lie about playability; any caller that keys off transfer
+        // state would think the file is ready when it isn't.
         if (data.command === 'OPFS_END') {
           const transferState = getState('transfer.state');
           if (transferState === TRANSFER_STATE.PROCESSING) {
             log.warn('[OPFS] OPFS_END dropped — resetting stuck PROCESSING state');
-            setState('transfer.state', TRANSFER_STATE.READY);
+            setState('transfer.state', TRANSFER_STATE.IDLE);
             showLoader(false);
           }
         }

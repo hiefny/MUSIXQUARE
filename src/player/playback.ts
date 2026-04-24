@@ -326,7 +326,13 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
+  // Cancel any pending auto-play / ended-advance timers — otherwise an OP's
+  // REQUEST_PLAY that lands during the post-end 300–500ms window would be
+  // silently stomped by the armed `ended-advance-*` timer firing `play(0)`
+  // or `playNextTrack()`. Mirrors the guards used by `togglePlay`/`playTrack`.
   clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
   const pausedAt = getState('player.pausedAt') || 0;
   const rawTime = Number(data.time);
   const time = (Number.isFinite(rawTime) && rawTime >= 0) ? rawTime : pausedAt;
@@ -355,6 +361,8 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
   }
 
   clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
   pause();
   broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
 }
@@ -367,6 +375,13 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     log.warn(`[Playback] Rejected request-seek from non-OP: ${conn?.peer}`);
     return;
   }
+
+  // Cancel pending auto-play / ended-advance timers — the 3s auto-play
+  // window after a track load would otherwise fire `play(0)` at its
+  // scheduled time and overwrite the OP's just-applied seek position.
+  clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
 
   const time = Number(data.time) || 0;
   const currentState = getState('appState');

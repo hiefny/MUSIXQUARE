@@ -431,7 +431,6 @@ bus.on('audio:set-volume', (volume) => {
   }
   bus.emit('audio:volume-changed', clamped);
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
-  bus.emit('player:sync-video-volume', clamped);
 });
 
 /** Apply volume to YouTube player */

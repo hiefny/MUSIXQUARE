@@ -294,6 +294,9 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
+
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
@@ -337,6 +340,9 @@ export function addNoticeChatMessage(sender: string, text: string): void {
   if (!container) return;
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
+
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
 
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -386,6 +392,9 @@ export function setPinnedNotice(sender: string, text: string): void {
   label.textContent = `${t('chat.cmd_notice_prefix')} — ${sender}`;
   body.textContent = text;
   banner.hidden = false;
+  // Hide the chat title once a notice is pinned — same rule as first message.
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
 }
 
 export function clearPinnedNotice(): void {

@@ -25,6 +25,7 @@ import { updateRoleBadge } from './player-controls.ts';
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
 import { startGuestFlow, setGuestGoBack, handleSetupJoinWithRole } from './setup-guest.ts';
 import { animateTransition } from './dom.ts';
+import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import {
   BACK_SVG,
   syncDesktopLeftPanel,
@@ -382,6 +383,7 @@ export function initSetup(): void {
             // your code" message for "host left".
             try { sessionStorage.setItem('mxqr_reconnect_target', lastCode); } catch { /* noop */ }
             showLoader(true, t('setup.joining'));
+            markIntentionalNav();
             setManagedTimer('reconnect-hard-reload', () => {
               window.location.href = '/' + lastCode;
             }, 300);
@@ -390,6 +392,7 @@ export function initSetup(): void {
           }
         } else {
           showLoader(true, t('dialog.leaving_session'));
+          markIntentionalNav();
           setManagedTimer('reconnect-dialog-reload', () => window.location.reload(), 300);
         }
       }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
@@ -415,6 +418,7 @@ export function initSetup(): void {
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
     showLoader(true, t('dialog.leaving_session'));
+    markIntentionalNav();
     setManagedTimer('kicked-from-session-reload', () => window.location.reload(), 300);
   });
 
@@ -428,6 +432,7 @@ export function initSetup(): void {
     }).catch(e => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
         showLoader(true, t('dialog.leaving_session'));
+        markIntentionalNav();
         setManagedTimer('kicked-explicit-reload', () => window.location.reload(), 300);
       });
   });

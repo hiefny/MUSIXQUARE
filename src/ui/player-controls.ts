@@ -25,6 +25,7 @@ import { clearPreviewDebounce } from '../youtube/search.ts';
 import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
+import { markIntentionalNav } from '../core/page-lifecycle.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -388,6 +389,7 @@ async function handleLogoReturnToMain(): Promise<void> {
 
     // Hard reload — clears all in-memory blobs, audio buffers, and stale state
     showLoader(true, t('dialog.leaving_session'));
+    markIntentionalNav();
     setManagedTimer('logo-nav-reload', () => window.location.reload(), 300);
   } finally {
     _logoNavBusy = false;

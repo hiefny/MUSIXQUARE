@@ -9,6 +9,7 @@ import { log } from './core/log.ts';
 import { t } from './i18n/index.ts';
 import { showDialog } from './ui/dialog.ts';
 import { setManagedTimer } from './core/timers.ts';
+import { markIntentionalNav } from './core/page-lifecycle.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
 const SW_COOLDOWN_MS = 30_000; // suppress update dialog for 30s after a SW reload
@@ -38,6 +39,7 @@ export function registerServiceWorker(): void {
         if (_swReloading) return;
         _swReloading = true;
         sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+        markIntentionalNav();
         window.location.reload();
       });
 
@@ -72,6 +74,7 @@ export function registerServiceWorker(): void {
                 if (!_swReloading) {
                   _swReloading = true;
                   sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+                  markIntentionalNav();
                   window.location.reload();
                 }
               }

@@ -16,6 +16,7 @@ import { containsProfanity } from '../chat/profanity.ts';
 import { showToast, showLoader } from './toast.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { copyTextToClipboard } from './dom.ts';
+import { markIntentionalNav } from '../core/page-lifecycle.ts';
 
 let _langObserver: MutationObserver | null = null;
 
@@ -385,6 +386,7 @@ export function initConnect(): void {
     }).then(res => {
       if (res && res.action === 'ok') {
         showLoader(true, t('dialog.leaving_session'));
+        markIntentionalNav();
         setManagedTimer('leave-session-reload', () => window.location.reload(), 300);
       }
     });

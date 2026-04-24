@@ -22,6 +22,7 @@ import { getState, setState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { setManagedTimer } from './core/timers.ts';
+import { isIntentionalNav } from './core/page-lifecycle.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -198,7 +199,15 @@ function initWakeLock(): void {
 // disable bfcache while a session is active. Without bfcache, forward navigation
 // after a back triggers a full reload, avoiding the stale-UI case where the peer
 // socket was killed by the browser but the cached state still showed "connected".
+//
+// App-driven navigations (leave-session reload, kick-reload, SW update,
+// reconnect redirect…) already got explicit user confirmation through a
+// custom dialog — surfacing the browser's native confirm on top of that
+// is redundant and confusing. Such call sites call `markIntentionalNav()`
+// from `core/page-lifecycle.ts` before triggering `location.reload()` /
+// `location.href = …` to suppress this handler.
 window.addEventListener('beforeunload', (e) => {
+  if (isIntentionalNav()) return;
   const role = getState('network.appRole');
   if (role === 'idle') return;
   e.preventDefault();
@@ -215,10 +224,22 @@ window.addEventListener('unhandledrejection', (e) => {
   log.error('[Global] Unhandled rejection:', e.reason);
 });
 
-// ── Beforeunload Cleanup ──
-
-function initBeforeUnload(): void {
-  window.addEventListener('beforeunload', () => {
+// ── Page Lifecycle Cleanup ──
+//
+// Previously this cleanup ran from `beforeunload`, which has a subtle but
+// load-bearing bug: beforeunload listeners run even when the user picks
+// "Stay" in the confirmation, so `leaveSession()` would wipe the peer +
+// player + timer state before we knew whether the user was actually
+// leaving. Choosing "Stay" then left the tab open with a dead session.
+//
+// `pagehide` only fires when the page is actually being unloaded (tab
+// close confirmed, navigation committed, etc.) — not on "Stay" — so it
+// runs the cleanup once, at the right time. `persisted` guards against
+// bfcache entry (not expected here due to the beforeunload above, but
+// defensive).
+function initPageLifecycle(): void {
+  window.addEventListener('pagehide', (e) => {
+    if (e.persisted) return;
     try { leaveSession(); } catch { /* noop */ }
   });
 }
@@ -410,7 +431,7 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
-  safeInit('BeforeUnload', initBeforeUnload);
+  safeInit('PageLifecycle', initPageLifecycle);
   safeInit('BackButtonGuard', initBackButtonGuard);
 
   // 12. System compatibility check (deferred to not block bootstrap)

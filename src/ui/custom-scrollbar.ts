@@ -250,6 +250,10 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onDragEnd);
+  // Blur fallback: if the user alt-tabs or switches windows mid-drag,
+  // mouseup never fires on our window, leaving isDragging=true. The next
+  // mouse move (after they come back) would snap the scroll unexpectedly.
+  window.addEventListener('blur', onDragEnd);
 
   state.cleanup = [
     () => container.removeEventListener('scroll', onScroll),
@@ -259,6 +263,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => thumb.removeEventListener('touchcancel', onDragEnd),
     () => window.removeEventListener('mousemove', onMouseMove),
     () => window.removeEventListener('mouseup', onDragEnd),
+    () => window.removeEventListener('blur', onDragEnd),
     () => orientationMql.removeEventListener('change', onLayoutChange),
     cleanupCompactListener,
   ];

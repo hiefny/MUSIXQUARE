@@ -60,19 +60,32 @@ let _rafId = 0;
 let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
+let _systemAudioZerosApplied = false;
+const SYSTEM_AUDIO_POLL_MS = 1000;
 
 function _seekRafLoop(now: number): void {
-  // System audio: no seek position — keep at 0
+  // System audio: no seek position — write zeros ONCE then poll at 1Hz.
+  // Previously this branch wrote the same zeros every frame at 60fps, which
+  // was wasted DOM work (and battery on mobile) for a static display.
+  // We still need to poll so the loop can resume normal interpolation when
+  // the user exits system-audio mode.
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-    const tc = document.getElementById('time-curr');
-    const tt = document.getElementById('time-total');
-    if (slider) { slider.value = '0'; slider.max = '0'; }
-    if (tc) tc.innerText = '0:00';
-    if (tt) tt.innerText = '0:00';
-    _rafId = requestAnimationFrame(_seekRafLoop);
+    if (!_systemAudioZerosApplied) {
+      const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+      const tc = document.getElementById('time-curr');
+      const tt = document.getElementById('time-total');
+      if (slider) { slider.value = '0'; slider.max = '0'; }
+      if (tc) tc.innerText = '0:00';
+      if (tt) tt.innerText = '0:00';
+      _systemAudioZerosApplied = true;
+    }
+    _rafId = window.setTimeout(
+      () => { _rafId = requestAnimationFrame(_seekRafLoop); },
+      SYSTEM_AUDIO_POLL_MS,
+    );
     return;
   }
+  _systemAudioZerosApplied = false;
 
   const isSeeking = getState('player.isSeeking');
   if (!isSeeking) {
@@ -105,9 +118,13 @@ function _startSeekRaf(): void {
 
 function _stopSeekRaf(): void {
   if (_rafId) {
+    // _rafId may hold either a RAF id or a setTimeout id (system-audio
+    // throttle path). Clearing both is safe — the unused handle is a no-op.
     cancelAnimationFrame(_rafId);
+    clearTimeout(_rafId);
     _rafId = 0;
   }
+  _systemAudioZerosApplied = false;
 }
 
 // ─── Bus Event Handlers ─────────────────────────────────────────

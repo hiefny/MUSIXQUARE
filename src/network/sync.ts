@@ -17,6 +17,7 @@ import { releasePeerSlot } from './peer-state.ts';
 import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
+import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -260,9 +261,10 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       break;
     }
     case 'notice': {
-      const text = args.join(' ').trim();
+      // Cap length before broadcast so an OP can't amplify a 10MB arg to N peers.
+      const text = args.join(' ').trim().slice(0, MAX_MSG_LENGTH);
       if (!text) return;
-      const peerLabel = peer.label || 'OP';
+      const peerLabel = (peer.label || 'OP').substring(0, MAX_SENDER_LABEL_LENGTH);
       const noticePayload = { type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() };
       broadcast(noticePayload);
       bus.emit('chat:notice-message', peerLabel, text);

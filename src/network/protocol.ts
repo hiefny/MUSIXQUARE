@@ -103,11 +103,62 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
   // Chat — validate text field exists and cap length
   [MSG.CHAT]: (d) => typeof d.text === 'string',
+  [MSG.CHAT_WHISPER]: (d) =>
+    typeof d.text === 'string' && typeof d.targetId === 'string',
+  [MSG.CHAT_NOTICE]: (d) => typeof d.text === 'string',
+  [MSG.REQUEST_CHAT_COMMAND]: (d) =>
+    typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 
   // Playlist — validate list is an array (individual items checked in handler)
   [MSG.PLAYLIST_UPDATE]: (d) =>
     Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
 };
+
+// ─── Generic Inbound Rate-Limit (per peer) ──────────────────────────
+//
+// Chat had its own bucket (`allowChatFromPeer`) but every other message
+// type was uncapped — a single malicious guest could flood SYNC_PING or
+// REQUEST_* frames and burn host CPU on state mutations + rebroadcast
+// amplification. RTCDataChannel backpressure caps raw send-rate in the
+// ~1–3k msg/s range, which is still high enough to degrade UX.
+//
+// Token-bucket per peer: 60 burst, 1 token every 50ms (≈20 msg/s steady
+// state). Chunks bypass the bucket — transfer-send already throttles via
+// `bufferedAmount` and chunk rates are naturally high-legitimate-traffic.
+const INBOUND_BURST = 60;
+const INBOUND_REFILL_MS = 50;
+const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+
+const RATE_LIMIT_EXEMPT: ReadonlySet<string> = new Set<string>([
+  MSG.FILE_CHUNK,
+  MSG.PRELOAD_CHUNK,
+]);
+
+function allowInboundFromPeer(peerId: string): boolean {
+  if (!peerId) return true;
+  const now = Date.now();
+  let bucket = _inboundBuckets.get(peerId);
+  if (!bucket) {
+    bucket = { tokens: INBOUND_BURST, lastRefill: now };
+    _inboundBuckets.set(peerId, bucket);
+  }
+  const elapsed = now - bucket.lastRefill;
+  if (elapsed > 0) {
+    const refill = Math.floor(elapsed / INBOUND_REFILL_MS);
+    if (refill > 0) {
+      bucket.tokens = Math.min(INBOUND_BURST, bucket.tokens + refill);
+      bucket.lastRefill = now;
+    }
+  }
+  if (bucket.tokens <= 0) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+/** Drop rate-limit state for a peer; call on disconnect to bound the map. */
+export function resetInboundRateLimit(peerId: string): void {
+  _inboundBuckets.delete(peerId);
+}
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
@@ -154,6 +205,12 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 
   const msg = data as Record<string, unknown>;
   const msgType = msg.type as MsgType;
+
+  // Generic per-peer rate-limit — chunks bypass (high-legitimate-rate, bounded
+  // by transfer-layer backpressure). Silently drops frames over the cap.
+  if (conn?.peer && !RATE_LIMIT_EXEMPT.has(msgType) && !allowInboundFromPeer(conn.peer)) {
+    return;
+  }
 
   // Security: validate _originPeer to prevent spoofing.
   // If _originPeer is set and differs from conn.peer, the message must
@@ -246,6 +303,11 @@ export function initProtocol(): void {
     handleData(data, conn as DataConnection).catch(e =>
       log.error('[Protocol] handleData error:', e)
     );
+  });
+
+  // Release per-peer rate-limit buckets on disconnect so the map stays bounded.
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    resetInboundRateLimit(peerId);
   });
 
   log.info('[Protocol] Message router initialized');

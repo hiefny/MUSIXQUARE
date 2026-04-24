@@ -209,21 +209,42 @@ function handleChatClear(_data: Record<string, unknown>, conn?: DataConnection):
   bus.emit('chat:clear-all');
 }
 
-function handleChatWhisper(data: Record<string, unknown>): void {
+function handleChatWhisper(data: Record<string, unknown>, conn?: DataConnection): void {
   const myId = getState('network.myId') || '';
-  const targetId = data.targetId as string || '';
-  const senderId = data.senderId as string || '';
-  const senderLabel = data.senderLabel as string || '';
-  const text = data.text as string || '';
   const hostConn = getState('network.hostConn');
+  const targetId = (data.targetId as string) || '';
+  const senderId = (data.senderId as string) || '';
 
-  // Host relays whisper to target only
-  if (!hostConn && senderId !== myId) {
+  // Length caps on every inbound whisper — MSG.CHAT truncates via the
+  // `handleChatMessage` path, but whisper went straight to `targetConn.send`
+  // with no limit, letting a peer ship a 10MB text to any target's renderer
+  // (parseMessageContent → escapeHtml → innerHTML on a multi-MB string).
+  let labelIn = (data.senderLabel as string) || '';
+  if (labelIn.length > MAX_SENDER_LABEL_LENGTH) labelIn = labelIn.substring(0, MAX_SENDER_LABEL_LENGTH);
+  let textIn = (data.text as string) || '';
+  if (textIn.length > MAX_MSG_LENGTH) textIn = textIn.substring(0, MAX_MSG_LENGTH);
+  data.senderLabel = labelIn;
+  data.text = textIn;
+
+  if (!hostConn) {
+    // Host side — enforce rate-limit + authoritative label derivation.
+    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
+    if (!allowChatFromPeer(senderPeerId)) return;
+    if (getState('network.mutedPeers').has(senderPeerId)) return;
+
+    // Authoritative label/id from peer list — a malicious guest could set
+    // `senderLabel: 'HOST'` + `senderId: '<hostId>'` and host-relay would
+    // have forwarded those raw to the target without this re-derivation.
+    const peers = getState('network.connectedPeers');
+    const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
+    if (!peerEntry) return;
+    data.senderId = senderPeerId;
+    data.senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
+    data.joinOrder = peerEntry.joinOrder;
+
     if (targetId === myId) {
-      // Whisper is for us (the host)
-      addWhisperMessage(senderLabel, text, false);
+      addWhisperMessage(data.senderLabel as string, data.text as string, false);
     } else {
-      // Relay to target peer only
       const connMap = getState('network.activeHostConnByPeerId');
       const targetConn = connMap.get(targetId);
       if (targetConn) targetConn.send(data);
@@ -231,15 +252,32 @@ function handleChatWhisper(data: Record<string, unknown>): void {
     return;
   }
 
-  // Guest receiving whisper
+  // Guest side — only trust whispers that arrived via the host connection,
+  // defending against future mesh/guest-to-guest topologies where a peer
+  // could otherwise spoof a HOST whisper directly.
+  if (!isFromHost(conn)) return;
+
   if (senderId !== myId) {
-    addWhisperMessage(senderLabel, text, false);
+    addWhisperMessage(data.senderLabel as string, data.text as string, false);
   }
 }
 
-function handleChatNotice(data: Record<string, unknown>): void {
-  const senderLabel = data.senderLabel as string || '';
-  const text = data.text as string || '';
+function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+
+  // Host should never receive a raw CHAT_NOTICE — the legitimate notice
+  // path is REQUEST_CHAT_COMMAND → sync.ts:handleRequestChatCommand →
+  // broadcast. A raw CHAT_NOTICE arriving at the host is a spoofing attempt.
+  if (!hostConn) return;
+
+  // Guest side — trust only notices relayed by the host.
+  if (!isFromHost(conn)) return;
+
+  let senderLabel = (data.senderLabel as string) || '';
+  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH) senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
+  let text = (data.text as string) || '';
+  if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
+
   addNoticeChatMessage(senderLabel, text);
 }
 

@@ -110,7 +110,13 @@ export function processSyncPong(
 ): { rtt: number; offset: number } | null {
   const pingSentAt = _pendingPings.get(pingId);
 
-  if (pingSentAt == null || !hostTime) return null;
+  // Reject NaN / ±Infinity hostTime — a malicious or buggy peer sending
+  // Infinity would otherwise propagate into `_bestOffset` and poison every
+  // subsequent `getHostNow()` call, breaking rendezvous scheduling until a
+  // clean sample displaces it. The non-finite sample has nothing to
+  // self-heal because `reduce((a, b) => a.rtt < b.rtt ? a : b)` could still
+  // keep picking it depending on RTT ordering.
+  if (pingSentAt == null || !Number.isFinite(hostTime)) return null;
   _pendingPings.delete(pingId);
 
   const receivedAt = Date.now();

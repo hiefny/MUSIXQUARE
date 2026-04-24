@@ -33,7 +33,7 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 
 ## How to Use
 
-**https://musixquare.com** — no install needed.
+**https://musixquare.com**, no install needed.
 
 ### Host
 

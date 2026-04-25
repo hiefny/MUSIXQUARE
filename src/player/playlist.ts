@@ -1197,12 +1197,48 @@ export function initPlaylist(): void {
       setState('playlist.currentTrackIndex', newIdx);
     }
 
-    // Invalidate preload if the removed track shifted/invalidated the preloaded index
+    // Preload invalidation:
+    //   index === preloadIdx     → preloaded track is gone, clear & reschedule.
+    //   preloadIdx >= length     → tail-removed past preload target, clear & reschedule.
+    //   index < preloadIdx       → blob is content-keyed (preload.meta.name), so
+    //                              just shift index down by 1 and re-index each
+    //                              peer's preloadedIndexes Set in lockstep.
+    //                              Saves a 5–15 MB re-broadcast × N peers.
+    //   index > preloadIdx       → no-op.
     const preloadIdx = getState('preload.nextTrackIndex');
-    if (preloadIdx >= 0 && (index <= preloadIdx || preloadIdx >= playlist.length)) {
-      clearPreloadState();
-      // Re-schedule preload for the correct next track
-      if (playlist.length > 0) schedulePreload();
+    if (preloadIdx >= 0) {
+      if (index === preloadIdx || preloadIdx >= playlist.length) {
+        clearPreloadState();
+        if (playlist.length > 0) schedulePreload();
+      } else if (index < preloadIdx) {
+        const newPreloadIdx = preloadIdx - 1;
+        setState('preload.nextTrackIndex', newPreloadIdx);
+        // Keep preload.meta.index consistent with nextTrackIndex so the host
+        // fast path in playTrack still recognises the cached blob.
+        const meta = getState('preload.meta');
+        if (meta && (meta.index as number) === preloadIdx) {
+          setState('preload.meta', { ...meta, index: newPreloadIdx });
+        }
+        // Re-index host-side peer caches: every peer that had `preloadIdx`
+        // marked as cached now has `newPreloadIdx`. Indexes between `index`
+        // and `preloadIdx` shift down by 1; indexes < `index` are unaffected;
+        // index === `index` was the removed slot.
+        const connectedPeers = getState('network.connectedPeers') || [];
+        if (connectedPeers.some(p => p.preloadedIndexes?.has(preloadIdx))) {
+          const updatedPeers = connectedPeers.map(p => {
+            if (!p.preloadedIndexes?.has(preloadIdx)) return p;
+            const next = new Set<number>();
+            for (const i of p.preloadedIndexes) {
+              if (i === index) continue; // removed slot
+              if (i < index) next.add(i);
+              else next.add(i - 1); // i > index → shift down
+            }
+            return { ...p, preloadedIndexes: next };
+          });
+          setState('network.connectedPeers', updatedPeers);
+        }
+      }
+      // index > preloadIdx → fall through (no-op).
     }
 
     // Broadcast the updated playlist BEFORE kicking off any replay. Otherwise

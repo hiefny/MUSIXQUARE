@@ -364,15 +364,22 @@ export function initYouTube(): void {
   bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
     // Deferred-playlist navigation: when a playlist row was added to the
     // queue while the iframe was busy with another track, its sub-items
-    // were never indexed (subItemsMap[playlistId] is empty). Navigating
-    // into it now needs the proper indexing flow with polling — going
-    // through plain loadYouTubeVideo would land on the createYouTubePlayer
-    // scrape path whose CUED handler reads getPlaylist() once and gives
-    // up with an empty list, leaving the iframe stranded in CUED with the
-    // loader still up (the user's "재생정보 대기중 무한 대기" symptom).
+    // were never indexed. Navigating into it now needs the proper indexing
+    // flow with polling — going through plain loadYouTubeVideo would land
+    // on the createYouTubePlayer scrape path whose CUED handler reads
+    // getPlaylist() once and gives up with an empty list, leaving the
+    // iframe stranded in CUED with the loader still up.
+    //
+    // Treat <= 1 cached IDs as "not yet indexed". _addYouTubeToPlaylist
+    // pre-populates the map with the entry-point videoId alone (single-item
+    // placeholder so the row's expansion UI isn't empty), which a strict
+    // empty-check would mistake for a fully indexed list. Real indexed
+    // playlists land at length >= 2 (any genuinely-1-item playlist will
+    // simply re-index on each navigation — wasteful but harmless).
     const subMap = getState('youtube.subItemsMap') || {};
     const playlistIdStr = playlistId as string | null;
-    const needsIndex = !!playlistIdStr && !subMap[playlistIdStr]?.ids?.length;
+    const cachedIds = playlistIdStr ? subMap[playlistIdStr]?.ids || [] : [];
+    const needsIndex = !!playlistIdStr && cachedIds.length <= 1;
 
     if (needsIndex) {
       log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);

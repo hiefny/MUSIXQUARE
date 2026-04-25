@@ -9,6 +9,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#121212">
 
+  <!-- Default = English. The detection script below sets `lang="ko"` synchronously
+       before the stylesheet loads, so the `:lang(ko)` CSS rules apply on first paint. -->
   <title>About · MUSIXQUARE</title>
   <meta name="description"
     content="MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. Browser-native. No install.">
@@ -18,6 +20,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ko_KR">
   <meta property="og:url" content="https://musixquare.com/landing">
   <meta property="og:image" content="https://musixquare.com/og-image.png">
   <meta property="og:image:width" content="1200">
@@ -28,6 +31,32 @@
   <meta name="twitter:description" content="Every device, one system.">
   <meta name="twitter:image" content="https://musixquare.com/og-image.png">
 
+  <!-- Sync language detection. Runs before stylesheet → :lang(ko) selectors apply
+       before first paint. Order: ?lang= query > localStorage > navigator.language. -->
+  <script>
+    (function () {
+      var STORE_KEY = 'mxqr-landing-lang';
+      var lang = 'en';
+      try {
+        var qLang = new URLSearchParams(location.search).get('lang');
+        if (qLang === 'en' || qLang === 'ko') {
+          lang = qLang;
+        } else {
+          var stored = null;
+          try { stored = localStorage.getItem(STORE_KEY); } catch (e) {}
+          if (stored === 'en' || stored === 'ko') {
+            lang = stored;
+          } else {
+            var nav = (navigator.language || 'en').toLowerCase();
+            if (nav.indexOf('ko') === 0) lang = 'ko';
+          }
+        }
+      } catch (e) { /* defensive: any failure → English fallback */ }
+      document.documentElement.lang = lang;
+      window.__landingLang = lang;
+    })();
+  </script>
+
   <link rel="icon" href="/designsystem/assets/favicon.svg">
 
   <link rel="stylesheet" href="/css/pretendard.css">
@@ -37,7 +66,7 @@
 <body>
   <header class="lp-header">
     <div class="lp-header-progress" aria-hidden="true"></div>
-    <a class="lp-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+    <a class="lp-logo" href="https://musixquare.com" data-i18n-attr="aria-label:header.logo_aria" aria-label="MUSIXQUARE home">
       <svg viewBox="43 12 214 26" fill="currentColor" aria-hidden="true">
         <polygon
           points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
@@ -61,20 +90,20 @@
         <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
       </svg>
     </a>
-    <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+    <a class="lp-try" href="https://musixquare.com" data-i18n-attr="aria-label:header.try_aria" aria-label="Try MUSIXQUARE now">
       <span class="lp-try__dot" aria-hidden="true"></span>
-      <span>Try it now</span>
+      <span data-i18n="header.try">Try it now</span>
     </a>
   </header>
 
   <main>
     <section class="lp-section lp-hero" data-animate>
       <div class="lp-hero__copy">
-        <h1 class="lp-h1">Every device,<br>one system.</h1>
-        <p class="lp-lead">MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.</p>
+        <h1 class="lp-h1" data-i18n="hero.h1">Every device,<br>one system.</h1>
+        <p class="lp-lead" data-i18n="hero.lead">MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.</p>
         <div class="lp-btn-row">
-          <a class="lp-btn" href="https://musixquare.com">Start session</a>
-          <a class="lp-btn lp-btn--ghost" href="#array">How it works</a>
+          <a class="lp-btn" href="https://musixquare.com" data-i18n="hero.btn_primary">Start session</a>
+          <a class="lp-btn lp-btn--ghost" href="#array" data-i18n="hero.btn_ghost">How it works</a>
         </div>
       </div>
       <div class="lp-hero__visual" aria-hidden="true">
@@ -90,9 +119,9 @@
     <hr class="lp-divider">
 
     <section class="lp-section" id="array" data-animate>
-      <h2 class="lp-h2">Surround, without<br>surround speakers.</h2>
-      <p class="lp-lead">Each device plays one role: left, right, subwoofer, or full stereo. The room itself becomes the system.</p>
-      <div class="lp-array" aria-label="Left phone, center laptop, right phone. Three-device surround setup.">
+      <h2 class="lp-h2" data-i18n="array.h2">Surround, without<br>surround speakers.</h2>
+      <p class="lp-lead" data-i18n="array.lead">Each device plays one role: left, right, subwoofer, or full stereo. The room itself becomes the system.</p>
+      <div class="lp-array" data-i18n-attr="aria-label:array.aria" aria-label="Left phone, center laptop, right phone. Three-device surround setup.">
         <figure class="lp-dev lp-dev--phone">
           <div class="lp-dev__frame">
             <img src="/landing/left.png" alt="" loading="lazy" decoding="async">
@@ -119,20 +148,20 @@
 
     <section class="lp-section lp-section--split lp-section--code" data-animate>
       <div class="lp-split__copy">
-        <h2 class="lp-h2">Six digits.<br>Nothing else.</h2>
-        <p class="lp-lead">Start a session, share six digits. Anyone with a browser joins in seconds.</p>
-        <div class="lp-code" data-code-cycle aria-label="Example room code">
+        <h2 class="lp-h2" data-i18n="code.h2">Six digits.<br>Nothing else.</h2>
+        <p class="lp-lead" data-i18n="code.lead">Start a session, share six digits. Anyone with a browser joins in seconds.</p>
+        <div class="lp-code" data-code-cycle data-i18n-attr="aria-label:code.aria_code" aria-label="Example room code">
           <em>4</em><em>9</em><em>2</em><em>8</em><em>1</em><em>5</em>
         </div>
 
       </div>
       <aside class="lp-split__aside">
-        <div class="lp-qr" aria-label="QR code for musixquare.com">
+        <div class="lp-qr" data-i18n-attr="aria-label:code.aria_qr" aria-label="QR code for musixquare.com">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 25" shape-rendering="crispEdges" aria-hidden="true"><path d="M2 2.5h7m1 0h1m3 0h1m1 0h7M2 3.5h1m5 0h1m1 0h2m1 0h1m2 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h4m1 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h7M2 10.5h2m2 0h3m5 0h1m2 0h1m1 0h4M3 11.5h2m1 0h1m2 0h2m3 0h1m3 0h1m2 0h2M4 12.5h3m1 0h3m3 0h2m5 0h2M4 13.5h1m1 0h1m2 0h1m3 0h4m1 0h1m1 0h3M3 14.5h1m2 0h1m1 0h1m3 0h2m2 0h4M10 15.5h2m1 0h4m2 0h1M2 16.5h7m2 0h1m1 0h1m1 0h1M2 17.5h1m5 0h1m1 0h1m1 0h1m4 0h2m2 0h2M2 18.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m2 0h1M2 19.5h1m1 0h3m1 0h1m2 0h2m1 0h2m5 0h2M2 20.5h1m1 0h3m1 0h1m2 0h2m1 0h1m2 0h1M2 21.5h1m5 0h1m1 0h1m1 0h3m2 0h1m2 0h1m1 0h1M2 22.5h7m1 0h1m1 0h2m1 0h2m1 0h1m2 0h2"/></svg>
         </div>
         <button class="lp-copy-link" type="button" id="lp-copy-link">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-          <span>Copy invite link</span>
+          <span data-i18n="code.copy_btn">Copy invite link</span>
         </button>
       </aside>
     </section>
@@ -141,38 +170,38 @@
 
     <section class="lp-section lp-section--split lp-section--remote" data-animate>
       <div class="lp-split__copy">
-        <h2 class="lp-h2">Not in the room?<br>No problem.</h2>
-        <p class="lp-lead">Chat and watch YouTube together, even from across town.</p>
+        <h2 class="lp-h2" data-i18n="remote.h2">Not in the room?<br>No problem.</h2>
+        <p class="lp-lead" data-i18n="remote.lead">Chat and watch YouTube together, even from across town.</p>
         <dl class="lp-specs">
-          <div><dt>Chat</dt><dd>Realtime text, no limits</dd></div>
-          <div><dt>Whisper</dt><dd>Private 1:1 messages</dd></div>
-          <div><dt>Co-watch</dt><dd>YouTube together, in sync</dd></div>
-          <div><dt>Reach</dt><dd>Any browser, any network</dd></div>
+          <div><dt data-i18n="remote.chat_label">Chat</dt><dd data-i18n="remote.chat_value">Realtime text, no limits</dd></div>
+          <div><dt data-i18n="remote.whisper_label">Whisper</dt><dd data-i18n="remote.whisper_value">Private 1:1 messages</dd></div>
+          <div><dt data-i18n="remote.cowatch_label">Co-watch</dt><dd data-i18n="remote.cowatch_value">YouTube together, in sync</dd></div>
+          <div><dt data-i18n="remote.reach_label">Reach</dt><dd data-i18n="remote.reach_value">Any browser, any network</dd></div>
         </dl>
-        <p class="lp-caveat">Note: channel separation and audio effects aren't available for YouTube.</p>
+        <p class="lp-caveat" data-i18n="remote.caveat">Note: channel separation and audio effects aren't available for YouTube.</p>
       </div>
       <aside class="lp-split__aside">
         <div class="lp-chat" aria-hidden="true">
           <div class="lp-chat-group lp-chat-group--pinned">
             <div class="lp-chat-bubble lp-chat-bubble--pin">
-              <div class="lp-chat-pin__label">NOTICE — HOST</div>
-              <div class="lp-chat-pin__text">Tonight's playlist, make yourself at home.</div>
+              <div class="lp-chat-pin__label" data-i18n="remote.pin_label">NOTICE — HOST</div>
+              <div class="lp-chat-pin__text" data-i18n="remote.pin_text">Tonight's playlist, make yourself at home.</div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--others">
             <div class="lp-chat-sender">
               <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>
-              HOST
+              <span data-i18n="remote.host_name">HOST</span>
             </div>
             <div class="lp-chat-row">
-              <div class="lp-chat-bubble lp-chat-bubble--others">you in yet?</div>
+              <div class="lp-chat-bubble lp-chat-bubble--others" data-i18n="remote.host_msg1">you in yet?</div>
               <div class="lp-chat-time">9:12</div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--mine">
-            <div class="lp-chat-sender">Peer 1</div>
+            <div class="lp-chat-sender" data-i18n="remote.peer_name">Peer 1</div>
             <div class="lp-chat-row">
-              <div class="lp-chat-bubble lp-chat-bubble--mine">joining from the café</div>
+              <div class="lp-chat-bubble lp-chat-bubble--mine" data-i18n="remote.peer_msg1">joining from the café</div>
             </div>
             <div class="lp-chat-row">
               <div class="lp-chat-bubble lp-chat-bubble--yt">
@@ -185,24 +214,24 @@
             </div>
             <div class="lp-chat-row">
               <div class="lp-chat-time">9:12</div>
-              <div class="lp-chat-bubble lp-chat-bubble--mine"><span class="lp-chat-ts">1:04:11</span> i really like this part</div>
+              <div class="lp-chat-bubble lp-chat-bubble--mine"><span class="lp-chat-ts">1:04:11</span> <span data-i18n="remote.peer_ts_msg">i really like this part</span></div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--others">
             <div class="lp-chat-sender">
               <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>
-              HOST
+              <span data-i18n="remote.host_name">HOST</span>
             </div>
             <div class="lp-chat-row">
-              <div class="lp-chat-bubble lp-chat-bubble--others">this one's really good</div>
+              <div class="lp-chat-bubble lp-chat-bubble--others" data-i18n="remote.host_msg2">this one's really good</div>
               <div class="lp-chat-time">9:13</div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--whisper">
-            <div class="lp-chat-sender lp-chat-sender--whisper">whisper to HOST</div>
+            <div class="lp-chat-sender lp-chat-sender--whisper" data-i18n="remote.whisper_sender">whisper to HOST</div>
             <div class="lp-chat-row">
               <div class="lp-chat-time">9:13</div>
-              <div class="lp-chat-bubble lp-chat-bubble--whisper">let's keep this one to ourselves</div>
+              <div class="lp-chat-bubble lp-chat-bubble--whisper" data-i18n="remote.whisper_msg">let's keep this one to ourselves</div>
             </div>
           </div>
         </div>
@@ -213,19 +242,19 @@
 
     <section class="lp-section lp-section--split" data-animate>
       <div class="lp-split__copy">
-        <h2 class="lp-h2">Frame-perfect.<br>Across networks.</h2>
-        <p class="lp-lead">Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.</p>
+        <h2 class="lp-h2" data-i18n="sync.h2">Frame-perfect.<br>Across networks.</h2>
+        <p class="lp-lead" data-i18n="sync.lead">Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.</p>
         <dl class="lp-specs">
-          <div><dt>Video</dt><dd>Frame-accurate YouTube playback</dd></div>
-          <div><dt>Transport</dt><dd>Peer-to-peer, WebRTC</dd></div>
-          <div><dt>Effects</dt><dd>5-band EQ · Reverb · Virtualizer</dd></div>
-          <div><dt>Platforms</dt><dd>iOS · Android · macOS · Windows</dd></div>
+          <div><dt data-i18n="sync.video_label">Video</dt><dd data-i18n="sync.video_value">Frame-accurate YouTube playback</dd></div>
+          <div><dt data-i18n="sync.transport_label">Transport</dt><dd data-i18n="sync.transport_value">Peer-to-peer, WebRTC</dd></div>
+          <div><dt data-i18n="sync.effects_label">Effects</dt><dd data-i18n="sync.effects_value">5-band EQ · Reverb · Virtualizer</dd></div>
+          <div><dt data-i18n="sync.platforms_label">Platforms</dt><dd data-i18n="sync.platforms_value">iOS · Android · macOS · Windows</dd></div>
         </dl>
       </div>
       <aside class="lp-split__aside">
         <div class="lp-sync" data-sync-clock>
           <div>
-            <div class="lp-sync__label">Host</div>
+            <div class="lp-sync__label" data-i18n="sync.host_label">Host</div>
             <div class="lp-sync__timecode" data-sync-tc="host">00:29.<em>472</em></div>
           </div>
           <div class="lp-sync__divider"></div>
@@ -239,7 +268,7 @@
               <dd><span class="lp-sync__peer-tc" data-sync-tc="peer2" data-offset="32">00:29.440</span><span class="lp-sync__delta">−32 ms</span></dd>
             </div>
           </dl>
-          <p class="lp-sync__meta">NTP style sync with 60 samples</p>
+          <p class="lp-sync__meta" data-i18n="sync.meta">NTP style sync with 60 samples</p>
         </div>
       </aside>
     </section>
@@ -292,9 +321,9 @@
         <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
       </svg>
       <div class="lp-cta__inner">
-        <h2 class="lp-h2">Start a session.</h2>
-        <p class="lp-lead">The devices in your room are one system now.</p>
-        <a class="lp-btn lp-btn--lg" href="https://musixquare.com">Launch MUSIXQUARE</a>
+        <h2 class="lp-h2" data-i18n="cta.h2">Start a session.</h2>
+        <p class="lp-lead" data-i18n="cta.lead">The devices in your room are one system now.</p>
+        <a class="lp-btn lp-btn--lg" href="https://musixquare.com" data-i18n="cta.btn">Launch MUSIXQUARE</a>
       </div>
     </section>
   </main>
@@ -303,10 +332,13 @@
     <div class="lp-footer__inner">
       <span class="lp-footer__copy">© 2026 MUSIXQUARE</span>
       <nav class="lp-footer__nav">
-        <a href="https://musixquare.com">App</a>
-        <a href="/changelog">Changelog</a>
-        <a href="/roadmap">Roadmap</a>
-        <a href="/designsystem">Design System</a>
+        <a href="https://musixquare.com" data-i18n="footer.app">App</a>
+        <a href="/changelog" data-i18n="footer.changelog">Changelog</a>
+        <a href="/roadmap" data-i18n="footer.roadmap">Roadmap</a>
+        <a href="/designsystem" data-i18n="footer.designsystem">Design System</a>
+        <span class="lp-lang-divider" aria-hidden="true">·</span>
+        <button type="button" class="lp-lang-btn" data-lang-set="en">English</button>
+        <button type="button" class="lp-lang-btn" data-lang-set="ko">한국어</button>
       </nav>
     </div>
   </footer>
@@ -314,6 +346,255 @@
   <div class="lp-toast" id="lp-toast" role="status" aria-live="polite">
     <span id="lp-toast-msg"></span>
   </div>
+
+  <!-- i18n dictionary + apply.
+       Runs at end of body so DOM exists. The <html lang> attr was already set
+       by the head detection script, so :lang(ko) CSS rules have applied since
+       first paint — only text content needs swapping here. -->
+  <script>
+    (function () {
+      var STORE_KEY = 'mxqr-landing-lang';
+
+      var i18n = {
+        en: {
+          'meta.title': 'About · MUSIXQUARE',
+          'meta.description': 'MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. Browser-native. No install.',
+          'meta.og_title': 'About · MUSIXQUARE',
+          'meta.og_description': 'Every device, one system. Multi-device synchronized audio, no install.',
+          'meta.og_image_alt': 'MUSIXQUARE: Every device, one system.',
+          'meta.tw_title': 'About · MUSIXQUARE',
+          'meta.tw_description': 'Every device, one system.',
+
+          'header.logo_aria': 'MUSIXQUARE home',
+          'header.try': 'Try it now',
+          'header.try_aria': 'Try MUSIXQUARE now',
+
+          'hero.h1': 'Every device,<br>one system.',
+          'hero.lead': 'MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.',
+          'hero.btn_primary': 'Start session',
+          'hero.btn_ghost': 'How it works',
+
+          'array.h2': 'Surround, without<br>surround speakers.',
+          'array.lead': 'Each device plays one role: left, right, subwoofer, or full stereo. The room itself becomes the system.',
+          'array.aria': 'Left phone, center laptop, right phone. Three-device surround setup.',
+
+          'code.h2': 'Six digits.<br>Nothing else.',
+          'code.lead': 'Start a session, share six digits. Anyone with a browser joins in seconds.',
+          'code.aria_code': 'Example room code',
+          'code.aria_qr': 'QR code for musixquare.com',
+          'code.copy_btn': 'Copy invite link',
+          'code.toast_success': 'Invite link copied',
+          'code.toast_fail': 'Copy failed',
+
+          'remote.h2': 'Not in the room?<br>No problem.',
+          'remote.lead': 'Chat and watch YouTube together, even from across town.',
+          'remote.chat_label': 'Chat',
+          'remote.chat_value': 'Realtime text, no limits',
+          'remote.whisper_label': 'Whisper',
+          'remote.whisper_value': 'Private 1:1 messages',
+          'remote.cowatch_label': 'Co-watch',
+          'remote.cowatch_value': 'YouTube together, in sync',
+          'remote.reach_label': 'Reach',
+          'remote.reach_value': 'Any browser, any network',
+          'remote.caveat': "Note: channel separation and audio effects aren't available for YouTube.",
+          'remote.pin_label': 'NOTICE — HOST',
+          'remote.pin_text': "Tonight's playlist, make yourself at home.",
+          'remote.host_name': 'HOST',
+          'remote.host_msg1': 'you in yet?',
+          'remote.peer_name': 'Peer 1',
+          'remote.peer_msg1': 'joining from the café',
+          'remote.peer_ts_msg': 'i really like this part',
+          'remote.host_msg2': "this one's really good",
+          'remote.whisper_sender': 'whisper to HOST',
+          'remote.whisper_msg': "let's keep this one to ourselves",
+
+          'sync.h2': 'Frame-perfect.<br>Across networks.',
+          'sync.lead': 'Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.',
+          'sync.video_label': 'Video',
+          'sync.video_value': 'Frame-accurate YouTube playback',
+          'sync.transport_label': 'Transport',
+          'sync.transport_value': 'Peer-to-peer, WebRTC',
+          'sync.effects_label': 'Effects',
+          'sync.effects_value': '5-band EQ · Reverb · Virtualizer',
+          'sync.platforms_label': 'Platforms',
+          'sync.platforms_value': 'iOS · Android · macOS · Windows',
+          'sync.host_label': 'Host',
+          'sync.meta': 'NTP style sync with 60 samples',
+
+          'cta.h2': 'Start a session.',
+          'cta.lead': 'The devices in your room are one system now.',
+          'cta.btn': 'Launch MUSIXQUARE',
+
+          'footer.app': 'App',
+          'footer.changelog': 'Changelog',
+          'footer.roadmap': 'Roadmap',
+          'footer.designsystem': 'Design System'
+        },
+
+        ko: {
+          'meta.title': 'MUSIXQUARE 소개',
+          'meta.description': 'MUSIXQUARE는 같은 방의 폰, 태블릿, 노트북을 하나의 동기화된 사운드 시스템으로 만들어요. 브라우저에서 바로, 설치 없이.',
+          'meta.og_title': 'MUSIXQUARE 소개',
+          'meta.og_description': '모든 기기, 하나의 시스템. 여러 기기 동기 재생, 설치 없이.',
+          'meta.og_image_alt': 'MUSIXQUARE: 모든 기기, 하나의 시스템.',
+          'meta.tw_title': 'MUSIXQUARE 소개',
+          'meta.tw_description': '모든 기기, 하나의 시스템.',
+
+          'header.logo_aria': 'MUSIXQUARE 홈',
+          'header.try': '바로가기',
+          'header.try_aria': 'MUSIXQUARE 바로가기',
+
+          'hero.h1': '모든 기기,<br>하나의 시스템.',
+          'hero.lead': 'MUSIXQUARE는 같은 방의 모든 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 만들어줘요. 설치 없이 코드 하나만으로.',
+          'hero.btn_primary': '지금 시작하기',
+          'hero.btn_ghost': '자세히 보기',
+
+          'array.h2': '서라운드 스피커 없이<br>서라운드 사운드.',
+          'array.lead': '각 기기가 좌측 우측 서브우퍼 풀 스테레오 스피커가 돼요. 방 자체를 하나의 시스템으로 만들 수 있어요',
+          'array.aria': '왼쪽 폰, 가운데 노트북, 오른쪽 폰. 3 기기 서라운드 구성.',
+
+          'code.h2': '여섯 자리만<br>있으면 돼요.',
+          'code.lead': '방을 열고 여섯 자리 숫자만 공유해요. 브라우저만 있으면 누구나 몇 초 안에 들어와요.',
+          'code.aria_code': '예시 방 코드',
+          'code.aria_qr': 'musixquare.com QR 코드',
+          'code.copy_btn': '초대 링크 복사하기',
+          'code.toast_success': '초대 링크가 복사되었어요',
+          'code.toast_fail': '복사에 실패했어요',
+
+          'remote.h2': '같은 공간이 아니어도<br>괜찮아요',
+          'remote.lead': '멀리 떨어져 있어도 채팅하면서 유튜브 볼 수 있어요.',
+          'remote.chat_label': '채팅',
+          'remote.chat_value': '실시간 텍스트, 제한 없음',
+          'remote.whisper_label': '귓속말',
+          'remote.whisper_value': '1:1 비공개 메시지',
+          'remote.cowatch_label': '함께 보기',
+          'remote.cowatch_value': '유튜브 동기화 재생',
+          'remote.reach_label': '도달 범위',
+          'remote.reach_value': '모든 브라우저, 모든 네트워크',
+          'remote.caveat': '참고: YouTube 모드에서는 채널 분리와 음향 효과를 쓸 수 없어요.',
+          'remote.pin_label': '공지 — 방장',
+          'remote.pin_text': '오늘의 플레이리스트예요. 편하게 들어주세요.',
+          'remote.host_name': '방장',
+          'remote.host_msg1': '들어왔어?',
+          'remote.peer_name': '참가자 1',
+          'remote.peer_msg1': '카페에서 접속 중',
+          'remote.peer_ts_msg': '이 부분 진짜 좋다',
+          'remote.host_msg2': '이거 진짜 좋네',
+          'remote.whisper_sender': '방장에게 귓속말',
+          'remote.whisper_msg': '이건 우리만 알자',
+
+          'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게.',
+          'sync.lead': '각 기기가 방장과의 왕복 지연을 측정해서, 공유 마스터 클럭에 맞게 정렬해요.',
+          'sync.video_label': '비디오',
+          'sync.video_value': '프레임 단위 유튜브 재생',
+          'sync.transport_label': '전송',
+          'sync.transport_value': 'P2P, WebRTC',
+          'sync.effects_label': '효과',
+          'sync.effects_value': '5밴드 EQ, 리버브, 버추얼라이저',
+          'sync.platforms_label': '플랫폼',
+          'sync.platforms_value': 'iOS · Android · macOS · Windows',
+          'sync.host_label': 'HOST',
+          'sync.meta': 'NTP 방식 동기화 · 60 샘플',
+
+          'cta.h2': '지금 시작해볼까요?',
+          'cta.lead': '이제 방 안의 기기들이 하나의 시스템이에요.',
+          'cta.btn': 'MUSIXQUARE 시작하기',
+
+          'footer.app': '앱',
+          'footer.changelog': 'Changelog',
+          'footer.roadmap': 'Roadmap',
+          'footer.designsystem': 'Design System'
+        }
+      };
+
+      function t(lang, key) {
+        var dict = i18n[lang] || i18n.en;
+        var val = dict[key];
+        if (val == null) val = i18n.en[key];
+        return val == null ? key : val;
+      }
+
+      // Exposed for main.ts toast calls. Reads current __landingLang at call time
+      // so a runtime toggle is reflected without re-binding.
+      window.__landingT = function (key, fallback) {
+        var lang = window.__landingLang || 'en';
+        var v = i18n[lang] && i18n[lang][key];
+        return v != null ? v : (fallback != null ? fallback : key);
+      };
+
+      function applyLang(lang) {
+        document.documentElement.lang = lang;
+        window.__landingLang = lang;
+
+        // Text content. Values containing <br> use innerHTML so the line break renders;
+        // everything else uses textContent to keep XSS surface minimal.
+        var els = document.querySelectorAll('[data-i18n]');
+        for (var i = 0; i < els.length; i++) {
+          var el = els[i];
+          var v = t(lang, el.getAttribute('data-i18n'));
+          if (v.indexOf('<br>') !== -1) el.innerHTML = v;
+          else el.textContent = v;
+        }
+
+        // Attribute translations. Format: "attrName:key" (single attr per element for now).
+        var attrEls = document.querySelectorAll('[data-i18n-attr]');
+        for (var j = 0; j < attrEls.length; j++) {
+          var ae = attrEls[j];
+          var spec = ae.getAttribute('data-i18n-attr');
+          if (!spec) continue;
+          var pair = spec.split(':');
+          if (pair.length === 2) ae.setAttribute(pair[0], t(lang, pair[1]));
+        }
+
+        // Meta tags. Crawlers see the HTML defaults (English); JS swaps for users.
+        document.title = t(lang, 'meta.title');
+        var metaPairs = [
+          ['meta[name="description"]', 'meta.description'],
+          ['meta[property="og:title"]', 'meta.og_title'],
+          ['meta[property="og:description"]', 'meta.og_description'],
+          ['meta[property="og:image:alt"]', 'meta.og_image_alt'],
+          ['meta[name="twitter:title"]', 'meta.tw_title'],
+          ['meta[name="twitter:description"]', 'meta.tw_description']
+        ];
+        for (var m = 0; m < metaPairs.length; m++) {
+          var mEl = document.querySelector(metaPairs[m][0]);
+          if (mEl) mEl.setAttribute('content', t(lang, metaPairs[m][1]));
+        }
+        // Locale meta swap (primary + alternate).
+        var ogLocale = document.querySelector('meta[property="og:locale"]');
+        var ogAlt = document.querySelector('meta[property="og:locale:alternate"]');
+        if (ogLocale) ogLocale.setAttribute('content', lang === 'ko' ? 'ko_KR' : 'en_US');
+        if (ogAlt) ogAlt.setAttribute('content', lang === 'ko' ? 'en_US' : 'ko_KR');
+
+        // Toggle UI active state.
+        var btns = document.querySelectorAll('[data-lang-set]');
+        for (var b = 0; b < btns.length; b++) {
+          btns[b].classList.toggle('is-active', btns[b].getAttribute('data-lang-set') === lang);
+        }
+      }
+
+      function setLang(lang) {
+        try { localStorage.setItem(STORE_KEY, lang); } catch (e) { /* ignore quota / disabled */ }
+        applyLang(lang);
+        // Reflect in URL so the choice is shareable. replaceState avoids polluting history.
+        try {
+          var url = new URL(location.href);
+          if (lang === 'ko') url.searchParams.set('lang', 'ko');
+          else url.searchParams.delete('lang');
+          history.replaceState(null, '', url.toString());
+        } catch (e) { /* old browser without URL constructor — silent */ }
+      }
+
+      var btns = document.querySelectorAll('[data-lang-set]');
+      for (var k = 0; k < btns.length; k++) {
+        btns[k].addEventListener('click', function (e) {
+          setLang(e.currentTarget.getAttribute('data-lang-set'));
+        });
+      }
+
+      applyLang(window.__landingLang || 'en');
+    })();
+  </script>
 
   <script type="module" src="/.workshop/landing/main.ts"></script>
 </body>

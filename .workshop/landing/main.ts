@@ -93,13 +93,20 @@ function initCopyInvite(): void {
     }, 2000);
   };
 
+  // Toast text resolved at call time via the landing's i18n helper, so a
+  // runtime language toggle is reflected on the next click.
+  const t = (key: string, fallback: string): string => {
+    const fn = (window as unknown as { __landingT?: (k: string, f: string) => string }).__landingT;
+    return typeof fn === 'function' ? fn(key, fallback) : fallback;
+  };
+
   btn.addEventListener('click', async () => {
     const url = 'https://musixquare.com';
     try {
       await navigator.clipboard.writeText(url);
-      flash('Invite link copied');
+      flash(t('code.toast_success', 'Invite link copied'));
     } catch {
-      flash('Copy failed');
+      flash(t('code.toast_fail', 'Copy failed'));
     }
   });
 }

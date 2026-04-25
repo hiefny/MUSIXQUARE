@@ -1418,3 +1418,57 @@ main {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Korean overrides ────────────────────────────────────
+   Pretendard Hangul has wider per-character width than Latin and looks
+   pinched at Latin tracking. Cap the display sizes so headlines stay
+   on the intended 2-line layout, and loosen the negative letter-spacing.
+   Triggered by <html lang="ko">, set synchronously by the head detection
+   script before first paint. */
+
+:lang(ko) .lp-h1 {
+  letter-spacing: -0.025em;
+  font-size: clamp(40px, 7vw, 88px);
+}
+
+:lang(ko) .lp-h2 {
+  letter-spacing: -0.02em;
+  font-size: clamp(32px, 4.6vw, 60px);
+}
+
+:lang(ko) .lp-cta .lp-h2 {
+  letter-spacing: -0.025em;
+  font-size: clamp(52px, 8vw, 104px);
+}
+
+:lang(ko) .lp-lead {
+  letter-spacing: 0;
+}
+
+/* ── Language toggle (footer) ─────────────────────────── */
+
+.lp-lang-divider {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.lp-lang-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.lp-lang-btn:hover {
+  color: var(--text-main);
+}
+
+.lp-lang-btn.is-active {
+  color: var(--text-main);
+  font-weight: 600;
+}

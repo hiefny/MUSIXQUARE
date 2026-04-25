@@ -296,7 +296,7 @@ function initBackButtonGuard(): void {
           // that and fall back to a hard replace to the home page.
           const beforeUrl = location.href;
           try { history.go(-2); } catch { /* noop */ }
-          setTimeout(() => {
+          setManagedTimer('app:back-button-go-fallback', () => {
             if (location.href === beforeUrl) {
               window.location.replace('/');
             }

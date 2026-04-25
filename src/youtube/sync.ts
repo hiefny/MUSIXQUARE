@@ -56,7 +56,7 @@ import {
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
 
-export function broadcastYouTubeSync(isManual = false): void {
+export function broadcastYouTubeSync(isManual = false, stateOverride?: number): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
@@ -75,7 +75,17 @@ export function broadcastYouTubeSync(isManual = false): void {
 
   try {
     const currentTime = player.getCurrentTime();
-    const state = player.getPlayerState ? player.getPlayerState() : -1;
+    // Prefer caller-supplied INTENT state when provided. Without this, the
+    // immediate-rendezvous path in scheduleYtAutoSync fires this broadcast
+    // synchronously after player.playVideo() — but the YT iframe's
+    // getPlayerState() hasn't transitioned yet (still 2=paused or 3=buffering).
+    // The stale state propagates to guests' lastHostSnapshot.hostState, and
+    // guestRendezvousSync then falls into its `hostState !== 1` "host paused"
+    // branch, which only seeks+pauses and shows the misleading
+    // toast.yt_rendezvous_host_paused — no actual rendezvous runs.
+    // Periodic heartbeats (no override) keep using the live iframe state
+    // because they reflect actual current playback, not a freshly issued action.
+    const state = stateOverride ?? (player.getPlayerState ? player.getPlayerState() : -1);
 
     // Sub-index tracking for playlists
     if (player.getPlaylistIndex) {

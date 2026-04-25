@@ -138,7 +138,12 @@ export function scheduleYtAutoSync(
     // sync isn't double-fired by a leftover yt-auto-sync timer.
     clearManagedTimer('yt-auto-sync');
     markYtStateBroadcast();
-    broadcastYouTubeSync(true);
+    // Pass targetState (always 1 here) as the intent. playVideo() above is
+    // async on the YT iframe — getPlayerState() inside broadcastYouTubeSync
+    // would still return the pre-play state at this microtask, so without
+    // the override the broadcast carries state=2/3 and tricks guests'
+    // guestRendezvousSync into the "host paused" branch.
+    broadcastYouTubeSync(true, targetState);
     log.debug('[YouTube] Sync: Immediate precision rendezvous (Stage 1 skipped)');
     return;
   }
@@ -167,7 +172,11 @@ export function scheduleYtAutoSync(
     if (!p) return;
 
     markYtStateBroadcast();
-    broadcastYouTubeSync(true);
+    // Same intent-vs-iframe-state reasoning as Path A. Stage 1 already
+    // broadcast targetState via YOUTUBE_STATE, but Stage 2's YOUTUBE_SYNC
+    // updates the guest snapshot — its state field must match the intent
+    // or guestRendezvousSync's hostState guard misfires.
+    broadcastYouTubeSync(true, targetState);
     log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
   }, waitMs);
 }

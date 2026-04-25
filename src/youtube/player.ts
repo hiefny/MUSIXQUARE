@@ -143,7 +143,14 @@ export function scheduleYtAutoSync(
     // would still return the pre-play state at this microtask, so without
     // the override the broadcast carries state=2/3 and tricks guests'
     // guestRendezvousSync into the "host paused" branch.
-    broadcastYouTubeSync(true, targetState);
+    //
+    // Pass targetTime as the explicit position when we just issued a seek
+    // (skipSeek=false, targetTime>=0). seekTo() is async on the iframe;
+    // a sync call to getCurrentTime() right after returns the PRE-seek
+    // position, so multiple rapid seeks broadcast N-1's target — guests
+    // rendezvous to the previous seek instead of the latest one.
+    const seekFired = !overrides?.skipSeek && targetTime >= 0;
+    broadcastYouTubeSync(true, targetState, seekFired ? targetTime : undefined);
     // Hold the yt-auto-sync timer name through the host's iframe transition
     // window. broadcastYouTubeSync (heartbeat) and the iframe.ts
     // onStateChange auxiliary broadcast both check getManagedTimer('yt-auto-sync')

@@ -56,7 +56,7 @@ import {
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
 
-export function broadcastYouTubeSync(isManual = false, stateOverride?: number): void {
+export function broadcastYouTubeSync(isManual = false, stateOverride?: number, timeOverride?: number): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
@@ -74,7 +74,14 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   if (getManagedTimer('yt-auto-sync')) return;
 
   try {
-    const currentTime = player.getCurrentTime();
+    // Prefer caller-supplied position when provided. The immediate-rendezvous
+    // path fires this broadcast synchronously right after player.seekTo(),
+    // but getCurrentTime() lags by one seek inside the YT iframe — the
+    // returned value is the position BEFORE the seek just issued, so
+    // multiple seeks make guests rendezvous to the previous target each
+    // time (off-by-one staleness). Periodic heartbeats (no override) read
+    // live currentTime because they describe actual ongoing playback.
+    const currentTime = timeOverride ?? player.getCurrentTime();
     // Prefer caller-supplied INTENT state when provided. Without this, the
     // immediate-rendezvous path in scheduleYtAutoSync fires this broadcast
     // synchronously after player.playVideo() — but the YT iframe's

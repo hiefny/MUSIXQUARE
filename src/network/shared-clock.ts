@@ -128,6 +128,19 @@ export function processSyncPong(
   // hostTime was sampled at (pingSentAt + halfRtt) in our time
   const offset = hostTime - (pingSentAt + halfRtt);
 
+  // Date.now() step detection (NTP correction on network change, mobile
+  // sleep/wake, manual time adjustment). After a step, every existing
+  // sample's offset references a different epoch — the min-RTT picker
+  // can't self-heal because all old samples agree on the now-wrong value.
+  // Threshold mirrors handleSyncPong's drift threshold (sync.ts) for
+  // consistency. Length gate avoids false-flush during initial calibration
+  // where the first samples legitimately revise the offset.
+  const STEP_THRESHOLD_MS = 2_000;
+  if (_samples.length >= 3 && Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS) {
+    log.warn(`[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms — local clock likely stepped, flushing samples`);
+    _samples = [];
+  }
+
   _samples.push({ rtt, offset, timestamp: receivedAt });
 
   // Keep bounded by count AND age. Old samples' offsets become stale

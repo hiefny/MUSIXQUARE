@@ -421,15 +421,18 @@ export function initYouTube(): void {
           });
         }
 
-        // Kick the title fetcher + sub-list UI populate. updateSubItemIds
-        // alone gives us the IDs but every row in the expansion UI shows
-        // "loading…" until oEmbed titles land — the IDLE indexing callback
-        // emits this event after a 250ms delay; we have to do the same or
-        // the deferred-navigate flow ends up indexed but title-less, which
-        // is exactly the symptom the user kept seeing.
+        // Expand the row (the deferred-add path left it collapsed because the
+        // pre-populated single-item placeholder wasn't a real index) and kick
+        // the title fetcher + sub-list UI populate. updateSubItemIds alone
+        // gives us the IDs but every row in the expansion UI shows "loading…"
+        // until oEmbed titles land — the IDLE indexing callback expands and
+        // populates the same way after its 250ms delay.
         const currentPlaylist = getState('playlist.items') || [];
         const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistIdStr);
         if (actualIdx !== -1) {
+          const updatedPlaylist = [...currentPlaylist];
+          updatedPlaylist[actualIdx] = { ...updatedPlaylist[actualIdx], isExpanded: true };
+          setState('playlist.items', updatedPlaylist);
           bus.emit('youtube:populate-sub-items', playlistIdStr!, actualIdx);
         }
 
@@ -775,6 +778,17 @@ export function initYouTube(): void {
        log.debug(`[YouTube Index-Add] Forcing single-video mode for playlist ${playlistId} starting with ${videoId}`);
     }
 
+    // Only auto-expand the row when sub-items are actually indexed (length > 1).
+    // The deferred-add path pre-populates subMap with a single-item placeholder
+    // [entryVideoId]; before this guard, those rows auto-expanded into a
+    // sub-list of 1 row with no title, which renders as "불러오는 중..." via
+    // playlist-view's video_fallback string. Guests don't auto-expand at all
+    // (PLAYLIST_UPDATE doesn't carry isExpanded), so the result was a visible
+    // host/guest mismatch where the host showed a "loading…" sub-item and the
+    // guest showed just the playlist row title. Holding the row collapsed
+    // until indexing actually populates the full list keeps both sides in sync.
+    const subMapForExpand = getState('youtube.subItemsMap') || {};
+    const hasIndexedSubItems = !!playlistId && (subMapForExpand[playlistId]?.ids?.length || 0) > 1;
     const newTrack: PlaylistItem = {
       type: 'youtube',
       name: title,
@@ -784,7 +798,7 @@ export function initYouTube(): void {
       // show the sub-item list even when single-video mode is enforced for
       // iframe load. finalPlaylistId (null) is used only for broadcast/load.
       playlistId: playlistId || null,
-      isExpanded: !!playlistId, // Auto-expand playlist items
+      isExpanded: hasIndexedSubItems,
     };
     const updatedPlaylist = [...playlist, newTrack];
     setState('playlist.items', updatedPlaylist);

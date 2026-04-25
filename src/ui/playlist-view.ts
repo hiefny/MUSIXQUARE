@@ -139,9 +139,18 @@ export function updatePlaylistUI(): void {
          </button>`
       : '';
 
+    // Show a "재생목록 / PLAYLIST" badge when the row represents a YT playlist —
+    // a YT playlist that hasn't been navigated to yet shows just the playlist
+    // title in collapsed form, which is visually identical to a single-video
+    // queue entry. The badge tells the user "this is a multi-track item, not
+    // a single song".
+    const badgeMarkup = item.playlistId
+      ? `<span class="playlist-badge">${escapeHtml(t('playlist.badge_playlist'))}</span>`
+      : '';
+
     li.innerHTML = `
       <div class="track-idx">${idx + 1}</div>
-      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
+      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span>${badgeMarkup}</div>
       ${expandBtn}
       ${trailingEl}
     `;
@@ -201,6 +210,18 @@ export function updatePlaylistUI(): void {
           };
           subUl.appendChild(sli);
         });
+
+        // Deferred-add hint: when only the single-id placeholder is in the
+        // map (i.e. indexing hasn't run yet because navigation hasn't
+        // happened), the user just sees one row and could mistake the
+        // playlist for a single-song entry. Append a non-clickable hint
+        // line that explains the rest will load on play.
+        if (subData.ids.length <= 1) {
+          const hintLi = document.createElement('li');
+          hintLi.className = 'sub-track-item loading';
+          hintLi.innerHTML = `<span class="sub-name">${escapeHtml(t('playlist.deferred_load_hint'))}</span>`;
+          subUl.appendChild(hintLi);
+        }
       } else if (subData?.loadError) {
         subUl.innerHTML = `<li class="sub-track-item error">${escapeHtml(t('playlist.sub_load_failed'))}</li>`;
       } else {

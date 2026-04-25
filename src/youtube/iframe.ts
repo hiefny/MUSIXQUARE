@@ -525,6 +525,81 @@ function _pollIndexingPlaylist(prevCount: number, attempts: number): void {
   );
 }
 
+// ─── Scrape polling (mirrors the indexing poll above) ────────────────
+// Same lazy-population problem as indexing: the iframe's cuePlaylist call
+// returns CUED before YouTube has finished filling getPlaylist(), and seeking
+// from a single-video-mode reuse path leaves stale single-item state for a
+// few hundred ms. Reading once at CUED captures empty/stale data; polling
+// waits for the count to stabilize.
+const SCRAPE_POLL_INTERVAL_MS = 300;
+const SCRAPE_POLL_MAX_ATTEMPTS = 15; // ~4.5s ceiling
+
+function _pollScrapePlaylist(prevCount: number, attempts: number): void {
+  const player = getYouTubePlayer();
+  if (!player?.getPlaylist) {
+    _finishScrape(null);
+    return;
+  }
+  const ids = player.getPlaylist() || [];
+  const stabilized = ids.length > 0 && ids.length === prevCount;
+  if (stabilized) {
+    log.debug(`[YouTube] Scrape settled at ${ids.length} items after ${attempts} polls`);
+    _finishScrape(ids);
+    return;
+  }
+  if (attempts >= SCRAPE_POLL_MAX_ATTEMPTS) {
+    log.warn(`[YouTube] Scrape gave up after ${attempts} polls (last count: ${ids.length})`);
+    _finishScrape(ids.length > 0 ? ids : null);
+    return;
+  }
+  setManagedTimer(
+    'yt-scrape-poll',
+    () => _pollScrapePlaylist(ids.length, attempts + 1),
+    SCRAPE_POLL_INTERVAL_MS,
+  );
+}
+
+/**
+ * Apply scrape results: update subItemsMap, switch the iframe to single-video
+ * mode, dismiss the loader/toast that was shown when scraping started.
+ *
+ * On null/empty results we fall back to the entry-point videoId rather than
+ * leaving the iframe stranded in CUED — the previous one-shot path silently
+ * returned to native playback, but with autoplay=false it would just sit
+ * there forever, which is exactly the "infinite loading" symptom on the
+ * deferred-playlist navigation flow.
+ */
+function _finishScrape(ids: string[] | null): void {
+  _ifr.isScrapingPlaylist = false;
+  setYtLoadInProgress(false);
+  showLoader(false);
+
+  const player = getYouTubePlayer();
+  if (!player) return;
+
+  const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+  const pid = currentTrack?.playlistId as string | undefined;
+  const subIdx = getState('youtube.currentSubIndex') ?? 0;
+
+  if (ids && ids.length > 0) {
+    if (pid) updateSubItemIds(pid, ids);
+    log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
+    setYouTubeSubIndex(subIdx);
+    player.loadVideoById?.(ids[subIdx] || ids[0], 0);
+    if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+    return;
+  }
+
+  log.warn('[YouTube] Scrape returned no IDs — falling back to entry-point video');
+  showToast(t('youtube.fetch_failed'));
+  const entryVideoId = currentTrack?.videoId as string | undefined;
+  if (entryVideoId) {
+    setYouTubeSubIndex(0);
+    player.loadVideoById?.(entryVideoId, 0);
+    if (getYtAutoplayIntent() && player.playVideo) player.playVideo();
+  }
+}
+
 function onYouTubePlayerError(event: { data: number }): void {
   const code = event.data;
   log.error('[YouTube] Player error:', code);
@@ -618,26 +693,10 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
     const hostConn = getState('network.hostConn');
     if (!hostConn && _ifr.isScrapingPlaylist) {
-      log.debug('[YouTube] CUED during scrape — extracting IDs without playing');
-      _ifr.isScrapingPlaylist = false;
-
-      const ids = player.getPlaylist() || [];
-      if (ids.length > 0) {
-        const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
-        const pid = currentTrack?.playlistId;
-        const subIdx = getState('youtube.currentSubIndex') ?? 0;
-
-        if (pid) updateSubItemIds(pid, ids);
-        log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
-
-        setYouTubeSubIndex(subIdx);
-        player.loadVideoById(ids[subIdx] || ids[0], 0);
-
-        if (getYtAutoplayIntent()) player.playVideo();
-      } else {
-        log.warn('[YouTube] Scrape returned empty list — falling back to native playback');
-        if (getYtAutoplayIntent()) player.playVideo();
-      }
+      log.debug('[YouTube] CUED during scrape — polling getPlaylist() for stable list');
+      // _ifr.isScrapingPlaylist stays true until _finishScrape runs so a
+      // second CUED transition during the poll doesn't double-trigger.
+      _pollScrapePlaylist(-1, 0);
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {

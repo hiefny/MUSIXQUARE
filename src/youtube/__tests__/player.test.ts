@@ -67,6 +67,7 @@ vi.mock('../sync.ts', () => ({
 
 vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
+  showLoader: vi.fn(),
 }));
 
 vi.mock('../../ui/dom.ts', () => ({

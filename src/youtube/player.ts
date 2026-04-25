@@ -207,7 +207,19 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
+  clearManagedTimer('yt-indexing-poll');
+  clearManagedTimer('yt-scrape-poll');
   clearSnapshotRetries();
+
+  // Defensive: if indexing was in flight when the user switched modes
+  // (or the iframe died before _pollIndexingPlaylist could fire its
+  // callback), clear the indexing state and dismiss the loader so the
+  // user isn't stranded on an "indexing playlist" spinner.
+  if (isYtIndexing()) {
+    setYtIndexing(false);
+    setYtIndexingCallback(null);
+  }
+  showLoader(false);
 
   // Disconnect relay upstream so stale relay doesn't pump chunks when
   // switching to file mode. Guest-only — host doesn't have upstreamDataConn.
@@ -348,7 +360,51 @@ export function initYouTube(): void {
   bus.on('youtube:stop-mode', () => stopYouTubeMode());
 
   bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
-    loadYouTubeVideo(videoId as string, playlistId as string | null, autoplay as boolean, subIndex ?? 0);
+    // Deferred-playlist navigation: when a playlist row was added to the
+    // queue while the iframe was busy with another track, its sub-items
+    // were never indexed (subItemsMap[playlistId] is empty). Navigating
+    // into it now needs the proper indexing flow with polling — going
+    // through plain loadYouTubeVideo would land on the createYouTubePlayer
+    // scrape path whose CUED handler reads getPlaylist() once and gives
+    // up with an empty list, leaving the iframe stranded in CUED with the
+    // loader still up (the user's "재생정보 대기중 무한 대기" symptom).
+    const subMap = getState('youtube.subItemsMap') || {};
+    const playlistIdStr = playlistId as string | null;
+    const needsIndex = !!playlistIdStr && !subMap[playlistIdStr]?.ids?.length;
+
+    if (needsIndex) {
+      log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);
+      showLoader(true, t('youtube.indexing_playlist'));
+      setYtIndexing(true);
+      setYtIndexingCallback((ids) => {
+        showLoader(false);
+        if (!ids || ids.length === 0) {
+          log.warn(`[YouTube] Deferred indexing returned no IDs for ${playlistIdStr} — falling back to entry-point video`);
+          showToast(t('youtube.fetch_failed'));
+          // Fallback: load the entry-point videoId in single-video mode so
+          // the user can at least play that one track. The playlist row
+          // stays in the queue but its sub-items list will remain empty
+          // until a subsequent successful index attempt.
+          loadYouTubeVideo(videoId as string, null, autoplay as boolean, 0);
+          return;
+        }
+        log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
+        updateSubItemIds(playlistIdStr!, ids);
+        const targetSubIdx = (subIndex as number) ?? 0;
+        const targetVideoId = ids[targetSubIdx] ?? ids[0];
+        // Re-enter loadYouTubeVideo with playlistId=null — the cued playlist
+        // is replaced with a single-video load. Sub-item navigation works
+        // from here on because subItemsMap is populated.
+        loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIdx);
+      });
+      // Trigger the iframe to cue the playlist; createYouTubePlayer's
+      // (needsScrape || indexing) branch fires cuePlaylist, then onPlayerStateChange's
+      // CUED handler routes to _pollIndexingPlaylist which fires the callback above.
+      loadYouTubeVideo(videoId as string, playlistIdStr, false);
+      return;
+    }
+
+    loadYouTubeVideo(videoId as string, playlistIdStr, autoplay as boolean, subIndex ?? 0);
   });
 
   bus.on('youtube:toggle-play', () => {

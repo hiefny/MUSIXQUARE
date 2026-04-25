@@ -25,6 +25,10 @@ import {
   TRACK_TRANSITION_RENDEZVOUS_MS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
+  REAL_SEEK_THRESHOLD_SEC,
+  IMMEDIATE_CONFIRM_POLL_MS,
+  IMMEDIATE_CONFIRM_TIMEOUT_MS,
+  CONFIRM_POSITION_TOLERANCE_SEC,
 } from './constants.ts';
 
 // YouTube rendezvous-autoplay flag: set by any caller that loaded a track
@@ -115,6 +119,14 @@ export function scheduleYtAutoSync(
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
 
+  // Capture the iframe's pre-seek position. Used below to distinguish a real
+  // seek (position changes) from a no-op seekTo(samePos) — only the former
+  // triggers the iframe's rebuffer window, so only the former needs the
+  // SEEK_BUFFER_ESTIMATE_MS hostClock offset on the broadcast. Read BEFORE
+  // seekTo so the comparison isn't poisoned by the same async-iframe race
+  // that motivated the timeOverride fix.
+  const preSeekPos = player.getCurrentTime?.() ?? 0;
+
   // 1. Host: Execute action immediately
   if (!overrides?.skipSeek && targetTime >= 0) {
     player.seekTo(targetTime, true);
@@ -134,35 +146,90 @@ export function scheduleYtAutoSync(
     overrides?.rendezvousDelayMs === undefined;
 
   if (useImmediateRendezvous) {
-    // Cancel any pending Stage 2 from a prior transition so the immediate
-    // sync isn't double-fired by a leftover yt-auto-sync timer.
+    // Cancel any pending Stage 2 from a prior transition AND any in-flight
+    // confirm poll from a superseded seek — only the latest scheduleYtAutoSync
+    // call should drive the next broadcast.
     clearManagedTimer('yt-auto-sync');
-    markYtStateBroadcast();
-    // Pass targetState (always 1 here) as the intent. playVideo() above is
-    // async on the YT iframe — getPlayerState() inside broadcastYouTubeSync
-    // would still return the pre-play state at this microtask, so without
-    // the override the broadcast carries state=2/3 and tricks guests'
-    // guestRendezvousSync into the "host paused" branch.
-    //
-    // Pass targetTime as the explicit position when we just issued a seek
-    // (skipSeek=false, targetTime>=0). seekTo() is async on the iframe;
-    // a sync call to getCurrentTime() right after returns the PRE-seek
-    // position, so multiple rapid seeks broadcast N-1's target — guests
-    // rendezvous to the previous seek instead of the latest one.
+    clearManagedTimer('yt-immediate-confirm');
+
     const seekFired = !overrides?.skipSeek && targetTime >= 0;
-    broadcastYouTubeSync(true, targetState, seekFired ? targetTime : undefined);
-    // Hold the yt-auto-sync timer name through the host's iframe transition
-    // window. broadcastYouTubeSync (heartbeat) and the iframe.ts
-    // onStateChange auxiliary broadcast both check getManagedTimer('yt-auto-sync')
-    // and bail when present. Without this guard, the transient
-    // PAUSED → BUFFERING → PLAYING that follows our playVideo() emits a
-    // state=1 YOUTUBE_STATE which the guest's M1 handler in handleYouTubeState
-    // treats as a fresh PLAY arriving during rendezvous and cancels the
-    // in-flight pause-and-wait, immediately replaying via executeImmediate
-    // — i.e. no rendezvous is observed even though the toast already showed.
-    // Length matches Path B's stage 2 so both paths suppress the same way.
-    setManagedTimer('yt-auto-sync', () => { /* guard-only — no body */ }, STAGE2_RENDEZVOUS_BROADCAST_MS);
-    log.debug('[YouTube] Sync: Immediate precision rendezvous (Stage 1 skipped)');
+    const isRealSeek = seekFired && Math.abs(preSeekPos - targetTime) > REAL_SEEK_THRESHOLD_SEC;
+
+    // Set the suppression guard up-front and keep it alive across the entire
+    // confirm + rendezvous window. Both heartbeat (broadcastYouTubeSync) and
+    // iframe.ts onStateChange aux broadcasts gate on getManagedTimer('yt-auto-sync')
+    // — without this guard, the transient PAUSED→BUFFERING→PLAYING that
+    // follows our playVideo() emits a state=1 YOUTUBE_STATE that the guest's
+    // M1 handler treats as a fresh PLAY arriving during rendezvous and
+    // cancels the in-flight pause-and-wait. Real-seek path resets it to the
+    // standard rendezvous duration once the broadcast actually fires.
+    const initialGuardMs = isRealSeek
+      ? IMMEDIATE_CONFIRM_TIMEOUT_MS + STAGE2_RENDEZVOUS_BROADCAST_MS
+      : STAGE2_RENDEZVOUS_BROADCAST_MS;
+    setManagedTimer('yt-auto-sync', () => { /* guard-only — no body */ }, initialGuardMs);
+
+    if (!isRealSeek) {
+      // Resume-from-pause and no-op-seek paths: no iframe buffer window to
+      // wait through. Broadcast immediately with INTENT overrides:
+      //   - targetState (always 1) so getPlayerState()'s in-transition value
+      //     (2/3) doesn't poison guests' lastHostSnapshot.hostState and trip
+      //     guestRendezvousSync's "host paused" branch.
+      //   - targetTime when seekFired so getCurrentTime()'s pre-seek lag
+      //     doesn't broadcast the previous position.
+      markYtStateBroadcast();
+      broadcastYouTubeSync(true, targetState, seekFired ? targetTime : undefined);
+      log.debug('[YouTube] Sync: Immediate precision rendezvous (no buffer wait)');
+      return;
+    }
+
+    // Real seek — defer the broadcast until the iframe actually reports
+    // state=1 AND currentTime is at the target. The seek-buffer window
+    // varies (150ms-1s+ depending on cache + network); broadcasting before
+    // the iframe resumes would anchor hostClock at a moment when host
+    // wasn't actually playing, and guest's wall-clock-forward extrapolation
+    // would overshoot by exactly the buffer duration — the rendezvous
+    // would land the guest slightly ahead of host. Polling for confirmed
+    // state lets the broadcast carry the real position+clock without
+    // estimation; falls back with the seek target on timeout.
+    const confirmStart = performance.now();
+    let attempts = 0;
+    const issueBroadcast = (timeArg: number | undefined, label: string): void => {
+      markYtStateBroadcast();
+      broadcastYouTubeSync(true, targetState, timeArg);
+      // Replace the wide initial guard with the standard rendezvous-only
+      // window now that the broadcast is out.
+      clearManagedTimer('yt-auto-sync');
+      setManagedTimer('yt-auto-sync', () => { /* guard-only */ }, STAGE2_RENDEZVOUS_BROADCAST_MS);
+      log.debug(`[YouTube] Sync: Immediate precision rendezvous (${label})`);
+    };
+    const checkPlaying = (): void => {
+      const p = getYouTubePlayer();
+      if (!p) return;
+      attempts++;
+      const state = p.getPlayerState?.() ?? -1;
+      const currentTime = p.getCurrentTime?.() ?? 0;
+      // Both signals must agree the seek has been processed: state=1
+      // (PLAYING) AND currentTime within tolerance of the target. State
+      // alone is insufficient for seeks that stay within the buffered
+      // region — those keep state=1 throughout, and the only signal that
+      // currentTime has updated is the value itself. Position alone is
+      // insufficient because the iframe may briefly report the new time
+      // while transitioning through BUFFERING.
+      const positionReady = Math.abs(currentTime - targetTime) < CONFIRM_POSITION_TOLERANCE_SEC;
+      if (state === 1 && positionReady) {
+        const elapsed = performance.now() - confirmStart;
+        log.debug(`[YouTube] Sync: post-seek settle confirmed in ${elapsed.toFixed(0)}ms (${attempts} polls, t=${currentTime.toFixed(2)})`);
+        issueBroadcast(undefined, `confirmed after ${elapsed.toFixed(0)}ms`);
+        return;
+      }
+      if (performance.now() - confirmStart >= IMMEDIATE_CONFIRM_TIMEOUT_MS) {
+        log.warn(`[YouTube] Sync: post-seek settle timeout after ${attempts} polls (state=${state}, t=${currentTime.toFixed(2)} vs target=${targetTime.toFixed(2)}) — broadcasting target as fallback`);
+        issueBroadcast(targetTime, 'timeout fallback');
+        return;
+      }
+      setManagedTimer('yt-immediate-confirm', checkPlaying, IMMEDIATE_CONFIRM_POLL_MS);
+    };
+    checkPlaying();
     return;
   }
 
@@ -202,6 +269,7 @@ export function scheduleYtAutoSync(
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
+  clearManagedTimer('yt-immediate-confirm');
   bus.emit('youtube:sync-loading', false);
 }
 

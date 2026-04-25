@@ -56,7 +56,11 @@ import {
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
 
-export function broadcastYouTubeSync(isManual = false, stateOverride?: number, timeOverride?: number): void {
+export function broadcastYouTubeSync(
+  isManual = false,
+  stateOverride?: number,
+  timeOverride?: number,
+): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
   if (!player || hostConn || !player.getCurrentTime) return;
@@ -71,7 +75,11 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number, t
   // may return a stale (pre-seek) value. Broadcasting that stale position
   // causes ALL guests' drift correction to undo the seek, even though
   // they already received the correct position via YOUTUBE_STATE.
-  if (getManagedTimer('yt-auto-sync')) return;
+  // Manual broadcasts bypass this gate: they ARE the rendezvous-driving
+  // signal we set the guard for in the first place (Path A confirm-poll
+  // sets the guard up-front to suppress aux state broadcasts during the
+  // host iframe transition, then deliberately fires this broadcast).
+  if (!isManual && getManagedTimer('yt-auto-sync')) return;
 
   try {
     // Prefer caller-supplied position when provided. The immediate-rendezvous
@@ -160,6 +168,9 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number, t
       // this for snapshot extrapolation instead of their own getHostNow()
       // at receive time, which is one-way-latency later and causes the
       // extrapolated position to be consistently behind by that latency.
+      // For real-seek broadcasts, scheduleYtAutoSync defers this call
+      // until the iframe actually reports state=1 + correct currentTime,
+      // so the anchor is naturally accurate without offsetting.
       hostClock: getHostNow(),
       isManual,
       title: getState('player.currentTrackMeta')?.title,

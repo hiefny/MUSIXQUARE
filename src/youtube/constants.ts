@@ -84,6 +84,41 @@ export const MISMATCH_MIN_WAIT_MS = 500;
  *  this long after pauseVideo+seekTo to let YouTube commit the seek. */
 export const SEEK_PLAY_GAP_MS = 150;
 
+/**
+ * Position-delta threshold for distinguishing a real seek from a no-op
+ * seekTo(samePos). scheduleYtAutoSync issues seekTo for both paths
+ * (resume-from-pause uses targetTime=currentTime which is a no-op for
+ * the iframe); only the real-seek case needs the post-seek confirm wait.
+ */
+export const REAL_SEEK_THRESHOLD_SEC = 0.5;
+
+/**
+ * Poll cadence while waiting for the host iframe to actually settle into
+ * PLAYING + correct position after a real seek, before issuing the
+ * immediate-rendezvous broadcast. Tight enough that the typical
+ * 150-400ms YT seek-buffer adds little perceptible latency.
+ */
+export const IMMEDIATE_CONFIRM_POLL_MS = 50;
+
+/**
+ * Hard timeout on the post-seek confirm wait. If the iframe is still
+ * buffering after this, broadcast anyway with the seek target as a
+ * best-effort fallback — drift correction (heartbeat) will realign once
+ * playback resumes. Larger than typical buffer windows, smaller than
+ * the rendezvous wait so the user doesn't feel a stall.
+ */
+export const IMMEDIATE_CONFIRM_TIMEOUT_MS = 1500;
+
+/**
+ * Position tolerance (seconds) when verifying the iframe has processed a
+ * seek. seekTo() is async — `getCurrentTime()` returns the pre-seek
+ * position briefly even with state=1 (e.g. seeks within the already
+ * buffered region don't trip a BUFFERING transition). We wait for
+ * currentTime to land within this tolerance of the target before trusting
+ * the broadcast position.
+ */
+export const CONFIRM_POSITION_TOLERANCE_SEC = 0.5;
+
 // ─── Rendezvous Sync (Guest SMPTE-style) ─────────────────────────────
 
 /** Seek-ahead margin — target = hostPosNow + MARGIN for buffer headroom. */

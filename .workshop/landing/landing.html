@@ -43,7 +43,7 @@
           lang = qLang;
         } else {
           var stored = null;
-          try { stored = localStorage.getItem(STORE_KEY); } catch (e) {}
+          try { stored = localStorage.getItem(STORE_KEY); } catch (e) { }
           if (stored === 'en' || stored === 'ko') {
             lang = stored;
           } else {
@@ -66,7 +66,8 @@
 <body>
   <header class="lp-header">
     <div class="lp-header-progress" aria-hidden="true"></div>
-    <a class="lp-logo" href="https://musixquare.com" data-i18n-attr="aria-label:header.logo_aria" aria-label="MUSIXQUARE home">
+    <a class="lp-logo" href="https://musixquare.com" data-i18n-attr="aria-label:header.logo_aria"
+      aria-label="MUSIXQUARE home">
       <svg viewBox="43 12 214 26" fill="currentColor" aria-hidden="true">
         <polygon
           points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
@@ -90,7 +91,8 @@
         <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
       </svg>
     </a>
-    <a class="lp-try" href="https://musixquare.com" data-i18n-attr="aria-label:header.try_aria" aria-label="Try MUSIXQUARE now">
+    <a class="lp-try" href="https://musixquare.com" data-i18n-attr="aria-label:header.try_aria"
+      aria-label="Try MUSIXQUARE now">
       <span class="lp-try__dot" aria-hidden="true"></span>
       <span data-i18n="header.try">Try it now</span>
     </a>
@@ -100,7 +102,8 @@
     <section class="lp-section lp-hero" data-animate>
       <div class="lp-hero__copy">
         <h1 class="lp-h1" data-i18n="hero.h1">Every device,<br>one system.</h1>
-        <p class="lp-lead" data-i18n="hero.lead">MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.</p>
+        <p class="lp-lead" data-i18n="hero.lead">MUSIXQUARE turns every phone, tablet, and laptop in the room into a
+          single synchronized sound system. No install, one room code.</p>
         <div class="lp-btn-row">
           <a class="lp-btn" href="https://musixquare.com" data-i18n="hero.btn_primary">Start session</a>
           <a class="lp-btn lp-btn--ghost" href="#array" data-i18n="hero.btn_ghost">How it works</a>
@@ -120,8 +123,10 @@
 
     <section class="lp-section" id="array" data-animate>
       <h2 class="lp-h2" data-i18n="array.h2">Surround, without<br>surround speakers.</h2>
-      <p class="lp-lead" data-i18n="array.lead">Each device plays one role: left, right, subwoofer, or full stereo. The room itself becomes the system.</p>
-      <div class="lp-array" data-i18n-attr="aria-label:array.aria" aria-label="Left phone, center laptop, right phone. Three-device surround setup.">
+      <p class="lp-lead" data-i18n="array.lead">Each device plays one role: left, right, subwoofer, or full stereo. The
+        room itself becomes the system.</p>
+      <div class="lp-array" data-i18n-attr="aria-label:array.aria"
+        aria-label="Left phone, center laptop, right phone. Three-device surround setup.">
         <figure class="lp-dev lp-dev--phone">
           <div class="lp-dev__frame">
             <img src="/landing/left.png" alt="" loading="lazy" decoding="async">
@@ -149,7 +154,8 @@
     <section class="lp-section lp-section--split lp-section--code" data-animate>
       <div class="lp-split__copy">
         <h2 class="lp-h2" data-i18n="code.h2">Six digits.<br>Nothing else.</h2>
-        <p class="lp-lead" data-i18n="code.lead">Start a session, share six digits. Anyone with a browser joins in seconds.</p>
+        <p class="lp-lead" data-i18n="code.lead">Start a session, share six digits. Anyone with a browser joins in
+          seconds.</p>
         <div class="lp-code" data-code-cycle data-i18n-attr="aria-label:code.aria_code" aria-label="Example room code">
           <em>4</em><em>9</em><em>2</em><em>8</em><em>1</em><em>5</em>
         </div>
@@ -157,10 +163,16 @@
       </div>
       <aside class="lp-split__aside">
         <div class="lp-qr" data-i18n-attr="aria-label:code.aria_qr" aria-label="QR code for musixquare.com">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 25" shape-rendering="crispEdges" aria-hidden="true"><path d="M2 2.5h7m1 0h1m3 0h1m1 0h7M2 3.5h1m5 0h1m1 0h2m1 0h1m2 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h4m1 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h7M2 10.5h2m2 0h3m5 0h1m2 0h1m1 0h4M3 11.5h2m1 0h1m2 0h2m3 0h1m3 0h1m2 0h2M4 12.5h3m1 0h3m3 0h2m5 0h2M4 13.5h1m1 0h1m2 0h1m3 0h4m1 0h1m1 0h3M3 14.5h1m2 0h1m1 0h1m3 0h2m2 0h4M10 15.5h2m1 0h4m2 0h1M2 16.5h7m2 0h1m1 0h1m1 0h1M2 17.5h1m5 0h1m1 0h1m1 0h1m4 0h2m2 0h2M2 18.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m2 0h1M2 19.5h1m1 0h3m1 0h1m2 0h2m1 0h2m5 0h2M2 20.5h1m1 0h3m1 0h1m2 0h2m1 0h1m2 0h1M2 21.5h1m5 0h1m1 0h1m1 0h3m2 0h1m2 0h1m1 0h1M2 22.5h7m1 0h1m1 0h2m1 0h2m1 0h1m2 0h2"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 25" shape-rendering="crispEdges" aria-hidden="true">
+            <path
+              d="M2 2.5h7m1 0h1m3 0h1m1 0h7M2 3.5h1m5 0h1m1 0h2m1 0h1m2 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h4m1 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h7M2 10.5h2m2 0h3m5 0h1m2 0h1m1 0h4M3 11.5h2m1 0h1m2 0h2m3 0h1m3 0h1m2 0h2M4 12.5h3m1 0h3m3 0h2m5 0h2M4 13.5h1m1 0h1m2 0h1m3 0h4m1 0h1m1 0h3M3 14.5h1m2 0h1m1 0h1m3 0h2m2 0h4M10 15.5h2m1 0h4m2 0h1M2 16.5h7m2 0h1m1 0h1m1 0h1M2 17.5h1m5 0h1m1 0h1m1 0h1m4 0h2m2 0h2M2 18.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m2 0h1M2 19.5h1m1 0h3m1 0h1m2 0h2m1 0h2m5 0h2M2 20.5h1m1 0h3m1 0h1m2 0h2m1 0h1m2 0h1M2 21.5h1m5 0h1m1 0h1m1 0h3m2 0h1m2 0h1m1 0h1M2 22.5h7m1 0h1m1 0h2m1 0h2m1 0h1m2 0h2" />
+          </svg>
         </div>
         <button class="lp-copy-link" type="button" id="lp-copy-link">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+          </svg>
           <span data-i18n="code.copy_btn">Copy invite link</span>
         </button>
       </aside>
@@ -173,24 +185,40 @@
         <h2 class="lp-h2" data-i18n="remote.h2">Not in the room?<br>No problem.</h2>
         <p class="lp-lead" data-i18n="remote.lead">Chat and watch YouTube together, even from across town.</p>
         <dl class="lp-specs">
-          <div><dt data-i18n="remote.chat_label">Chat</dt><dd data-i18n="remote.chat_value">Realtime text, no limits</dd></div>
-          <div><dt data-i18n="remote.whisper_label">Whisper</dt><dd data-i18n="remote.whisper_value">Private 1:1 messages</dd></div>
-          <div><dt data-i18n="remote.cowatch_label">Co-watch</dt><dd data-i18n="remote.cowatch_value">YouTube together, in sync</dd></div>
-          <div><dt data-i18n="remote.reach_label">Reach</dt><dd data-i18n="remote.reach_value">Any browser, any network</dd></div>
+          <div>
+            <dt data-i18n="remote.chat_label">Chat</dt>
+            <dd data-i18n="remote.chat_value">Realtime text, no limits</dd>
+          </div>
+          <div>
+            <dt data-i18n="remote.whisper_label">Whisper</dt>
+            <dd data-i18n="remote.whisper_value">Private 1:1 messages</dd>
+          </div>
+          <div>
+            <dt data-i18n="remote.cowatch_label">Co-watch</dt>
+            <dd data-i18n="remote.cowatch_value">YouTube together, in sync</dd>
+          </div>
+          <div>
+            <dt data-i18n="remote.reach_label">Reach</dt>
+            <dd data-i18n="remote.reach_value">Any browser, any network</dd>
+          </div>
         </dl>
-        <p class="lp-caveat" data-i18n="remote.caveat">Note: channel separation and audio effects aren't available for YouTube.</p>
+        <p class="lp-caveat" data-i18n="remote.caveat">Note: channel separation and audio effects aren't available for
+          YouTube.</p>
       </div>
       <aside class="lp-split__aside">
         <div class="lp-chat" aria-hidden="true">
           <div class="lp-chat-group lp-chat-group--pinned">
             <div class="lp-chat-bubble lp-chat-bubble--pin">
               <div class="lp-chat-pin__label" data-i18n="remote.pin_label">NOTICE — HOST</div>
-              <div class="lp-chat-pin__text" data-i18n="remote.pin_text">Tonight's playlist, make yourself at home.</div>
+              <div class="lp-chat-pin__text" data-i18n="remote.pin_text">Tonight's playlist, make yourself at home.
+              </div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--others">
             <div class="lp-chat-sender">
-              <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>
+              <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+                <path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
+              </svg>
               <span data-i18n="remote.host_name">HOST</span>
             </div>
             <div class="lp-chat-row">
@@ -206,7 +234,10 @@
             <div class="lp-chat-row">
               <div class="lp-chat-bubble lp-chat-bubble--yt">
                 <div class="lp-chat-yt__row">
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+                    <path
+                      d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z" />
+                  </svg>
                   <span class="lp-chat-yt__label">YouTube</span>
                 </div>
                 <div class="lp-chat-yt__title">Late Night Drive · Tokyo Mix</div>
@@ -214,16 +245,20 @@
             </div>
             <div class="lp-chat-row">
               <div class="lp-chat-time">9:12</div>
-              <div class="lp-chat-bubble lp-chat-bubble--mine"><span class="lp-chat-ts">1:04:11</span> <span data-i18n="remote.peer_ts_msg">i really like this part</span></div>
+              <div class="lp-chat-bubble lp-chat-bubble--mine"><span class="lp-chat-ts">1:04:11</span> <span
+                  data-i18n="remote.peer_ts_msg">i really like this part</span></div>
             </div>
           </div>
           <div class="lp-chat-group lp-chat-group--others">
             <div class="lp-chat-sender">
-              <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>
+              <svg class="lp-chat-crown" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+                <path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
+              </svg>
               <span data-i18n="remote.host_name">HOST</span>
             </div>
             <div class="lp-chat-row">
-              <div class="lp-chat-bubble lp-chat-bubble--others" data-i18n="remote.host_msg2">this one's really good</div>
+              <div class="lp-chat-bubble lp-chat-bubble--others" data-i18n="remote.host_msg2">this one's really good
+              </div>
               <div class="lp-chat-time">9:13</div>
             </div>
           </div>
@@ -231,7 +266,8 @@
             <div class="lp-chat-sender lp-chat-sender--whisper" data-i18n="remote.whisper_sender">whisper to HOST</div>
             <div class="lp-chat-row">
               <div class="lp-chat-time">9:13</div>
-              <div class="lp-chat-bubble lp-chat-bubble--whisper" data-i18n="remote.whisper_msg">let's keep this one to ourselves</div>
+              <div class="lp-chat-bubble lp-chat-bubble--whisper" data-i18n="remote.whisper_msg">let's keep this one to
+                ourselves</div>
             </div>
           </div>
         </div>
@@ -243,12 +279,25 @@
     <section class="lp-section lp-section--split" data-animate>
       <div class="lp-split__copy">
         <h2 class="lp-h2" data-i18n="sync.h2">Frame-perfect.<br>Across networks.</h2>
-        <p class="lp-lead" data-i18n="sync.lead">Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.</p>
+        <p class="lp-lead" data-i18n="sync.lead">Each device measures its round-trip latency against the host, then
+          aligns playback to a shared master clock.</p>
         <dl class="lp-specs">
-          <div><dt data-i18n="sync.video_label">Video</dt><dd data-i18n="sync.video_value">Frame-accurate YouTube playback</dd></div>
-          <div><dt data-i18n="sync.transport_label">Transport</dt><dd data-i18n="sync.transport_value">Peer-to-peer, WebRTC</dd></div>
-          <div><dt data-i18n="sync.effects_label">Effects</dt><dd data-i18n="sync.effects_value">5-band EQ · Reverb · Virtualizer</dd></div>
-          <div><dt data-i18n="sync.platforms_label">Platforms</dt><dd data-i18n="sync.platforms_value">iOS · Android · macOS · Windows</dd></div>
+          <div>
+            <dt data-i18n="sync.video_label">Video</dt>
+            <dd data-i18n="sync.video_value">Frame-accurate YouTube playback</dd>
+          </div>
+          <div>
+            <dt data-i18n="sync.transport_label">Transport</dt>
+            <dd data-i18n="sync.transport_value">Peer-to-peer, WebRTC</dd>
+          </div>
+          <div>
+            <dt data-i18n="sync.effects_label">Effects</dt>
+            <dd data-i18n="sync.effects_value">5-band EQ · Reverb · Virtualizer</dd>
+          </div>
+          <div>
+            <dt data-i18n="sync.platforms_label">Platforms</dt>
+            <dd data-i18n="sync.platforms_value">iOS · Android · macOS · Windows</dd>
+          </div>
         </dl>
       </div>
       <aside class="lp-split__aside">
@@ -261,11 +310,13 @@
           <dl class="lp-sync__rows">
             <div>
               <dt>peer-1</dt>
-              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer1" data-offset="9">00:29.463</span><span class="lp-sync__delta">−9 ms</span></dd>
+              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer1" data-offset="9">00:29.463</span><span
+                  class="lp-sync__delta">−9 ms</span></dd>
             </div>
             <div>
               <dt>peer-2</dt>
-              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer2" data-offset="32">00:29.440</span><span class="lp-sync__delta">−32 ms</span></dd>
+              <dd><span class="lp-sync__peer-tc" data-sync-tc="peer2" data-offset="32">00:29.440</span><span
+                  class="lp-sync__delta">−32 ms</span></dd>
             </div>
           </dl>
           <p class="lp-sync__meta" data-i18n="sync.meta">NTP style sync with 60 samples</p>
@@ -276,7 +327,8 @@
     <hr class="lp-divider">
 
     <section class="lp-section lp-cta" data-animate>
-      <svg class="lp-cta__wordmark lp-cta__wordmark--top" viewBox="40 10 220 30" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+      <svg class="lp-cta__wordmark lp-cta__wordmark--top" viewBox="40 10 220 30" aria-hidden="true"
+        preserveAspectRatio="xMidYMid meet">
         <polygon
           points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
         <polygon
@@ -298,7 +350,8 @@
         <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
         <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
       </svg>
-      <svg class="lp-cta__wordmark lp-cta__wordmark--bottom" viewBox="40 10 220 30" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+      <svg class="lp-cta__wordmark lp-cta__wordmark--bottom" viewBox="40 10 220 30" aria-hidden="true"
+        preserveAspectRatio="xMidYMid meet">
         <polygon
           points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774" />
         <polygon
@@ -472,15 +525,15 @@
           'remote.reach_label': '도달 범위',
           'remote.reach_value': '모든 브라우저, 모든 네트워크',
           'remote.caveat': '참고: YouTube 모드에서는 채널 분리와 음향 효과를 쓸 수 없어요.',
-          'remote.pin_label': '공지 — 방장',
+          'remote.pin_label': '공지 — HOST',
           'remote.pin_text': '플리 추천받습니다',
-          'remote.host_name': '방장',
+          'remote.host_name': 'HOST',
           'remote.host_msg1': '들어왔어?',
-          'remote.peer_name': '참가자 1',
+          'remote.peer_name': 'Peer 1',
           'remote.peer_msg1': '아 카페임ㅋㅋ',
           'remote.peer_ts_msg': '이부분 진짜 좋은듯',
           'remote.host_msg2': '오 이거 마음에 든다',
-          'remote.whisper_sender': '방장에게 귓속말',
+          'remote.whisper_sender': 'HOST에게 귓속말',
           'remote.whisper_msg': '공지로 플리 추천좀 받아봐',
 
           'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게',
@@ -497,7 +550,7 @@
           'sync.meta': 'NTP 방식 동기화 · 60 샘플',
 
           'cta.h2': '지금 시작해봐요!',
-          'cta.lead': '이제 방 안의 기기들이 하나의 시스템이에요.',
+          'cta.lead': '이제 방 안의 모든 기기가 하나의 시스템이에요.',
           'cta.btn': 'MUSIXQUARE 시작하기',
 
           'footer.app': 'App',

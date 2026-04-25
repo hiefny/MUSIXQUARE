@@ -207,19 +207,21 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
+  // Clear poll-loop timers so they don't reschedule against a torn-down
+  // player. Both _pollIndexingPlaylist and _pollScrapePlaylist also
+  // self-abort when getYouTubePlayer() returns null, but cancelling here
+  // also prevents the timers from leaking entries in the registry.
+  // Importantly, do NOT clear isYtIndexing() / setYtIndexingCallback(null)
+  // here: stopYouTubeMode is reached transitively from loadYouTubeVideo's
+  // `player:stop-all-media` emit on every fresh load, and IDLE Add-to-Queue
+  // sets those flags right before that load — clearing them would orphan
+  // the callback and the new playlist would never get added to the queue.
+  // The polling self-cleanup (player gone → setYtIndexing(false) +
+  // setYtIndexingCallback(null) inside _pollIndexingPlaylist) covers the
+  // user-driven mode-exit case.
   clearManagedTimer('yt-indexing-poll');
   clearManagedTimer('yt-scrape-poll');
   clearSnapshotRetries();
-
-  // Defensive: if indexing was in flight when the user switched modes
-  // (or the iframe died before _pollIndexingPlaylist could fire its
-  // callback), clear the indexing state and dismiss the loader so the
-  // user isn't stranded on an "indexing playlist" spinner.
-  if (isYtIndexing()) {
-    setYtIndexing(false);
-    setYtIndexingCallback(null);
-  }
-  showLoader(false);
 
   // Disconnect relay upstream so stale relay doesn't pump chunks when
   // switching to file mode. Guest-only — host doesn't have upstreamDataConn.

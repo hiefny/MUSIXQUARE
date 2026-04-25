@@ -831,49 +831,17 @@ main {
   line-height: 1.5;
 }
 
+/* ── 3D extruded chat (section: remote) ─────────────────── */
+
 .lp-chat {
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-1);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-m);
-  overflow: hidden;
-  font-size: 13.5px;
-  line-height: 1.45;
+  position: relative;
   width: 100%;
-}
-
-.lp-chat-pinned {
-  padding: 12px clamp(16px, 2vw, 24px);
-  background: rgba(255, 193, 7, 0.1);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.lp-chat-pinned__label {
-  font-size: 11px;
-  font-weight: 700;
-  color: #ffc107;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-
-.lp-chat-pinned__text {
-  font-size: 13px;
-  color: var(--text-main);
-  line-height: 1.4;
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.lp-chat-feed {
+  padding: 8px 0 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: clamp(16px, 2vw, 24px);
+  gap: 14px;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .lp-chat-group {
@@ -882,51 +850,52 @@ main {
   max-width: 82%;
 }
 
+.lp-chat-group--others {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
 .lp-chat-group--mine,
 .lp-chat-group--whisper {
   align-self: flex-end;
   align-items: flex-end;
 }
 
-.lp-chat-group--others {
-  align-self: flex-start;
-  align-items: flex-start;
+.lp-chat-group--pinned {
+  align-self: stretch;
+  max-width: 100%;
+  margin-bottom: 4px;
 }
 
 .lp-chat-sender {
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--text-sub);
-  margin-bottom: 4px;
-  margin-left: 2px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 0 4px;
 }
 
-.lp-chat-group--mine .lp-chat-sender {
-  margin-left: 0;
-  margin-right: 2px;
+.lp-chat-sender--whisper {
+  color: #b097e5;
 }
 
 .lp-chat-crown {
   color: #f5c842;
   flex-shrink: 0;
-  vertical-align: middle;
-}
-
-.lp-chat-sender--whisper {
-  color: #9370db;
 }
 
 .lp-chat-row {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .lp-chat-row + .lp-chat-row {
-  margin-top: 2px;
+  margin-top: 6px;
 }
 
 .lp-chat-time {
@@ -936,71 +905,6 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-.lp-chat-bubble {
-  padding: 9px 13px;
-  border-radius: 14px;
-  max-width: 100%;
-  word-break: break-word;
-}
-
-.lp-chat-bubble--mine {
-  background: var(--primary);
-  color: #fff;
-  border-bottom-right-radius: 4px;
-}
-
-.lp-chat-bubble--others {
-  background: var(--surface-2);
-  color: var(--text-main);
-  border-bottom-left-radius: 4px;
-}
-
-/* Grouped bubbles — continuous tail across stacked rows */
-.lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--mine {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
-
-.lp-chat-row + .lp-chat-row:last-child .lp-chat-bubble--mine {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 14px;
-}
-
-.lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--others {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-}
-
-.lp-chat-row + .lp-chat-row:last-child .lp-chat-bubble--others {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 14px;
-}
-
-/* YT card in grouped mine rows — mirror bubble tail logic on .lp-chat-yt */
-.lp-chat-group--mine .lp-chat-row + .lp-chat-row .lp-chat-yt {
-  border-top-right-radius: 4px;
-}
-
-.lp-chat-group--mine .lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-yt {
-  border-bottom-right-radius: 4px;
-}
-
-.lp-chat-group--mine .lp-chat-row + .lp-chat-row:last-child .lp-chat-yt {
-  border-bottom-right-radius: 14px;
-}
-
-.lp-chat-bubble--whisper {
-  background: rgba(147, 112, 219, 0.22);
-  border: 1px solid rgba(147, 112, 219, 0.4);
-  color: #fff;
-  border-bottom-right-radius: 4px;
-}
-
-.lp-chat-bubble--yt {
-  background: transparent;
-  padding: 0;
-}
-
 .lp-chat-ts {
   color: #fff;
   text-decoration: underline;
@@ -1008,63 +912,158 @@ main {
   font-weight: 600;
 }
 
-.lp-chat-yt {
+/* ── Bubble base + 3D extrusion ─────────────────────────── */
+
+.lp-chat-bubble {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  padding: 11px 16px 13px;
+  border-radius: 18px;
+  color: #fff;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+  transform: rotateX(8deg) rotateY(-10deg);
+  transform-origin: center center;
+  transition: transform 400ms var(--ease-out);
+  will-change: transform;
+}
+
+.lp-chat-group:hover .lp-chat-bubble {
+  transform: rotateX(0) rotateY(0) translateY(-2px);
+}
+
+.lp-chat-bubble--others {
+  background: linear-gradient(165deg, #3a3a3f 0%, #2a2a2e 55%, #202024 100%);
+  box-shadow:
+    inset -1px -2px 0 rgba(0, 0, 0, 0.35),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.08),
+    1px 1px 0 #1e1e22,
+    2px 2px 0 #1a1a1e,
+    3px 3px 0 #17171a,
+    4px 4px 0 #131316,
+    5px 5px 0 #0f0f12,
+    6px 6px 0 #0b0b0e,
+    7px 7px 0 #07070a,
+    8px 8px 0 #040406,
+    12px 18px 28px -8px rgba(0, 0, 0, 0.6),
+    20px 30px 40px -12px rgba(0, 0, 0, 0.4);
+}
+
+.lp-chat-bubble--mine {
+  background: linear-gradient(165deg, #5a9cff 0%, #3b82f6 55%, #2563eb 100%);
+  box-shadow:
+    inset -1px -2px 0 rgba(0, 0, 0, 0.18),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.25),
+    1px 1px 0 #2563eb,
+    2px 2px 0 #2159d4,
+    3px 3px 0 #1f4fbe,
+    4px 4px 0 #1c46a8,
+    5px 5px 0 #183d93,
+    6px 6px 0 #15347e,
+    7px 7px 0 #112b69,
+    8px 8px 0 #0e2254,
+    12px 18px 28px -8px rgba(0, 0, 0, 0.65),
+    20px 30px 40px -12px rgba(0, 0, 0, 0.45);
+}
+
+.lp-chat-bubble--whisper {
+  background: linear-gradient(165deg, #b8a0e8 0%, #9370db 55%, #7a55c9 100%);
+  box-shadow:
+    inset -1px -2px 0 rgba(0, 0, 0, 0.22),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.2),
+    1px 1px 0 #7a55c9,
+    2px 2px 0 #6b48b8,
+    3px 3px 0 #5d3da3,
+    4px 4px 0 #4f338e,
+    5px 5px 0 #432a79,
+    6px 6px 0 #372264,
+    7px 7px 0 #2c1a4f,
+    8px 8px 0 #21133a,
+    12px 18px 28px -8px rgba(0, 0, 0, 0.65),
+    20px 30px 40px -12px rgba(0, 0, 0, 0.45);
+}
+
+.lp-chat-bubble--yt {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  background: #FF0033;
-  color: #fff;
-  border: none;
-  padding: 14px;
-  border-radius: 14px;
-  font-size: 13px;
+  gap: 6px;
   width: 100%;
-  max-width: 260px;
-  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
-  box-sizing: border-box;
-  text-align: left;
-  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  max-width: 240px;
+  padding: 13px 16px 15px;
+  background: linear-gradient(165deg, #ff3355 0%, #ff0033 55%, #cc0029 100%);
+  box-shadow:
+    inset -1px -2px 0 rgba(0, 0, 0, 0.25),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.2),
+    1px 1px 0 #cc0029,
+    2px 2px 0 #b30024,
+    3px 3px 0 #99001f,
+    4px 4px 0 #80001a,
+    5px 5px 0 #660015,
+    6px 6px 0 #4d0010,
+    7px 7px 0 #33000a,
+    8px 8px 0 #1a0005,
+    12px 18px 28px -8px rgba(255, 0, 40, 0.25),
+    20px 30px 40px -12px rgba(0, 0, 0, 0.5);
 }
 
-/* Mine tail on YT card (matches .chat-group.mine .chat-youtube-btn) */
-.lp-chat-group--mine .lp-chat-yt {
-  border-bottom-right-radius: 4px;
+.lp-chat-bubble--pin {
+  display: block;
+  width: 100%;
+  padding: 11px 18px 13px;
+  background: linear-gradient(165deg, #ffd75e 0%, #ffc107 55%, #e0a800 100%);
+  box-shadow:
+    inset -1px -2px 0 rgba(0, 0, 0, 0.2),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.35),
+    1px 1px 0 #e0a800,
+    2px 2px 0 #c49500,
+    3px 3px 0 #a88000,
+    4px 4px 0 #8c6b00,
+    5px 5px 0 #705500,
+    6px 6px 0 #544000,
+    7px 7px 0 #382b00,
+    8px 8px 0 #1c1500,
+    12px 18px 28px -8px rgba(255, 193, 7, 0.18),
+    20px 30px 40px -12px rgba(0, 0, 0, 0.45);
 }
 
+/* Pinned bubble inner */
+.lp-chat-pin__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+
+.lp-chat-pin__text {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* YouTube card inner */
 .lp-chat-yt__row {
   display: flex;
-  width: 100%;
   align-items: center;
-  justify-content: flex-start;
   gap: 6px;
-  color: #fff;
-  line-height: normal;
 }
 
-.lp-chat-yt svg {
-  width: 16px;
-  height: 16px;
+.lp-chat-yt__row svg {
   flex-shrink: 0;
-  display: block;
-  margin: 0;
 }
 
 .lp-chat-yt__label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: -0.3px;
-  line-height: 16px;
-  height: 16px;
-  display: inline-block;
+  letter-spacing: -0.2px;
 }
 
 .lp-chat-yt__title {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.9);
-  line-height: 1.45;
-  text-align: left;
-  word-break: break-all;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.4;
+  word-break: break-word;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -1072,25 +1071,28 @@ main {
   overflow: hidden;
 }
 
-/* Stagger pinned banner + chat groups when the section reveals */
-.lp-section--remote .lp-chat-pinned,
-.lp-section--remote .lp-chat-feed > .lp-chat-group {
+/* Stagger groups when the section reveals (opacity-only — bubble tilt
+   lives on transform, so a Y-offset would clash with the rotateX/Y). */
+.lp-section--remote .lp-chat > .lp-chat-group {
   opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 450ms var(--ease-out), transform 450ms var(--ease-out);
+  transition: opacity 600ms var(--ease-out);
 }
 
-.lp-section--remote.is-visible .lp-chat-pinned,
-.lp-section--remote.is-visible .lp-chat-feed > .lp-chat-group {
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group {
   opacity: 1;
-  transform: translateY(0);
 }
 
-.lp-section--remote.is-visible .lp-chat-pinned { transition-delay: 150ms; }
-.lp-section--remote.is-visible .lp-chat-feed > .lp-chat-group:nth-child(1) { transition-delay: 340ms; }
-.lp-section--remote.is-visible .lp-chat-feed > .lp-chat-group:nth-child(2) { transition-delay: 520ms; }
-.lp-section--remote.is-visible .lp-chat-feed > .lp-chat-group:nth-child(3) { transition-delay: 780ms; }
-.lp-section--remote.is-visible .lp-chat-feed > .lp-chat-group:nth-child(4) { transition-delay: 960ms; }
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(1) { transition-delay: 150ms; }
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(2) { transition-delay: 340ms; }
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(3) { transition-delay: 520ms; }
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(4) { transition-delay: 780ms; }
+.lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(5) { transition-delay: 960ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-chat-bubble {
+    transform: none;
+  }
+}
 
 /* ── Reveal (staggered children) ────────────────────────── */
 

@@ -345,6 +345,9 @@ function handleMainSyncBtn(): void {
       // redundant Stage 1 "snap" broadcast 2s before the rendezvous-trigger
       // Stage 2 — guests effectively aligned twice.)
       broadcastYouTubeSync(true);
+      // Confirmation toast — without this, the button silently fires and
+      // the host has no signal that anything happened on guest screens.
+      showToast(t('toast.yt_host_sync_sent'));
     }
     return;
   }

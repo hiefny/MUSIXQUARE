@@ -243,7 +243,16 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       break;
 
     case 'OPFS_CLEANUP_COMPLETE':
-      log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
+      if (data.skipped) {
+        // The worker held a lock on this filename and bailed without removing
+        // it. The file stays on disk; without a follow-up the entry orphans.
+        // The fire-and-forget caller already moved on, so the best we can do
+        // here is log loudly. Real recovery happens when the next OPFS_RESET
+        // for this file releases the lock and a subsequent cleanup succeeds.
+        log.warn(`[OPFS] Cleanup skipped (file still locked): ${data.filename}`);
+      } else {
+        log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
+      }
       bus.emit('opfs:cleanup-complete', data.filename || '');
       break;
 

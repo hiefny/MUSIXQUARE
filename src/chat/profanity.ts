@@ -88,12 +88,20 @@ export function filterProfanity(text: string): string {
 
 /**
  * Check if text contains profanity.
+ * Mirrors filterProfanity matching: word-boundary for English, substring for Korean.
+ * (Bare String.includes on EN words flagged legitimate names like "Cassidy".)
  */
 export function containsProfanity(text: string): boolean {
   const lower = text.toLowerCase();
-  for (const word of _profanitySet) {
-    if (!word) continue;
-    if (lower.includes(word)) return true;
+
+  if (_compiledRegex.english) {
+    _compiledRegex.english.lastIndex = 0;
+    if (_compiledRegex.english.test(lower)) return true;
   }
+  if (_compiledRegex.korean) {
+    _compiledRegex.korean.lastIndex = 0;
+    if (_compiledRegex.korean.test(lower)) return true;
+  }
+
   return false;
 }

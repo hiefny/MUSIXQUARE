@@ -389,6 +389,7 @@ const en: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host is paused, matched position only',
   'toast.yt_rendezvous_no_data': 'No host playback data yet, try again in a moment',
   'toast.yt_rendezvous_timeout': 'Sync failed, please try again in a moment',
+  'toast.yt_host_sync_sent': 'Auto-sync signal sent to guests',
   'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost, setting not synced',

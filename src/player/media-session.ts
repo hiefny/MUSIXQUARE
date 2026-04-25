@@ -78,6 +78,11 @@ export function initMediaSession(): void {
       }
       return;
     }
+    // Already playing — bail. Some BT/headphone wrappers can re-fire 'play'
+    // even while playbackState='playing', and a togglePlay here would pause
+    // the music after the user pressed play. Mirrors the 'pause' handler
+    // below which guards the symmetric case.
+    if (currentState === APP_STATE.PLAYING_AUDIO) return;
     if (currentTrackIndex >= 0) {
       togglePlay();
     }

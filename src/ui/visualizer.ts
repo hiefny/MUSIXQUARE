@@ -448,8 +448,19 @@ export function initVisualizer(): void {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
       if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
-    } else {
+    } else if (
+      currentState === APP_STATE.PLAYING_AUDIO ||
+      currentState === APP_STATE.PLAYING_YOUTUBE ||
+      currentState === APP_STATE.PLAYING_SYSTEM_AUDIO
+    ) {
+      // Only spin up the rAF loop when there's actually audio to visualize.
+      // Previously this branch fired for IDLE too — wasting frames during
+      // landing/setup since the analyser had nothing to report.
       startVisualizer();
+    } else if (_animationId) {
+      // IDLE / unknown state — stop any active loop.
+      cancelAnimationFrame(_animationId);
+      _animationId = null;
     }
   });
 

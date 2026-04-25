@@ -227,6 +227,10 @@ export async function loadAndBroadcastFile(
         if (playableCount === 0) {
           showToast(t('error.all_tracks_failed'));
           clearFailedTracks();
+          // Without an explicit stop, the play button stays enabled and the
+          // user falls back into the same failure cycle on the next click.
+          stopAllMedia();
+          setAppState(APP_STATE.IDLE);
         } else {
           // Walk order candidates in priority:
           //   (1) preloaded next — preserves shuffle intent when host already

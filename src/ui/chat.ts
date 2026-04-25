@@ -9,7 +9,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
@@ -345,7 +345,14 @@ function initChatEventDelegation(): void {
 
 // ─── Init ────────────────────────────────────────────────────────
 
+const _busScope = createBusScope();
+
 export function initChat(): void {
+  // Release any prior-init subscriptions so HMR / future re-init paths
+  // don't stack duplicate chat-message and drawer toggle handlers.
+  // Matches the pattern in player-controls / playlist-view / connect.
+  _busScope.dispose();
+
   registerChatProtocolHandlers();
 
   initChatEventDelegation();
@@ -617,33 +624,33 @@ export function initChat(): void {
 
   // Render primitives emit this when a chat/whisper/notice DOM append completes.
   // Keeps drawer/unread state out of chat-render.ts (single-direction dep).
-  bus.on('chat:message-rendered', (sender: string, text: string, isMine: boolean) => {
+  _busScope.on('chat:message-rendered', (sender: string, text: string, isMine: boolean) => {
     updateChatPreview(sender, text);
     if (!isMine) incrementUnread();
   });
 
   // Bus event for toggling drawer from other modules
-  bus.on('ui:toggle-chat-drawer', () => {
+  _busScope.on('ui:toggle-chat-drawer', () => {
     toggleChatDrawer();
   });
 
   // Close chat drawer (used by YouTube load-from-chat)
-  bus.on('ui:close-chat-drawer', () => {
+  _busScope.on('ui:close-chat-drawer', () => {
     if (_isChatDrawerOpen) toggleChatDrawer();
   });
 
   // System messages from loader (avoids circular import with toast.ts)
-  bus.on('chat:system-message', (text: string) => {
+  _busScope.on('chat:system-message', (text: string) => {
     addSystemChatMessage(text);
   });
 
   // Notice messages (host-side for OP-initiated notices)
-  bus.on('chat:notice-message', (sender: string, text: string) => {
+  _busScope.on('chat:notice-message', (sender: string, text: string) => {
     addNoticeChatMessage(sender, text);
   });
 
   // Muted state: disable input
-  bus.on('chat:muted-state-changed', (isMuted: boolean) => {
+  _busScope.on('chat:muted-state-changed', (isMuted: boolean) => {
     const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
     if (chatInput) {
       chatInput.setAttribute('data-placeholder', isMuted ? t('chat.muted_placeholder') : t('chat.placeholder'));
@@ -653,7 +660,7 @@ export function initChat(): void {
   });
 
   // Clear all chat messages
-  bus.on('chat:clear-all', () => {
+  _busScope.on('chat:clear-all', () => {
     const container = document.getElementById('chat-messages');
     if (container) {
       container.innerHTML = '';

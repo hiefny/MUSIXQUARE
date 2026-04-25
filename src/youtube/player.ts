@@ -143,6 +143,16 @@ export function scheduleYtAutoSync(
   // iframe has had time to settle past its seek-buffer window so
   // getCurrentTime() reflects real playback, and guest-side
   // guestRendezvousSync can extrapolate accurately.
+  //
+  // Skip Stage 2 entirely when the target is paused: position alignment
+  // already happened via the Stage-1 YOUTUBE_STATE message, and the
+  // guest's rendezvous handler short-circuits with seek+pause anyway.
+  // Firing Stage 2 here would surface as a redundant "host paused,
+  // matched position" toast ~2s after the user's pause action. The
+  // host's manual Sync button (also isManual=true) bypasses this path
+  // entirely — it calls broadcastYouTubeSync directly — so guests still
+  // get the rendezvous toast on user-initiated syncs.
+  if (targetState !== 1) return;
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {

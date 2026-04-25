@@ -383,11 +383,22 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
           const f = await opfsObj.handle.getFile();
           if (f.size !== totalSize) {
             if (f.size > totalSize) {
-              const w = await opfsObj.handle.createWritable({ keepExistingData: true });
-              await w.write({ type: 'truncate', size: totalSize });
-              await w.close();
-              const f2 = await opfsObj.handle.getFile();
-              if (f2.size !== totalSize) throw new Error(`Integrity Fail: ${f2.size}/${totalSize}`);
+              // Track the recovery writable so a throw on write/close still
+              // releases the underlying OPFS lock — otherwise the next
+              // OPFS_START on this filename hits "could not lock" until GC.
+              let w: FileSystemWritableFileStream | null = null;
+              try {
+                w = await opfsObj.handle.createWritable({ keepExistingData: true });
+                await w.write({ type: 'truncate', size: totalSize });
+                await w.close();
+                w = null;
+                const f2 = await opfsObj.handle.getFile();
+                if (f2.size !== totalSize) throw new Error(`Integrity Fail: ${f2.size}/${totalSize}`);
+              } finally {
+                if (w) {
+                  try { await w.abort(); } catch { /* best-effort */ }
+                }
+              }
             } else {
               throw new Error(`Integrity Fail: ${f.size}/${totalSize}`);
             }

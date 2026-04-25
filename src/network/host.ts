@@ -128,6 +128,15 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const cleanupConns = new Map(getState('network.activeHostConnByPeerId'));
     cleanupConns.delete(peerId);
     setState('network.activeHostConnByPeerId', cleanupConns);
+    // Also drop the peerLabels entry we set above. The conn.on('close')
+    // handler short-circuits on `activeHostConnByPeerId.get(peerId) !== conn`
+    // (we just deleted it), so without an explicit cleanup here the label
+    // stays in state across many failed concurrent joins.
+    const labelsAfterReject = getState('network.peerLabels');
+    if (labelsAfterReject && peerId in labelsAfterReject) {
+      const { [peerId]: _drop, ...restLabels } = labelsAfterReject;
+      setState('network.peerLabels', restLabels);
+    }
     const sendFullAndClose = () => {
       try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
       try { conn.close(); } catch { /* noop */ }
@@ -333,18 +342,21 @@ bus.on('network:toggle-operator', (peerId) => {
   const idx = connectedPeers.findIndex(x => x.id === peerId);
   if (idx !== -1) {
     const p = connectedPeers[idx];
+    const conn = p.conn as DataConnection;
+    // Bail before mutating shared state if the channel is gone — otherwise the
+    // target never receives OPERATOR_GRANT while every other peer's UI shows
+    // them as OP, leaving badge state and command authorization out of sync.
+    if (!conn || !conn.open) {
+      log.warn(`[OP] Cannot toggle operator for ${peerId} — connection not open`);
+      return;
+    }
     const newOp = !p.isOp;
     const updated = connectedPeers.map((peer, i) => i === idx ? { ...peer, isOp: newOp } : peer);
     setState('network.connectedPeers', updated);
-    const conn = p.conn as DataConnection;
-    if (conn && conn.open) {
-      try {
-        conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
-      } catch (e) {
-        log.warn(`[OP] Failed to send operator status to ${peerId}:`, e);
-      }
-    } else {
-      log.warn(`[OP] Cannot notify peer ${peerId} — connection not open`);
+    try {
+      conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
+    } catch (e) {
+      log.warn(`[OP] Failed to send operator status to ${peerId}:`, e);
     }
     broadcastDeviceList();
     showToast(t('toast.op_status', { label: p.label, status: newOp ? t('common.granted') : t('common.revoked') }));

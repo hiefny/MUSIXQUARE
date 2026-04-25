@@ -1258,6 +1258,12 @@ export function initPlaylist(): void {
     });
 
     if (needsPlayRestart) {
+      // The deleted slot's decoded buffer is still resident. Without
+      // clearing it, playTrack(newIdx) hits the same-track fast-replay
+      // path (currentIdx === newIdx, hasAudioLoaded === true) and the
+      // host would play the deleted track's audio for ~3s under the new
+      // track's title.
+      setCurrentAudioBuffer(null);
       playTrack(newIdx);
     }
   });

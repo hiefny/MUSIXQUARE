@@ -387,6 +387,7 @@ const ko = {
   'toast.yt_rendezvous_host_paused': '방장이 일시정지 상태라 위치만 맞췄어요',
   'toast.yt_rendezvous_no_data': '방장의 재생 정보가 없어요. 잠시 후 다시 시도해주세요',
   'toast.yt_rendezvous_timeout': '동기화에 실패했어요. 잠시 후 다시 시도해주세요',
+  'toast.yt_host_sync_sent': '자동 동기화 신호를 보냈어요',
   'toast.playlist_ended': '마지막 곡이 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',

@@ -2,6 +2,11 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  # Pin to a specific LTS so Netlify rotating its default Node image can't
+  # break a launch-week build. Bump intentionally when upgrading deps.
+  NODE_VERSION = "22"
+
 # ─── Domain migration: mxqr.netlify.app → musixquare.com ───
 # Explicit robots.txt exception for GSC over Netlify domain
 [[redirects]]

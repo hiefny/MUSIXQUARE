@@ -195,10 +195,12 @@ function initWakeLock(): void {
 
 // ── Global Error Handlers ──
 
-window.onerror = (msg, src, line, col, err) => {
-  log.error(`[Global] ${msg} at ${src}:${line}:${col}`, err);
-  return false;
-};
+// addEventListener (not `window.onerror = ...`) so we don't clobber any
+// host-injected handler the embedding wrapper (e.g. a WebView bridge)
+// might have installed before our bootstrap ran.
+window.addEventListener('error', (e) => {
+  log.error(`[Global] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`, e.error);
+});
 window.addEventListener('unhandledrejection', (e) => {
   log.error('[Global] Unhandled rejection:', e.reason);
 });

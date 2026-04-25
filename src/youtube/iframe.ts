@@ -257,6 +257,10 @@ export function loadYouTubeVideo(
       setYtLoadInProgress(false);
       showLoader(false);
       showToast(t('youtube.load_timeout'));
+      // Don't strand the user in PLAYING_YOUTUBE with no player. Drop back to
+      // IDLE and let stop-mode tear down the iframe scaffolding so a retry
+      // (or any other action) starts from a clean slate.
+      bus.emit('youtube:stop-mode');
     }
   }, SCRIPT_LOAD_TIMEOUT_MS);
 

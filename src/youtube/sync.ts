@@ -595,7 +595,15 @@ function scheduleRendezvousPlay(
         // corrupting guestPlayLatency (EMA) for all future rendezvous.
         const currentVideoId = pCal.getVideoData?.()?.video_id || '';
         const snapshotVideoId = snapshot._videoId || '';
-        if (snapshotVideoId && currentVideoId !== snapshotVideoId) {
+        // An empty snapshotVideoId means the snapshot was captured before the
+        // guest's player initialized (late-join window). We can't prove the
+        // host hasn't moved to a different video, so skip rather than risk
+        // poisoning the EMA on a cross-timeline drift sample.
+        if (!snapshotVideoId) {
+          log.debug('[Rendezvous] Calibration skipped — snapshot has no videoId (late-join)');
+          return;
+        }
+        if (currentVideoId !== snapshotVideoId) {
           log.debug('[Rendezvous] Calibration skipped — video changed during rendezvous');
           return;
         }

@@ -400,6 +400,27 @@ export function initYouTube(): void {
         log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
         updateSubItemIds(playlistIdStr!, ids);
 
+        // Broadcast the freshly indexed IDs to every guest. Without this,
+        // the guests are stuck on the single-item placeholder that
+        // playlist.ts's initial YOUTUBE_PLAYLIST_INFO broadcast carried
+        // (sent before the host had indexed): host saw the full sub-item
+        // list after navigating, every guest in the room saw just one row.
+        // Titles fill in lazily via per-item YOUTUBE_SUB_TITLE_UPDATE as
+        // the host plays through the videos. _triggerPlaylistSnapshot has
+        // its own broadcast for the heartbeat-driven snapshot path, but
+        // its `subMap empty` guard skips after our updateSubItemIds above.
+        const hostConn = getState('network.hostConn');
+        if (!hostConn) {
+          const subMap = getState('youtube.subItemsMap') || {};
+          const titles = subMap[playlistIdStr!]?.titles || [];
+          broadcast({
+            type: MSG.YOUTUBE_PLAYLIST_INFO,
+            playlistId: playlistIdStr,
+            ids,
+            titles,
+          });
+        }
+
         // Kick the title fetcher + sub-list UI populate. updateSubItemIds
         // alone gives us the IDs but every row in the expansion UI shows
         // "loading…" until oEmbed titles land — the IDLE indexing callback

@@ -399,6 +399,19 @@ export function initYouTube(): void {
         }
         log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
         updateSubItemIds(playlistIdStr!, ids);
+
+        // Kick the title fetcher + sub-list UI populate. updateSubItemIds
+        // alone gives us the IDs but every row in the expansion UI shows
+        // "loading…" until oEmbed titles land — the IDLE indexing callback
+        // emits this event after a 250ms delay; we have to do the same or
+        // the deferred-navigate flow ends up indexed but title-less, which
+        // is exactly the symptom the user kept seeing.
+        const currentPlaylist = getState('playlist.items') || [];
+        const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistIdStr);
+        if (actualIdx !== -1) {
+          bus.emit('youtube:populate-sub-items', playlistIdStr!, actualIdx);
+        }
+
         const targetSubIdx = (subIndex as number) ?? 0;
         const targetVideoId = ids[targetSubIdx] ?? ids[0];
         // Re-enter loadYouTubeVideo with playlistId=null — the cued playlist

@@ -278,20 +278,29 @@ function initBackButtonGuard(): void {
         });
         if (result.action === 'ok') {
           try { leaveSession(); } catch (e) { log.warn('[App] leaveSession failed:', e); }
-          // The user explicitly chose "leave" — actually navigate them
-          // out, don't just sit on a half-torn-down session UI. Without
-          // this, the user pressed back ONCE but the page would still
-          // show musixquare (just role=idle), and a second / third
-          // back press was needed to reach the real previous page; a
-          // forward press would even resurrect the cached "ghost
-          // session" UI from the stale history entry.
-          //
-          // `location.replace('/')` is preferred over `href = '/'` so
-          // we don't add a new forward-cache entry the user could
-          // resurrect by pressing forward. `markIntentionalNav()`
-          // suppresses the native beforeunload prompt on this hop.
           markIntentionalNav();
-          window.location.replace('/');
+          // The user explicitly chose "leave" — actually navigate them
+          // out. The history stack at this point is roughly:
+          //   [referrer] → [musixquare:session] → [guard entry]
+          //                                       ↑ current
+          // A naïve `location.replace('/')` would only swap the current
+          // entry, leaving the session entry behind:
+          //   [referrer] → [musixquare:session] → [musixquare:home]
+          // …so the user has to press back TWICE to actually leave the
+          // app (and a forward press could resurrect the ghost session).
+          //
+          // `history.go(-2)` pops both the guard and the session entry
+          // in one shot, landing on the referrer (the natural "before
+          // musixquare" page). For users who entered directly (no
+          // referrer, stack too shallow) `go(-2)` is a no-op — detect
+          // that and fall back to a hard replace to the home page.
+          const beforeUrl = location.href;
+          try { history.go(-2); } catch { /* noop */ }
+          setTimeout(() => {
+            if (location.href === beforeUrl) {
+              window.location.replace('/');
+            }
+          }, 150);
         }
       } catch (e) {
         log.warn('[App] Back-button dialog failed:', e);

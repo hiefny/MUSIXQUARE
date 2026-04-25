@@ -28,7 +28,7 @@ export const STAGE2_RENDEZVOUS_BROADCAST_MS = 2000;
 
 /** Rendezvous delay for sub-video / playlist-item track transitions — gives
  *  guests time to loadVideoById a different video before synced play fires. */
-export const TRACK_TRANSITION_RENDEZVOUS_MS = 3000;
+export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 
 /** Host heartbeat interval (periodic YOUTUBE_SYNC drift broadcast). */
 export const HEARTBEAT_INTERVAL_MS = 3000;

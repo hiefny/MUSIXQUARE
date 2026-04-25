@@ -101,7 +101,6 @@ const ko = {
   'playlist.remove_no': '아니요',
   'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
-  'playlist.badge_playlist': '재생목록',
   'playlist.deferred_load_hint': '재생하면 모든 곡 정보를 불러올게요',
 
   // ─── Role ────────────────────────────────────────────────────────

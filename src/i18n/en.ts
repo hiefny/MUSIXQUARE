@@ -103,7 +103,6 @@ const en: Record<I18nKey, string> = {
   'playlist.remove_no': 'No',
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
-  'playlist.badge_playlist': 'PLAYLIST',
   'playlist.deferred_load_hint': "Play to load the full track list",
 
   // ─── Role ────────────────────────────────────────────────────────

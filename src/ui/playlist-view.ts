@@ -121,9 +121,16 @@ export function updatePlaylistUI(): void {
       `;
     }
 
-    const icon = item.type === 'youtube'
-      ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47-.13-1.33-.22-2.65-.28-1.3-.07-2.49-.1-3.59-.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>'
-      : '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
+    let icon = '';
+    if (item.type === 'youtube') {
+      if (item.playlistId) {
+        icon = '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>';
+      } else {
+        icon = '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47-.13-1.33-.22-2.65-.28-1.3-.07-2.49-.1-3.59-.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>';
+      }
+    } else {
+      icon = '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
+    }
 
     li.onclick = () => {
       const hc = getState('network.hostConn');
@@ -139,18 +146,9 @@ export function updatePlaylistUI(): void {
          </button>`
       : '';
 
-    // Show a "재생목록 / PLAYLIST" badge when the row represents a YT playlist —
-    // a YT playlist that hasn't been navigated to yet shows just the playlist
-    // title in collapsed form, which is visually identical to a single-video
-    // queue entry. The badge tells the user "this is a multi-track item, not
-    // a single song".
-    const badgeMarkup = item.playlistId
-      ? `<span class="playlist-badge">${escapeHtml(t('playlist.badge_playlist'))}</span>`
-      : '';
-
     li.innerHTML = `
       <div class="track-idx">${idx + 1}</div>
-      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span>${badgeMarkup}</div>
+      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
       ${expandBtn}
       ${trailingEl}
     `;

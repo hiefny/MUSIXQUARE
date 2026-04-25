@@ -254,9 +254,8 @@ function initChatMorph(): void {
   }
 
   // Hold the 3D pose long enough to register, then morph to the real-UI flat
-  // look. Last bubble of the reveal stagger lands ~1.6s after intersection,
-  // so 2.4s leaves the final pose visible for ~0.8s before the morph starts.
-  const HOLD_MS = 2400;
+  // look. Reveal stagger lands the last bubble ~1.6s after intersection.
+  const HOLD_MS = 4000;
   const trigger = () => window.setTimeout(() => chat.classList.add('lp-chat--flat'), HOLD_MS);
 
   if (!('IntersectionObserver' in window)) {

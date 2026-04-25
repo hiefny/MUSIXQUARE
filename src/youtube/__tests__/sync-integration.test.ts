@@ -195,84 +195,13 @@ async function importSync() {
 
 describe('YouTube Sync — Regression Integration', () => {
 
-  // Path A: pure PLAY/SEEK on the same video — immediate-rendezvous shortcut.
-  // No Stage 1 YOUTUBE_STATE; the precision YOUTUBE_SYNC fires immediately.
-  describe('scheduleYtAutoSync — Path A: immediate-rendezvous (pure PLAY/SEEK)', () => {
-    it('calls seekTo then playVideo immediately when target state is PLAYING', async () => {
-      const player = installPlayer({ __state: 2 /* PAUSED */, __currentTime: 30 });
-      const { scheduleYtAutoSync } = await importPlayer();
-
-      scheduleYtAutoSync(42);
-
-      const ops = mutationOps(player);
-      // Host action is unchanged across both paths: seek immediately, then play.
-      expect(ops).toContain('seekTo');
-      expect(ops).toContain('playVideo');
-      const seekIdx = ops.indexOf('seekTo');
-      const playIdx = ops.indexOf('playVideo');
-      expect(seekIdx).toBeLessThan(playIdx);
-      expect(player.__log[seekIdx].args).toEqual([42, true]);
-    });
-
-    it('skips Stage 1 — single immediate YOUTUBE_SYNC{isManual:true} broadcast', async () => {
-      installPlayer({ __state: 2, __currentTime: 0 });
-      const { scheduleYtAutoSync } = await importPlayer();
-      const { broadcast } = await import('../../network/peer.ts');
-
-      scheduleYtAutoSync(10);
-
-      // Path A skips the YOUTUBE_STATE rough-seek broadcast so the guest
-      // runs a single guestRendezvousSync() instead of executeImmediate
-      // followed by another rendezvous — halves iframe state churn and
-      // closes the 2s window where drift correction was firing mid-rendezvous.
-      expect(broadcast).toHaveBeenCalledTimes(1);
-      const msg = (broadcast as any).mock.calls[0][0];
-      expect(msg.type).toBe(MSG.YOUTUBE_SYNC);
-      expect(msg.isManual).toBe(true);
-    });
-
-    it('sets yt-auto-sync as a transition guard (suppresses aux state broadcasts)', async () => {
-      installPlayer({ __state: 2 });
-      const { scheduleYtAutoSync } = await importPlayer();
-
-      scheduleYtAutoSync(10);
-
-      // Path A holds yt-auto-sync open through the host iframe's
-      // PAUSED→BUFFERING→PLAYING transition window. broadcastYouTubeSync
-      // and iframe.ts onStateChange both check this timer and bail when
-      // it's set — without that, the transient state=1 YOUTUBE_STATE
-      // emitted post-playVideo() cancels the guest's in-flight rendezvous
-      // (M1 guard), and the user sees only the toast with no actual
-      // pause-and-wait sequence.
-      expect(getManagedTimer('yt-auto-sync')).not.toBeNull();
-    });
-
-    it('rapid calls each fire their own immediate YOUTUBE_SYNC (last seek wins)', async () => {
-      const player = installPlayer({ __state: 2 });
-      const { scheduleYtAutoSync } = await importPlayer();
-      const { broadcast } = await import('../../network/peer.ts');
-
-      scheduleYtAutoSync(10);
-      vi.advanceTimersByTime(500);
-      scheduleYtAutoSync(20);
-
-      // Both manual broadcasts go through (isManual bypasses the dedup window).
-      const syncCalls = (broadcast as any).mock.calls.filter(
-        (c: any[]) => c[0]?.type === MSG.YOUTUBE_SYNC,
-      );
-      expect(syncCalls).toHaveLength(2);
-
-      // Host's local seekTo still updates the player; "last action wins".
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
-      expect(seeks.length).toBeGreaterThanOrEqual(2);
-      expect(seeks[seeks.length - 1].args).toEqual([20, true]);
-    });
-  });
-
-  // Path B: transitions (videoId/subIndex/rendezvousDelayMs override) and
-  // pause keep the original 2-stage protocol so guests can loadVideoById
-  // before precision sync (post-85ad164).
-  describe('scheduleYtAutoSync — Path B: 2-stage (transitions)', () => {
+  // All scheduleYtAutoSync calls now flow through the 2-stage protocol
+  // (Stage 1 YOUTUBE_STATE → wait → Stage 2 YOUTUBE_SYNC{isManual:true}).
+  // A previous Path A "immediate rendezvous" optimization for same-video
+  // PLAY/SEEK was reverted — the iframe's getPlayerState/getCurrentTime
+  // async race plus variable seek-buffer time made the immediate broadcast
+  // carry stale data on slower devices/networks.
+  describe('scheduleYtAutoSync — 2-stage broadcast', () => {
     it('Stage 1 broadcast is YOUTUBE_STATE with hostPlayAt=0 when videoId override is set', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();

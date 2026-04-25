@@ -25,10 +25,6 @@ import {
   TRACK_TRANSITION_RENDEZVOUS_MS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
-  REAL_SEEK_THRESHOLD_SEC,
-  IMMEDIATE_CONFIRM_POLL_MS,
-  IMMEDIATE_CONFIRM_TIMEOUT_MS,
-  CONFIRM_POSITION_TOLERANCE_SEC,
 } from './constants.ts';
 
 // YouTube rendezvous-autoplay flag: set by any caller that loaded a track
@@ -89,24 +85,23 @@ export { loadYouTubeVideo } from './iframe.ts';
 // Every play/seek action delays 1s so all devices start simultaneously.
 
 /**
- * Immediate host action + guest-side precision rendezvous broadcast.
+ * Host action + 2-stage broadcast for guest sync.
  *
- * Two paths based on call context:
+ * 1. Execute the action locally (seekTo + play/pause).
+ * 2. Stage 1 — broadcast YOUTUBE_STATE so guests run a rough seek+play
+ *    immediately (handleYouTubeState's executeImmediate path).
+ * 3. Stage 2 — after `rendezvousDelayMs` (default STAGE2_RENDEZVOUS_BROADCAST_MS,
+ *    2s) broadcast YOUTUBE_SYNC{isManual:true}. Guests' handleYouTubeSync
+ *    routes manual syncs to guestRendezvousSync for precision alignment
+ *    using a host snapshot that has had time to settle past the iframe's
+ *    seek-buffer window.
  *
- * A) **Immediate-rendezvous** (pure PLAY / SEEK on the same video):
- *    Skip the YOUTUBE_STATE "rough seek" broadcast and fire
- *    YOUTUBE_SYNC{isManual:true} immediately. Guests run a single
- *    `guestRendezvousSync()` instead of executeImmediate-then-rendezvous,
- *    halving iframe state churn and closing the 2s gap that was letting
- *    drift correction fire mid-rendezvous.
- *
- * B) **2-stage** (transitions + pause):
- *    Broadcast YOUTUBE_STATE immediately (Stage 1) so guests can
- *    `loadVideoById` / sync sub-index, then fire the precision rendezvous
- *    after `rendezvousDelayMs` (Stage 2). Pause stays here because
- *    handleYouTubeState's pause-priority guard cancels any in-progress
- *    guest rendezvous — bypassing it would let a stale rendezvous play
- *    override the new paused state.
+ * History: a previous Path A optimization fired the precision rendezvous
+ * immediately (skipping Stage 1) for same-video PLAY/SEEK. It was reverted
+ * because the iframe's getPlayerState()/getCurrentTime() async race + the
+ * variable seek-buffer window (150ms-2s+ depending on device/network)
+ * made the broadcast carry stale state or position too often. The 2-stage
+ * delay always-on is slower but predictable across device + network mixes.
  */
 export function scheduleYtAutoSync(
   targetTime: number,
@@ -119,14 +114,6 @@ export function scheduleYtAutoSync(
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
 
-  // Capture the iframe's pre-seek position. Used below to distinguish a real
-  // seek (position changes) from a no-op seekTo(samePos) — only the former
-  // triggers the iframe's rebuffer window, so only the former needs the
-  // SEEK_BUFFER_ESTIMATE_MS hostClock offset on the broadcast. Read BEFORE
-  // seekTo so the comparison isn't poisoned by the same async-iframe race
-  // that motivated the timeOverride fix.
-  const preSeekPos = player.getCurrentTime?.() ?? 0;
-
   // 1. Host: Execute action immediately
   if (!overrides?.skipSeek && targetTime >= 0) {
     player.seekTo(targetTime, true);
@@ -138,104 +125,8 @@ export function scheduleYtAutoSync(
     player.pauseVideo?.();
   }
 
-  // Path A: PLAY/SEEK on the same video → skip Stage 1, fire rendezvous now.
-  const useImmediateRendezvous =
-    targetState === 1 &&
-    !overrides?.videoId &&
-    overrides?.subIndex === undefined &&
-    overrides?.rendezvousDelayMs === undefined;
-
-  if (useImmediateRendezvous) {
-    // Cancel any pending Stage 2 from a prior transition AND any in-flight
-    // confirm poll from a superseded seek — only the latest scheduleYtAutoSync
-    // call should drive the next broadcast.
-    clearManagedTimer('yt-auto-sync');
-    clearManagedTimer('yt-immediate-confirm');
-
-    const seekFired = !overrides?.skipSeek && targetTime >= 0;
-    const isRealSeek = seekFired && Math.abs(preSeekPos - targetTime) > REAL_SEEK_THRESHOLD_SEC;
-
-    // Set the suppression guard up-front and keep it alive across the entire
-    // confirm + rendezvous window. Both heartbeat (broadcastYouTubeSync) and
-    // iframe.ts onStateChange aux broadcasts gate on getManagedTimer('yt-auto-sync')
-    // — without this guard, the transient PAUSED→BUFFERING→PLAYING that
-    // follows our playVideo() emits a state=1 YOUTUBE_STATE that the guest's
-    // M1 handler treats as a fresh PLAY arriving during rendezvous and
-    // cancels the in-flight pause-and-wait. Real-seek path resets it to the
-    // standard rendezvous duration once the broadcast actually fires.
-    const initialGuardMs = isRealSeek
-      ? IMMEDIATE_CONFIRM_TIMEOUT_MS + STAGE2_RENDEZVOUS_BROADCAST_MS
-      : STAGE2_RENDEZVOUS_BROADCAST_MS;
-    setManagedTimer('yt-auto-sync', () => { /* guard-only — no body */ }, initialGuardMs);
-
-    if (!isRealSeek) {
-      // Resume-from-pause and no-op-seek paths: no iframe buffer window to
-      // wait through. Broadcast immediately with INTENT overrides:
-      //   - targetState (always 1) so getPlayerState()'s in-transition value
-      //     (2/3) doesn't poison guests' lastHostSnapshot.hostState and trip
-      //     guestRendezvousSync's "host paused" branch.
-      //   - targetTime when seekFired so getCurrentTime()'s pre-seek lag
-      //     doesn't broadcast the previous position.
-      markYtStateBroadcast();
-      broadcastYouTubeSync(true, targetState, seekFired ? targetTime : undefined);
-      log.debug('[YouTube] Sync: Immediate precision rendezvous (no buffer wait)');
-      return;
-    }
-
-    // Real seek — defer the broadcast until the iframe actually reports
-    // state=1 AND currentTime is at the target. The seek-buffer window
-    // varies (150ms-1s+ depending on cache + network); broadcasting before
-    // the iframe resumes would anchor hostClock at a moment when host
-    // wasn't actually playing, and guest's wall-clock-forward extrapolation
-    // would overshoot by exactly the buffer duration — the rendezvous
-    // would land the guest slightly ahead of host. Polling for confirmed
-    // state lets the broadcast carry the real position+clock without
-    // estimation; falls back with the seek target on timeout.
-    const confirmStart = performance.now();
-    let attempts = 0;
-    const issueBroadcast = (timeArg: number | undefined, label: string): void => {
-      markYtStateBroadcast();
-      broadcastYouTubeSync(true, targetState, timeArg);
-      // Replace the wide initial guard with the standard rendezvous-only
-      // window now that the broadcast is out.
-      clearManagedTimer('yt-auto-sync');
-      setManagedTimer('yt-auto-sync', () => { /* guard-only */ }, STAGE2_RENDEZVOUS_BROADCAST_MS);
-      log.debug(`[YouTube] Sync: Immediate precision rendezvous (${label})`);
-    };
-    const checkPlaying = (): void => {
-      const p = getYouTubePlayer();
-      if (!p) return;
-      attempts++;
-      const state = p.getPlayerState?.() ?? -1;
-      const currentTime = p.getCurrentTime?.() ?? 0;
-      // Both signals must agree the seek has been processed: state=1
-      // (PLAYING) AND currentTime within tolerance of the target. State
-      // alone is insufficient for seeks that stay within the buffered
-      // region — those keep state=1 throughout, and the only signal that
-      // currentTime has updated is the value itself. Position alone is
-      // insufficient because the iframe may briefly report the new time
-      // while transitioning through BUFFERING.
-      const positionReady = Math.abs(currentTime - targetTime) < CONFIRM_POSITION_TOLERANCE_SEC;
-      if (state === 1 && positionReady) {
-        const elapsed = performance.now() - confirmStart;
-        log.debug(`[YouTube] Sync: post-seek settle confirmed in ${elapsed.toFixed(0)}ms (${attempts} polls, t=${currentTime.toFixed(2)})`);
-        issueBroadcast(undefined, `confirmed after ${elapsed.toFixed(0)}ms`);
-        return;
-      }
-      if (performance.now() - confirmStart >= IMMEDIATE_CONFIRM_TIMEOUT_MS) {
-        log.warn(`[YouTube] Sync: post-seek settle timeout after ${attempts} polls (state=${state}, t=${currentTime.toFixed(2)} vs target=${targetTime.toFixed(2)}) — broadcasting target as fallback`);
-        issueBroadcast(targetTime, 'timeout fallback');
-        return;
-      }
-      setManagedTimer('yt-immediate-confirm', checkPlaying, IMMEDIATE_CONFIRM_POLL_MS);
-    };
-    checkPlaying();
-    return;
-  }
-
-  // Path B (transition / pause): 2-stage broadcast.
-  // 2. Broadcast Stage 1: Immediate Reaction
-  // Guests will perform a rough seek/play to minimize initial lag.
+  // 2. Stage 1: rough state broadcast — guests do executeImmediate to
+  // catch up to roughly the right place while Stage 2's wait elapses.
   markYtStateBroadcast();
   broadcast({
     type: MSG.YOUTUBE_STATE,
@@ -248,8 +139,10 @@ export function scheduleYtAutoSync(
     title: player.getVideoData?.()?.title || '',
   });
 
-  // 3. Broadcast Stage 2: Precision Rendezvous (Fixed delay)
-  // Ensures all guests reach perfect alignment regardless of buffering speed.
+  // 3. Stage 2: precision rendezvous after a fixed delay — by then the
+  // iframe has had time to settle past its seek-buffer window so
+  // getCurrentTime() reflects real playback, and guest-side
+  // guestRendezvousSync can extrapolate accurately.
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   clearManagedTimer('yt-auto-sync');
   setManagedTimer('yt-auto-sync', () => {
@@ -257,10 +150,11 @@ export function scheduleYtAutoSync(
     if (!p) return;
 
     markYtStateBroadcast();
-    // Same intent-vs-iframe-state reasoning as Path A. Stage 1 already
-    // broadcast targetState via YOUTUBE_STATE, but Stage 2's YOUTUBE_SYNC
-    // updates the guest snapshot — its state field must match the intent
-    // or guestRendezvousSync's hostState guard misfires.
+    // Pass targetState as the intent state. Even after the 2s wait, the
+    // iframe can briefly land in BUFFERING (3) on slow networks; without
+    // the override, broadcastYouTubeSync would read getPlayerState()=3
+    // and guests' lastHostSnapshot.hostState would trip
+    // guestRendezvousSync's "host paused" branch.
     broadcastYouTubeSync(true, targetState);
     log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
   }, waitMs);
@@ -269,7 +163,6 @@ export function scheduleYtAutoSync(
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
-  clearManagedTimer('yt-immediate-confirm');
   bus.emit('youtube:sync-loading', false);
 }
 

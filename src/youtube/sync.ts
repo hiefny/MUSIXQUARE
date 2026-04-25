@@ -59,7 +59,6 @@ let _lastManualBroadcastAt = 0;
 export function broadcastYouTubeSync(
   isManual = false,
   stateOverride?: number,
-  timeOverride?: number,
 ): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
@@ -75,31 +74,22 @@ export function broadcastYouTubeSync(
   // may return a stale (pre-seek) value. Broadcasting that stale position
   // causes ALL guests' drift correction to undo the seek, even though
   // they already received the correct position via YOUTUBE_STATE.
-  // Manual broadcasts bypass this gate: they ARE the rendezvous-driving
-  // signal we set the guard for in the first place (Path A confirm-poll
-  // sets the guard up-front to suppress aux state broadcasts during the
-  // host iframe transition, then deliberately fires this broadcast).
+  // Manual broadcasts (isManual=true) bypass this gate — they are the
+  // intentional rendezvous signal, not background drift correction.
+  // Stage 2's callback fires this broadcast inside the timer body when
+  // the slot has already been cleared, so the bypass is mostly insurance
+  // for non-Stage-2 manual call sites (e.g. native auto-advance) that
+  // happen to run while a prior yt-auto-sync window is still pending.
   if (!isManual && getManagedTimer('yt-auto-sync')) return;
 
   try {
-    // Prefer caller-supplied position when provided. The immediate-rendezvous
-    // path fires this broadcast synchronously right after player.seekTo(),
-    // but getCurrentTime() lags by one seek inside the YT iframe — the
-    // returned value is the position BEFORE the seek just issued, so
-    // multiple seeks make guests rendezvous to the previous target each
-    // time (off-by-one staleness). Periodic heartbeats (no override) read
-    // live currentTime because they describe actual ongoing playback.
-    const currentTime = timeOverride ?? player.getCurrentTime();
-    // Prefer caller-supplied INTENT state when provided. Without this, the
-    // immediate-rendezvous path in scheduleYtAutoSync fires this broadcast
-    // synchronously after player.playVideo() — but the YT iframe's
-    // getPlayerState() hasn't transitioned yet (still 2=paused or 3=buffering).
-    // The stale state propagates to guests' lastHostSnapshot.hostState, and
-    // guestRendezvousSync then falls into its `hostState !== 1` "host paused"
-    // branch, which only seeks+pauses and shows the misleading
-    // toast.yt_rendezvous_host_paused — no actual rendezvous runs.
-    // Periodic heartbeats (no override) keep using the live iframe state
-    // because they reflect actual current playback, not a freshly issued action.
+    const currentTime = player.getCurrentTime();
+    // Prefer caller-supplied INTENT state when provided. scheduleYtAutoSync's
+    // Stage 2 callback uses this so a transient BUFFERING (3) state on slow
+    // networks doesn't poison guests' lastHostSnapshot.hostState and trip
+    // guestRendezvousSync's "host paused" branch. Periodic heartbeats (no
+    // override) read the live iframe state because they describe actual
+    // ongoing playback, not a freshly issued action.
     const state = stateOverride ?? (player.getPlayerState ? player.getPlayerState() : -1);
 
     // Sub-index tracking for playlists
@@ -168,9 +158,6 @@ export function broadcastYouTubeSync(
       // this for snapshot extrapolation instead of their own getHostNow()
       // at receive time, which is one-way-latency later and causes the
       // extrapolated position to be consistently behind by that latency.
-      // For real-seek broadcasts, scheduleYtAutoSync defers this call
-      // until the iframe actually reports state=1 + correct currentTime,
-      // so the anchor is naturally accurate without offsetting.
       hostClock: getHostNow(),
       isManual,
       title: getState('player.currentTrackMeta')?.title,

@@ -866,6 +866,24 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
+    // ── Host-side title sync (mirrors guest's handleYouTubeState path) ──
+    // currentTrackMeta is initialized from the playlist row, which carries
+    // the playlist's name (or the "loading…" oEmbed placeholder if the
+    // URL preview hadn't resolved yet) — not the actual sub-video title.
+    // Guests update from data.title in YOUTUBE_STATE/SYNC broadcasts; the
+    // host had no equivalent self-update, so its now-playing display stayed
+    // stuck on the playlist name even after the iframe knew the real title.
+    // Pull it from getVideoData(), which is the same source used in the
+    // outgoing broadcast just below in broadcastYouTubeSync. The setState
+    // call is a no-op when nothing changed (same-ref check inside).
+    if (!getState('network.hostConn')) {
+      const vTitle = player.getVideoData?.()?.title;
+      const meta = getState('player.currentTrackMeta');
+      if (vTitle && meta && meta.title !== vTitle) {
+        setState('player.currentTrackMeta', { ...meta, title: vTitle });
+      }
+    }
+
     // ── Unavailable-video heuristic (host-only) ────────────────────
     // Some "unavailable" states (region lock, age-gate, certain private
     // videos) render an error UI inside the iframe without firing

@@ -310,6 +310,19 @@ function createYouTubePlayer(
   const hostConn = getState('network.hostConn');
   const needsScrape = (!hostConn && playlistId !== null);
 
+  // Defense-in-depth for the 200+ track OOM fix (~2026-04-16). Single-video
+  // mode is enforced at network ingress (handlers.ts) and the add-to-playlist
+  // path, but internal re-entry points still pass both IDs from saved meta:
+  // crash-recovery at L772 reads currentTrackMeta, and the youtube:load bus
+  // listener (player.ts:363) is fed raw item.videoId+item.playlistId from
+  // playlist.ts. Re-asserting here forces loadVideoById on the reuse path
+  // and consistently drops `list` from the fresh-create playerVars, so the
+  // YT playlist engine cannot wake up unless we're explicitly scraping or
+  // indexing (the only legitimate users of cuePlaylist).
+  if (videoId && playlistId && !needsScrape && !indexing) {
+    playlistId = null;
+  }
+
   if (needsScrape) {
     _ifr.isScrapingPlaylist = true;
     setYtLoadInProgress(true);

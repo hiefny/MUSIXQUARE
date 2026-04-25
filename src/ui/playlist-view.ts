@@ -121,7 +121,7 @@ export function updatePlaylistUI(): void {
       `;
     }
 
-    let icon = '';
+    let icon: string;
     if (item.type === 'youtube') {
       if (item.playlistId) {
         icon = '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>';

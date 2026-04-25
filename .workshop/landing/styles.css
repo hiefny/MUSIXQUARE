@@ -1407,6 +1407,26 @@ main {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  /* Footer nav at 375px holds 4 site links + 2 language buttons — overflows.
+     Wrap the nav, keep each link on a single line, and force the language
+     toggle onto its own row by giving the divider 100% flex-basis. */
+  .lp-footer__nav {
+    flex-wrap: wrap;
+    row-gap: 14px;
+  }
+
+  .lp-footer__nav a,
+  .lp-lang-btn {
+    white-space: nowrap;
+  }
+
+  .lp-lang-divider {
+    flex-basis: 100%;
+    height: 0;
+    margin: 0;
+    overflow: hidden;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1428,17 +1448,29 @@ main {
 
 :lang(ko) .lp-h1 {
   letter-spacing: -0.025em;
-  font-size: clamp(40px, 7vw, 88px);
+  font-size: clamp(48px, 7vw, 88px);
+  line-height: 1.25;
 }
 
 :lang(ko) .lp-h2 {
   letter-spacing: -0.02em;
   font-size: clamp(32px, 4.6vw, 60px);
+  line-height: 1.2;
 }
 
 :lang(ko) .lp-cta .lp-h2 {
   letter-spacing: -0.025em;
   font-size: clamp(52px, 8vw, 104px);
+  line-height: 1.05;
+}
+
+/* Korean headlines: never break inside a word. Mobile-narrow CTAs like
+   "지금 시작해봐요!" otherwise split as "지금 시작해봐 / 요!" with the
+   trailing "요!" orphaned. keep-all forces the wrap to land on the space
+   between word groups instead. */
+:lang(ko) .lp-h1,
+:lang(ko) .lp-h2 {
+  word-break: keep-all;
 }
 
 :lang(ko) .lp-lead {

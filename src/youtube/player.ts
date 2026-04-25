@@ -144,6 +144,17 @@ export function scheduleYtAutoSync(
     // the override the broadcast carries state=2/3 and tricks guests'
     // guestRendezvousSync into the "host paused" branch.
     broadcastYouTubeSync(true, targetState);
+    // Hold the yt-auto-sync timer name through the host's iframe transition
+    // window. broadcastYouTubeSync (heartbeat) and the iframe.ts
+    // onStateChange auxiliary broadcast both check getManagedTimer('yt-auto-sync')
+    // and bail when present. Without this guard, the transient
+    // PAUSED → BUFFERING → PLAYING that follows our playVideo() emits a
+    // state=1 YOUTUBE_STATE which the guest's M1 handler in handleYouTubeState
+    // treats as a fresh PLAY arriving during rendezvous and cancels the
+    // in-flight pause-and-wait, immediately replaying via executeImmediate
+    // — i.e. no rendezvous is observed even though the toast already showed.
+    // Length matches Path B's stage 2 so both paths suppress the same way.
+    setManagedTimer('yt-auto-sync', () => { /* guard-only — no body */ }, STAGE2_RENDEZVOUS_BROADCAST_MS);
     log.debug('[YouTube] Sync: Immediate precision rendezvous (Stage 1 skipped)');
     return;
   }

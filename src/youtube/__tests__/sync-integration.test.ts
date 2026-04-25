@@ -231,13 +231,20 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(msg.isManual).toBe(true);
     });
 
-    it('does NOT set the yt-auto-sync timer (no Stage 2 to schedule)', async () => {
+    it('sets yt-auto-sync as a transition guard (suppresses aux state broadcasts)', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
 
       scheduleYtAutoSync(10);
 
-      expect(getManagedTimer('yt-auto-sync')).toBeNull();
+      // Path A holds yt-auto-sync open through the host iframe's
+      // PAUSED→BUFFERING→PLAYING transition window. broadcastYouTubeSync
+      // and iframe.ts onStateChange both check this timer and bail when
+      // it's set — without that, the transient state=1 YOUTUBE_STATE
+      // emitted post-playVideo() cancels the guest's in-flight rendezvous
+      // (M1 guard), and the user sees only the toast with no actual
+      // pause-and-wait sequence.
+      expect(getManagedTimer('yt-auto-sync')).not.toBeNull();
     });
 
     it('rapid calls each fire their own immediate YOUTUBE_SYNC (last seek wins)', async () => {

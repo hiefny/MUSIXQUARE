@@ -243,6 +243,41 @@ function initPhoneTilt(): void {
   schedule();
 }
 
+function initChatMorph(): void {
+  const chat = document.querySelector<HTMLElement>('.lp-chat');
+  const section = document.querySelector<HTMLElement>('.lp-section--remote');
+  if (!chat || !section) return;
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    chat.classList.add('lp-chat--flat');
+    return;
+  }
+
+  // Hold the 3D pose long enough to register, then morph to the real-UI flat
+  // look. Last bubble of the reveal stagger lands ~1.6s after intersection,
+  // so 2.4s leaves the final pose visible for ~0.8s before the morph starts.
+  const HOLD_MS = 2400;
+  const trigger = () => window.setTimeout(() => chat.classList.add('lp-chat--flat'), HOLD_MS);
+
+  if (!('IntersectionObserver' in window)) {
+    trigger();
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          observer.unobserve(entry.target);
+          trigger();
+        }
+      }
+    },
+    { threshold: 0.4 },
+  );
+  observer.observe(section);
+}
+
 function boot(): void {
   initReveal();
   initSmoothAnchor();
@@ -251,6 +286,7 @@ function boot(): void {
   initCopyInvite();
   initSyncClock();
   initCodeCycle();
+  initChatMorph();
 }
 
 if (document.readyState === 'loading') {

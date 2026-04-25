@@ -926,7 +926,14 @@ main {
   word-break: break-word;
   transform: rotateX(8deg) rotateY(-10deg);
   transform-origin: center center;
-  transition: transform 400ms var(--ease-out);
+  transition:
+    transform 700ms var(--ease-out),
+    background 700ms var(--ease-out),
+    box-shadow 700ms var(--ease-out),
+    border-radius 700ms var(--ease-out),
+    padding 700ms var(--ease-out),
+    max-width 700ms var(--ease-out),
+    border-color 700ms var(--ease-out);
   will-change: transform;
 }
 
@@ -1087,6 +1094,102 @@ main {
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(3) { transition-delay: 520ms; }
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(4) { transition-delay: 780ms; }
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(5) { transition-delay: 960ms; }
+
+/* ── Flat (2D) variant — toggled by JS ~2s after the section reveals ──
+   Mirrors the pre-3D bubble look (solid colors, small tail radius). */
+
+.lp-chat--flat .lp-chat-bubble {
+  transform: none;
+  padding: 9px 13px;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.lp-chat--flat .lp-chat-group:hover .lp-chat-bubble {
+  transform: none;
+}
+
+.lp-chat--flat .lp-chat-bubble--others {
+  background: var(--surface-2);
+  border-bottom-left-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-bubble--mine {
+  background: var(--primary);
+  border-bottom-right-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-bubble--whisper {
+  background: rgba(147, 112, 219, 0.22);
+  border: 1px solid rgba(147, 112, 219, 0.4);
+  border-bottom-right-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-bubble--yt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  max-width: 260px;
+  padding: 14px;
+  background: #FF0033;
+  border-radius: 14px;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
+}
+
+.lp-chat--flat .lp-chat-bubble--pin {
+  padding: 12px 18px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-m);
+  box-shadow: none;
+}
+
+.lp-chat-pin__label {
+  transition: color 700ms var(--ease-out);
+}
+
+.lp-chat--flat .lp-chat-pin__label {
+  color: #ffc107;
+}
+
+/* Flat-mode grouped tails — connect consecutive rows in a group so the
+   speaker-side corners go from "tail" (single) to "merged" (middle) to
+   "kick-out" (last). Mine = right side, others = left side. */
+
+.lp-chat--flat .lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--mine {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-row + .lp-chat-row:last-child .lp-chat-bubble--mine {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 14px;
+}
+
+.lp-chat--flat .lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--others {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-row + .lp-chat-row:last-child .lp-chat-bubble--others {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 14px;
+}
+
+/* YT card sits on the mine (right) side — mirror the mine tail logic */
+.lp-chat--flat .lp-chat-group--mine .lp-chat-row + .lp-chat-row .lp-chat-bubble--yt {
+  border-top-right-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-group--mine .lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--yt {
+  border-bottom-right-radius: 4px;
+}
+
+.lp-chat--flat .lp-chat-group--mine .lp-chat-row + .lp-chat-row:last-child .lp-chat-bubble--yt {
+  border-bottom-right-radius: 14px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .lp-chat-bubble {

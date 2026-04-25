@@ -258,7 +258,18 @@ function initBackButtonGuard(): void {
 
     const role = getState('network.appRole');
     if (role === 'idle') return; // landing / not in a session
-    if (_confirmInFlight) return;
+
+    if (_confirmInFlight) {
+      // Dialog is still open from an earlier back press. The user just
+      // pressed back AGAIN — without re-seeding, the next pop would
+      // escape past the session entry and the browser's native
+      // beforeunload confirm would step in on top of our custom
+      // dialog. Re-seed so a follow-up back press hits this handler
+      // again instead. (No new dialog is shown; the existing one is
+      // still pending the user's response.)
+      seedGuard();
+      return;
+    }
 
     // Re-seed so the NEXT back press re-fires popstate rather than
     // escaping to the real previous page while the dialog is open.

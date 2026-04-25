@@ -40,7 +40,7 @@ let _pendingAutoSyncOnReady = false;
 export function setPendingAutoSyncOnReady(v: boolean): void { _pendingAutoSyncOnReady = v; }
 export function getPendingAutoSyncOnReady(): boolean { return _pendingAutoSyncOnReady; }
 import { registerHandlers } from '../network/protocol.ts';
-import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles } from './search.ts';
+import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles, cancelSubTitleFetch } from './search.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Sub-module imports ────────────────────────────────────────────
@@ -217,6 +217,11 @@ export function stopYouTubeMode(): void {
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
+  // Stop the background oEmbed fetch loop. Without this, leaving YouTube
+  // mode mid-playlist with 100+ items keeps firing oEmbed requests for
+  // ~80s and broadcasting YOUTUBE_SUB_TITLE_UPDATE messages — wasted
+  // network/CPU/battery and cross-mode peer noise.
+  cancelSubTitleFetch();
   // Clear poll-loop timers so they don't reschedule against a torn-down
   // player. Both _pollIndexingPlaylist and _pollScrapePlaylist also
   // self-abort when getYouTubePlayer() returns null, but cancelling here
@@ -593,7 +598,12 @@ export function initYouTube(): void {
       player.loadVideoById?.(nextVideoId);
 
       // Broadcast new video + index to guests without the usual 3s delay.
-      broadcastYouTubeSync(true);
+      // stateOverride=PLAYING — at this instant getPlayerState() reads the
+      // post-pauseVideo / pre-loadVideoById state (PAUSED or BUFFERING),
+      // which would trip guests' guestRendezvousSync "host paused" branch
+      // and stall them until the next 3s heartbeat. Mirror the Stage-2
+      // pattern above (line 168).
+      broadcastYouTubeSync(true, YT.PlayerState.PLAYING);
       return;
     }
 

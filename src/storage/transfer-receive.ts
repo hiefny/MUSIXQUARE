@@ -949,6 +949,22 @@ export function handleFileEnd(data: Record<string, unknown>): void {
   downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
 
   log.debug(`[file-end] Received end signal for: ${data.name}`);
+
+  // Host has finished sending all chunks. If we still have gaps (a tail
+  // chunk dropped while the rest arrived), don't wait for chunkWatchdog
+  // (12s local / 60s remote) — request recovery now. handleFileChunk
+  // already handles the in-progress finalize when receivedCount reaches
+  // total, so this only fires when the gap is real.
+  const transferState = getState('transfer.state');
+  if (transferState === TRANSFER_STATE.RECEIVING) {
+    const total = (getState('transfer.meta')?.total as number) || 0;
+    const receivedCount = getState('transfer.receivedCount') || 0;
+    if (total > 0 && receivedCount < total) {
+      log.warn(`[file-end] ${receivedCount}/${total} chunks — triggering immediate recovery`);
+      clearManagedTimer('chunkWatchdog');
+      bus.emit('storage:request-recovery');
+    }
+  }
 }
 
 export function handleFileWait(): void {

@@ -229,6 +229,18 @@ export function fetchYouTubePreview(url: string): void {
 let _subTitleAbort: AbortController | null = null;
 
 /**
+ * Cancel any in-flight background title fetch loop. Called by stopYouTubeMode
+ * so a 100+ item playlist doesn't keep firing oEmbed requests + broadcasts
+ * for ~80s after the user has left YouTube mode.
+ */
+export function cancelSubTitleFetch(): void {
+  if (_subTitleAbort) {
+    _subTitleAbort.abort();
+    _subTitleAbort = null;
+  }
+}
+
+/**
  * Background oEmbed fetcher for YouTube playlist sub-item titles.
  */
 export async function fetchPlaylistSubTitles(

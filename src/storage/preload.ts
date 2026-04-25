@@ -732,6 +732,24 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
       // Some chunks still missing — let future handlePreloadChunk → drain finalize it.
       // This prevents premature OPFS_END when network reordering causes late chunk arrival.
       log.debug(`[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring OPFS_END`);
+
+      // Bound the deferred state. Preload broadcasts are one-way (no per-chunk
+      // recovery like main transfer), so a chunk that never arrives would
+      // otherwise leave this session stuck at finalized=false forever, leaking
+      // the reorder buffer and blocking cleanupStalePreloadSessions from
+      // evicting it. After the cap, mark the session skipped so it becomes
+      // evictable; the next track entry will fall back to main-transfer
+      // download via the standard handlePlayPreloaded path.
+      const sidLocal = sid;
+      setManagedTimer(`preload-end-deferred-${sidLocal}`, () => {
+        const cur = getState('preload.sessionState').get(sidLocal);
+        if (!cur || cur.finalized || cur.skipped) return;
+        log.warn(`[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}) — marking skipped.`);
+        const updated = new Map(getState('preload.sessionState'));
+        updated.set(sidLocal, { ...cur, skipped: true });
+        setState('preload.sessionState', updated);
+        preloadReorderBuffer.delete(sidLocal);
+      }, 10_000);
     }
   }
 

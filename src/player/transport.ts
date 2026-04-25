@@ -26,7 +26,7 @@ const SCHEDULE_AHEAD_MS = 200;
 import {
   getPlayerNode, setPlayerNode,
   getCurrentAudioBuffer,
-  getLoadToken,
+  getLoadToken, incrementLoadToken,
   isPlayLocked, setPlayLocked,
   getPendingPlayTime, setPendingPlayTime,
   setPlayPreloadedInProgress,
@@ -263,6 +263,10 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
       setPlayLocked(false);
       setPendingPlayTime(undefined);
       stopPlayerNode();
+      // Bump the load token so any in-flight _internalPlay aborts at its
+      // next await checkpoint instead of overwriting the post-watchdog IDLE
+      // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
+      incrementLoadToken();
       // Reset appState to IDLE to prevent stuck "playing" UI
       if (getState('appState') !== APP_STATE.IDLE) {
         setAppState(APP_STATE.IDLE);
@@ -289,6 +293,11 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
 
 async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   setPendingPlayTime(undefined);
+  // Snapshot the load token at entry. If the play()-level watchdog fires
+  // (or another path bumps the token, e.g. track switch), every await
+  // checkpoint below will see a mismatch and abort cleanly instead of
+  // racing with the watchdog's stopPlayerNode + setAppState(IDLE).
+  const myLoadToken = getLoadToken();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
   const currentState = getState('appState');
@@ -299,6 +308,11 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   log.debug('[Play] Stage 2: Resuming AudioContext');
   try { await ensureRunning(); } catch (e) { log.warn('Resume failed:', e); }
+
+  if (getLoadToken() !== myLoadToken) {
+    log.warn('[Play] Aborted — load token bumped during ensureRunning');
+    return;
+  }
 
   // ── Post-await mode re-check ──────────────────────────────────────
   // While we awaited ensureRunning/initAudio, the user may have switched
@@ -325,6 +339,11 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
     showToast(t('error.audio_engine_prepare'));
+    return;
+  }
+
+  if (getLoadToken() !== myLoadToken) {
+    log.warn('[Play] Aborted — load token bumped during initAudio');
     return;
   }
 
@@ -365,9 +384,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
       log.debug('[BufferMode] Playing in Stereo');
     }
 
-    const endedToken = getLoadToken();
     newNode.addEventListener('ended', () => {
-      if (endedToken !== getLoadToken()) return;
+      if (myLoadToken !== getLoadToken()) return;
       const state = getState('appState');
       if (state === APP_STATE.PLAYING_AUDIO) {
         handleEnded();

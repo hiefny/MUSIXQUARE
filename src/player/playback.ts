@@ -662,7 +662,12 @@ export function initPlayback(): void {
         const sessionState = getState('preload.sessionState');
         for (const [, session] of sessionState) {
           if (session.skipped || session.finalized) continue;
-          if (session.index !== index && session.name !== name) continue;
+          // Match by (index, name) tuple — both must agree. Loose-OR matching
+          // would let a stale session for a different track win the reset
+          // when names collide (duplicate track in queue) or indices shift
+          // (post-reorder), causing the stall timer to reset for the wrong
+          // session and delay recovery.
+          if (session.index !== index || session.name !== name) continue;
           const prog = session.nextExpectedChunk || 0;
           if (prog > lastProgressChunk) {
             lastProgressChunk = prog;

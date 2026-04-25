@@ -331,6 +331,10 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   container.appendChild(group);
   pruneOldMessages(container);
   container.scrollTop = container.scrollHeight;
+
+  // isMine=isSent so chat.ts's handler skips incrementUnread for outgoing
+  // whispers but still updates preview for both directions.
+  bus.emit('chat:message-rendered', peerLabel, text, isSent);
 }
 
 // ─── Render: Notice Message ──────────────────────────────────────

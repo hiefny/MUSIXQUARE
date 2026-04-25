@@ -233,6 +233,10 @@ export function loadYouTubeVideo(
         clearManagedTimer('yt-load-timeout');
         tag.remove(); // Remove broken script tag so retry can re-insert
         showToast(t('youtube.load_fail'));
+        // Mirror yt-load-timeout's recovery: drop back to IDLE so the user
+        // isn't stranded in PLAYING_YOUTUBE with no player (seekbar/play
+        // controls would be inert).
+        bus.emit('youtube:stop-mode');
       };
       document.head.appendChild(tag);
     }
@@ -833,10 +837,23 @@ function updateYouTubeUI(): void {
       setState('youtube.guestPlayLatency', 0);
       try { localStorage.removeItem('musixquare-yt-play-latency'); } catch { /* noop */ }
 
-      // Capture current state for recovery
-      const videoId = getState('player.currentTrackMeta')?.videoId as string || '';
+      // Capture current state for recovery. currentTrackMeta.videoId is only
+      // set to the entry-point video on track add; it never advances across
+      // sub-video transitions. For sub-index > 0, prefer the cached videoId
+      // in subItemsMap (kept in sync by broadcastYouTubeSync) so a crash
+      // mid-playlist reloads the SAME sub-video instead of jumping back to
+      // the first one.
       const playlistId = getState('player.currentTrackMeta')?.playlistId as string || '';
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
+      let videoId = getState('player.currentTrackMeta')?.videoId as string || '';
+      if (playlistId && subIndex > 0) {
+        const subMap = getState('youtube.subItemsMap') || {};
+        const cachedId = subMap[playlistId]?.ids?.[subIndex];
+        if (cachedId) {
+          videoId = cachedId;
+          log.debug(`[YouTube] Crash recovery resolved videoId for sub-index ${subIndex}: ${cachedId}`);
+        }
+      }
       // Destroy dead player and rebuild
       try { player.destroy?.(); } catch { /* already dead */ }
       setYouTubePlayer(null);

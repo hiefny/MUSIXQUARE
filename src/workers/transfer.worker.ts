@@ -213,6 +213,24 @@ async function acquireLock(
     return false;
   }
 
+  // Preload slots are partitioned by sessionId, but the OPFS file lock is
+  // per-filename (buildSafeName ignores sessionId). If another preload slot
+  // still holds the same filename, OPFS will reject the new
+  // createSyncAccessHandle/createWritable with "modifications are not allowed",
+  // leaving this slot half-initialized and every subsequent chunk in mismatch.
+  // Pre-empt the older slot so the new sessionId can take over cleanly.
+  if (isPreload) {
+    for (const [otherSid, otherSlot] of preloadSlots) {
+      if (otherSid !== sessionId && otherSlot.isLocked && otherSlot.name === filename) {
+        await cleanupHandle(otherSlot, `Preempted by sid=${sessionId} (same file)`);
+        otherSlot.isLocked = false;
+        otherSlot.sessionId = null;
+        otherSlot.name = null;
+        preloadSlots.delete(otherSid);
+      }
+    }
+  }
+
   if (opfsObj.isLocked && opfsObj.name === filename) {
     if (sessionId === opfsObj.sessionId) {
       opfsObj.lockTime = now;
@@ -285,6 +303,9 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     }
 
     if (!(await acquireLock(opfsObj, sessionId, filename, isPreload))) {
+      // Drop the empty slot getOpfsObj() registered on lookup; otherwise
+      // every retry leaks an additional entry until OPFS_RESET.
+      if (isPreload) preloadSlots.delete(sessionId);
       safePost({
         type: 'OPFS_ERROR',
         error: 'Lock Collision',
@@ -350,6 +371,10 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       safePost({ type: 'OPFS_STARTED', filename, isPreload, sessionId });
     } catch (e: unknown) {
       await releaseLock(opfsObj);
+      // releaseLock cleared the slot's lock fields, but preloadSlots still
+      // holds the (now empty) entry. Drop it so subsequent chunks for this
+      // sessionId don't get stuck in SESSION_MISMATCH against a null sid.
+      if (isPreload) preloadSlots.delete(sessionId);
       safePost({
         type: 'OPFS_ERROR',
         error: (e as Error)?.message ?? String(e),

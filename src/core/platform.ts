@@ -71,6 +71,7 @@ let _platformClassesApplied = false;
 let _iosViewportProbe: HTMLDivElement | null = null;
 let _stableViewportHeight = 0;
 let _keyboardFreezeUntil = 0;
+let _kbDetectionLockedUntil = 0;
 
 function updateAppHeightNow(): void {
   const root = document.documentElement;
@@ -190,7 +191,16 @@ function updateAppHeightNow(): void {
   // ── Keyboard Detection (mobile only) ───────────────────────────
   // Detect soft keyboard via visualViewport shrink, BEFORE focus event fires.
   // Sets keyboard-open class and --keyboard-overlap CSS variable proactively.
-  if ((IS_IOS || IS_ANDROID) && vv) {
+  //
+  // Detection is locked for ~1s right after orientationchange. Without the
+  // lock, visualViewport.resize fires repeatedly during the rotation
+  // animation with intermediate heights that look like a soft keyboard
+  // opening (height shrinks below the previous orientation's stable
+  // baseline). Those false positives re-add the keyboard-open class
+  // immediately after the orientationchange handler clears it, the
+  // shouldFreezeAppHeight gate re-engages, and --app-height gets stuck at
+  // the previous orientation's value — the iOS 17 chaos repro.
+  if ((IS_IOS || IS_ANDROID) && vv && Date.now() >= _kbDetectionLockedUntil) {
     const kbVvH = Math.round(vv.height);
     const wasKbOpen = root.classList.contains('keyboard-open');
 
@@ -364,6 +374,21 @@ export function initPlatform(): void {
     window.addEventListener(
       'orientationchange',
       () => {
+        // iOS keeps activeElement focused after rotation, even when the
+        // virtual keyboard is gone. The stillFocused check inside the
+        // keyboard-close branch then refuses to drop the keyboard-open
+        // class, which keeps shouldFreezeAppHeight=true and pins
+        // --app-height at the previous orientation's value. Force-blur
+        // here so the close branch actually fires on the next pass.
+        const ae = document.activeElement as HTMLElement | null;
+        if (ae && ae !== document.body && typeof ae.blur === 'function') {
+          try {
+            ae.blur();
+          } catch {
+            /* noop */
+          }
+        }
+
         // Reset stable viewport — orientation changes the full viewport dimensions.
         _stableViewportHeight = 0;
         // Reset keyboard freeze. A rotation that happens within the
@@ -376,6 +401,12 @@ export function initPlatform(): void {
         // wrong dimension. Rotating always implies the keyboard is gone, so
         // it's safe to clear both signals unconditionally.
         _keyboardFreezeUntil = 0;
+        // Suppress keyboard detection for ~1s. visualViewport.resize fires
+        // repeatedly during the rotation animation with shrunken heights
+        // that get mis-detected as a keyboard opening — those false
+        // positives re-add the keyboard-open class right after we clear
+        // it below, defeating every other reset in this handler.
+        _kbDetectionLockedUntil = Date.now() + 1000;
         document.documentElement.classList.remove('keyboard-open');
         scheduleAppHeightUpdate();
         // Settle timer for both platforms — visualViewport can lag behind

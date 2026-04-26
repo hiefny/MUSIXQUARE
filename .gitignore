@@ -11,6 +11,7 @@ e2e-report.json
 e2e-results.log
 e2e/e2e-report-data.js
 test-results/
+coverage/
 
 # Ad-hoc debugging artifacts (SEO header dumps, git log exports, one-off fetch scripts)
 # If you need these, put them under scratch/ which is also ignored.

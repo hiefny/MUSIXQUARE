@@ -114,6 +114,9 @@ function evaluatePeer(peerId: string, isInitial: boolean = false): void {
       removeRelayAssignment(peerId);
     }
     setPeerDataTarget(peerId, true);
+    // peer-evaluated has no listener by design — see line 88-97 doc comment.
+    // Reserved for routing-only re-eval observability; file/audio bootstrap
+    // listens on peer-joined (initial only) to avoid re-bootstrapping peers.
     bus.emit('orchestrator:peer-evaluated', peerId);
     if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
     return;
@@ -128,7 +131,7 @@ function evaluatePeer(peerId: string, isInitial: boolean = false): void {
       removeRelayAssignment(peerId);
     }
 
-    // Signal that evaluation is complete — isDataTarget is now set
+    // peer-evaluated: routing-only re-eval observability (no current listener).
     bus.emit('orchestrator:peer-evaluated', peerId);
     if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
   } else if (connType === 'remote') {
@@ -145,6 +148,7 @@ function evaluatePeer(peerId: string, isInitial: boolean = false): void {
     }
     setPeerDataTarget(peerId, false);
 
+    // peer-evaluated: routing-only re-eval observability (no current listener).
     bus.emit('orchestrator:peer-evaluated', peerId);
     if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
   }

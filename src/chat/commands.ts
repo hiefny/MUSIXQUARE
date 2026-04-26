@@ -20,6 +20,7 @@ import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { getDetectedBPM, setPartyMode } from '../audio/beat-detector.ts';
+import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -517,18 +518,16 @@ function cmdDebug(): void {
     `[FX] EQ:${eqActive ? 'ON' : 'off'} | reverb:${reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'off'} | vbass:${vbass > 0 ? 'ON' : 'off'}`,
   );
 
-  // Try to get AudioContext info
-  try {
-    const ctx = (window as unknown as Record<string, unknown>).__mxqr_audio_ctx as
-      | AudioContext
-      | undefined;
-    if (ctx) {
+  // AudioContext info (engine init 후에만)
+  if (isAudioReady()) {
+    try {
+      const ctx = getAudioContext();
       lines.push(
         `[AudioCtx] sr:${ctx.sampleRate}Hz | state:${ctx.state} | time:${ctx.currentTime.toFixed(1)}s`,
       );
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
   }
 
   // Playlist

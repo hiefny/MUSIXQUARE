@@ -15,6 +15,7 @@ import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
+import { clearReceiveState } from '../storage/transfer-receive.ts';
 import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -240,12 +241,13 @@ function cancelInFlightTransfer(): void {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
-    // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
-    import('../storage/transfer-receive.ts')
-      .then((mod) => mod.clearReceiveState())
-      .catch((e) => {
-        log.debug('[YouTube] clearReceiveState failed:', e);
-      });
+    // Clear receive-side reorder buffer / early-chunk queue.
+    // No circular dependency: transfer-receive does not import any youtube/* module.
+    try {
+      clearReceiveState();
+    } catch (e) {
+      log.debug('[YouTube] clearReceiveState failed:', e);
+    }
     showLoader(false);
   }
 }

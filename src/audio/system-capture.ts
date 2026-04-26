@@ -184,7 +184,6 @@ export async function startSystemAudioCapture(): Promise<void> {
   muteLocalOutput(true);
 
   // 8. Update state
-  setState('systemAudio.isSharing', true);
   setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
   setState('player.currentTrackMeta', {
     type: 'file',
@@ -225,8 +224,6 @@ export function stopSystemAudioCapture(): void {
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
   cleanupCapture();
   muteLocalOutput(false);
-
-  setState('systemAudio.isSharing', false);
 
   if (_preSysAudioState) {
     setState('player.pausedAt', _preSysAudioState.pausedAt);
@@ -277,7 +274,6 @@ export function muteLocalOutput(mute: boolean): void {
   try {
     if (mute) masterGain.disconnect(ctx.destination);
     else masterGain.connect(ctx.destination);
-    setState('systemAudio.hostMuteLocal', mute);
   } catch (e) {
     log.debug('[SystemAudio] mute/unmute error:', e);
   }

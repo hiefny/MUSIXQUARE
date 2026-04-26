@@ -103,7 +103,6 @@ function createInitialState(): StateTree {
       virtualBass: 0,
       subFreq: 120,
       userPreampGain: 1.0,
-      detectedBPM: 0,
     },
 
     sync: {
@@ -172,9 +171,7 @@ function createInitialState(): StateTree {
     },
 
     systemAudio: {
-      isSharing: false,
       isReceiving: false,
-      hostMuteLocal: true,
     },
 
     playback: {

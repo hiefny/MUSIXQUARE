@@ -14,7 +14,7 @@
 import { log } from '../core/log.ts';
 import { analyzeFullBuffer } from 'realtime-bpm-analyzer';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { getCurrentTime } from './context.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
@@ -132,12 +132,10 @@ async function analyzeAndStart(): Promise<void> {
     if (_bpm <= 0) {
       log.warn('[BeatDetector] Could not detect BPM');
       _beatDuration = 0;
-      setState('audio.detectedBPM', 0);
       return;
     }
 
     _beatDuration = 60 / _bpm;
-    setState('audio.detectedBPM', _bpm);
 
     log.info(`[BeatDetector] ${_bpm} BPM via library in ${ms.toFixed(0)}ms`);
 

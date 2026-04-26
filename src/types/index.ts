@@ -431,7 +431,6 @@ export interface StateTree {
     virtualBass: number;
     subFreq: number;
     userPreampGain: number;
-    detectedBPM: number;
   };
   sync: { localOffset: number; lastLatencyMs: number; latencyHistory: number[] };
   network: {
@@ -493,7 +492,7 @@ export interface StateTree {
     pendingFileName: string;
     pendingFileIndex: number | undefined;
   };
-  systemAudio: { isSharing: boolean; isReceiving: boolean; hostMuteLocal: boolean };
+  systemAudio: { isReceiving: boolean };
   /**
    * Guest-side track playback lifecycle. Orthogonal to `appState` (mode).
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.

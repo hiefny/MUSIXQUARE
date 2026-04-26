@@ -476,11 +476,6 @@ bus.on('network:kick-device', (peerId) => {
   showToast(t('toast.device_kicked', { name: target.label || peerId }));
 });
 
-// Expose toggleOperator globally for device-list UI buttons
-(window as unknown as Record<string, unknown>).toggleOperator = (peerId: string) => {
-  bus.emit('network:toggle-operator', peerId);
-};
-
 // Host: resize peer slots when max guests changes
 bus.on('network:max-guests-changed', (max: number) => {
   setState('network.maxGuestSlots', max);

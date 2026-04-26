@@ -625,6 +625,7 @@ interface BaseEventMap {
   'ui:duration-update': [duration: number];
   'ui:seek-reset': [];
   'ui:loop-start': [];
+  'ui:scrollbar-relayout': [];
   'ui:time-update': [
     currentFormatted: string,
     totalFormatted: string,

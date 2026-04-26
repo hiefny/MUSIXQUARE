@@ -6,6 +6,7 @@
 
 import { isCompactLandscape, onCompactLandscapeChange } from '../core/platform.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import { bus } from '../core/events.ts';
 
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
@@ -188,6 +189,13 @@ export function initCustomScrollbar(container: HTMLElement): void {
   const orientationMql = window.matchMedia('(orientation: landscape)');
   orientationMql.addEventListener('change', onLayoutChange);
 
+  // Bus signal for transform-based visibility changes (e.g. chat-drawer
+  // sliding in via translateY). Neither ResizeObserver nor MutationObserver
+  // on the container itself catches a parent transform — the size doesn't
+  // change and the open/close class lands on an ancestor — so external
+  // callers must signal a relayout when they animate visibility.
+  const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => updateLayout(state));
+
   // Drag thumb to scroll
   thumb.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -272,6 +280,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => window.removeEventListener('blur', onDragEnd),
     () => orientationMql.removeEventListener('change', onLayoutChange),
     cleanupCompactListener,
+    cleanupRelayoutBus,
   ];
 
   // Click on track → jump

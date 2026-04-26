@@ -116,6 +116,15 @@ export function toggleChatDrawer(): void {
     if (messages) messages.scrollTop = messages.scrollHeight;
     // Removed automatic focus to prevent the keyboard from opening immediately.
   }
+
+  // Custom scrollbars inside the drawer track viewport coordinates via
+  // getBoundingClientRect(). The drawer's open/close animation is a CSS
+  // transform on an ancestor — neither ResizeObserver nor MutationObserver
+  // on the inner container catches it. Signal a relayout now (for the
+  // open frame) and again after the 200ms transform transition settles
+  // so the track ends up in the final visible position.
+  bus.emit('ui:scrollbar-relayout');
+  setManagedTimer('chat-drawer-relayout', () => bus.emit('ui:scrollbar-relayout'), 250);
 }
 
 // ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────

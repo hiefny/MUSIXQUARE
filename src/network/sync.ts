@@ -12,6 +12,8 @@ import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
+import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
+import { isIdleOrPaused } from '../player/video.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -57,12 +59,8 @@ export function handleAutoSync(): void {
   // startedAt from the new (zero) offset. Without this, "Reset" just
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
-  Promise.all([import('../player/transport.ts'), import('../player/video.ts')])
-    .then(([transport, video]) => {
-      if (video.isIdleOrPaused(getState('appState'))) return;
-      transport.play(transport.getTrackPosition());
-    })
-    .catch((e) => log.error('[Sync] Failed to import modules for auto-sync replay:', e));
+  if (isIdleOrPaused(getState('appState'))) return;
+  play(getTrackPosition());
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
@@ -90,31 +88,21 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   const appState = getState('appState');
   const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO;
 
-  // Dynamic import for getTrackPosition to avoid circular dep
   if (isFilePlaying) {
-    import('../player/transport.ts')
-      .then((mod) => {
-        if (!conn.open) return;
-        // Re-read appState AFTER the microtask gap — the captured value from
-        // before the dynamic import may be stale if the host paused during the
-        // import resolve. Sending a stale PLAYING_AUDIO pong causes the guest
-        // to start playing while the host is actually paused.
-        const freshAppState = getState('appState');
-        const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO;
-        try {
-          conn.send({
-            type: MSG.SYNC_PONG,
-            pingId: data.pingId,
-            hostTime,
-            position: freshIsPlaying ? mod.getTrackPosition() : 0,
-            appState: freshAppState,
-            trackIndex: getState('playlist.currentTrackIndex'),
-          });
-        } catch {
-          /* closed */
-        }
-      })
-      .catch((e) => log.error('[Sync] Failed to import transport:', e));
+    if (conn.open) {
+      try {
+        conn.send({
+          type: MSG.SYNC_PONG,
+          pingId: data.pingId,
+          hostTime,
+          position: getTrackPosition(),
+          appState,
+          trackIndex: getState('playlist.currentTrackIndex'),
+        });
+      } catch {
+        /* closed */
+      }
+    }
   } else {
     try {
       conn.send({
@@ -161,21 +149,17 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
-  import('../player/transport.ts')
-    .then((mod) => {
-      // First pong after play start: unconditionally lock to host
-      if (_needsInitialSync) {
-        _needsInitialSync = false;
-        mod.play(estimatedHostPos);
-        return;
-      }
-      // Ongoing: correct if drift > 2s
-      const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
-      if (drift > 2) {
-        mod.play(estimatedHostPos);
-      }
-    })
-    .catch((e) => log.error('[Sync] Failed to import transport:', e));
+  // First pong after play start: unconditionally lock to host
+  if (_needsInitialSync) {
+    _needsInitialSync = false;
+    play(estimatedHostPos);
+    return;
+  }
+  // Ongoing: correct if drift > 2s
+  const drift = Math.abs(estimatedHostPos - getTrackPosition());
+  if (drift > 2) {
+    play(estimatedHostPos);
+  }
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -369,10 +353,7 @@ export function initSync(): void {
   // Bus event handlers for UI-triggered sync actions
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
-    // Dynamic import to avoid circular dependency
-    import('../player/transport.ts')
-      .then((mod) => mod.adjustSync(ms / 1000))
-      .catch((e) => log.error('[Sync] Failed to import transport:', e));
+    adjustSync(ms / 1000);
   });
 
   bus.on('sync:auto-sync', () => {

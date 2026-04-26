@@ -609,15 +609,15 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 
   // Update preload progress UI (only if main transfer is not active)
   // To avoid UI flickering when a superseded session finishes in the background,
-  // only update UI if this session is the latest, or if it's the specific
-  // track we're actively waiting for in AWAITING_PRELOAD.
-  let shouldUpdateUI = sessionId === latestPreloadSessionId;
+  // we must be mutually exclusive. If we're blocked waiting for a track, ONLY show
+  // that track's progress. Otherwise, show the latest broadcast preload.
+  let shouldUpdateUI = false;
   const lifecycle = getState('playback.lifecycle');
   if (lifecycle === 'AWAITING_PRELOAD') {
     const pendingIdx = getState('recovery.pendingFileIndex');
-    if (updatedSession.index === pendingIdx) {
-      shouldUpdateUI = true;
-    }
+    shouldUpdateUI = (updatedSession.index === pendingIdx);
+  } else {
+    shouldUpdateUI = (sessionId === latestPreloadSessionId);
   }
 
   if (shouldUpdateUI && updatedSession.total > 0) {

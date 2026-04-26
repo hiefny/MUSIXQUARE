@@ -123,11 +123,11 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     }
 
     // Fresh join (currentTrackIndex was -1): the file will be sent automatically
-    // by the orchestrator:peer-evaluated handler after ICE detection completes.
+    // by the orchestrator:peer-joined handler after ICE detection completes.
     // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
     // if the request arrives after the orchestrator sets isDataTarget=true.
     if (currentTrackIndex === -1) {
-      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-evaluated');
+      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-joined');
       return;
     }
 
@@ -739,8 +739,11 @@ export function initPlayback(): void {
     }
   });
 
-  // Host: Send current file after orchestrator evaluation (isDataTarget is now set)
-  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+  // Host: Send current file when a peer first joins (post-ICE evaluation).
+  // Re-evaluations from topology changes (e.g. another peer leaving) reuse
+  // 'peer-evaluated' for routing only — bootstrapping the file again would
+  // re-trigger 'storage:transfer-progress' on a peer that already has it.
+  bus.on('orchestrator:peer-joined', (peerId: string) => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host
 

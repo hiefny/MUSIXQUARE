@@ -149,8 +149,8 @@ export function registerSystemAudioHostListeners(): void {
     }, 500);
   });
 
-  // ICE type resolved → if local and system audio active, call them
-  bus.on('orchestrator:peer-evaluated', (peerId: string) => {
+  // ICE type resolved on initial join → if local and system audio active, call them
+  bus.on('orchestrator:peer-joined', (peerId: string) => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (_mediaConns.has(peerId)) return;

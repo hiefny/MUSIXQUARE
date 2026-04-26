@@ -90,8 +90,15 @@ function setPeerDataTarget(peerId: string, value: boolean): void {
 /**
  * Called after ICE type detection resolves for a peer.
  * Decides whether the peer gets direct data or relay.
+ *
+ * `isInitial` distinguishes the first evaluation right after a peer joins
+ * (ICE classification just resolved) from a re-evaluation triggered by
+ * topology changes (another peer leaving, threshold crossing, etc.).
+ * Only initial evaluations emit `orchestrator:peer-joined`, which is what
+ * file/system-audio bootstrap consumers listen on. Re-evaluations still
+ * emit `peer-evaluated` for routing-only updates.
  */
-function evaluatePeer(peerId: string): void {
+function evaluatePeer(peerId: string, isInitial: boolean = false): void {
   if (!isHost()) return;
 
   const peers = getConnectedPeers();
@@ -110,6 +117,7 @@ function evaluatePeer(peerId: string): void {
     }
     setPeerDataTarget(peerId, true);
     bus.emit('orchestrator:peer-evaluated', peerId);
+    if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
     return;
   }
 
@@ -124,6 +132,7 @@ function evaluatePeer(peerId: string): void {
 
     // Signal that evaluation is complete — isDataTarget is now set
     bus.emit('orchestrator:peer-evaluated', peerId);
+    if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
   } else if (connType === 'remote') {
     // Hard TURN-cost policy: remote peers do NOT receive file data or
     // system-audio streams. Host-direct would bill TURN egress, and the
@@ -139,6 +148,7 @@ function evaluatePeer(peerId: string): void {
     setPeerDataTarget(peerId, false);
 
     bus.emit('orchestrator:peer-evaluated', peerId);
+    if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
   }
   // 'unknown' → ignore, event will fire again when detection completes
 }
@@ -212,7 +222,7 @@ function handlePeerDisconnect(peerId: string): void {
 
 export function initOrchestrator(): void {
   bus.on('orchestrator:peer-type-detected', (peerId: string) => {
-    evaluatePeer(peerId);
+    evaluatePeer(peerId, true);
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {

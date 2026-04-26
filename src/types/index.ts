@@ -581,6 +581,7 @@ interface BaseEventMap {
   'relay:serve-recovery': [conn: DataConnection, msg: unknown];
   'orchestrator:peer-type-detected': [peerId: string];
   'orchestrator:peer-evaluated': [peerId: string];
+  'orchestrator:peer-joined': [peerId: string];
 
   // ── Connect ─────────────────────────────────────────────────────────
   'ui:connect-tab-opened': [];

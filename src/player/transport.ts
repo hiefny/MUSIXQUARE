@@ -435,7 +435,7 @@ export function pause(forcedTime?: number): void {
 
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
-  
+
   if (!getState('network.hostConn')) {
     transition({ type: 'PAUSE', time: pausePos, endOfPlaylist: false });
   }

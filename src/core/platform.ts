@@ -364,10 +364,26 @@ export function initPlatform(): void {
     window.addEventListener(
       'orientationchange',
       () => {
-        // Reset stable viewport height — orientation changes the full viewport dimensions
+        // Reset stable viewport — orientation changes the full viewport dimensions.
         _stableViewportHeight = 0;
+        // Reset keyboard freeze. A rotation that happens within the
+        // keyboard-close freeze window (350ms) would otherwise lock
+        // --app-height at the previous orientation's value: the next
+        // updateAppHeight call sees shouldFreezeAppHeight=true and skips
+        // the assignment, leaving the new orientation with a stale viewport
+        // height. CSS that anchors on var(--app-height) (scrollbar centering,
+        // sidebar height, modal positioning) then renders relative to the
+        // wrong dimension. Rotating always implies the keyboard is gone, so
+        // it's safe to clear both signals unconditionally.
+        _keyboardFreezeUntil = 0;
+        document.documentElement.classList.remove('keyboard-open');
         scheduleAppHeightUpdate();
-        if (IS_ANDROID) setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
+        // Settle timer for both platforms — visualViewport can lag behind
+        // orientationchange while the OS animates the rotation, so a single
+        // synchronous update isn't enough. iOS in particular had no follow-up
+        // trigger after the freeze cleared, leaving --app-height stale until
+        // the user touched the screen and incidentally re-fired the update.
+        setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
       },
       { passive: true },
     );

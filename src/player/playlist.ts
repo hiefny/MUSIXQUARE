@@ -487,6 +487,9 @@ function handleEndOfPlaylist(reason: string): void {
   setState('player.currentTrackMeta', null);
   setState('playlist.currentTrackIndex', -1);
   setState('player.pausedAt', 0);
+  // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
+  // playback.lifecycle returns to IDLE in lockstep with guests.
+  transition({ type: 'PAUSE', time: 0, endOfPlaylist: true });
   broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true });
   showToast(t('toast.playlist_ended'));
 }

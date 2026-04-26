@@ -10,7 +10,7 @@ import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
@@ -613,7 +613,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // that track's progress. Otherwise, show the latest broadcast preload.
   let shouldUpdateUI = false;
   const lifecycle = getState('playback.lifecycle');
-  if (lifecycle === 'AWAITING_PRELOAD') {
+  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) {
     const pendingIdx = getState('recovery.pendingFileIndex');
     shouldUpdateUI = (updatedSession.index === pendingIdx);
   } else {

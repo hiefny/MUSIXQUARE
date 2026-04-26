@@ -20,7 +20,10 @@ import type { DataConnection, ProtocolMsg, AnyProtocolMsg } from '../types/index
  * Validate message structure — must be an object with a `type` field.
  * Optionally checks for required fields.
  */
-export function validateMessage(data: unknown, requiredFields: string[] = []): data is Record<string, unknown> {
+export function validateMessage(
+  data: unknown,
+  requiredFields: string[] = [],
+): data is Record<string, unknown> {
   if (!data || typeof data !== 'object') return false;
   const msg = data as Record<string, unknown>;
   if (!msg.type) return false;
@@ -42,7 +45,8 @@ export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>(RELAYABLE
 
 /** Relay-local requests that should NOT be forwarded upstream (handled from local OPFS). */
 const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
-  'request-current-file', 'request-data-recovery',
+  'request-current-file',
+  'request-data-recovery',
 ]);
 
 // ─── Lightweight Protocol Validators ─────────────────────────────────
@@ -52,15 +56,15 @@ const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
 const isArrayBufferLike = (v: unknown): boolean =>
   v instanceof ArrayBuffer ||
   v instanceof Uint8Array ||
-  (v != null && typeof v === 'object' && Object.prototype.toString.call(v) === '[object ArrayBuffer]');
+  (v != null &&
+    typeof v === 'object' &&
+    Object.prototype.toString.call(v) === '[object ArrayBuffer]');
 
 // Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
 // values. Without this, Number(undefined) → NaN silently passes typeof===number,
 // and a malicious peer could send index=Infinity to explode a reorder buffer Map.
-const isFiniteNumber = (v: unknown): v is number =>
-  typeof v === 'number' && Number.isFinite(v);
-const isNonNegInt = (v: unknown): v is number =>
-  isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
 
 // Max 200,000 chunks ≈ 3.2 GB at 16 KB/chunk — prevents DoS via unbounded total
 const MAX_FILE_TOTAL = 200_000;
@@ -68,14 +72,21 @@ const MAX_FILE_TOTAL = 200_000;
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
   [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
-  [MSG.VOLUME]: (d) => isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
+  [MSG.VOLUME]: (d) =>
+    isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
-  [MSG.FILE_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
+  [MSG.FILE_START]: (d) =>
+    typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
-  [MSG.PRELOAD_START]: (d) => typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
+  [MSG.PRELOAD_START]: (d) =>
+    typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
-  [MSG.EQ_UPDATE]: (d) => isFiniteNumber(d.band) && (d.band as number) >= 0 && (d.band as number) < 16 && isFiniteNumber(d.value),
+  [MSG.EQ_UPDATE]: (d) =>
+    isFiniteNumber(d.band) &&
+    (d.band as number) >= 0 &&
+    (d.band as number) < 16 &&
+    isFiniteNumber(d.value),
 
   // YouTube messages — validate numeric fields that flow into player APIs / state
   [MSG.YOUTUBE_PLAY]: (d) =>
@@ -83,35 +94,33 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_SYNC]: (d) =>
-    isFiniteNumber(d.time) && isFiniteNumber(d.state) &&
+    isFiniteNumber(d.time) &&
+    isFiniteNumber(d.state) &&
     (d.subIndex === undefined || isFiniteNumber(d.subIndex)),
   [MSG.YOUTUBE_STATE]: (d) =>
-    isFiniteNumber(d.state) && (d.time === undefined || isFiniteNumber(d.time)) &&
+    isFiniteNumber(d.state) &&
+    (d.time === undefined || isFiniteNumber(d.time)) &&
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
     typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
-  [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) =>
-    isNonNegInt(d.subIdx),
+  [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) => isNonNegInt(d.subIdx),
 
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
-  [MSG.FILE_RESUME]: (d) =>
-    isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
+  [MSG.FILE_RESUME]: (d) => isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
 
   // Chat — validate text field exists and cap length
   [MSG.CHAT]: (d) => typeof d.text === 'string',
-  [MSG.CHAT_WHISPER]: (d) =>
-    typeof d.text === 'string' && typeof d.targetId === 'string',
+  [MSG.CHAT_WHISPER]: (d) => typeof d.text === 'string' && typeof d.targetId === 'string',
   [MSG.CHAT_NOTICE]: (d) => typeof d.text === 'string',
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 
   // Playlist — validate list is an array (individual items checked in handler)
-  [MSG.PLAYLIST_UPDATE]: (d) =>
-    Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
+  [MSG.PLAYLIST_UPDATE]: (d) => Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
 };
 
 // ─── Generic Inbound Rate-Limit (per peer) ──────────────────────────
@@ -129,10 +138,7 @@ const INBOUND_BURST = 60;
 const INBOUND_REFILL_MS = 50;
 const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>();
 
-const RATE_LIMIT_EXEMPT: ReadonlySet<string> = new Set<string>([
-  MSG.FILE_CHUNK,
-  MSG.PRELOAD_CHUNK,
-]);
+const RATE_LIMIT_EXEMPT: ReadonlySet<string> = new Set<string>([MSG.FILE_CHUNK, MSG.PRELOAD_CHUNK]);
 
 function allowInboundFromPeer(peerId: string): boolean {
   if (!peerId) return true;
@@ -169,7 +175,10 @@ const _handlers = new Map<string, MessageHandler>();
  * Register a handler for a specific message type.
  * Can be called from any module during initialization.
  */
-export function registerHandler<T extends MsgType>(type: T, handler: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>): void {
+export function registerHandler<T extends MsgType>(
+  type: T,
+  handler: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>,
+): void {
   if (_handlers.has(type)) {
     log.warn(`[Protocol] Overwriting handler for: ${type}`);
   }
@@ -180,7 +189,9 @@ export function registerHandler<T extends MsgType>(type: T, handler: (data: Prot
  * Register multiple handlers at once.
  * Each handler receives a typed payload matching its message type key.
  */
-export function registerHandlers(handlers: { [T in MsgType]?: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void> }): void {
+export function registerHandlers(handlers: {
+  [T in MsgType]?: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>;
+}): void {
   for (const [type, handler] of Object.entries(handlers)) {
     if (handler) registerHandler(type as MsgType, handler as MessageHandler);
   }
@@ -222,7 +233,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     if (!hostConn) {
       // Host side: verify sender is the assigned relay for the claimed _originPeer
       if (!isAssignedRelay(msg._originPeer as string, conn?.peer)) {
-        log.warn(`[Protocol] Stripping spoofed _originPeer=${msg._originPeer} from ${conn?.peer} (not assigned relay)`);
+        log.warn(
+          `[Protocol] Stripping spoofed _originPeer=${msg._originPeer} from ${conn?.peer} (not assigned relay)`,
+        );
         delete msg._originPeer;
       }
     }
@@ -253,10 +266,14 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
   if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.has(msgType)) {
     const senderPeerId = conn?.peer;
-    downstreamDataPeers.forEach(p => {
+    downstreamDataPeers.forEach((p) => {
       // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)
       if (p.open && (!senderPeerId || p.peer !== senderPeerId)) {
-        try { p.send(data); } catch { /* peer might have closed */ }
+        try {
+          p.send(data);
+        } catch {
+          /* peer might have closed */
+        }
       }
     });
   }
@@ -271,7 +288,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
       // Always overwrite _originPeer with actual sender — never trust downstream value
       // (prevents spoofing: malicious peer could set _originPeer to an operator's ID)
       const forwarded = { ...raw, _originPeer: conn.peer };
-      log.debug(`[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`);
+      log.debug(
+        `[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`,
+      );
       sendToHost(forwarded as unknown as AnyProtocolMsg);
     }
   }
@@ -288,7 +307,7 @@ export function verifyOperator(conn: DataConnection, data?: Record<string, unkno
   const peerId = (typeof data?._originPeer === 'string' && data._originPeer) || conn?.peer;
   if (!peerId) return false;
   const connectedPeers = getState('network.connectedPeers');
-  const peer = connectedPeers.find(p => p.id === peerId);
+  const peer = connectedPeers.find((p) => p.id === peerId);
   return !!(peer && peer.isOp);
 }
 
@@ -300,8 +319,8 @@ export function verifyOperator(conn: DataConnection, data?: Record<string, unkno
  */
 export function initProtocol(): void {
   bus.on('network:data', (data: unknown, conn: unknown) => {
-    handleData(data, conn as DataConnection).catch(e =>
-      log.error('[Protocol] handleData error:', e)
+    handleData(data, conn as DataConnection).catch((e) =>
+      log.error('[Protocol] handleData error:', e),
     );
   });
 

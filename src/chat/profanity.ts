@@ -17,7 +17,8 @@ import { EN } from 'content-shield/languages/en';
 const _profanitySet = new Set<string>();
 
 // Korean: severity >= 2
-for (const entry of (KO as unknown as { profanity: { severity: number; variations: string[] }[] }).profanity) {
+for (const entry of (KO as unknown as { profanity: { severity: number; variations: string[] }[] })
+  .profanity) {
   if (entry.severity >= 2) {
     for (const v of entry.variations) {
       _profanitySet.add(v.toLowerCase());
@@ -26,7 +27,9 @@ for (const entry of (KO as unknown as { profanity: { severity: number; variation
 }
 
 // English: severity >= 2
-for (const entry of (EN as unknown as { words: { severity: number; word: string; variations: string[] }[] }).words) {
+for (const entry of (
+  EN as unknown as { words: { severity: number; word: string; variations: string[] }[] }
+).words) {
   if (entry.severity >= 2) {
     _profanitySet.add(entry.word.toLowerCase());
     for (const v of entry.variations) {
@@ -59,7 +62,8 @@ function _buildCombinedRegex(): { korean: RegExp | null; english: RegExp | null 
 
   return {
     korean: koreanParts.length > 0 ? new RegExp(koreanParts.join('|'), 'gi') : null,
-    english: englishParts.length > 0 ? new RegExp(`\\b(?:${englishParts.join('|')})\\b`, 'gi') : null,
+    english:
+      englishParts.length > 0 ? new RegExp(`\\b(?:${englishParts.join('|')})\\b`, 'gi') : null,
   };
 }
 

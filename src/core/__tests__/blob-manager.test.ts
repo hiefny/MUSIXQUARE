@@ -33,7 +33,9 @@ beforeEach(() => {
   // Stub URL methods
   vi.stubGlobal('URL', {
     createObjectURL: () => `blob:test-${++urlCounter}`,
-    revokeObjectURL: (url: string) => { revokedUrls.push(url); },
+    revokeObjectURL: (url: string) => {
+      revokedUrls.push(url);
+    },
   });
 });
 

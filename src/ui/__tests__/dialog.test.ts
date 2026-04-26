@@ -170,8 +170,8 @@ describe('Dialog System', () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       const results: string[] = [];
 
-      const p1 = showDialog({ title: 'First' }).then(r => results.push(r.action));
-      const p2 = showDialog({ title: 'Second' }).then(r => results.push(r.action));
+      const p1 = showDialog({ title: 'First' }).then((r) => results.push(r.action));
+      const p2 = showDialog({ title: 'Second' }).then((r) => results.push(r.action));
       vi.advanceTimersByTime(10);
 
       // First dialog is active
@@ -224,7 +224,9 @@ describe('Dialog System', () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       let resolved = false;
       const promise = showDialog({ title: 'No Esc', dismissible: false });
-      promise.then(() => { resolved = true; });
+      promise.then(() => {
+        resolved = true;
+      });
       vi.advanceTimersByTime(10);
 
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

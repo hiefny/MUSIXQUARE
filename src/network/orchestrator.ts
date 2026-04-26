@@ -76,12 +76,10 @@ function getConnectedPeers(): readonly ConnectedPeer[] {
 /** Update isDataTarget on a connected peer (immutable update) */
 function setPeerDataTarget(peerId: string, value: boolean): void {
   const peers = getConnectedPeers();
-  const peer = peers.find(p => p.id === peerId);
+  const peer = peers.find((p) => p.id === peerId);
   if (!peer) return;
   if (peer.isDataTarget === value) return;
-  const updatedPeers = peers.map(p =>
-    p.id === peerId ? { ...p, isDataTarget: value } : p,
-  );
+  const updatedPeers = peers.map((p) => (p.id === peerId ? { ...p, isDataTarget: value } : p));
   setState('network.connectedPeers', updatedPeers);
 }
 
@@ -102,7 +100,7 @@ function evaluatePeer(peerId: string, isInitial: boolean = false): void {
   if (!isHost()) return;
 
   const peers = getConnectedPeers();
-  const peer = peers.find(p => p.id === peerId);
+  const peer = peers.find((p) => p.id === peerId);
   if (!peer || peer.status !== 'connected') return;
 
   const connType = peer.connectionType;
@@ -164,7 +162,7 @@ function removeRelayAssignment(peerId: string): void {
   relayAssignments.delete(peerId);
 
   const peers = getConnectedPeers();
-  const peer = peers.find(p => p.id === peerId);
+  const peer = peers.find((p) => p.id === peerId);
 
   if (peer?.connectionType === 'local') {
     // Reclassified to local — can receive directly from host
@@ -216,7 +214,6 @@ function handlePeerDisconnect(peerId: string): void {
     }
   }
 }
-
 
 // ─── Initialize ──────────────────────────────────────────────────────
 

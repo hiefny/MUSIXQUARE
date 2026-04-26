@@ -143,7 +143,9 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
         stopOpfsCatchupStream(pump.peerId, `max retries (${MAX_RETRIES}) exceeded`);
         return;
       }
-      log.warn(`[OPFS Catchup] Stuck ${stuckMs}ms, retry ${pump.retryCount}/${MAX_RETRIES} idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`);
+      log.warn(
+        `[OPFS Catchup] Stuck ${stuckMs}ms, retry ${pump.retryCount}/${MAX_RETRIES} idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`,
+      );
       pump.awaiting = false;
       pump.nextIndex = pump.awaitingIndex; // rewind to retry
       pump.awaitingIndex = null;
@@ -223,38 +225,43 @@ export function connectToRelay(targetId: string): void {
   });
 
   const FAIL_TIMEOUT = 15000;
-  setManagedTimer(RELAY_CONN_TIMER, () => {
-    if (!conn.open) {
-      log.warn('[Relay] Connect Timeout');
-      showToast(t('network.relay_timeout'));
-      conn.close();
-      setState('relay.upstreamDataConn', null);
+  setManagedTimer(
+    RELAY_CONN_TIMER,
+    () => {
+      if (!conn.open) {
+        log.warn('[Relay] Connect Timeout');
+        showToast(t('network.relay_timeout'));
+        conn.close();
+        setState('relay.upstreamDataConn', null);
 
-      // Fallback: request recovery from host (skip if transfer already completed/idle)
-      const transferState = getState('transfer.state');
-      if (transferState === TRANSFER_STATE.IDLE) {
-        log.debug('[Relay] Transfer idle during timeout — no recovery needed');
-        return;
+        // Fallback: request recovery from host (skip if transfer already completed/idle)
+        const transferState = getState('transfer.state');
+        if (transferState === TRANSFER_STATE.IDLE) {
+          log.debug('[Relay] Transfer idle during timeout — no recovery needed');
+          return;
+        }
+
+        const meta = getState('transfer.meta');
+        const receivedCount = getState('transfer.receivedCount');
+        const currentTrackIndex = getState('playlist.currentTrackIndex');
+
+        if (currentTrackIndex < 0 || !meta?.name) {
+          log.warn('[Relay] Cannot request recovery: no active transfer — requesting current file');
+          sendToHost({ type: MSG.REQUEST_CURRENT_FILE });
+        } else {
+          sendToHost({
+            type: MSG.REQUEST_DATA_RECOVERY,
+            nextChunk: receivedCount || 0,
+            fileName: meta.name,
+            index: currentTrackIndex,
+            sessionId:
+              getState('transfer.currentSessionId') || getState('transfer.localSessionId') || 0,
+          });
+        }
       }
-
-      const meta = getState('transfer.meta');
-      const receivedCount = getState('transfer.receivedCount');
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-
-      if (currentTrackIndex < 0 || !meta?.name) {
-        log.warn('[Relay] Cannot request recovery: no active transfer — requesting current file');
-        sendToHost({ type: MSG.REQUEST_CURRENT_FILE });
-      } else {
-        sendToHost({
-          type: MSG.REQUEST_DATA_RECOVERY,
-          nextChunk: receivedCount || 0,
-          fileName: meta.name,
-          index: currentTrackIndex,
-          sessionId: getState('transfer.currentSessionId') || getState('transfer.localSessionId') || 0,
-        });
-      }
-    }
-  }, FAIL_TIMEOUT);
+    },
+    FAIL_TIMEOUT,
+  );
 
   // Register data handler before open to avoid missing early messages
   conn.on('data', (data: unknown) => {
@@ -274,7 +281,11 @@ export function connectToRelay(targetId: string): void {
   conn.on('error', (err: unknown) => {
     log.warn('[Relay] Connection error:', err);
     clearManagedTimer(RELAY_CONN_TIMER);
-    try { conn.close(); } catch { /* noop */ }
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
     const currentUpstream = getState('relay.upstreamDataConn');
     if (currentUpstream === conn) {
       setState('relay.upstreamDataConn', null);
@@ -319,18 +330,28 @@ export function handleRelayConnection(conn: DataConnection): void {
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
 
     // Enforce downstream peer limit to prevent resource exhaustion
-    const currentCount = downstreamDataPeers.filter(p => p.peer !== conn.peer).length;
+    const currentCount = downstreamDataPeers.filter((p) => p.peer !== conn.peer).length;
     if (currentCount >= MAX_DOWNSTREAM_PEERS) {
-      log.warn(`[Relay] Downstream peer limit (${MAX_DOWNSTREAM_PEERS}) reached — rejecting ${conn.peer}`);
-      try { conn.close(); } catch { /* noop */ }
+      log.warn(
+        `[Relay] Downstream peer limit (${MAX_DOWNSTREAM_PEERS}) reached — rejecting ${conn.peer}`,
+      );
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
       return;
     }
     // Duplicate check: remove stale connection for same peer before adding new one
-    const existingIdx = downstreamDataPeers.findIndex(p => p.peer === conn.peer);
+    const existingIdx = downstreamDataPeers.findIndex((p) => p.peer === conn.peer);
     if (existingIdx !== -1) {
       const stale = downstreamDataPeers[existingIdx];
-      try { stale.close(); } catch { /* noop */ }
-      const updated = downstreamDataPeers.filter(p => p.peer !== conn.peer);
+      try {
+        stale.close();
+      } catch {
+        /* noop */
+      }
+      const updated = downstreamDataPeers.filter((p) => p.peer !== conn.peer);
       updated.push(conn);
       setState('relay.downstreamDataPeers', updated);
     } else {
@@ -345,7 +366,9 @@ export function handleRelayConnection(conn: DataConnection): void {
       // Guard: only serve if conn is tracked (open handler has fired).
       // If data arrives before open, the OPFS catchup pump looks up the peer
       // in downstreamDataPeers — a miss silently drops all chunks.
-      const tracked = (getState('relay.downstreamDataPeers') as DataConnection[]).some(p => p === conn);
+      const tracked = (getState('relay.downstreamDataPeers') as DataConnection[]).some(
+        (p) => p === conn,
+      );
       if (!tracked) {
         log.warn(`[Relay] REQUEST_CURRENT_FILE before open — deferring for ${conn.peer}`);
         conn.once('open', () => bus.emit('relay:serve-current-file', conn, msg));
@@ -370,16 +393,20 @@ export function handleRelayConnection(conn: DataConnection): void {
       stopOpfsCatchupStream(conn.peer, 'downstream error');
     }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
-    const wasTracked = downstreamDataPeers.some(p => p === conn);
+    const wasTracked = downstreamDataPeers.some((p) => p === conn);
     setState(
       'relay.downstreamDataPeers',
-      downstreamDataPeers.filter(p => p !== conn)
+      downstreamDataPeers.filter((p) => p !== conn),
     );
     // Notify host so relay assignment is cleared (close handler skips if already removed)
     if (wasTracked) {
       sendToHost({ type: MSG.RELAY_DOWNSTREAM_LOST, lostPeerId: conn.peer });
     }
-    try { conn.close(); } catch { /* noop */ }
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
   });
 
   conn.on('close', () => {
@@ -390,10 +417,10 @@ export function handleRelayConnection(conn: DataConnection): void {
     }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     // Use reference equality to avoid removing a new connection from the same peer
-    const wasTracked = downstreamDataPeers.some(p => p === conn);
+    const wasTracked = downstreamDataPeers.some((p) => p === conn);
     setState(
       'relay.downstreamDataPeers',
-      downstreamDataPeers.filter(p => p !== conn)
+      downstreamDataPeers.filter((p) => p !== conn),
     );
     // Only notify host if THIS connection was still tracked — prevents double-fire when
     // error handler already removed it and close fires afterwards.
@@ -467,25 +494,33 @@ export function initRelay(): void {
     const isMatchCurrent = currentFileBlob && (!reqName || (meta && meta.name === reqName));
     // Try to match preloaded file (index match → name match → implicit next-track match)
     const nextTrackIndex = getState('preload.nextTrackIndex');
-    const isMatchPreload = nextFileBlob && (
-      (reqIndex !== undefined && nextMeta?.index === reqIndex) ||
-      (reqName && nextMeta?.name === reqName) ||
-      (!reqName && nextTrackIndex >= 0 && (nextMeta?.index as number) === nextTrackIndex)
-    );
+    const isMatchPreload =
+      nextFileBlob &&
+      ((reqIndex !== undefined && nextMeta?.index === reqIndex) ||
+        (reqName && nextMeta?.name === reqName) ||
+        (!reqName && nextTrackIndex >= 0 && (nextMeta?.index as number) === nextTrackIndex));
 
     if (isMatchCurrent) {
       log.debug(`[Relay] Serving current file to ${conn.peer}: ${meta?.name}`);
       const file = ensureNamedFile(currentFileBlob, (meta?.name as string) || 'Track');
-      if (file) unicastFile(conn, file, 0, null, true).catch(e => log.error('[Relay] unicast current failed:', e));
+      if (file)
+        unicastFile(conn, file, 0, null, true).catch((e) =>
+          log.error('[Relay] unicast current failed:', e),
+        );
     } else if (isMatchPreload) {
       log.debug(`[Relay] Serving preloaded file to ${conn.peer}: ${nextMeta?.name}`);
       const file = ensureNamedFile(nextFileBlob, (nextMeta?.name as string) || 'Track');
-      if (file) unicastFile(conn, file, 0, null, true).catch(e => log.error('[Relay] unicast preload failed:', e));
+      if (file)
+        unicastFile(conn, file, 0, null, true).catch((e) =>
+          log.error('[Relay] unicast preload failed:', e),
+        );
     } else if (meta?.name) {
       // Mid-download relay: send header + trigger OPFS catch-up
       const receivedCount = getState('transfer.receivedCount');
       const bootName = (meta.name as string) || reqName;
-      log.debug(`[Relay] Bootstrapping downstream for ${bootName} (${receivedCount}/${meta.total || '?'})`);
+      log.debug(
+        `[Relay] Bootstrapping downstream for ${bootName} (${receivedCount}/${meta.total || '?'})`,
+      );
 
       safeSend(conn, {
         type: MSG.FILE_START,
@@ -518,7 +553,7 @@ export function initRelay(): void {
     const m = msg as Record<string, unknown>;
     if (!conn || !conn.open) return;
 
-    const fileName = (m.fileName || m.name) as string || '';
+    const fileName = ((m.fileName || m.name) as string) || '';
     const nextChunk = Number(m.nextChunk) || 0;
     const rawSessionId = m.sessionId;
     if (rawSessionId == null) {
@@ -528,7 +563,9 @@ export function initRelay(): void {
     const sessionId = Number(rawSessionId);
     const receivedCount = getState('transfer.receivedCount');
 
-    log.debug(`[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}, available: ${receivedCount}`);
+    log.debug(
+      `[Relay Recovery] Peer ${conn.peer} requested chunk ${nextChunk} of ${fileName}, available: ${receivedCount}`,
+    );
 
     if (receivedCount > nextChunk) {
       startOpfsCatchupStream(conn, {
@@ -555,7 +592,7 @@ export function initRelay(): void {
     if (tag === 'recovery') {
       log.warn(`[Relay Recovery] OPFS read failed for ${peerId}: ${d.error || 'unknown'}`);
       const downstreamDataPeers = getState('relay.downstreamDataPeers');
-      const dConn = downstreamDataPeers.find(p => p.peer === peerId);
+      const dConn = downstreamDataPeers.find((p) => p.peer === peerId);
       if (dConn && dConn.open) {
         safeSend(dConn, { type: MSG.FILE_WAIT, message: 'Relay OPFS read failed' });
       }
@@ -565,7 +602,7 @@ export function initRelay(): void {
       // retries indefinitely, since no read-complete event ever arrives.
       log.warn(`[OPFS Catchup] Read failed for ${peerId}: ${d.error || 'unknown'}`);
       const downstreamDataPeers2 = getState('relay.downstreamDataPeers');
-      const dConn2 = downstreamDataPeers2.find(p => p.peer === peerId);
+      const dConn2 = downstreamDataPeers2.find((p) => p.peer === peerId);
       if (dConn2 && dConn2.open) {
         safeSend(dConn2, { type: MSG.FILE_WAIT, message: 'Relay OPFS catchup read failed' });
       }
@@ -581,7 +618,7 @@ export function initRelay(): void {
     const chunk = d.chunk as Uint8Array;
     const index = d.index as number;
     const filename = d.filename as string;
-    const requestId = d.requestId as string || '';
+    const requestId = (d.requestId as string) || '';
     const sessionId = d.sessionId as number;
 
     // Parse requestId format: "<peerId>|<tag>"
@@ -602,7 +639,7 @@ export function initRelay(): void {
     }
 
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
-    const dConn = downstreamDataPeers.find(p => p.peer === peerId);
+    const dConn = downstreamDataPeers.find((p) => p.peer === peerId);
     if (dConn && dConn.open) {
       const meta = getState('transfer.meta');
       try {

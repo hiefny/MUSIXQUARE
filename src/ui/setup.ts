@@ -30,17 +30,27 @@ import {
   BACK_SVG,
   syncDesktopLeftPanel,
   setupEl,
-  showSetupOverlay, hideSetupOverlay,
-  setupShowCodeArea, setupShowJoinArea, setupShowRoleArea, setupShowWelcome,
+  showSetupOverlay,
+  hideSetupOverlay,
+  setupShowCodeArea,
+  setupShowJoinArea,
+  setupShowRoleArea,
+  setupShowWelcome,
   setupSetGuestJoinBusy,
   setupRenderActions,
-  startObAutoSlide, updateObSlider,
-  nextObSlide, prevObSlide,
+  startObAutoSlide,
+  updateObSlider,
+  nextObSlide,
+  prevObSlide,
   handleSetupRolePreview,
   // State accessors
-  setCurrentObSlide, setPendingSetupRole, setPendingGuestRoleMode,
+  setCurrentObSlide,
+  setPendingSetupRole,
+  setPendingGuestRoleMode,
   incrementHostCodeFlowId,
-  getSetupOverlayEverShown, getSetupOverlayAbort, setSetupOverlayAbort,
+  getSetupOverlayEverShown,
+  getSetupOverlayAbort,
+  setSetupOverlayAbort,
   getPendingGuestRoleMode,
   getPendingAutoJoinCode,
   setPendingAutoJoinCode,
@@ -49,28 +59,41 @@ import {
 // ─── Role Selection Buttons ──────────────────────────────────────
 
 function showRoleSelectionButtons(): void {
-  setupRenderActions([
-    { id: 'btn-setup-host', text: t('setup.host_button'), kind: 'primary', onClick: startHostFlow },
-    { id: 'btn-setup-guest', text: t('setup.guest_button'), kind: 'secondary', onClick: startGuestFlow },
-  ], 'vertical');
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-host',
+        text: t('setup.host_button'),
+        kind: 'primary',
+        onClick: startHostFlow,
+      },
+      {
+        id: 'btn-setup-guest',
+        text: t('setup.guest_button'),
+        kind: 'secondary',
+        onClick: startGuestFlow,
+      },
+    ],
+    'vertical',
+  );
 }
 
 // ─── App Entrance Animation ─────────────────────────────────────
 
 /** Entrance config: [selector, direction, delay_ms] */
 const ENTRANCE_TARGETS: [string, string, number][] = [
-  ['#main-header',         'down',  0],
-  ['#visualizerCanvas',    'up',    50],
-  ['.track-box',           'up',    100],
-  ['.progress-bar',        'up',    150],
-  ['.play-controls-left',  'up',    200],
-  ['.vol-group-playback',  'up',    250],
-  ['#chat-preview-btn',    'up',    300],
-  ['.play-action-buttons', 'up',    350],
-  ['.bottom-nav',          'up',    400],
+  ['#main-header', 'down', 0],
+  ['#visualizerCanvas', 'up', 50],
+  ['.track-box', 'up', 100],
+  ['.progress-bar', 'up', 150],
+  ['.play-controls-left', 'up', 200],
+  ['.vol-group-playback', 'up', 250],
+  ['#chat-preview-btn', 'up', 300],
+  ['.play-action-buttons', 'up', 350],
+  ['.bottom-nav', 'up', 400],
   // Desktop panels (mobile ones are display:none, harmless)
-  ['#tab-playlist',        'down',  100],
-  ['#tab-settings',        'left',  150],
+  ['#tab-playlist', 'down', 100],
+  ['#tab-settings', 'left', 150],
 ];
 
 function _applyEntranceClasses(): void {
@@ -95,18 +118,29 @@ export function triggerAppEntrance(): void {
       chatDrawer.classList.add('app-chat-entrance');
     }
     // Cleanup after all transitions complete
-    setManagedTimer('app-entrance-cleanup', () => {
-      for (const [sel] of ENTRANCE_TARGETS) {
-        const el = document.querySelector(sel) as HTMLElement | null;
-        if (el) {
-          el.classList.remove('app-entrance', 'app-entrance-down', 'app-entrance-up', 'app-entrance-left', 'app-entrance-right', 'app-entered');
-          el.style.removeProperty('--entrance-delay');
+    setManagedTimer(
+      'app-entrance-cleanup',
+      () => {
+        for (const [sel] of ENTRANCE_TARGETS) {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          if (el) {
+            el.classList.remove(
+              'app-entrance',
+              'app-entrance-down',
+              'app-entrance-up',
+              'app-entrance-left',
+              'app-entrance-right',
+              'app-entered',
+            );
+            el.style.removeProperty('--entrance-delay');
+          }
         }
-      }
-      if (chatDrawer) chatDrawer.classList.remove('app-chat-entrance');
-      // Wake visualizer after layout settles (iOS: canvas may have been 0-sized during setup)
-      bus.emit('visualizer:start');
-    }, 1200); // max delay(400) + duration(900) + buffer
+        if (chatDrawer) chatDrawer.classList.remove('app-chat-entrance');
+        // Wake visualizer after layout settles (iOS: canvas may have been 0-sized during setup)
+        bus.emit('visualizer:start');
+      },
+      1200,
+    ); // max delay(400) + duration(900) + buffer
   });
 }
 
@@ -121,7 +155,7 @@ function initSetupOverlay(): void {
   const signal = abort.signal;
 
   incrementHostCodeFlowId();
-  setPendingAutoJoinCode(null);  // Clear auto-join code when returning to onboarding
+  setPendingAutoJoinCode(null); // Clear auto-join code when returning to onboarding
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) sliderArea.style.display = 'block';
 
@@ -152,7 +186,11 @@ function initSetupOverlay(): void {
   };
 
   if (!getSetupOverlayEverShown()) {
-    try { document.documentElement.classList.add('setup-boot-block'); } catch { /* ignore */ }
+    try {
+      document.documentElement.classList.add('setup-boot-block');
+    } catch {
+      /* ignore */
+    }
   }
 
   // Apply entrance animation classes to main UI elements
@@ -166,33 +204,45 @@ function initSetupOverlay(): void {
   const btnPrev = setupEl('ob-prev');
   if (btnPrev) btnPrev.addEventListener('click', () => prevObSlide(), { signal });
 
-  document.querySelectorAll<HTMLElement>('.ob-dot').forEach(dot => {
-    dot.addEventListener('click', (e) => {
-      const dotEl = (e.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
-      const idx = parseInt(dotEl?.dataset?.idx || '', 10);
-      if (isNaN(idx)) return;
-      setCurrentObSlide(idx);
-      updateObSlider();
-      startObAutoSlide();
-    }, { signal });
+  document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot) => {
+    dot.addEventListener(
+      'click',
+      (e) => {
+        const dotEl = (e.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
+        const idx = parseInt(dotEl?.dataset?.idx || '', 10);
+        if (isNaN(idx)) return;
+        setCurrentObSlide(idx);
+        updateObSlider();
+        startObAutoSlide();
+      },
+      { signal },
+    );
   });
 
   // Swipe (addEventListener + passive for better scroll perf)
   const viewport = setupEl('ob-slider-viewport');
   if (viewport) {
     let startX = 0;
-    viewport.addEventListener('touchstart', (e: Event) => {
-      startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0;
-    }, { passive: true, signal });
-    viewport.addEventListener('touchend', (e: Event) => {
-      const endX = (e as TouchEvent).changedTouches?.[0]?.clientX;
-      if (endX == null) return;
-      const diff = startX - endX;
-      if (Math.abs(diff) > 50) {
-        if (diff > 0) nextObSlide(false);
-        else prevObSlide();
-      }
-    }, { signal });
+    viewport.addEventListener(
+      'touchstart',
+      (e: Event) => {
+        startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0;
+      },
+      { passive: true, signal },
+    );
+    viewport.addEventListener(
+      'touchend',
+      (e: Event) => {
+        const endX = (e as TouchEvent).changedTouches?.[0]?.clientX;
+        if (endX == null) return;
+        const diff = startX - endX;
+        if (Math.abs(diff) > 50) {
+          if (diff > 0) nextObSlide(false);
+          else prevObSlide();
+        }
+      },
+      { signal },
+    );
   }
 }
 
@@ -211,7 +261,9 @@ export function initSetup(): void {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');
     mqlDesktop.addEventListener('change', () => syncDesktopLeftPanel());
     onCompactLandscapeChange(() => syncDesktopLeftPanel());
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Role grid click handler (event delegation)
   const roleGrid = document.getElementById('setup-role-grid');
@@ -229,7 +281,12 @@ export function initSetup(): void {
   function handleSpeakerClick(e: Event): void {
     const item = (e.target as HTMLElement).closest('.graphic-speaker') as HTMLElement | null;
     if (!item) return;
-    const SVG_ID_TO_MODE: Record<string, number> = { 'svg-spk-l': -1, 'svg-spk-r': 1, 'svg-spk-center': 0, 'svg-spk-woofer': 2 };
+    const SVG_ID_TO_MODE: Record<string, number> = {
+      'svg-spk-l': -1,
+      'svg-spk-r': 1,
+      'svg-spk-center': 0,
+      'svg-spk-woofer': 2,
+    };
     const mode = SVG_ID_TO_MODE[item.id];
     if (mode !== undefined) handleSetupRolePreview(mode);
   }
@@ -279,7 +336,9 @@ export function initSetup(): void {
       if (/^\/\d{6}$/.test(window.location.pathname)) {
         window.history.replaceState({}, '', '/' + window.location.hash);
       }
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
   });
 
   bus.on('setup:guest-join-failure', (_error) => {
@@ -296,10 +355,23 @@ export function initSetup(): void {
       startGuestFlow();
     } else {
       // Normal flow: re-show code input with editable field
-      setupRenderActions([
-        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-        { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null) },
-      ], 'horizontal-with-back');
+      setupRenderActions(
+        [
+          {
+            id: 'btn-setup-back',
+            html: BACK_SVG,
+            kind: 'icon-only',
+            onClick: () => startGuestFlow(),
+          },
+          {
+            id: 'btn-setup-confirm',
+            text: t('common.start'),
+            kind: 'primary',
+            onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+          },
+        ],
+        'horizontal-with-back',
+      );
 
       const input = setupEl('setup-join-code') as HTMLInputElement | null;
       if (input) {
@@ -315,12 +387,11 @@ export function initSetup(): void {
     triggerAppEntrance();
   });
 
-
   // Network error handling (connection failures, timeouts, etc.)
   bus.on('network:error', (error) => {
     const err = error as Record<string, unknown> | null;
     const msg = (err as Error | null)?.message || '';
-    const peerType = (err && typeof err === 'object') ? String(err.type || '') : '';
+    const peerType = err && typeof err === 'object' ? String(err.type || '') : '';
     let userMsg = t('error.network_generic');
 
     // Our custom error messages
@@ -341,14 +412,14 @@ export function initSetup(): void {
       try {
         isReconnectAttempt = !!sessionStorage.getItem('mxqr_reconnect_target');
         sessionStorage.removeItem('mxqr_reconnect_target');
-      } catch { /* noop */ }
-      userMsg = isReconnectAttempt
-        ? t('error.host_left')
-        : t('error.peer_unavailable');
-    }
-    else if (peerType === 'network') userMsg = t('error.network_issue');
+      } catch {
+        /* noop */
+      }
+      userMsg = isReconnectAttempt ? t('error.host_left') : t('error.peer_unavailable');
+    } else if (peerType === 'network') userMsg = t('error.network_issue');
     else if (peerType === 'server-error') userMsg = t('error.signal_server_fail');
-    else if (peerType === 'socket-error' || peerType === 'socket-closed') userMsg = t('error.server_disconnected');
+    else if (peerType === 'socket-error' || peerType === 'socket-closed')
+      userMsg = t('error.server_disconnected');
     else if (peerType === 'unavailable-id') userMsg = t('error.session_id_unavailable');
     else if (peerType === 'webrtc') userMsg = t('error.webrtc_failed');
 
@@ -368,36 +439,50 @@ export function initSetup(): void {
         message: `${userMsg}\n${t('dialog.reconnect_ask')}`,
         buttonText: t('dialog.reconnect'),
         secondaryText: t('dialog.go_back'),
-      }).then(res => {
-        if (res.action === 'ok') {
-          // Hard-reset reconnect: reload the page and auto-join via the
-          // /CODE path. This guarantees a pristine state — no stale timers,
-          // PeerJS connections, audio contexts, or sync runtime leftovers.
-          // The auto-join URL detection in initSetupOverlay picks up the
-          // code on bootstrap and enters guest flow automatically.
-          const lastCode = getState('network.lastJoinCode') || '';
-          if (lastCode) {
-            log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
-            // Mark this as a reconnect attempt — read after reload by the
-            // peer-unavailable error branch to swap the misleading "check
-            // your code" message for "host left".
-            try { sessionStorage.setItem('mxqr_reconnect_target', lastCode); } catch { /* noop */ }
-            showLoader(true, t('setup.joining'));
-            setManagedTimer('reconnect-hard-reload', () => {
-              markIntentionalNav();
-              window.location.href = '/' + lastCode;
-            }, 300);
+      })
+        .then((res) => {
+          if (res.action === 'ok') {
+            // Hard-reset reconnect: reload the page and auto-join via the
+            // /CODE path. This guarantees a pristine state — no stale timers,
+            // PeerJS connections, audio contexts, or sync runtime leftovers.
+            // The auto-join URL detection in initSetupOverlay picks up the
+            // code on bootstrap and enters guest flow automatically.
+            const lastCode = getState('network.lastJoinCode') || '';
+            if (lastCode) {
+              log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
+              // Mark this as a reconnect attempt — read after reload by the
+              // peer-unavailable error branch to swap the misleading "check
+              // your code" message for "host left".
+              try {
+                sessionStorage.setItem('mxqr_reconnect_target', lastCode);
+              } catch {
+                /* noop */
+              }
+              showLoader(true, t('setup.joining'));
+              setManagedTimer(
+                'reconnect-hard-reload',
+                () => {
+                  markIntentionalNav();
+                  window.location.href = '/' + lastCode;
+                },
+                300,
+              );
+            } else {
+              startGuestFlow();
+            }
           } else {
-            startGuestFlow();
+            showLoader(true, t('dialog.leaving_session'));
+            setManagedTimer(
+              'reconnect-dialog-reload',
+              () => {
+                markIntentionalNav();
+                window.location.reload();
+              },
+              300,
+            );
           }
-        } else {
-          showLoader(true, t('dialog.leaving_session'));
-          setManagedTimer('reconnect-dialog-reload', () => {
-            markIntentionalNav();
-            window.location.reload();
-          }, 300);
-        }
-      }).catch(e => log.warn('[Setup] Reconnect dialog error:', e));
+        })
+        .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
       showToast(userMsg);
       // If we're in guest setup flow but isConnecting was already cleared
@@ -420,10 +505,14 @@ export function initSetup(): void {
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
     showLoader(true, t('dialog.leaving_session'));
-    setManagedTimer('kicked-from-session-reload', () => {
-      markIntentionalNav();
-      window.location.reload();
-    }, 300);
+    setManagedTimer(
+      'kicked-from-session-reload',
+      () => {
+        markIntentionalNav();
+        window.location.reload();
+      },
+      300,
+    );
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -433,20 +522,29 @@ export function initSetup(): void {
       message: t('connect.kicked_message'),
       buttonText: t('common.ok'),
       dismissible: false,
-    }).catch(e => log.warn('[Setup] Kick dialog error:', e))
+    })
+      .catch((e) => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
         showLoader(true, t('dialog.leaving_session'));
-        setManagedTimer('kicked-explicit-reload', () => {
-          markIntentionalNav();
-          window.location.reload();
-        }, 300);
+        setManagedTimer(
+          'kicked-explicit-reload',
+          () => {
+            markIntentionalNav();
+            window.location.reload();
+          },
+          300,
+        );
       });
   });
 
   // Check for /CODE path (e.g. musixquare.com/123456)
   try {
     // Wipe any leftover join code from a previous (crashed/abandoned) session
-    try { sessionStorage.removeItem('mxqr_pending_join'); } catch { /* noop */ }
+    try {
+      sessionStorage.removeItem('mxqr_pending_join');
+    } catch {
+      /* noop */
+    }
 
     const pathMatch = window.location.pathname.match(/^\/(\d{6})$/);
     const joinCode = pathMatch?.[1] || '';
@@ -456,10 +554,14 @@ export function initSetup(): void {
       setPendingAutoJoinCode(joinCode);
 
       // Show overlay first, then jump to guest role selection
-      setManagedTimer('auto-join-start', () => {
-        showSetupOverlay();
-        startGuestFlow();
-      }, 200);
+      setManagedTimer(
+        'auto-join-start',
+        () => {
+          showSetupOverlay();
+          startGuestFlow();
+        },
+        200,
+      );
     } else {
       // Normal flow: show setup overlay
       initSetupOverlay();

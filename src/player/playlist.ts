@@ -20,7 +20,11 @@ import { transition } from './lifecycle.ts';
 
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
-  setEQ, setPreamp, setStereoWidth, setVirtualBass, setReverbParam,
+  setEQ,
+  setPreamp,
+  setStereoWidth,
+  setVirtualBass,
+  setReverbParam,
 } from '../audio/effects.ts';
 import { postWorkerCommand } from '../storage/opfs.ts';
 import { cancelIncomingFileTransfer, cancelOutgoingFileTransfers } from '../storage/transfer.ts';
@@ -78,8 +82,8 @@ export function getShuffleNextIndex(): number {
 
   const next = _shufflePosition + 1;
   if (next >= _shuffleOrder.length) {
-    if (repeatMode === 1) return _shuffleOrder[0];  // peek; advance happens on play
-    return -1;  // end of shuffle pass without repeat-all
+    if (repeatMode === 1) return _shuffleOrder[0]; // peek; advance happens on play
+    return -1; // end of shuffle pass without repeat-all
   }
   return _shuffleOrder[next];
 }
@@ -203,7 +207,7 @@ export function setShuffle(enabled: boolean, notify = true): void {
 export function clearPreloadState(): void {
   const nextMeta = getState('preload.meta');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isNextTrackActive = nextMeta && (Number(nextMeta.index) === currentTrackIndex);
+  const isNextTrackActive = nextMeta && Number(nextMeta.index) === currentTrackIndex;
 
   // Cancel any in-flight backgroundTransfer to prevent stale preload data
   // from reaching guests after backward navigation (host-only).
@@ -221,11 +225,9 @@ export function clearPreloadState(): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && connectedPeers.some(p => p.preloadedIndexes?.size > 0)) {
-      const updatedPeers = connectedPeers.map(p =>
-        p.preloadedIndexes?.size > 0
-          ? { ...p, preloadedIndexes: new Set<number>() }
-          : p,
+    if (connectedPeers.length > 0 && connectedPeers.some((p) => p.preloadedIndexes?.size > 0)) {
+      const updatedPeers = connectedPeers.map((p) =>
+        p.preloadedIndexes?.size > 0 ? { ...p, preloadedIndexes: new Set<number>() } : p,
       );
       setState('network.connectedPeers', updatedPeers);
     }
@@ -290,10 +292,14 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       showToast(t('toast.playing_in_3s'));
     }
 
-    setManagedTimer('autoPlayTimer', () => {
-      play(0);
-      broadcast({ type: MSG.PLAY, time: 0, index, name: file.name });
-    }, autoPlayDelayMs);
+    setManagedTimer(
+      'autoPlayTimer',
+      () => {
+        play(0);
+        broadcast({ type: MSG.PLAY, time: 0, index, name: file.name });
+      },
+      autoPlayDelayMs,
+    );
 
     return;
   }
@@ -373,9 +379,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // entry-point video.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
-      const broadcastVideoId =
-        (hostIds && hostIds[subIndex ?? 0]) ||
-        (item.videoId ?? null);
+      const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
@@ -404,7 +408,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isAlreadyYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
       if (isFirstTrackLoad && !isAlreadyYt) {
         setState('player.isFirstTrackLoad', false);
-        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
+        bus.emit(
+          'youtube:load',
+          item.videoId ?? null,
+          item.playlistId ?? null,
+          false,
+          subIndex ?? 0,
+        );
         showToast(t('youtube.ready'));
       } else {
         if (isFirstTrackLoad) setState('player.isFirstTrackLoad', false);
@@ -412,7 +422,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         // player (or existing player's async load) is ready — keeps
         // host/guest aligned without an arbitrary 1-sec timer.
         setPendingAutoSyncOnReady(true);
-        bus.emit('youtube:load', item.videoId ?? null, item.playlistId ?? null, false, subIndex ?? 0);
+        bus.emit(
+          'youtube:load',
+          item.videoId ?? null,
+          item.playlistId ?? null,
+          false,
+          subIndex ?? 0,
+        );
       }
     }
     return;
@@ -453,12 +469,16 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       showToast(t('toast.file_ready'));
     } else {
       showToast(t('toast.playing_in_3s'));
-      setManagedTimer('autoPlayTimer', () => {
-        play(0);
-        const currentIdx = getState('playlist.currentTrackIndex');
-        broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
-        // SharedClock handles sync
-      }, autoPlayDelayMs);
+      setManagedTimer(
+        'autoPlayTimer',
+        () => {
+          play(0);
+          const currentIdx = getState('playlist.currentTrackIndex');
+          broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
+          // SharedClock handles sync
+        },
+        autoPlayDelayMs,
+      );
     }
   }
 }
@@ -522,7 +542,9 @@ export function playNextTrack(): void {
 
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     let handled = false;
-    bus.emit('youtube:try-next-internal', (success: boolean) => { handled = success; });
+    bus.emit('youtube:try-next-internal', (success: boolean) => {
+      handled = success;
+    });
     if (handled) return;
   }
 
@@ -573,9 +595,10 @@ export function playNextTrack(): void {
           generateShuffleOrder();
           // generateShuffleOrder re-anchors to current; step forward once
           _shufflePosition = 0;
-          nextIndex = _shuffleOrder[0] === currentTrackIndex && _shuffleOrder.length > 1
-            ? _shuffleOrder[1]
-            : _shuffleOrder[0];
+          nextIndex =
+            _shuffleOrder[0] === currentTrackIndex && _shuffleOrder.length > 1
+              ? _shuffleOrder[1]
+              : _shuffleOrder[0];
           if (nextIndex === currentTrackIndex && _shuffleOrder.length > 1) {
             // Safety: ensure we never re-play the same track back-to-back
             nextIndex = _shuffleOrder[1];
@@ -627,7 +650,9 @@ export function playPrevTrack(): void {
   // YouTube mode
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     let handled = false;
-    bus.emit('youtube:try-prev-internal', (success: boolean) => { handled = success; });
+    bus.emit('youtube:try-prev-internal', (success: boolean) => {
+      handled = success;
+    });
     if (handled) return;
 
     if (currentTrackIndex > 0) {
@@ -724,8 +749,11 @@ function handleShuffleMode(data: Record<string, unknown>): void {
 
 function handlePlaylistUpdate(data: Record<string, unknown>): void {
   // Backward-compat: legacy may send `playlist` instead of `list`
-  const incoming = Array.isArray(data.list) ? data.list :
-    (Array.isArray(data.playlist) ? data.playlist : null);
+  const incoming = Array.isArray(data.list)
+    ? data.list
+    : Array.isArray(data.playlist)
+      ? data.playlist
+      : null;
   if (!incoming) {
     setState('playlist.items', []);
     setState('playlist.currentTrackIndex', -1);
@@ -740,8 +768,11 @@ function handlePlaylistUpdate(data: Record<string, unknown>): void {
     return;
   }
   // Validate individual items have expected properties
-  const valid = incoming.every((item: unknown) =>
-    item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string',
+  const valid = incoming.every(
+    (item: unknown) =>
+      item &&
+      typeof item === 'object' &&
+      typeof (item as Record<string, unknown>).name === 'string',
   );
   if (!valid) {
     log.warn('[Playlist] Rejected playlist with invalid items');
@@ -976,7 +1007,7 @@ async function loadDemoMedia(): Promise<void> {
     playlist.push(newTrack);
     setState('playlist.items', playlist);
 
-    const metaList = playlist.map(item => ({
+    const metaList = playlist.map((item) => ({
       type: item.type,
       name: item.name,
       title: item.title || item.name,
@@ -1023,11 +1054,7 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   }
 
   if (rejected.length > 0) {
-    showToast(
-      accepted.length === 0
-        ? t('toast.video_only_rejected')
-        : t('toast.video_excluded')
-    );
+    showToast(accepted.length === 0 ? t('toast.video_only_rejected') : t('toast.video_excluded'));
   }
 
   if (accepted.length === 0) return;
@@ -1066,7 +1093,7 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
 
   setState('playlist.items', playlist);
 
-  const metaList = playlist.map(item => ({
+  const metaList = playlist.map((item) => ({
     type: item.type,
     name: item.name,
     title: item.title || item.name,
@@ -1125,18 +1152,30 @@ export function initPlaylist(): void {
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
-      setManagedTimer('ended-advance-retry', () => {
-        if (token !== _endedAdvanceToken) return;
-        // Reuse in-memory audio buffer — skip file re-transfer to guests.
-        // Same optimized path as playNextTrack() repeat-one branch.
-        incrementLoadToken();
-        play(0).catch(() => { /* noop */ });
-        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-        // SharedClock handles sync
-      }, 300);
+      setManagedTimer(
+        'ended-advance-retry',
+        () => {
+          if (token !== _endedAdvanceToken) return;
+          // Reuse in-memory audio buffer — skip file re-transfer to guests.
+          // Same optimized path as playNextTrack() repeat-one branch.
+          incrementLoadToken();
+          play(0).catch(() => {
+            /* noop */
+          });
+          broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+          // SharedClock handles sync
+        },
+        300,
+      );
     } else {
       log.debug('Auto-advancing to next track...');
-      setManagedTimer('ended-advance-next', () => { if (token === _endedAdvanceToken) playNextTrack(); }, 500);
+      setManagedTimer(
+        'ended-advance-next',
+        () => {
+          if (token === _endedAdvanceToken) playNextTrack();
+        },
+        500,
+      );
     }
   });
 
@@ -1168,7 +1207,7 @@ export function initPlaylist(): void {
     if (index < 0 || index >= playlist.length) return;
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const isCurrentTrack = (index === currentTrackIndex);
+    const isCurrentTrack = index === currentTrackIndex;
 
     // Remove the item
     playlist.splice(index, 1);
@@ -1231,8 +1270,8 @@ export function initPlaylist(): void {
         // and `preloadIdx` shift down by 1; indexes < `index` are unaffected;
         // index === `index` was the removed slot.
         const connectedPeers = getState('network.connectedPeers') || [];
-        if (connectedPeers.some(p => p.preloadedIndexes?.has(preloadIdx))) {
-          const updatedPeers = connectedPeers.map(p => {
+        if (connectedPeers.some((p) => p.preloadedIndexes?.has(preloadIdx))) {
+          const updatedPeers = connectedPeers.map((p) => {
             if (!p.preloadedIndexes?.has(preloadIdx)) return p;
             const next = new Set<number>();
             for (const i of p.preloadedIndexes) {
@@ -1251,7 +1290,7 @@ export function initPlaylist(): void {
     // Broadcast the updated playlist BEFORE kicking off any replay. Otherwise
     // playTrack fires FILE_PREPARE/PLAY first and guests momentarily sit on
     // the old playlist with the new currentTrackIndex.
-    const metaList = playlist.map(item => ({
+    const metaList = playlist.map((item) => ({
       type: item.type,
       name: item.name,
       title: item.title || item.name,
@@ -1294,7 +1333,7 @@ export function initPlaylist(): void {
 
       // Full playlist metadata
       const playlist = getState('playlist.items') || [];
-      const metaList = playlist.map(item => ({
+      const metaList = playlist.map((item) => ({
         type: item.type,
         name: item.name,
         title: item.title || item.name,

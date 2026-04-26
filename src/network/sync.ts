@@ -14,7 +14,13 @@ import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
-import { getHostNow, registerPing, processSyncPong, resetClockState, setIsHostClock } from './shared-clock.ts';
+import {
+  getHostNow,
+  registerPing,
+  processSyncPong,
+  resetClockState,
+  setIsHostClock,
+} from './shared-clock.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
@@ -51,13 +57,12 @@ export function handleAutoSync(): void {
   // startedAt from the new (zero) offset. Without this, "Reset" just
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
-  Promise.all([
-    import('../player/transport.ts'),
-    import('../player/video.ts'),
-  ]).then(([transport, video]) => {
-    if (video.isIdleOrPaused(getState('appState'))) return;
-    transport.play(transport.getTrackPosition());
-  }).catch(e => log.error('[Sync] Failed to import modules for auto-sync replay:', e));
+  Promise.all([import('../player/transport.ts'), import('../player/video.ts')])
+    .then(([transport, video]) => {
+      if (video.isIdleOrPaused(getState('appState'))) return;
+      transport.play(transport.getTrackPosition());
+    })
+    .catch((e) => log.error('[Sync] Failed to import modules for auto-sync replay:', e));
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
@@ -67,42 +72,49 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   try {
     if (conn?.peer) {
       const connectedPeers = getState('network.connectedPeers');
-      const p = connectedPeers.find(x => x.id === conn.peer);
+      const p = connectedPeers.find((x) => x.id === conn.peer);
       if (p) {
-        setState('network.connectedPeers', connectedPeers.map(x =>
-          x.id === conn.peer ? { ...x, lastHeartbeat: Date.now() } : x
-        ));
+        setState(
+          'network.connectedPeers',
+          connectedPeers.map((x) => (x.id === conn.peer ? { ...x, lastHeartbeat: Date.now() } : x)),
+        );
       }
     }
-  } catch (e) { log.debug('[Sync] Liveness update error:', e); }
+  } catch (e) {
+    log.debug('[Sync] Liveness update error:', e);
+  }
 
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
-  const hostTime = Date.now();  // Capture BEFORE async import
+  const hostTime = Date.now(); // Capture BEFORE async import
   const appState = getState('appState');
   const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO;
 
   // Dynamic import for getTrackPosition to avoid circular dep
   if (isFilePlaying) {
-    import('../player/transport.ts').then(mod => {
-      if (!conn.open) return;
-      // Re-read appState AFTER the microtask gap — the captured value from
-      // before the dynamic import may be stale if the host paused during the
-      // import resolve. Sending a stale PLAYING_AUDIO pong causes the guest
-      // to start playing while the host is actually paused.
-      const freshAppState = getState('appState');
-      const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO;
-      try {
-        conn.send({
-          type: MSG.SYNC_PONG,
-          pingId: data.pingId,
-          hostTime,
-          position: freshIsPlaying ? mod.getTrackPosition() : 0,
-          appState: freshAppState,
-          trackIndex: getState('playlist.currentTrackIndex'),
-        });
-      } catch { /* closed */ }
-    }).catch(e => log.error('[Sync] Failed to import transport:', e));
+    import('../player/transport.ts')
+      .then((mod) => {
+        if (!conn.open) return;
+        // Re-read appState AFTER the microtask gap — the captured value from
+        // before the dynamic import may be stale if the host paused during the
+        // import resolve. Sending a stale PLAYING_AUDIO pong causes the guest
+        // to start playing while the host is actually paused.
+        const freshAppState = getState('appState');
+        const freshIsPlaying = freshAppState === APP_STATE.PLAYING_AUDIO;
+        try {
+          conn.send({
+            type: MSG.SYNC_PONG,
+            pingId: data.pingId,
+            hostTime,
+            position: freshIsPlaying ? mod.getTrackPosition() : 0,
+            appState: freshAppState,
+            trackIndex: getState('playlist.currentTrackIndex'),
+          });
+        } catch {
+          /* closed */
+        }
+      })
+      .catch((e) => log.error('[Sync] Failed to import transport:', e));
   } else {
     try {
       conn.send({
@@ -113,7 +125,9 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
         appState,
         trackIndex: getState('playlist.currentTrackIndex'),
       });
-    } catch { /* closed */ }
+    } catch {
+      /* closed */
+    }
   }
 }
 
@@ -147,19 +161,21 @@ function handleSyncPong(data: Record<string, unknown>): void {
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
-  import('../player/transport.ts').then(mod => {
-    // First pong after play start: unconditionally lock to host
-    if (_needsInitialSync) {
-      _needsInitialSync = false;
-      mod.play(estimatedHostPos);
-      return;
-    }
-    // Ongoing: correct if drift > 2s
-    const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
-    if (drift > 2) {
-      mod.play(estimatedHostPos);
-    }
-  }).catch(e => log.error('[Sync] Failed to import transport:', e));
+  import('../player/transport.ts')
+    .then((mod) => {
+      // First pong after play start: unconditionally lock to host
+      if (_needsInitialSync) {
+        _needsInitialSync = false;
+        mod.play(estimatedHostPos);
+        return;
+      }
+      // Ongoing: correct if drift > 2s
+      const drift = Math.abs(estimatedHostPos - mod.getTrackPosition());
+      if (drift > 2) {
+        mod.play(estimatedHostPos);
+      }
+    })
+    .catch((e) => log.error('[Sync] Failed to import transport:', e));
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -175,23 +191,27 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   const peerId = (data._originPeer as string) || conn?.peer;
   if (!peerId) return;
 
-  const newLabel = String(data.newLabel || '').trim().slice(0, 20);
+  const newLabel = String(data.newLabel || '')
+    .trim()
+    .slice(0, 20);
   if (!newLabel) return;
 
   // Reserved name / profanity check
-  if (RESERVED_NAMES.some(r => newLabel.toLowerCase() === r.toLowerCase())) return;
+  if (RESERVED_NAMES.some((r) => newLabel.toLowerCase() === r.toLowerCase())) return;
   if (containsProfanity(newLabel)) return;
 
   // Duplicate name check (including host's own label)
   const hostLabel = getState('network.myDeviceLabel') || '';
   if (hostLabel && newLabel.toLowerCase() === hostLabel.toLowerCase()) return;
   const peers = getState('network.connectedPeers');
-  if (peers.some(p => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase())) return;
+  if (peers.some((p) => p.id !== peerId && p.label.toLowerCase() === newLabel.toLowerCase()))
+    return;
 
   setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: newLabel });
-  setState('network.connectedPeers', peers.map(p =>
-    p.id === peerId ? { ...p, label: newLabel } : p
-  ));
+  setState(
+    'network.connectedPeers',
+    peers.map((p) => (p.id === peerId ? { ...p, label: newLabel } : p)),
+  );
 
   broadcastDeviceList();
   log.info(`[Sync] Peer ${peerId} renamed to "${newLabel}"`);
@@ -208,7 +228,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
 
   // Verify OP status
   const peers = getState('network.connectedPeers');
-  const peer = peers.find(p => p.id === peerId);
+  const peer = peers.find((p) => p.id === peerId);
   if (!peer?.isOp) return;
 
   const command = data.command as string;
@@ -248,9 +268,10 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       if (isNaN(sec) || sec < 0 || sec > 60) return;
       setState('network.slowmodeSeconds', sec);
       broadcast({ type: MSG.CHAT_SLOWMODE, seconds: sec });
-      bus.emit('chat:system-message', sec > 0
-        ? t('chat.cmd_slowmode_on', { sec })
-        : t('chat.cmd_slowmode_off'));
+      bus.emit(
+        'chat:system-message',
+        sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'),
+      );
       break;
     }
     case 'filter': {
@@ -280,13 +301,13 @@ function _resolveTargetForHost(arg: string): { peerId: string; label: string } |
   if (arg.startsWith('#')) {
     const order = parseInt(arg.slice(1), 10);
     if (!isNaN(order)) {
-      const p = peers.find(peer => peer.joinOrder === order);
+      const p = peers.find((peer) => peer.joinOrder === order);
       if (p) return { peerId: p.id, label: p.label };
     }
     return null;
   }
   const lower = arg.toLowerCase();
-  const p = peers.find(peer => peer.label.toLowerCase() === lower);
+  const p = peers.find((peer) => peer.label.toLowerCase() === lower);
   if (p) return { peerId: p.id, label: p.label };
   return null;
 }
@@ -306,12 +327,15 @@ export function initSync(): void {
     if (role !== 'host' && role !== 'guest') resetClockState();
   });
 
-
   // Guest: arm initial sync 1s after any play command (audio engine stable by then)
   const armInitialSync = () => {
-    setManagedTimer('initial-sync-arm', () => {
-      _needsInitialSync = true;
-    }, 1000);
+    setManagedTimer(
+      'initial-sync-arm',
+      () => {
+        _needsInitialSync = true;
+      },
+      1000,
+    );
   };
 
   // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
@@ -346,8 +370,9 @@ export function initSync(): void {
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
     // Dynamic import to avoid circular dependency
-    import('../player/transport.ts').then(mod => mod.adjustSync(ms / 1000))
-      .catch(e => log.error('[Sync] Failed to import transport:', e));
+    import('../player/transport.ts')
+      .then((mod) => mod.adjustSync(ms / 1000))
+      .catch((e) => log.error('[Sync] Failed to import transport:', e));
   });
 
   bus.on('sync:auto-sync', () => {
@@ -370,7 +395,11 @@ export function initSync(): void {
     if (id === 'sync') {
       const pingId = ++_syncPingCounter;
       registerPing(pingId);
-      try { hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }); } catch { /* noop */ }
+      try {
+        hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+      } catch {
+        /* noop */
+      }
     }
   });
 
@@ -387,68 +416,83 @@ export function initSync(): void {
 // Checks every 5s for peers whose lastHeartbeat is older than threshold.
 // Marks them as disconnected and cleans up.
 
-const HEARTBEAT_STALE_THRESHOLD = 8000;  // 8s without heartbeat = stale
-const HEARTBEAT_CHECK_INTERVAL = 5000;   // check every 5s
+const HEARTBEAT_STALE_THRESHOLD = 8000; // 8s without heartbeat = stale
+const HEARTBEAT_CHECK_INTERVAL = 5000; // check every 5s
 
 function startHeartbeatMonitor(): void {
   stopHeartbeatMonitor();
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host monitors
 
-  setManagedTimer('heartbeat-monitor', () => {
-    const hc = getState('network.hostConn');
-    if (hc) { stopHeartbeatMonitor(); return; } // No longer host
+  setManagedTimer(
+    'heartbeat-monitor',
+    () => {
+      const hc = getState('network.hostConn');
+      if (hc) {
+        stopHeartbeatMonitor();
+        return;
+      } // No longer host
 
-    const now = Date.now();
-    const connectedPeers = getState('network.connectedPeers');
-    const stalePeerIds: string[] = [];
+      const now = Date.now();
+      const connectedPeers = getState('network.connectedPeers');
+      const stalePeerIds: string[] = [];
 
-    for (const p of connectedPeers) {
-      if (p.status !== 'connected') continue;
-      const elapsed = now - (p.lastHeartbeat as number || 0);
-      if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
-        log.warn(`[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`);
-        stalePeerIds.push(p.id);
+      for (const p of connectedPeers) {
+        if (p.status !== 'connected') continue;
+        const elapsed = now - ((p.lastHeartbeat as number) || 0);
+        if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
+          log.warn(
+            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
+          );
+          stalePeerIds.push(p.id);
 
-        // Try to close the stale connection
-        try {
-          const conn = p.conn as DataConnection;
-          if (conn) conn.close();
-        } catch { /* noop */ }
-      }
-    }
-
-    if (stalePeerIds.length > 0) {
-      // Remove stale peers entirely and clean up their connection references.
-      // This prevents peer.ts close handler from emitting a duplicate
-      // 'network:peer-disconnected' — the activeHostConnByPeerId guard
-      // (conn !== stored conn) will skip since we delete the entry here.
-      const staleSet = new Set(stalePeerIds);
-      const updatedConns = new Map(getState('network.activeHostConnByPeerId'));
-      for (const id of stalePeerIds) {
-        updatedConns.delete(id);
-      }
-      setState('network.activeHostConnByPeerId', updatedConns);
-      setState('network.connectedPeers', connectedPeers.filter(p => !staleSet.has(p.id)));
-
-      // Clean up peerLabels for stale peers — host.ts close handler won't fire
-      // because activeHostConnByPeerId was already cleared above (guard skips).
-      const currentLabels = getState('network.peerLabels');
-      if (currentLabels && Object.keys(currentLabels).length > 0) {
-        const cleanedLabels = { ...currentLabels };
-        for (const id of stalePeerIds) {
-          delete cleanedLabels[id];
+          // Try to close the stale connection
+          try {
+            const conn = p.conn as DataConnection;
+            if (conn) conn.close();
+          } catch {
+            /* noop */
+          }
         }
-        setState('network.peerLabels', cleanedLabels);
       }
 
-      for (const id of stalePeerIds) {
-        releasePeerSlot(id);
-        bus.emit('network:peer-disconnected', id);
+      if (stalePeerIds.length > 0) {
+        // Remove stale peers entirely and clean up their connection references.
+        // This prevents peer.ts close handler from emitting a duplicate
+        // 'network:peer-disconnected' — the activeHostConnByPeerId guard
+        // (conn !== stored conn) will skip since we delete the entry here.
+        const staleSet = new Set(stalePeerIds);
+        const updatedConns = new Map(getState('network.activeHostConnByPeerId'));
+        for (const id of stalePeerIds) {
+          updatedConns.delete(id);
+        }
+        setState('network.activeHostConnByPeerId', updatedConns);
+        setState(
+          'network.connectedPeers',
+          connectedPeers.filter((p) => !staleSet.has(p.id)),
+        );
+
+        // Clean up peerLabels for stale peers — host.ts close handler won't fire
+        // because activeHostConnByPeerId was already cleared above (guard skips).
+        const currentLabels = getState('network.peerLabels');
+        if (currentLabels && Object.keys(currentLabels).length > 0) {
+          const cleanedLabels = { ...currentLabels };
+          for (const id of stalePeerIds) {
+            delete cleanedLabels[id];
+          }
+          setState('network.peerLabels', cleanedLabels);
+        }
+
+        for (const id of stalePeerIds) {
+          releasePeerSlot(id);
+          bus.emit('network:peer-disconnected', id);
+        }
+        broadcastDeviceList();
       }
-      broadcastDeviceList();
-    }
-  }, HEARTBEAT_CHECK_INTERVAL, { interval: true });
+    },
+    HEARTBEAT_CHECK_INTERVAL,
+    { interval: true },
+  );
 
   log.info('[Heartbeat] Monitor started');
 }

@@ -54,7 +54,7 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
   // PLAYLIST_UPDATE); fall back to a synthetic meta built from the broadcast's
   // `name` field when the playlist hasn't landed yet (late-join races).
   const playlist = getState('playlist.items') || [];
-  const playlistItem = (index !== undefined && index >= 0) ? playlist[index] : undefined;
+  const playlistItem = index !== undefined && index >= 0 ? playlist[index] : undefined;
   if (playlistItem) {
     setState('player.currentTrackMeta', playlistItem);
   } else if (name || videoId) {
@@ -85,7 +85,12 @@ export function handleYouTubePlay(data: Record<string, unknown>): void {
 
   // When we have a videoId, force playlistId to null so the iframe's native
   // playlist engine stays dormant — single-video mode only.
-  loadYouTubeVideo(finalVideoId, finalVideoId ? null : finalPlaylistId, autoplay ?? false, subIndex ?? 0);
+  loadYouTubeVideo(
+    finalVideoId,
+    finalVideoId ? null : finalPlaylistId,
+    autoplay ?? false,
+    subIndex ?? 0,
+  );
 }
 
 /**
@@ -107,7 +112,10 @@ function guardHostRequest(
   return true;
 }
 
-export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: DataConnection): void {
+export function handleRequestYouTubePlay(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
   if (!guardHostRequest(data, conn, 'request-youtube-play')) return;
 
   const player = getYouTubePlayer();
@@ -116,7 +124,10 @@ export function handleRequestYouTubePlay(data: Record<string, unknown>, conn: Da
   }
 }
 
-export function handleRequestYouTubePause(data: Record<string, unknown>, conn: DataConnection): void {
+export function handleRequestYouTubePause(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
   if (!guardHostRequest(data, conn, 'request-youtube-pause')) return;
 
   const player = getYouTubePlayer();
@@ -126,7 +137,10 @@ export function handleRequestYouTubePause(data: Record<string, unknown>, conn: D
   }
 }
 
-export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: DataConnection): void {
+export function handleRequestYouTubeToggle(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
   if (!guardHostRequest(data, conn, 'request-youtube-toggle')) return;
 
   const player = getYouTubePlayer();
@@ -145,7 +159,10 @@ export function handleRequestYouTubeToggle(data: Record<string, unknown>, conn: 
   }
 }
 
-export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn: DataConnection): void {
+export function handleRequestYouTubeSubSeek(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
   if (!guardHostRequest(data, conn, 'request-youtube-sub-seek')) return;
 
   const subIdx = data.subIdx as number;
@@ -188,7 +205,10 @@ export function handleRequestYouTubeSubSeek(data: Record<string, unknown>, conn:
  * Host responds to Guest's request for YouTube playlist sub-item data.
  * Sends cached IDs and titles from subItemsMap.
  */
-export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, conn: DataConnection): void {
+export function handleRequestYouTubePlaylistInfo(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
   const isGuest = !!getState('network.hostConn');
   if (isGuest) return; // Only Host handles peer requests
 
@@ -207,7 +227,7 @@ export function handleRequestYouTubePlaylistInfo(data: Record<string, unknown>, 
 }
 
 /**
- * Encapsulates the cancellation of file transfers to prevent 
+ * Encapsulates the cancellation of file transfers to prevent
  * leaky abstractions across module domains.
  */
 function cancelInFlightTransfer(): void {
@@ -221,7 +241,11 @@ function cancelInFlightTransfer(): void {
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
     // Clear receive-side reorder buffer / early-chunk queue (best-effort dynamic import)
-    import('../storage/transfer-receive.ts').then(mod => mod.clearReceiveState()).catch(e => { log.debug('[YouTube] clearReceiveState failed:', e); });
+    import('../storage/transfer-receive.ts')
+      .then((mod) => mod.clearReceiveState())
+      .catch((e) => {
+        log.debug('[YouTube] clearReceiveState failed:', e);
+      });
     showLoader(false);
   }
 }

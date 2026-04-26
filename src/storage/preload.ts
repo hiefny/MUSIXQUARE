@@ -15,7 +15,14 @@ import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { safeSend, sendToHost, canSendFileTo, filterEligiblePeers, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import {
+  safeSend,
+  sendToHost,
+  canSendFileTo,
+  filterEligiblePeers,
+  isRemoteGuest,
+  hasActiveRelay,
+} from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
@@ -114,9 +121,13 @@ export function cancelPreloadTransfer(): void {
 export function schedulePreload(delayMs = 500): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
-  setManagedTimer('preloadScheduleTimer', () => {
-    preloadNextTrack();
-  }, delayMs);
+  setManagedTimer(
+    'preloadScheduleTimer',
+    () => {
+      preloadNextTrack();
+    },
+    delayMs,
+  );
 }
 
 /**
@@ -215,7 +226,11 @@ async function preloadNextTrack(): Promise<void> {
   const prevTransfer = _inFlightBackgroundTransfer;
   if (prevTransfer) {
     log.debug('[Preload] Serializing — awaiting prior backgroundTransfer');
-    try { await prevTransfer; } catch { /* prior may have been cancelled */ }
+    try {
+      await prevTransfer;
+    } catch {
+      /* prior may have been cancelled */
+    }
   }
 
   // Re-check generation: a newer schedulePreload or cancelPreloadTransfer
@@ -298,13 +313,13 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
   if (targets.length === 0) return;
 
-  const targetsWhoNeedChunks = targets.filter(p => {
+  const targetsWhoNeedChunks = targets.filter((p) => {
     const preloadedIndexes = p.preloadedIndexes as Set<number> | undefined;
     return !preloadedIndexes || !preloadedIndexes.has(index);
   });
 
   // Send header per-peer
-  targets.forEach(p => {
+  targets.forEach((p) => {
     const conn = p.conn as DataConnection;
     const needsChunks = targetsWhoNeedChunks.includes(p);
     safeSend(conn, { ...header, skipped: !needsChunks });
@@ -328,7 +343,10 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
         }
       }
       if (congested) {
-        if (Date.now() - bpStart > 30_000) { log.warn('[Preload] Backpressure timeout'); break; }
+        if (Date.now() - bpStart > 30_000) {
+          log.warn('[Preload] Backpressure timeout');
+          break;
+        }
         await delay(DELAY.BACKPRESSURE);
       }
     }
@@ -339,7 +357,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     const chunk = new Uint8Array(chunkBuf);
     const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId };
 
-    targetsWhoNeedChunks.forEach(p => {
+    targetsWhoNeedChunks.forEach((p) => {
       const conn = p.conn as DataConnection;
       if (conn?.open) safeSend(conn, chunkMsg);
     });
@@ -347,7 +365,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 
   if (getState('preload.sessionId') === sessionId) {
     const endMsg = { type: MSG.PRELOAD_END, name: file.name, index, sessionId };
-    targets.forEach(p => {
+    targets.forEach((p) => {
       const conn = p.conn as DataConnection;
       if (conn?.open) safeSend(conn, endMsg);
     });
@@ -362,7 +380,7 @@ export async function unicastPreload(
   conn: DataConnection,
   file: File | Blob,
   index: number,
-  sessionId: number
+  sessionId: number,
 ): Promise<void> {
   // Per-peer scope isolation: cancel any previous unicast preload to same peer
   const unicastKey = conn.peer;
@@ -405,13 +423,21 @@ export async function unicastPreload(
       if (!conn.open) return;
       const bpStart = Date.now();
       while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
-        if (Date.now() - bpStart > 30_000) { log.warn('[Preload Unicast] Backpressure timeout'); return; }
+        if (Date.now() - bpStart > 30_000) {
+          log.warn('[Preload Unicast] Backpressure timeout');
+          return;
+        }
         await delay(DELAY.BACKPRESSURE);
       }
       if (!conn.open) return;
       const start = i * CHUNK;
       const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
-      safeSend(conn, { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(chunkBuf), index: i, sessionId });
+      safeSend(conn, {
+        type: MSG.PRELOAD_CHUNK,
+        chunk: new Uint8Array(chunkBuf),
+        index: i,
+        sessionId,
+      });
     }
 
     safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
@@ -463,7 +489,11 @@ function handlePreloadStart(data: Record<string, unknown>): void {
       finalized: false,
     });
     setState('preload.sessionState', skipSessionState);
-    try { preloadReorderBuffer.delete(sid); } catch (e) { log.debug('[Preload] reorder buffer cleanup:', e); }
+    try {
+      preloadReorderBuffer.delete(sid);
+    } catch (e) {
+      log.debug('[Preload] reorder buffer cleanup:', e);
+    }
     return;
   }
 
@@ -479,7 +509,11 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Show loader only if main transfer is not in progress
   const transferState = getState('transfer.state');
-  if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
+  if (
+    transferState === TRANSFER_STATE.READY ||
+    transferState === TRANSFER_STATE.IDLE ||
+    !transferState
+  ) {
     showLoader(true, t('toast.preparing_next', { name: data.name as string }));
   }
 
@@ -527,29 +561,45 @@ function handlePreloadStart(data: Record<string, unknown>): void {
 
   // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
   // Use setTimeout(0) to let the worker process OPFS_START before receiving WRITE commands
-  setManagedTimer('preload-drain-' + sid, () => { try { drainPreloadReorderBuffer(sid); } catch (e) { log.debug('[Preload] drain reorder buffer:', e); } }, 0);
+  setManagedTimer(
+    'preload-drain-' + sid,
+    () => {
+      try {
+        drainPreloadReorderBuffer(sid);
+      } catch (e) {
+        log.debug('[Preload] drain reorder buffer:', e);
+      }
+    },
+    0,
+  );
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  downstreamPeers.forEach((p) => {
+    safeSend(p, data as AnyProtocolMsg);
+  });
 
   // Watchdog: unconditionally clear preload loader after 30s
   clearManagedTimer('preloadWatchdog');
-  setManagedTimer('preloadWatchdog', () => {
-    log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
-    showLoader(false);
-    // If main transfer is still in progress, restore its loader
-    const transferState = getState('transfer.state');
-    if (transferState === TRANSFER_STATE.RECEIVING) {
-      const meta = getState('transfer.meta');
-      const receivedCount = getState('transfer.receivedCount');
-      const total = (meta?.total as number) || 0;
-      if (total > 0) {
-        const pct = Math.round((receivedCount / total) * 100);
-        updateLoader(pct);
+  setManagedTimer(
+    'preloadWatchdog',
+    () => {
+      log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
+      showLoader(false);
+      // If main transfer is still in progress, restore its loader
+      const transferState = getState('transfer.state');
+      if (transferState === TRANSFER_STATE.RECEIVING) {
+        const meta = getState('transfer.meta');
+        const receivedCount = getState('transfer.receivedCount');
+        const total = (meta?.total as number) || 0;
+        if (total > 0) {
+          const pct = Math.round((receivedCount / total) * 100);
+          updateLoader(pct);
+        }
       }
-    }
-  }, 30000);
+    },
+    30000,
+  );
 }
 
 function drainPreloadReorderBuffer(sessionId: number): void {
@@ -576,8 +626,15 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     const downstreamPeers = getState('relay.downstreamDataPeers');
     if (downstreamPeers.length > 0) {
       const relayCopy = new Uint8Array(chunk);
-      const relayMsg = { type: MSG.PRELOAD_CHUNK, chunk: relayCopy, index: nextChunkPtr, sessionId };
-      downstreamPeers.forEach(p => { safeSend(p, relayMsg); });
+      const relayMsg = {
+        type: MSG.PRELOAD_CHUNK,
+        chunk: relayCopy,
+        index: nextChunkPtr,
+        sessionId,
+      };
+      downstreamPeers.forEach((p) => {
+        safeSend(p, relayMsg);
+      });
     }
 
     postWorkerCommand({
@@ -612,14 +669,19 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // we must be mutually exclusive. If we're blocked waiting for a track, ONLY show
   // that track's progress. Otherwise, show the latest broadcast preload.
   const lifecycle = getState('playback.lifecycle');
-  const shouldUpdateUI = lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
-    ? updatedSession.index === getState('recovery.pendingFileIndex')
-    : sessionId === latestPreloadSessionId;
+  const shouldUpdateUI =
+    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
+      ? updatedSession.index === getState('recovery.pendingFileIndex')
+      : sessionId === latestPreloadSessionId;
 
   if (shouldUpdateUI && updatedSession.total > 0) {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
     const transferState = getState('transfer.state');
-    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
+    if (
+      transferState === TRANSFER_STATE.READY ||
+      transferState === TRANSFER_STATE.IDLE ||
+      !transferState
+    ) {
       showLoader(true, t('toast.preparing_next_pct', { pct }));
       updateLoader(pct);
     }
@@ -629,12 +691,16 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   const preloadMeta = getState('preload.meta');
   if (preloadMeta && (preloadMeta.total as number) > 0) {
     clearManagedTimer('preloadWatchdog');
-    setManagedTimer('preloadWatchdog', () => {
-      const transferState = getState('transfer.state');
-      if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
-        showLoader(false);
-      }
-    }, 15000);
+    setManagedTimer(
+      'preloadWatchdog',
+      () => {
+        const transferState = getState('transfer.state');
+        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
+          showLoader(false);
+        }
+      },
+      15000,
+    );
   }
 
   // Finalize if all chunks received (in-chunk finalization)
@@ -742,7 +808,9 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
     } else {
       // Some chunks still missing — let future handlePreloadChunk → drain finalize it.
       // This prevents premature OPFS_END when network reordering causes late chunk arrival.
-      log.debug(`[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring OPFS_END`);
+      log.debug(
+        `[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring OPFS_END`,
+      );
 
       // Bound the deferred state. Preload broadcasts are one-way (no per-chunk
       // recovery like main transfer), so a chunk that never arrives would
@@ -752,15 +820,21 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
       // evictable; the next track entry will fall back to main-transfer
       // download via the standard handlePlayPreloaded path.
       const sidLocal = sid;
-      setManagedTimer(`preload-end-deferred-${sidLocal}`, () => {
-        const cur = getState('preload.sessionState').get(sidLocal);
-        if (!cur || cur.finalized || cur.skipped) return;
-        log.warn(`[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}) — marking skipped.`);
-        const updated = new Map(getState('preload.sessionState'));
-        updated.set(sidLocal, { ...cur, skipped: true });
-        setState('preload.sessionState', updated);
-        preloadReorderBuffer.delete(sidLocal);
-      }, 10_000);
+      setManagedTimer(
+        `preload-end-deferred-${sidLocal}`,
+        () => {
+          const cur = getState('preload.sessionState').get(sidLocal);
+          if (!cur || cur.finalized || cur.skipped) return;
+          log.warn(
+            `[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}) — marking skipped.`,
+          );
+          const updated = new Map(getState('preload.sessionState'));
+          updated.set(sidLocal, { ...cur, skipped: true });
+          setState('preload.sessionState', updated);
+          preloadReorderBuffer.delete(sidLocal);
+        },
+        10_000,
+      );
     }
   }
 
@@ -769,14 +843,18 @@ function handlePreloadEnd(data: Record<string, unknown>): void {
     preloadReorderBuffer.delete(sid);
   }
 
-  log.debug(`[Preload] End: ${freshSession.name} (${freshSession.progress}/${freshSession.total} chunks)`);
+  log.debug(
+    `[Preload] End: ${freshSession.name} (${freshSession.progress}/${freshSession.total} chunks)`,
+  );
 
   // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after OPFS confirms file)
   // Previously it was sent here (before OPFS confirmed), causing timing issues.
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  downstreamPeers.forEach((p) => {
+    safeSend(p, data as AnyProtocolMsg);
+  });
 
   bus.emit('storage:preload-ready', data.index as number);
 }
@@ -786,7 +864,7 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
   if (hostConn) return; // Guest ignores
 
   const connectedPeers = getState('network.connectedPeers');
-  const p = connectedPeers.find(x => x.id === conn.peer);
+  const p = connectedPeers.find((x) => x.id === conn.peer);
   if (p && data.index !== undefined) {
     const preloadedIndexes = p.preloadedIndexes as Set<number>;
     if (preloadedIndexes) {
@@ -795,7 +873,7 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
       // Immutable update: new Set → new peer → new array → setState
       const updatedSet = new Set(preloadedIndexes);
       updatedSet.add(idx);
-      const updatedPeers = connectedPeers.map(x =>
+      const updatedPeers = connectedPeers.map((x) =>
         x.id === conn.peer ? { ...x, preloadedIndexes: updatedSet } : x,
       );
       setState('network.connectedPeers', updatedPeers);
@@ -832,7 +910,9 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   // Check if preloaded blob matches requested track
   const nextFileBlob = getState('preload.nextFileBlob');
   const nextMeta = getState('preload.meta');
-  const isMatch = nextFileBlob && nextMeta &&
+  const isMatch =
+    nextFileBlob &&
+    nextMeta &&
     ((nextMeta.index as number) === index || (nextMeta.name as string) === name);
 
   if (isMatch) {
@@ -847,7 +927,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
 
     // Relay downstream
     const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => {
+    downstreamPeers.forEach((p) => {
       safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
     });
     return;
@@ -857,8 +937,11 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   const sessionState = getState('preload.sessionState');
   let isDownloadingSame = false;
   for (const [, session] of sessionState) {
-    if (!session.skipped && !session.finalized &&
-      (session.index === index || session.name === name)) {
+    if (
+      !session.skipped &&
+      !session.finalized &&
+      (session.index === index || session.name === name)
+    ) {
       isDownloadingSame = true;
       break;
     }
@@ -892,7 +975,7 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
 
     // Relay downstream
     const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => {
+    downstreamPeers.forEach((p) => {
       safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
     });
     return;
@@ -918,39 +1001,50 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
   if (hostConn?.open) {
     // Short jitter to avoid thundering herd, but not too long to cause stale track
     const jitter = Math.random() * 300 + 50;
-    setManagedTimer('preload-recovery-jitter', () => {
-      // Double-check: did preload arrive during wait?
-      const nowBlob = getState('preload.nextFileBlob');
-      const nowMeta = getState('preload.meta');
-      if (nowBlob && nowMeta &&
-        ((nowMeta.index as number) === index || (nowMeta.name as string) === trackName)) {
-        log.debug('[Guest] Preload arrived during jitter wait! Using it.');
-        bus.emit('storage:use-preloaded', index, trackName);
-        return;
-      }
+    setManagedTimer(
+      'preload-recovery-jitter',
+      () => {
+        // Double-check: did preload arrive during wait?
+        const nowBlob = getState('preload.nextFileBlob');
+        const nowMeta = getState('preload.meta');
+        if (
+          nowBlob &&
+          nowMeta &&
+          ((nowMeta.index as number) === index || (nowMeta.name as string) === trackName)
+        ) {
+          log.debug('[Guest] Preload arrived during jitter wait! Using it.');
+          bus.emit('storage:use-preloaded', index, trackName);
+          return;
+        }
 
-      // Check if host already moved past this track — don't request stale file
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-      if (currentTrackIndex !== index) {
-        log.debug(`[Guest] Track already changed (${currentTrackIndex} != ${index}), skipping recovery request`);
-        showLoader(false);
-        return;
-      }
+        // Check if host already moved past this track — don't request stale file
+        const currentTrackIndex = getState('playlist.currentTrackIndex');
+        if (currentTrackIndex !== index) {
+          log.debug(
+            `[Guest] Track already changed (${currentTrackIndex} != ${index}), skipping recovery request`,
+          );
+          showLoader(false);
+          return;
+        }
 
-      if (sendToHost({
-        type: MSG.REQUEST_DATA_RECOVERY,
-        nextChunk: 0,
-        fileName: trackName,
-        index,
-      })) {
-        log.debug('[Guest] Requested file recovery from Host for:', trackName);
-      }
-    }, jitter);
+        if (
+          sendToHost({
+            type: MSG.REQUEST_DATA_RECOVERY,
+            nextChunk: 0,
+            fileName: trackName,
+            index,
+          })
+        ) {
+          log.debug('[Guest] Requested file recovery from Host for:', trackName);
+        }
+      },
+      jitter,
+    );
   }
 
   // Relay downstream regardless
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => {
+  downstreamPeers.forEach((p) => {
     safeSend(p, { type: MSG.PLAY_PRELOADED, index, name: trackName });
   });
 }
@@ -1008,24 +1102,25 @@ export function initPreload(): void {
       const lifecycle = getState('playback.lifecycle');
       const pendingIdx = getState('recovery.pendingFileIndex');
       const playlist = getState('playlist.items') || [];
-      const awaitedName = (lifecycle === 'AWAITING_PRELOAD' &&
-        typeof pendingIdx === 'number' && pendingIdx >= 0)
-        ? (playlist[pendingIdx]?.name ?? '')
-        : '';
+      const awaitedName =
+        lifecycle === 'AWAITING_PRELOAD' && typeof pendingIdx === 'number' && pendingIdx >= 0
+          ? (playlist[pendingIdx]?.name ?? '')
+          : '';
       const isOurAwaitTarget =
-        lifecycle === 'AWAITING_PRELOAD' &&
-        !!filename &&
-        !!awaitedName &&
-        filename === awaitedName;
+        lifecycle === 'AWAITING_PRELOAD' && !!filename && !!awaitedName && filename === awaitedName;
 
       if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
         // "Stale" per the old guard's definition — but accept if it matches
         // our wait target by filename (handles the session-cleanup race).
         if (!isOurAwaitTarget) {
-          log.debug(`[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`);
+          log.debug(
+            `[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`,
+          );
           return;
         }
-        log.info(`[Preload] Accepting "stale" OPFS completion — matches our AWAITING_PRELOAD target by filename (${filename}, SID ${sessionId}, latest ${latestPreloadSessionId}, session ${sessionForFile ? 'present' : 'cleaned up'})`);
+        log.info(
+          `[Preload] Accepting "stale" OPFS completion — matches our AWAITING_PRELOAD target by filename (${filename}, SID ${sessionId}, latest ${latestPreloadSessionId}, session ${sessionForFile ? 'present' : 'cleaned up'})`,
+        );
       }
 
       const file = await readFileFromOpfs(filename, true);
@@ -1053,7 +1148,7 @@ export function initPreload(): void {
           name: filename,
           index: pendingIdx as number,
           mime: file.type || '',
-          total: 0,  // best-effort; loadPreloadedTrack doesn't rely on total
+          total: 0, // best-effort; loadPreloadedTrack doesn't rely on total
           size: file.size,
           sessionId,
         };
@@ -1117,7 +1212,7 @@ export function initPreload(): void {
       _activePlayPreloadedIndex = undefined;
       _preloadScope?.dispose();
       _preloadScope = null;
-      _activePreloadUnicasts.forEach(s => s.dispose());
+      _activePreloadUnicasts.forEach((s) => s.dispose());
       _activePreloadUnicasts.clear();
     }
   });

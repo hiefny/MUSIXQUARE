@@ -81,7 +81,7 @@ describe('YouTube Sync', () => {
         expect.objectContaining({
           time: 42.5,
           state: 1,
-        })
+        }),
       );
     });
   });
@@ -101,7 +101,7 @@ describe('YouTube Sync', () => {
 
     function simulateAdDetection(
       hostTimes: number[],
-      hostStates: number[]
+      hostStates: number[],
     ): { staleCount: number; adActive: boolean } {
       let lastTime: number | null = null;
       let staleCount = 0;
@@ -133,28 +133,19 @@ describe('YouTube Sync', () => {
     }
 
     it('detects ad after 3 stale frames', () => {
-      const result = simulateAdDetection(
-        [10.0, 10.0, 10.0, 10.0],
-        [1, 1, 1, 1]
-      );
+      const result = simulateAdDetection([10.0, 10.0, 10.0, 10.0], [1, 1, 1, 1]);
       expect(result.adActive).toBe(true);
       expect(result.staleCount).toBe(3);
     });
 
     it('does NOT detect ad with only 2 stale frames', () => {
-      const result = simulateAdDetection(
-        [10.0, 10.0, 10.0],
-        [1, 1, 1]
-      );
+      const result = simulateAdDetection([10.0, 10.0, 10.0], [1, 1, 1]);
       expect(result.staleCount).toBe(2);
       expect(result.adActive).toBe(false);
     });
 
     it('resets when time moves again', () => {
-      const result = simulateAdDetection(
-        [10.0, 10.0, 10.0, 10.0, 15.0],
-        [1, 1, 1, 1, 1]
-      );
+      const result = simulateAdDetection([10.0, 10.0, 10.0, 10.0, 15.0], [1, 1, 1, 1, 1]);
       expect(result.adActive).toBe(false); // recovered
       expect(result.staleCount).toBe(0);
     });
@@ -162,33 +153,32 @@ describe('YouTube Sync', () => {
     it('resets when host explicitly pauses', () => {
       const result = simulateAdDetection(
         [10.0, 10.0, 10.0],
-        [1, 1, 2] // third frame is paused
+        [1, 1, 2], // third frame is paused
       );
       expect(result.adActive).toBe(false);
       expect(result.staleCount).toBe(0);
     });
 
     it('accepts time movement > 1.0s as non-stale', () => {
-      const result = simulateAdDetection(
-        [10.0, 11.1, 12.2],
-        [1, 1, 1]
-      );
+      const result = simulateAdDetection([10.0, 11.1, 12.2], [1, 1, 1]);
       expect(result.staleCount).toBe(0);
       expect(result.adActive).toBe(false);
     });
 
     it('treats time movement < 1.0s as stale', () => {
-      const result = simulateAdDetection(
-        [10.0, 10.5, 10.9],
-        [1, 1, 1]
-      );
+      const result = simulateAdDetection([10.0, 10.5, 10.9], [1, 1, 1]);
       expect(result.staleCount).toBe(2);
     });
   });
 
   describe('Drift Correction Logic', () => {
     // Drift correction: if |currentTime - compensatedTime| > 2, seek
-    function shouldSeek(currentTime: number, hostTime: number, autoOffset: number, localOffset: number): boolean {
+    function shouldSeek(
+      currentTime: number,
+      hostTime: number,
+      autoOffset: number,
+      localOffset: number,
+    ): boolean {
       const compensated = hostTime + autoOffset + localOffset;
       const drift = Math.abs(currentTime - compensated);
       return drift > 2;

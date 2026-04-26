@@ -15,8 +15,8 @@ import { animateTransition } from './dom.ts';
 
 export function switchTab(tabId: string): void {
   animateTransition(() => {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(el => {
+    document.querySelectorAll('.tab-content').forEach((el) => el.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach((el) => {
       el.classList.remove('active');
       el.setAttribute('aria-selected', 'false');
       el.setAttribute('tabindex', '-1');
@@ -41,13 +41,17 @@ export function switchTab(tabId: string): void {
     }
 
     if (tabId === 'play') {
-      setManagedTimer('tab-play-check', () => {
-        const currentState = getState('appState');
-        if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-          bus.emit('youtube:refresh-display');
-        }
-        bus.emit('ui:visualizer-check');
-      }, 50);
+      setManagedTimer(
+        'tab-play-check',
+        () => {
+          const currentState = getState('appState');
+          if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+            bus.emit('youtube:refresh-display');
+          }
+          bus.emit('ui:visualizer-check');
+        },
+        50,
+      );
     }
 
     bus.emit('ui:close-chat-drawer');
@@ -59,11 +63,11 @@ export function switchTab(tabId: string): void {
 export function initTabs(): void {
   // Bottom navigation
   const navItems = Array.from(
-    document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]')
+    document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]'),
   );
 
   // Set up WAI-ARIA roles and tabindex
-  navItems.forEach(el => {
+  navItems.forEach((el) => {
     el.setAttribute('role', 'tab');
     if (el.classList.contains('active')) {
       el.setAttribute('tabindex', '0');
@@ -74,9 +78,13 @@ export function initTabs(): void {
     }
   });
 
-  navItems.forEach(el => {
+  navItems.forEach((el) => {
     el.addEventListener('click', () => {
-      try { el.blur(); } catch { /* ignore */ }
+      try {
+        el.blur();
+      } catch {
+        /* ignore */
+      }
       if (el.classList.contains('active')) {
         const tabBody = document.querySelector(`#tab-${el.dataset.tab} .tab-body`);
         if (tabBody) tabBody.scrollTo({ top: 0, behavior: 'smooth' });

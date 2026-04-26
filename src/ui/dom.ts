@@ -23,14 +23,20 @@ export function animateTransition(callback: () => void): void {
   // Skip View Transitions while the header loading-bar CSS transition
   // is in progress — startViewTransition snapshots replay CSS transitions,
   // causing the loading animation to appear twice.
-  if (Date.now() < _suppressViewTransitionUntil || !(document as unknown as Record<string, unknown>).startViewTransition) {
+  if (
+    Date.now() < _suppressViewTransitionUntil ||
+    !(document as unknown as Record<string, unknown>).startViewTransition
+  ) {
     callback();
     return;
   }
 
   if (_batchedTransitionCb !== null) {
     const oldCb = _batchedTransitionCb;
-    _batchedTransitionCb = () => { oldCb(); callback(); };
+    _batchedTransitionCb = () => {
+      oldCb();
+      callback();
+    };
     return;
   }
 
@@ -49,13 +55,23 @@ export function animateTransition(callback: () => void): void {
       // but an uncaught rejection lands in the global `unhandledrejection`
       // handler and shows up in console as "InvalidStateError: Transition
       // was aborted because of invalid state". Silence the benign ones.
-      const vt = (document as unknown as Record<string, (...args: unknown[]) => unknown>).startViewTransition(() => {
+      const vt = (
+        document as unknown as Record<string, (...args: unknown[]) => unknown>
+      ).startViewTransition(() => {
         executed = true;
         cb();
-      }) as { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> } | undefined;
-      vt?.ready?.catch(() => { /* noop — benign abort */ });
-      vt?.finished?.catch(() => { /* noop — benign abort */ });
-      vt?.updateCallbackDone?.catch(() => { /* noop — benign abort */ });
+      }) as
+        | { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> }
+        | undefined;
+      vt?.ready?.catch(() => {
+        /* noop — benign abort */
+      });
+      vt?.finished?.catch(() => {
+        /* noop — benign abort */
+      });
+      vt?.updateCallbackDone?.catch(() => {
+        /* noop — benign abort */
+      });
     } catch {
       if (!executed) cb();
     }
@@ -77,7 +93,7 @@ const OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overl
  */
 export function initOverlayInertObserver(): void {
   function syncInert(): void {
-    const anyOverlayActive = OVERLAY_IDS.some(id => {
+    const anyOverlayActive = OVERLAY_IDS.some((id) => {
       const el = document.getElementById(id);
       return el?.classList.contains('active');
     });
@@ -168,12 +184,16 @@ function applyMarquee(el: HTMLElement): void {
 }
 
 function onMarqueeResize(): void {
-  setManagedTimer('marquee-resize', () => {
-    if (!_currentMarqueeText) return;
-    const el = document.getElementById('track-title');
-    if (!el) return;
-    applyMarquee(el);
-  }, 250);
+  setManagedTimer(
+    'marquee-resize',
+    () => {
+      if (!_currentMarqueeText) return;
+      const el = document.getElementById('track-title');
+      if (!el) return;
+      applyMarquee(el);
+    },
+    250,
+  );
 }
 
 export function updateTitleWithMarquee(text: string): void {
@@ -230,7 +250,9 @@ export function updateOverlayOpenClass(): void {
       return !!(el && el.classList.contains('active'));
     });
     if (document.body) document.body.classList.toggle('overlay-open', anyActive);
-  } catch (e) { log.debug('[DOM] Overlay class toggle error:', e); }
+  } catch (e) {
+    log.debug('[DOM] Overlay class toggle error:', e);
+  }
 }
 
 export function initOverlayOpenObserver(): void {
@@ -246,7 +268,9 @@ export function initOverlayOpenObserver(): void {
       const el = document.getElementById(id);
       if (el) _overlayObserver!.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
-  } catch (e) { log.debug('[DOM] Overlay observer init error:', e); }
+  } catch (e) {
+    log.debug('[DOM] Overlay observer init error:', e);
+  }
 
   updateOverlayOpenClass();
 }

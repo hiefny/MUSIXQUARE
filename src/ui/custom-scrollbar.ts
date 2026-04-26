@@ -83,9 +83,7 @@ function updateScroll(state: ScrollbarState): void {
 
   const maxScroll = scrollHeight - clientHeight;
   const maxThumbTop = visibleHeight - thumbHeight;
-  let thumbTop = maxScroll > 0
-    ? (scrollTop / maxScroll) * maxThumbTop
-    : 0;
+  let thumbTop = maxScroll > 0 ? (scrollTop / maxScroll) * maxThumbTop : 0;
 
   let h = thumbHeight;
 
@@ -169,7 +167,13 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   // Content mutations → update layout
   state.observer = new MutationObserver(() => updateLayout(state));
-  state.observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+  state.observer.observe(container, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['class', 'style'],
+  });
 
   // Resize → update layout
   state.resizeObserver = new ResizeObserver(() => updateLayout(state));
@@ -218,7 +222,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
-    container.scrollTop = state.dragStartScroll + ((e.clientY - state.dragStartY) / trackHeight) * maxScroll;
+    container.scrollTop =
+      state.dragStartScroll + ((e.clientY - state.dragStartY) / trackHeight) * maxScroll;
   };
 
   // Touchmove fires on the original touch target (thumb) for the lifetime of
@@ -231,7 +236,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
-    container.scrollTop = state.dragStartScroll + ((e.touches[0].clientY - state.dragStartY) / trackHeight) * maxScroll;
+    container.scrollTop =
+      state.dragStartScroll + ((e.touches[0].clientY - state.dragStartY) / trackHeight) * maxScroll;
   };
 
   const onDragEnd = () => {
@@ -296,7 +302,7 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   if (!state) return;
   state.observer.disconnect();
   state.resizeObserver.disconnect();
-  state.cleanup.forEach(fn => fn());
+  state.cleanup.forEach((fn) => fn());
   state.track.remove();
   _instances.delete(container);
 }

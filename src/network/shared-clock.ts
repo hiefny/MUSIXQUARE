@@ -15,19 +15,19 @@ import { log } from '../core/log.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 
-const MAX_SAMPLES = 60;            // Keep last 60 RTT samples (~1min window)
+const MAX_SAMPLES = 60; // Keep last 60 RTT samples (~1min window)
 
 // ─── State ────────────────────────────────────────────────────────
 
 interface ClockSample {
   rtt: number;
-  offset: number;  // hostTime - localTime (corrected for half RTT)
+  offset: number; // hostTime - localTime (corrected for half RTT)
   timestamp: number;
 }
 
 let _isHostClock = false;
 let _samples: ClockSample[] = [];
-let _bestOffset = 0;           // Current best estimate of (hostTime - localTime)
+let _bestOffset = 0; // Current best estimate of (hostTime - localTime)
 let _pongsReceived = 0;
 const _pendingPings = new Map<number, number>(); // pingId → sentAt
 
@@ -39,10 +39,10 @@ const _pendingPings = new Map<number, number>(); // pingId → sentAt
  */
 export function getHostNow(): number {
   if (_isHostClock) return Date.now(); // Host IS the clock
-  if (_samples.length === 0) log.warn('[SharedClock] getHostNow called with no samples — offset may be inaccurate');
+  if (_samples.length === 0)
+    log.warn('[SharedClock] getHostNow called with no samples — offset may be inaccurate');
   return Date.now() + _bestOffset;
 }
-
 
 /**
  * Get the current clock offset (host - local) in milliseconds.
@@ -66,7 +66,7 @@ export function isClockCalibrated(): boolean {
  */
 export function getClockBestRtt(): number {
   if (_samples.length === 0) return 0;
-  return Math.min(..._samples.map(s => s.rtt));
+  return Math.min(..._samples.map((s) => s.rtt));
 }
 
 // ─── Setters ──────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ export function processSyncPong(
 
   const receivedAt = Date.now();
   const rtt = receivedAt - pingSentAt;
-  if (rtt < 0) return null;  // System clock went backward
+  if (rtt < 0) return null; // System clock went backward
   const halfRtt = rtt / 2;
 
   // Offset = how far ahead host clock is from our clock
@@ -137,7 +137,9 @@ export function processSyncPong(
   // where the first samples legitimately revise the offset.
   const STEP_THRESHOLD_MS = 2_000;
   if (_samples.length >= 3 && Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS) {
-    log.warn(`[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms — local clock likely stepped, flushing samples`);
+    log.warn(
+      `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms — local clock likely stepped, flushing samples`,
+    );
     _samples = [];
   }
 
@@ -149,16 +151,18 @@ export function processSyncPong(
   // months-old minimum-RTT sample's offset causes persistent rendezvous
   // desync that grows linearly with session duration.
   const AGE_LIMIT = 120_000; // 2 minutes — balances freshness vs sample pool
-  _samples = _samples.filter(s => receivedAt - s.timestamp < AGE_LIMIT);
+  _samples = _samples.filter((s) => receivedAt - s.timestamp < AGE_LIMIT);
   if (_samples.length > MAX_SAMPLES) _samples.shift();
 
   // Best offset = from the sample with lowest RTT (most accurate)
-  const best = _samples.reduce((a, b) => a.rtt < b.rtt ? a : b);
+  const best = _samples.reduce((a, b) => (a.rtt < b.rtt ? a : b));
   _bestOffset = best.offset;
 
   _pongsReceived++;
 
-  log.debug(`[SharedClock] Sample #${_samples.length}: RTT=${rtt}ms, offset=${offset.toFixed(1)}ms, best=${_bestOffset.toFixed(1)}ms`);
+  log.debug(
+    `[SharedClock] Sample #${_samples.length}: RTT=${rtt}ms, offset=${offset.toFixed(1)}ms, best=${_bestOffset.toFixed(1)}ms`,
+  );
 
   return { rtt, offset };
 }

@@ -13,17 +13,29 @@ import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { joinSession } from '../network/peer.ts';
 import {
-  t, bus, showToast,
-  updateRoleBadge, updateInviteCodeUI,
-  activateNoSleep, selectStandardChannelButton,
+  t,
+  bus,
+  showToast,
+  updateRoleBadge,
+  updateInviteCodeUI,
+  activateNoSleep,
+  selectStandardChannelButton,
   BACK_SVG,
-  getPendingSetupRole, setPendingSetupRole,
-  getPendingGuestRoleMode, setPendingGuestRoleMode,
+  getPendingSetupRole,
+  setPendingSetupRole,
+  getPendingGuestRoleMode,
+  setPendingGuestRoleMode,
   getPendingAutoJoinCode,
   setOnInviteLinkRoleSelected,
-  setupEl, stopObAutoSlide,
-  setupShowCodeArea, setupShowJoinArea, setupShowWelcome, setupShowRoleArea,
-  setupHighlightJoinRole, setupSetGuestJoinBusy, setupRenderActions,
+  setupEl,
+  stopObAutoSlide,
+  setupShowCodeArea,
+  setupShowJoinArea,
+  setupShowWelcome,
+  setupShowRoleArea,
+  setupHighlightJoinRole,
+  setupSetGuestJoinBusy,
+  setupRenderActions,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
@@ -51,7 +63,11 @@ export function startGuestFlow(): void {
     setState('network.isIntentionalDisconnect', true);
     const hostConn = getState('network.hostConn');
     if (hostConn) {
-      try { hostConn.close(); } catch { /* noop */ }
+      try {
+        hostConn.close();
+      } catch {
+        /* noop */
+      }
       setState('network.hostConn', null);
     }
   }
@@ -87,17 +103,22 @@ export function startGuestFlow(): void {
     _renderInviteLinkActions();
   } else {
     // Normal guest flow: role selection → "다음" → code input → "시작하기"
-    setupRenderActions([
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
-      {
-        id: 'btn-setup-next', text: t('common.next'), kind: 'secondary',
-        onClick: () => {
-          const role = getPendingSetupRole();
-          if (role !== null) proceedToGuestCode(role);
-          else showToast(t('setup.select_role'));
+    setupRenderActions(
+      [
+        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+        {
+          id: 'btn-setup-next',
+          text: t('common.next'),
+          kind: 'secondary',
+          onClick: () => {
+            const role = getPendingSetupRole();
+            if (role !== null) proceedToGuestCode(role);
+            else showToast(t('setup.select_role'));
+          },
         },
-      },
-    ], 'horizontal-with-back');
+      ],
+      'horizontal-with-back',
+    );
   }
 
   setState('network.myDeviceLabel', t('common.guest'));
@@ -114,21 +135,31 @@ export function startGuestFlow(): void {
  *  keeps a single-row action bar (mobile diagram real estate). */
 function _renderInviteLinkActions(): void {
   const role = getPendingSetupRole();
-  setupRenderActions([
-    {
-      id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only',
-      onClick: () => { markIntentionalNav(); window.location.href = '/'; },
-    },
-    {
-      id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary',
-      disabled: role === null,
-      onClick: () => {
-        const r = getPendingSetupRole();
-        if (r !== null) _handleInviteLinkJoin(r);
-        else showToast(t('setup.select_role'));
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        kind: 'icon-only',
+        onClick: () => {
+          markIntentionalNav();
+          window.location.href = '/';
+        },
       },
-    },
-  ], 'horizontal-with-back');
+      {
+        id: 'btn-setup-confirm',
+        text: t('common.start'),
+        kind: 'primary',
+        disabled: role === null,
+        onClick: () => {
+          const r = getPendingSetupRole();
+          if (r !== null) _handleInviteLinkJoin(r);
+          else showToast(t('setup.select_role'));
+        },
+      },
+    ],
+    'horizontal-with-back',
+  );
 }
 
 /** Called when a role card is tapped in invite-link mode — enable the start button */
@@ -153,17 +184,31 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
   try {
     selectStandardChannelButton(mode);
     bus.emit('audio:set-channel-mode', mode);
-  } catch (e) { log.warn('[Setup] setChannelMode failed', e); }
+  } catch (e) {
+    log.warn('[Setup] setChannelMode failed', e);
+  }
 
   setState('network.myDeviceLabel', PEER_NAME_PREFIX);
   updateRoleBadge();
 
   setupSetGuestJoinBusy(true);
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => { markIntentionalNav(); window.location.href = '/'; }, disabled: true },
-    { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
-  ], 'horizontal-with-back');
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        kind: 'icon-only',
+        onClick: () => {
+          markIntentionalNav();
+          window.location.href = '/';
+        },
+        disabled: true,
+      },
+      { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
+    ],
+    'horizontal-with-back',
+  );
 
   joinSession(autoCode);
 }
@@ -176,10 +221,18 @@ function proceedToGuestCode(mode: number): void {
     setupShowJoinArea(true);
   });
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
-    { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode()) },
-  ], 'horizontal-with-back');
+  setupRenderActions(
+    [
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+      {
+        id: 'btn-setup-confirm',
+        text: t('common.start'),
+        kind: 'primary',
+        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode()),
+      },
+    ],
+    'horizontal-with-back',
+  );
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
   if (input) {
@@ -220,7 +273,9 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   try {
     selectStandardChannelButton(mode);
     bus.emit('audio:set-channel-mode', mode);
-  } catch (e) { log.warn('[Setup] setChannelMode failed', e); }
+  } catch (e) {
+    log.warn('[Setup] setChannelMode failed', e);
+  }
 
   setState('network.myDeviceLabel', PEER_NAME_PREFIX);
   updateRoleBadge();
@@ -230,10 +285,19 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   // (pre-setting would block joinSession's own guard)
   updateRoleBadge();
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow(), disabled: true },
-    { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
-  ], 'horizontal-with-back');
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        kind: 'icon-only',
+        onClick: () => startGuestFlow(),
+        disabled: true,
+      },
+      { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
+    ],
+    'horizontal-with-back',
+  );
 
   joinSession(code);
 }

@@ -98,7 +98,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   }
 
   const myId = getState('network.myId') || '';
-  const senderId = data.senderId as string || '';
+  const senderId = (data.senderId as string) || '';
   const isMine = senderId === myId;
 
   // Already displayed locally in sendChatMessage() — drop echo-back
@@ -124,7 +124,8 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   }
 
   let senderLabel = (data.senderLabel as string) || (data.sender as string) || PEER_NAME_PREFIX;
-  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH) senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
+  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH)
+    senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
   const displayName = formatChatDisplayName(senderLabel);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
@@ -220,7 +221,8 @@ function handleChatWhisper(data: Record<string, unknown>, conn?: DataConnection)
   // with no limit, letting a peer ship a 10MB text to any target's renderer
   // (parseMessageContent → escapeHtml → innerHTML on a multi-MB string).
   let labelIn = (data.senderLabel as string) || '';
-  if (labelIn.length > MAX_SENDER_LABEL_LENGTH) labelIn = labelIn.substring(0, MAX_SENDER_LABEL_LENGTH);
+  if (labelIn.length > MAX_SENDER_LABEL_LENGTH)
+    labelIn = labelIn.substring(0, MAX_SENDER_LABEL_LENGTH);
   let textIn = (data.text as string) || '';
   if (textIn.length > MAX_MSG_LENGTH) textIn = textIn.substring(0, MAX_MSG_LENGTH);
   data.senderLabel = labelIn;
@@ -274,7 +276,8 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
   if (!isFromHost(conn)) return;
 
   let senderLabel = (data.senderLabel as string) || '';
-  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH) senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
+  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH)
+    senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
 
@@ -283,25 +286,23 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
 
 function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
-  const seconds = data.seconds as number || 0;
+  const seconds = (data.seconds as number) || 0;
   (setState as (p: string, v: number) => void)('network.slowmodeSeconds', seconds);
-  addSystemChatMessage(seconds > 0
-    ? t('chat.cmd_slowmode_on', { sec: seconds })
-    : t('chat.cmd_slowmode_off'));
+  addSystemChatMessage(
+    seconds > 0 ? t('chat.cmd_slowmode_on', { sec: seconds }) : t('chat.cmd_slowmode_off'),
+  );
 }
 
 function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
   const on = !!data.on;
   (setState as (p: string, v: boolean) => void)('network.filterEnabled', on);
-  addSystemChatMessage(on
-    ? t('chat.cmd_filter_on')
-    : t('chat.cmd_filter_off'));
+  addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
 }
 
 function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isFromHost(conn)) return;
-  const text = data.text as string || '';
+  const text = (data.text as string) || '';
   if (text) addSystemChatMessage(text);
 }
 

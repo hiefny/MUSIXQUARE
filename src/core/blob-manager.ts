@@ -30,7 +30,11 @@ export const BlobURLManager = {
   _clearScheduled(url: string): void {
     const t = this._pendingRevocations.get(url);
     if (t) {
-      try { clearTimeout(t); } catch { /* */ }
+      try {
+        clearTimeout(t);
+      } catch {
+        /* */
+      }
     }
     this._pendingRevocations.delete(url);
   },
@@ -97,9 +101,10 @@ export const BlobURLManager = {
     if (!url) return;
 
     const force = options?.force === true;
-    const delayMs = (typeof options?.delayMs === 'number' && options.delayMs >= 0)
-      ? options.delayMs
-      : DELAY.BLOB_REVOCATION;
+    const delayMs =
+      typeof options?.delayMs === 'number' && options.delayMs >= 0
+        ? options.delayMs
+        : DELAY.BLOB_REVOCATION;
 
     if (!force && this._pendingRevocations.has(url)) return;
 

@@ -12,14 +12,23 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
-import type { DataConnection, PeerInstance, AnyProtocolMsg, ConnectedPeer } from '../types/index.ts';
+import type {
+  DataConnection,
+  PeerInstance,
+  AnyProtocolMsg,
+  ConnectedPeer,
+} from '../types/index.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
 
 // ─── Public Getters / Setters ───────────────────────────────────────
-export function getPeer(): PeerInstance | null { return peer; }
-export function setPeer(p: PeerInstance | null): void { peer = p; }
+export function getPeer(): PeerInstance | null {
+  return peer;
+}
+export function setPeer(p: PeerInstance | null): void {
+  peer = p;
+}
 
 // ─── ICE Connection Type Detection ──────────────────────────────────
 
@@ -65,7 +74,10 @@ export function getPeerLabelBySlot(slot: number): string {
   return `${PEER_NAME_PREFIX} ${slot}`;
 }
 
-export function getAvailablePeerSlot(preferredSlot: number | null, peerId: string | null): number | null {
+export function getAvailablePeerSlot(
+  preferredSlot: number | null,
+  peerId: string | null,
+): number | null {
   const peerSlots = getState('network.peerSlots');
   const maxSlots = getState('network.maxGuestSlots');
   const pref = Number(preferredSlot);
@@ -121,7 +133,7 @@ export function generateSessionCode(): string {
  */
 export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
   const connectedPeers = getState('network.connectedPeers');
-  connectedPeers.forEach(p => {
+  connectedPeers.forEach((p) => {
     try {
       if (p.status === 'connected' && p.conn) {
         const conn = p.conn as DataConnection;
@@ -140,9 +152,13 @@ export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
 /**
  * Broadcast to all peers except one (used for chat relays).
  */
-export function broadcastExcept(excludePeerId: string, msg: AnyProtocolMsg, isDataOnly = false): void {
+export function broadcastExcept(
+  excludePeerId: string,
+  msg: AnyProtocolMsg,
+  isDataOnly = false,
+): void {
   const connectedPeers = getState('network.connectedPeers');
-  connectedPeers.forEach(p => {
+  connectedPeers.forEach((p) => {
     try {
       if (p.status === 'connected' && p.conn) {
         const conn = p.conn as DataConnection;
@@ -167,10 +183,17 @@ export function broadcastDeviceList(): void {
   const connectedPeers = getState('network.connectedPeers');
 
   const list = [
-    { id: myId, label: getState('network.myDeviceLabel') || 'HOST', status: 'connected', isHost: true, isOp: true, joinOrder: 0 },
+    {
+      id: myId,
+      label: getState('network.myDeviceLabel') || 'HOST',
+      status: 'connected',
+      isHost: true,
+      isOp: true,
+      joinOrder: 0,
+    },
     ...[...connectedPeers]
       .sort((a, b) => a.joinOrder - b.joinOrder)
-      .map(p => ({
+      .map((p) => ({
         id: p.id,
         label: p.label,
         status: p.status,
@@ -211,20 +234,17 @@ export function sendToHost(msg: AnyProtocolMsg): boolean {
  * Returns the resolved type, or 'remote' on timeout (safety default).
  */
 let _peerConnTypeCounter = 0;
-function waitForPeerConnectionType(
-  peerObj: ConnectedPeer,
-  timeout: number,
-): Promise<string> {
+function waitForPeerConnectionType(peerObj: ConnectedPeer, timeout: number): Promise<string> {
   const id = ++_peerConnTypeCounter;
   const intervalName = `peerConnType-interval-${id}`;
   const timeoutName = `peerConnType-timeout-${id}`;
   const peerId = peerObj.id; // Capture ID, not object — immutable state updates replace peer objects
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     // Poll by peer ID to avoid stale object reference after immutable state update
     const check = (): string | undefined => {
       const peers = getState('network.connectedPeers');
-      const current = peers.find(p => p.id === peerId);
+      const current = peers.find((p) => p.id === peerId);
       return current?.connectionType as string | undefined;
     };
     const current = check();
@@ -235,19 +255,28 @@ function waitForPeerConnectionType(
       clearManagedTimer(timeoutName);
     };
 
-    setManagedTimer(intervalName, () => {
-      const val = check();
-      if (val && val !== 'unknown') {
-        cleanup();
-        resolve(val);
-      }
-    }, 100, { interval: true });
+    setManagedTimer(
+      intervalName,
+      () => {
+        const val = check();
+        if (val && val !== 'unknown') {
+          cleanup();
+          resolve(val);
+        }
+      },
+      100,
+      { interval: true },
+    );
 
-    setManagedTimer(timeoutName, () => {
-      cleanup();
-      const final = check();
-      resolve(!final || final === 'unknown' ? 'remote' : final);
-    }, timeout);
+    setManagedTimer(
+      timeoutName,
+      () => {
+        cleanup();
+        const final = check();
+        resolve(!final || final === 'unknown' ? 'remote' : final);
+      },
+      timeout,
+    );
   });
 }
 
@@ -262,7 +291,7 @@ function waitForPeerConnectionType(
 export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   if (!conn || !conn.open) return false;
   const connectedPeers = getState('network.connectedPeers');
-  const peerObj = connectedPeers.find(p => p.conn === conn);
+  const peerObj = connectedPeers.find((p) => p.conn === conn);
   if (!peerObj) return false;
 
   // Orchestrator controls isDataTarget: false = relay-served or no-data, true = host-direct
@@ -293,11 +322,12 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
  */
 export function filterEligiblePeers(): ConnectedPeer[] {
   const connectedPeers = getState('network.connectedPeers');
-  return connectedPeers.filter(p =>
-    p.status === 'connected' &&
-    (p.conn as DataConnection)?.open &&
-    p.isDataTarget === true &&
-    p.connectionType === 'local',
+  return connectedPeers.filter(
+    (p) =>
+      p.status === 'connected' &&
+      (p.conn as DataConnection)?.open &&
+      p.isDataTarget === true &&
+      p.connectionType === 'local',
   );
 }
 
@@ -328,7 +358,7 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
   const intervalName = `guestConnType-interval-${id}`;
   const timeoutName = `guestConnType-timeout-${id}`;
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const check = () => getState('network.connectionType');
     const initial = check();
     if (initial !== 'unknown') return resolve(initial as 'local' | 'remote');
@@ -338,18 +368,27 @@ export function waitForGuestConnectionType(timeout: number): Promise<'local' | '
       clearManagedTimer(timeoutName);
     };
 
-    setManagedTimer(intervalName, () => {
-      const val = check();
-      if (val !== 'unknown') {
-        cleanup();
-        resolve(val as 'local' | 'remote');
-      }
-    }, 100, { interval: true });
+    setManagedTimer(
+      intervalName,
+      () => {
+        const val = check();
+        if (val !== 'unknown') {
+          cleanup();
+          resolve(val as 'local' | 'remote');
+        }
+      },
+      100,
+      { interval: true },
+    );
 
-    setManagedTimer(timeoutName, () => {
-      cleanup();
-      const final = check();
-      resolve(final === 'unknown' ? 'remote' : final as 'local' | 'remote');
-    }, timeout);
+    setManagedTimer(
+      timeoutName,
+      () => {
+        cleanup();
+        const final = check();
+        resolve(final === 'unknown' ? 'remote' : (final as 'local' | 'remote'));
+      },
+      timeout,
+    );
   });
 }

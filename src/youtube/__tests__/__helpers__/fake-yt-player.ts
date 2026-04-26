@@ -109,12 +109,10 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
 
 /** Helper: return only the operations (drops args + timing) for compact assertions. */
 export function ops(player: FakeYtPlayer): string[] {
-  return player.__log.map(c => c.op);
+  return player.__log.map((c) => c.op);
 }
 
 /** Helper: return ops filtered to mutation calls (ignores getters, which aren't logged). */
 export function mutationOps(player: FakeYtPlayer): string[] {
-  return player.__log
-    .filter(c => c.op !== 'destroy')
-    .map(c => c.op);
+  return player.__log.filter((c) => c.op !== 'destroy').map((c) => c.op);
 }

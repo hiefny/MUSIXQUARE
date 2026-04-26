@@ -49,16 +49,20 @@ function toggleExpansion(idx: number): void {
     // Mark as errored if sub-items don't arrive in time, so the UI can
     // replace the "loading..." row with a fallback message instead of
     // spinning forever on YouTube API throttling or network failure.
-    setManagedTimer(timerKey, () => {
-      const currentMap = getState('youtube.subItemsMap') || {};
-      const entry = currentMap[playlistId];
-      if (!entry || !entry.ids || entry.ids.length === 0) {
-        setState('youtube.subItemsMap', {
-          ...currentMap,
-          [playlistId]: { ids: [], titles: [], loadError: true },
-        });
-      }
-    }, SUB_ITEMS_LOAD_TIMEOUT_MS);
+    setManagedTimer(
+      timerKey,
+      () => {
+        const currentMap = getState('youtube.subItemsMap') || {};
+        const entry = currentMap[playlistId];
+        if (!entry || !entry.ids || entry.ids.length === 0) {
+          setState('youtube.subItemsMap', {
+            ...currentMap,
+            [playlistId]: { ids: [], titles: [], loadError: true },
+          });
+        }
+      },
+      SUB_ITEMS_LOAD_TIMEOUT_MS,
+    );
   } else {
     clearManagedTimer(timerKey);
   }
@@ -106,7 +110,7 @@ export function updatePlaylistUI(): void {
   const subItemsMap = getState('youtube.subItemsMap') || {};
 
   playlist.forEach((item, idx) => {
-    const isCurrent = (idx === currentTrackIndex);
+    const isCurrent = idx === currentTrackIndex;
     const li = document.createElement('li');
     li.className = `track-item ${isCurrent ? 'active' : ''} ${item.playlistId ? 'is-playlist' : ''}`;
 
@@ -124,12 +128,15 @@ export function updatePlaylistUI(): void {
     let icon: string;
     if (item.type === 'youtube') {
       if (item.playlistId) {
-        icon = '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>';
+        icon =
+          '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>';
       } else {
-        icon = '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M21.582,6.186c-0.23-0.86-0.908-1.538-1.768-1.768C18.254,4,12,4,12,4S5.746,4,4.186,4.418c-0.86,0.23-1.538,0.908-1.768,1.768C2,7.746,2,12,2,12s0,4.254,0.418,5.814c0.23,0.86,0.908,1.538,1.768,1.768C5.746,20,12,20,12,20s6.254,0,7.814-0.418c0.86-0.23,1.538-0.908,1.768-1.768C22,16.254,22,12,22,12S22,7.746,21.582,6.186z M10,15.464V8.536L16,12L10,15.464z"/></svg>';
+        icon =
+          '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M21.582,6.186c-0.23-0.86-0.908-1.538-1.768-1.768C18.254,4,12,4,12,4S5.746,4,4.186,4.418c-0.86,0.23-1.538,0.908-1.768,1.768C2,7.746,2,12,2,12s0,4.254,0.418,5.814c0.23,0.86,0.908,1.538,1.768,1.768C5.746,20,12,20,12,20s6.254,0,7.814-0.418c0.86-0.23,1.538-0.908,1.768-1.768C22,16.254,22,12,22,12S22,7.746,21.582,6.186z M10,15.464V8.536L16,12L10,15.464z"/></svg>';
       }
     } else {
-      icon = '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
+      icon =
+        '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
     }
 
     li.onclick = () => {
@@ -183,10 +190,13 @@ export function updatePlaylistUI(): void {
       if (subData && subData.ids) {
         subData.ids.forEach((_sid, sIdx) => {
           const sli = document.createElement('li');
-          const isActiveSub = (isCurrent && sIdx === currentYouTubeSubIndex);
+          const isActiveSub = isCurrent && sIdx === currentYouTubeSubIndex;
           sli.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
 
-          const sTitle = (subData.titles && subData.titles[sIdx]) ? subData.titles[sIdx] : t('playlist.video_fallback', { idx: sIdx + 1 });
+          const sTitle =
+            subData.titles && subData.titles[sIdx]
+              ? subData.titles[sIdx]
+              : t('playlist.video_fallback', { idx: sIdx + 1 });
           sli.innerHTML = `
             <span class="sub-idx">${sIdx + 1}</span>
             <span class="sub-name">${escapeHtml(sTitle)}</span>
@@ -200,7 +210,7 @@ export function updatePlaylistUI(): void {
             if (hc && !op) return;
             if (!hc) {
               // Compute isCurrent at click time (not render time) to avoid stale closure
-              const isCurrentNow = (idx === getState('playlist.currentTrackIndex'));
+              const isCurrentNow = idx === getState('playlist.currentTrackIndex');
               bus.emit('youtube:sub-seek', idx, sIdx, isCurrentNow);
             } else {
               safeSend(hc, { type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });

@@ -23,14 +23,20 @@ import {
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
-async function fetchWithTimeout(url: string, timeoutMs = OEMBED_FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs = OEMBED_FETCH_TIMEOUT_MS,
+  externalSignal?: AbortSignal,
+): Promise<Response> {
   const controller = new AbortController();
   const id = window.setTimeout(() => controller.abort(), timeoutMs);
   // Forward external abort to our controller
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
-    if (externalSignal.aborted) { window.clearTimeout(id); controller.abort(); }
-    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    if (externalSignal.aborted) {
+      window.clearTimeout(id);
+      controller.abort();
+    } else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
   try {
     return await fetch(url, { signal: controller.signal });
@@ -102,7 +108,7 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
       const response = await fetchWithTimeout(oEmbedUrl);
       if (!response.ok) return null;
       const data = await response.json();
-      const title = (data && typeof data.title === 'string') ? data.title.trim() : '';
+      const title = data && typeof data.title === 'string' ? data.title.trim() : '';
       return title || null;
     } catch (e) {
       log.warn('[YouTube oEmbed] Fetch failed:', e);
@@ -125,7 +131,10 @@ let _previewAbort: AbortController | null = null;
 /** Clear any pending preview debounce timer (call on overlay close). */
 export function clearPreviewDebounce(): void {
   clearManagedTimer('yt-preview-debounce');
-  if (_previewAbort) { _previewAbort.abort(); _previewAbort = null; }
+  if (_previewAbort) {
+    _previewAbort.abort();
+    _previewAbort = null;
+  }
 }
 
 export function fetchYouTubePreview(url: string): void {
@@ -169,59 +178,65 @@ export function fetchYouTubePreview(url: string): void {
   statusText.style.color = 'var(--text-sub)';
   setPlayBtnEnabled(false);
 
-  setManagedTimer('yt-preview-debounce', async () => {
-    // Re-query DOM refs (overlay may have been destroyed and recreated during debounce)
-    const freshPreview = document.getElementById('youtube-preview');
-    const freshStatus = document.getElementById('youtube-preview-status');
-    const freshPlayBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
-    const freshSetPlayBtnEnabled = (enabled: boolean): void => {
-      if (!freshPlayBtn) return;
-      freshPlayBtn.disabled = !enabled;
-      freshPlayBtn.style.opacity = enabled ? '1' : '0.5';
-    };
-    if (!freshPreview || !freshStatus) return;
+  setManagedTimer(
+    'yt-preview-debounce',
+    async () => {
+      // Re-query DOM refs (overlay may have been destroyed and recreated during debounce)
+      const freshPreview = document.getElementById('youtube-preview');
+      const freshStatus = document.getElementById('youtube-preview-status');
+      const freshPlayBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+      const freshSetPlayBtnEnabled = (enabled: boolean): void => {
+        if (!freshPlayBtn) return;
+        freshPlayBtn.disabled = !enabled;
+        freshPlayBtn.style.opacity = enabled ? '1' : '0.5';
+      };
+      if (!freshPreview || !freshStatus) return;
 
-    // Cancel previous in-flight fetch to prevent stale results overwriting newer ones
-    if (_previewAbort) _previewAbort.abort();
-    const abort = new AbortController();
-    _previewAbort = abort;
+      // Cancel previous in-flight fetch to prevent stale results overwriting newer ones
+      if (_previewAbort) _previewAbort.abort();
+      const abort = new AbortController();
+      _previewAbort = abort;
 
-    try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-      const response = await fetchWithTimeout(oembedUrl, OEMBED_FETCH_TIMEOUT_MS, abort.signal);
-      if (abort.signal.aborted) return;
-      if (!response.ok) throw new Error('Video not found');
-      const data = await response.json();
-      if (abort.signal.aborted) return;
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+        const response = await fetchWithTimeout(oembedUrl, OEMBED_FETCH_TIMEOUT_MS, abort.signal);
+        if (abort.signal.aborted) return;
+        if (!response.ok) throw new Error('Video not found');
+        const data = await response.json();
+        if (abort.signal.aborted) return;
 
-      const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
-      const title = document.getElementById('youtube-preview-title');
-      const chan = document.getElementById('youtube-preview-channel');
-      if (thumb) {
-        if (data.thumbnail_url) {
-          thumb.src = data.thumbnail_url;
-          thumb.onerror = () => { thumb.style.display = 'none'; };
-          thumb.style.display = '';
-        } else {
-          thumb.style.display = 'none';
+        const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
+        const title = document.getElementById('youtube-preview-title');
+        const chan = document.getElementById('youtube-preview-channel');
+        if (thumb) {
+          if (data.thumbnail_url) {
+            thumb.src = data.thumbnail_url;
+            thumb.onerror = () => {
+              thumb.style.display = 'none';
+            };
+            thumb.style.display = '';
+          } else {
+            thumb.style.display = 'none';
+          }
         }
-      }
-      if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
-      if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
+        if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
+        if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
 
-      freshPreview.style.display = 'block';
-      freshStatus.style.display = 'none';
-      freshSetPlayBtnEnabled(true);
-    } catch (e) {
-      if (abort.signal.aborted) return;
-      log.error('[YouTube Preview] Error:', e);
-      freshPreview.style.display = 'none';
-      freshStatus.style.display = 'block';
-      freshStatus.innerText = t('youtube.fetch_failed');
-      freshStatus.style.color = 'var(--danger, #ef4444)';
-      freshSetPlayBtnEnabled(false);
-    }
-  }, OEMBED_PREVIEW_DEBOUNCE_MS);
+        freshPreview.style.display = 'block';
+        freshStatus.style.display = 'none';
+        freshSetPlayBtnEnabled(true);
+      } catch (e) {
+        if (abort.signal.aborted) return;
+        log.error('[YouTube Preview] Error:', e);
+        freshPreview.style.display = 'none';
+        freshStatus.style.display = 'block';
+        freshStatus.innerText = t('youtube.fetch_failed');
+        freshStatus.style.color = 'var(--danger, #ef4444)';
+        freshSetPlayBtnEnabled(false);
+      }
+    },
+    OEMBED_PREVIEW_DEBOUNCE_MS,
+  );
 }
 
 // ─── Background Playlist Sub-Title Fetcher ─────────────────────────
@@ -267,13 +282,15 @@ export async function fetchPlaylistSubTitles(
   // Collect all indices that need fetching (missing titles)
   const pendingIndices = ids
     .map((_, index) => index)
-    .filter(index => !data.titles[index])
+    .filter((index) => !data.titles[index])
     // Priority sort: closest to current playback first
     .sort((a, b) => Math.abs(a - currentSubIndex) - Math.abs(b - currentSubIndex));
 
   if (pendingIndices.length === 0) return;
 
-  log.debug(`[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`);
+  log.debug(
+    `[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`,
+  );
 
   try {
     let processedCount = 0;
@@ -314,7 +331,7 @@ export async function fetchPlaylistSubTitles(
           const isLast = i === lastPendingIdx;
           if (isInitialPhase || batchBuffer.length >= OEMBED_INITIAL_BATCH_SIZE || isLast) {
             updateSubItemTitlesBulk(playlistId, batchBuffer);
-            
+
             const hostConn = getState('network.hostConn');
             if (!hostConn) {
               for (const update of batchBuffer) {
@@ -338,8 +355,9 @@ export async function fetchPlaylistSubTitles(
       // Adaptive throttling:
       // - First OEMBED_INITIAL_BATCH_SIZE items (High Priority window): standard RETRY (~200ms)
       // - Background items (Low Priority): OEMBED_BACKGROUND_THROTTLE_MS to ease network/GC
-      const waitTime = processedCount <= OEMBED_INITIAL_BATCH_SIZE ? DELAY.RETRY : OEMBED_BACKGROUND_THROTTLE_MS;
-      
+      const waitTime =
+        processedCount <= OEMBED_INITIAL_BATCH_SIZE ? DELAY.RETRY : OEMBED_BACKGROUND_THROTTLE_MS;
+
       if (!abort.signal.aborted) {
         await delay(waitTime);
       }

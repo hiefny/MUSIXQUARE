@@ -17,10 +17,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
 
-import {
-  getPeer,
-  detectConnectionType,
-} from './peer-state.ts';
+import { getPeer, detectConnectionType } from './peer-state.ts';
 import { showToast } from '../ui/toast.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
@@ -52,7 +49,11 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       log.warn('[Join] Already connected to host.');
       return;
     }
-    try { hostConn.close(); } catch { /* noop */ }
+    try {
+      hostConn.close();
+    } catch {
+      /* noop */
+    }
     setState('network.hostConn', null);
   }
 
@@ -61,7 +62,11 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   // data into a new session context after reconnection.
   const staleRelay = getState('relay.upstreamDataConn');
   if (staleRelay) {
-    try { staleRelay.close(); } catch { /* noop */ }
+    try {
+      staleRelay.close();
+    } catch {
+      /* noop */
+    }
     setState('relay.upstreamDataConn', null);
   }
 
@@ -144,13 +149,21 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   });
 
   // Timeout if host is unreachable (15s to allow TURN relay negotiation)
-  setManagedTimer('join-timeout', () => {
-    if (dataChannelOpened || getState('network.hostConn')) return;
-    log.warn('[Join] Connection timeout — data channel did not open in 15s');
-    try { conn.close(); } catch { /* noop */ }
-    setState('network.isConnecting', false);
-    bus.emit('network:error', new Error('HOST_UNREACHABLE'));
-  }, 15000);
+  setManagedTimer(
+    'join-timeout',
+    () => {
+      if (dataChannelOpened || getState('network.hostConn')) return;
+      log.warn('[Join] Connection timeout — data channel did not open in 15s');
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      setState('network.isConnecting', false);
+      bus.emit('network:error', new Error('HOST_UNREACHABLE'));
+    },
+    15000,
+  );
 
   conn.on('open', () => {
     dataChannelOpened = true;
@@ -217,15 +230,19 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       // 30s to recover from a misclassified LAN peer where ICE was still
       // stabilizing during the initial poll.
       if (type === 'remote' && conn.open) {
-        setManagedTimer('guest-ice-fallback', async () => {
-          if (!conn.open) return;
-          const recheck = await detectConnectionType(conn);
-          if (recheck === 'local' && getState('network.connectionType') !== 'local') {
-            setState('network.connectionType', 'local');
-            log.info('[Peer] Reclassified as local on fallback');
-            bus.emit('network:role-badge-update');
-          }
-        }, 30000);
+        setManagedTimer(
+          'guest-ice-fallback',
+          async () => {
+            if (!conn.open) return;
+            const recheck = await detectConnectionType(conn);
+            if (recheck === 'local' && getState('network.connectionType') !== 'local') {
+              setState('network.connectionType', 'local');
+              log.info('[Peer] Reclassified as local on fallback');
+              bus.emit('network:role-badge-update');
+            }
+          },
+          30000,
+        );
       }
     });
 
@@ -242,7 +259,10 @@ function handleWelcome(data: Record<string, unknown>): void {
   }
   // Sync chat moderation state from host (always set, even when false/0)
   setState('network.chatFrozen', !!data.chatFrozen);
-  setState('network.slowmodeSeconds', typeof data.slowmodeSeconds === 'number' ? data.slowmodeSeconds : 0);
+  setState(
+    'network.slowmodeSeconds',
+    typeof data.slowmodeSeconds === 'number' ? data.slowmodeSeconds : 0,
+  );
   setState('network.filterEnabled', !!data.filterEnabled);
   bus.emit('network:role-badge-update');
 }
@@ -254,7 +274,11 @@ function handleSessionFull(data: Record<string, unknown>): void {
 
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    try { hostConn.close(); } catch { /* noop */ }
+    try {
+      hostConn.close();
+    } catch {
+      /* noop */
+    }
     setState('network.hostConn', null);
   }
   setState('network.isConnecting', false);
@@ -263,13 +287,13 @@ function handleSessionFull(data: Record<string, unknown>): void {
 }
 
 function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
-  const list = Array.isArray(data.list) ? data.list as DeviceInfo[] : [];
+  const list = Array.isArray(data.list) ? (data.list as DeviceInfo[]) : [];
 
   const myId = getState('network.myId');
   const hostConn = getState('network.hostConn');
 
   if (hostConn && myId) {
-    const amIStillConnected = list.find(p => p && p.id === myId);
+    const amIStillConnected = list.find((p) => p && p.id === myId);
     if (!amIStillConnected) {
       log.warn('[Guest] Removed from Host device list. Leaving session...');
       setState('network.isIntentionalDisconnect', true);
@@ -283,7 +307,8 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
     // Trust host's connectionType over local ICE detection (host sees both sides)
-    const hostConnType = (amIStillConnected as unknown as Record<string, unknown>).connectionType as string | undefined;
+    const hostConnType = (amIStillConnected as unknown as Record<string, unknown>)
+      .connectionType as string | undefined;
     if (hostConnType && hostConnType !== 'unknown') {
       setState('network.connectionType', hostConnType as 'local' | 'remote' | 'unknown');
       bus.emit('network:role-badge-update');
@@ -338,7 +363,9 @@ export function initGuestProtocolHandlers(): void {
     if (!hostConn) return; // Only guests (who have a hostConn) use this path
     try {
       hostConn.send({ type: MSG.REQUEST_RENAME, newLabel: newName });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     // Optimistic local update
     setState('network.myDeviceLabel', newName);
   });

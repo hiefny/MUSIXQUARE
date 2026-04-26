@@ -6,7 +6,9 @@ import { extractYouTubeVideoId, extractYouTubePlaylistId } from '../search.ts';
 
 describe('extractYouTubeVideoId', () => {
   it('extracts from standard watch URL', () => {
-    expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
+      'dQw4w9WgXcQ',
+    );
   });
 
   it('extracts from short URL', () => {
@@ -22,11 +24,15 @@ describe('extractYouTubeVideoId', () => {
   });
 
   it('extracts when v= is not the first query param', () => {
-    expect(extractYouTubeVideoId('https://youtube.com/watch?t=10&v=dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(extractYouTubeVideoId('https://youtube.com/watch?t=10&v=dQw4w9WgXcQ')).toBe(
+      'dQw4w9WgXcQ',
+    );
   });
 
   it('extracts from URL with extra params', () => {
-    expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLxxx&index=1')).toBe('dQw4w9WgXcQ');
+    expect(
+      extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLxxx&index=1'),
+    ).toBe('dQw4w9WgXcQ');
   });
 
   it('returns null for invalid URL', () => {
@@ -44,11 +50,17 @@ describe('extractYouTubeVideoId', () => {
 
 describe('extractYouTubePlaylistId', () => {
   it('extracts playlist ID from list param', () => {
-    expect(extractYouTubePlaylistId('https://youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf')).toBe('PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf');
+    expect(
+      extractYouTubePlaylistId(
+        'https://youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf',
+      ),
+    ).toBe('PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf');
   });
 
   it('extracts playlist ID when combined with video', () => {
-    expect(extractYouTubePlaylistId('https://youtube.com/watch?v=dQw4w9WgXcQ&list=PLtest123')).toBe('PLtest123');
+    expect(extractYouTubePlaylistId('https://youtube.com/watch?v=dQw4w9WgXcQ&list=PLtest123')).toBe(
+      'PLtest123',
+    );
   });
 
   it('returns null when no list param', () => {

@@ -66,21 +66,51 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   log.info(`[SysAudioGuest] Incoming ${channel} channel call`);
 
   if (channel === 'L') {
-    if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } }
+    if (_mediaConnL) {
+      try {
+        _mediaConnL.close();
+      } catch {
+        /* noop */
+      }
+    }
     _mediaConnL = mediaConn;
   } else if (channel === 'R') {
-    if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } }
+    if (_mediaConnR) {
+      try {
+        _mediaConnR.close();
+      } catch {
+        /* noop */
+      }
+    }
     _mediaConnR = mediaConn;
   } else if (channel === 'DUAL' || channel === 'SYNCED') {
     if (channel === 'DUAL') {
-      if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } }
+      if (_mediaConnDual) {
+        try {
+          _mediaConnDual.close();
+        } catch {
+          /* noop */
+        }
+      }
       _mediaConnDual = mediaConn;
     } else {
-      if (_mediaConnSynced) { try { _mediaConnSynced.close(); } catch { /* noop */ } }
+      if (_mediaConnSynced) {
+        try {
+          _mediaConnSynced.close();
+        } catch {
+          /* noop */
+        }
+      }
       _mediaConnSynced = mediaConn;
     }
   } else if (channel === 'STEREO') {
-    if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } }
+    if (_mediaConnStereo) {
+      try {
+        _mediaConnStereo.close();
+      } catch {
+        /* noop */
+      }
+    }
     _mediaConnStereo = mediaConn;
   }
 
@@ -102,7 +132,13 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     if (channel === 'STEREO') {
-      if (_sourceStereo) { try { _sourceStereo.disconnect(); } catch { /* noop */ } }
+      if (_sourceStereo) {
+        try {
+          _sourceStereo.disconnect();
+        } catch {
+          /* noop */
+        }
+      }
       _sourceStereo = ctx.createMediaStreamSource(remoteStream);
       _sourceStereo.connect(widener.input);
       _gotStereo = true;
@@ -120,8 +156,20 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           return;
         }
 
-        if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
-        if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
+        if (_sourceL) {
+          try {
+            _sourceL.disconnect();
+          } catch {
+            /* noop */
+          }
+        }
+        if (_sourceR) {
+          try {
+            _sourceR.disconnect();
+          } catch {
+            /* noop */
+          }
+        }
 
         // Use ID-to-Channel mapping from host if available (synced mode)
         const mapping = (mediaConn.metadata as any)?.mapping;
@@ -151,24 +199,39 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           _gotR = true;
         } else {
           // Failsafe: Upmix single track to center
-          log.info(`[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`);
+          log.info(
+            `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
+          );
           const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
           monoSource.connect(_merger, 0, 0);
           monoSource.connect(_merger, 0, 1);
           _sourceL = monoSource;
-          _gotL = true; _gotR = true;
+          _gotL = true;
+          _gotR = true;
         }
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {
         const source = ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
-          if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } }
+          if (_sourceL) {
+            try {
+              _sourceL.disconnect();
+            } catch {
+              /* noop */
+            }
+          }
           _sourceL = source;
           source.connect(_merger, 0, 0);
           _gotL = true;
         } else {
-          if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } }
+          if (_sourceR) {
+            try {
+              _sourceR.disconnect();
+            } catch {
+              /* noop */
+            }
+          }
           _sourceR = source;
           source.connect(_merger, 0, 1);
           _gotR = true;
@@ -187,13 +250,24 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('close', () => {
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
-    if (channel === 'DUAL' || channel === 'SYNCED') { 
-      _gotL = false; _gotR = false; 
-      if (channel === 'DUAL') _mediaConnDual = null; else { _mediaConnSynced = null; _gotSynced = false; }
+    if (channel === 'DUAL' || channel === 'SYNCED') {
+      _gotL = false;
+      _gotR = false;
+      if (channel === 'DUAL') _mediaConnDual = null;
+      else {
+        _mediaConnSynced = null;
+        _gotSynced = false;
+      }
+    } else if (channel === 'L') {
+      _gotL = false;
+      _mediaConnL = null;
+    } else if (channel === 'R') {
+      _gotR = false;
+      _mediaConnR = null;
+    } else if (channel === 'STEREO') {
+      _gotStereo = false;
+      _mediaConnStereo = null;
     }
-    else if (channel === 'L') { _gotL = false; _mediaConnL = null; }
-    else if (channel === 'R') { _gotR = false; _mediaConnR = null; }
-    else if (channel === 'STEREO') { _gotStereo = false; _mediaConnStereo = null; }
     if (!_gotL && !_gotR && !_gotStereo && !_gotSynced) cleanupGuestSystemAudio();
   });
 
@@ -205,15 +279,78 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // ─── Cleanup ──────────────────────────────────────────────────────
 
 function cleanupGuestSystemAudio(): void {
-  if (_sourceL) { try { _sourceL.disconnect(); } catch { /* noop */ } _sourceL = null; }
-  if (_sourceR) { try { _sourceR.disconnect(); } catch { /* noop */ } _sourceR = null; }
-  if (_sourceStereo) { try { _sourceStereo.disconnect(); } catch { /* noop */ } _sourceStereo = null; }
-  if (_merger) { try { _merger.disconnect(); } catch { /* noop */ } _merger = null; }
-  if (_mediaConnL) { try { _mediaConnL.close(); } catch { /* noop */ } _mediaConnL = null; }
-  if (_mediaConnR) { try { _mediaConnR.close(); } catch { /* noop */ } _mediaConnR = null; }
-  if (_mediaConnDual) { try { _mediaConnDual.close(); } catch { /* noop */ } _mediaConnDual = null; }
-  if (_mediaConnStereo) { try { _mediaConnStereo.close(); } catch { /* noop */ } _mediaConnStereo = null; }
-  if (_mediaConnSynced) { try { _mediaConnSynced.close(); } catch { /* noop */ } _mediaConnSynced = null; }
+  if (_sourceL) {
+    try {
+      _sourceL.disconnect();
+    } catch {
+      /* noop */
+    }
+    _sourceL = null;
+  }
+  if (_sourceR) {
+    try {
+      _sourceR.disconnect();
+    } catch {
+      /* noop */
+    }
+    _sourceR = null;
+  }
+  if (_sourceStereo) {
+    try {
+      _sourceStereo.disconnect();
+    } catch {
+      /* noop */
+    }
+    _sourceStereo = null;
+  }
+  if (_merger) {
+    try {
+      _merger.disconnect();
+    } catch {
+      /* noop */
+    }
+    _merger = null;
+  }
+  if (_mediaConnL) {
+    try {
+      _mediaConnL.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConnL = null;
+  }
+  if (_mediaConnR) {
+    try {
+      _mediaConnR.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConnR = null;
+  }
+  if (_mediaConnDual) {
+    try {
+      _mediaConnDual.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConnDual = null;
+  }
+  if (_mediaConnStereo) {
+    try {
+      _mediaConnStereo.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConnStereo = null;
+  }
+  if (_mediaConnSynced) {
+    try {
+      _mediaConnSynced.close();
+    } catch {
+      /* noop */
+    }
+    _mediaConnSynced = null;
+  }
   _gotL = false;
   _gotR = false;
   _gotStereo = false;
@@ -234,7 +371,11 @@ export function registerSystemAudioGuestListeners(): void {
     log.info('[SysAudioGuest] Host started system audio sharing');
     _prevTrackMeta = getState('player.currentTrackMeta');
     stopAllMedia({ silent: true });
-    setState('player.currentTrackMeta', { type: 'file', name: 'system-audio-receiving', title: 'Receiving System Audio' });
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      title: 'Receiving System Audio',
+    });
   });
 
   registerHandler(MSG.SYSTEM_AUDIO_STOP, () => {
@@ -243,8 +384,9 @@ export function registerSystemAudioGuestListeners(): void {
   });
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
-    handleIncomingCall(mediaConn as MediaConnection, channel)
-      .catch(e => log.error('[SysAudioGuest] handleIncomingCall failed:', e));
+    handleIncomingCall(mediaConn as MediaConnection, channel).catch((e) =>
+      log.error('[SysAudioGuest] handleIncomingCall failed:', e),
+    );
   });
 
   bus.on('system-audio:force-stop', () => {

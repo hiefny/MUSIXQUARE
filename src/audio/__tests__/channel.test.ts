@@ -65,13 +65,25 @@ describe('toggleSurroundMode', () => {
   // We wrap in try/catch and verify the state update that happens before the Tone.js call.
 
   it('enabling surround sets audio.isSurroundMode to true', () => {
-    try { toggleSurroundMode(true); } catch { /* Tone.js node creation fails in jsdom */ }
+    try {
+      toggleSurroundMode(true);
+    } catch {
+      /* Tone.js node creation fails in jsdom */
+    }
     expect(getState('audio.isSurroundMode')).toBe(true);
   });
 
   it('disabling surround sets audio.isSurroundMode to false', () => {
-    try { toggleSurroundMode(true); } catch { /* Tone.js */ }
-    try { toggleSurroundMode(false); } catch { /* Tone.js */ }
+    try {
+      toggleSurroundMode(true);
+    } catch {
+      /* Tone.js */
+    }
+    try {
+      toggleSurroundMode(false);
+    } catch {
+      /* Tone.js */
+    }
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 
@@ -81,9 +93,17 @@ describe('toggleSurroundMode', () => {
 
   it('toggling on then off restores false', () => {
     expect(getState('audio.isSurroundMode')).toBe(false);
-    try { toggleSurroundMode(true); } catch { /* Tone.js */ }
+    try {
+      toggleSurroundMode(true);
+    } catch {
+      /* Tone.js */
+    }
     expect(getState('audio.isSurroundMode')).toBe(true);
-    try { toggleSurroundMode(false); } catch { /* Tone.js */ }
+    try {
+      toggleSurroundMode(false);
+    } catch {
+      /* Tone.js */
+    }
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 });

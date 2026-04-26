@@ -6,7 +6,11 @@ import { resetState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 
 // ─── Global stubs ────────────────────────────────────────────────────────
-window.matchMedia = window.matchMedia || vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+window.matchMedia =
+  window.matchMedia ||
+  vi
+    .fn()
+    .mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -114,7 +118,8 @@ describe('Chat Module', () => {
   });
 
   describe('YouTube URL Detection', () => {
-    const YT_REGEX = /https:\/\/(www\.)?youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/[a-zA-Z0-9_-]{11}/gi;
+    const YT_REGEX =
+      /https:\/\/(www\.)?youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/[a-zA-Z0-9_-]{11}/gi;
 
     it('matches standard watch URL', () => {
       const text = 'Check https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -187,16 +192,12 @@ describe('Chat Module', () => {
 
   describe('Chat Label Logic', () => {
     // The label logic: if device label is a reserved word, use prefix instead
-    function getChatLabel(
-      deviceLabel: string,
-      hostConn: unknown,
-      reservedNames: string[]
-    ): string {
+    function getChatLabel(deviceLabel: string, hostConn: unknown, reservedNames: string[]): string {
       if (!hostConn) return 'Host';
 
       const trimmed = (deviceLabel || '').trim();
       if (!trimmed) return 'Peer';
-      if (reservedNames.some(n => n.toLowerCase() === trimmed.toLowerCase())) return 'Peer';
+      if (reservedNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return 'Peer';
       return trimmed;
     }
 

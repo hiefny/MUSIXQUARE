@@ -29,19 +29,27 @@ import {
 import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
 import {
-  RAMP_TIME, FREQ_FULL_RANGE, SUB_FREQ_MIN, SUB_FREQ_MAX,
-  REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY,
-  REVERB_LOWCUT_BASE, REVERB_LOWCUT_FACTOR,
-  REVERB_HIGHCUT_BASE, REVERB_HIGHCUT_FACTOR,
+  RAMP_TIME,
+  FREQ_FULL_RANGE,
+  SUB_FREQ_MIN,
+  SUB_FREQ_MAX,
+  REVERB_DEFAULT_DECAY,
+  REVERB_DEFAULT_PREDELAY,
+  REVERB_LOWCUT_BASE,
+  REVERB_LOWCUT_FACTOR,
+  REVERB_HIGHCUT_BASE,
+  REVERB_HIGHCUT_FACTOR,
   REVERB_PRESETS,
-  STEREO_NARROW_BASE, STEREO_NARROW_SCALE, STEREO_WIDE_FLOOR,
+  STEREO_NARROW_BASE,
+  STEREO_NARROW_SCALE,
+  STEREO_WIDE_FLOOR,
 } from './constants.ts';
 
 // ─── Apply All Settings ────────────────────────────────────────────
 
 /** Fire-and-forget wrapper — prevents unhandled promise rejection from applySettings */
 export function applySettingsAsync(): void {
-  applySettings().catch(e => log.warn('[Effects] applySettings failed:', e));
+  applySettings().catch((e) => log.warn('[Effects] applySettings failed:', e));
 }
 
 export async function applySettings(): Promise<void> {
@@ -68,12 +76,16 @@ export async function applySettings(): Promise<void> {
   // Reverb damping filters
   const rlc = getRvbLowCut();
   if (rlc) {
-    const lFreq = REVERB_LOWCUT_BASE * Math.pow(REVERB_LOWCUT_FACTOR, Math.max(0, Math.min(100, reverbLowCut)) / 100);
+    const lFreq =
+      REVERB_LOWCUT_BASE *
+      Math.pow(REVERB_LOWCUT_FACTOR, Math.max(0, Math.min(100, reverbLowCut)) / 100);
     rampParam(rlc.frequency, lFreq, RAMP_TIME);
   }
   const rhc = getRvbHighCut();
   if (rhc) {
-    const hFreq = REVERB_HIGHCUT_BASE * Math.pow(REVERB_HIGHCUT_FACTOR, Math.max(0, Math.min(100, reverbHighCut)) / 100);
+    const hFreq =
+      REVERB_HIGHCUT_BASE *
+      Math.pow(REVERB_HIGHCUT_FACTOR, Math.max(0, Math.min(100, reverbHighCut)) / 100);
     rampParam(rhc.frequency, hFreq, RAMP_TIME);
   }
 
@@ -98,7 +110,10 @@ export async function applySettings(): Promise<void> {
     if (stereoWidth < 1.0) {
       compensation = STEREO_NARROW_BASE + STEREO_NARROW_SCALE * stereoWidth;
     } else if (stereoWidth > 1.0) {
-      compensation = Math.max(STEREO_WIDE_FLOOR, 1.0 / (STEREO_NARROW_BASE + STEREO_NARROW_SCALE * stereoWidth));
+      compensation = Math.max(
+        STEREO_WIDE_FLOOR,
+        1.0 / (STEREO_NARROW_BASE + STEREO_NARROW_SCALE * stereoWidth),
+      );
     }
   }
 
@@ -209,7 +224,7 @@ export function resetEQ(): void {
   const count = eqNodes ? eqNodes.length : 5;
   setState('audio.eqValues', Array(count).fill(0));
   setState('audio.userPreampGain', 1.0);
-  eqNodes?.forEach(node => rampParam(node.gain, 0, RAMP_TIME));
+  eqNodes?.forEach((node) => rampParam(node.gain, 0, RAMP_TIME));
   applySettingsAsync();
 }
 
@@ -302,8 +317,11 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
       setReverbParam(param, value);
       if (!isPreview) {
         const REVERB_MSG_MAP: Record<string, string> = {
-          mix: MSG.REVERB, decay: MSG.REVERB_DECAY, predelay: MSG.REVERB_PREDELAY,
-          lowcut: MSG.REVERB_LOWCUT, highcut: MSG.REVERB_HIGHCUT,
+          mix: MSG.REVERB,
+          decay: MSG.REVERB_DECAY,
+          predelay: MSG.REVERB_PREDELAY,
+          lowcut: MSG.REVERB_LOWCUT,
+          highcut: MSG.REVERB_HIGHCUT,
         };
         const msgType = REVERB_MSG_MAP[param];
         if (msgType) _broadcastOrRequestSetting(msgType, value);
@@ -399,7 +417,10 @@ bus.on('network:peer-connected', (conn) => {
     }
 
     const userPreampGain = getState('audio.userPreampGain');
-    conn.send({ type: MSG.PREAMP, value: Math.round(20 * Math.log10(Math.max(userPreampGain, 1e-6))) });
+    conn.send({
+      type: MSG.PREAMP,
+      value: Math.round(20 * Math.log10(Math.max(userPreampGain, 1e-6))),
+    });
 
     const stereoWidth = getState('audio.stereoWidth');
     conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100 });
@@ -444,9 +465,13 @@ function handlePreampMsg(data: Record<string, unknown>): void {
 
 function _notifyHostChanged(): void {
   if (!getState('network.hostConn')) return;
-  setManagedTimer('host-change-toast', () => {
-    showToast(t('toast.host_changed_setting'));
-  }, 300);
+  setManagedTimer(
+    'host-change-toast',
+    () => {
+      showToast(t('toast.host_changed_setting'));
+    },
+    300,
+  );
 }
 
 function handleEQResetMsg(): void {

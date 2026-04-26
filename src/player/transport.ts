@@ -24,13 +24,18 @@ import { getHostNow } from '../network/shared-clock.ts';
 const SCHEDULE_AHEAD_MS = 200;
 
 import {
-  getPlayerNode, setPlayerNode,
+  getPlayerNode,
+  setPlayerNode,
   getCurrentAudioBuffer,
-  getLoadToken, incrementLoadToken,
-  isPlayLocked, setPlayLocked,
-  getPendingPlayTime, setPendingPlayTime,
+  getLoadToken,
+  incrementLoadToken,
+  isPlayLocked,
+  setPlayLocked,
+  getPendingPlayTime,
+  setPendingPlayTime,
   setPlayPreloadedInProgress,
-  getLoadScope, setLoadScope,
+  getLoadScope,
+  setLoadScope,
 } from './_state.ts';
 
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
@@ -83,20 +88,24 @@ export function getTrackPosition(): number {
   // YouTube mode: delegated via synchronous callback
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     let ytPos = 0;
-    bus.emit('youtube:get-position', (pos: number) => { ytPos = pos; });
+    bus.emit('youtube:get-position', (pos: number) => {
+      ytPos = pos;
+    });
     return ytPos;
   }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
-  const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
-    ? _currentAudioBuffer.duration
-    : 0;
+  const duration =
+    _currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration)
+      ? _currentAudioBuffer.duration
+      : 0;
 
   let pos = 0;
   const startedAt = getState('player.startedAt') || 0;
   const localOffset = getState('sync.localOffset') || 0;
 
-  const startedAtValid = typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
+  const startedAtValid =
+    typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && getCurrentTime() > 0) {
     // Guard: schedule offset reset if drift exceeds 30 seconds.
     // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
@@ -117,7 +126,7 @@ export function getTrackPosition(): number {
       });
       pos = getCurrentTime() - startedAt;
     } else {
-      pos = (getCurrentTime() - startedAt) + localOffset;
+      pos = getCurrentTime() - startedAt + localOffset;
     }
   }
 
@@ -162,8 +171,16 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   getLoadScope()?.dispose();
   setLoadScope(null);
 
-  try { BlobURLManager.revoke(); } catch (e) { log.debug('[Transport] BlobURL revoke:', e); }
-  try { BlobURLManager.flushDeferred('stopAllMedia'); } catch (e) { log.debug('[Transport] BlobURL flush:', e); }
+  try {
+    BlobURLManager.revoke();
+  } catch (e) {
+    log.debug('[Transport] BlobURL revoke:', e);
+  }
+  try {
+    BlobURLManager.flushDeferred('stopAllMedia');
+  } catch (e) {
+    log.debug('[Transport] BlobURL flush:', e);
+  }
 
   // 2. Stop YouTube
   bus.emit('youtube:stop-mode');
@@ -239,7 +256,12 @@ export function seekTo(time: number): void {
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (currentState === APP_STATE.PLAYING_AUDIO) {
     play(time);
-    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
+    broadcast({
+      type: MSG.PLAY,
+      time,
+      index: currentTrackIndex,
+      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    });
   } else {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
@@ -258,37 +280,47 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   setPlayLocked(true);
 
   const lockStartTime = Date.now();
-  setManagedTimer('navigator-lock-watchdog', () => {
-    if (isPlayLocked()) {
-      log.warn(`[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`);
-      setPlayLocked(false);
-      setPendingPlayTime(undefined);
-      stopPlayerNode();
-      // Bump the load token so any in-flight _internalPlay aborts at its
-      // next await checkpoint instead of overwriting the post-watchdog IDLE
-      // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
-      incrementLoadToken();
-      // Reset appState to IDLE to prevent stuck "playing" UI
-      if (getState('appState') !== APP_STATE.IDLE) {
-        setAppState(APP_STATE.IDLE);
+  setManagedTimer(
+    'navigator-lock-watchdog',
+    () => {
+      if (isPlayLocked()) {
+        log.warn(
+          `[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`,
+        );
+        setPlayLocked(false);
+        setPendingPlayTime(undefined);
+        stopPlayerNode();
+        // Bump the load token so any in-flight _internalPlay aborts at its
+        // next await checkpoint instead of overwriting the post-watchdog IDLE
+        // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
+        incrementLoadToken();
+        // Reset appState to IDLE to prevent stuck "playing" UI
+        if (getState('appState') !== APP_STATE.IDLE) {
+          setAppState(APP_STATE.IDLE);
+        }
       }
-    }
-  }, 15000);
+    },
+    15000,
+  );
 
   try {
     await _internalPlay(offset, scheduleDelay);
   } finally {
     clearManagedTimer('navigator-lock-watchdog');
-    setManagedTimer('playback-unlock-delay', () => {
-      setPlayLocked(false);
-      // Consume queued play request (e.g. sync correction that arrived during lock)
-      const pendingTime = getPendingPlayTime();
-      if (pendingTime !== undefined) {
-        setPendingPlayTime(undefined);
-        log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
-        play(pendingTime);
-      }
-    }, 10);
+    setManagedTimer(
+      'playback-unlock-delay',
+      () => {
+        setPlayLocked(false);
+        // Consume queued play request (e.g. sync correction that arrived during lock)
+        const pendingTime = getPendingPlayTime();
+        if (pendingTime !== undefined) {
+          setPendingPlayTime(undefined);
+          log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
+          play(pendingTime);
+        }
+      },
+      10,
+    );
   }
 }
 
@@ -308,7 +340,11 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   }
 
   log.debug('[Play] Stage 2: Resuming AudioContext');
-  try { await ensureRunning(); } catch (e) { log.warn('Resume failed:', e); }
+  try {
+    await ensureRunning();
+  } catch (e) {
+    log.warn('Resume failed:', e);
+  }
 
   if (getLoadToken() !== myLoadToken) {
     log.warn('[Play] Aborted — load token bumped during ensureRunning');
@@ -357,9 +393,10 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // Sanitize offset
   let safeOffset = Number(offset);
   if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
-  const duration = (_currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration))
-    ? _currentAudioBuffer.duration
-    : 0;
+  const duration =
+    _currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration)
+      ? _currentAudioBuffer.duration
+      : 0;
   if (duration > 0) {
     if (safeOffset > duration) safeOffset = duration;
     if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
@@ -411,7 +448,12 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   setAppState(APP_STATE.PLAYING_AUDIO);
 
   if (!getState('network.hostConn')) {
-    transition({ type: 'PLAY', time: safeOffset, index: getState('playlist.currentTrackIndex'), sameTrack: true });
+    transition({
+      type: 'PLAY',
+      time: safeOffset,
+      index: getState('playlist.currentTrackIndex'),
+      sameTrack: true,
+    });
   }
 
   bus.emit('visualizer:start');
@@ -452,8 +494,11 @@ export function handleEnded(): void {
   const currentState = getState('appState');
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
-  const hasBufferDuration = !!(_currentAudioBuffer &&
-    Number.isFinite(_currentAudioBuffer.duration) && _currentAudioBuffer.duration > 0.1);
+  const hasBufferDuration = !!(
+    _currentAudioBuffer &&
+    Number.isFinite(_currentAudioBuffer.duration) &&
+    _currentAudioBuffer.duration > 0.1
+  );
 
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
@@ -508,7 +553,7 @@ export function togglePlay(): void {
   // still showing in the title.
   if (!isActuallyPlaying && currentTrackIndex === -1 && playlistItems.length > 0) {
     if (!hostConn) {
-      void import('./playlist.ts').then(mod => mod.playTrack(0));
+      void import('./playlist.ts').then((mod) => mod.playTrack(0));
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, index: 0 });
     }
@@ -533,7 +578,12 @@ export function togglePlay(): void {
   } else {
     if (!hostConn) {
       play(pausedAt);
-      broadcast({ type: MSG.PLAY, time: pausedAt, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
+      broadcast({
+        type: MSG.PLAY,
+        time: pausedAt,
+        index: currentTrackIndex,
+        hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      });
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
     }
@@ -548,8 +598,16 @@ export function stopPlayback(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
-    try { hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 }); } catch (e) { log.debug('[Transport] send REQUEST_SEEK:', e); }
-    try { hostConn.send({ type: MSG.REQUEST_PAUSE }); } catch (e) { log.debug('[Transport] send REQUEST_PAUSE:', e); }
+    try {
+      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 });
+    } catch (e) {
+      log.debug('[Transport] send REQUEST_SEEK:', e);
+    }
+    try {
+      hostConn.send({ type: MSG.REQUEST_PAUSE });
+    } catch (e) {
+      log.debug('[Transport] send REQUEST_PAUSE:', e);
+    }
     showToast(t('toast.stop_sent'));
     return;
   }
@@ -612,9 +670,7 @@ export function skipTime(sec: number): void {
   const current = getTrackPosition();
   let target = current + sec;
   const rawBufDur = _currentAudioBuffer?.duration;
-  const duration = (rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0)
-    ? rawBufDur
-    : 0;
+  const duration = rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0 ? rawBufDur : 0;
 
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
@@ -624,7 +680,12 @@ export function skipTime(sec: number): void {
 
   if (isPlaying) {
     play(target);
-    broadcast({ type: MSG.PLAY, time: target, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
+    broadcast({
+      type: MSG.PLAY,
+      time: target,
+      index: currentTrackIndex,
+      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    });
   } else {
     setState('player.pausedAt', target);
     broadcast({ type: MSG.PAUSE, time: target });
@@ -667,10 +728,13 @@ export function adjustSync(val: number): void {
   // is read inside the timer so it reflects the offset accumulated across the
   // entire burst, not just the first click.
   clearManagedTimer('sync-nudge-replay');
-  setManagedTimer('sync-nudge-replay', () => {
-    // Re-check app state at fire time — user may have paused during the burst.
-    if (isIdleOrPaused(getState('appState'))) return;
-    play(getTrackPosition());
-  }, NUDGE_REPLAY_DEBOUNCE_MS);
+  setManagedTimer(
+    'sync-nudge-replay',
+    () => {
+      // Re-check app state at fire time — user may have paused during the burst.
+      if (isIdleOrPaused(getState('appState'))) return;
+      play(getTrackPosition());
+    },
+    NUDGE_REPLAY_DEBOUNCE_MS,
+  );
 }
-

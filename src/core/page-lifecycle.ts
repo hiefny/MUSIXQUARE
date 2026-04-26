@@ -108,12 +108,16 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
   // confirmed flow. Also forces bfcache off during active sessions so
   // a back-forward restore can't resurrect a stale UI (the companion
   // pageshow handler covers the residual case where bfcache wins anyway).
-  window.addEventListener('beforeunload', (e) => {
-    if (_intentionalNav) return;
-    if (deps.getRole() === 'idle') return;
-    e.preventDefault();
-    e.returnValue = '';
-  }, opts);
+  window.addEventListener(
+    'beforeunload',
+    (e) => {
+      if (_intentionalNav) return;
+      if (deps.getRole() === 'idle') return;
+      e.preventDefault();
+      e.returnValue = '';
+    },
+    opts,
+  );
 
   // ── pagehide ──
   // ONLY fires on actual unload ("Stay" does not trigger it). Runs the
@@ -127,11 +131,19 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
   // popstate "Leave" flow calls leaveSession() synchronously, which
   // flips role→idle immediately; letting pagehide run a second
   // leaveSession would be harmless (idempotent) but wasteful.
-  window.addEventListener('pagehide', (e) => {
-    if (e.persisted) return;
-    if (deps.getRole() === 'idle') return;
-    try { deps.leaveSession(); } catch { /* noop */ }
-  }, opts);
+  window.addEventListener(
+    'pagehide',
+    (e) => {
+      if (e.persisted) return;
+      if (deps.getRole() === 'idle') return;
+      try {
+        deps.leaveSession();
+      } catch {
+        /* noop */
+      }
+    },
+    opts,
+  );
 
   // ── pageshow ──
   // Fires on both fresh loads (persisted=false) and bfcache restores
@@ -140,13 +152,17 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
   // resource is dead (PeerJS DataConnections, RTCPeerConnection, the
   // AudioContext, managed timers) but the cached DOM would still show
   // "connected". Force a reload for fresh state.
-  window.addEventListener('pageshow', (e) => {
-    if (!e.persisted) return;
-    if (deps.getRole() === 'idle') return;
-    deps.log?.info('[PageLifecycle] Restored from bfcache with active session — reloading');
-    _intentionalNav = true; // avoid double-prompting on the reload itself
-    deps.reload();
-  }, opts);
+  window.addEventListener(
+    'pageshow',
+    (e) => {
+      if (!e.persisted) return;
+      if (deps.getRole() === 'idle') return;
+      deps.log?.info('[PageLifecycle] Restored from bfcache with active session — reloading');
+      _intentionalNav = true; // avoid double-prompting on the reload itself
+      deps.reload();
+    },
+    opts,
+  );
 
   return { dispose: () => controller.abort() };
 }

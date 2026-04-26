@@ -12,14 +12,26 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
 import {
-  t, bus, showToast,
-  updateRoleBadge, updateInviteCodeUI, selectStandardChannelButton,
+  t,
+  bus,
+  showToast,
+  updateRoleBadge,
+  updateInviteCodeUI,
+  selectStandardChannelButton,
   BACK_SVG,
-  getPendingSetupRole, setPendingSetupRole,
-  getHostCodeFlowId, incrementHostCodeFlowId,
-  setupEl, stopObAutoSlide,
-  setupShowJoinArea, setupShowCodeArea, setupShowWelcome, setupShowRoleArea,
-  setupHighlightJoinRole, setupSetCode, setupRenderActions,
+  getPendingSetupRole,
+  setPendingSetupRole,
+  getHostCodeFlowId,
+  incrementHostCodeFlowId,
+  setupEl,
+  stopObAutoSlide,
+  setupShowJoinArea,
+  setupShowCodeArea,
+  setupShowWelcome,
+  setupShowRoleArea,
+  setupHighlightJoinRole,
+  setupSetCode,
+  setupRenderActions,
   hideSetupOverlay,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
@@ -58,17 +70,22 @@ export function startHostFlow(): void {
     stopObAutoSlide();
   }
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
-    {
-      id: 'btn-setup-next', text: t('common.next'), kind: 'secondary',
-      onClick: () => {
-        const role = getPendingSetupRole();
-        if (role !== null) proceedToHostCode(role);
-        else showToast(t('setup.select_role'));
+  setupRenderActions(
+    [
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+      {
+        id: 'btn-setup-next',
+        text: t('common.next'),
+        kind: 'secondary',
+        onClick: () => {
+          const role = getPendingSetupRole();
+          if (role !== null) proceedToHostCode(role);
+          else showToast(t('setup.select_role'));
+        },
       },
-    },
-  ], 'horizontal-with-back');
+    ],
+    'horizontal-with-back',
+  );
 }
 
 async function proceedToHostCode(mode: number): Promise<void> {
@@ -80,7 +97,9 @@ async function proceedToHostCode(mode: number): Promise<void> {
   try {
     selectStandardChannelButton(mode);
     bus.emit('audio:set-channel-mode', mode);
-  } catch (e) { log.warn(e); }
+  } catch (e) {
+    log.warn(e);
+  }
 
   animateTransition(() => {
     setupShowRoleArea(false);
@@ -93,10 +112,13 @@ async function proceedToHostCode(mode: number): Promise<void> {
     else codeEl.textContent = '------';
   }
 
-  setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-    { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
-  ], 'horizontal-with-back');
+  setupRenderActions(
+    [
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
+      { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
+    ],
+    'horizontal-with-back',
+  );
 
   try {
     const code = await createHostSessionWithShortCode();
@@ -113,10 +135,18 @@ async function proceedToHostCode(mode: number): Promise<void> {
     setState('network.myDeviceLabel', 'HOST');
     updateRoleBadge();
 
-    setupRenderActions([
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
-      { id: 'btn-setup-confirm', text: t('common.start'), kind: 'primary', onClick: () => startSessionFromHost() },
-    ], 'horizontal-with-back');
+    setupRenderActions(
+      [
+        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
+        {
+          id: 'btn-setup-confirm',
+          text: t('common.start'),
+          kind: 'primary',
+          onClick: () => startSessionFromHost(),
+        },
+      ],
+      'horizontal-with-back',
+    );
   } catch (e) {
     // User navigated away — ignore the error silently
     if (flowId !== getHostCodeFlowId()) return;
@@ -139,17 +169,29 @@ export function startSessionFromHost(): void {
   broadcastDeviceList();
 
   // Delay toast until View Transition completes to prevent transform conflict
-  setManagedTimer('host-start-toast', () => {
-    showToast(t('toast.invite_code_settings'));
-  }, 350);
+  setManagedTimer(
+    'host-start-toast',
+    () => {
+      showToast(t('toast.invite_code_settings'));
+    },
+    350,
+  );
 
-  setManagedTimer('host-start-blink', () => {
-    const btn = document.getElementById('btn-media-source');
-    if (btn) {
-      btn.classList.add('blink-hint');
-      btn.addEventListener('animationend', () => {
-        btn.classList.remove('blink-hint');
-      }, { once: true });
-    }
-  }, 400);
+  setManagedTimer(
+    'host-start-blink',
+    () => {
+      const btn = document.getElementById('btn-media-source');
+      if (btn) {
+        btn.classList.add('blink-hint');
+        btn.addEventListener(
+          'animationend',
+          () => {
+            btn.classList.remove('blink-hint');
+          },
+          { once: true },
+        );
+      }
+    },
+    400,
+  );
 }

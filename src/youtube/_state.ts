@@ -12,8 +12,18 @@ import { getState, setState } from '../core/state.ts';
 
 export interface YouTubePlayerInstance {
   loadVideoById(videoId: string, startSeconds?: number): void;
-  loadPlaylist(args: { list: string; listType: string; index?: number; startSeconds?: number }): void;
-  cuePlaylist(args: { list: string; listType: string; index?: number; startSeconds?: number }): void;
+  loadPlaylist(args: {
+    list: string;
+    listType: string;
+    index?: number;
+    startSeconds?: number;
+  }): void;
+  cuePlaylist(args: {
+    list: string;
+    listType: string;
+    index?: number;
+    startSeconds?: number;
+  }): void;
   pauseVideo(): void;
   playVideo(): void;
   stopVideo(): void;
@@ -247,7 +257,10 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
   const newTitles = [...entry.titles];
   while (newTitles.length <= subIdx) newTitles.push('');
   newTitles[subIdx] = title;
-  setState('youtube.subItemsMap', _pruneSubMap({ ...subMap, [playlistId]: { ...entry, titles: newTitles } }));
+  setState(
+    'youtube.subItemsMap',
+    _pruneSubMap({ ...subMap, [playlistId]: { ...entry, titles: newTitles } }),
+  );
 }
 
 /** Set full sub-item data (IDs + titles) for a playlist. */
@@ -257,7 +270,10 @@ export function setSubItemsData(playlistId: string, ids: string[], titles: strin
   setState('youtube.subItemsMap', _pruneSubMap(subMap));
 }
 /** Update multiple sub-item titles at once (minimizes setState calls). */
-export function updateSubItemTitlesBulk(playlistId: string, updates: { index: number; title: string }[]): void {
+export function updateSubItemTitlesBulk(
+  playlistId: string,
+  updates: { index: number; title: string }[],
+): void {
   const subMap = _getSubMap();
   const entry = subMap[playlistId];
   if (!entry || updates.length === 0) return;
@@ -274,9 +290,12 @@ export function updateSubItemTitlesBulk(playlistId: string, updates: { index: nu
   }
 
   if (changed) {
-    setState('youtube.subItemsMap', _pruneSubMap({ 
-      ...subMap, 
-      [playlistId]: { ...entry, titles: newTitles } 
-    }));
+    setState(
+      'youtube.subItemsMap',
+      _pruneSubMap({
+        ...subMap,
+        [playlistId]: { ...entry, titles: newTitles },
+      }),
+    );
   }
 }

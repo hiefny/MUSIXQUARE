@@ -107,7 +107,7 @@ describe('i18n functions', () => {
     it('escapes single quotes', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml("{{val}}", { val: "it's" });
+      const result = tHtml('{{val}}', { val: "it's" });
       expect(result).toContain('&#39;');
     });
   });

@@ -27,7 +27,12 @@ export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): 
     if (item.playlistId && currentYouTubeSubIndex !== -1) {
       const subMap = getState('youtube.subItemsMap') || {};
       const subData = subMap[item.playlistId];
-      if (subData?.titles && currentYouTubeSubIndex >= 0 && currentYouTubeSubIndex < subData.titles.length && subData.titles[currentYouTubeSubIndex]) {
+      if (
+        subData?.titles &&
+        currentYouTubeSubIndex >= 0 &&
+        currentYouTubeSubIndex < subData.titles.length &&
+        subData.titles[currentYouTubeSubIndex]
+      ) {
         title = subData.titles[currentYouTubeSubIndex];
       } else {
         title = `${item.title || 'Playlist'} (${currentYouTubeSubIndex + 1})`;
@@ -149,9 +154,7 @@ export function initMediaSession(): void {
     if (!('mediaSession' in navigator)) return;
     const state = getState('appState');
     navigator.mediaSession.playbackState =
-      state === APP_STATE.IDLE ? 'none'
-        : state === APP_STATE.PAUSED ? 'paused'
-        : 'playing';
+      state === APP_STATE.IDLE ? 'none' : state === APP_STATE.PAUSED ? 'paused' : 'playing';
   });
 
   log.info('[MediaSession] Initialized');

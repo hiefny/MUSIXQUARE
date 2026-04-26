@@ -82,7 +82,9 @@ describe('EventBus', () => {
   });
 
   it('handler errors do not prevent other handlers from running', () => {
-    const fn1 = vi.fn(() => { throw new Error('boom'); });
+    const fn1 = vi.fn(() => {
+      throw new Error('boom');
+    });
     const fn2 = vi.fn();
     bus.on('err-test', fn1);
     bus.on('err-test', fn2);

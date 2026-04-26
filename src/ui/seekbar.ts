@@ -21,10 +21,15 @@ function initSeekBarInput(): void {
   if (!slider) return;
 
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
-  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), { passive: true });
+  slider.addEventListener('touchstart', () => setState('player.isSeeking', true), {
+    passive: true,
+  });
   slider.addEventListener('input', () => {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) { slider.value = '0'; return; }
+    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      slider.value = '0';
+      return;
+    }
     const formatted = fmtTime(parseFloat(slider.value));
     const tc = document.getElementById('time-curr');
     if (tc) tc.innerText = formatted;
@@ -42,7 +47,10 @@ function initSeekBarInput(): void {
   slider.addEventListener('change', () => {
     releaseSeek();
     const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) { slider.value = '0'; return; }
+    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      slider.value = '0';
+      return;
+    }
     const seekTime = parseFloat(slider.value);
 
     seekTo(seekTime);
@@ -74,15 +82,17 @@ function _seekRafLoop(now: number): void {
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
       const tt = document.getElementById('time-total');
-      if (slider) { slider.value = '0'; slider.max = '0'; }
+      if (slider) {
+        slider.value = '0';
+        slider.max = '0';
+      }
       if (tc) tc.innerText = '0:00';
       if (tt) tt.innerText = '0:00';
       _systemAudioZerosApplied = true;
     }
-    _rafId = window.setTimeout(
-      () => { _rafId = requestAnimationFrame(_seekRafLoop); },
-      SYSTEM_AUDIO_POLL_MS,
-    );
+    _rafId = window.setTimeout(() => {
+      _rafId = requestAnimationFrame(_seekRafLoop);
+    }, SYSTEM_AUDIO_POLL_MS);
     return;
   }
   _systemAudioZerosApplied = false;
@@ -137,14 +147,18 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
-    if (slider) { slider.max = String(duration); }
+    if (slider) {
+      slider.max = String(duration);
+    }
     if (tTotal) tTotal.innerText = fmtTime(duration);
   });
 
   _busScope.on('ui:seek-reset', () => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
-    if (slider) { slider.value = '0'; }
+    if (slider) {
+      slider.value = '0';
+    }
     if (tc) tc.innerText = '0:00';
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
@@ -155,23 +169,28 @@ function initSeekBarBusHandlers(): void {
     _endedCheckCounter = 0;
     _startSeekRaf();
 
-    setManagedTimer('time-update-loop', () => {
-      const currentState = getState('appState');
-      if (isIdleOrPaused(currentState)) {
-        clearManagedTimer('time-update-loop');
-        _stopSeekRaf();
-        return;
-      }
+    setManagedTimer(
+      'time-update-loop',
+      () => {
+        const currentState = getState('appState');
+        if (isIdleOrPaused(currentState)) {
+          clearManagedTimer('time-update-loop');
+          _stopSeekRaf();
+          return;
+        }
 
-      _rafAnchorTime = getTrackPosition();
-      _rafAnchorTs = performance.now();
+        _rafAnchorTime = getTrackPosition();
+        _rafAnchorTs = performance.now();
 
-      _endedCheckCounter++;
-      if (_endedCheckCounter >= 2) {
-        _endedCheckCounter = 0;
-        bus.emit('player:check-ended');
-      }
-    }, 250, { interval: true });
+        _endedCheckCounter++;
+        if (_endedCheckCounter >= 2) {
+          _endedCheckCounter = 0;
+          bus.emit('player:check-ended');
+        }
+      },
+      250,
+      { interval: true },
+    );
   });
 
   _busScope.on('player:stop-all-media', () => {

@@ -18,17 +18,27 @@ import { fmtTime } from '../player/transport.ts';
 import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import {
-  getYouTubePlayer, setYouTubePlayer,
-  getCurrentSessionId, incrementSessionId,
-  isYtScriptLoading, setYtScriptLoading,
-  getYtIOSWatchdog, setYtIOSWatchdog,
+  getYouTubePlayer,
+  setYouTubePlayer,
+  getCurrentSessionId,
+  incrementSessionId,
+  isYtScriptLoading,
+  setYtScriptLoading,
+  getYtIOSWatchdog,
+  setYtIOSWatchdog,
   replaceYtScope,
-  isYtLoadInProgress, setYtLoadInProgress,
-  isYtIndexing, setYtIndexing,
-  getYtIndexingCallback, setYtIndexingCallback,
-  getYtAutoplayIntent, setYtAutoplayIntent,
-  getCachedYtDuration, setCachedYtDuration,
-  getCachedYtPlaylistIdx, setCachedYtPlaylistIdx,
+  isYtLoadInProgress,
+  setYtLoadInProgress,
+  isYtIndexing,
+  setYtIndexing,
+  getYtIndexingCallback,
+  setYtIndexingCallback,
+  getYtAutoplayIntent,
+  setYtAutoplayIntent,
+  getCachedYtDuration,
+  setCachedYtDuration,
+  getCachedYtPlaylistIdx,
+  setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
   updateSubItemIds,
   setSubItemsData,
@@ -110,7 +120,9 @@ const _ifr: IframeRuntime = {
   unavailableStuckSince: null,
 };
 
-export function markYtStateBroadcast(): void { _ifr.lastStateBroadcast = Date.now(); }
+export function markYtStateBroadcast(): void {
+  _ifr.lastStateBroadcast = Date.now();
+}
 
 /**
  * Invalidate the duration cache — call after any external `loadVideoById`
@@ -146,11 +158,16 @@ export function loadYouTubeVideo(
   // instead of destroying and recreating the iframe. On iOS, recreating
   // the iframe resets the user gesture — requiring a tap to play again.
   // loadVideoById/loadPlaylist on the same player preserves the gesture.
-  const isYouTubeToYouTube = player?.loadVideoById && getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+  const isYouTubeToYouTube =
+    player?.loadVideoById && getState('appState') === APP_STATE.PLAYING_YOUTUBE;
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
-    try { player!.stopVideo?.(); } catch { /* noop */ }
+    try {
+      player!.stopVideo?.();
+    } catch {
+      /* noop */
+    }
     // Light cleanup: reset sync state without destroying the player
     clearManagedTimer('yt-clock-action');
     clearManagedTimer('yt-auto-sync');
@@ -166,9 +183,14 @@ export function loadYouTubeVideo(
     // Same for host sync loop
     const hostConn = getState('network.hostConn');
     if (!hostConn && !getManagedTimer('youtubeSyncLoop')) {
-      setManagedTimer('youtubeSyncLoop', () => {
-        bus.emit('youtube:broadcast-sync');
-      }, HEARTBEAT_INTERVAL_MS, { interval: true });
+      setManagedTimer(
+        'youtubeSyncLoop',
+        () => {
+          bus.emit('youtube:broadcast-sync');
+        },
+        HEARTBEAT_INTERVAL_MS,
+        { interval: true },
+      );
     }
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
@@ -176,7 +198,9 @@ export function loadYouTubeVideo(
       try {
         player.stopVideo?.();
         if (typeof player.destroy === 'function') player.destroy();
-      } catch { /* best-effort cleanup */ }
+      } catch {
+        /* best-effort cleanup */
+      }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
       if (container) container.innerHTML = '<div id="youtube-player"></div>';
@@ -223,7 +247,10 @@ export function loadYouTubeVideo(
       setYtScriptLoading(true);
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
-      tag.onload = () => { setYtScriptLoading(false); log.debug('[YouTube] API script loaded'); };
+      tag.onload = () => {
+        setYtScriptLoading(false);
+        log.debug('[YouTube] API script loaded');
+      };
       tag.onerror = () => {
         log.error('[YouTube] Failed to load API script');
         setYtScriptLoading(false);
@@ -255,18 +282,22 @@ export function loadYouTubeVideo(
   }
 
   // Safety timeout
-  setManagedTimer('yt-load-timeout', () => {
-    if (getCurrentSessionId() === sessionId && !scope.aborted && !getYouTubePlayer()) {
-      log.warn('[YouTube] Load timeout triggered.');
-      setYtLoadInProgress(false);
-      showLoader(false);
-      showToast(t('youtube.load_timeout'));
-      // Don't strand the user in PLAYING_YOUTUBE with no player. Drop back to
-      // IDLE and let stop-mode tear down the iframe scaffolding so a retry
-      // (or any other action) starts from a clean slate.
-      bus.emit('youtube:stop-mode');
-    }
-  }, SCRIPT_LOAD_TIMEOUT_MS);
+  setManagedTimer(
+    'yt-load-timeout',
+    () => {
+      if (getCurrentSessionId() === sessionId && !scope.aborted && !getYouTubePlayer()) {
+        log.warn('[YouTube] Load timeout triggered.');
+        setYtLoadInProgress(false);
+        showLoader(false);
+        showToast(t('youtube.load_timeout'));
+        // Don't strand the user in PLAYING_YOUTUBE with no player. Drop back to
+        // IDLE and let stop-mode tear down the iframe scaffolding so a retry
+        // (or any other action) starts from a clean slate.
+        bus.emit('youtube:stop-mode');
+      }
+    },
+    SCRIPT_LOAD_TIMEOUT_MS,
+  );
 
   bus.emit('ui:play-btn-state', true);
 
@@ -316,7 +347,7 @@ function createYouTubePlayer(
   _ifr.lastPreemptIdx = -1;
 
   const hostConn = getState('network.hostConn');
-  const needsScrape = (!hostConn && playlistId !== null);
+  const needsScrape = !hostConn && playlistId !== null;
 
   // Defense-in-depth for the 200+ track OOM fix (~2026-04-16). Single-video
   // mode is enforced at network ingress (handlers.ts) and the add-to-playlist
@@ -344,9 +375,19 @@ function createYouTubePlayer(
     log.debug('[YouTube] Re-using existing player instance');
     try {
       if ((needsScrape || indexing) && playlistId) {
-        existingPlayer.cuePlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+        existingPlayer.cuePlaylist({
+          list: playlistId,
+          listType: 'playlist',
+          index: subIndex,
+          startSeconds: 0,
+        });
       } else if (playlistId) {
-        existingPlayer.loadPlaylist({ list: playlistId, listType: 'playlist', index: subIndex, startSeconds: 0 });
+        existingPlayer.loadPlaylist({
+          list: playlistId,
+          listType: 'playlist',
+          index: subIndex,
+          startSeconds: 0,
+        });
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
@@ -368,7 +409,11 @@ function createYouTubePlayer(
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
-      try { existingPlayer.destroy(); } catch { /* best-effort */ }
+      try {
+        existingPlayer.destroy();
+      } catch {
+        /* best-effort */
+      }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
       if (container) container.innerHTML = '<div id="youtube-player"></div>';
@@ -409,7 +454,9 @@ function createYouTubePlayer(
 
   // A11y: add title to iframe once YouTube API creates it
   requestAnimationFrame(() => {
-    const iframe = document.querySelector('#youtube-player-container iframe') as HTMLIFrameElement | null;
+    const iframe = document.querySelector(
+      '#youtube-player-container iframe',
+    ) as HTMLIFrameElement | null;
     if (iframe) iframe.title = 'YouTube video player';
   });
 }
@@ -431,7 +478,12 @@ function onYouTubePlayerReady(): void {
   const indexingPid = _ifr.indexingPlaylistId;
   if (indexing && indexingPid && player?.cuePlaylist) {
     const subIndex = getState('youtube.currentSubIndex') ?? 0;
-    player.cuePlaylist({ list: indexingPid, listType: 'playlist', index: subIndex, startSeconds: 0 });
+    player.cuePlaylist({
+      list: indexingPid,
+      listType: 'playlist',
+      index: subIndex,
+      startSeconds: 0,
+    });
     // Don't start loops or sync yet
     return;
   }
@@ -450,27 +502,39 @@ function onYouTubePlayerReady(): void {
 
     if (player?.getPlaylist) {
       log.debug('[YouTube] Scheduling host-side playlist snapshot:', pid);
-      setManagedTimer('yt-playlist-snapshot', () => _triggerPlaylistSnapshot(pid), PLAYLIST_SNAPSHOT_DELAY_MS);
+      setManagedTimer(
+        'yt-playlist-snapshot',
+        () => _triggerPlaylistSnapshot(pid),
+        PLAYLIST_SNAPSHOT_DELAY_MS,
+      );
 
       // Aggressive First-Track Fisher: Poll fast to catch the first video ID.
       // Makes the 1st track highlight appear almost instantly even without a v= parameter.
       let fisherCount = 0;
-      setManagedTimer('yt-first-track-fisher', () => {
-        try {
-          const p = getYouTubePlayer();
-          const vid = p?.getVideoData?.()?.video_id;
-          if (vid) {
-            const subMap = getState('youtube.subItemsMap') || {};
-            const existing = subMap[pid]?.ids || [];
-            // Only update if we don't have IDs yet, or if it's currently a single-track list
-            if (existing.length <= 1) {
-              updateSubItemIds(pid, [vid]);
+      setManagedTimer(
+        'yt-first-track-fisher',
+        () => {
+          try {
+            const p = getYouTubePlayer();
+            const vid = p?.getVideoData?.()?.video_id;
+            if (vid) {
+              const subMap = getState('youtube.subItemsMap') || {};
+              const existing = subMap[pid]?.ids || [];
+              // Only update if we don't have IDs yet, or if it's currently a single-track list
+              if (existing.length <= 1) {
+                updateSubItemIds(pid, [vid]);
+              }
+              clearManagedTimer('yt-first-track-fisher');
             }
-            clearManagedTimer('yt-first-track-fisher');
+          } catch {
+            /* ignore */
           }
-        } catch { /* ignore */ }
-        if (++fisherCount > FIRST_TRACK_FISHER_MAX_POLLS) clearManagedTimer('yt-first-track-fisher');
-      }, FIRST_TRACK_FISHER_INTERVAL_MS, { interval: true });
+          if (++fisherCount > FIRST_TRACK_FISHER_MAX_POLLS)
+            clearManagedTimer('yt-first-track-fisher');
+        },
+        FIRST_TRACK_FISHER_INTERVAL_MS,
+        { interval: true },
+      );
     }
   }
 
@@ -481,9 +545,14 @@ function onYouTubePlayerReady(): void {
   // Only Host runs sync loop
   clearManagedTimer('youtubeSyncLoop');
   if (!hostConn) {
-    setManagedTimer('youtubeSyncLoop', () => {
-      bus.emit('youtube:broadcast-sync');
-    }, HEARTBEAT_INTERVAL_MS, { interval: true });
+    setManagedTimer(
+      'youtubeSyncLoop',
+      () => {
+        bus.emit('youtube:broadcast-sync');
+      },
+      HEARTBEAT_INTERVAL_MS,
+      { interval: true },
+    );
   }
 
   // Apply volume
@@ -634,7 +703,9 @@ function onYouTubePlayerError(event: { data: number }): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       let advanced = false;
-      bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+      bus.emit('youtube:try-next-internal', (ok: boolean) => {
+        advanced = ok;
+      });
       if (!advanced) bus.emit('playlist:next-track');
     }
     return;
@@ -658,7 +729,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // This allows immediate Next/Prev navigation and highlights as soon as playback starts.
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const currentTrack = (getState('playlist.items') || [])[
+        getState('playlist.currentTrackIndex')
+      ];
       const pid = currentTrack?.playlistId;
       const subMap = getState('youtube.subItemsMap') || {};
       if (pid && (!subMap[pid] || !subMap[pid].ids.length)) {
@@ -745,7 +818,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // subItemsMap). Only fall back to the MUSIXQUARE queue's next track
       // when we've reached the end of the sub-items list.
       let advanced = false;
-      bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+      bus.emit('youtube:try-next-internal', (ok: boolean) => {
+        advanced = ok;
+      });
       if (advanced) {
         log.debug('[YouTube] Ended, advancing to next sub-video...');
         // youtubeSyncLoop stays alive (see ENDED-branch comment above) —
@@ -762,15 +837,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // drop the message (appState !== PLAYING_YOUTUBE guard). Wait up to 5s
       // for the host's next-track command; fall back to IDLE if nothing arrives.
       log.debug('[YouTube] Guest: video ended — waiting for host next-track');
-      setManagedTimer('yt-guest-ended-fallback', () => {
-        // Host never sent next track (e.g. playlist truly ended) — clean up
-        clearManagedTimer('youtubeUILoop');
-        if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-          log.debug('[YouTube] Guest: no next-track from host — going IDLE');
-          setAppState(APP_STATE.IDLE);
-          bus.emit('youtube:stop-mode');
-        }
-      }, GUEST_ENDED_FALLBACK_MS);
+      setManagedTimer(
+        'yt-guest-ended-fallback',
+        () => {
+          // Host never sent next track (e.g. playlist truly ended) — clean up
+          clearManagedTimer('youtubeUILoop');
+          if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+            log.debug('[YouTube] Guest: no next-track from host — going IDLE');
+            setAppState(APP_STATE.IDLE);
+            bus.emit('youtube:stop-mode');
+          }
+        },
+        GUEST_ENDED_FALLBACK_MS,
+      );
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
@@ -794,7 +873,8 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
   // pause→play within 300ms), leaving guests stuck in the old state for 3s
   // until the next heartbeat corrected it.
-  const isDuplicateState = (state === _ifr.lastBroadcastState) && (now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS);
+  const isDuplicateState =
+    state === _ifr.lastBroadcastState && now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS;
   if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
     _ifr.lastStateBroadcast = now;
     _ifr.lastBroadcastState = state;
@@ -827,7 +907,9 @@ function updateYouTubeUI(): void {
   } catch {
     _ifr.crashFailCount++;
     if (_ifr.crashFailCount >= CRASH_FAIL_THRESHOLD) {
-      log.error(`[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures) — rebuilding player`);
+      log.error(
+        `[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures) — rebuilding player`,
+      );
       _ifr.crashFailCount = 0;
 
       // Reset guestPlayLatency — the last calibration before the crash may
@@ -835,7 +917,11 @@ function updateYouTubeUI(): void {
       // producing a corrupted EMA value that persists across reloads and
       // permanently biases all future rendezvous sync.
       setState('youtube.guestPlayLatency', 0);
-      try { localStorage.removeItem('musixquare-yt-play-latency'); } catch { /* noop */ }
+      try {
+        localStorage.removeItem('musixquare-yt-play-latency');
+      } catch {
+        /* noop */
+      }
 
       // Capture current state for recovery. currentTrackMeta.videoId is only
       // set to the entry-point video on track add; it never advances across
@@ -843,19 +929,25 @@ function updateYouTubeUI(): void {
       // in subItemsMap (kept in sync by broadcastYouTubeSync) so a crash
       // mid-playlist reloads the SAME sub-video instead of jumping back to
       // the first one.
-      const playlistId = getState('player.currentTrackMeta')?.playlistId as string || '';
+      const playlistId = (getState('player.currentTrackMeta')?.playlistId as string) || '';
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
-      let videoId = getState('player.currentTrackMeta')?.videoId as string || '';
+      let videoId = (getState('player.currentTrackMeta')?.videoId as string) || '';
       if (playlistId && subIndex > 0) {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedId = subMap[playlistId]?.ids?.[subIndex];
         if (cachedId) {
           videoId = cachedId;
-          log.debug(`[YouTube] Crash recovery resolved videoId for sub-index ${subIndex}: ${cachedId}`);
+          log.debug(
+            `[YouTube] Crash recovery resolved videoId for sub-index ${subIndex}: ${cachedId}`,
+          );
         }
       }
       // Destroy dead player and rebuild
-      try { player.destroy?.(); } catch { /* already dead */ }
+      try {
+        player.destroy?.();
+      } catch {
+        /* already dead */
+      }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
       if (container) container.innerHTML = '<div id="youtube-player"></div>';
@@ -920,12 +1012,14 @@ function updateYouTubeUI(): void {
     //   - PLAYING/PAUSED — video is fine (ads live here too)
     const isHost = !getState('network.hostConn');
     const STUCK_STATES = new Set([-1, 5, 3]); // UNSTARTED, CUED, BUFFERING
-    const iosOverlayVisible = document.getElementById('youtube-ios-sync-overlay')?.style.display === 'flex';
-    const stuckEligible = isHost
-      && STUCK_STATES.has(state)
-      && !iosOverlayVisible
-      && !document.hidden
-      && !_ifr.isScrapingPlaylist;
+    const iosOverlayVisible =
+      document.getElementById('youtube-ios-sync-overlay')?.style.display === 'flex';
+    const stuckEligible =
+      isHost &&
+      STUCK_STATES.has(state) &&
+      !iosOverlayVisible &&
+      !document.hidden &&
+      !_ifr.isScrapingPlaylist;
     if (stuckEligible) {
       if (!_ifr.unavailableStuckSince) _ifr.unavailableStuckSince = Date.now();
       if (Date.now() - _ifr.unavailableStuckSince > UNAVAILABLE_STUCK_THRESHOLD_MS) {
@@ -933,7 +1027,9 @@ function updateYouTubeUI(): void {
         _ifr.unavailableStuckSince = null;
         showToast(t('youtube.video_unavailable'));
         let advanced = false;
-        bus.emit('youtube:try-next-internal', (ok: boolean) => { advanced = ok; });
+        bus.emit('youtube:try-next-internal', (ok: boolean) => {
+          advanced = ok;
+        });
         if (!advanced) bus.emit('playlist:next-track');
         return;
       }
@@ -950,9 +1046,11 @@ function updateYouTubeUI(): void {
     if (!hostConn && playlistIdx !== -1 && state === 1 && _ifr.lastPreemptIdx !== playlistIdx) {
       const timeRemaining = rawDuration - currentTime;
       if (rawDuration > 0 && timeRemaining <= 0.8 && timeRemaining > 0) {
-        log.debug(`[YouTube] Pre-empting native auto-advance (remaining: ${timeRemaining.toFixed(2)}s)`);
+        log.debug(
+          `[YouTube] Pre-empting native auto-advance (remaining: ${timeRemaining.toFixed(2)}s)`,
+        );
         _ifr.lastPreemptIdx = playlistIdx;
-        bus.emit('youtube:try-next-internal', () => { });
+        bus.emit('youtube:try-next-internal', () => {});
         return;
       }
     }
@@ -987,8 +1085,14 @@ function updateYouTubeUI(): void {
       // (which arrives with the correct videoId and hostPlayAt within ~1s)
       // drive the transition. This eliminates the wrong-video window.
       if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
-        log.info(`[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`);
-        try { player.pauseVideo?.(); } catch { /* noop */ }
+        log.info(
+          `[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`,
+        );
+        try {
+          player.pauseVideo?.();
+        } catch {
+          /* noop */
+        }
         // Do NOT return here — fall through so title, duration, and seekbar
         // UI updates still run. The pause is enough to suppress playback;
         // returning early would freeze the UI on the previous track's metadata.
@@ -1000,17 +1104,17 @@ function updateYouTubeUI(): void {
       // path never runs and guests diverge until drift correction catches
       // up. Detect the transition here and schedule an auto-sync (pause
       // host briefly, broadcast hostPlayAt, resume everyone simultaneously).
-      if (!hostConn
-        && prevIdx !== -1
-        && playlistIdx >= 0
-        && !getManagedTimer('yt-auto-sync')
-      ) {
-        log.debug(`[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`);
+      if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !getManagedTimer('yt-auto-sync')) {
+        log.debug(
+          `[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`,
+        );
         bus.emit('youtube:sub-video-advanced');
       }
 
       // Pre-emptive title update from subItemsMap (if available) for instant feedback
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const currentTrack = (getState('playlist.items') || [])[
+        getState('playlist.currentTrackIndex')
+      ];
       if (currentTrack?.playlistId && playlistIdx >= 0) {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
@@ -1030,8 +1134,8 @@ function updateYouTubeUI(): void {
     // calls were a major contributor to iframe memory pressure and crashes.
     _ifr.videoDataPollCount = (_ifr.videoDataPollCount + 1) % VIDEO_DATA_POLL_EVERY_NTH_TICK;
     const shouldPollVideoData = subIndexJustChanged
-      ? false  // sub-index branch above already ran; title was set from subItemsMap
-      : (_ifr.videoDataPollCount === 0); // every Nth tick for title/videoId sync
+      ? false // sub-index branch above already ran; title was set from subItemsMap
+      : _ifr.videoDataPollCount === 0; // every Nth tick for title/videoId sync
 
     let currentVideoId = _ifr.lastDurationVideoId; // reuse cached value by default
     if (shouldPollVideoData && player.getVideoData) {
@@ -1073,7 +1177,13 @@ function updateYouTubeUI(): void {
     // the current time text still updates.
     {
       const displayDuration = cachedDuration > 0 ? cachedDuration : rawDuration;
-      bus.emit('ui:time-update', fmtTime(currentTime), fmtTime(displayDuration), currentTime, displayDuration);
+      bus.emit(
+        'ui:time-update',
+        fmtTime(currentTime),
+        fmtTime(displayDuration),
+        currentTime,
+        displayDuration,
+      );
     }
   } catch {
     // Player not ready
@@ -1155,10 +1265,18 @@ function showYouTubeSyncOverlay(show: boolean): void {
             guestRendezvousSync();
           } catch (err) {
             log.warn('[YouTube iOS gate] rendezvous failed, falling back to plain play:', err);
-            try { player.playVideo(); } catch { /* noop */ }
+            try {
+              player.playVideo();
+            } catch {
+              /* noop */
+            }
           }
         } else {
-          try { player.playVideo(); } catch { /* noop */ }
+          try {
+            player.playVideo();
+          } catch {
+            /* noop */
+          }
         }
       };
       overlay.innerHTML = `
@@ -1245,8 +1363,14 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
       const attempts = _snapshotRetryCounts.get(pid) ?? 0;
       if (attempts < SNAPSHOT_MAX_RETRIES) {
         _snapshotRetryCounts.set(pid, attempts + 1);
-        log.debug(`[YouTube Snapshot] Empty/single list for ${pid}, retrying (${attempts + 1}/${SNAPSHOT_MAX_RETRIES})`);
-        setManagedTimer(`yt-snapshot-retry-${pid}`, () => _triggerPlaylistSnapshot(pid, true), 1000);
+        log.debug(
+          `[YouTube Snapshot] Empty/single list for ${pid}, retrying (${attempts + 1}/${SNAPSHOT_MAX_RETRIES})`,
+        );
+        setManagedTimer(
+          `yt-snapshot-retry-${pid}`,
+          () => _triggerPlaylistSnapshot(pid, true),
+          1000,
+        );
       } else {
         log.warn(`[YouTube Snapshot] Gave up on ${pid} after ${SNAPSHOT_MAX_RETRIES} retries`);
         _snapshotRetryCounts.delete(pid);
@@ -1276,7 +1400,7 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
       type: MSG.YOUTUBE_PLAYLIST_INFO,
       playlistId: pid,
       ids,
-      titles
+      titles,
     });
 
     // Start fetching titles in the background

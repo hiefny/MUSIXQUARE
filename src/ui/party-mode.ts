@@ -1,6 +1,6 @@
 /**
  * MUSIXQUARE — Party Mode (Visual Feedback)
- * 
+ *
  * Emergency Refactor:
  * - REMOVED all UI bouncing/scaling as it interferes with touch interactions.
  * - ADDED dynamic background pulsing synchronized with the beat.
@@ -55,18 +55,18 @@ function onBeat(): void {
     // Determine Flash params based on Theme
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
     const isLight = theme === 'light';
-    
+
     // Light Mode requires higher opacity to be visible against bright backgrounds
     const opacity = isLight ? 0.35 : 0.12;
     const color = isLight ? '#f0f8ff' : '#ffffff'; // Subtle cool-white for Light mode punch
-    
+
     _overlay!.style.backgroundColor = color;
     _overlay!.style.transition = 'none';
     _overlay!.style.opacity = String(opacity);
-    
+
     // Force reflow
     void _overlay!.offsetWidth;
-    
+
     // Smooth Fade out (Ambient Long-Tail)
     _overlay!.style.transition = `opacity ${FADE_MS}ms cubic-bezier(.05, .7, .1, 1)`;
     _overlay!.style.opacity = '0';

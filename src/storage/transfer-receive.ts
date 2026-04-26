@@ -8,17 +8,35 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, TRANSFER_STATE, WATCHDOG_TIMEOUT, APP_STATE, DEMO_FILE_NAME, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  MSG,
+  CHUNK_SIZE,
+  TRANSFER_STATE,
+  WATCHDOG_TIMEOUT,
+  APP_STATE,
+  DEMO_FILE_NAME,
+  PLAYBACK_STATE,
+} from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
 import { t } from '../i18n/index.ts';
-import { safeSend, sendToHost, isRemoteGuest, hasActiveRelay, waitForGuestConnectionType } from '../network/peer.ts';
+import {
+  safeSend,
+  sendToHost,
+  isRemoteGuest,
+  hasActiveRelay,
+  waitForGuestConnectionType,
+} from '../network/peer.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
-import { getPendingPlayTime, setPendingPlayTime, getPendingPlayTimeSetAt } from '../player/_state.ts';
+import {
+  getPendingPlayTime,
+  setPendingPlayTime,
+  getPendingPlayTimeSetAt,
+} from '../player/_state.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -39,24 +57,33 @@ function startChunkWatchdog(): void {
   lastChunkTime = Date.now();
   setState('transfer.lastReceivedCountSnapshot', getState('transfer.receivedCount'));
 
-  setManagedTimer('chunkWatchdog', () => {
-    const timeout = getEffectiveWatchdogTimeout();
-    const timeSinceLast = Date.now() - lastChunkTime;
-    const receivedCount = getState('transfer.receivedCount');
-    const lastSnapshot = getState('transfer.lastReceivedCountSnapshot');
-    const isStuck = (receivedCount === lastSnapshot) && timeSinceLast > timeout;
+  setManagedTimer(
+    'chunkWatchdog',
+    () => {
+      const timeout = getEffectiveWatchdogTimeout();
+      const timeSinceLast = Date.now() - lastChunkTime;
+      const receivedCount = getState('transfer.receivedCount');
+      const lastSnapshot = getState('transfer.lastReceivedCountSnapshot');
+      const isStuck = receivedCount === lastSnapshot && timeSinceLast > timeout;
 
-    if (isStuck || timeSinceLast > timeout) {
-      clearManagedTimer('chunkWatchdog');
-      bus.emit('storage:request-recovery');
-    }
-    setState('transfer.lastReceivedCountSnapshot', receivedCount);
-  }, 1000, { interval: true });
+      if (isStuck || timeSinceLast > timeout) {
+        clearManagedTimer('chunkWatchdog');
+        bus.emit('storage:request-recovery');
+      }
+      setState('transfer.lastReceivedCountSnapshot', receivedCount);
+    },
+    1000,
+    { interval: true },
+  );
 }
 
 // ─── Internal Helpers ────────────────────────────────────────────────
 
-export async function fetchDemoFromServer(index: number, guardedPlayAt?: number, guardedPlaySetAt?: number): Promise<void> {
+export async function fetchDemoFromServer(
+  index: number,
+  guardedPlayAt?: number,
+  guardedPlaySetAt?: number,
+): Promise<void> {
   // If connection type is unknown, wait before deciding to fetch from server.
   // This prevents local guests from hitting the HTTP demo path during bootstrap.
   if (isRemoteGuest() && getState('network.connectionType') === 'unknown') {
@@ -78,7 +105,11 @@ export async function fetchDemoFromServer(index: number, guardedPlayAt?: number,
   }
 }
 
-async function _doFetchDemoFromServer(index: number, guardedPlayAt?: number, guardedPlaySetAt?: number): Promise<void> {
+async function _doFetchDemoFromServer(
+  index: number,
+  guardedPlayAt?: number,
+  guardedPlaySetAt?: number,
+): Promise<void> {
   const guardedPlaySetAtValue = guardedPlaySetAt ?? getPendingPlayTimeSetAt();
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
@@ -111,7 +142,13 @@ async function _doFetchDemoFromServer(index: number, guardedPlayAt?: number, gua
 
     // Use the preload path for seamless playback
     setState('preload.nextFileBlob', file);
-    setState('preload.meta', { name: DEMO_FILE_NAME, title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''), index, size: file.size, mime: 'audio/mpeg' });
+    setState('preload.meta', {
+      name: DEMO_FILE_NAME,
+      title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''),
+      index,
+      size: file.size,
+      mime: 'audio/mpeg',
+    });
     showLoader(false);
 
     // Defensive: preserve pending play time if the HTTP fetch race cleared it
@@ -187,21 +224,26 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       if (data.name === DEMO_FILE_NAME) {
         // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
         // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
-        transition({ type: 'FILE_PREPARE', variant: 'demo', index: Number(data.index) || 0, name: data.name as string });
+        transition({
+          type: 'FILE_PREPARE',
+          variant: 'demo',
+          index: Number(data.index) || 0,
+          name: data.name as string,
+        });
         setState('transfer.skipIncomingFile', true);
 
-        // Preserve pendingPlayTime before stopAllMedia clears it, since we 
+        // Preserve pendingPlayTime before stopAllMedia clears it, since we
         // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
         const pendingTime = getPendingPlayTime();
         const pendingSetAt = getPendingPlayTimeSetAt();
         bus.emit('player:stop-all-media');
-        
+
         const demoIndex = Number(data.index);
         const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
         if (data.index !== undefined) {
           setState('playlist.currentTrackIndex', safeDemoIndex);
         }
-        
+
         fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt);
         return;
       }
@@ -237,7 +279,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   // Fix: on every new-session FILE_PREPARE, wipe the receive state and
   // restart the chunkWatchdog from NOW so both safety nets are armed.
   if (isNewSession) {
-    log.debug(`[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`);
+    log.debug(
+      `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`,
+    );
     setState('transfer.localSessionId', incomingSid);
     setState('transfer.receivedCount', 0);
     setState('transfer.lastReceivedCountSnapshot', 0);
@@ -253,13 +297,16 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   // Check for preloaded match
   const preloadMeta = getState('preload.meta');
   const nextFileBlob = getState('preload.nextFileBlob');
-  const hasPreloadedByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
+  const hasPreloadedByIndex =
+    preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
   const hasPreloadedByName = preloadMeta && data.name && data.name === preloadMeta.name;
 
   // Preload INDEX MISMATCH: Don't use stale preload from a different track
   const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
   if (isMismatch) {
-    log.warn(`[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`);
+    log.warn(
+      `[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`,
+    );
     setState('transfer.skipIncomingFile', false);
     clearManagedTimer('preloadWatchdog');
     // Clear stale preload state
@@ -302,7 +349,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   const currentTransferMeta = getState('transfer.meta');
   const isSameTrackByName = data.name && currentTransferMeta?.name === data.name;
   if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName)) {
-    log.debug(`[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`);
+    log.debug(
+      `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
+    );
     // Lifecycle (Phase 3 dual-write): same file already loaded. No state
     // change — replay-current fires and the existing PLAYING/READY/PAUSED
     // state keeps its audio buffer.
@@ -326,14 +375,17 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   bus.emit('player:stop-all-media');
 
   // Check if preload is IN PROGRESS for this track
-  const preloadInProgressByIndex = preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
+  const preloadInProgressByIndex =
+    preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
   const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
   const isPreloading = getState('preload.isPreloading');
 
   if (isPreloading && (preloadInProgressByIndex || preloadInProgressByName)) {
     // Resolve Deadlock: If Host started new Main Session (SID increased), prioritize it
     if (incomingSid > prevLocalSid) {
-      log.debug('[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.');
+      log.debug(
+        '[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.',
+      );
       setState('preload.nextFileBlob', null);
       setState('preload.meta', null);
       setState('preload.nextTrackIndex', -1);
@@ -351,7 +403,7 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
-      setState('recovery.pendingFileName', data.name as string || '');
+      setState('recovery.pendingFileName', (data.name as string) || '');
       setState('recovery.pendingFileIndex', data.index as number);
       setState('transfer.skipIncomingFile', true);
 
@@ -362,18 +414,26 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       // Preload Watchdog: If preloading fails to complete, recover.
       // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
-      setManagedTimer('preloadWatchdog', () => {
-        // Phase 4: check lifecycle instead of the legacy flag. If the state
-        // machine has moved on (to DECODING, DOWNLOADING, etc.), the preload
-        // succeeded or was superseded and we must not recover.
-        if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
-          log.warn('[Guest] Preload wait timed out. Force recovering...');
-          showLoader(false);
-          setState('transfer.skipIncomingFile', false);
+      setManagedTimer(
+        'preloadWatchdog',
+        () => {
+          // Phase 4: check lifecycle instead of the legacy flag. If the state
+          // machine has moved on (to DECODING, DOWNLOADING, etc.), the preload
+          // succeeded or was superseded and we must not recover.
+          if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+            log.warn('[Guest] Preload wait timed out. Force recovering...');
+            showLoader(false);
+            setState('transfer.skipIncomingFile', false);
 
-          sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: data.name as string | undefined, index: data.index as number | undefined });
-        }
-      }, preloadWatchdogMs);
+            sendToHost({
+              type: MSG.REQUEST_CURRENT_FILE,
+              name: data.name as string | undefined,
+              index: data.index as number | undefined,
+            });
+          }
+        },
+        preloadWatchdogMs,
+      );
 
       return; // Don't start new download
     }
@@ -386,11 +446,11 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   const meta = getState('transfer.meta');
   const receivedCount = getState('transfer.receivedCount');
   const pendingFileIndex = getState('recovery.pendingFileIndex');
-  const isSameFile = (meta?.name === data.name) ||
-    (pendingFileIndex !== undefined && pendingFileIndex === data.index);
+  const isSameFile =
+    meta?.name === data.name || (pendingFileIndex !== undefined && pendingFileIndex === data.index);
 
   // Store pending file info (after reading old values above)
-  setState('recovery.pendingFileName', data.name as string || '');
+  setState('recovery.pendingFileName', (data.name as string) || '');
   setState('recovery.pendingFileIndex', data.index as number);
   const isResuming = isSameFile && receivedCount > 0;
 
@@ -441,30 +501,40 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
 
   // Prepare watchdog with jitter recovery
   const prepareTimeout = getState('network.connectionType') === 'remote' ? 60000 : 15000;
-  setManagedTimer('prepareWatchdog', () => {
-    const transferState = getState('transfer.state');
-    const rc = getState('transfer.receivedCount');
-    if (transferState === TRANSFER_STATE.IDLE || rc === 0) {
-      log.warn('[Prepare Watchdog] Timeout waiting for data start!');
-      showToast(t('transfer.preparation_delayed'));
+  setManagedTimer(
+    'prepareWatchdog',
+    () => {
+      const transferState = getState('transfer.state');
+      const rc = getState('transfer.receivedCount');
+      if (transferState === TRANSFER_STATE.IDLE || rc === 0) {
+        log.warn('[Prepare Watchdog] Timeout waiting for data start!');
+        showToast(t('transfer.preparation_delayed'));
 
-      const hostConn = getState('network.hostConn');
-      if (hostConn && hostConn.open) {
-        const jitter = Math.random() * 1000 + 200;
-        setManagedTimer('prepare-watchdog-jitter', () => {
-          if (hostConn.open && !getState('files.currentFileBlob')) {
-            bus.emit('storage:request-recovery');
-          }
-        }, jitter);
+        const hostConn = getState('network.hostConn');
+        if (hostConn && hostConn.open) {
+          const jitter = Math.random() * 1000 + 200;
+          setManagedTimer(
+            'prepare-watchdog-jitter',
+            () => {
+              if (hostConn.open && !getState('files.currentFileBlob')) {
+                bus.emit('storage:request-recovery');
+              }
+            },
+            jitter,
+          );
+        }
       }
-    }
-  }, prepareTimeout);
+    },
+    prepareTimeout,
+  );
 
   // Relay FILE_PREPARE to downstream peers (mirrors FILE_START/CHUNK/END relay).
   // Downstream peers need FILE_PREPARE to update their playlist index and metadata.
   if (!getState('transfer.skipIncomingFile')) {
     const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+    downstreamPeers.forEach((p) => {
+      safeSend(p, data as AnyProtocolMsg);
+    });
   }
 }
 
@@ -557,9 +627,11 @@ export function handleFileStart(data: Record<string, unknown>): void {
   // Replay any early chunks that arrived before FILE_START (same session only)
   if (_pendingEarlyChunks.length > 0) {
     const earlyChunks = _pendingEarlyChunks.splice(0);
-    const matching = earlyChunks.filter(c => (c.sessionId as number) === incomingSid);
+    const matching = earlyChunks.filter((c) => (c.sessionId as number) === incomingSid);
     if (matching.length > 0) {
-      log.debug(`[file-start] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`);
+      log.debug(
+        `[file-start] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
+      );
       for (const pending of matching) {
         handleFileChunk(pending);
       }
@@ -568,7 +640,9 @@ export function handleFileStart(data: Record<string, unknown>): void {
 
   // Relay header downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  downstreamPeers.forEach((p) => {
+    safeSend(p, data as AnyProtocolMsg);
+  });
 
   showLoader(true, t('transfer.receiving_0pct'));
 }
@@ -618,9 +692,11 @@ export function handleFileResume(data: Record<string, unknown>): void {
   // 12-28: Drain any early chunks that arrived before resume was processed (same session only)
   if (_pendingEarlyChunks.length > 0) {
     const earlyChunks = _pendingEarlyChunks.splice(0);
-    const matching = earlyChunks.filter(c => (c.sessionId as number) === incomingSid);
+    const matching = earlyChunks.filter((c) => (c.sessionId as number) === incomingSid);
     if (matching.length > 0) {
-      log.debug(`[file-resume] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`);
+      log.debug(
+        `[file-resume] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
+      );
       for (const pending of matching) {
         handleFileChunk(pending);
       }
@@ -628,7 +704,9 @@ export function handleFileResume(data: Record<string, unknown>): void {
   }
 
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  downstreamPeers.forEach((p) => {
+    safeSend(p, data as AnyProtocolMsg);
+  });
 }
 
 export function handleFileChunk(data: Record<string, unknown>): void {
@@ -658,8 +736,10 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   // This prevents broadcast chunks (whose FILE_START was skipped due to
   // preload) from re-showing the loader after finalizeGuestFile finishes.
   const transferState = getState('transfer.state');
-  if ((transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.PROCESSING) &&
-    incomingSid <= getState('transfer.localSessionId')) {
+  if (
+    (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.PROCESSING) &&
+    incomingSid <= getState('transfer.localSessionId')
+  ) {
     return;
   }
 
@@ -674,7 +754,9 @@ export function handleFileChunk(data: Record<string, unknown>): void {
     // re-sends it shortly after, and the reorder loop starts from chunk-0.
     if (_pendingEarlyChunks.length > 200) {
       const currentSid = (data as Record<string, unknown>).sessionId;
-      const staleIdx = _pendingEarlyChunks.findIndex(c => (c as Record<string, unknown>).sessionId !== currentSid);
+      const staleIdx = _pendingEarlyChunks.findIndex(
+        (c) => (c as Record<string, unknown>).sessionId !== currentSid,
+      );
       if (staleIdx >= 0) _pendingEarlyChunks.splice(staleIdx, 1);
       else _pendingEarlyChunks.pop();
     }
@@ -706,7 +788,11 @@ export function handleFileChunk(data: Record<string, unknown>): void {
       setState('files.currentFileOpfs', { name: chunkName });
       setState('transfer.state', TRANSFER_STATE.RECEIVING);
       if (data.total) {
-        setState('transfer.meta', { name: chunkName, total: data.total as number, sessionId: incomingSid } as Partial<FileMeta>);
+        setState('transfer.meta', {
+          name: chunkName,
+          total: data.total as number,
+          sessionId: incomingSid,
+        } as Partial<FileMeta>);
       }
       startChunkWatchdog();
     }
@@ -735,7 +821,9 @@ export function handleFileChunk(data: Record<string, unknown>): void {
       const burstDuration = now - burstStart;
       const rc = getState('transfer.receivedCount');
       if (burstDuration > 3000 && newCount >= 20 && rc === 0) {
-        log.warn(`[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`);
+        log.warn(
+          `[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`,
+        );
         setState('transfer.staleChunkBurstStart', 0);
         setState('transfer.staleChunkBurstCount', 0);
         clearManagedTimer('chunkWatchdog');
@@ -772,7 +860,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
     return;
   }
   const metaPeek = getState('transfer.meta');
-  const expectedTotal = (metaPeek?.total as number | undefined);
+  const expectedTotal = metaPeek?.total as number | undefined;
   if (typeof expectedTotal === 'number' && expectedTotal > 0 && chunkIndex >= expectedTotal) {
     log.warn(`[Transfer] Dropping chunk beyond total: ${chunkIndex} >= ${expectedTotal}`);
     return;
@@ -781,7 +869,9 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   // 12-4 + 13-9: Guard against unbounded reorder buffer growth with recovery
   const MAX_REORDER_BUFFER = 500;
   if (sessionBuffer.size > MAX_REORDER_BUFFER) {
-    log.warn(`[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`);
+    log.warn(
+      `[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`,
+    );
     sessionBuffer.clear();
     nextExpectedChunk = chunkIndex;
     setState('transfer.receivedCount', chunkIndex); // keep in sync
@@ -829,8 +919,12 @@ export function handleFileChunk(data: Record<string, unknown>): void {
       // Filter by session ID to avoid replaying stale chunks from a previous transfer
       if (_pendingEarlyChunks.length > 0) {
         const earlyChunks = _pendingEarlyChunks.splice(0);
-        const sessionFiltered = earlyChunks.filter(ec => (ec.sessionId as number) === incomingSid);
-        log.debug(`[FileChunk] Replaying ${sessionFiltered.length}/${earlyChunks.length} early chunks after meta-recovery (session ${incomingSid})`);
+        const sessionFiltered = earlyChunks.filter(
+          (ec) => (ec.sessionId as number) === incomingSid,
+        );
+        log.debug(
+          `[FileChunk] Replaying ${sessionFiltered.length}/${earlyChunks.length} early chunks after meta-recovery (session ${incomingSid})`,
+        );
         for (const ec of sessionFiltered) {
           handleFileChunk(ec);
         }
@@ -858,7 +952,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
 
     postWorkerCommand({
       command: 'OPFS_WRITE',
-      chunk: isArrayBuffer(chunk) ? chunk : (chunk as Uint8Array).buffer as ArrayBuffer,
+      chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
       index: nextExpectedChunk,
       isPreload: false,
       filename: opfsFilename.name || '',
@@ -876,8 +970,13 @@ export function handleFileChunk(data: Record<string, unknown>): void {
         total: currentMetaForRelay?.total ?? data.total,
         name: currentMetaForRelay?.name ?? data.name,
       };
-      downstreamPeers.forEach(p => {
-        if (p.open) try { p.send(chunkMsg); } catch { /* noop */ }
+      downstreamPeers.forEach((p) => {
+        if (p.open)
+          try {
+            p.send(chunkMsg);
+          } catch {
+            /* noop */
+          }
       });
     }
 
@@ -904,7 +1003,11 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   }
 
   // File complete check
-  if (total > 0 && receivedCount >= total && getState('transfer.state') !== TRANSFER_STATE.PROCESSING) {
+  if (
+    total > 0 &&
+    receivedCount >= total &&
+    getState('transfer.state') !== TRANSFER_STATE.PROCESSING
+  ) {
     setState('transfer.state', TRANSFER_STATE.PROCESSING);
     setState('recovery.retryCount', 0);
 
@@ -946,7 +1049,9 @@ export function handleFileEnd(data: Record<string, unknown>): void {
 
   // Relay to downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach(p => { safeSend(p, data as AnyProtocolMsg); });
+  downstreamPeers.forEach((p) => {
+    safeSend(p, data as AnyProtocolMsg);
+  });
 
   log.debug(`[file-end] Received end signal for: ${data.name}`);
 
@@ -972,64 +1077,71 @@ export function handleFileWait(): void {
   showToast(t('transfer.file_wait'));
 
   clearManagedTimer('relayWaitTimeout');
-  setManagedTimer('relayWaitTimeout', () => {
-    const receivedCount = getState('transfer.receivedCount');
-    if (receivedCount === 0) {
-      log.debug('[Guest] Relay wait timeout - falling back to Host');
+  setManagedTimer(
+    'relayWaitTimeout',
+    () => {
+      const receivedCount = getState('transfer.receivedCount');
+      if (receivedCount === 0) {
+        log.debug('[Guest] Relay wait timeout - falling back to Host');
 
-      // Disconnect from relay upstream
-      const upstreamDataConn = getState('relay.upstreamDataConn');
-      if (upstreamDataConn) {
-        upstreamDataConn.close();
-        setState('relay.upstreamDataConn', null);
-      }
+        // Disconnect from relay upstream
+        const upstreamDataConn = getState('relay.upstreamDataConn');
+        if (upstreamDataConn) {
+          upstreamDataConn.close();
+          setState('relay.upstreamDataConn', null);
+        }
 
-      // Remote guest with no relay: show WiFi guidance instead of futile host request
-      if (isRemoteGuest() && !hasActiveRelay()) {
-        log.info('[file-wait timeout] Remote guest — showing WiFi guidance');
-        showRemoteGuideUI({
-          index: getState('playlist.currentTrackIndex'),
-          name: getState('recovery.pendingFileName') || '',
-        });
-        return;
-      }
-
-      showToast(t('transfer.relay_no_response'));
-
-      // Request file from Host
-      const hostConn = getState('network.hostConn');
-      if (hostConn && hostConn.open) {
-        const pendingFileName = getState('recovery.pendingFileName') || '';
-        const pendingFileIndex = getState('recovery.pendingFileIndex');
-        const currentTrackIndex = getState('playlist.currentTrackIndex');
-        const recoveryIndex = pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
-        const playlist = getState('playlist.items') || [];
-
-        // Validation: Don't send recovery with invalid index
-        if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
-          log.warn('[file-wait timeout] Invalid index, skipping recovery:', recoveryIndex);
-          showLoader(false);
+        // Remote guest with no relay: show WiFi guidance instead of futile host request
+        if (isRemoteGuest() && !hasActiveRelay()) {
+          log.info('[file-wait timeout] Remote guest — showing WiFi guidance');
+          showRemoteGuideUI({
+            index: getState('playlist.currentTrackIndex'),
+            name: getState('recovery.pendingFileName') || '',
+          });
           return;
         }
 
-        // Check if preload is in progress for this track
-        const preloadMeta = getState('preload.meta');
-        if (preloadMeta && preloadMeta.index === recoveryIndex) {
-          log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
-          showToast(t('transfer.preload_waiting'));
-          return;
-        }
+        showToast(t('transfer.relay_no_response'));
 
-        log.debug(`[file-wait timeout] Requesting from Host: ${pendingFileName} index: ${recoveryIndex}`);
-        sendToHost({
-          type: MSG.REQUEST_DATA_RECOVERY,
-          nextChunk: 0,
-          fileName: pendingFileName,
-          index: recoveryIndex,
-        });
+        // Request file from Host
+        const hostConn = getState('network.hostConn');
+        if (hostConn && hostConn.open) {
+          const pendingFileName = getState('recovery.pendingFileName') || '';
+          const pendingFileIndex = getState('recovery.pendingFileIndex');
+          const currentTrackIndex = getState('playlist.currentTrackIndex');
+          const recoveryIndex =
+            pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
+          const playlist = getState('playlist.items') || [];
+
+          // Validation: Don't send recovery with invalid index
+          if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
+            log.warn('[file-wait timeout] Invalid index, skipping recovery:', recoveryIndex);
+            showLoader(false);
+            return;
+          }
+
+          // Check if preload is in progress for this track
+          const preloadMeta = getState('preload.meta');
+          if (preloadMeta && preloadMeta.index === recoveryIndex) {
+            log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
+            showToast(t('transfer.preload_waiting'));
+            return;
+          }
+
+          log.debug(
+            `[file-wait timeout] Requesting from Host: ${pendingFileName} index: ${recoveryIndex}`,
+          );
+          sendToHost({
+            type: MSG.REQUEST_DATA_RECOVERY,
+            nextChunk: 0,
+            fileName: pendingFileName,
+            index: recoveryIndex,
+          });
+        }
       }
-    }
-  }, 10000);
+    },
+    10000,
+  );
 }
 
 // ─── Session Cleanup (exported for initTransfer) ─────────────────────

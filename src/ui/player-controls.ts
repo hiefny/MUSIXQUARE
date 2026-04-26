@@ -17,7 +17,12 @@ import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 import { showLoader } from './toast.ts';
 import { switchTab } from './tabs.ts';
-import { updateOverlayOpenClass, animateTransition, copyTextToClipboard, updateTitleWithMarquee } from './dom.ts';
+import {
+  updateOverlayOpenClass,
+  animateTransition,
+  copyTextToClipboard,
+  updateTitleWithMarquee,
+} from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
@@ -40,7 +45,10 @@ export function getRoleLabelByChannelMode(mode: number): string {
   return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
 }
 
-export function getStandardRolePreset(mode: number): { labelKey: I18nKey; placementToastKey: I18nKey } {
+export function getStandardRolePreset(mode: number): {
+  labelKey: I18nKey;
+  placementToastKey: I18nKey;
+} {
   return STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0'];
 }
 
@@ -60,9 +68,15 @@ function updateVolumeIcon(): void {
 
   const vol = getState('audio.masterVolume') ?? 1;
   if (vol === 0) {
-    path.setAttribute('d', 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z');
+    path.setAttribute(
+      'd',
+      'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z',
+    );
   } else {
-    path.setAttribute('d', 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z');
+    path.setAttribute(
+      'd',
+      'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z',
+    );
   }
 }
 
@@ -77,11 +91,12 @@ function refreshTrackTitle(): void {
   }
 
   // System audio mode: always use translated string (survives language switch)
-  let title = item.name === 'system-audio'
-    ? t('system_audio.sharing')
-    : item.name === 'system-audio-receiving'
-      ? t('system_audio.receiving')
-      : (item.title || item.name || t('common.unknown'));
+  let title =
+    item.name === 'system-audio'
+      ? t('system_audio.sharing')
+      : item.name === 'system-audio-receiving'
+        ? t('system_audio.receiving')
+        : item.title || item.name || t('common.unknown');
 
   // Remote Guest + Local File + No Blob = Show Wi-Fi Warning instead of real title.
   // Exception: the demo file is reachable over HTTP from the server for remote
@@ -105,7 +120,10 @@ function refreshTrackTitle(): void {
       artistEl.innerText = item.artist;
     } else {
       const idx = getState('playlist.currentTrackIndex');
-      artistEl.innerText = (item.type === 'youtube') ? t('common.youtube_video') : t('playlist.track_fallback', { idx: idx + 1 });
+      artistEl.innerText =
+        item.type === 'youtube'
+          ? t('common.youtube_video')
+          : t('playlist.track_fallback', { idx: idx + 1 });
     }
   }
 }
@@ -201,7 +219,7 @@ export function getInviteCode(): string {
 export function updateInviteCodeUI(): void {
   const code = getInviteCode();
   const elements = document.querySelectorAll('.invite-code-value');
-  elements.forEach(el => {
+  elements.forEach((el) => {
     el.textContent = code;
     el.setAttribute('data-code', code);
   });
@@ -210,13 +228,15 @@ export function updateInviteCodeUI(): void {
 function getConnectedDeviceCount(): number {
   const lastKnownDeviceList = getState('network.lastKnownDeviceList');
   if (Array.isArray(lastKnownDeviceList) && lastKnownDeviceList.length) {
-    return lastKnownDeviceList.filter(d => d && d.status === 'connected').length;
+    return lastKnownDeviceList.filter((d) => d && d.status === 'connected').length;
   }
   const connectedPeers = getState('network.connectedPeers');
   const hostConn = getState('network.hostConn');
   const appRole = getState('network.appRole');
   const sessionStarted = getState('setup.sessionStarted');
-  const peerConnected = Array.isArray(connectedPeers) ? connectedPeers.filter(p => p && p.status === 'connected').length : 0;
+  const peerConnected = Array.isArray(connectedPeers)
+    ? connectedPeers.filter((p) => p && p.status === 'connected').length
+    : 0;
   if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0)) {
     return 1 + peerConnected;
   }
@@ -232,11 +252,17 @@ async function copyInviteCode(): Promise<void> {
   if (ok) {
     const cnt = getConnectedDeviceCount();
     showToast(t('toast.invite_code_info', { count: cnt, code }));
-    document.querySelectorAll('.invite-code-value').forEach(el => {
+    document.querySelectorAll('.invite-code-value').forEach((el) => {
       el.classList.add('copied');
-      setManagedTimer('copied-feedback', () => {
-        document.querySelectorAll('.invite-code-value').forEach(e => e.classList.remove('copied'));
-      }, 600);
+      setManagedTimer(
+        'copied-feedback',
+        () => {
+          document
+            .querySelectorAll('.invite-code-value')
+            .forEach((e) => e.classList.remove('copied'));
+        },
+        600,
+      );
     });
   } else {
     showToast(t('toast.copy_failed'));
@@ -392,10 +418,14 @@ async function handleLogoReturnToMain(): Promise<void> {
 
     // Hard reload — clears all in-memory blobs, audio buffers, and stale state
     showLoader(true, t('dialog.leaving_session'));
-    setManagedTimer('logo-nav-reload', () => {
-      markIntentionalNav();
-      window.location.reload();
-    }, 300);
+    setManagedTimer(
+      'logo-nav-reload',
+      () => {
+        markIntentionalNav();
+        window.location.reload();
+      },
+      300,
+    );
   } finally {
     _logoNavBusy = false;
   }
@@ -417,7 +447,7 @@ function installAndroidRangeScrollFix(): void {
         scrollParent.style.overflowY = 'hidden';
       };
       const unlock = () => {
-        scrollParent.style.overflowY = (prevOverflowY !== null) ? prevOverflowY : '';
+        scrollParent.style.overflowY = prevOverflowY !== null ? prevOverflowY : '';
         prevOverflowY = null;
       };
 
@@ -463,9 +493,14 @@ export function initPlayerControls(): void {
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
   $on('btn-fullscreen', 'click', () => {
-    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element;
+      webkitExitFullscreen?: () => void;
+    };
     const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-    const videoWrapper = document.querySelector('.video-wrapper') as (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
+    const videoWrapper = document.querySelector('.video-wrapper') as
+      | (HTMLElement & { webkitRequestFullscreen?: () => void })
+      | null;
     const target = videoWrapper || el;
 
     const enterFake = () => {
@@ -478,7 +513,11 @@ export function initPlayerControls(): void {
     };
 
     const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
-    const isFullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement || isFakeFullscreen);
+    const isFullscreen = !!(
+      document.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      isFakeFullscreen
+    );
 
     try {
       if (!isFullscreen) {
@@ -487,9 +526,13 @@ export function initPlayerControls(): void {
         } else if (target.webkitRequestFullscreen) {
           target.webkitRequestFullscreen();
           // webkit's call is sync and silent on failure — verify after a tick.
-          setManagedTimer('webkit-fullscreen-fallback', () => {
-            if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
-          }, 100);
+          setManagedTimer(
+            'webkit-fullscreen-fallback',
+            () => {
+              if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
+            },
+            100,
+          );
         } else {
           enterFake();
         }
@@ -502,7 +545,8 @@ export function initPlayerControls(): void {
       }
     } catch {
       // Synchronous webkit call can throw — fall back to fake fullscreen toggle.
-      if (isFakeFullscreen) exitFake(); else enterFake();
+      if (isFakeFullscreen) exitFake();
+      else enterFake();
     }
   });
 
@@ -512,7 +556,12 @@ export function initPlayerControls(): void {
     roleBadge.setAttribute('role', 'button');
     roleBadge.setAttribute('tabindex', '0');
     const onShowCode = async (e?: Event) => {
-      try { e?.preventDefault?.(); e?.stopPropagation?.(); } catch { /* ignore */ }
+      try {
+        e?.preventDefault?.();
+        e?.stopPropagation?.();
+      } catch {
+        /* ignore */
+      }
       const code = getInviteCode();
       if (!code || code === '------') {
         showToast(t('toast.no_invite_code'));
@@ -550,8 +599,12 @@ export function initPlayerControls(): void {
   $on('btn-next', 'click', () => bus.emit('playlist:next-track'));
   // Mute button — native <button>, so Enter/Space auto-fires click
   $on('vol-icon-btn', 'click', () => toggleMute());
-  $on('volume-slider', 'input', function (this: HTMLInputElement) { onVolInput(Number(this.value)); });
-  $on('volume-slider', 'change', function (this: HTMLInputElement) { onVolChange(Number(this.value)); });
+  $on('volume-slider', 'input', function (this: HTMLInputElement) {
+    onVolInput(Number(this.value));
+  });
+  $on('volume-slider', 'change', function (this: HTMLInputElement) {
+    onVolChange(Number(this.value));
+  });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
     if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
@@ -572,7 +625,10 @@ export function initPlayerControls(): void {
 
   // Media source popup
   $on('btn-local-file', 'click', () => openFileSelector());
-  $on('btn-youtube-source', 'click', () => { closeMediaSourcePopup(); openYouTubePopup(); });
+  $on('btn-youtube-source', 'click', () => {
+    closeMediaSourcePopup();
+    openYouTubePopup();
+  });
   $on('btn-system-audio', 'click', () => {
     if (canCaptureSystemAudio()) {
       closeMediaSourcePopup();
@@ -587,20 +643,33 @@ export function initPlayerControls(): void {
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
   // Demo button (Help tab — desktop + mobile)
-  $on('btn-demo-media', 'click', () => { bus.emit('app:load-demo'); });
-  $on('btn-demo-media-mobile', 'click', () => { bus.emit('app:load-demo'); });
+  $on('btn-demo-media', 'click', () => {
+    bus.emit('app:load-demo');
+  });
+  $on('btn-demo-media-mobile', 'click', () => {
+    bus.emit('app:load-demo');
+  });
 
   // YouTube popup (contenteditable)
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) {
-    ytInput.addEventListener('input', () => { bus.emit('youtube:preview', ytInput.textContent || ''); });
+    ytInput.addEventListener('input', () => {
+      bus.emit('youtube:preview', ytInput.textContent || '');
+    });
     ytInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); bus.emit('youtube:load-from-input'); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        bus.emit('youtube:load-from-input');
+      }
     });
     ytInput.addEventListener('paste', (e) => {
       e.preventDefault();
       const clipboard = (e as ClipboardEvent).clipboardData;
-      const text = clipboard?.getData('text/plain') || clipboard?.getData('text/uri-list') || clipboard?.getData('URL') || '';
+      const text =
+        clipboard?.getData('text/plain') ||
+        clipboard?.getData('text/uri-list') ||
+        clipboard?.getData('URL') ||
+        '';
       document.execCommand('insertText', false, text);
     });
   }
@@ -654,11 +723,12 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
     const item = getState('player.currentTrackMeta');
     if (item) {
-      _tabTitleTrack = item.name === 'system-audio'
-        ? t('system_audio.sharing')
-        : item.name === 'system-audio-receiving'
-          ? t('system_audio.receiving')
-          : (item.title || item.name || '');
+      _tabTitleTrack =
+        item.name === 'system-audio'
+          ? t('system_audio.sharing')
+          : item.name === 'system-audio-receiving'
+            ? t('system_audio.receiving')
+            : item.title || item.name || '';
     }
   });
   _langObserver.observe(document.documentElement, { attributeFilter: ['lang'] });
@@ -735,9 +805,12 @@ export function initPlayerControls(): void {
     const btn = document.getElementById('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
-      icon.setAttribute('d', playing
-        ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z'  // pause icon
-        : 'M8 5v14l11-7z');                    // play icon
+      icon.setAttribute(
+        'd',
+        playing
+          ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' // pause icon
+          : 'M8 5v14l11-7z',
+      ); // play icon
     }
   }
 
@@ -828,7 +901,7 @@ export function initPlayerControls(): void {
   // Sync display update (dual: auto + manual)
   // Unit ("ms") is shown in the column label, not appended to the value,
   // so 4-digit offsets (e.g. +1022) don't visually crowd the small tile.
-  const fmtMs = (ms: number) => ms > 0 ? `+${ms}` : `${ms}`;
+  const fmtMs = (ms: number) => (ms > 0 ? `+${ms}` : `${ms}`);
 
   _busScope.on('sync:display-update', () => {
     const localOffset = getState('sync.localOffset') || 0;
@@ -844,7 +917,7 @@ export function initPlayerControls(): void {
 
   const DEFAULT_TITLE = 'MUSIXQUARE - 뮤직스퀘어';
   const MARQUEE_PAUSE_START = 3; // 3s pause at start
-  const MARQUEE_PAUSE_END = 1;   // 1s pause at end
+  const MARQUEE_PAUSE_END = 1; // 1s pause at end
   let _tabTitleTrack = '';
   function startTabTitleMarquee(): void {
     if (getManagedTimer('tab-title-marquee')) return;
@@ -853,71 +926,75 @@ export function initPlayerControls(): void {
     let startPause = 0;
     let endPause = 0;
 
-    setManagedTimer('tab-title-marquee', () => {
-      const state = getState('appState');
-      if (state === APP_STATE.IDLE) {
-        stopTabTitleMarquee();
-        return;
-      }
-
-      const name = _tabTitleTrack || 'MUSIXQUARE';
-      if (state === APP_STATE.PAUSED) {
-        stopTabTitleMarquee();
-        document.title = `${name} | MUSIXQUARE`;
-        return;
-      }
-
-      const suffix = ' | MUSIXQUARE';
-      const full = name + suffix;
-
-      // Phase 1: start pause (3s)
-      if (scrollPos === 0 && startPause < MARQUEE_PAUSE_START) {
-        document.title = full;
-        startPause++;
-        return;
-      }
-
-      // Phase 3: end pause (1s)
-      const maxScroll = name.length + 3; // " | " length
-      if (scrollPos >= maxScroll) {
-        if (endPause < MARQUEE_PAUSE_END) {
-          document.title = 'MUSIXQUARE';
-          endPause++;
+    setManagedTimer(
+      'tab-title-marquee',
+      () => {
+        const state = getState('appState');
+        if (state === APP_STATE.IDLE) {
+          stopTabTitleMarquee();
           return;
         }
-        scrollPos = 0;
-        startPause = 0;
-        endPause = 0;
-        return;
-      }
 
-      // Phase 2: scrolling — skip leading whitespace to prevent browser trimming
-      while (scrollPos < full.length && /\s/.test(full[scrollPos])) scrollPos++;
-      if (scrollPos >= maxScroll) {
-        scrollPos = maxScroll;
-        document.title = 'MUSIXQUARE';
-        return;
-      }
-      document.title = full.slice(scrollPos);
-      scrollPos++;
-    }, 1000, { interval: true });
+        const name = _tabTitleTrack || 'MUSIXQUARE';
+        if (state === APP_STATE.PAUSED) {
+          stopTabTitleMarquee();
+          document.title = `${name} | MUSIXQUARE`;
+          return;
+        }
+
+        const suffix = ' | MUSIXQUARE';
+        const full = name + suffix;
+
+        // Phase 1: start pause (3s)
+        if (scrollPos === 0 && startPause < MARQUEE_PAUSE_START) {
+          document.title = full;
+          startPause++;
+          return;
+        }
+
+        // Phase 3: end pause (1s)
+        const maxScroll = name.length + 3; // " | " length
+        if (scrollPos >= maxScroll) {
+          if (endPause < MARQUEE_PAUSE_END) {
+            document.title = 'MUSIXQUARE';
+            endPause++;
+            return;
+          }
+          scrollPos = 0;
+          startPause = 0;
+          endPause = 0;
+          return;
+        }
+
+        // Phase 2: scrolling — skip leading whitespace to prevent browser trimming
+        while (scrollPos < full.length && /\s/.test(full[scrollPos])) scrollPos++;
+        if (scrollPos >= maxScroll) {
+          scrollPos = maxScroll;
+          document.title = 'MUSIXQUARE';
+          return;
+        }
+        document.title = full.slice(scrollPos);
+        scrollPos++;
+      },
+      1000,
+      { interval: true },
+    );
   }
 
   function stopTabTitleMarquee(): void {
     clearManagedTimer('tab-title-marquee');
-    document.title = _tabTitleTrack
-      ? `${_tabTitleTrack} | MUSIXQUARE`
-      : DEFAULT_TITLE;
+    document.title = _tabTitleTrack ? `${_tabTitleTrack} | MUSIXQUARE` : DEFAULT_TITLE;
   }
 
   _busScope.on('state:player.currentTrackMeta', () => {
     const item = getState('player.currentTrackMeta');
     if (item) {
-      _tabTitleTrack = item.name === 'system-audio'
-        ? t('system_audio.sharing')
-        : item.name === 'system-audio-receiving'
-          ? t('system_audio.receiving')
-          : (item.title || item.name || '');
+      _tabTitleTrack =
+        item.name === 'system-audio'
+          ? t('system_audio.sharing')
+          : item.name === 'system-audio-receiving'
+            ? t('system_audio.receiving')
+            : item.title || item.name || '';
     } else {
       _tabTitleTrack = '';
       document.title = DEFAULT_TITLE;
@@ -926,7 +1003,11 @@ export function initPlayerControls(): void {
 
   _busScope.on('state:appState', () => {
     const state = getState('appState');
-    if (state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_YOUTUBE || state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (
+      state === APP_STATE.PLAYING_AUDIO ||
+      state === APP_STATE.PLAYING_YOUTUBE ||
+      state === APP_STATE.PLAYING_SYSTEM_AUDIO
+    ) {
       startTabTitleMarquee();
     } else {
       stopTabTitleMarquee();

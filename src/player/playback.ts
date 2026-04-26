@@ -36,16 +36,9 @@ import {
   setLastClearedTrackName,
 } from './_state.ts';
 
-import {
-  play, pause, stopAllMedia,
-  getTrackPosition, handleEnded,
-  skipTime,
-} from './transport.ts';
+import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } from './transport.ts';
 
-import {
-  loadPreloadedTrack,
-  clearPreviousTrackState, finalizeGuestFile,
-} from './decode.ts';
+import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
@@ -135,7 +128,12 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     // to re-send the current file.
     const playlist = getState('playlist.items') || [];
     const name = playlist[incomingIndex]?.name || '';
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name, index: incomingIndex, reason: 'index_mismatch' });
+    sendToHost({
+      type: MSG.REQUEST_CURRENT_FILE,
+      name,
+      index: incomingIndex,
+      reason: 'index_mismatch',
+    });
     return;
   }
 
@@ -155,7 +153,9 @@ function handlePlayMsg(data: Record<string, unknown>): void {
     setPendingPlayTime(time);
     // Drive the state machine for observability (it's a stay transition).
     transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
-    log.debug(`[Guest] PLAY arrived while AWAITING_PRELOAD — deferring to preload waiter (time=${time})`);
+    log.debug(
+      `[Guest] PLAY arrived while AWAITING_PRELOAD — deferring to preload waiter (time=${time})`,
+    );
     return;
   }
 
@@ -180,7 +180,9 @@ function handlePlayMsg(data: Record<string, unknown>): void {
   const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
   const loadedName = (meta?.name as string) || '';
   if (expectedName && loadedName && expectedName !== loadedName) {
-    log.warn(`[Guest] Name mismatch on PLAY (loaded=${loadedName}, expected=${expectedName}) — deferring to pending play time; next FILE_PREPARE will supersede.`);
+    log.warn(
+      `[Guest] Name mismatch on PLAY (loaded=${loadedName}, expected=${expectedName}) — deferring to pending play time; next FILE_PREPARE will supersede.`,
+    );
     setPendingPlayTime(time);
     return;
   }
@@ -202,10 +204,12 @@ function handlePlayMsg(data: Record<string, unknown>): void {
 
       if (waitMs > 0 && waitMs < 2000) {
         // Compensate: host has been playing during waitMs, so advance position
-        const compensatedTime = time + (waitMs / 1000);
+        const compensatedTime = time + waitMs / 1000;
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
         play(compensatedTime, waitMs / 1000);
-        log.debug(`[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`);
+        log.debug(
+          `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`,
+        );
         bus.emit('sync:arm-initial');
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
@@ -265,13 +269,16 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   // "미디어 없음" during the HTTP fetch. loadPreloadedTrack will overwrite
   // with the real playlist entry after decode.
   const item = playlist[index];
-  setState('player.currentTrackMeta', item ?? {
-    type: 'file',
-    name,
-    title: name.replace(/\.[^/.]+$/, ''),
-    videoId: null,
-    playlistId: null,
-  });
+  setState(
+    'player.currentTrackMeta',
+    item ?? {
+      type: 'file',
+      name,
+      title: name.replace(/\.[^/.]+$/, ''),
+      videoId: null,
+      playlistId: null,
+    },
+  );
 
   // Preserve host's play time so loadPreloadedTrack can seek (with age
   // compensation) once decode finishes — without this the post-fetch
@@ -279,7 +286,9 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   setPendingPlayTime(time);
   transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
   setState('transfer.skipIncomingFile', true);
-  fetchDemoFromServer(index, time, getPendingPlayTimeSetAt()).catch(e => log.error('[Guest] Demo fetch failed:', e));
+  fetchDemoFromServer(index, time, getPendingPlayTimeSetAt()).catch((e) =>
+    log.error('[Guest] Demo fetch failed:', e),
+  );
   return true;
 }
 
@@ -340,19 +349,24 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   clearManagedTimer('ended-advance-next');
   const pausedAt = getState('player.pausedAt') || 0;
   const rawTime = Number(data.time);
-  const time = (Number.isFinite(rawTime) && rawTime >= 0) ? rawTime : pausedAt;
+  const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : pausedAt;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
 
   // Deselected state (post end-of-playlist): redirect to playTrack(0)
   // rather than resuming stale audio buffer.
   if (currentTrackIndex === -1 && playlistItems.length > 0) {
-    void import('./playlist.ts').then(mod => mod.playTrack(0));
+    void import('./playlist.ts').then((mod) => mod.playTrack(0));
     return;
   }
 
   play(time);
-  broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
+  broadcast({
+    type: MSG.PLAY,
+    time,
+    index: currentTrackIndex,
+    hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+  });
   // SharedClock handles sync
 }
 
@@ -400,7 +414,12 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
 
   if (currentState === APP_STATE.PLAYING_AUDIO) {
     play(time);
-    broadcast({ type: MSG.PLAY, time, index: currentTrackIndex, hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS });
+    broadcast({
+      type: MSG.PLAY,
+      time,
+      index: currentTrackIndex,
+      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    });
   } else {
     setState('player.pausedAt', time);
     broadcast({ type: MSG.PAUSE, time });
@@ -473,7 +492,11 @@ export function initPlayback(): void {
   bus.on('audio:disconnect-surround', () => {
     const _playerNode = getPlayerNode();
     if (_playerNode) {
-      try { _playerNode.disconnect(getSurroundSplitter()!); } catch { /* may not be connected */ }
+      try {
+        _playerNode.disconnect(getSurroundSplitter()!);
+      } catch {
+        /* may not be connected */
+      }
     }
   });
 
@@ -527,10 +550,14 @@ export function initPlayback(): void {
       const currentName = getState('transfer.meta')?.name || '';
       const matchesCurrent = !!filename && !!currentName && filename === currentName;
       if (!matchesCurrent) {
-        log.debug(`[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`);
+        log.debug(
+          `[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`,
+        );
         return;
       }
-      log.info(`[Playback] Accepting "stale" OPFS completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`);
+      log.info(
+        `[Playback] Accepting "stale" OPFS completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`,
+      );
     }
 
     const file = await readFileFromOpfs(filename, false);
@@ -548,7 +575,9 @@ export function initPlayback(): void {
       const currentNameAfter = getState('transfer.meta')?.name || '';
       const stillMatches = !!filename && !!currentNameAfter && filename === currentNameAfter;
       if (!stillMatches) {
-        log.debug(`[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`);
+        log.debug(
+          `[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`,
+        );
         return;
       }
     }
@@ -598,8 +627,8 @@ export function initPlayback(): void {
       // 0%-restart recovery. Instead, wait up to 60s total but reset the
       // timer each time the preload session makes progress (nextExpectedChunk
       // increments). If progress stalls for 10s straight, give up and recover.
-      const PRELOAD_WATCHDOG_MAX_MS = 60_000;    // absolute ceiling
-      const PRELOAD_WATCHDOG_STALL_MS = 10_000;  // no-progress timeout
+      const PRELOAD_WATCHDOG_MAX_MS = 60_000; // absolute ceiling
+      const PRELOAD_WATCHDOG_STALL_MS = 10_000; // no-progress timeout
       const watchdogStart = Date.now();
       let lastProgressChunk = -1;
       let disposed = false;
@@ -716,7 +745,9 @@ export function initPlayback(): void {
         conn.send({ type: MSG.SYSTEM_AUDIO_START });
       } else if (currentState === APP_STATE.PLAYING_AUDIO) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
-        const itemName = (item.name || (item.file as File | undefined)?.name || null) as string | null;
+        const itemName = (item.name || (item.file as File | undefined)?.name || null) as
+          | string
+          | null;
         // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.
         // Guest plays immediately (legacy path); initial sync corrects 1s later.
         conn.send({
@@ -753,7 +784,7 @@ export function initPlayback(): void {
     if (hostConn) return; // Only Host
 
     const peers = getState('network.connectedPeers') || [];
-    const peer = peers.find(p => p.id === peerId);
+    const peer = peers.find((p) => p.id === peerId);
     if (!peer || !peer.isDataTarget) return; // Remote/relay peer — no direct file send
     const conn = peer.conn as DataConnection;
     if (!conn?.open) return;
@@ -767,7 +798,9 @@ export function initPlayback(): void {
         const currentFileBlob = getState('files.currentFileBlob');
         const currentSessionId = getState('transfer.currentSessionId');
         if (currentFileBlob) {
-          log.debug(`[Playback] Sending current file to late-joiner ${peer.label || peerId} (post-ICE)`);
+          log.debug(
+            `[Playback] Sending current file to late-joiner ${peer.label || peerId} (post-ICE)`,
+          );
           try {
             await unicastFile(conn, currentFileBlob, 0, currentSessionId);
           } catch (e: unknown) {

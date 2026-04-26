@@ -9,7 +9,12 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { PLAYBACK_STATE, LOAD_SOURCE, APP_STATE, type PlaybackStateValue } from '../../core/constants.ts';
+import {
+  PLAYBACK_STATE,
+  LOAD_SOURCE,
+  APP_STATE,
+  type PlaybackStateValue,
+} from '../../core/constants.ts';
 import { getState, setState, resetState } from '../../core/state.ts';
 import { transition, peekTransition, __testing, type PlaybackEvent } from '../lifecycle.ts';
 
@@ -45,22 +50,41 @@ describe('lifecycle: from IDLE', () => {
 
   it('FILE_PREPARE resume → DOWNLOADING with recovery-resume loadSource', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'resume', index: 0, name: 'a.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.RECOVERY_RESUME });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.DOWNLOADING,
+      loadSource: LOAD_SOURCE.RECOVERY_RESUME,
+    });
   });
 
   it('FILE_PREPARE preload-match → DECODING (promoted)', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-match', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('FILE_PREPARE demo → AWAITING_PRELOAD (HTTP fetch path)', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'demo', index: 0, name: 'demo.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('FILE_PREPARE preload-waiting → AWAITING_PRELOAD (preload session active, blob not ready)', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-waiting', index: 0, name: 'a.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-waiting',
+      index: 0,
+      name: 'a.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('FILE_PREPARE same-file → stay (rare in IDLE)', () => {
@@ -69,17 +93,35 @@ describe('lifecycle: from IDLE', () => {
   });
 
   it('PLAY_PRELOADED blob-ready → DECODING', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 1,
+      name: 'b.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-waiting → AWAITING_PRELOAD', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 1,
+      name: 'b.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('PLAY_PRELOADED no-session → DOWNLOADING (fallback to recovery)', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'no-session', index: 1, name: 'b.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'no-session',
+      index: 1,
+      name: 'b.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH });
   });
 
@@ -151,18 +193,36 @@ describe('lifecycle: from DOWNLOADING', () => {
   });
 
   it('FILE_PREPARE preload-match → DECODING (promote mid-download)', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-match', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-ready → DECODING', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 1,
+      name: 'b.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-waiting → AWAITING_PRELOAD', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 1,
+      name: 'b.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('PLAY → stay (defer via pendingPlayTime)', () => {
@@ -227,7 +287,12 @@ describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
   });
 
   it('FILE_PREPARE preload-waiting (dedup, already awaiting same preload) → stay', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-waiting', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-waiting',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ stay: true });
   });
 
@@ -237,17 +302,32 @@ describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
   });
 
   it('FILE_PREPARE preload-match → DECODING', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'preload-match', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-ready (blob now assembled) → DECODING', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-waiting (dedup, already awaiting) → stay', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ stay: true });
   });
 
@@ -298,13 +378,26 @@ describe('lifecycle: from DECODING', () => {
   });
 
   it('PLAY_PRELOADED blob-ready (same track, dedup) → stay', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 0, name: 'a.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 0,
+      name: 'a.mp3',
+    });
     expect(r).toEqual({ stay: true });
   });
 
   it('PLAY_PRELOADED blob-waiting → AWAITING_PRELOAD', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 0, name: 'a.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 0,
+      name: 'a.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('PLAY → stay (defer)', () => {
@@ -384,7 +477,12 @@ describe('lifecycle: from PLAYING', () => {
   });
 
   it('PLAY_PRELOADED blob-ready → DECODING', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 1,
+      name: 'b.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
@@ -414,8 +512,16 @@ describe('lifecycle: from PAUSED', () => {
   });
 
   it('PLAY_PRELOADED blob-waiting → AWAITING_PRELOAD', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 1,
+      name: 'b.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('PAUSE endOfPlaylist → IDLE', () => {
@@ -435,13 +541,26 @@ describe('lifecycle: from FAILED', () => {
   });
 
   it('PLAY_PRELOADED blob-ready → DECODING', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-ready',
+      index: 1,
+      name: 'b.mp3',
+    });
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
   it('PLAY_PRELOADED blob-waiting → AWAITING_PRELOAD', () => {
-    const r = step(FROM, { type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' });
-    expect(r).toEqual({ next: PLAYBACK_STATE.AWAITING_PRELOAD, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
+    const r = step(FROM, {
+      type: 'PLAY_PRELOADED',
+      variant: 'blob-waiting',
+      index: 1,
+      name: 'b.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.AWAITING_PRELOAD,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
   });
 
   it('PAUSE → IDLE (clean exit)', () => {
@@ -526,10 +645,14 @@ describe('regression: preload-handoff bug', () => {
 
   it('end-to-end: IDLE → AWAITING_PRELOAD → DECODING → READY → PLAYING', () => {
     forceState(PLAYBACK_STATE.IDLE);
-    expect(transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 0, name: 'a.mp3' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(
+      transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 0, name: 'a.mp3' }),
+    ).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
 
     // PLAY arrives while still awaiting — should NOT move state.
-    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(
+      PLAYBACK_STATE.AWAITING_PRELOAD,
+    );
 
     // Blob finally finalizes.
     expect(transition({ type: 'PRELOAD_FILE_READY', index: 0 })).toBe(PLAYBACK_STATE.DECODING);
@@ -547,8 +670,9 @@ describe('integration: design-doc acceptance scenarios', () => {
     forceState(PLAYBACK_STATE.IDLE);
 
     // Host sends PLAY_PRELOADED; guest has blob already.
-    expect(transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' }))
-      .toBe(PLAYBACK_STATE.DECODING);
+    expect(
+      transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index: 1, name: 'b.mp3' }),
+    ).toBe(PLAYBACK_STATE.DECODING);
     expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.PRELOAD_PROMOTED);
 
     // Decode completes.
@@ -567,8 +691,9 @@ describe('integration: design-doc acceptance scenarios', () => {
     forceState(PLAYBACK_STATE.IDLE);
 
     // Host sends PLAY_PRELOADED; blob is still assembling.
-    expect(transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' }))
-      .toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(
+      transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index: 1, name: 'b.mp3' }),
+    ).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
 
     // Some PRELOAD_CHUNKs arrive while we wait — state unchanged.
     expect(transition({ type: 'PRELOAD_CHUNK' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
@@ -577,8 +702,9 @@ describe('integration: design-doc acceptance scenarios', () => {
     // Host's PLAY arrives while we're still awaiting. THE FIX: we stay
     // in AWAITING_PRELOAD. Before the refactor this would have armed the
     // stale-audio-recovery timer and torpedoed the preload.
-    expect(transition({ type: 'PLAY', time: 0, sameTrack: true }))
-      .toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(
+      PLAYBACK_STATE.AWAITING_PRELOAD,
+    );
 
     // PRELOAD_END then OPFS finalize.
     expect(transition({ type: 'PRELOAD_END' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
@@ -597,15 +723,17 @@ describe('integration: design-doc acceptance scenarios', () => {
     forceState(PLAYBACK_STATE.IDLE);
 
     // PLAY_PRELOADED arrives but no matching session exists.
-    expect(transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index: 1, name: 'b.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(
+      transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index: 1, name: 'b.mp3' }),
+    ).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
 
     // Host's recovery path kicks in: FILE_PREPARE → FILE_START → chunks.
     // We're already DOWNLOADING; FILE_PREPARE (fresh) is a same-state
     // supersede that keeps us moving.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' })).toBe(
+      PLAYBACK_STATE.DOWNLOADING,
+    );
 
     // Chunks, then FILE_END.
     expect(transition({ type: 'FILE_START', sessionId: 1 })).toBe(PLAYBACK_STATE.DOWNLOADING);
@@ -622,19 +750,22 @@ describe('integration: edge cases', () => {
   // Rapid track switch: user hits Next A→B→C→D within 100ms. Each new
   // FILE_PREPARE supersedes. The final state reflects the last track.
   it('rapid supersede: A → B → C → D, only D survives', () => {
-    forceState(PLAYBACK_STATE.PLAYING);  // was playing A
+    forceState(PLAYBACK_STATE.PLAYING); // was playing A
 
     // User clicks Next → host broadcasts FILE_PREPARE for B.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 'b.mp3' })).toBe(
+      PLAYBACK_STATE.DOWNLOADING,
+    );
 
     // Before B finishes, user clicks Next again → C.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'c.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'c.mp3' })).toBe(
+      PLAYBACK_STATE.DOWNLOADING,
+    );
 
     // And again → D.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 3, name: 'd.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 3, name: 'd.mp3' })).toBe(
+      PLAYBACK_STATE.DOWNLOADING,
+    );
 
     // D's chunks complete → D plays.
     expect(transition({ type: 'FILE_END' })).toBe(PLAYBACK_STATE.DECODING);
@@ -665,8 +796,9 @@ describe('integration: edge cases', () => {
     expect(transition({ type: 'DECODE_TIMEOUT' })).toBe(PLAYBACK_STATE.FAILED);
 
     // Host auto-advanced to the next track.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'next.mp3' }))
-      .toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'next.mp3' })).toBe(
+      PLAYBACK_STATE.DOWNLOADING,
+    );
   });
 
   // Host sends PAUSE(endOfPlaylist=true) at any point in the pipeline.
@@ -701,7 +833,10 @@ describe('peekTransition', () => {
   it('returns the next state without applying', () => {
     forceState(PLAYBACK_STATE.IDLE);
     const peek = peekTransition(PLAYBACK_STATE.IDLE, {
-      type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3',
+      type: 'FILE_PREPARE',
+      variant: 'fresh',
+      index: 0,
+      name: 'a.mp3',
     });
     expect(peek).toBe(PLAYBACK_STATE.DOWNLOADING);
     // State tree NOT touched.

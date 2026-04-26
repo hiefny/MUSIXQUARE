@@ -42,12 +42,18 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       if (existingActiveConn.open) {
         existingActiveConn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
       }
-    } catch { /* noop */ }
-    try { existingActiveConn.close(); } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
+    try {
+      existingActiveConn.close();
+    } catch {
+      /* noop */
+    }
   }
 
   // Remove lingering peer object with same id
-  const filtered = connectedPeers.filter(p => p.id !== peerId);
+  const filtered = connectedPeers.filter((p) => p.id !== peerId);
   setState('network.connectedPeers', filtered);
 
   // Enforce max guests
@@ -73,8 +79,20 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
           type: MSG.SESSION_FULL,
           message: t('network.session_full_detail'),
         });
-      } catch { /* noop */ }
-      setManagedTimer('conn-close-' + conn.peer, () => { try { conn.close(); } catch { /* noop */ } }, 500);
+      } catch {
+        /* noop */
+      }
+      setManagedTimer(
+        'conn-close-' + conn.peer,
+        () => {
+          try {
+            conn.close();
+          } catch {
+            /* noop */
+          }
+        },
+        500,
+      );
     };
     if (conn.open) sendFullAndClose();
     else conn.on('open', sendFullAndClose);
@@ -87,8 +105,16 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   const slot = getAvailablePeerSlot(preferredSlot, peerId);
   if (!slot) {
     const sendFullAndClose = () => {
-      try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
-      try { conn.close(); } catch { /* noop */ }
+      try {
+        conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') });
+      } catch {
+        /* noop */
+      }
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
     };
     if (conn.open) sendFullAndClose();
     else conn.on('open', sendFullAndClose);
@@ -138,8 +164,16 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       setState('network.peerLabels', restLabels);
     }
     const sendFullAndClose = () => {
-      try { conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') }); } catch { /* noop */ }
-      try { conn.close(); } catch { /* noop */ }
+      try {
+        conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') });
+      } catch {
+        /* noop */
+      }
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
     };
     if (conn.open) sendFullAndClose();
     else conn.on('open', sendFullAndClose);
@@ -149,32 +183,46 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   // Timeout: clean up peer if WebRTC open never fires (ICE stall)
   const openTimerName = 'conn-open-timeout-' + peerId;
-  setManagedTimer(openTimerName, () => {
-    const peers = getState('network.connectedPeers');
-    const stale = peers.find(p => p.id === peerId && p.status === 'connecting');
-    if (!stale) return;
-    log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
-    setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
-    const cleanConns = new Map(getState('network.activeHostConnByPeerId'));
-    cleanConns.delete(peerId);
-    setState('network.activeHostConnByPeerId', cleanConns);
-    releasePeerSlot(peerId);
-    const labels = getState('network.peerLabels');
-    if (labels && labels[peerId]) {
-      const { [peerId]: _, ...rest } = labels;
-      setState('network.peerLabels', rest);
-    }
-    try { conn.close(); } catch { /* noop */ }
-    broadcastDeviceList();
-  }, 15000);
+  setManagedTimer(
+    openTimerName,
+    () => {
+      const peers = getState('network.connectedPeers');
+      const stale = peers.find((p) => p.id === peerId && p.status === 'connecting');
+      if (!stale) return;
+      log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
+      setState(
+        'network.connectedPeers',
+        peers.filter((p) => p.id !== peerId),
+      );
+      const cleanConns = new Map(getState('network.activeHostConnByPeerId'));
+      cleanConns.delete(peerId);
+      setState('network.activeHostConnByPeerId', cleanConns);
+      releasePeerSlot(peerId);
+      const labels = getState('network.peerLabels');
+      if (labels && labels[peerId]) {
+        const { [peerId]: _, ...rest } = labels;
+        setState('network.peerLabels', rest);
+      }
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      broadcastDeviceList();
+    },
+    15000,
+  );
 
   conn.on('open', () => {
     clearManagedTimer(openTimerName);
     // Immutable update: replace peer object with updated status/heartbeat
     const peers = getState('network.connectedPeers');
-    setState('network.connectedPeers', peers.map(p =>
-      p.id === peerId ? { ...p, status: 'connected', lastHeartbeat: Date.now() } : p
-    ));
+    setState(
+      'network.connectedPeers',
+      peers.map((p) =>
+        p.id === peerId ? { ...p, status: 'connected', lastHeartbeat: Date.now() } : p,
+      ),
+    );
 
     // Welcome message with host-assigned label
     try {
@@ -186,7 +234,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         slowmodeSeconds: getState('network.slowmodeSeconds') || 0,
         filterEnabled: getState('network.filterEnabled') || false,
       });
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
 
     showToast(t('toast.device_connected', { name: deviceName }));
     bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
@@ -197,44 +247,52 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Detect local vs remote for this guest.
     // The detectConnectionType function now internally polls until ICE stabilizes
     // (up to 10 seconds) to guarantee accurate classification.
-    detectConnectionType(conn).then((type) => {
-      const peers = getState('network.connectedPeers');
-      const livePeer = peers.find(p => p.id === peerId);
-      if (livePeer) {
-        // Immutable update: replace peer object with detected connection type
-        setState('network.connectedPeers', peers.map(p =>
-          p.id === peerId ? { ...p, connectionType: type } : p
-        ));
-      }
-      log.info(`[Host] ${deviceName} connection type: ${type}`);
-      broadcastDeviceList();
-      bus.emit('orchestrator:peer-type-detected', peerId);
+    detectConnectionType(conn)
+      .then((type) => {
+        const peers = getState('network.connectedPeers');
+        const livePeer = peers.find((p) => p.id === peerId);
+        if (livePeer) {
+          // Immutable update: replace peer object with detected connection type
+          setState(
+            'network.connectedPeers',
+            peers.map((p) => (p.id === peerId ? { ...p, connectionType: type } : p)),
+          );
+        }
+        log.info(`[Host] ${deviceName} connection type: ${type}`);
+        broadcastDeviceList();
+        bus.emit('orchestrator:peer-type-detected', peerId);
 
-      // Worst-case fallback: detectConnectionType returns 'remote' both for
-      // genuine WAN peers and for LAN peers whose ICE never produced a
-      // succeeded candidate-pair within the 10s polling window. Recheck once
-      // after 30s to give late-stabilizing LAN ICE a chance to reclassify.
-      // Only acts on a 'remote' → 'local' flip; never demotes 'local'.
-      if (type === 'remote' && conn.open) {
-        setManagedTimer('ice-fallback-' + peerId, async () => {
-          if (!conn.open) return;
-          const recheck = await detectConnectionType(conn);
-          if (recheck !== 'local') return;
-          const ps = getState('network.connectedPeers');
-          const p = ps.find(x => x.id === peerId);
-          if (p && p.connectionType !== 'local') {
-            setState('network.connectedPeers', ps.map(x =>
-              x.id === peerId ? { ...x, connectionType: 'local' as const } : x
-            ));
-            log.info(`[Host] ${deviceName} reclassified as local on fallback`);
-            broadcastDeviceList();
-            bus.emit('orchestrator:peer-type-detected', peerId);
-          }
-        }, 30000);
-      }
-    }).catch(e => {
-      log.warn('[Host] ICE detection error:', e);
-    });
+        // Worst-case fallback: detectConnectionType returns 'remote' both for
+        // genuine WAN peers and for LAN peers whose ICE never produced a
+        // succeeded candidate-pair within the 10s polling window. Recheck once
+        // after 30s to give late-stabilizing LAN ICE a chance to reclassify.
+        // Only acts on a 'remote' → 'local' flip; never demotes 'local'.
+        if (type === 'remote' && conn.open) {
+          setManagedTimer(
+            'ice-fallback-' + peerId,
+            async () => {
+              if (!conn.open) return;
+              const recheck = await detectConnectionType(conn);
+              if (recheck !== 'local') return;
+              const ps = getState('network.connectedPeers');
+              const p = ps.find((x) => x.id === peerId);
+              if (p && p.connectionType !== 'local') {
+                setState(
+                  'network.connectedPeers',
+                  ps.map((x) => (x.id === peerId ? { ...x, connectionType: 'local' as const } : x)),
+                );
+                log.info(`[Host] ${deviceName} reclassified as local on fallback`);
+                broadcastDeviceList();
+                bus.emit('orchestrator:peer-type-detected', peerId);
+              }
+            },
+            30000,
+          );
+        }
+      })
+      .catch((e) => {
+        log.warn('[Host] ICE detection error:', e);
+      });
 
     // Broadcast updated device list to all peers
     broadcastDeviceList();
@@ -243,8 +301,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   });
 
   conn.on('data', (data: unknown) => {
-    try { bus.emit('network:data', data, conn); }
-    catch (e) { log.error('[Host] Error in handleData', e); }
+    try {
+      bus.emit('network:data', data, conn);
+    } catch (e) {
+      log.error('[Host] Error in handleData', e);
+    }
   });
 
   conn.on('close', () => {
@@ -272,7 +333,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     const peers = getState('network.connectedPeers');
-    setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
+    setState(
+      'network.connectedPeers',
+      peers.filter((p) => p.id !== peerId),
+    );
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -289,7 +353,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     log.error('[Host] Connection error:', err);
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
-      try { conn.close(); } catch { /* noop */ }
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
       return;
     }
 
@@ -310,7 +378,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     const peers = getState('network.connectedPeers');
-    setState('network.connectedPeers', peers.filter(p => p.id !== peerId));
+    setState(
+      'network.connectedPeers',
+      peers.filter((p) => p.id !== peerId),
+    );
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -320,7 +391,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       showToast(t('toast.device_conn_error', { name: errLabel }));
       bus.emit('chat:system-message', t('chat.peer_disconnected', { name: errLabel }));
     }
-    try { conn.close(); } catch { /* noop */ }
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
   });
 }
 
@@ -335,7 +410,7 @@ bus.on('network:toggle-operator', (peerId) => {
   if (hostConn) return;
 
   const connectedPeers = getState('network.connectedPeers');
-  const idx = connectedPeers.findIndex(x => x.id === peerId);
+  const idx = connectedPeers.findIndex((x) => x.id === peerId);
   if (idx !== -1) {
     const p = connectedPeers[idx];
     const conn = p.conn as DataConnection;
@@ -347,7 +422,7 @@ bus.on('network:toggle-operator', (peerId) => {
       return;
     }
     const newOp = !p.isOp;
-    const updated = connectedPeers.map((peer, i) => i === idx ? { ...peer, isOp: newOp } : peer);
+    const updated = connectedPeers.map((peer, i) => (i === idx ? { ...peer, isOp: newOp } : peer));
     setState('network.connectedPeers', updated);
     try {
       conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
@@ -355,7 +430,12 @@ bus.on('network:toggle-operator', (peerId) => {
       log.warn(`[OP] Failed to send operator status to ${peerId}:`, e);
     }
     broadcastDeviceList();
-    showToast(t('toast.op_status', { label: p.label, status: newOp ? t('common.granted') : t('common.revoked') }));
+    showToast(
+      t('toast.op_status', {
+        label: p.label,
+        status: newOp ? t('common.granted') : t('common.revoked'),
+      }),
+    );
   }
 });
 
@@ -368,16 +448,28 @@ bus.on('network:kick-device', (peerId) => {
   if (hostConn) return;
 
   const connectedPeers = getState('network.connectedPeers');
-  const target = connectedPeers.find(x => x.id === peerId);
+  const target = connectedPeers.find((x) => x.id === peerId);
   if (!target) return;
 
   const conn = target.conn as DataConnection;
   if (conn && conn.open) {
-    try { conn.send({ type: MSG.KICK_DEVICE }); } catch { /* noop */ }
+    try {
+      conn.send({ type: MSG.KICK_DEVICE });
+    } catch {
+      /* noop */
+    }
     // Give message time to arrive before closing
-    setManagedTimer('kick-close-' + peerId, () => {
-      try { conn.close(); } catch { /* noop */ }
-    }, 300);
+    setManagedTimer(
+      'kick-close-' + peerId,
+      () => {
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+      },
+      300,
+    );
   }
 
   log.info(`[Host] Kicked peer ${target.label || peerId}`);

@@ -9,7 +9,13 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { MSG, DEFAULT_MAX_GUEST_SLOTS, APP_STATE, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  MSG,
+  DEFAULT_MAX_GUEST_SLOTS,
+  APP_STATE,
+  TRANSFER_STATE,
+  PLAYBACK_STATE,
+} from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -18,13 +24,7 @@ import { Peer, type PeerOptions } from 'peerjs';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
-import {
-  getPeer,
-  setPeer,
-  generateSessionCode,
-  broadcast,
-  broadcastExcept,
-} from './peer-state.ts';
+import { getPeer, setPeer, generateSessionCode, broadcast, broadcastExcept } from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
 import { setInitNetwork, initGuestProtocolHandlers } from './guest.ts';
@@ -69,7 +69,10 @@ export function forceStereoSdp(sdp: string): string {
     if (fmtpRegex.test(modified)) {
       modified = modified.replace(fmtpRegex, (line) => {
         // Strip out existing stereo-related params
-        const newLine = line.replace(/;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g, '');
+        const newLine = line.replace(
+          /;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g,
+          '',
+        );
         // Append our high-fidelity stereo params + sweet-spot bitrate (128kbps per track)
         return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1';
       });
@@ -77,7 +80,10 @@ export function forceStereoSdp(sdp: string): string {
       // If no fmtp line exists, append it after the rtpmap line
       const rtpmapLine = new RegExp(`a=rtpmap:${pt} opus/48000/2`);
       modified = modified.replace(rtpmapLine, (line) => {
-        return line + `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1`;
+        return (
+          line +
+          `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1`
+        );
       });
     }
   }
@@ -99,7 +105,11 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
   // Clean up existing peer instance
   const oldPeer = getPeer();
   if (oldPeer) {
-    try { oldPeer.destroy(); } catch { /* noop */ }
+    try {
+      oldPeer.destroy();
+    } catch {
+      /* noop */
+    }
     setPeer(null);
   }
 
@@ -111,8 +121,8 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
   // Direct URLs only (no .netlify.app → .com redirect, which breaks CORS in some WebViews)
   const turnEndpoints = [
-    '/.netlify/functions/get-turn-config',                            // same-origin (works for musixquare.com)
-    'https://musixquare.com/.netlify/functions/get-turn-config',      // cross-origin (Toss WebView, etc.) — direct, no redirect
+    '/.netlify/functions/get-turn-config', // same-origin (works for musixquare.com)
+    'https://musixquare.com/.netlify/functions/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
   ];
 
   for (const url of turnEndpoints) {
@@ -122,7 +132,10 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
         log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
         continue;
       }
-      const { username, credential } = await resp.json() as { username: string; credential: string };
+      const { username, credential } = (await resp.json()) as {
+        username: string;
+        credential: string;
+      };
       if (!username || !credential) {
         log.warn(`[Network] TURN fetch returned empty credentials: ${url}`);
         continue;
@@ -135,11 +148,15 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
       log.info(`[Network] TURN credentials loaded (Metered.ca) via ${url}`);
       break;
     } catch (e) {
-      log.warn(`[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`);
+      log.warn(
+        `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
   if (iceServers.length <= 2) {
-    log.warn('[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)');
+    log.warn(
+      '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
+    );
   }
 
   const peerOpts: PeerOptions = {
@@ -151,8 +168,8 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
   };
 
   // Allow custom PeerJS signaling server injection
-  const customPeerServer = (window as unknown as Record<string, unknown>).__MUSIXQUARE_PEER_SERVER__ as
-    Record<string, unknown> | undefined;
+  const customPeerServer = (window as unknown as Record<string, unknown>)
+    .__MUSIXQUARE_PEER_SERVER__ as Record<string, unknown> | undefined;
   if (customPeerServer && typeof customPeerServer === 'object') {
     if (customPeerServer.host) peerOpts.host = customPeerServer.host as string;
     if (customPeerServer.port) peerOpts.port = customPeerServer.port as number;
@@ -167,8 +184,16 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
   // Wait for open (or fail fast on error)
   const id = await new Promise<string>((resolve, reject) => {
-    const onOpen = (id: string) => { newPeer.off('open', onOpen); newPeer.off('error', onError); resolve(id); };
-    const onError = (err: unknown) => { newPeer.off('open', onOpen); newPeer.off('error', onError); reject(err); };
+    const onOpen = (id: string) => {
+      newPeer.off('open', onOpen);
+      newPeer.off('error', onError);
+      resolve(id);
+    };
+    const onError = (err: unknown) => {
+      newPeer.off('open', onOpen);
+      newPeer.off('error', onError);
+      reject(err);
+    };
     newPeer.on('open', onOpen);
     newPeer.on('error', onError);
   });
@@ -239,7 +264,12 @@ function setupPeerEvents(): void {
   peer.on('call', (mediaConn: unknown) => {
     const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
     const type = mc.metadata?.type;
-    if (type === 'system-audio' || type === 'system-audio-dual' || type === 'system-audio-stereo' || type === 'system-audio-synced') {
+    if (
+      type === 'system-audio' ||
+      type === 'system-audio-dual' ||
+      type === 'system-audio-stereo' ||
+      type === 'system-audio-synced'
+    ) {
       let channel: string;
       if (type === 'system-audio-dual') channel = 'DUAL';
       else if (type === 'system-audio-stereo') channel = 'STEREO';
@@ -248,7 +278,11 @@ function setupPeerEvents(): void {
 
       bus.emit('system-audio:incoming-call', mediaConn, channel);
     } else {
-      try { mc.close(); } catch { /* noop */ }
+      try {
+        mc.close();
+      } catch {
+        /* noop */
+      }
     }
   });
 
@@ -263,7 +297,11 @@ function setupPeerEvents(): void {
 
     const appRole = getState('network.appRole');
     if (appRole !== 'host') {
-      try { conn.close(); } catch { /* noop */ }
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
       return;
     }
     handleHostIncomingConnection(conn);
@@ -293,33 +331,51 @@ export function leaveSession(): void {
   // ── 3. Close network connections ──
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    try { hostConn.close(); } catch { /* noop */ }
+    try {
+      hostConn.close();
+    } catch {
+      /* noop */
+    }
   }
 
   const connectedPeers = getState('network.connectedPeers');
-  connectedPeers.forEach(p => {
+  connectedPeers.forEach((p) => {
     try {
       const conn = p.conn as DataConnection | null;
       if (conn) conn.close();
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
   });
 
   // Close upstream relay connection (guest→relay link)
   const upstreamDataConn = getState('relay.upstreamDataConn');
   if (upstreamDataConn) {
-    try { upstreamDataConn.close(); } catch { /* noop */ }
+    try {
+      upstreamDataConn.close();
+    } catch {
+      /* noop */
+    }
   }
 
   // Close downstream relay connections
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  downstreamDataPeers.forEach(p => {
-    try { p.close(); } catch { /* noop */ }
+  downstreamDataPeers.forEach((p) => {
+    try {
+      p.close();
+    } catch {
+      /* noop */
+    }
   });
 
   // Destroy peer AFTER all connections are closed
   const peer = getPeer();
   if (peer) {
-    try { peer.destroy(); } catch { /* noop */ }
+    try {
+      peer.destroy();
+    } catch {
+      /* noop */
+    }
     setPeer(null);
   }
 
@@ -402,14 +458,18 @@ export function leaveSession(): void {
     // YouTube
     'youtube.subItemsMap': {},
     // App state
-    'appState': APP_STATE.IDLE,
+    appState: APP_STATE.IDLE,
   });
 
   // ── 8. Reset UI ──
   setState('appState', APP_STATE.IDLE);
 
   // Delayed reset: allow async close handlers to read the flag first
-  setManagedTimer('intentional-disconnect-reset', () => setState('network.isIntentionalDisconnect', false), 200);
+  setManagedTimer(
+    'intentional-disconnect-reset',
+    () => setState('network.isIntentionalDisconnect', false),
+    200,
+  );
 
   log.debug('[Network] Session left — full cleanup complete.');
 }

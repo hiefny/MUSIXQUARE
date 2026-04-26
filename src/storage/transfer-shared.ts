@@ -8,4 +8,6 @@
 /** Cross-realm safe ArrayBuffer check (Worker/iframe boundary safe) */
 export const isArrayBuffer = (v: unknown): v is ArrayBuffer =>
   v instanceof ArrayBuffer ||
-  (v != null && typeof v === 'object' && Object.prototype.toString.call(v) === '[object ArrayBuffer]');
+  (v != null &&
+    typeof v === 'object' &&
+    Object.prototype.toString.call(v) === '[object ArrayBuffer]');

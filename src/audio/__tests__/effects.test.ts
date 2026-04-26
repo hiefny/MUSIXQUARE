@@ -3,7 +3,13 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
-import { setPreamp, setStereoWidth, resetStereoWidth, setVirtualBass, resetVirtualBass } from '../effects.ts';
+import {
+  setPreamp,
+  setStereoWidth,
+  resetStereoWidth,
+  setVirtualBass,
+  resetVirtualBass,
+} from '../effects.ts';
 
 beforeEach(() => {
   resetState();

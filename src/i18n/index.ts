@@ -45,8 +45,10 @@ export function tHtml(key: I18nKey, params?: Record<string, string | number>): s
   let str: string = _dicts[_resolved][key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      const escaped = String(v).replace(/[&<>"']/g, c =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+      const escaped = String(v).replace(
+        /[&<>"']/g,
+        (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c,
+      );
       str = str.replaceAll(`{{${k}}}`, escaped);
     }
   }
@@ -65,7 +67,11 @@ export function setLanguageMode(mode: string): void {
   if (mode !== 'ko' && mode !== 'en') mode = _resolveSystem();
   _updateSelector(mode);
 
-  try { localStorage.setItem('musixquare-lang', mode); } catch { /* ignore */ }
+  try {
+    localStorage.setItem('musixquare-lang', mode);
+  } catch {
+    /* ignore */
+  }
 
   _applyLanguage(mode as ResolvedLang);
 }
@@ -116,7 +122,7 @@ function _ensureObserver(): void {
   _observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === 'childList') {
-        m.addedNodes.forEach(n => {
+        m.addedNodes.forEach((n) => {
           if (n.nodeType === 1) _translateSubtree(n as Element);
         });
       }
@@ -128,7 +134,9 @@ function _ensureObserver(): void {
       subtree: true,
       childList: true,
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── Internal ───────────────────────────────────────────────────
@@ -136,7 +144,11 @@ function _ensureObserver(): void {
 function _resolveSystem(): ResolvedLang {
   try {
     const langs = navigator.languages?.length ? navigator.languages : [navigator.language || ''];
-    return String(langs[0] || '').toLowerCase().startsWith('ko') ? 'ko' : 'en';
+    return String(langs[0] || '')
+      .toLowerCase()
+      .startsWith('ko')
+      ? 'ko'
+      : 'en';
   } catch {
     return 'ko';
   }
@@ -144,7 +156,11 @@ function _resolveSystem(): ResolvedLang {
 
 function _applyLanguage(resolved: ResolvedLang): void {
   _resolved = resolved;
-  try { document.documentElement.setAttribute('lang', _resolved); } catch { /* ignore */ }
+  try {
+    document.documentElement.setAttribute('lang', _resolved);
+  } catch {
+    /* ignore */
+  }
 
   _ensureObserver();
   _translateSubtree(document.body || document.documentElement);
@@ -156,7 +172,9 @@ function _applyLanguage(resolved: ResolvedLang): void {
 
 function _updateSelector(mode: string): void {
   try {
-    document.querySelectorAll('#grid-lang .ch-opt').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('#grid-lang .ch-opt').forEach((el) => el.classList.remove('active'));
     document.querySelector(`#grid-lang .ch-opt[data-lang="${mode}"]`)?.classList.add('active');
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }

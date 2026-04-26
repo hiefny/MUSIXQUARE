@@ -88,11 +88,20 @@ export function registerServiceWorker(): void {
       });
 
       // Check for updates periodically (every 60 minutes)
-      setManagedTimer('sw-update-check', () => {
-        reg.update().catch(() => { /* ignore */ });
-      }, 60 * 60 * 1000, { interval: true });
+      setManagedTimer(
+        'sw-update-check',
+        () => {
+          reg.update().catch(() => {
+            /* ignore */
+          });
+        },
+        60 * 60 * 1000,
+        { interval: true },
+      );
       // Immediate update check
-      reg.update().catch(() => { /* ignore */ });
+      reg.update().catch(() => {
+        /* ignore */
+      });
     } catch (err) {
       log.warn('[SW] Registration failed:', err);
     }

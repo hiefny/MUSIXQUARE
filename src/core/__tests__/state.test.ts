@@ -76,7 +76,7 @@ describe('State Store', () => {
       const fn = vi.fn();
       bus.on('state:appState', fn);
       // batchSetState with same path won't duplicate since it's a Record
-      batchSetState({ 'appState': 'PLAYING_AUDIO' });
+      batchSetState({ appState: 'PLAYING_AUDIO' });
       expect(fn).toHaveBeenCalledTimes(1);
     });
   });

@@ -134,7 +134,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
   it('starts a timer that sends TICK messages', () => {
     startTimer('test', 100);
     vi.advanceTimersByTime(350);
-    expect(messages.filter(m => m.id === 'test')).toHaveLength(3);
+    expect(messages.filter((m) => m.id === 'test')).toHaveLength(3);
   });
 
   it('stops a timer by id', () => {
@@ -143,7 +143,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
     stopTimer('test');
     vi.advanceTimersByTime(200);
     // Only 2 ticks before stop
-    expect(messages.filter(m => m.id === 'test')).toHaveLength(2);
+    expect(messages.filter((m) => m.id === 'test')).toHaveLength(2);
   });
 
   it('replaces timer when starting same id', () => {
@@ -151,7 +151,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
     vi.advanceTimersByTime(150); // 1 tick
     startTimer('dup', 200); // replaces — old timer cleared
     vi.advanceTimersByTime(250); // 1 more tick at 200ms interval
-    expect(messages.filter(m => m.id === 'dup')).toHaveLength(2);
+    expect(messages.filter((m) => m.id === 'dup')).toHaveLength(2);
   });
 
   it('runs multiple independent timers', () => {
@@ -159,8 +159,8 @@ describe('Sync Worker — Timer Management (integration)', () => {
     startTimer('B', 200);
     vi.advanceTimersByTime(400);
 
-    expect(messages.filter(m => m.id === 'A')).toHaveLength(4);
-    expect(messages.filter(m => m.id === 'B')).toHaveLength(2);
+    expect(messages.filter((m) => m.id === 'A')).toHaveLength(4);
+    expect(messages.filter((m) => m.id === 'B')).toHaveLength(2);
   });
 
   it('stops all timers at once', () => {
@@ -170,8 +170,8 @@ describe('Sync Worker — Timer Management (integration)', () => {
     stopAllTimers();
     vi.advanceTimersByTime(500);
 
-    expect(messages.filter(m => m.id === 'A')).toHaveLength(1);
-    expect(messages.filter(m => m.id === 'B')).toHaveLength(0);
+    expect(messages.filter((m) => m.id === 'A')).toHaveLength(1);
+    expect(messages.filter((m) => m.id === 'B')).toHaveLength(0);
     expect(timers.size).toBe(0);
   });
 
@@ -198,7 +198,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
     startTimer('fast', NaN as unknown as number);
     // NaN → fallback 1000ms
     vi.advanceTimersByTime(2500);
-    expect(messages.filter(m => m.id === 'fast')).toHaveLength(2);
+    expect(messages.filter((m) => m.id === 'fast')).toHaveLength(2);
   });
 });
 

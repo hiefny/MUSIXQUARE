@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 const DEFAULT_CHUNK_SIZE = 16384;
 
 function isValidSessionId(sessionId: unknown): sessionId is number {
-  return (typeof sessionId === 'number' && Number.isInteger(sessionId));
+  return typeof sessionId === 'number' && Number.isInteger(sessionId);
 }
 
 function sanitizeFilename(filename: string): string {
@@ -236,7 +236,13 @@ describe('Transfer Worker — Session Lock Logic', () => {
     return { isLocked: false, sessionId: null, name: null, lockTime: 0 };
   }
 
-  function canAcquire(lock: SimpleLock, sessionId: number, filename: string, now: number, timeout: number): boolean {
+  function canAcquire(
+    lock: SimpleLock,
+    sessionId: number,
+    filename: string,
+    now: number,
+    timeout: number,
+  ): boolean {
     if (!Number.isInteger(sessionId)) return false;
 
     // Same file, same session → refresh
@@ -332,7 +338,13 @@ describe('Transfer Worker — Queue Management', () => {
       posted.push(payload);
     }
 
-    const p = { command: 'WRITE', expected: 5, received: 3, filename: 'file.mp3', isPreload: false };
+    const p = {
+      command: 'WRITE',
+      expected: 5,
+      received: 3,
+      filename: 'file.mp3',
+      isPreload: false,
+    };
     postMismatch(p);
     postMismatch(p); // duplicate → skipped
     postMismatch(p); // duplicate → skipped

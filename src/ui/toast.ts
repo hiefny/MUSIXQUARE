@@ -39,7 +39,12 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
     suppressViewTransitions(1200);
     header?.classList.add('loading');
     if (txt && loadingText) loadingText.innerText = txt;
-    if (progressBg && (!progressBg.style.width || progressBg.style.width === '0%' || progressBg.style.width === '0px')) {
+    if (
+      progressBg &&
+      (!progressBg.style.width ||
+        progressBg.style.width === '0%' ||
+        progressBg.style.width === '0px')
+    ) {
       progressBg.style.width = '0%';
     }
   } else {
@@ -48,9 +53,13 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
     // Suppress through the reverse CSS transition as well
     suppressViewTransitions(1200);
     header?.classList.remove('loading');
-    setManagedTimer('loader-reset', () => {
-      if (progressBg) progressBg.style.width = '0%';
-    }, 400);
+    setManagedTimer(
+      'loader-reset',
+      () => {
+        if (progressBg) progressBg.style.width = '0%';
+      },
+      400,
+    );
   }
 }
 
@@ -60,7 +69,7 @@ export function showToast(msg: unknown): void {
   try {
     const t = document.getElementById('toast');
     const msgEl = document.getElementById('toast-msg');
-    const text = (msg === undefined || msg === null) ? '' : String(msg);
+    const text = msg === undefined || msg === null ? '' : String(msg);
 
     if (!t || !msgEl) {
       console.info('[Toast]', text);
@@ -78,9 +87,17 @@ export function showToast(msg: unknown): void {
     }
     t.classList.add('show');
 
-    setManagedTimer('toast-hide', () => {
-      try { t.classList.remove('show'); } catch { /* noop */ }
-    }, 2000);
+    setManagedTimer(
+      'toast-hide',
+      () => {
+        try {
+          t.classList.remove('show');
+        } catch {
+          /* noop */
+        }
+      },
+      2000,
+    );
   } catch {
     console.info('[Toast fallback]', msg);
   }

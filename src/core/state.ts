@@ -6,7 +6,13 @@
  */
 
 import { bus } from './events.ts';
-import { APP_STATE, TRANSFER_STATE, PLAYBACK_STATE, EQ_FREQUENCIES, DEFAULT_MAX_GUEST_SLOTS } from './constants.ts';
+import {
+  APP_STATE,
+  TRANSFER_STATE,
+  PLAYBACK_STATE,
+  EQ_FREQUENCIES,
+  DEFAULT_MAX_GUEST_SLOTS,
+} from './constants.ts';
 
 // 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
 // to enable typed state:${StatePath} events without circular dependency.
@@ -177,7 +183,6 @@ function createInitialState(): StateTree {
       pendingPlayTime: undefined,
       pendingPausedAt: undefined,
     },
-
   };
 }
 
@@ -223,7 +228,9 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
     if (current[key] == null || typeof current[key] !== 'object') {
       if (import.meta.env?.DEV) {
         // eslint-disable-next-line no-console
-        console.warn(`[State] setState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`);
+        console.warn(
+          `[State] setState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`,
+        );
       }
       current[key] = {};
     }
@@ -264,7 +271,9 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
         if (current[key] == null || typeof current[key] !== 'object') {
           if (import.meta.env?.DEV) {
             // eslint-disable-next-line no-console
-            console.warn(`[State] batchSetState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`);
+            console.warn(
+              `[State] batchSetState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`,
+            );
           }
           current[key] = {};
         }
@@ -307,19 +316,22 @@ export function snapshot(): Readonly<StateTree> {
   // StateTree contains non-cloneable DataConnection objects.
   try {
     const seen = new WeakSet();
-    return JSON.parse(JSON.stringify(_state, (_key, value) => {
-      if (value instanceof Set) return [...value];
-      if (value instanceof Map) return Object.fromEntries(value);
-      if (value instanceof Blob) return '[Blob]';
-      if (typeof MediaStream !== 'undefined' && value instanceof MediaStream) return '[MediaStream]';
-      if (typeof value === 'object' && value !== null) {
-        if (typeof value.close === 'function') return '[Connection]';
-        // Guard against arbitrary circular references
-        if (seen.has(value)) return '[Circular]';
-        seen.add(value);
-      }
-      return value;
-    }));
+    return JSON.parse(
+      JSON.stringify(_state, (_key, value) => {
+        if (value instanceof Set) return [...value];
+        if (value instanceof Map) return Object.fromEntries(value);
+        if (value instanceof Blob) return '[Blob]';
+        if (typeof MediaStream !== 'undefined' && value instanceof MediaStream)
+          return '[MediaStream]';
+        if (typeof value === 'object' && value !== null) {
+          if (typeof value.close === 'function') return '[Connection]';
+          // Guard against arbitrary circular references
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
+        }
+        return value;
+      }),
+    );
   } catch {
     return {} as Readonly<StateTree>;
   }
@@ -347,4 +359,3 @@ if (typeof window !== 'undefined') {
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ = setState;
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ = bus;
 }
-

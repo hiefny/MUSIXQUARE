@@ -23,25 +23,35 @@ import { forceStereoSdp } from './peer.ts';
  * Boost bitrate and disable DSP for all audio senders in the PeerConnection.
  */
 function boostAudioSenders(pc: RTCPeerConnection): void {
-  pc.getSenders().forEach(sender => {
+  pc.getSenders().forEach((sender) => {
     if (sender.track?.kind === 'audio') {
       const track = sender.track;
       // 1. Disable browser noise handling on the track itself
       try {
-        track.applyConstraints({
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        }).catch(() => { /* noop */ });
-      } catch { /* noop */ }
+        track
+          .applyConstraints({
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          })
+          .catch(() => {
+            /* noop */
+          });
+      } catch {
+        /* noop */
+      }
 
       // 2. Lift bitrate limit manually (128kbps per track)
       try {
         const params = sender.getParameters();
         if (!params.encodings) params.encodings = [{}];
         params.encodings[0].maxBitrate = 128000;
-        sender.setParameters(params).catch(() => { /* noop */ });
-      } catch { /* noop */ }
+        sender.setParameters(params).catch(() => {
+          /* noop */
+        });
+      } catch {
+        /* noop */
+      }
     }
   });
 }
@@ -78,7 +88,7 @@ function callGuest(guestPeerId: string): void {
 
   // Block remote (TURN) peers
   const peers = getState('network.connectedPeers');
-  const peerObj = peers.find(p => p.id === guestPeerId);
+  const peerObj = peers.find((p) => p.id === guestPeerId);
   if (peerObj && peerObj.connectionType !== 'local') {
     log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)}`);
     return;
@@ -92,22 +102,31 @@ function callGuest(guestPeerId: string): void {
     const syncedStream = new MediaStream([trackL, trackR]);
 
     const mc = peer.call(guestPeerId, syncedStream, {
-      metadata: { 
+      metadata: {
         type: 'system-audio-synced',
         // Track ID mapping allows guest to correctly route L and R regardless of track order
         mapping: {
           [trackL.id]: 'L',
-          [trackR.id]: 'R'
-        }
+          [trackR.id]: 'R',
+        },
       },
     });
 
     applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
     mc.on('close', () => _mediaConns.delete(guestPeerId));
-    mc.on('error', () => { try { mc.close(); } catch { /* noop */ } _mediaConns.delete(guestPeerId); });
+    mc.on('error', () => {
+      try {
+        mc.close();
+      } catch {
+        /* noop */
+      }
+      _mediaConns.delete(guestPeerId);
+    });
 
-    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single-stream, dual-track (synced)`);
+    log.info(
+      `[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single-stream, dual-track (synced)`,
+    );
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
   }
@@ -121,7 +140,13 @@ function callAllGuests(): void {
 }
 
 function closeAllMediaConns(): void {
-  for (const mc of _mediaConns.values()) { try { mc.close(); } catch { /* noop */ } }
+  for (const mc of _mediaConns.values()) {
+    try {
+      mc.close();
+    } catch {
+      /* noop */
+    }
+  }
   _mediaConns.clear();
 }
 
@@ -138,15 +163,19 @@ export function registerSystemAudioHostListeners(): void {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
 
-    setManagedTimer('sys-audio-late-join', () => {
-      broadcast({ type: MSG.SYSTEM_AUDIO_START });
-      const peers = getState('network.connectedPeers');
-      for (const p of peers) {
-        if (p.status === 'connected' && p.id && !_mediaConns.has(p.id)) {
-          callGuest(p.id);
+    setManagedTimer(
+      'sys-audio-late-join',
+      () => {
+        broadcast({ type: MSG.SYSTEM_AUDIO_START });
+        const peers = getState('network.connectedPeers');
+        for (const p of peers) {
+          if (p.status === 'connected' && p.id && !_mediaConns.has(p.id)) {
+            callGuest(p.id);
+          }
         }
-      }
-    }, 500);
+      },
+      500,
+    );
   });
 
   // ICE type resolved on initial join → if local and system audio active, call them
@@ -159,7 +188,14 @@ export function registerSystemAudioHostListeners(): void {
 
   bus.on('network:peer-disconnected', (peerId: string) => {
     const mc = _mediaConns.get(peerId);
-    if (mc) { try { mc.close(); } catch { /* noop */ } _mediaConns.delete(peerId); }
+    if (mc) {
+      try {
+        mc.close();
+      } catch {
+        /* noop */
+      }
+      _mediaConns.delete(peerId);
+    }
   });
 
   bus.on('system-audio:force-stop', () => closeAllMediaConns());

@@ -22,15 +22,23 @@ import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 
 import {
-  getCurrentAudioBuffer, setCurrentAudioBuffer,
+  getCurrentAudioBuffer,
+  setCurrentAudioBuffer,
   getLoadToken,
-  getActiveLoadSessionId, incrementLoadSessionId,
-  getPendingPlayTime, setPendingPlayTime, getPendingPlayTimeAge,
+  getActiveLoadSessionId,
+  incrementLoadSessionId,
+  getPendingPlayTime,
+  setPendingPlayTime,
+  getPendingPlayTimeAge,
   setPlayPreloadedInProgress,
-  getLastClearedTrackName, setLastClearedTrackName,
+  getLastClearedTrackName,
+  setLastClearedTrackName,
   replaceLoadScope,
-  markTrackFailed, isTrackFailed, clearFailedTracks,
-  getTrackKeyFromFile, getTrackKeyFromItem,
+  markTrackFailed,
+  isTrackFailed,
+  clearFailedTracks,
+  getTrackKeyFromFile,
+  getTrackKeyFromItem,
 } from './_state.ts';
 
 import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
@@ -50,10 +58,7 @@ import { transition } from './lifecycle.ts';
 const DECODE_TIMEOUT_MS = 10_000;
 const DECODE_TIMEOUT_TAG = '__decode_timeout__';
 
-async function decodeWithTimeout(
-  arrayBuffer: ArrayBuffer,
-  label = 'decode'
-): Promise<AudioBuffer> {
+async function decodeWithTimeout(arrayBuffer: ArrayBuffer, label = 'decode'): Promise<AudioBuffer> {
   const ctx = getAudioContext();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -180,8 +185,7 @@ export async function loadAndBroadcastFile(
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
-      broadcastFile(file, sessionId)
-        .catch(e => log.error('[Host] broadcastFile failed:', e));
+      broadcastFile(file, sessionId).catch((e) => log.error('[Host] broadcastFile failed:', e));
     }
 
     if (!hostConn) {
@@ -201,7 +205,7 @@ export async function loadAndBroadcastFile(
     showToast(
       timedOut
         ? t('error.decode_timeout', { name: file.name })
-        : t('error.load_failed', { msg: (err as Error).message })
+        : t('error.load_failed', { msg: (err as Error).message }),
     );
 
     // Auto-advance to the next playable track (host only — guests follow host).
@@ -222,7 +226,7 @@ export async function loadAndBroadcastFile(
         // Count playable (non-failed) tracks remaining. If none, stop.
         const playableCount = playlist.reduce(
           (n, item) => n + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
-          0
+          0,
         );
         if (playableCount === 0) {
           showToast(t('error.all_tracks_failed'));
@@ -241,7 +245,9 @@ export async function loadAndBroadcastFile(
           const preloadIdx = getState('preload.nextTrackIndex');
 
           const isGoodCandidate = (i: number): boolean =>
-            i >= 0 && i < playlist.length && i !== failedIdx &&
+            i >= 0 &&
+            i < playlist.length &&
+            i !== failedIdx &&
             !isTrackFailed(getTrackKeyFromItem(playlist[i]));
 
           let nextIdx = -1;
@@ -274,10 +280,14 @@ export async function loadAndBroadcastFile(
           }
 
           if (nextIdx !== -1) {
-            setManagedTimer('decode-fail-advance', () => {
-              // Dynamic import to avoid a static cycle with playlist.ts
-              import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
-            }, 600);
+            setManagedTimer(
+              'decode-fail-advance',
+              () => {
+                // Dynamic import to avoid a static cycle with playlist.ts
+                import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
+              },
+              600,
+            );
           }
         }
       }
@@ -316,14 +326,20 @@ export async function loadPreloadedTrack(
 
   setPlayPreloadedInProgress(true);
 
-    try {
-      if (!isSystemAudioActive()) {
-        await Promise.race([initAudio(), delay(2000)]);
-        if (getAudioContext().state === 'suspended') await ensureRunning();
-      }
+  try {
+    if (!isSystemAudioActive()) {
+      await Promise.race([initAudio(), delay(2000)]);
+      if (getAudioContext().state === 'suspended') await ensureRunning();
+    }
 
-    if (expectedIndex !== undefined && currentTrackIndex !== -1 && currentTrackIndex !== targetIndex) {
-      log.warn(`[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`);
+    if (
+      expectedIndex !== undefined &&
+      currentTrackIndex !== -1 &&
+      currentTrackIndex !== targetIndex
+    ) {
+      log.warn(
+        `[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`,
+      );
       setPlayPreloadedInProgress(false);
       setPendingPlayTime(undefined);
       return;
@@ -347,8 +363,11 @@ export async function loadPreloadedTrack(
       setPendingPlayTime(undefined);
       return;
     }
-    if (expectedIndex !== undefined && currentTrackIndex !== -1 &&
-        getState('playlist.currentTrackIndex') !== targetIndex) {
+    if (
+      expectedIndex !== undefined &&
+      currentTrackIndex !== -1 &&
+      getState('playlist.currentTrackIndex') !== targetIndex
+    ) {
       log.warn('[Preload] Track changed during decode. Discarding.');
       setPlayPreloadedInProgress(false);
       setPendingPlayTime(undefined);
@@ -402,10 +421,14 @@ export async function loadPreloadedTrack(
 
     // Auto-sync after settle
     if (hostConn?.open) {
-      setManagedTimer('playback-preload-auto-sync', () => {
-        log.debug('[Guest] Post-preload auto-sync');
-        bus.emit('sync:auto-sync');
-      }, 500);
+      setManagedTimer(
+        'playback-preload-auto-sync',
+        () => {
+          log.debug('[Guest] Post-preload auto-sync');
+          bus.emit('sync:auto-sync');
+        },
+        500,
+      );
     }
     setPlayPreloadedInProgress(false);
     showLoader(false);
@@ -424,7 +447,9 @@ export async function loadPreloadedTrack(
         target = target % audioBuffer.duration;
       }
 
-      log.info(`[Preload] Activating demo/preload playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
+      log.info(
+        `[Preload] Activating demo/preload playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`,
+      );
       play(target);
       setPendingPlayTime(undefined);
     } else {
@@ -432,7 +457,6 @@ export async function loadPreloadedTrack(
     }
 
     showLoader(false);
-
   } catch (e: unknown) {
     setPlayPreloadedInProgress(false);
     setPendingPlayTime(undefined);
@@ -444,11 +468,7 @@ export async function loadPreloadedTrack(
     const name = (meta?.name as string) || '';
     // Lifecycle (Phase 3 dual-write): preload decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
-    showToast(
-      timedOut
-        ? t('error.decode_timeout', { name })
-        : t('transfer.preload_fail')
-    );
+    showToast(timedOut ? t('error.decode_timeout', { name }) : t('transfer.preload_fail'));
 
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -476,7 +496,12 @@ export async function loadPreloadedTrack(
     const playlist = getState('playlist.items') || [];
     const idx = getState('playlist.currentTrackIndex');
     const recoveryName = (playlist[idx] as unknown as Record<string, string>)?.name || name;
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: recoveryName, index: idx, reason: 'preload_activation_failed' });
+    sendToHost({
+      type: MSG.REQUEST_CURRENT_FILE,
+      name: recoveryName,
+      index: idx,
+      reason: 'preload_activation_failed',
+    });
   }
 }
 
@@ -537,7 +562,11 @@ export function clearPreviousTrackState(reason = ''): void {
 
   BlobURLManager.revoke();
 
-  try { BlobURLManager.flushDeferred('clearPreviousTrackState'); } catch { /* noop */ }
+  try {
+    BlobURLManager.flushDeferred('clearPreviousTrackState');
+  } catch {
+    /* noop */
+  }
 
   // Physically delete OLD current file from OPFS
   const opfsFilename = getState('files.currentFileOpfs');
@@ -577,9 +606,15 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
     const arrayBuffer = await file.arrayBuffer();
-    if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (pre-decode), aborting'); return; }
+    if (getActiveLoadSessionId() !== myLoadId) {
+      log.debug('[Guest] Stale finalize (pre-decode), aborting');
+      return;
+    }
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'guest-finalize');
-    if (getActiveLoadSessionId() !== myLoadId) { log.debug('[Guest] Stale finalize (post-decode), aborting'); return; }
+    if (getActiveLoadSessionId() !== myLoadId) {
+      log.debug('[Guest] Stale finalize (post-decode), aborting');
+      return;
+    }
 
     if (getCurrentAudioBuffer()) {
       setCurrentAudioBuffer(null);
@@ -638,11 +673,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const name = (meta?.name as string) || '';
     // Lifecycle (Phase 3 dual-write): guest main-transfer decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
-    showToast(
-      timedOut
-        ? t('error.decode_timeout', { name })
-        : t('error.audio_decode_fail')
-    );
+    showToast(timedOut ? t('error.decode_timeout', { name }) : t('error.audio_decode_fail'));
 
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
     setState('transfer.state', TRANSFER_STATE.IDLE);

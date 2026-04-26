@@ -3,7 +3,11 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
-import { getRoleLabelByChannelMode, getStandardRolePreset, getInviteCode } from '../player-controls.ts';
+import {
+  getRoleLabelByChannelMode,
+  getStandardRolePreset,
+  getInviteCode,
+} from '../player-controls.ts';
 
 beforeEach(() => {
   resetState();

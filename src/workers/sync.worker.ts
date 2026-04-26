@@ -28,7 +28,9 @@ function startTimer(id: string, intervalMs: number): void {
   const handle = setInterval(() => {
     try {
       self.postMessage({ type: 'TICK', id });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, ms);
 
   timers.set(id, handle);
@@ -50,7 +52,7 @@ function stopAllTimers(): void {
 }
 
 self.onmessage = (e: MessageEvent) => {
-  const data = (e && e.data) ? e.data : {};
+  const data = e && e.data ? e.data : {};
   const command = data.command as string | undefined;
 
   try {
@@ -86,7 +88,9 @@ self.onmessage = (e: MessageEvent) => {
         error: e2?.message ?? String(err),
         stack: e2?.stack,
       });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 };
 
@@ -98,7 +102,9 @@ self.addEventListener('error', (e) => {
       command: 'WORKER_ERROR',
       error: e?.message ?? 'Worker error',
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 });
 
 self.addEventListener('unhandledrejection', (e) => {
@@ -110,7 +116,9 @@ self.addEventListener('unhandledrejection', (e) => {
       command: 'UNHANDLED_REJECTION',
       error: reason?.message ?? String(reason),
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 });
 
 self.addEventListener('messageerror', () => {
@@ -121,5 +129,7 @@ self.addEventListener('messageerror', () => {
       command: 'MESSAGE_ERROR',
       error: 'Message deserialization failed',
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 });

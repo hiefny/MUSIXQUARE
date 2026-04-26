@@ -22,7 +22,11 @@ import { getState, setState, snapshot } from './core/state.ts';
 import { APP_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { initPageLifecycleHandlers, markIntentionalNav, isIntentionalNav } from './core/page-lifecycle.ts';
+import {
+  initPageLifecycleHandlers,
+  markIntentionalNav,
+  isIntentionalNav,
+} from './core/page-lifecycle.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -117,7 +121,7 @@ function initKeyboardShortcuts(): void {
 
     // Don't hijack Space on interactive controls (important for a11y)
     const interactive = (e.target as Element)?.closest?.(
-      'button, a, [role="button"], input, textarea, select, [contenteditable="true"]'
+      'button, a, [role="button"], input, textarea, select, [contenteditable="true"]',
     );
     if ((e.key === ' ' || e.code === 'Space') && interactive) return;
 
@@ -125,8 +129,8 @@ function initKeyboardShortcuts(): void {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const currentState = getState('appState');
-    const isPlaying = currentState === APP_STATE.PLAYING_AUDIO ||
-                      currentState === APP_STATE.PLAYING_YOUTUBE;
+    const isPlaying =
+      currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_YOUTUBE;
 
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault();
@@ -177,15 +181,18 @@ function initWakeLock(): void {
       const ctx = getAudioContext();
       if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
         log.info(`[App] AudioContext ${ctx.state} — attempting resume`);
-        ctx.resume().then(() => {
-          log.info('[App] AudioContext resumed successfully');
-          const currentState = getState('appState');
-          if (currentState === APP_STATE.PLAYING_AUDIO) {
-            applySettingsAsync();
-          }
-        }).catch(err => {
-          log.warn('[App] AudioContext resume failed:', err);
-        });
+        ctx
+          .resume()
+          .then(() => {
+            log.info('[App] AudioContext resumed successfully');
+            const currentState = getState('appState');
+            if (currentState === APP_STATE.PLAYING_AUDIO) {
+              applySettingsAsync();
+            }
+          })
+          .catch((err) => {
+            log.warn('[App] AudioContext resume failed:', err);
+          });
       }
     }
   });
@@ -279,7 +286,11 @@ function initBackButtonGuard(): void {
           defaultFocus: 'secondary',
         });
         if (result.action === 'ok') {
-          try { leaveSession(); } catch (e) { log.warn('[App] leaveSession failed:', e); }
+          try {
+            leaveSession();
+          } catch (e) {
+            log.warn('[App] leaveSession failed:', e);
+          }
           markIntentionalNav();
           // The user explicitly chose "leave" — actually navigate them
           // out. The history stack at this point is roughly:
@@ -297,12 +308,20 @@ function initBackButtonGuard(): void {
           // referrer, stack too shallow) `go(-2)` is a no-op — detect
           // that and fall back to a hard replace to the home page.
           const beforeUrl = location.href;
-          try { history.go(-2); } catch { /* noop */ }
-          setManagedTimer('app:back-button-go-fallback', () => {
-            if (location.href === beforeUrl) {
-              window.location.replace('/');
-            }
-          }, 150);
+          try {
+            history.go(-2);
+          } catch {
+            /* noop */
+          }
+          setManagedTimer(
+            'app:back-button-go-fallback',
+            () => {
+              if (location.href === beforeUrl) {
+                window.location.replace('/');
+              }
+            },
+            150,
+          );
         }
       } catch (e) {
         log.warn('[App] Back-button dialog failed:', e);
@@ -320,7 +339,11 @@ function bootstrap(): void {
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {
-    try { fn(); } catch (e) { log.error(`[App] ${name} init failed:`, e); }
+    try {
+      fn();
+    } catch (e) {
+      log.error(`[App] ${name} init failed:`, e);
+    }
   }
 
   // 1. Platform detection & viewport height
@@ -359,10 +382,9 @@ function bootstrap(): void {
 
   // 6. Workers & Storage
   try {
-    const syncW = new Worker(
-      new URL('./workers/sync.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {
+      type: 'module',
+    });
     setSyncWorker(syncW);
     syncW.onerror = (ev) => log.error('[App] SyncWorker error:', ev.message || ev);
     syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
@@ -373,10 +395,9 @@ function bootstrap(): void {
 
   let transferWorkerReady = false;
   try {
-    const transferW = new Worker(
-      new URL('./workers/transfer.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    const transferW = new Worker(new URL('./workers/transfer.worker.ts', import.meta.url), {
+      type: 'module',
+    });
     setTransferWorker(transferW);
     transferW.onerror = (ev) => log.error('[App] TransferWorker error:', ev.message || ev);
     transferWorkerReady = true;
@@ -418,12 +439,14 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
-  safeInit('PageLifecycle', () => initPageLifecycleHandlers({
-    getRole: () => getState('network.appRole'),
-    leaveSession,
-    reload: () => window.location.reload(),
-    log,
-  }));
+  safeInit('PageLifecycle', () =>
+    initPageLifecycleHandlers({
+      getRole: () => getState('network.appRole'),
+      leaveSession,
+      reload: () => window.location.reload(),
+      log,
+    }),
+  );
   safeInit('BackButtonGuard', initBackButtonGuard);
 
   // 12. System compatibility check (deferred to not block bootstrap)

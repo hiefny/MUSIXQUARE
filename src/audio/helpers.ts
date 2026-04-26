@@ -18,11 +18,7 @@ import { getAudioContext } from './context.ts';
  * Smoothly ramp an AudioParam to a target value over time.
  * Replacement for Tone.js `.rampTo(value, time)`.
  */
-export function rampParam(
-  param: AudioParam,
-  targetValue: number,
-  rampTime: number,
-): void {
+export function rampParam(param: AudioParam, targetValue: number, rampTime: number): void {
   const ctx = getAudioContext();
   const now = ctx.currentTime;
   param.cancelScheduledValues(now);
@@ -42,7 +38,11 @@ export function rampParam(
  */
 export function safeDisconnect(node: AudioNode | null): void {
   if (!node) return;
-  try { node.disconnect(); } catch { /* already disconnected */ }
+  try {
+    node.disconnect();
+  } catch {
+    /* already disconnected */
+  }
 }
 
 // ─── Reverb IR Generation ───────────────────────────────────────
@@ -55,10 +55,7 @@ export function safeDisconnect(node: AudioNode | null): void {
  * @param preDelay - Silence before reverb onset in seconds (e.g. 0.1)
  * @returns AudioBuffer with exponentially decaying noise
  */
-export function generateReverbIR(
-  decay: number,
-  preDelay: number,
-): AudioBuffer {
+export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
   const ctx = getAudioContext();
   const sampleRate = ctx.sampleRate;
 
@@ -93,9 +90,9 @@ export function generateReverbIR(
  * fade=0 → fully A (dry), fade=1 → fully B (wet)
  */
 export interface CrossFadeGraph {
-  a: GainNode;       // Dry input
-  b: GainNode;       // Wet input
-  output: GainNode;  // Mixed output
+  a: GainNode; // Dry input
+  b: GainNode; // Wet input
+  output: GainNode; // Mixed output
 }
 
 export function createCrossFade(initialFade = 0): CrossFadeGraph {
@@ -107,19 +104,15 @@ export function createCrossFade(initialFade = 0): CrossFadeGraph {
   a.connect(output);
   b.connect(output);
 
-  a.gain.value = Math.cos(initialFade * Math.PI / 2);
-  b.gain.value = Math.sin(initialFade * Math.PI / 2);
+  a.gain.value = Math.cos((initialFade * Math.PI) / 2);
+  b.gain.value = Math.sin((initialFade * Math.PI) / 2);
 
   return { a, b, output };
 }
 
-export function setCrossFade(
-  cf: CrossFadeGraph,
-  fade: number,
-  rampTime: number,
-): void {
-  rampParam(cf.a.gain, Math.cos(fade * Math.PI / 2), rampTime);
-  rampParam(cf.b.gain, Math.sin(fade * Math.PI / 2), rampTime);
+export function setCrossFade(cf: CrossFadeGraph, fade: number, rampTime: number): void {
+  rampParam(cf.a.gain, Math.cos((fade * Math.PI) / 2), rampTime);
+  rampParam(cf.b.gain, Math.sin((fade * Math.PI) / 2), rampTime);
 }
 
 // ─── Stereo Widener ─────────────────────────────────────────────
@@ -131,10 +124,10 @@ export function setCrossFade(
  * width=0 → mono, width=0.5 → normal stereo, width=1 → max width
  */
 export interface StereoWidenerGraph {
-  input: GainNode;           // Connect source here
+  input: GainNode; // Connect source here
   output: ChannelMergerNode; // Connect from here
   setWidth(value: number, rampTime: number): void;
-  dispose(): void;           // Disconnect all internal nodes
+  dispose(): void; // Disconnect all internal nodes
 }
 
 export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
@@ -196,8 +189,20 @@ export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
   outR.connect(output, 0, 1);
 
   const allNodes: AudioNode[] = [
-    input, splitter, lToMid, rToMid, midSum, lToSide, rToSide,
-    sideSum, midGain, sideGain, outL, outR, sideToR, output,
+    input,
+    splitter,
+    lToMid,
+    rToMid,
+    midSum,
+    lToSide,
+    rToSide,
+    sideSum,
+    midGain,
+    sideGain,
+    outL,
+    outR,
+    sideToR,
+    output,
   ];
 
   return {
@@ -223,8 +228,8 @@ export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
  * -24dB/oct = 2 stages cascaded
  */
 export interface CascadedFilter {
-  input: BiquadFilterNode;    // Connect source here
-  output: BiquadFilterNode;   // Connect from here
+  input: BiquadFilterNode; // Connect source here
+  output: BiquadFilterNode; // Connect from here
   setFrequency(value: number, rampTime?: number): void;
   setQ(value: number): void;
   disconnect(): void;

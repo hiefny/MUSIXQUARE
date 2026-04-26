@@ -41,7 +41,9 @@ vi.mock('../../audio/effects.ts', () => ({
 }));
 
 vi.mock('../../ui/player-controls.ts', () => ({
-  fmtTime: vi.fn((s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`),
+  fmtTime: vi.fn(
+    (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`,
+  ),
   showPlacementToastForChannel: vi.fn(),
   updateRoleBadge: vi.fn(),
   updateInviteCodeUI: vi.fn(),
@@ -141,10 +143,7 @@ describe('YouTube Player', () => {
     let cachedDuration = 0;
     let cachedSubIndex = -1;
 
-    function getDuration(
-      playerDuration: number,
-      currentSubIndex: number
-    ): number {
+    function getDuration(playerDuration: number, currentSubIndex: number): number {
       // Reset cache on sub-index change
       if (currentSubIndex !== cachedSubIndex) {
         cachedDuration = 0;
@@ -188,7 +187,9 @@ describe('YouTube Player', () => {
   describe('YouTube URL Extraction', () => {
     it('extractYouTubeVideoId from watch URL', async () => {
       const { extractYouTubeVideoId } = await import('../search.ts');
-      expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+      expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
+        'dQw4w9WgXcQ',
+      );
     });
 
     it('returns null for non-YouTube URL', async () => {

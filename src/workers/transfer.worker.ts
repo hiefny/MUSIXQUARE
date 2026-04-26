@@ -120,10 +120,12 @@ function safePost(msg: Record<string, unknown>, transfers?: Transferable[]): voi
   }
 }
 
-function nowMs(): number { return Date.now(); }
+function nowMs(): number {
+  return Date.now();
+}
 
 function isValidSessionId(sessionId: unknown): sessionId is number {
-  return (typeof sessionId === 'number' && Number.isInteger(sessionId));
+  return typeof sessionId === 'number' && Number.isInteger(sessionId);
 }
 
 function sanitizeFilename(filename: string): string {
@@ -184,7 +186,11 @@ async function cleanupHandle(opfsObj: OpfsSlot, reason: string): Promise<void> {
     try {
       if (typeof opfsObj.writable.close === 'function') await opfsObj.writable.close();
     } catch {
-      try { if (typeof opfsObj.writable!.abort === 'function') await opfsObj.writable!.abort(); } catch { /* ignore */ }
+      try {
+        if (typeof opfsObj.writable!.abort === 'function') await opfsObj.writable!.abort();
+      } catch {
+        /* ignore */
+      }
     } finally {
       opfsObj.writable = null;
     }
@@ -193,7 +199,12 @@ async function cleanupHandle(opfsObj: OpfsSlot, reason: string): Promise<void> {
   opfsObj.handle = null;
 }
 
-async function acquireLock(opfsObj: OpfsSlot, sessionId: number, filename: string, isPreload: boolean): Promise<boolean> {
+async function acquireLock(
+  opfsObj: OpfsSlot,
+  sessionId: number,
+  filename: string,
+  isPreload: boolean,
+): Promise<boolean> {
   const now = nowMs();
   const timeout = isPreload ? PRELOAD_LOCK_TIMEOUT_MS : LOCK_TIMEOUT_MS;
 
@@ -208,7 +219,9 @@ async function acquireLock(opfsObj: OpfsSlot, sessionId: number, filename: strin
       return true;
     }
     if (opfsObj.sessionId != null && sessionId < opfsObj.sessionId) {
-      console.warn(`[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${opfsObj.sessionId}`);
+      console.warn(
+        `[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${opfsObj.sessionId}`,
+      );
       return false;
     }
     await cleanupHandle(opfsObj, `Preemption by session ${sessionId} (was ${opfsObj.sessionId})`);
@@ -261,12 +274,24 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (!filename) {
-      safePost({ type: 'OPFS_ERROR', error: 'Missing filename', filename, isPreload, code: 'BAD_ARGS' });
+      safePost({
+        type: 'OPFS_ERROR',
+        error: 'Missing filename',
+        filename,
+        isPreload,
+        code: 'BAD_ARGS',
+      });
       return;
     }
 
     if (!(await acquireLock(opfsObj, sessionId, filename, isPreload))) {
-      safePost({ type: 'OPFS_ERROR', error: 'Lock Collision', filename, isPreload, code: 'LOCKED' });
+      safePost({
+        type: 'OPFS_ERROR',
+        error: 'Lock Collision',
+        filename,
+        isPreload,
+        code: 'LOCKED',
+      });
       return;
     }
 
@@ -279,25 +304,42 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       const safeName = buildSafeName(filename, isPreload);
 
       if (!data.keepExisting) {
-        try { await root.removeEntry(safeName); } catch { /* file may not exist */ }
+        try {
+          await root.removeEntry(safeName);
+        } catch {
+          /* file may not exist */
+        }
       }
 
       opfsObj.handle = await root.getFileHandle(safeName, { create: true });
 
       let opened = false;
-      if (opfsObj.handle && typeof (opfsObj.handle as unknown as Record<string, unknown>).createSyncAccessHandle === 'function') {
+      if (
+        opfsObj.handle &&
+        typeof (opfsObj.handle as unknown as Record<string, unknown>).createSyncAccessHandle ===
+          'function'
+      ) {
         try {
-          opfsObj.accessHandle = await (opfsObj.handle as unknown as { createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle> }).createSyncAccessHandle();
+          opfsObj.accessHandle = await (
+            opfsObj.handle as unknown as {
+              createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle>;
+            }
+          ).createSyncAccessHandle();
           opfsObj.mode = 'sync';
           opened = true;
         } catch (e: unknown) {
-          console.warn('[TransferWorker] createSyncAccessHandle failed, falling back:', (e as Error)?.message ?? e);
+          console.warn(
+            '[TransferWorker] createSyncAccessHandle failed, falling back:',
+            (e as Error)?.message ?? e,
+          );
         }
       }
 
       if (!opened) {
         if (opfsObj.handle && typeof opfsObj.handle.createWritable === 'function') {
-          opfsObj.writable = await opfsObj.handle.createWritable({ keepExistingData: !!data.keepExisting });
+          opfsObj.writable = await opfsObj.handle.createWritable({
+            keepExistingData: !!data.keepExisting,
+          });
           opfsObj.mode = 'writable';
           opened = true;
         }
@@ -308,7 +350,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       safePost({ type: 'OPFS_STARTED', filename, isPreload, sessionId });
     } catch (e: unknown) {
       await releaseLock(opfsObj);
-      safePost({ type: 'OPFS_ERROR', error: (e as Error)?.message ?? String(e), filename, isPreload, code: 'START_FAILED' });
+      safePost({
+        type: 'OPFS_ERROR',
+        error: (e as Error)?.message ?? String(e),
+        filename,
+        isPreload,
+        code: 'START_FAILED',
+      });
     }
     return;
   }
@@ -325,11 +373,22 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       // accumulating empty entries in preloadSlots.
       if (isPreload) preloadSlots.delete(sessionId);
       postSessionMismatch({
-        type: 'SESSION_MISMATCH', command: 'OPFS_WRITE',
-        expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
+        type: 'SESSION_MISMATCH',
+        command: 'OPFS_WRITE',
+        expected: opfsObj.sessionId,
+        received: sessionId,
+        filename,
+        isPreload,
       });
       // Explicit error ACK so the main thread doesn't hang waiting for a response
-      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Session mismatch', filename, index: data.index, isPreload, code: 'SESSION_MISMATCH' });
+      safePost({
+        type: 'OPFS_WRITE_ERROR',
+        error: 'Session mismatch',
+        filename,
+        index: data.index,
+        isPreload,
+        code: 'SESSION_MISMATCH',
+      });
       return;
     }
 
@@ -338,7 +397,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
     const index = normalizeIndex(data.index);
     if (index === null) {
-      safePost({ type: 'OPFS_WRITE_ERROR', error: 'Invalid index', filename, index: data.index, isPreload });
+      safePost({
+        type: 'OPFS_WRITE_ERROR',
+        error: 'Invalid index',
+        filename,
+        index: data.index,
+        isPreload,
+      });
       return;
     }
 
@@ -358,12 +423,22 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
           await opfsObj.accessHandle.flush();
         }
       } else if (opfsObj.mode === 'writable' && opfsObj.writable) {
-        await opfsObj.writable.write({ type: 'write', position: offset, data: chunk as unknown as BufferSource });
+        await opfsObj.writable.write({
+          type: 'write',
+          position: offset,
+          data: chunk as unknown as BufferSource,
+        });
         opfsObj.writtenChunks++;
         opfsObj.lockTime = nowMs();
       }
     } catch (e: unknown) {
-      safePost({ type: 'OPFS_WRITE_ERROR', error: (e as Error)?.message ?? String(e), filename, index, isPreload });
+      safePost({
+        type: 'OPFS_WRITE_ERROR',
+        error: (e as Error)?.message ?? String(e),
+        filename,
+        index,
+        isPreload,
+      });
     }
     return;
   }
@@ -384,8 +459,12 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       // (e.g. OPFS_START failed and released lock). Without this, the main
       // thread's SESSION_MISMATCH safety net for stuck PROCESSING never fires.
       postSessionMismatch({
-        type: 'SESSION_MISMATCH', command: 'OPFS_END',
-        expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
+        type: 'SESSION_MISMATCH',
+        command: 'OPFS_END',
+        expected: opfsObj.sessionId,
+        received: sessionId,
+        filename,
+        isPreload,
       });
       return;
     }
@@ -400,8 +479,11 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
               try {
                 await opfsObj.accessHandle.truncate(totalSize);
                 const resized = await opfsObj.accessHandle.getSize();
-                if (resized !== totalSize) throw new Error(`Integrity Fail: ${resized}/${totalSize}`);
-              } catch { throw new Error(`Integrity Fail: ${actualSize}/${totalSize}`); }
+                if (resized !== totalSize)
+                  throw new Error(`Integrity Fail: ${resized}/${totalSize}`);
+              } catch {
+                throw new Error(`Integrity Fail: ${actualSize}/${totalSize}`);
+              }
             } else {
               throw new Error(`Integrity Fail: ${actualSize}/${totalSize}`);
             }
@@ -424,10 +506,15 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
                 await w.close();
                 w = null;
                 const f2 = await opfsObj.handle.getFile();
-                if (f2.size !== totalSize) throw new Error(`Integrity Fail: ${f2.size}/${totalSize}`);
+                if (f2.size !== totalSize)
+                  throw new Error(`Integrity Fail: ${f2.size}/${totalSize}`);
               } finally {
                 if (w) {
-                  try { await w.abort(); } catch { /* best-effort */ }
+                  try {
+                    await w.abort();
+                  } catch {
+                    /* best-effort */
+                  }
                 }
               }
             } else {
@@ -446,7 +533,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     } catch (e: unknown) {
       await releaseLock(opfsObj);
       if (isPreload) preloadSlots.delete(sessionId);
-      safePost({ type: 'OPFS_ERROR', error: (e as Error)?.message ?? String(e), filename, isPreload, code: 'INTEGRITY_FAIL' });
+      safePost({
+        type: 'OPFS_ERROR',
+        error: (e as Error)?.message ?? String(e),
+        filename,
+        isPreload,
+        code: 'INTEGRITY_FAIL',
+      });
     }
     return;
   }
@@ -468,7 +561,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
   if (command === 'OPFS_CLEANUP') {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
-    
+
     let opfsObj: OpfsSlot | null = null;
     if (!isPreload) {
       opfsObj = currentFileOpfs;
@@ -496,7 +589,9 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     try {
       const root = await navigator.storage.getDirectory();
       await root.removeEntry(safeName);
-    } catch { /* file may not exist */ }
+    } catch {
+      /* file may not exist */
+    }
     safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
     return;
   }
@@ -509,7 +604,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
     const index = normalizeIndex(data.index);
     if (!filename || index === null) {
-      safePost({ type: 'OPFS_READ_ERROR', error: 'BAD_ARGS', filename, index: data.index, requestId });
+      safePost({
+        type: 'OPFS_READ_ERROR',
+        error: 'BAD_ARGS',
+        filename,
+        index: data.index,
+        requestId,
+      });
       return;
     }
 
@@ -521,11 +622,18 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       const offset = index * chunkSize;
 
       // Preferred: reuse existing SyncAccessHandle
-      if (activeOpfs.isLocked && activeOpfs.name === filename && activeOpfs.mode === 'sync' && activeOpfs.accessHandle) {
+      if (
+        activeOpfs.isLocked &&
+        activeOpfs.name === filename &&
+        activeOpfs.mode === 'sync' &&
+        activeOpfs.accessHandle
+      ) {
         const buffer = new Uint8Array(chunkSize);
         const bytesRead = activeOpfs.accessHandle.read(buffer, { at: offset });
-        const chunk = (bytesRead === chunkSize) ? buffer : buffer.slice(0, bytesRead);
-        safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [chunk.buffer]);
+        const chunk = bytesRead === chunkSize ? buffer : buffer.slice(0, bytesRead);
+        safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [
+          chunk.buffer,
+        ]);
         return;
       }
 
@@ -533,21 +641,38 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       const root = await navigator.storage.getDirectory();
       const fileHandle = await root.getFileHandle(safeName);
 
-      if (fileHandle && typeof (fileHandle as unknown as Record<string, unknown>).createSyncAccessHandle === 'function') {
+      if (
+        fileHandle &&
+        typeof (fileHandle as unknown as Record<string, unknown>).createSyncAccessHandle ===
+          'function'
+      ) {
         let ah: FileSystemSyncAccessHandle | null = null;
         try {
-          ah = await (fileHandle as unknown as { createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle> }).createSyncAccessHandle();
+          ah = await (
+            fileHandle as unknown as {
+              createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle>;
+            }
+          ).createSyncAccessHandle();
         } catch (lockErr: unknown) {
-          console.warn('[TransferWorker] SyncAccessHandle unavailable for read, using File fallback:', (lockErr as Error)?.message);
+          console.warn(
+            '[TransferWorker] SyncAccessHandle unavailable for read, using File fallback:',
+            (lockErr as Error)?.message,
+          );
         }
         if (ah) {
           try {
             const buffer = new Uint8Array(chunkSize);
             const bytesRead = ah.read(buffer, { at: offset });
-            const chunk = (bytesRead === chunkSize) ? buffer : buffer.slice(0, bytesRead);
-            safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [chunk.buffer]);
+            const chunk = bytesRead === chunkSize ? buffer : buffer.slice(0, bytesRead);
+            safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [
+              chunk.buffer,
+            ]);
           } finally {
-            try { await ah.close(); } catch { /* ignore */ }
+            try {
+              await ah.close();
+            } catch {
+              /* ignore */
+            }
           }
           return;
         }
@@ -558,9 +683,17 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       const slice = file.slice(offset, offset + chunkSize);
       const buf = await slice.arrayBuffer();
       const chunk = new Uint8Array(buf);
-      safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [chunk.buffer]);
+      safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [
+        chunk.buffer,
+      ]);
     } catch (e: unknown) {
-      safePost({ type: 'OPFS_READ_ERROR', error: (e as Error)?.message ?? String(e), filename, index, requestId });
+      safePost({
+        type: 'OPFS_READ_ERROR',
+        error: (e as Error)?.message ?? String(e),
+        filename,
+        index,
+        requestId,
+      });
     }
   }
 }
@@ -569,7 +702,9 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
 self.addEventListener('error', (e) => {
   safePost({
-    type: 'WORKER_ERROR', scope: 'transfer', command: 'WORKER_ERROR',
+    type: 'WORKER_ERROR',
+    scope: 'transfer',
+    command: 'WORKER_ERROR',
     error: e?.message ?? 'Worker error',
   });
 });
@@ -577,14 +712,18 @@ self.addEventListener('error', (e) => {
 self.addEventListener('unhandledrejection', (e) => {
   const reason = e?.reason as Error | undefined;
   safePost({
-    type: 'WORKER_ERROR', scope: 'transfer', command: 'UNHANDLED_REJECTION',
+    type: 'WORKER_ERROR',
+    scope: 'transfer',
+    command: 'UNHANDLED_REJECTION',
     error: reason?.message ?? String(reason),
   });
 });
 
 self.addEventListener('messageerror', () => {
   safePost({
-    type: 'WORKER_ERROR', scope: 'transfer', command: 'MESSAGE_ERROR',
+    type: 'WORKER_ERROR',
+    scope: 'transfer',
+    command: 'MESSAGE_ERROR',
     error: 'Message deserialization failed',
   });
 });

@@ -148,7 +148,8 @@ export function toggleSurroundMode(enabled: boolean): void {
   if (enabled) {
     ensureSurroundNodes();
     const idx = getState('audio.surroundChannelIndex');
-    if (idx === -1) setSurroundChannel(2); // Default to Center
+    if (idx === -1)
+      setSurroundChannel(2); // Default to Center
     else setSurroundChannel(idx);
   } else {
     // Disconnect surround nodes from the audio graph
@@ -241,9 +242,14 @@ export function setSurroundChannel(idx: number): void {
     rampParam(gR.gain, 1, RAMP_TIME_FAST);
 
     const names = [
-      'Front Left (L)', 'Front Right (R)', 'Center (Dialog)',
-      'LFE (Sub)', 'Side Left', 'Side Right',
-      'Rear Left (Back)', 'Rear Right (Back)',
+      'Front Left (L)',
+      'Front Right (R)',
+      'Center (Dialog)',
+      'LFE (Sub)',
+      'Side Left',
+      'Side Right',
+      'Rear Left (Back)',
+      'Rear Right (Back)',
     ];
     log.info(`[Surround] Channel set: ${names[idx]}`);
 
@@ -265,6 +271,6 @@ async function setChannel(mode: number): Promise<void> {
 // ─── Bus Event Handlers ─────────────────────────────────────────
 
 bus.on('audio:set-channel-mode', (mode: number) => {
-  if (Number.isFinite(mode)) setChannel(mode).catch(e => log.warn('[Channel] setChannel failed:', e));
+  if (Number.isFinite(mode))
+    setChannel(mode).catch((e) => log.warn('[Channel] setChannel failed:', e));
 });
-

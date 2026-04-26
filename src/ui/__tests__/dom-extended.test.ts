@@ -2,7 +2,14 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { escapeHtml, escapeAttr, copyTextToClipboard, animateTransition, updateOverlayOpenClass, initOverlayOpenObserver } from '../dom.ts';
+import {
+  escapeHtml,
+  escapeAttr,
+  copyTextToClipboard,
+  animateTransition,
+  updateOverlayOpenClass,
+  initOverlayOpenObserver,
+} from '../dom.ts';
 
 describe('escapeHtml', () => {
   it('escapes ampersands', () => {
@@ -22,7 +29,7 @@ describe('escapeHtml', () => {
   });
 
   it('escapes single quotes', () => {
-    expect(escapeHtml("it's")).toBe("it&#39;s");
+    expect(escapeHtml("it's")).toBe('it&#39;s');
   });
 
   it('escapes mixed special characters', () => {

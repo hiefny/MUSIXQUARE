@@ -103,7 +103,7 @@ const en: Record<I18nKey, string> = {
   'playlist.remove_no': 'No',
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
-  'playlist.deferred_load_hint': "Play to load the full track list",
+  'playlist.deferred_load_hint': 'Play to load the full track list',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Center',
@@ -324,7 +324,8 @@ const en: Record<I18nKey, string> = {
   'network.disconnected': 'Disconnected',
   'network.cant_join': "Couldn't find the session.\nPlease check your network.",
   'network.session_full': 'Session is full',
-  'network.session_full_detail': 'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
+  'network.session_full_detail':
+    'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
   'network.relay_timeout': 'Relay connection timed out',
   'network.relay_connected': 'Relay connected',
   'network.relay_disconnected': 'Relay disconnected',
@@ -365,13 +366,16 @@ const en: Record<I18nKey, string> = {
   'toast.video_excluded': 'Video files were skipped.',
   'toast.video_only_rejected': "Can't add video files.",
   'dialog.large_room_file.title': 'File sharing in a large room',
-  'dialog.large_room_file.message': 'Local file sharing is stable with up to ~8 guests on a local network.\n\nContinue?',
+  'dialog.large_room_file.message':
+    'Local file sharing is stable with up to ~8 guests on a local network.\n\nContinue?',
   'dialog.large_room_sysaudio.title': 'System audio in a large room',
-  'dialog.large_room_sysaudio.message': 'System audio sharing is stable with up to ~4 guests on a local network.\n\nContinue?',
+  'dialog.large_room_sysaudio.message':
+    'System audio sharing is stable with up to ~4 guests on a local network.\n\nContinue?',
   'dialog.continue': 'Continue',
   'connect.slot_guide.aria': 'Open recommended guest count guide',
   'connect.slot_guide.title': 'Number of Guests',
-  'connect.slot_guide.body': 'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4',
+  'connect.slot_guide.body':
+    'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
   'toast.auto_play_canceled': 'Auto-play canceled',
@@ -443,7 +447,7 @@ const en: Record<I18nKey, string> = {
   'error.network_issue': 'There is a network issue.\nPlease check your internet connection.',
   'error.signal_server_fail': "Can't reach the signaling server. Please try again shortly.",
   'error.server_disconnected': 'Disconnected from the server.',
-  'error.session_id_unavailable': "Session ID is unavailable. Please try again.",
+  'error.session_id_unavailable': 'Session ID is unavailable. Please try again.',
   'error.webrtc_failed': 'WebRTC connection failed. Check your browser settings.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
@@ -458,20 +462,29 @@ const en: Record<I18nKey, string> = {
   'dialog.go_back': 'Go back',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
-  'help.local_recommended_html': 'All features are available when connected to the same network.<ul class="help-list"><li>Connect all devices to the <strong>same Wi\u2011Fi</strong>.</li><li>A VPN or firewall may block the connection.</li><li>If no network is available, connect to the host\'s hotspot.</li></ul>',
-  'setup.how_to_connect_html': 'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 choose role \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 choose role \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
-  'player.play_speakers_html': 'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
-  'player.play_media_action_html': 'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Works over remote networks. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Stream system audio. Available when host is on Windows or Mac</li></ul>',
-  'help.need_help_html': '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Other issues:</strong> Complete your network setup and restart the app on all devices. If you have any questions, feel free to reach out via the email at the very bottom.</li></ul>',
+  'help.local_recommended_html':
+    'All features are available when connected to the same network.<ul class="help-list"><li>Connect all devices to the <strong>same Wi\u2011Fi</strong>.</li><li>A VPN or firewall may block the connection.</li><li>If no network is available, connect to the host\'s hotspot.</li></ul>',
+  'setup.how_to_connect_html':
+    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 choose role \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 choose role \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
+  'player.play_speakers_html':
+    'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
+  'player.play_media_action_html':
+    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Works over remote networks. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Stream system audio. Available when host is on Windows or Mac</li></ul>',
+  'help.need_help_html':
+    '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> It might be a server issue. Connect both devices to the same network.</li><li><strong>Unstable connection:</strong> Network quality may be low. Move closer to the router.</li><li><strong>Other issues:</strong> Complete your network setup and restart the app on all devices. If you have any questions, feel free to reach out via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
   'chat.peer_disconnected': '{{name}} left',
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'chat.msg_truncated': 'Message truncated to {{max}} characters',
   'setup.brand_tagline_html': 'Listen together, anywhere<br>The perfect sound experience',
-  'setup.invite_share_desc_html': 'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit code to connect.',
-  'setup.play_together_desc_html': 'When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.',
-  'setup.spatial_audio_desc_html': 'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
-  'setup.advanced_audio_desc_html': 'Match the host\'s settings<br>with reverb, EQ, virtual effects,<br>and more across the system.',
+  'setup.invite_share_desc_html':
+    'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit code to connect.',
+  'setup.play_together_desc_html':
+    'When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.',
+  'setup.spatial_audio_desc_html':
+    'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
+  'setup.advanced_audio_desc_html':
+    "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
   'youtube.enter_link_desc_html': 'Only public links can be played together.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
@@ -481,16 +494,19 @@ const en: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'Audio sharing was cancelled.',
   'system_audio.no_audio_track': '"Share audio" was not enabled. Please try again.',
   'system_audio.stop': 'Stop Sharing',
-  'system_audio.started': 'System audio sharing may have slight latency.\nLower your source device volume as much as possible.',
+  'system_audio.started':
+    'System audio sharing may have slight latency.\nLower your source device volume as much as possible.',
   'system_audio.stopped': 'System audio sharing ended. Resuming playlist.',
-  'system_audio.many_devices_warning': 'System audio sharing may stutter with many devices connected.',
+  'system_audio.many_devices_warning':
+    'System audio sharing may stutter with many devices connected.',
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',
   'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to guests only.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',
-  'legal.content_html': '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+  'legal.content_html':
+    '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates on a P2P basis. Audio, files, and chat data are transmitted directly between devices and are not stored on any server. However, IP addresses may pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube and PeerJS, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default en;

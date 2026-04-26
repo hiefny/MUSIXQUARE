@@ -46,7 +46,10 @@ let _dialogInput: HTMLElement | null = null;
 let _dialogHint: HTMLDivElement | null = null;
 let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
-const _dialogQueue: Array<{ opts: DialogOptions | string; resolve: (result: DialogResult) => void }> = [];
+const _dialogQueue: Array<{
+  opts: DialogOptions | string;
+  resolve: (result: DialogResult) => void;
+}> = [];
 
 // ─── Internal ────────────────────────────────────────────────────
 
@@ -69,19 +72,35 @@ export function closeDialog(action = 'close'): void {
 
   try {
     if (active && Array.isArray(active.cleanup)) {
-      active.cleanup.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+      active.cleanup.forEach((fn) => {
+        try {
+          fn();
+        } catch {
+          /* ignore */
+        }
+      });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   if (active?.prevFocus && typeof (active.prevFocus as HTMLElement).focus === 'function') {
-    try { (active.prevFocus as HTMLElement).focus(); } catch { /* ignore */ }
+    try {
+      (active.prevFocus as HTMLElement).focus();
+    } catch {
+      /* ignore */
+    }
   }
 
   const inputValue = _dialogInput ? (_dialogInput.textContent || '').trim() : undefined;
   _dialogInput = null;
 
   if (typeof active?.resolve === 'function') {
-    try { active.resolve({ action, inputValue }); } catch { /* ignore */ }
+    try {
+      active.resolve({ action, inputValue });
+    } catch {
+      /* ignore */
+    }
   }
 
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
@@ -96,31 +115,36 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const closeBtn = document.getElementById('btn-dialog-close') as HTMLButtonElement | null;
 
   if (!overlay || !titleEl || !msgEl || !okBtn || !closeBtn) {
-    showToast(typeof opts === 'string' ? opts : (opts?.message || t('common.info')));
+    showToast(typeof opts === 'string' ? opts : opts?.message || t('common.info'));
     resolve({ action: 'fallback' });
     setManagedTimer('dialog-drain', drainDialogQueue, 0);
     return;
   }
 
-  const o = (typeof opts === 'object' && opts) ? opts : { message: String(opts ?? '') };
-  const title = (typeof opts === 'string') ? t('common.info') : (o.title || t('common.info'));
-  const message = (typeof opts === 'string') ? String(opts ?? '') : String(o.message || '');
+  const o = typeof opts === 'object' && opts ? opts : { message: String(opts ?? '') };
+  const title = typeof opts === 'string' ? t('common.info') : o.title || t('common.info');
+  const message = typeof opts === 'string' ? String(opts ?? '') : String(o.message || '');
   const buttonText = o.buttonText ? String(o.buttonText) : t('common.ok');
-  const secondaryTextRaw = (o.secondaryText !== undefined && o.secondaryText !== null)
-    ? o.secondaryText
-    : ((o.cancelText !== undefined && o.cancelText !== null) ? o.cancelText : '');
+  const secondaryTextRaw =
+    o.secondaryText !== undefined && o.secondaryText !== null
+      ? o.secondaryText
+      : o.cancelText !== undefined && o.cancelText !== null
+        ? o.cancelText
+        : '';
   const secondaryText = String(secondaryTextRaw ?? '').trim();
   const hasSecondary = !!secondaryText;
-  const dismissible = (o.dismissible !== undefined) ? !!o.dismissible : true;
+  const dismissible = o.dismissible !== undefined ? !!o.dismissible : true;
   const defaultFocus = o.defaultFocus
     ? String(o.defaultFocus)
-    : (hasSecondary ? 'secondary' : 'primary');
+    : hasSecondary
+      ? 'secondary'
+      : 'primary';
 
   titleEl.textContent = title;
   msgEl.textContent = message;
 
   // Input field support
-  const inputCfg = (typeof opts === 'object' && opts) ? opts.inputField : undefined;
+  const inputCfg = typeof opts === 'object' && opts ? opts.inputField : undefined;
   if (inputCfg) {
     const input = document.createElement('div');
     input.contentEditable = 'true';
@@ -142,7 +166,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         const current = (input.textContent || '').length;
         const sel = window.getSelection();
         const selectedLen = sel && sel.rangeCount ? sel.toString().length : 0;
-        if (e.data && (current - selectedLen + e.data.length) > maxLen) e.preventDefault();
+        if (e.data && current - selectedLen + e.data.length > maxLen) e.preventDefault();
       });
     }
     msgEl.appendChild(input);
@@ -183,7 +207,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (!target) return;
     target.addEventListener(type, handler);
     cleanup.push(() => {
-      try { target.removeEventListener(type, handler); } catch { /* ignore */ }
+      try {
+        target.removeEventListener(type, handler);
+      } catch {
+        /* ignore */
+      }
     });
   };
 
@@ -204,9 +232,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         // Force reflow to restart animation
         void _dialogInput.offsetWidth;
         _dialogInput.classList.add('shake');
-        _dialogInput.addEventListener('animationend', () => {
-          _dialogInput?.classList.remove('shake');
-        }, { once: true });
+        _dialogInput.addEventListener(
+          'animationend',
+          () => {
+            _dialogInput?.classList.remove('shake');
+          },
+          { once: true },
+        );
         return;
       }
     }
@@ -240,7 +272,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   // Hide close button when dialog is not dismissible
   if (!dismissible) {
     closeBtn.style.display = 'none';
-    cleanup.push(() => { closeBtn.style.display = ''; });
+    cleanup.push(() => {
+      closeBtn.style.display = '';
+    });
   }
   on(closeBtn, 'click', () => done('close'));
 
@@ -290,26 +324,35 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   });
 
-  setManagedTimer('dialog-focus', () => {
-    try {
-      if (_dialogInput) {
-        _dialogInput.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
-        // Select all text in contenteditable
-        const sel = window.getSelection();
-        if (sel && _dialogInput.textContent) {
-          const range = document.createRange();
-          range.selectNodeContents(_dialogInput);
-          sel.removeAllRanges();
-          sel.addRange(range);
+  setManagedTimer(
+    'dialog-focus',
+    () => {
+      try {
+        if (_dialogInput) {
+          _dialogInput.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
+          // Select all text in contenteditable
+          const sel = window.getSelection();
+          if (sel && _dialogInput.textContent) {
+            const range = document.createRange();
+            range.selectNodeContents(_dialogInput);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        } else {
+          const pick =
+            defaultFocus === 'secondary' && hasSecondary && secondaryBtn
+              ? secondaryBtn
+              : defaultFocus === 'close'
+                ? closeBtn
+                : okBtn;
+          (pick || okBtn)!.focus();
         }
-      } else {
-        const pick = (defaultFocus === 'secondary' && hasSecondary && secondaryBtn)
-          ? secondaryBtn
-          : (defaultFocus === 'close' ? closeBtn : okBtn);
-        (pick || okBtn)!.focus();
+      } catch {
+        /* ignore */
       }
-    } catch { /* ignore */ }
-  }, 0);
+    },
+    0,
+  );
 }
 
 // ─── Public API ──────────────────────────────────────────────────

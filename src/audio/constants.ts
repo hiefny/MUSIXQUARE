@@ -36,7 +36,7 @@ export const REVERB_HIGHCUT_FACTOR = 0.05;
 // ─── Reverb Presets ──────────────────────────────────────────────
 export const REVERB_PRESETS = {
   studio: { mix: 0.3, decay: 1.0, preDelay: 0.02, lowCut: 0, highCut: 0 },
-  arena:  { mix: 0.4, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
+  arena: { mix: 0.4, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
 } as const;
 
 // ─── Stereo Width Compensation ───────────────────────────────────
@@ -52,7 +52,13 @@ export const VB_CURVE_LENGTH = 8192;
 // ─── Virtual Bass — Sub-bass Band (40–80 Hz) ────────────────────
 export const VB_SUB_LP_FREQ = 80;
 export const VB_SUB_HP_FREQ = 40;
-export const VB_SUB_COMP = { threshold: -24, ratio: 4, attack: 0.01, release: 0.1, knee: 10 } as const;
+export const VB_SUB_COMP = {
+  threshold: -24,
+  ratio: 4,
+  attack: 0.01,
+  release: 0.1,
+  knee: 10,
+} as const;
 export const VB_SUB_TRIM_GAIN = 0.8;
 export const VB_SUB_POST_HP_FREQ = 80;
 export const VB_SUB_POST_LP_FREQ = 320;
@@ -60,11 +66,23 @@ export const VB_SUB_POST_LP_FREQ = 320;
 // ─── Virtual Bass — Mid-bass Band (80–160 Hz) ───────────────────
 export const VB_MID_LP_FREQ = 160;
 export const VB_MID_HP_FREQ = 80;
-export const VB_MID_COMP = { threshold: -20, ratio: 3, attack: 0.005, release: 0.08, knee: 8 } as const;
+export const VB_MID_COMP = {
+  threshold: -20,
+  ratio: 3,
+  attack: 0.005,
+  release: 0.08,
+  knee: 8,
+} as const;
 export const VB_MID_TRIM_GAIN = 0.7;
 export const VB_MID_POST_HP_FREQ = 150;
 export const VB_MID_POST_LP_FREQ = 600;
 export const VB_MID_MIX_GAIN = 0.8;
 
 // ─── Virtual Bass — Output Limiter ───────────────────────────────
-export const VB_LIMITER = { threshold: -3, ratio: 20, attack: 0.003, release: 0.01, knee: 0 } as const;
+export const VB_LIMITER = {
+  threshold: -3,
+  ratio: 20,
+  attack: 0.003,
+  release: 0.01,
+  knee: 0,
+} as const;

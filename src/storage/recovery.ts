@@ -8,7 +8,14 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, MAX_RECOVERY_RETRIES, RECOVERY_BACKOFF, APP_STATE, TRANSFER_STATE } from '../core/constants.ts';
+import {
+  MSG,
+  CHUNK_SIZE,
+  MAX_RECOVERY_RETRIES,
+  RECOVERY_BACKOFF,
+  APP_STATE,
+  TRANSFER_STATE,
+} from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './opfs.ts';
@@ -64,7 +71,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   // Find best connection
   const upstreamDataConn = getState('relay.upstreamDataConn');
   const hostConn = getState('network.hostConn');
-  const targetConn = (upstreamDataConn && upstreamDataConn.open) ? upstreamDataConn : hostConn;
+  const targetConn = upstreamDataConn && upstreamDataConn.open ? upstreamDataConn : hostConn;
 
   if (!targetConn || !targetConn.open) {
     log.warn('[Recovery] No healthy connection for recovery');
@@ -81,66 +88,76 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   setState('recovery.pending', true);
 
   const sourceLabel = targetConn === upstreamDataConn ? 'Relay' : 'Host';
-  log.debug(`[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (backoff: ${backoffMs}ms)`);
+  log.debug(
+    `[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (backoff: ${backoffMs}ms)`,
+  );
 
-  setManagedTimer('recovery-backoff', () => {
-    setState('recovery.pending', false);
+  setManagedTimer(
+    'recovery-backoff',
+    () => {
+      setState('recovery.pending', false);
 
-    // Re-fetch connection after backoff — the original reference may be stale
-    const freshUpstream = getState('relay.upstreamDataConn');
-    const freshHostConn = getState('network.hostConn');
-    const freshConn = (freshUpstream && freshUpstream.open) ? freshUpstream : freshHostConn;
+      // Re-fetch connection after backoff — the original reference may be stale
+      const freshUpstream = getState('relay.upstreamDataConn');
+      const freshHostConn = getState('network.hostConn');
+      const freshConn = freshUpstream && freshUpstream.open ? freshUpstream : freshHostConn;
 
-    if (!freshConn || !freshConn.open) {
-      log.warn('[Recovery] No healthy connection after backoff');
-      // Don't consume retry budget if request was never sent
-      const currentRetry = getState('recovery.retryCount');
-      if (currentRetry > 0) setState('recovery.retryCount', currentRetry - 1);
-      return;
-    }
+      if (!freshConn || !freshConn.open) {
+        log.warn('[Recovery] No healthy connection after backoff');
+        // Don't consume retry budget if request was never sent
+        const currentRetry = getState('recovery.retryCount');
+        if (currentRetry > 0) setState('recovery.retryCount', currentRetry - 1);
+        return;
+      }
 
-    // Check if track changed during backoff
-    const latestMeta = getState('transfer.meta');
-    const latestName = (latestMeta?.name as string) || getState('recovery.pendingFileName') || '';
-    if (latestName && fileName && latestName !== fileName) {
-      log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
-      setState('recovery.retryCount', 0);
-      return;
-    }
+      // Check if track changed during backoff
+      const latestMeta = getState('transfer.meta');
+      const latestName = (latestMeta?.name as string) || getState('recovery.pendingFileName') || '';
+      if (latestName && fileName && latestName !== fileName) {
+        log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
+        setState('recovery.retryCount', 0);
+        return;
+      }
 
-    // Re-read receivedCount after backoff — more chunks may have arrived during delay
-    let chunkToAsk = forceChunk;
-    if (chunkToAsk === null) {
-      chunkToAsk = getState('transfer.receivedCount') || 0;
-    }
+      // Re-read receivedCount after backoff — more chunks may have arrived during delay
+      let chunkToAsk = forceChunk;
+      if (chunkToAsk === null) {
+        chunkToAsk = getState('transfer.receivedCount') || 0;
+      }
 
-    // Re-read sessionId after backoff — session may have advanced during delay
-    const freshLocalSid = getState('transfer.localSessionId');
-    const freshTransferSid = getState('transfer.currentSessionId');
-    const freshSid = freshLocalSid || freshTransferSid;
+      // Re-read sessionId after backoff — session may have advanced during delay
+      const freshLocalSid = getState('transfer.localSessionId');
+      const freshTransferSid = getState('transfer.currentSessionId');
+      const freshSid = freshLocalSid || freshTransferSid;
 
-    // Re-read index after backoff — track position may have changed during delay
-    const freshPendingFileIndex = getState('recovery.pendingFileIndex');
-    const freshCurrentTrackIndex = getState('playlist.currentTrackIndex');
-    const freshIndex = freshPendingFileIndex !== undefined ? freshPendingFileIndex : freshCurrentTrackIndex;
+      // Re-read index after backoff — track position may have changed during delay
+      const freshPendingFileIndex = getState('recovery.pendingFileIndex');
+      const freshCurrentTrackIndex = getState('playlist.currentTrackIndex');
+      const freshIndex =
+        freshPendingFileIndex !== undefined ? freshPendingFileIndex : freshCurrentTrackIndex;
 
-    try {
-      freshConn.send({
-        type: MSG.REQUEST_DATA_RECOVERY,
-        nextChunk: chunkToAsk,
-        fileName,
-        index: freshIndex,
-        sessionId: freshSid,
-      });
-    } catch {
-      log.warn('[Recovery] Failed to send recovery request');
-    }
-  }, backoffMs);
+      try {
+        freshConn.send({
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: chunkToAsk,
+          fileName,
+          index: freshIndex,
+          sessionId: freshSid,
+        });
+      } catch {
+        log.warn('[Recovery] Failed to send recovery request');
+      }
+    },
+    backoffMs,
+  );
 }
 
 // ─── Host: Handle File Requests ─────────────────────────────────────
 
-async function handleRequestCurrentFile(data: Record<string, unknown>, conn: DataConnection): Promise<void> {
+async function handleRequestCurrentFile(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): Promise<void> {
   // Only Host serves files directly
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guest ignores
@@ -149,7 +166,11 @@ async function handleRequestCurrentFile(data: Record<string, unknown>, conn: Dat
   // If Host is in YouTube mode, no local file to serve
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    try { conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' }); } catch { /* noop */ }
+    try {
+      conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' });
+    } catch {
+      /* noop */
+    }
     return;
   }
 
@@ -159,7 +180,11 @@ async function handleRequestCurrentFile(data: Record<string, unknown>, conn: Dat
   // Find matching blob
   const blob = findMatchingBlob(reqName, reqIndex);
   if (!blob) {
-    try { conn.send({ type: MSG.FILE_WAIT, message: 'Host file is not ready yet' }); } catch { /* noop */ }
+    try {
+      conn.send({ type: MSG.FILE_WAIT, message: 'Host file is not ready yet' });
+    } catch {
+      /* noop */
+    }
     return;
   }
 
@@ -169,7 +194,10 @@ async function handleRequestCurrentFile(data: Record<string, unknown>, conn: Dat
   if (fileToSend) await unicastFile(conn, fileToSend, 0, sid);
 }
 
-async function handleRequestDataRecovery(data: Record<string, unknown>, conn: DataConnection): Promise<void> {
+async function handleRequestDataRecovery(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): Promise<void> {
   // Only Host serves recovery directly
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
@@ -187,14 +215,22 @@ async function handleRequestDataRecovery(data: Record<string, unknown>, conn: Da
 
   const blob = findMatchingBlob(reqName, reqIndex);
   if (!blob) {
-    try { conn.send({ type: MSG.FILE_WAIT, message: 'Host has no cached file for recovery yet' }); } catch { /* noop */ }
+    try {
+      conn.send({ type: MSG.FILE_WAIT, message: 'Host has no cached file for recovery yet' });
+    } catch {
+      /* noop */
+    }
     return;
   }
 
   // Clamp chunk index
   const total = Math.ceil(blob.size / CHUNK_SIZE);
   if (!Number.isFinite(total) || total <= 0) {
-    try { conn.send({ type: MSG.FILE_WAIT, message: 'Invalid file size' }); } catch { /* noop */ }
+    try {
+      conn.send({ type: MSG.FILE_WAIT, message: 'Invalid file size' });
+    } catch {
+      /* noop */
+    }
     return;
   }
   if (startChunk >= total) startChunk = Math.max(0, total - 1);

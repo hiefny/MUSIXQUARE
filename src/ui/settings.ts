@@ -34,13 +34,20 @@ function _guardHostCtrl(): boolean {
 /** Apply or remove visual lock on host-ctrl sections */
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
-  const hostCtrlIds = ['grid-reverb', 'reverb-sliders-area', 'grid-eq', 'eq-sliders-area', 'grid-surround', 'grid-vbass'];
-  hostCtrlIds.forEach(id => {
+  const hostCtrlIds = [
+    'grid-reverb',
+    'reverb-sliders-area',
+    'grid-eq',
+    'eq-sliders-area',
+    'grid-surround',
+    'grid-vbass',
+  ];
+  hostCtrlIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
-      el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach(input => {
+      el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         input.disabled = locked;
       });
     }
@@ -56,14 +63,18 @@ export function setTheme(mode: string, save = true): void {
     mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
-  document.querySelectorAll('#grid-theme .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#grid-theme .ch-opt').forEach((el) => el.classList.remove('active'));
   document.querySelector(`#grid-theme .ch-opt[data-theme="${mode}"]`)?.classList.add('active');
 
   document.documentElement.setAttribute('data-theme', mode);
 
   // Persist preference
   if (save) {
-    try { localStorage.setItem('musixquare-theme', originalMode); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('musixquare-theme', originalMode);
+    } catch {
+      /* ignore */
+    }
   }
 
   // Update meta tags for PWA/browser integration
@@ -78,7 +89,7 @@ export function setTheme(mode: string, save = true): void {
 
 export function selectStandardChannelButton(mode: number): void {
   const all = document.querySelectorAll('#grid-standard .ch-opt[data-ch]');
-  all.forEach(e => e.classList.remove('active'));
+  all.forEach((e) => e.classList.remove('active'));
   const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
   if (el) el.classList.add('active');
 
@@ -121,12 +132,18 @@ function formatReverbValDisp(param: string, v: number): void {
       break;
     case 'lowcut': {
       const lFreq = 20 * Math.pow(50, v / 100);
-      _setDisp('val-rvb-lowcut', lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz');
+      _setDisp(
+        'val-rvb-lowcut',
+        lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz',
+      );
       break;
     }
     case 'highcut': {
       const hFreq = 20000 * Math.pow(0.05, v / 100);
-      _setDisp('val-rvb-highcut', hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz');
+      _setDisp(
+        'val-rvb-highcut',
+        hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz',
+      );
       break;
     }
   }
@@ -171,16 +188,15 @@ function setEQ(band: number, value: number, isPreview = false): void {
   if (!isPreview) _notifyGuestOnlyEffects();
 }
 
-
 // ─── Reverb Preset Chips ───────────────────────────────────────
 
 const REVERB_PRESETS: Record<string, { mix: number; decay: number; predelay: number }> = {
-  studio:  { mix: 30, decay: 1.0, predelay: 0.02 },
+  studio: { mix: 30, decay: 1.0, predelay: 0.02 },
   arena: { mix: 40, decay: 5.0, predelay: 0.12 },
 };
 
 function clearReverbChipActive(): void {
-  document.querySelectorAll('#grid-reverb .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#grid-reverb .ch-opt').forEach((el) => el.classList.remove('active'));
 }
 
 /**
@@ -188,11 +204,21 @@ function clearReverbChipActive(): void {
  * Returns 'off', 'studio', 'arena', or 'advanced'.
  */
 function detectReverbPreset(): string {
-  const mix      = Number((document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ?? 0);
-  const decay    = Number((document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ?? 5);
-  const predelay = Number((document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ?? 0.1);
-  const lowcut   = Number((document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ?? 0);
-  const highcut  = Number((document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ?? 0);
+  const mix = Number(
+    (document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ?? 0,
+  );
+  const decay = Number(
+    (document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ?? 5,
+  );
+  const predelay = Number(
+    (document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ?? 0.1,
+  );
+  const lowcut = Number(
+    (document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ?? 0,
+  );
+  const highcut = Number(
+    (document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ?? 0,
+  );
 
   // Off: mix is 0 and no cut filters active
   if (mix === 0 && lowcut === 0 && highcut === 0) return 'off';
@@ -227,9 +253,13 @@ function syncReverbSlidersToPreset(type: string): void {
     const defaults = { mix: 0, decay: 5.0, predelay: 0.1, lowcut: 0, highcut: 0 };
     const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
     const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
-    const predelaySlider = document.getElementById('reverb-predelay-slider') as HTMLInputElement | null;
+    const predelaySlider = document.getElementById(
+      'reverb-predelay-slider',
+    ) as HTMLInputElement | null;
     const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
-    const highcutSlider = document.getElementById('reverb-highcut-slider') as HTMLInputElement | null;
+    const highcutSlider = document.getElementById(
+      'reverb-highcut-slider',
+    ) as HTMLInputElement | null;
     if (mixSlider) mixSlider.value = String(defaults.mix);
     if (decaySlider) decaySlider.value = String(defaults.decay);
     if (predelaySlider) predelaySlider.value = String(defaults.predelay);
@@ -247,7 +277,9 @@ function syncReverbSlidersToPreset(type: string): void {
 
   if (type === 'advanced') {
     // Advanced: show sliders, mark chip active
-    document.querySelector('#grid-reverb .ch-opt[data-rvb-type="advanced"]')?.classList.add('active');
+    document
+      .querySelector('#grid-reverb .ch-opt[data-rvb-type="advanced"]')
+      ?.classList.add('active');
     setReverbSlidersVisible(true);
     return;
   }
@@ -258,7 +290,9 @@ function syncReverbSlidersToPreset(type: string): void {
   // Update slider positions (for when user switches to Advanced later)
   const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
   const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
-  const predelaySlider = document.getElementById('reverb-predelay-slider') as HTMLInputElement | null;
+  const predelaySlider = document.getElementById(
+    'reverb-predelay-slider',
+  ) as HTMLInputElement | null;
   const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
   const highcutSlider = document.getElementById('reverb-highcut-slider') as HTMLInputElement | null;
   if (mixSlider) mixSlider.value = String(preset.mix);
@@ -297,11 +331,11 @@ function resetEQ(): void {
 
 const EQ_PRESETS: Record<string, number[]> = {
   bright: [0, -2, 0, 4, 6],
-  warm:   [5, 3, 0, -2, -3],
+  warm: [5, 3, 0, -2, -3],
 };
 
 function clearEqChipActive(): void {
-  document.querySelectorAll('#grid-eq .ch-opt').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#grid-eq .ch-opt').forEach((el) => el.classList.remove('active'));
 }
 
 function setEqSlidersVisible(visible: boolean): void {
@@ -356,8 +390,12 @@ function setSurroundOn(on: boolean): void {
   const alreadyOn = currentWidth > 1;
   if (on === alreadyOn) return;
 
-  document.querySelectorAll('#grid-surround .ch-opt').forEach(el => el.classList.remove('active'));
-  document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  document
+    .querySelectorAll('#grid-surround .ch-opt')
+    .forEach((el) => el.classList.remove('active'));
+  document
+    .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+    ?.classList.add('active');
   // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
   if (on) {
@@ -368,16 +406,23 @@ function setSurroundOn(on: boolean): void {
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  document.querySelectorAll('#grid-visualizer .ch-opt').forEach(el => el.classList.remove('active'));
+  document
+    .querySelectorAll('#grid-visualizer .ch-opt')
+    .forEach((el) => el.classList.remove('active'));
   document.querySelector(`#grid-visualizer .ch-opt[data-viz="${mode}"]`)?.classList.add('active');
-  try { localStorage.setItem('musixquare-viz-mode', mode); } catch { /* Safari private mode */ }
+  try {
+    localStorage.setItem('musixquare-viz-mode', mode);
+  } catch {
+    /* Safari private mode */
+  }
   bus.emit('visualizer:set-type', mode);
 }
 
-
 function setVBassOn(on: boolean): void {
-  document.querySelectorAll('#grid-vbass .ch-opt').forEach(el => el.classList.remove('active'));
-  document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+  document.querySelectorAll('#grid-vbass .ch-opt').forEach((el) => el.classList.remove('active'));
+  document
+    .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+    ?.classList.add('active');
   // ON: 60%, OFF: 0%
   bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
   if (on) {
@@ -467,20 +512,23 @@ export function initSettings(): void {
   };
 
   // Theme grid
-  document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach(opt => {
+  document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach((opt) => {
     opt.addEventListener('click', () => setTheme(opt.dataset.theme!));
   });
 
   // Language grid
-  document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt[data-lang]').forEach(opt => {
+  document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt[data-lang]').forEach((opt) => {
     opt.addEventListener('click', () => setLanguageMode(opt.dataset.lang!));
   });
 
   // Channel grid (standard)
-  document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach(el => {
+  document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((el) => {
     el.addEventListener('click', () => {
       // Host: block channel change during system audio sharing
-      if (!getState('network.hostConn') && getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      if (
+        !getState('network.hostConn') &&
+        getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO
+      ) {
         showToast(t('system_audio.host_channel_locked'));
         return;
       }
@@ -489,12 +537,19 @@ export function initSettings(): void {
   });
 
   // Subwoofer cutoff
-  $on('cutoff-slider', 'input', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', Number(this.value), true); });
-  $on('cutoff-slider', 'change', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', Number(this.value)); });
-  $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) { updateAudioEffect('cutoff', 'value', 120); this.value = '120'; });
+  $on('cutoff-slider', 'input', function (this: HTMLInputElement) {
+    updateAudioEffect('cutoff', 'value', Number(this.value), true);
+  });
+  $on('cutoff-slider', 'change', function (this: HTMLInputElement) {
+    updateAudioEffect('cutoff', 'value', Number(this.value));
+  });
+  $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) {
+    updateAudioEffect('cutoff', 'value', 120);
+    this.value = '120';
+  });
 
   // Reverb preset grid
-  document.querySelectorAll<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type]').forEach(opt => {
+  document.querySelectorAll<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type]').forEach((opt) => {
     opt.addEventListener('click', () => {
       if (_guardHostCtrl()) return;
       const type = opt.dataset.rvbType!;
@@ -518,9 +573,19 @@ export function initSettings(): void {
     { id: 'reverb-highcut-slider', param: 'highcut', resetVal: 0 },
   ];
   reverbSliders.forEach(({ id, param, resetVal }) => {
-    $on(id, 'input', function (this: HTMLInputElement) { if (_isGuestLocked()) return; updateAudioEffect('reverb', param, Number(this.value), true); });
-    $on(id, 'change', function (this: HTMLInputElement) { if (_isGuestLocked()) return; updateAudioEffect('reverb', param, Number(this.value)); });
-    $on(id, 'dblclick', function (this: HTMLInputElement) { if (_guardHostCtrl()) return; updateAudioEffect('reverb', param, resetVal); this.value = String(resetVal); });
+    $on(id, 'input', function (this: HTMLInputElement) {
+      if (_isGuestLocked()) return;
+      updateAudioEffect('reverb', param, Number(this.value), true);
+    });
+    $on(id, 'change', function (this: HTMLInputElement) {
+      if (_isGuestLocked()) return;
+      updateAudioEffect('reverb', param, Number(this.value));
+    });
+    $on(id, 'dblclick', function (this: HTMLInputElement) {
+      if (_guardHostCtrl()) return;
+      updateAudioEffect('reverb', param, resetVal);
+      this.value = String(resetVal);
+    });
   });
 
   // Guest UI sync: when host changes reverb preset
@@ -529,7 +594,7 @@ export function initSettings(): void {
   });
 
   // EQ preset grid
-  document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]').forEach(opt => {
+  document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]').forEach((opt) => {
     opt.addEventListener('click', () => {
       if (_guardHostCtrl()) return;
       const type = opt.dataset.eqType!;
@@ -554,26 +619,44 @@ export function initSettings(): void {
 
   // EQ sliders
   for (let i = 0; i < 5; i++) {
-    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) { if (_isGuestLocked()) return; setEQ(i, Number(this.value), true); });
-    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) { if (_isGuestLocked()) return; setEQ(i, Number(this.value)); });
-    $on(`eq-slider-${i}`, 'dblclick', () => { if (_guardHostCtrl()) return; setEQ(i, 0); const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement; if (el) el.value = '0'; });
+    $on(`eq-slider-${i}`, 'input', function (this: HTMLInputElement) {
+      if (_isGuestLocked()) return;
+      setEQ(i, Number(this.value), true);
+    });
+    $on(`eq-slider-${i}`, 'change', function (this: HTMLInputElement) {
+      if (_isGuestLocked()) return;
+      setEQ(i, Number(this.value));
+    });
+    $on(`eq-slider-${i}`, 'dblclick', () => {
+      if (_guardHostCtrl()) return;
+      setEQ(i, 0);
+      const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement;
+      if (el) el.value = '0';
+    });
   }
 
   // Virtual Surround ON/OFF grid
-  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-toggle]').forEach(opt => {
-    opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setSurroundOn(opt.dataset.toggle === 'on'); });
+  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-toggle]').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      if (_guardHostCtrl()) return;
+      setSurroundOn(opt.dataset.toggle === 'on');
+    });
   });
 
   // Virtual Bass ON/OFF grid
-  document.querySelectorAll<HTMLElement>('#grid-vbass .ch-opt[data-toggle]').forEach(opt => {
-    opt.addEventListener('click', () => { if (_guardHostCtrl()) return; setVBassOn(opt.dataset.toggle === 'on'); });
+  document.querySelectorAll<HTMLElement>('#grid-vbass .ch-opt[data-toggle]').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      if (_guardHostCtrl()) return;
+      setVBassOn(opt.dataset.toggle === 'on');
+    });
   });
 
   // Visualizer mode grid
-  document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach(opt => {
-    opt.addEventListener('click', () => setVisualizerMode(opt.dataset.viz as 'circular' | 'spectrum'));
+  document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach((opt) => {
+    opt.addEventListener('click', () =>
+      setVisualizerMode(opt.dataset.viz as 'circular' | 'spectrum'),
+    );
   });
-
 
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));
@@ -588,8 +671,11 @@ export function initSettings(): void {
   // Reverb individual slider sync (from host broadcast)
   _busScope.on('ui:sync-reverb-param', (param: string, value: number) => {
     const sliderMap: Record<string, string> = {
-      mix: 'reverb-slider', decay: 'reverb-decay-slider', predelay: 'reverb-predelay-slider',
-      lowcut: 'reverb-lowcut-slider', highcut: 'reverb-highcut-slider',
+      mix: 'reverb-slider',
+      decay: 'reverb-decay-slider',
+      predelay: 'reverb-predelay-slider',
+      lowcut: 'reverb-lowcut-slider',
+      highcut: 'reverb-highcut-slider',
     };
     const sliderId = sliderMap[param];
     if (sliderId) {
@@ -601,20 +687,30 @@ export function initSettings(): void {
     // Sync preset chip: detect if current values match a named preset
     const detected = detectReverbPreset();
     clearReverbChipActive();
-    document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${detected}"]`)?.classList.add('active');
+    document
+      .querySelector(`#grid-reverb .ch-opt[data-rvb-type="${detected}"]`)
+      ?.classList.add('active');
     setReverbSlidersVisible(detected === 'advanced');
   });
 
   // Surround toggle sync (from host broadcast)
   _busScope.on('ui:sync-surround', (on: boolean) => {
-    document.querySelectorAll('#grid-surround .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
-    document.querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+    document
+      .querySelectorAll('#grid-surround .ch-opt[data-toggle]')
+      .forEach((el) => el.classList.remove('active'));
+    document
+      .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+      ?.classList.add('active');
   });
 
   // Virtual Bass toggle sync (from host broadcast)
   _busScope.on('ui:sync-vbass', (on: boolean) => {
-    document.querySelectorAll('#grid-vbass .ch-opt[data-toggle]').forEach(el => el.classList.remove('active'));
-    document.querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)?.classList.add('active');
+    document
+      .querySelectorAll('#grid-vbass .ch-opt[data-toggle]')
+      .forEach((el) => el.classList.remove('active'));
+    document
+      .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+      ?.classList.add('active');
   });
 
   // EQ band slider/label sync (from audio module via bus, avoids audio→DOM coupling)
@@ -646,14 +742,17 @@ export function initSettings(): void {
   try {
     const savedTheme = localStorage.getItem('musixquare-theme');
     setTheme(savedTheme || 'system', false);
-  } catch { setTheme('system', false); }
+  } catch {
+    setTheme('system', false);
+  }
 
   // Restore visualizer mode
   try {
     const savedViz = localStorage.getItem('musixquare-viz-mode');
     if (savedViz === 'spectrum') setVisualizerMode('spectrum');
-  } catch { /* ignore */ }
-
+  } catch {
+    /* ignore */
+  }
 
   // ─── Desktop Settings Sub-Tab Navigation ──────────────────────
   initSettingsSubtabs();
@@ -664,7 +763,7 @@ export function initSettings(): void {
 // ─── Settings Sub-Tab Switching (Desktop) ─────────────────────────
 
 function initSettingsSubtabs(): void {
-  document.querySelectorAll<HTMLElement>('.subtab-pill').forEach(btn => {
+  document.querySelectorAll<HTMLElement>('.subtab-pill').forEach((btn) => {
     btn.addEventListener('click', () => {
       const subtab = btn.dataset.subtab;
       if (subtab) switchSettingsSubtab(subtab);
@@ -673,10 +772,10 @@ function initSettingsSubtabs(): void {
 }
 
 function switchSettingsSubtab(id: string): void {
-  document.querySelectorAll<HTMLElement>('.subtab-pill').forEach(p =>
-    p.classList.toggle('active', p.dataset.subtab === id),
-  );
-  document.querySelectorAll<HTMLElement>('.settings-subtab-panel').forEach(p =>
-    p.classList.toggle('active', p.dataset.panel === id),
-  );
+  document
+    .querySelectorAll<HTMLElement>('.subtab-pill')
+    .forEach((p) => p.classList.toggle('active', p.dataset.subtab === id));
+  document
+    .querySelectorAll<HTMLElement>('.settings-subtab-panel')
+    .forEach((p) => p.classList.toggle('active', p.dataset.panel === id));
 }

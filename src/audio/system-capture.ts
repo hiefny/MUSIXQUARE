@@ -45,9 +45,13 @@ export function isSystemAudioActive(): boolean {
 }
 
 /** Get the L track stream */
-export function getStreamL(): MediaStream | null { return _streamL; }
+export function getStreamL(): MediaStream | null {
+  return _streamL;
+}
 /** Get the R track stream */
-export function getStreamR(): MediaStream | null { return _streamR; }
+export function getStreamR(): MediaStream | null {
+  return _streamR;
+}
 
 /**
  * Start system audio capture.
@@ -124,9 +128,13 @@ export async function startSystemAudioCapture(): Promise<void> {
 
   // 3.5 UI only: show stereo button as active (actual channelMode unchanged)
   try {
-    document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
+    document
+      .querySelectorAll('#grid-standard .ch-opt')
+      .forEach((el) => el.classList.remove('active'));
     document.querySelector('#grid-standard .ch-opt[data-ch="0"]')?.classList.add('active');
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 
   // 4. Init audio
   await initAudio();
@@ -151,7 +159,9 @@ export async function startSystemAudioCapture(): Promise<void> {
   splitter.connect(_destR, 1);
   _streamR = _destR.stream;
 
-  log.info(`[SystemAudio] L/R mono streams created for synced P2P: L=${_streamL.id.slice(0, 8)}, R=${_streamR.id.slice(0, 8)}`);
+  log.info(
+    `[SystemAudio] L/R mono streams created for synced P2P: L=${_streamL.id.slice(0, 8)}, R=${_streamR.id.slice(0, 8)}`,
+  );
 
   // 6. Local graph: upmix for safety
   _stereoUpmix = ctx.createGain();
@@ -176,7 +186,11 @@ export async function startSystemAudioCapture(): Promise<void> {
   // 8. Update state
   setState('systemAudio.isSharing', true);
   setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
-  setState('player.currentTrackMeta', { type: 'file', name: 'system-audio', title: 'System Audio Sharing' });
+  setState('player.currentTrackMeta', {
+    type: 'file',
+    name: 'system-audio',
+    title: 'System Audio Sharing',
+  });
 
   // 9. Broadcast start + call guests with L/R streams
   broadcast({ type: MSG.SYSTEM_AUDIO_START });
@@ -219,15 +233,26 @@ export function stopSystemAudioCapture(): void {
     setState('player.currentTrackMeta', _preSysAudioState.currentTrackMeta ?? null);
     // Restore channel UI to previous selection
     try {
-      document.querySelectorAll('#grid-standard .ch-opt').forEach(el => el.classList.remove('active'));
-      document.querySelector(`#grid-standard .ch-opt[data-ch="${_preSysAudioState.channelMode}"]`)?.classList.add('active');
-    } catch { /* noop */ }
+      document
+        .querySelectorAll('#grid-standard .ch-opt')
+        .forEach((el) => el.classList.remove('active'));
+      document
+        .querySelector(`#grid-standard .ch-opt[data-ch="${_preSysAudioState.channelMode}"]`)
+        ?.classList.add('active');
+    } catch {
+      /* noop */
+    }
 
     // YouTube was playing → reload it (stopAllMedia destroyed the player)
     if (_preSysAudioState.appState === APP_STATE.PLAYING_YOUTUBE) {
       const meta = _preSysAudioState.currentTrackMeta as Record<string, unknown> | null;
       if (meta) {
-        bus.emit('youtube:load', (meta.videoId as string) || null, (meta.playlistId as string) || null, true);
+        bus.emit(
+          'youtube:load',
+          (meta.videoId as string) || null,
+          (meta.playlistId as string) || null,
+          true,
+        );
       }
     } else if (_preSysAudioState.appState !== APP_STATE.IDLE) {
       setState('appState', APP_STATE.PAUSED);
@@ -262,14 +287,46 @@ export function muteLocalOutput(mute: boolean): void {
 
 function cleanupCapture(): void {
   if (_sourceNode) {
-    try { _sourceNode.disconnect(); } catch { /* noop */ }
+    try {
+      _sourceNode.disconnect();
+    } catch {
+      /* noop */
+    }
     _sourceNode = null;
   }
   // M15: Disconnect intermediate graph nodes that were previously leaked
-  if (_splitter) { try { _splitter.disconnect(); } catch { /* noop */ } _splitter = null; }
-  if (_stereoUpmix) { try { _stereoUpmix.disconnect(); } catch { /* noop */ } _stereoUpmix = null; }
-  if (_destL) { try { _destL.disconnect(); } catch { /* noop */ } _destL = null; }
-  if (_destR) { try { _destR.disconnect(); } catch { /* noop */ } _destR = null; }
+  if (_splitter) {
+    try {
+      _splitter.disconnect();
+    } catch {
+      /* noop */
+    }
+    _splitter = null;
+  }
+  if (_stereoUpmix) {
+    try {
+      _stereoUpmix.disconnect();
+    } catch {
+      /* noop */
+    }
+    _stereoUpmix = null;
+  }
+  if (_destL) {
+    try {
+      _destL.disconnect();
+    } catch {
+      /* noop */
+    }
+    _destL = null;
+  }
+  if (_destR) {
+    try {
+      _destR.disconnect();
+    } catch {
+      /* noop */
+    }
+    _destR = null;
+  }
   _streamL = null;
   _streamR = null;
   if (_capturedStream) {
@@ -282,11 +339,15 @@ function cleanupCapture(): void {
 
 export function registerSystemCaptureListeners(): void {
   bus.on('system-audio:start', () => {
-    startSystemAudioCapture().catch(e => {
+    startSystemAudioCapture().catch((e) => {
       log.error('[SystemAudio] Unhandled error in startSystemAudioCapture:', e);
       stopSystemAudioCapture(); // Best-effort cleanup of half-initialized state
     });
   });
-  bus.on('system-audio:stop', () => { stopSystemAudioCapture(); });
-  bus.on('system-audio:force-stop', () => { stopSystemAudioCapture(); });
+  bus.on('system-audio:stop', () => {
+    stopSystemAudioCapture();
+  });
+  bus.on('system-audio:force-stop', () => {
+    stopSystemAudioCapture();
+  });
 }

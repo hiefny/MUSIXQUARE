@@ -17,7 +17,12 @@ import { sendToHost } from '../network/peer.ts';
 import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
-import { parseCommand, executeCommand, getAvailableCommands, getCommandArgHint } from '../chat/commands.ts';
+import {
+  parseCommand,
+  executeCommand,
+  getAvailableCommands,
+  getCommandArgHint,
+} from '../chat/commands.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import { registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
@@ -48,13 +53,15 @@ function _getChatLabelBase(): string {
     return label || 'HOST';
   }
 
-  if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest')) return PEER_NAME_PREFIX;
+  if (!label || label === 'HOST' || label === 'Guest' || label === t('common.guest'))
+    return PEER_NAME_PREFIX;
 
   const role0 = getRoleLabelByChannelMode(0);
   const roleL = getRoleLabelByChannelMode(-1);
   const roleR = getRoleLabelByChannelMode(1);
   const roleS = getRoleLabelByChannelMode(2);
-  if (label === role0 || label === roleL || label === roleR || label === roleS) return PEER_NAME_PREFIX;
+  if (label === role0 || label === roleL || label === roleR || label === roleS)
+    return PEER_NAME_PREFIX;
 
   return label;
 }
@@ -149,8 +156,12 @@ function initChatSwipeToDismiss(): void {
   };
 
   // Touch events
-  header.addEventListener('touchstart', (e: TouchEvent) => startDrag(e.touches[0].clientY), { passive: true });
-  header.addEventListener('touchmove', (e: TouchEvent) => moveDrag(e.touches[0].clientY), { passive: true });
+  header.addEventListener('touchstart', (e: TouchEvent) => startDrag(e.touches[0].clientY), {
+    passive: true,
+  });
+  header.addEventListener('touchmove', (e: TouchEvent) => moveDrag(e.touches[0].clientY), {
+    passive: true,
+  });
   header.addEventListener('touchend', endDrag);
   header.addEventListener('touchcancel', endDrag);
 
@@ -164,7 +175,10 @@ function initChatSwipeToDismiss(): void {
     dragAC?.abort();
     dragAC = null;
   };
-  const onMouseUp = () => { endDrag(); teardownDrag(); };
+  const onMouseUp = () => {
+    endDrag();
+    teardownDrag();
+  };
   header.addEventListener('mousedown', (e: MouseEvent) => {
     // If a previous drag never received mouseup (tab switch, devtools grab),
     // abort its listeners before starting a new one so they don't accumulate.
@@ -317,30 +331,42 @@ function initChatEventDelegation(): void {
   const { signal } = _chatDelegationAC;
 
   // Timestamp seeking
-  document.addEventListener('click', (e) => {
-    const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
-    if (!target) return;
-    const sec = Number(target.getAttribute('data-seek'));
-    if (Number.isFinite(sec)) seekTo(sec);
-  }, { signal });
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
+      if (!target) return;
+      const sec = Number(target.getAttribute('data-seek'));
+      if (Number.isFinite(sec)) seekTo(sec);
+    },
+    { signal },
+  );
 
-  document.addEventListener('keydown', (e) => {
-    const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
-    if (!target) return;
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    e.stopPropagation();
-    const sec = Number(target.getAttribute('data-seek'));
-    if (Number.isFinite(sec)) seekTo(sec);
-  }, { signal });
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      const target = (e.target as HTMLElement)?.closest?.('.chat-timestamp[data-seek]');
+      if (!target) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      e.stopPropagation();
+      const sec = Number(target.getAttribute('data-seek'));
+      if (Number.isFinite(sec)) seekTo(sec);
+    },
+    { signal },
+  );
 
   // YouTube button in chat
-  document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement)?.closest?.('.chat-youtube-btn[data-youtube-url]');
-    if (!btn) return;
-    const url = btn.getAttribute('data-youtube-url');
-    if (url) bus.emit('youtube:load-from-chat', url);
-  }, { signal });
+  document.addEventListener(
+    'click',
+    (e) => {
+      const btn = (e.target as HTMLElement)?.closest?.('.chat-youtube-btn[data-youtube-url]');
+      if (!btn) return;
+      const url = btn.getAttribute('data-youtube-url');
+      if (url) bus.emit('youtube:load-from-chat', url);
+    },
+    { signal },
+  );
 }
 
 // ─── Init ────────────────────────────────────────────────────────
@@ -360,9 +386,10 @@ export function initChat(): void {
 
   // Backdrop tap to close
   const backdrop = document.getElementById('chat-backdrop');
-  if (backdrop) backdrop.addEventListener('click', () => {
-    if (_isChatDrawerOpen) toggleChatDrawer();
-  });
+  if (backdrop)
+    backdrop.addEventListener('click', () => {
+      if (_isChatDrawerOpen) toggleChatDrawer();
+    });
 
   // Wire up UI buttons
   const sendBtn = document.getElementById('btn-chat-send');
@@ -456,10 +483,16 @@ export function initChat(): void {
     function showSuggest(items: { name: string; usage: string; description: string }[]): void {
       _suggestItems = items;
       _suggestIdx = 0;
-      if (!items.length) { suggest.style.display = 'none'; return; }
-      suggest.innerHTML = items.map((it, i) =>
-        `<div class="chat-cmd-item${i === 0 ? ' active' : ''}" data-idx="${i}"><span class="chat-cmd-usage">${escapeHtml(it.usage)}</span> <span class="chat-cmd-desc">${escapeHtml(it.description)}</span></div>`
-      ).join('');
+      if (!items.length) {
+        suggest.style.display = 'none';
+        return;
+      }
+      suggest.innerHTML = items
+        .map(
+          (it, i) =>
+            `<div class="chat-cmd-item${i === 0 ? ' active' : ''}" data-idx="${i}"><span class="chat-cmd-usage">${escapeHtml(it.usage)}</span> <span class="chat-cmd-desc">${escapeHtml(it.description)}</span></div>`,
+        )
+        .join('');
       suggest.style.display = '';
     }
 
@@ -516,7 +549,10 @@ export function initChat(): void {
     chatInput.addEventListener('input', () => {
       const val = getInputValue();
       updateGhost();
-      if (!val.startsWith('/') || val.includes(' ')) { hideSuggest(); return; }
+      if (!val.startsWith('/') || val.includes(' ')) {
+        hideSuggest();
+        return;
+      }
       const query = val.slice(1).toLowerCase();
       const matches = getAvailableCommands(query);
       showSuggest(matches);
@@ -588,16 +624,20 @@ export function initChat(): void {
         sendChatMessage();
       }
     });
-    
+
     let _isConfirmingIME = false;
     chatInput.addEventListener('compositionend', () => {
       // If Enter was pressed during composition, trigger send now that it's finished.
       if (_isConfirmingIME) {
         _isConfirmingIME = false;
         // Zero-delay timeout is more stable for IME-to-DOM sync on Safari/Mac than rAF.
-        setManagedTimer('chat-ime-send', () => {
-          sendChatMessage();
-        }, 0);
+        setManagedTimer(
+          'chat-ime-send',
+          () => {
+            sendChatMessage();
+          },
+          0,
+        );
       }
     });
 
@@ -606,19 +646,26 @@ export function initChat(): void {
     // stacking. Matches the connect.ts _langObserver pattern.
     if (_langObserver) _langObserver.disconnect();
     _langObserver = new MutationObserver(() => updateGhost());
-    _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    _langObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['lang'],
+    });
 
     // keyboard-open class is now managed by platform.ts via visualViewport
     // detection — fires proactively before focus, preventing layout thrashing.
     // Blur handler retained as safety-net cleanup (delayed) in case the
     // visualViewport.resize event doesn't fire (e.g. external keyboard).
     chatInput.addEventListener('blur', () => {
-      setManagedTimer('kb-blur-guard', () => {
-        const active = document.activeElement;
-        if (!active?.matches('input, textarea, [contenteditable="true"]')) {
-          document.documentElement.classList.remove('keyboard-open');
-        }
-      }, 400);
+      setManagedTimer(
+        'kb-blur-guard',
+        () => {
+          const active = document.activeElement;
+          if (!active?.matches('input, textarea, [contenteditable="true"]')) {
+            document.documentElement.classList.remove('keyboard-open');
+          }
+        },
+        400,
+      );
     });
   }
 
@@ -653,7 +700,10 @@ export function initChat(): void {
   _busScope.on('chat:muted-state-changed', (isMuted: boolean) => {
     const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
     if (chatInput) {
-      chatInput.setAttribute('data-placeholder', isMuted ? t('chat.muted_placeholder') : t('chat.placeholder'));
+      chatInput.setAttribute(
+        'data-placeholder',
+        isMuted ? t('chat.muted_placeholder') : t('chat.placeholder'),
+      );
       chatInput.contentEditable = isMuted ? 'false' : 'true';
       chatInput.dataset.disabled = isMuted ? 'true' : 'false';
     }

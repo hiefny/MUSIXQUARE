@@ -25,7 +25,10 @@ let _broadcastScope: SessionScope | null = null;
 /**
  * Broadcast a file to all connected peers (host-only).
  */
-export async function broadcastFile(file: File, explicitSessionId: number | null = null): Promise<void> {
+export async function broadcastFile(
+  file: File,
+  explicitSessionId: number | null = null,
+): Promise<void> {
   let sessionId: number;
   const currentTransferSessionId = getState('transfer.currentSessionId');
 
@@ -74,8 +77,12 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   }
 
   // Send header
-  eligiblePeers.forEach(p => {
-    try { (p.conn as DataConnection).send(header); } catch { /* noop */ }
+  eligiblePeers.forEach((p) => {
+    try {
+      (p.conn as DataConnection).send(header);
+    } catch {
+      /* noop */
+    }
   });
 
   // Track peers that hit backpressure timeout — skip them for ALL remaining chunks
@@ -102,23 +109,31 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
     const chunkMsg = { type: MSG.FILE_CHUNK, chunk, index: i, sessionId, total, name: file.name };
 
     // Send to all peers concurrently (backpressure is per-peer, not sequential)
-    await Promise.all(eligiblePeers.map(async (p) => {
-      if (timedOutPeers.has(p.id)) return;
-      const conn = p.conn as DataConnection;
-      if (!conn?.open) return;
-      const BACKPRESSURE_TIMEOUT = 30_000;
-      const backpressureStart = Date.now();
-      while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
-        if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
-          log.warn(`[Transfer] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining transfer`);
-          timedOutPeers.add(p.id);
-          return;
+    await Promise.all(
+      eligiblePeers.map(async (p) => {
+        if (timedOutPeers.has(p.id)) return;
+        const conn = p.conn as DataConnection;
+        if (!conn?.open) return;
+        const BACKPRESSURE_TIMEOUT = 30_000;
+        const backpressureStart = Date.now();
+        while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
+          if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
+            log.warn(
+              `[Transfer] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining transfer`,
+            );
+            timedOutPeers.add(p.id);
+            return;
+          }
+          await delay(DELAY.BACKPRESSURE);
+          if (!conn.open) return;
         }
-        await delay(DELAY.BACKPRESSURE);
-        if (!conn.open) return;
-      }
-      try { conn.send(chunkMsg); } catch { /* noop */ }
-    }));
+        try {
+          conn.send(chunkMsg);
+        } catch {
+          /* noop */
+        }
+      }),
+    );
 
     if (i % 50 === 0) await delay(DELAY.TICK);
   }
@@ -126,10 +141,15 @@ export async function broadcastFile(file: File, explicitSessionId: number | null
   // Send end message (skip if superseded or aborted after loop)
   if (!scope.aborted && getState('transfer.activeBroadcastSession') === sessionId) {
     const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
-    eligiblePeers.forEach(p => {
+    eligiblePeers.forEach((p) => {
       if (timedOutPeers.has(p.id)) return;
       const conn = p.conn as DataConnection;
-      if (conn?.open) try { conn.send(endMsg); } catch { /* noop */ }
+      if (conn?.open)
+        try {
+          conn.send(endMsg);
+        } catch {
+          /* noop */
+        }
     });
   }
 
@@ -203,7 +223,10 @@ export async function unicastFile(
       // Backpressure (return on timeout — connection is likely dead)
       const startWait = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
-        if (Date.now() - startWait > 30000) { log.warn('[Unicast] Backpressure timeout'); return; }
+        if (Date.now() - startWait > 30000) {
+          log.warn('[Unicast] Backpressure timeout');
+          return;
+        }
         await delay(DELAY.BACKPRESSURE);
       }
 
@@ -225,7 +248,12 @@ export async function unicastFile(
     }
 
     if (conn.open) {
-      conn.send({ type: MSG.FILE_END, name: fileName, mime: file.type, sessionId: effectiveSessionId });
+      conn.send({
+        type: MSG.FILE_END,
+        name: fileName,
+        mime: file.type,
+        sessionId: effectiveSessionId,
+      });
       log.debug('[Unicast] Transfer complete:', fileName);
     }
   } catch (e) {

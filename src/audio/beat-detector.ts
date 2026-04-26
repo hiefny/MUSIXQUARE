@@ -22,19 +22,25 @@ import { getCurrentAudioBuffer } from '../player/_state.ts';
 // ─── Module State ────────────────────────────────────────────────
 
 let _bpm = 0;
-let _phase = 0;          // first beat offset in seconds
-let _beatDuration = 0;   // seconds per beat
+let _phase = 0; // first beat offset in seconds
+let _beatDuration = 0; // seconds per beat
 let _animId: number | null = null;
 let _lastBeatIdx = -1;
-let _analysedBuffer: AudioBuffer | null = null;   // avoid re-analysis of same buffer
+let _analysedBuffer: AudioBuffer | null = null; // avoid re-analysis of same buffer
 
 // ─── Public Getters ──────────────────────────────────────────────
 
-export function getDetectedBPM(): number { return _bpm; }
+export function getDetectedBPM(): number {
+  return _bpm;
+}
 
 let _partyMode = false;
-export function isPartyMode(): boolean { return _partyMode; }
-export function setPartyMode(on: boolean): void { _partyMode = on; }
+export function isPartyMode(): boolean {
+  return _partyMode;
+}
+export function setPartyMode(on: boolean): void {
+  _partyMode = on;
+}
 
 // ─── Init ────────────────────────────────────────────────────────
 
@@ -77,18 +83,18 @@ async function analyzeAndStart(): Promise<void> {
   }
 
   const t0 = performance.now();
-  
+
   try {
     // 1) Use the robust library for BPM
     const candidates = await analyzeFullBuffer(buf);
-    
+
     // Sort candidates by frequency (count)
     candidates.sort((a, b) => b.count - a.count);
     let topBPM = candidates[0]?.tempo || 0;
 
     // 2) Use our V2 logic just for Phase detection (library doesn't give phase)
     const v2Result = detectBPM_V2(buf);
-    
+
     const ms = performance.now() - t0;
 
     // >200 BPM → halve
@@ -144,7 +150,7 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
   const energyMap: number[] = [];
   for (let i = 0; i < data.length; i += step) {
     let sum = 0;
-    for (let j = 0; j < step && (i + j) < data.length; j++) sum += data[i + j] * data[i + j];
+    for (let j = 0; j < step && i + j < data.length; j++) sum += data[i + j] * data[i + j];
     energyMap.push(Math.sqrt(sum / step));
   }
 
@@ -157,14 +163,18 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
   for (let lag = minLag; lag <= maxLag; lag++) {
     let score = 0;
     for (let i = lag; i < limit; i++) score += energyMap[i] * energyMap[i - lag];
-    score /= (limit - lag);
+    score /= limit - lag;
     allScores.push({ lag, score });
   }
 
   // 3) Peak + parabolic interpolation
-  let maxScore = -1, bestIdx = -1;
+  let maxScore = -1,
+    bestIdx = -1;
   for (let i = 0; i < allScores.length; i++) {
-    if (allScores[i].score > maxScore) { maxScore = allScores[i].score; bestIdx = i; }
+    if (allScores[i].score > maxScore) {
+      maxScore = allScores[i].score;
+      bestIdx = i;
+    }
   }
 
   let refinedLag = allScores[bestIdx].lag;
@@ -174,18 +184,18 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
     const s2 = allScores[bestIdx + 1].score;
     const denom = s0 - 2 * s1 + s2;
     if (Math.abs(denom) > 0.000001) {
-      refinedLag = allScores[bestIdx].lag + 0.5 * (s0 - s2) / denom;
+      refinedLag = allScores[bestIdx].lag + (0.5 * (s0 - s2)) / denom;
     }
   }
   const finalBPM = (60 * actualFreq) / refinedLag;
 
   // 4) Phase (Global Phase Alignment — Comb Filter approach)
-  // Instead of the first peak, we find the offset (0..1 beat) that maximizes 
+  // Instead of the first peak, we find the offset (0..1 beat) that maximizes
   // alignment with the energy map over the first 15 seconds.
   const beatDurationFrames = actualFreq * (60 / finalBPM);
   const searchLimitFrames = Math.floor(actualFreq * 15); // Check first 15 seconds
   const framesToScan = Math.min(energyMap.length, searchLimitFrames);
-  
+
   let bestOffsetFrames = 0;
   let maxAlignmentScore = -1;
 
@@ -193,7 +203,7 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
   for (let offset = 0; offset < beatDurationFrames; offset++) {
     let score = 0;
     let count = 0;
-    
+
     // Sum energy at every beat position for this offset candidate
     for (let t = offset; t < framesToScan; t += beatDurationFrames) {
       const idx = Math.floor(t);
@@ -203,7 +213,7 @@ function detectBPM_V2(audioBuffer: AudioBuffer): { bpm: number; phase: number } 
         count++;
       }
     }
-    
+
     if (count > 0) {
       score /= count;
       if (score > maxAlignmentScore) {
@@ -258,9 +268,9 @@ function tick(): void {
 
   if (_bpm <= 0 || _beatDuration <= 0) return;
 
-  const startedAt = getState('player.startedAt') as number || 0;
+  const startedAt = (getState('player.startedAt') as number) || 0;
   const localOffset = (getState('sync.localOffset') as number) || 0;
-  const now = (getCurrentTime() - startedAt) + localOffset;
+  const now = getCurrentTime() - startedAt + localOffset;
 
   const beatsElapsed = (now - _phase) / _beatDuration;
   const beatIdx = Math.floor(beatsElapsed);

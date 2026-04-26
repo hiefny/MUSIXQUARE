@@ -35,7 +35,9 @@ export function setLogLevel(level: keyof typeof LOG_LEVEL): void {
 // Expose to browser console for runtime debugging
 try {
   (globalThis as unknown as Record<string, unknown>).setLogLevel = setLogLevel;
-} catch { /* worker context */ }
+} catch {
+  /* worker context */
+}
 
 export const log = {
   debug: (...args: unknown[]): void => {

@@ -19,11 +19,19 @@ export function setManagedTimer(
   clearManagedTimer(name);
   const id = opts?.interval
     ? setInterval(() => {
-        try { fn(); } catch (e) { console.error(`[Timer] "${name}" threw:`, e); }
+        try {
+          fn();
+        } catch (e) {
+          console.error(`[Timer] "${name}" threw:`, e);
+        }
       }, delayMs)
     : setTimeout(() => {
         _timers.delete(name);
-        try { fn(); } catch (e) { console.error(`[Timer] "${name}" threw:`, e); }
+        try {
+          fn();
+        } catch (e) {
+          console.error(`[Timer] "${name}" threw:`, e);
+        }
       }, delayMs);
   _timers.set(name, id);
 }
@@ -66,5 +74,5 @@ export function getManagedTimer(name: string): ReturnType<typeof setTimeout> | n
  * Not cancellable; for cancellable delays use SessionScope.
  */
 export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

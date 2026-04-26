@@ -17,7 +17,8 @@ import { isCompactLandscape } from '../core/platform.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
 import {
-  updateRoleBadge, updateInviteCodeUI,
+  updateRoleBadge,
+  updateInviteCodeUI,
   showPlacementToastForChannel,
 } from './player-controls.ts';
 import { activateNoSleep } from '../app.ts';
@@ -26,7 +27,8 @@ import { selectStandardChannelButton } from './settings.ts';
 // ─── Constants ───────────────────────────────────────────────────
 export const TOTAL_OB_SLIDES = 4;
 
-export const BACK_SVG = '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>';
+export const BACK_SVG =
+  '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>';
 
 // ─── Shared State ────────────────────────────────────────────────
 
@@ -40,30 +42,60 @@ let _pendingAutoJoinCode: string | null = null;
 
 // ─── State Accessors ─────────────────────────────────────────────
 
-export function getCurrentObSlide(): number { return _currentObSlide; }
-export function setCurrentObSlide(v: number): void { _currentObSlide = v; }
+export function getCurrentObSlide(): number {
+  return _currentObSlide;
+}
+export function setCurrentObSlide(v: number): void {
+  _currentObSlide = v;
+}
 
-export function getSetupOverlayEverShown(): boolean { return _setupOverlayEverShown; }
+export function getSetupOverlayEverShown(): boolean {
+  return _setupOverlayEverShown;
+}
 
-export function getPendingSetupRole(): number | null { return _pendingSetupRole; }
-export function setPendingSetupRole(v: number | null): void { _pendingSetupRole = v; }
+export function getPendingSetupRole(): number | null {
+  return _pendingSetupRole;
+}
+export function setPendingSetupRole(v: number | null): void {
+  _pendingSetupRole = v;
+}
 
-export function getPendingGuestRoleMode(): number | null { return _pendingGuestRoleMode; }
-export function setPendingGuestRoleMode(v: number | null): void { _pendingGuestRoleMode = v; }
+export function getPendingGuestRoleMode(): number | null {
+  return _pendingGuestRoleMode;
+}
+export function setPendingGuestRoleMode(v: number | null): void {
+  _pendingGuestRoleMode = v;
+}
 
-export function getHostCodeFlowId(): number { return _hostCodeFlowId; }
-export function incrementHostCodeFlowId(): number { return ++_hostCodeFlowId; }
+export function getHostCodeFlowId(): number {
+  return _hostCodeFlowId;
+}
+export function incrementHostCodeFlowId(): number {
+  return ++_hostCodeFlowId;
+}
 
-export function getSetupOverlayAbort(): AbortController | null { return _setupOverlayAbort; }
-export function setSetupOverlayAbort(v: AbortController | null): void { _setupOverlayAbort = v; }
+export function getSetupOverlayAbort(): AbortController | null {
+  return _setupOverlayAbort;
+}
+export function setSetupOverlayAbort(v: AbortController | null): void {
+  _setupOverlayAbort = v;
+}
 
-export function getPendingAutoJoinCode(): string | null { return _pendingAutoJoinCode; }
-export function setPendingAutoJoinCode(v: string | null): void { _pendingAutoJoinCode = v; }
+export function getPendingAutoJoinCode(): string | null {
+  return _pendingAutoJoinCode;
+}
+export function setPendingAutoJoinCode(v: string | null): void {
+  _pendingAutoJoinCode = v;
+}
 
 /** Callback invoked when a role card is tapped in invite-link mode (set by setup-guest.ts) */
 let _onInviteLinkRoleSelected: (() => void) | null = null;
-export function setOnInviteLinkRoleSelected(fn: (() => void) | null): void { _onInviteLinkRoleSelected = fn; }
-export function getOnInviteLinkRoleSelected(): (() => void) | null { return _onInviteLinkRoleSelected; }
+export function setOnInviteLinkRoleSelected(fn: (() => void) | null): void {
+  _onInviteLinkRoleSelected = fn;
+}
+export function getOnInviteLinkRoleSelected(): (() => void) | null {
+  return _onInviteLinkRoleSelected;
+}
 
 // ─── Desktop Left Panel Sync ─────────────────────────────────────
 
@@ -72,15 +104,19 @@ let _desktopSyncedDiagramParent: HTMLElement | null = null;
 let _desktopSyncedDiagramNextSibling: Node | null = null;
 
 function isDesktopLayout(): boolean {
-  return window.matchMedia('(min-width: 1280px)').matches
-    || isCompactLandscape();
+  return window.matchMedia('(min-width: 1280px)').matches || isCompactLandscape();
 }
 
 function _restoreDesktopDiagram(): void {
   if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
     try {
-      _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
-    } catch { /* ignore */ }
+      _desktopSyncedDiagramParent.insertBefore(
+        _desktopSyncedDiagram,
+        _desktopSyncedDiagramNextSibling || null,
+      );
+    } catch {
+      /* ignore */
+    }
   }
   _desktopSyncedDiagram = null;
   _desktopSyncedDiagramParent = null;
@@ -103,8 +139,13 @@ export function syncDesktopLeftPanel(): void {
 
   if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
     try {
-      _desktopSyncedDiagramParent.insertBefore(_desktopSyncedDiagram, _desktopSyncedDiagramNextSibling || null);
-    } catch { /* ignore */ }
+      _desktopSyncedDiagramParent.insertBefore(
+        _desktopSyncedDiagram,
+        _desktopSyncedDiagramNextSibling || null,
+      );
+    } catch {
+      /* ignore */
+    }
     _desktopSyncedDiagram = null;
     _desktopSyncedDiagramParent = null;
     _desktopSyncedDiagramNextSibling = null;
@@ -114,9 +155,18 @@ export function syncDesktopLeftPanel(): void {
 
   const areas: Array<{ id: string; diagram: (el: HTMLElement) => HTMLElement | null }> = [
     { id: 'setup-welcome-area', diagram: () => document.getElementById('ob-slider-area') },
-    { id: 'setup-role-area', diagram: (el) => el.querySelector('.setup-graphic-container') as HTMLElement | null },
-    { id: 'setup-join-area', diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null },
-    { id: 'setup-code-area', diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null },
+    {
+      id: 'setup-role-area',
+      diagram: (el) => el.querySelector('.setup-graphic-container') as HTMLElement | null,
+    },
+    {
+      id: 'setup-join-area',
+      diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
+    },
+    {
+      id: 'setup-code-area',
+      diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
+    },
   ];
 
   for (const area of areas) {
@@ -148,25 +198,42 @@ export function showSetupOverlay(): void {
     const ov = setupEl('setup-overlay');
     if (ov) ov.classList.add('active');
     updateOverlayOpenClass();
-    try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
+    try {
+      document.documentElement.classList.remove('setup-boot-block');
+    } catch {
+      /* ignore */
+    }
     _setupOverlayEverShown = true;
   });
 }
 
 export function hideSetupOverlay(): void {
   activateNoSleep();
-  if (_setupOverlayAbort) { _setupOverlayAbort.abort(); _setupOverlayAbort = null; }
-  
+  if (_setupOverlayAbort) {
+    _setupOverlayAbort.abort();
+    _setupOverlayAbort = null;
+  }
+
   const overlay = setupEl('setup-overlay');
   if (overlay) overlay.classList.remove('active');
   updateOverlayOpenClass();
   stopObAutoSlide();
-  try { document.documentElement.classList.remove('setup-boot-block'); } catch { /* ignore */ }
+  try {
+    document.documentElement.classList.remove('setup-boot-block');
+  } catch {
+    /* ignore */
+  }
   try {
     requestAnimationFrame(() => {
-      try { void document.documentElement.offsetHeight; } catch { /* ignore */ }
+      try {
+        void document.documentElement.offsetHeight;
+      } catch {
+        /* ignore */
+      }
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Trigger entrance OUTSIDE animateTransition so CSS transitions work
   // (startViewTransition snapshots can swallow CSS transitions)
@@ -227,14 +294,14 @@ export function setupSetGuestJoinBusy(busy: boolean): void {
 
 export function setupHighlightJoinRole(mode: number | null): void {
   const opts = document.querySelectorAll<HTMLElement>('#setup-role-grid .ch-opt[data-join-ch]');
-  opts.forEach(o => o.classList.remove('selected'));
+  opts.forEach((o) => o.classList.remove('selected'));
   if (mode !== null && mode !== undefined) {
     const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
     if (el) el.classList.add('selected');
   }
 
   const speakers = document.querySelectorAll<HTMLElement>('.setup-graphic-svg .graphic-speaker');
-  speakers.forEach(el => el.classList.remove('active'));
+  speakers.forEach((el) => el.classList.remove('active'));
 
   let targetId: string | null = null;
   if (mode === -1) targetId = 'svg-spk-l';
@@ -259,7 +326,10 @@ export interface SetupButton {
   onClick?: (() => void) | null;
 }
 
-export function setupRenderActions(buttons: SetupButton[], layout: 'row' | 'vertical' | 'horizontal-with-back' = 'row'): void {
+export function setupRenderActions(
+  buttons: SetupButton[],
+  layout: 'row' | 'vertical' | 'horizontal-with-back' = 'row',
+): void {
   const area = setupEl('setup-actions');
   if (!area) return;
   area.innerHTML = '';
@@ -268,7 +338,7 @@ export function setupRenderActions(buttons: SetupButton[], layout: 'row' | 'vert
   if (layout === 'vertical') area.classList.add('vertical');
   else if (layout === 'horizontal-with-back') area.classList.add('horizontal-with-back');
 
-  buttons.forEach(btn => {
+  buttons.forEach((btn) => {
     const b = document.createElement('button');
     b.id = btn.id;
     b.type = 'button';
@@ -291,9 +361,14 @@ export function setupRenderActions(buttons: SetupButton[], layout: 'row' | 'vert
 
 export function startObAutoSlide(): void {
   stopObAutoSlide();
-  setManagedTimer('obAutoSlideTimer', () => {
-    nextObSlide(true);
-  }, 5000, { interval: true });
+  setManagedTimer(
+    'obAutoSlideTimer',
+    () => {
+      nextObSlide(true);
+    },
+    5000,
+    { interval: true },
+  );
 }
 
 export function stopObAutoSlide(): void {

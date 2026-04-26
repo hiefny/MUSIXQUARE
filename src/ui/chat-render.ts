@@ -19,12 +19,13 @@ export const MAX_CHAT_MESSAGES = 200;
 export const MAX_SENDER_LABEL_LENGTH = 30;
 export const MAX_MSG_LENGTH = 500;
 
-const CROWN_SVG = '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
+const CROWN_SVG =
+  '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
 
 // ─── Label Helper ────────────────────────────────────────────────
 
 export function formatChatDisplayName(label: string): string {
-  const l = (label && label.trim()) ? label.trim() : PEER_NAME_PREFIX;
+  const l = label && label.trim() ? label.trim() : PEER_NAME_PREFIX;
   return l;
 }
 
@@ -38,7 +39,8 @@ function parseTimestamp(ts: string): number {
 }
 
 // Non-global for .test() — avoids fragile lastIndex resets
-const _ytTestRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/i;
+const _ytTestRegex =
+  /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/i;
 const _ytSource = _ytTestRegex.source;
 const _tsSource = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/.source;
 // Global combined regex for exec() loop
@@ -72,7 +74,11 @@ export function parseMessageContent(text: string): string {
         </button>
       `;
 
-      setManagedTimer(`yt-chat-title-${uniqueId}`, () => updateYouTubeChatTitle(uniqueId, cleanUrl), 100);
+      setManagedTimer(
+        `yt-chat-title-${uniqueId}`,
+        () => updateYouTubeChatTitle(uniqueId, cleanUrl),
+        100,
+      );
     } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
       const seconds = parseTimestamp(matchedText);
       result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="${escapeAttr(t('chat.seek_to', { time: matchedText }))}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
@@ -97,7 +103,9 @@ async function updateYouTubeChatTitle(elementId: string, url: string): Promise<v
       const el = document.getElementById(elementId);
       if (el) el.textContent = title;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── DOM Helpers ─────────────────────────────────────────────────
@@ -110,7 +118,13 @@ function pruneOldMessages(container: HTMLElement): void {
 
 // ─── Render: Regular Chat Message ────────────────────────────────
 
-export function addChatMessage(sender: string, text: string, isMine: boolean, badge?: 'host' | 'op', joinOrder?: number): void {
+export function addChatMessage(
+  sender: string,
+  text: string,
+  isMine: boolean,
+  badge?: 'host' | 'op',
+  joinOrder?: number,
+): void {
   const container = document.getElementById('chat-messages');
 
   if (container) {
@@ -128,11 +142,13 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
     const lastGroup = container.lastElementChild as HTMLElement | null;
     const lastSenderId = lastGroup?.dataset.senderId;
     const lastTimeStr = lastGroup?.dataset.timeStr;
-    const canGroup = lastGroup
-      && !lastGroup.classList.contains('system')
-      && lastSenderId === sender
-      && lastTimeStr === timeStr
-      && ((isMine && lastGroup.classList.contains('mine')) || (!isMine && lastGroup.classList.contains('others')));
+    const canGroup =
+      lastGroup &&
+      !lastGroup.classList.contains('system') &&
+      lastSenderId === sender &&
+      lastTimeStr === timeStr &&
+      ((isMine && lastGroup.classList.contains('mine')) ||
+        (!isMine && lastGroup.classList.contains('others')));
 
     if (canGroup && lastGroup) {
       // Remove time from the previous row's last bubble
@@ -153,14 +169,23 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
       chatTextDiv.className = 'chat-text';
       chatTextDiv.innerHTML = parseMessageContent(text);
       bubble.appendChild(chatTextDiv);
-      try { if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube'); } catch { /* ignore */ }
+      try {
+        if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
+      } catch {
+        /* ignore */
+      }
 
       const timeNode = document.createElement('div');
       timeNode.className = 'chat-time';
       timeNode.innerText = timeStr;
 
-      if (isMine) { row.appendChild(timeNode); row.appendChild(bubble); }
-      else { row.appendChild(bubble); row.appendChild(timeNode); }
+      if (isMine) {
+        row.appendChild(timeNode);
+        row.appendChild(bubble);
+      } else {
+        row.appendChild(bubble);
+        row.appendChild(timeNode);
+      }
 
       lastGroup.appendChild(row);
       lastGroup.dataset.timeStr = timeStr;
@@ -197,14 +222,23 @@ export function addChatMessage(sender: string, text: string, isMine: boolean, ba
       chatTextDiv.className = 'chat-text';
       chatTextDiv.innerHTML = parseMessageContent(text);
       bubble.appendChild(chatTextDiv);
-      try { if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube'); } catch { /* ignore */ }
+      try {
+        if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
+      } catch {
+        /* ignore */
+      }
 
       const timeNode = document.createElement('div');
       timeNode.className = 'chat-time';
       timeNode.innerText = timeStr;
 
-      if (isMine) { row.appendChild(timeNode); row.appendChild(bubble); }
-      else { row.appendChild(bubble); row.appendChild(timeNode); }
+      if (isMine) {
+        row.appendChild(timeNode);
+        row.appendChild(bubble);
+      } else {
+        row.appendChild(bubble);
+        row.appendChild(timeNode);
+      }
 
       group.appendChild(row);
       container.appendChild(group);
@@ -324,8 +358,13 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   timeNode.className = 'chat-time';
   timeNode.innerText = timeStr;
 
-  if (isSent) { row.appendChild(timeNode); row.appendChild(bubble); }
-  else { row.appendChild(bubble); row.appendChild(timeNode); }
+  if (isSent) {
+    row.appendChild(timeNode);
+    row.appendChild(bubble);
+  } else {
+    row.appendChild(bubble);
+    row.appendChild(timeNode);
+  }
 
   group.appendChild(row);
   container.appendChild(group);

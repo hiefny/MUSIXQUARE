@@ -58,7 +58,8 @@ const capturedHandlers: Record<string, (data: Record<string, unknown>) => void> 
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn((handlers: Record<string, any>) => {
     for (const [type, h] of Object.entries(handlers)) {
-      if (typeof h === 'function') capturedHandlers[type] = h as (data: Record<string, unknown>) => void;
+      if (typeof h === 'function')
+        capturedHandlers[type] = h as (data: Record<string, unknown>) => void;
     }
   }),
   verifyOperator: vi.fn(() => true),
@@ -122,7 +123,9 @@ vi.mock('../search.ts', () => ({
 
 // transport.ts — fmtTime + setAppState, both trivial
 vi.mock('../../player/transport.ts', () => ({
-  fmtTime: vi.fn((s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`),
+  fmtTime: vi.fn(
+    (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`,
+  ),
   setAppState: vi.fn((s: string) => setState('appState', s)),
 }));
 
@@ -194,7 +197,6 @@ async function importSync() {
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('YouTube Sync — Regression Integration', () => {
-
   // All scheduleYtAutoSync calls now flow through the 2-stage protocol
   // (Stage 1 YOUTUBE_STATE → wait → Stage 2 YOUTUBE_SYNC{isManual:true}).
   // A previous Path A "immediate rendezvous" optimization for same-video
@@ -268,7 +270,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(stage2Calls).toHaveLength(1);
 
       // Final seek target must be 20, not 10 — "last action wins"
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks.length).toBeGreaterThanOrEqual(2);
       expect(seeks[seeks.length - 1].args).toEqual([20, true]);
     });
@@ -282,19 +284,31 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(handler).toBeDefined();
 
       // First host command: pause+seek to 5, play at +1000ms
-      handler({ state: 1, time: 5, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({
+        state: 1,
+        time: 5,
+        hostPlayAt: Date.now() + 1000,
+        subIndex: 0,
+        videoId: 'FAKE_VIDEO',
+      });
       vi.advanceTimersByTime(400);
 
       // Second host command 400ms in: should cancel the first and re-schedule to 8
-      handler({ state: 1, time: 8, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({
+        state: 1,
+        time: 8,
+        hostPlayAt: Date.now() + 1000,
+        subIndex: 0,
+        videoId: 'FAKE_VIDEO',
+      });
       vi.advanceTimersByTime(1100); // let the second countdown complete
 
       // playVideo should fire exactly once — the second scheduling
-      const playCalls = player.__log.filter(c => c.op === 'playVideo');
+      const playCalls = player.__log.filter((c) => c.op === 'playVideo');
       expect(playCalls.length).toBe(1);
 
       // Last seekTo must be to 8, not 5
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks.length).toBeGreaterThanOrEqual(2);
       expect(seeks[seeks.length - 1].args).toEqual([8, true]);
     });
@@ -313,7 +327,7 @@ describe('YouTube Sync — Regression Integration', () => {
 
       handler({ time: 14.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
 
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(1);
       expect(seeks[0].args).toEqual([14.5, true]);
     });
@@ -328,7 +342,7 @@ describe('YouTube Sync — Regression Integration', () => {
 
       handler({ time: 12.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
 
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(0);
     });
   });
@@ -345,7 +359,13 @@ describe('YouTube Sync — Regression Integration', () => {
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
 
       // Arm the cooldown by triggering a clock-scheduled state change
-      stateHandler({ state: 1, time: 10, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      stateHandler({
+        state: 1,
+        time: 10,
+        hostPlayAt: Date.now() + 1000,
+        subIndex: 0,
+        videoId: 'FAKE_VIDEO',
+      });
       // The cooldown is now active until Date.now() + waitMs + 1500
 
       // Clear the pause/seek from stateHandler to focus on sync behavior
@@ -354,7 +374,7 @@ describe('YouTube Sync — Regression Integration', () => {
       // Fire a sync with massive drift — should be ignored
       syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
 
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(0);
     });
   });
@@ -371,13 +391,13 @@ describe('YouTube Sync — Regression Integration', () => {
 
       // Frames 2-4 are stale — on frame 4 (counter reaches 3), guest pauses
       handler({ time: 42.01, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      expect(player.__log.find(c => c.op === 'pauseVideo')).toBeUndefined();
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeUndefined();
 
       handler({ time: 42.02, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      expect(player.__log.find(c => c.op === 'pauseVideo')).toBeUndefined();
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeUndefined();
 
       handler({ time: 42.03, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      expect(player.__log.find(c => c.op === 'pauseVideo')).toBeDefined();
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
     });
 
     it('resumes guest when host time starts moving again', async () => {
@@ -395,7 +415,7 @@ describe('YouTube Sync — Regression Integration', () => {
       // Host time moves 5 seconds forward (large delta, ad ended)
       handler({ time: 47.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
 
-      expect(player.__log.find(c => c.op === 'playVideo')).toBeDefined();
+      expect(player.__log.find((c) => c.op === 'playVideo')).toBeDefined();
     });
   });
 
@@ -408,7 +428,13 @@ describe('YouTube Sync — Regression Integration', () => {
       const { resetYouTubeSyncState } = await importSync();
 
       // Arm the cooldown
-      stateHandler({ state: 1, time: 10, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      stateHandler({
+        state: 1,
+        time: 10,
+        hostPlayAt: Date.now() + 1000,
+        subIndex: 0,
+        videoId: 'FAKE_VIDEO',
+      });
 
       // Reset
       resetYouTubeSyncState();
@@ -421,7 +447,7 @@ describe('YouTube Sync — Regression Integration', () => {
       // Sync with drift > 3s should now seek
       syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
 
-      const seeks = player.__log.filter(c => c.op === 'seekTo');
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(1);
     });
   });
@@ -432,7 +458,13 @@ describe('YouTube Sync — Regression Integration', () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
 
-      handler({ state: 'garbage', time: 5, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({
+        state: 'garbage',
+        time: 5,
+        hostPlayAt: Date.now() + 1000,
+        subIndex: 0,
+        videoId: 'FAKE_VIDEO',
+      });
       vi.advanceTimersByTime(1500);
 
       // No player mutations should have happened

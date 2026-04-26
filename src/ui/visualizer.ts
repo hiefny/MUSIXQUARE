@@ -41,7 +41,7 @@ let _themeObserver: MutationObserver | null = null;
 
 function refreshThemeCache(): void {
   const theme = document.documentElement.getAttribute('data-theme');
-  _cachedIsLight = (theme === 'light');
+  _cachedIsLight = theme === 'light';
 }
 
 function _initThemeListeners(): void {
@@ -51,7 +51,9 @@ function _initThemeListeners(): void {
   // Listen for OS-level prefers-color-scheme change
   try {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshThemeCache);
-  } catch (e) { log.debug('[Visualizer] matchMedia listener error:', e); }
+  } catch (e) {
+    log.debug('[Visualizer] matchMedia listener error:', e);
+  }
 
   // Listen for data-theme attribute changes (app-level theme toggle).
   // Idempotent: re-init replaces any previous observer.
@@ -65,7 +67,9 @@ function _initThemeListeners(): void {
       attributes: true,
       attributeFilter: ['data-theme'],
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -78,16 +82,20 @@ function getAnalyser(): AnalyserNode | null {
  * Unified sizing helper to ensure canvas matches the parent container perfectly (High DPI).
  * Returns the logical size of the container for drawing calculations.
  */
-function syncCanvasSize(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, wrapper: HTMLElement | null): number {
+function syncCanvasSize(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  wrapper: HTMLElement | null,
+): number {
   const rawW = wrapper ? wrapper.clientWidth : 0;
   const rawH = wrapper ? wrapper.clientHeight : 0;
-  
+
   // For circular mode, we want a square fit
   if (_vizMode === 'circular') {
     const rawSize = Math.min(rawW, rawH);
     const logicalSize = rawSize > 10 ? rawSize : 240;
     const dpr = window.devicePixelRatio || 1;
-    
+
     if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
       canvas.width = logicalSize * dpr;
       canvas.height = logicalSize * dpr;
@@ -100,7 +108,7 @@ function syncCanvasSize(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D
     const logicalW = rawW > 10 ? rawW : 400;
     const logicalH = rawH > 10 ? rawH : 240;
     const dpr = window.devicePixelRatio || 1;
-    
+
     if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
       canvas.width = logicalW * dpr;
       canvas.height = logicalH * dpr;
@@ -114,7 +122,10 @@ function syncCanvasSize(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
-  if (_vizMode === 'spectrum') { startSpectrumVisualizer(); return; }
+  if (_vizMode === 'spectrum') {
+    startSpectrumVisualizer();
+    return;
+  }
 
   clearManagedTimer('viz-retry');
   if (_animationId) {
@@ -132,7 +143,11 @@ export function startVisualizer(): void {
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      log.warn('[Visualizer] Gave up waiting for analyser after', MAX_VISUALIZER_RETRIES, 'retries');
+      log.warn(
+        '[Visualizer] Gave up waiting for analyser after',
+        MAX_VISUALIZER_RETRIES,
+        'retries',
+      );
       _visualizerRetryCount = 0;
       return;
     }
@@ -167,12 +182,18 @@ export function startVisualizer(): void {
   function draw(): void {
     const currentState = getState('appState');
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+      _animationId = null;
+      return;
+    }
 
     // Self-correct after resize — avoids stale dimensions during the 100ms
     // gap between resize event and startVisualizer() re-init.
     const curSize = canvas!.width / (window.devicePixelRatio || 1);
-    if (curSize !== logicalSize) { logicalSize = curSize; scale = logicalSize / 240; }
+    if (curSize !== logicalSize) {
+      logicalSize = curSize;
+      scale = logicalSize / 240;
+    }
 
     try {
       analyser!.getFloatFrequencyData(_freqData);
@@ -218,8 +239,8 @@ export function startVisualizer(): void {
 
       // Circle 1: Bass
       ctx.globalCompositeOperation = 'source-over';
-      const bassRadius = (55 + (bassPunch * 200)) * scale;
-      const bassOpacity = Math.min(0.75, 0.25 + (bassPunchOpacity * 0.75));
+      const bassRadius = (55 + bassPunch * 200) * scale;
+      const bassOpacity = Math.min(0.75, 0.25 + bassPunchOpacity * 0.75);
       ctx.fillStyle = _cachedIsLight
         ? `rgba(66, 129, 241, ${bassOpacity})`
         : `hsla(218, 86%, 60%, ${bassOpacity})`;
@@ -228,10 +249,8 @@ export function startVisualizer(): void {
       ctx.fill();
 
       // Circle 2: High
-      const highRadius = (40 + (highPunch * 130)) * scale;
-      ctx.fillStyle = _cachedIsLight
-        ? 'rgba(66, 129, 241, 1.0)'
-        : 'hsla(218, 86%, 60%, 1.0)';
+      const highRadius = (40 + highPunch * 130) * scale;
+      ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
       ctx.beginPath();
       ctx.arc(centerX, centerY, highRadius, 0, twoPi);
       ctx.fill();
@@ -267,7 +286,14 @@ function slopeCompensation(freq: number): number {
   return SLOPE_DB_PER_OCTAVE * Math.log2(freq / SLOPE_REF_FREQ);
 }
 
-function drawSpectrumGrid(ctx: CanvasRenderingContext2D, w: number, h: number, padX: number, padY: number, isLight: boolean): void {
+function drawSpectrumGrid(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  padX: number,
+  padY: number,
+  isLight: boolean,
+): void {
   const gridFreqs = [100, 1000, 10000];
   const alpha = isLight ? 0.06 : 0.06;
   ctx.lineWidth = 1;
@@ -291,7 +317,10 @@ function drawSpectrumGrid(ctx: CanvasRenderingContext2D, w: number, h: number, p
 
 function startSpectrumVisualizer(): void {
   clearManagedTimer('viz-retry');
-  if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+  if (_animationId) {
+    cancelAnimationFrame(_animationId);
+    _animationId = null;
+  }
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
@@ -327,19 +356,25 @@ function startSpectrumVisualizer(): void {
 
   function draw(): void {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) { _animationId = null; return; }
+    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+      _animationId = null;
+      return;
+    }
 
     // Self-correct after resize
     const curW = canvas!.width / (window.devicePixelRatio || 1);
     const curH = canvas!.height / (window.devicePixelRatio || 1);
-    if (curW !== logicalW || curH !== logicalH) { logicalW = curW; logicalH = curH; }
+    if (curW !== logicalW || curH !== logicalH) {
+      logicalW = curW;
+      logicalH = curH;
+    }
 
     try {
       analyser!.getFloatFrequencyData(freqData);
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalW, logicalH);
       drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
-      
+
       const points: { x: number; y: number }[] = [];
       for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
         const freq = (i * sampleRate) / (bufferLength * 2);
@@ -353,7 +388,10 @@ function startSpectrumVisualizer(): void {
       if (points.length >= 2) {
         ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
         const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-        grad.addColorStop(0, _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
+        grad.addColorStop(
+          0,
+          _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)',
+        );
         grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
         ctx.fillStyle = grad;
         ctx.beginPath();
@@ -417,10 +455,14 @@ export function initVisualizer(): void {
         syncCanvasSize(canvas, ctx, wrapper);
       }
 
-      setManagedTimer('viz-resize', () => {
-        if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
-        startVisualizer();
-      }, 100);
+      setManagedTimer(
+        'viz-resize',
+        () => {
+          if (!wrapper || (wrapper as HTMLElement).clientWidth < 10) return;
+          startVisualizer();
+        },
+        100,
+      );
     };
 
     window.addEventListener('resize', handleResize);
@@ -447,7 +489,10 @@ export function initVisualizer(): void {
   _busScope.on('state:appState', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
-      if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+      if (_animationId) {
+        cancelAnimationFrame(_animationId);
+        _animationId = null;
+      }
     } else if (
       currentState === APP_STATE.PLAYING_AUDIO ||
       currentState === APP_STATE.PLAYING_YOUTUBE ||
@@ -475,7 +520,10 @@ export function initVisualizer(): void {
     document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
     document.body.classList.toggle('viz-circular', mode === 'circular');
 
-    if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
+    if (_animationId) {
+      cancelAnimationFrame(_animationId);
+      _animationId = null;
+    }
 
     const analyser = getAnalyser();
     if (analyser) {

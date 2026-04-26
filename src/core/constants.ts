@@ -33,23 +33,23 @@ export type TransferStateValue = (typeof TRANSFER_STATE)[keyof typeof TRANSFER_S
 // src/player/lifecycle.ts::transition(); direct setState calls to
 // playback.lifecycle outside that helper are forbidden.
 export const PLAYBACK_STATE = {
-  IDLE: 'IDLE',                         // nothing loaded, no operation pending
-  DOWNLOADING: 'DOWNLOADING',           // main transfer (FILE_PREPARE → FILE_START → chunks)
+  IDLE: 'IDLE', // nothing loaded, no operation pending
+  DOWNLOADING: 'DOWNLOADING', // main transfer (FILE_PREPARE → FILE_START → chunks)
   AWAITING_PRELOAD: 'AWAITING_PRELOAD', // PLAY_PRELOADED received, preload blob not yet assembled
-  DECODING: 'DECODING',                 // blob in hand, running decodeAudioData
-  READY: 'READY',                       // decoded buffer loaded, waiting for PLAY
-  PLAYING: 'PLAYING',                   // actively producing audio
-  PAUSED: 'PAUSED',                     // decoded buffer present, not advancing
-  FAILED: 'FAILED',                     // decode timeout / unsupported / corrupt — awaiting host advance
+  DECODING: 'DECODING', // blob in hand, running decodeAudioData
+  READY: 'READY', // decoded buffer loaded, waiting for PLAY
+  PLAYING: 'PLAYING', // actively producing audio
+  PAUSED: 'PAUSED', // decoded buffer present, not advancing
+  FAILED: 'FAILED', // decode timeout / unsupported / corrupt — awaiting host advance
 } as const;
 
 export type PlaybackStateValue = (typeof PLAYBACK_STATE)[keyof typeof PLAYBACK_STATE];
 
 /** How a track entered the pipeline. Attribute of the active load, not a state. */
 export const LOAD_SOURCE = {
-  FRESH: 'fresh',                       // full main-transfer download (FILE_PREPARE → FILE_END)
+  FRESH: 'fresh', // full main-transfer download (FILE_PREPARE → FILE_END)
   PRELOAD_PROMOTED: 'preload-promoted', // started as preload, promoted to current
-  RECOVERY_RESUME: 'recovery-resume',   // partial prior download, resumed via FILE_RESUME
+  RECOVERY_RESUME: 'recovery-resume', // partial prior download, resumed via FILE_RESUME
 } as const;
 
 export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
@@ -63,9 +63,9 @@ export const RECOVERY_BACKOFF = [2000, 5000, 10000] as const;
 
 // ─── Timing Constants (ms) ─────────────────────────────────────────
 export const DELAY = {
-  TICK: 10,               // Micro-yield for main thread breathing
-  BACKPRESSURE: 50,       // Backpressure polling interval
-  RETRY: 200,             // Retry / reconnection pause
+  TICK: 10, // Micro-yield for main thread breathing
+  BACKPRESSURE: 50, // Backpressure polling interval
+  RETRY: 200, // Retry / reconnection pause
   BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
 } as const;
 
@@ -179,21 +179,44 @@ export type MsgType = (typeof MSG)[keyof typeof MSG];
 // 3.0: `satisfies` ensures every entry is a valid MsgType at compile time.
 // Adding a typo or non-existent MSG key → TS error.
 export const RELAYABLE_MSG_TYPES = [
-  MSG.PLAY, MSG.PAUSE, MSG.VOLUME,
-  MSG.EQ_UPDATE, MSG.PREAMP, MSG.EQ_RESET,
-  MSG.REVERB, MSG.REVERB_TYPE, MSG.REVERB_DECAY,
-  MSG.REVERB_PREDELAY, MSG.REVERB_LOWCUT, MSG.REVERB_HIGHCUT,
-  MSG.STEREO_WIDTH, MSG.VBASS,
-  MSG.REPEAT_MODE, MSG.SHUFFLE_MODE,
-  MSG.YOUTUBE_PLAY, MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE,
-  MSG.YOUTUBE_STOP, MSG.YOUTUBE_SUB_TITLE_UPDATE, MSG.YOUTUBE_PLAYLIST_INFO,
-  MSG.CHAT, MSG.CHAT_MUTE, MSG.CHAT_UNMUTE,
-  MSG.CHAT_FREEZE, MSG.CHAT_UNFREEZE, MSG.CHAT_CLEAR,
-  MSG.CHAT_NOTICE, MSG.CHAT_SLOWMODE, MSG.CHAT_FILTER, MSG.CHAT_SYSTEM,
+  MSG.PLAY,
+  MSG.PAUSE,
+  MSG.VOLUME,
+  MSG.EQ_UPDATE,
+  MSG.PREAMP,
+  MSG.EQ_RESET,
+  MSG.REVERB,
+  MSG.REVERB_TYPE,
+  MSG.REVERB_DECAY,
+  MSG.REVERB_PREDELAY,
+  MSG.REVERB_LOWCUT,
+  MSG.REVERB_HIGHCUT,
+  MSG.STEREO_WIDTH,
+  MSG.VBASS,
+  MSG.REPEAT_MODE,
+  MSG.SHUFFLE_MODE,
+  MSG.YOUTUBE_PLAY,
+  MSG.YOUTUBE_SYNC,
+  MSG.YOUTUBE_STATE,
+  MSG.YOUTUBE_STOP,
+  MSG.YOUTUBE_SUB_TITLE_UPDATE,
+  MSG.YOUTUBE_PLAYLIST_INFO,
+  MSG.CHAT,
+  MSG.CHAT_MUTE,
+  MSG.CHAT_UNMUTE,
+  MSG.CHAT_FREEZE,
+  MSG.CHAT_UNFREEZE,
+  MSG.CHAT_CLEAR,
+  MSG.CHAT_NOTICE,
+  MSG.CHAT_SLOWMODE,
+  MSG.CHAT_FILTER,
+  MSG.CHAT_SYSTEM,
   MSG.PLAYLIST_UPDATE,
   MSG.PLAY_PRELOADED,
-  MSG.DEVICE_LIST_UPDATE, MSG.FILE_PREPARE,
-  MSG.SYSTEM_AUDIO_START, MSG.SYSTEM_AUDIO_STOP,
+  MSG.DEVICE_LIST_UPDATE,
+  MSG.FILE_PREPARE,
+  MSG.SYSTEM_AUDIO_START,
+  MSG.SYSTEM_AUDIO_STOP,
 ] as const satisfies readonly MsgType[];
 
 // ─── Audio ──────────────────────────────────────────────────────────
@@ -205,8 +228,17 @@ export const HOST_SELF_NAMES = ['host', '방장', '호스트'] as const;
 
 export const RESERVED_NAMES = [
   ...HOST_SELF_NAMES,
-  'guest', 'admin', 'operator', 'op', 'mod', 'moderator',
-  'system', 'server', 'bot', '관리자', '운영자',
+  'guest',
+  'admin',
+  'operator',
+  'op',
+  'mod',
+  'moderator',
+  'system',
+  'server',
+  'bot',
+  '관리자',
+  '운영자',
 ] as const;
 
 // ─── Misc ──────────────────────────────────────────────────────────

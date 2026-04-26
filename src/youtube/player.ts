@@ -37,18 +37,32 @@ import {
 // rendezvous countdown keeps host/guest aligned instead of each device
 // running its own autoplay timing.
 let _pendingAutoSyncOnReady = false;
-export function setPendingAutoSyncOnReady(v: boolean): void { _pendingAutoSyncOnReady = v; }
-export function getPendingAutoSyncOnReady(): boolean { return _pendingAutoSyncOnReady; }
+export function setPendingAutoSyncOnReady(v: boolean): void {
+  _pendingAutoSyncOnReady = v;
+}
+export function getPendingAutoSyncOnReady(): boolean {
+  return _pendingAutoSyncOnReady;
+}
 import { registerHandlers } from '../network/protocol.ts';
-import { fetchYouTubePreview, extractYouTubeVideoId, extractYouTubePlaylistId, fetchOEmbedTitle, fetchPlaylistSubTitles, cancelSubTitleFetch } from './search.ts';
+import {
+  fetchYouTubePreview,
+  extractYouTubeVideoId,
+  extractYouTubePlaylistId,
+  fetchOEmbedTitle,
+  fetchPlaylistSubTitles,
+  cancelSubTitleFetch,
+} from './search.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Sub-module imports ────────────────────────────────────────────
 
 import {
-  getYouTubePlayer, setYouTubePlayer,
-  isYtLoadInProgress, setYtLoadInProgress,
-  getYtScope, setYtScope,
+  getYouTubePlayer,
+  setYouTubePlayer,
+  isYtLoadInProgress,
+  setYtLoadInProgress,
+  getYtScope,
+  setYtScope,
   setCachedYtDuration,
   setYtAutoplayIntent,
   setYouTubeSubIndex,
@@ -58,7 +72,12 @@ import {
   setYtIndexingCallback,
 } from './_state.ts';
 
-import { loadYouTubeVideo, refreshYouTubeDisplay, markYtStateBroadcast, clearSnapshotRetries } from './iframe.ts';
+import {
+  loadYouTubeVideo,
+  refreshYouTubeDisplay,
+  markYtStateBroadcast,
+  clearSnapshotRetries,
+} from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
 import {
@@ -105,7 +124,13 @@ export { loadYouTubeVideo } from './iframe.ts';
  */
 export function scheduleYtAutoSync(
   targetTime: number,
-  overrides?: { subIndex?: number; videoId?: string; skipSeek?: boolean; rendezvousDelayMs?: number; state?: number },
+  overrides?: {
+    subIndex?: number;
+    videoId?: string;
+    skipSeek?: boolean;
+    rendezvousDelayMs?: number;
+    state?: number;
+  },
 ): void {
   const player = getYouTubePlayer();
   if (!player) return;
@@ -155,19 +180,23 @@ export function scheduleYtAutoSync(
   if (targetState !== 1) return;
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   clearManagedTimer('yt-auto-sync');
-  setManagedTimer('yt-auto-sync', () => {
-    const p = getYouTubePlayer();
-    if (!p) return;
+  setManagedTimer(
+    'yt-auto-sync',
+    () => {
+      const p = getYouTubePlayer();
+      if (!p) return;
 
-    markYtStateBroadcast();
-    // Pass targetState as the intent state. Even after the 2s wait, the
-    // iframe can briefly land in BUFFERING (3) on slow networks; without
-    // the override, broadcastYouTubeSync would read getPlayerState()=3
-    // and guests' lastHostSnapshot.hostState would trip
-    // guestRendezvousSync's "host paused" branch.
-    broadcastYouTubeSync(true, targetState);
-    log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
-  }, waitMs);
+      markYtStateBroadcast();
+      // Pass targetState as the intent state. Even after the 2s wait, the
+      // iframe can briefly land in BUFFERING (3) on slow networks; without
+      // the override, broadcastYouTubeSync would read getPlayerState()=3
+      // and guests' lastHostSnapshot.hostState would trip
+      // guestRendezvousSync's "host paused" branch.
+      broadcastYouTubeSync(true, targetState);
+      log.debug(`[YouTube] Sync: Mandatory precision rendezvous sent after ${waitMs}ms`);
+    },
+    waitMs,
+  );
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
@@ -187,7 +216,12 @@ export function stopYouTubeMode(): void {
   const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
   // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
   // This prevents clobbering the sub-index 0 set during the indexing callback.
-  if (!wasInYouTube && currentState !== APP_STATE.IDLE && !isYtIndexing() && !isYtLoadInProgress()) {
+  if (
+    !wasInYouTube &&
+    currentState !== APP_STATE.IDLE &&
+    !isYtIndexing() &&
+    !isYtLoadInProgress()
+  ) {
     setYouTubeSubIndex(-1);
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
@@ -242,7 +276,11 @@ export function stopYouTubeMode(): void {
   // switching to file mode. Guest-only — host doesn't have upstreamDataConn.
   const upstreamDataConn = getState('relay.upstreamDataConn');
   if (upstreamDataConn) {
-    try { upstreamDataConn.close(); } catch { /* noop */ }
+    try {
+      upstreamDataConn.close();
+    } catch {
+      /* noop */
+    }
     setState('relay.upstreamDataConn', null);
   }
 
@@ -304,17 +342,20 @@ export function stopYouTubeMode(): void {
  * `player.getPlaylist()` so that fast Next/Prev clicks work before the
  * background snapshot/fetcher fires.
  */
-function navigateSubVideo(
-  direction: 1 | -1,
-  callback: (success: boolean) => void,
-): void {
+function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => void): void {
   const player = getYouTubePlayer();
-  if (!player?.loadVideoById) { callback(false); return; }
+  if (!player?.loadVideoById) {
+    callback(false);
+    return;
+  }
 
   try {
     const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
     const pid = currentTrack?.playlistId as string;
-    if (!pid) { callback(false); return; }
+    if (!pid) {
+      callback(false);
+      return;
+    }
 
     let subData = (getState('youtube.subItemsMap') || {})[pid];
 
@@ -328,9 +369,10 @@ function navigateSubVideo(
 
     const idx = getState('youtube.currentSubIndex') ?? -1;
     const targetIdx = idx + direction;
-    let inBounds = direction === 1
-      ? (idx >= 0 && !!subData?.ids && idx < subData.ids.length - 1)
-      : (idx > 0 && !!subData?.ids);
+    let inBounds =
+      direction === 1
+        ? idx >= 0 && !!subData?.ids && idx < subData.ids.length - 1
+        : idx > 0 && !!subData?.ids;
 
     // Fallback: about to fall off the end forward, but the iframe may have
     // lazily populated more items since the initial indexing snapshot.
@@ -339,12 +381,16 @@ function navigateSubVideo(
       try {
         const freshIds = player.getPlaylist() || [];
         if (freshIds.length > (subData?.ids?.length ?? 0)) {
-          log.info(`[YouTube] navigate refresh: ${subData?.ids?.length ?? 0} -> ${freshIds.length} items`);
+          log.info(
+            `[YouTube] navigate refresh: ${subData?.ids?.length ?? 0} -> ${freshIds.length} items`,
+          );
           updateSubItemIds(pid, freshIds);
           subData = { ids: freshIds, titles: subData?.titles || [] };
           inBounds = idx >= 0 && idx < freshIds.length - 1;
         }
-      } catch (e) { log.debug('[YouTube] navigate refresh error:', e); }
+      } catch (e) {
+        log.debug('[YouTube] navigate refresh error:', e);
+      }
     }
 
     if (inBounds && subData?.ids) {
@@ -403,7 +449,9 @@ export function initYouTube(): void {
       setYtIndexingCallback((ids) => {
         showLoader(false);
         if (!ids || ids.length === 0) {
-          log.warn(`[YouTube] Deferred indexing returned no IDs for ${playlistIdStr} — falling back to entry-point video`);
+          log.warn(
+            `[YouTube] Deferred indexing returned no IDs for ${playlistIdStr} — falling back to entry-point video`,
+          );
           showToast(t('youtube.fetch_failed'));
           // Fallback: load the entry-point videoId in single-video mode so
           // the user can at least play that one track. The playlist row
@@ -443,7 +491,7 @@ export function initYouTube(): void {
         // until oEmbed titles land — the IDLE indexing callback expands and
         // populates the same way after its 250ms delay.
         const currentPlaylist = getState('playlist.items') || [];
-        const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistIdStr);
+        const actualIdx = currentPlaylist.findIndex((t) => t.playlistId === playlistIdStr);
         if (actualIdx !== -1) {
           const updatedPlaylist = [...currentPlaylist];
           updatedPlaylist[actualIdx] = { ...updatedPlaylist[actualIdx], isExpanded: true };
@@ -551,14 +599,22 @@ export function initYouTube(): void {
     // detection the player may be in BUFFERING or PLAYING; we want it
     // paused so the 1-sec countdown has a clean starting point. pauseVideo
     // on a non-playing player is a safe no-op per YT IFrame API.
-    try { player.pauseVideo?.(); } catch { /* noop */ }
+    try {
+      player.pauseVideo?.();
+    } catch {
+      /* noop */
+    }
 
     // Capture the position the new sub-video has reached so guests seek
     // to the same spot instead of jumping back to 0. getCurrentTime on a
     // just-advanced sub-video is usually a very small value but not always
     // exactly 0 (YouTube may have buffered a few frames ahead).
     const currentTime = (() => {
-      try { return player.getCurrentTime?.() || 0; } catch { return 0; }
+      try {
+        return player.getCurrentTime?.() || 0;
+      } catch {
+        return 0;
+      }
     })();
 
     // M7: Explicitly extract the new videoId from the playlist array instead of
@@ -575,12 +631,16 @@ export function initYouTube(): void {
       if (nextIdx >= 0 && nextIdx < pList.length) {
         nextVideoId = pList[nextIdx];
       }
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
 
     // Fallback: the native IFrame API occasionally returns an empty list
     // from getPlaylist() when idle. Pull the cached IDs from our scraped map.
     if (!nextVideoId && nextIdx > 0) {
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const currentTrack = (getState('playlist.items') || [])[
+        getState('playlist.currentTrackIndex')
+      ];
       const pid = currentTrack?.playlistId;
       if (pid) {
         const subMap = getState('youtube.subItemsMap') || {};
@@ -743,7 +803,10 @@ export function initYouTube(): void {
   bus.on('youtube:try-prev-internal', (callback) => {
     if (typeof callback !== 'function') return;
     const player = getYouTubePlayer();
-    if (!player) { callback(false); return; }
+    if (!player) {
+      callback(false);
+      return;
+    }
 
     // Special "restart" case: if we've played past the threshold, prev
     // restarts the current track instead of jumping to the previous sub-video.
@@ -753,7 +816,9 @@ export function initYouTube(): void {
         callback(true);
         return;
       }
-    } catch (e) { log.debug('[YouTube] try-prev time read error:', e); }
+    } catch (e) {
+      log.debug('[YouTube] try-prev time read error:', e);
+    }
 
     navigateSubVideo(-1, callback);
   });
@@ -788,14 +853,16 @@ export function initYouTube(): void {
     url: string,
   ): void {
     const playlist = getState('playlist.items') || [];
-    
+
     // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
     // force single-video mode so the iframe's native playlist engine never runs.
     const finalVideoId = videoId;
     let finalPlaylistId = playlistId;
     if (finalVideoId && finalPlaylistId) {
-       finalPlaylistId = null; 
-       log.debug(`[YouTube Index-Add] Forcing single-video mode for playlist ${playlistId} starting with ${videoId}`);
+      finalPlaylistId = null;
+      log.debug(
+        `[YouTube Index-Add] Forcing single-video mode for playlist ${playlistId} starting with ${videoId}`,
+      );
     }
 
     // Only auto-expand the row when sub-items are actually indexed (length > 1).
@@ -824,7 +891,7 @@ export function initYouTube(): void {
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
 
-    // UI Triggers: Reveal the track list. 
+    // UI Triggers: Reveal the track list.
     // Note: setYouTubeSubIndex(0) is now correctly restored inside the isIdle block
     // to avoid clobbering sub-indices of already-playing media.
     if (playlistId) {
@@ -841,13 +908,13 @@ export function initYouTube(): void {
     }
 
     const currentState = getState('appState');
-    const isIdle = (currentState === APP_STATE.IDLE || isYtIndexing());
+    const isIdle = currentState === APP_STATE.IDLE || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setState('player.currentTrackMeta', newTrack);
       setYouTubeSubIndex(0); // Moved back inside: only for new active tracks
-      
+
       // Load YouTube with autoplay=FALSE for sync coordination.
       loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
       _pendingAutoSyncOnReady = true;
@@ -859,7 +926,7 @@ export function initYouTube(): void {
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      const metaList = updatedPlaylist.map(item => ({
+      const metaList = updatedPlaylist.map((item) => ({
         type: item.type,
         name: item.name,
         title: item.title || item.name,
@@ -890,36 +957,38 @@ export function initYouTube(): void {
     // to guard against stale playlist index if the playlist changes before fetch resolves
     const expectedVideoId = videoId;
     const expectedPlaylistId = playlistId;
-    fetchOEmbedTitle(url).then(fetchedTitle => {
-      if (!fetchedTitle) return;
-      const currentPlaylist = getState('playlist.items') || [];
-      // Verify the item at newIndex still matches what we expect
-      const item = currentPlaylist[newIndex];
-      if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
-        const updated = [...currentPlaylist];
-        updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
-        setState('playlist.items', updated);
-        // Only refresh currentTrackMeta when the newly-titled track IS the
-        // currently playing one. Queue additions from the Add-to-Queue path
-        // land at newIndex > currentTrackIndex; blindly writing here would
-        // clobber the playing track's title with the queued track's title.
-        if (getState('playlist.currentTrackIndex') === newIndex) {
-          setState('player.currentTrackMeta', updated[newIndex]);
-        }
+    fetchOEmbedTitle(url)
+      .then((fetchedTitle) => {
+        if (!fetchedTitle) return;
+        const currentPlaylist = getState('playlist.items') || [];
+        // Verify the item at newIndex still matches what we expect
+        const item = currentPlaylist[newIndex];
+        if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
+          const updated = [...currentPlaylist];
+          updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
+          setState('playlist.items', updated);
+          // Only refresh currentTrackMeta when the newly-titled track IS the
+          // currently playing one. Queue additions from the Add-to-Queue path
+          // land at newIndex > currentTrackIndex; blindly writing here would
+          // clobber the playing track's title with the queued track's title.
+          if (getState('playlist.currentTrackIndex') === newIndex) {
+            setState('player.currentTrackMeta', updated[newIndex]);
+          }
 
-        // Broadcast updated title to peers (Host only)
-        if (!getState('network.hostConn')) {
-          const metaList = updated.map(it => ({
-            type: it.type,
-            name: it.name,
-            title: it.title || it.name,
-            videoId: it.videoId || null,
-            playlistId: it.playlistId || null,
-          }));
-          broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+          // Broadcast updated title to peers (Host only)
+          if (!getState('network.hostConn')) {
+            const metaList = updated.map((it) => ({
+              type: it.type,
+              name: it.name,
+              title: it.title || it.name,
+              videoId: it.videoId || null,
+              playlistId: it.playlistId || null,
+            }));
+            broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+          }
         }
-      }
-    }).catch(e => log.warn('[YouTube] Title fetch handler error:', e));
+      })
+      .catch((e) => log.warn('[YouTube] Title fetch handler error:', e));
   }
 
   // YouTube load from input field
@@ -957,7 +1026,10 @@ export function initYouTube(): void {
     const previewEl = document.getElementById('youtube-preview');
     if (previewEl) previewEl.style.display = 'none';
     const statusEl = document.getElementById('youtube-preview-status');
-    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = t('youtube.enter_link_prompt'); }
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.textContent = t('youtube.enter_link_prompt');
+    }
     const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
     if (playBtnEl) playBtnEl.disabled = true;
 
@@ -974,26 +1046,32 @@ export function initYouTube(): void {
     const subMap = getState('youtube.subItemsMap') || {};
     const appIsIdle = getState('appState') === APP_STATE.IDLE;
     if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
-       log.info(`[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`);
-       showLoader(true, t('youtube.indexing_playlist'));
-       
-       setYtIndexing(true);
-       setYtIndexingCallback((ids) => {
-          showLoader(false);
-          if (!ids || ids.length === 0) {
-             showToast(t('youtube.fetch_failed'));
-             return;
-          }
-          log.info(`[YouTube Index] Indexing complete! Captured ${ids.length} items. Adding to queue.`);
-          updateSubItemIds(playlistId!, ids);
-          
-          _addYouTubeToPlaylist(ids[0], playlistId, titleText, url);
-          
-          // Force highlight and expansion of the first track with a small delay
-          // to ensure the UI has finished adding the item to the DOM.
-          setManagedTimer('yt-playlist-indexed-highlight', () => {
+      log.info(
+        `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
+      );
+      showLoader(true, t('youtube.indexing_playlist'));
+
+      setYtIndexing(true);
+      setYtIndexingCallback((ids) => {
+        showLoader(false);
+        if (!ids || ids.length === 0) {
+          showToast(t('youtube.fetch_failed'));
+          return;
+        }
+        log.info(
+          `[YouTube Index] Indexing complete! Captured ${ids.length} items. Adding to queue.`,
+        );
+        updateSubItemIds(playlistId!, ids);
+
+        _addYouTubeToPlaylist(ids[0], playlistId, titleText, url);
+
+        // Force highlight and expansion of the first track with a small delay
+        // to ensure the UI has finished adding the item to the DOM.
+        setManagedTimer(
+          'yt-playlist-indexed-highlight',
+          () => {
             const currentPlaylist = getState('playlist.items');
-            const actualIdx = currentPlaylist.findIndex(t => t.playlistId === playlistId);
+            const actualIdx = currentPlaylist.findIndex((t) => t.playlistId === playlistId);
             if (actualIdx !== -1) {
               const updated = [...currentPlaylist];
               updated[actualIdx] = { ...updated[actualIdx], isExpanded: true };
@@ -1001,13 +1079,15 @@ export function initYouTube(): void {
               setYouTubeSubIndex(0);
               bus.emit('youtube:populate-sub-items', playlistId!, actualIdx);
             }
-          }, 250);
-       });
-       
-       // Trigger the player to index (via cuePlaylist in iframe.ts)
-       loadYouTubeVideo(videoId, playlistId, false);
+          },
+          250,
+        );
+      });
+
+      // Trigger the player to index (via cuePlaylist in iframe.ts)
+      loadYouTubeVideo(videoId, playlistId, false);
     } else {
-       _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
+      _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
     }
   });
 
@@ -1034,7 +1114,9 @@ export function initYouTube(): void {
       // host-snapshotted subItemsMap and loadVideoById directly. We don't
       // call playVideoAt because that hands control to the iframe's native
       // playlist engine, which we deliberately keep dormant.
-      const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+      const currentTrack = (getState('playlist.items') || [])[
+        getState('playlist.currentTrackIndex')
+      ];
       const subMap = getState('youtube.subItemsMap') || {};
       const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
       const targetVideoId = ids[subIdx];
@@ -1083,7 +1165,9 @@ export function initYouTube(): void {
     if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
       try {
         ids = player.getPlaylist() || [];
-      } catch (e) { log.debug('[YouTube] getPlaylist() not ready:', e); }
+      } catch (e) {
+        log.debug('[YouTube] getPlaylist() not ready:', e);
+      }
     }
 
     // 2. Initial map setup
@@ -1104,7 +1188,11 @@ export function initYouTube(): void {
     // 4. Guest: Request info from Host if sub-item data is missing
     const hostConn = getState('network.hostConn');
     if (hostConn) {
-      if (!currentSubMap[playlistId] || !currentSubMap[playlistId].ids || currentSubMap[playlistId].ids.length === 0) {
+      if (
+        !currentSubMap[playlistId] ||
+        !currentSubMap[playlistId].ids ||
+        currentSubMap[playlistId].ids.length === 0
+      ) {
         sendToHost({ type: MSG.REQUEST_YOUTUBE_PLAYLIST_INFO, playlistId });
       }
     }
@@ -1166,11 +1254,13 @@ export function initYouTube(): void {
       try {
         if (player?.getCurrentTime) ytTime = player.getCurrentTime();
         if (player?.getPlayerState) ytState = player.getPlayerState();
-      } catch (e) { log.debug('[YouTube] late-join state read:', e); }
+      } catch (e) {
+        log.debug('[YouTube] late-join state read:', e);
+      }
 
-      const autoplay = (ytState === 1);
+      const autoplay = ytState === 1;
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
-      const subIdx = (currentSubIndex >= 0) ? currentSubIndex : 0;
+      const subIdx = currentSubIndex >= 0 ? currentSubIndex : 0;
 
       // Single-video bootstrap: resolve the videoId the host is currently
       // playing and send THAT as the videoId. Never send the full ID array
@@ -1182,10 +1272,7 @@ export function initYouTube(): void {
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
       const resolvedVideoId =
-        (hostIds && hostIds[subIdx]) ||
-        player?.getVideoData?.()?.video_id ||
-        item.videoId ||
-        null;
+        (hostIds && hostIds[subIdx]) || player?.getVideoData?.()?.video_id || item.videoId || null;
       const currentVideoId = resolvedVideoId || '';
 
       safeSend(conn, {

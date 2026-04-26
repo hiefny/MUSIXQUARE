@@ -19,18 +19,37 @@ import { getState, setState } from '../core/state.ts';
 
 import { getAudioContext, ensureRunning } from './context.ts';
 import {
-  rampParam, safeDisconnect, generateReverbIR,
-  createCrossFade, createStereoWidener, createCascadedFilter,
-  type CrossFadeGraph, type StereoWidenerGraph, type CascadedFilter,
+  rampParam,
+  safeDisconnect,
+  generateReverbIR,
+  createCrossFade,
+  createStereoWidener,
+  createCascadedFilter,
+  type CrossFadeGraph,
+  type StereoWidenerGraph,
+  type CascadedFilter,
 } from './helpers.ts';
 import {
-  FREQ_FULL_RANGE, ANALYSER_FFT_SIZE, ANALYSER_SMOOTHING,
-  REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY,
-  REVERB_LOWCUT_BASE, VB_CURVE_LENGTH,
-  VB_SUB_LP_FREQ, VB_SUB_HP_FREQ, VB_SUB_COMP, VB_SUB_TRIM_GAIN,
-  VB_SUB_POST_HP_FREQ, VB_SUB_POST_LP_FREQ,
-  VB_MID_LP_FREQ, VB_MID_HP_FREQ, VB_MID_COMP, VB_MID_TRIM_GAIN,
-  VB_MID_POST_HP_FREQ, VB_MID_POST_LP_FREQ, VB_MID_MIX_GAIN,
+  FREQ_FULL_RANGE,
+  ANALYSER_FFT_SIZE,
+  ANALYSER_SMOOTHING,
+  REVERB_DEFAULT_DECAY,
+  REVERB_DEFAULT_PREDELAY,
+  REVERB_LOWCUT_BASE,
+  VB_CURVE_LENGTH,
+  VB_SUB_LP_FREQ,
+  VB_SUB_HP_FREQ,
+  VB_SUB_COMP,
+  VB_SUB_TRIM_GAIN,
+  VB_SUB_POST_HP_FREQ,
+  VB_SUB_POST_LP_FREQ,
+  VB_MID_LP_FREQ,
+  VB_MID_HP_FREQ,
+  VB_MID_COMP,
+  VB_MID_TRIM_GAIN,
+  VB_MID_POST_HP_FREQ,
+  VB_MID_POST_LP_FREQ,
+  VB_MID_MIX_GAIN,
   VB_LIMITER,
 } from './constants.ts';
 
@@ -55,16 +74,16 @@ interface AudioGraph {
   analyser: AnalyserNode | null;
 
   // Virtual Bass — Dual-Band
-  vbSubLP: CascadedFilter | null;     // -24dB rolloff
-  vbSubHP: BiquadFilterNode | null;   // -12dB rolloff
+  vbSubLP: CascadedFilter | null; // -24dB rolloff
+  vbSubHP: BiquadFilterNode | null; // -12dB rolloff
   vbSubComp: DynamicsCompressorNode | null;
   vbSubTrim: GainNode | null;
   vbSubShaper: WaveShaperNode | null;
   vbSubPostHP: BiquadFilterNode | null;
   vbSubPostLP: CascadedFilter | null; // -24dB rolloff
   vbSubMix: GainNode | null;
-  vbMidLP: CascadedFilter | null;     // -24dB rolloff
-  vbMidHP: BiquadFilterNode | null;   // -12dB rolloff
+  vbMidLP: CascadedFilter | null; // -24dB rolloff
+  vbMidHP: BiquadFilterNode | null; // -12dB rolloff
   vbMidComp: DynamicsCompressorNode | null;
   vbMidTrim: GainNode | null;
   vbMidShaper: WaveShaperNode | null;
@@ -82,16 +101,41 @@ interface AudioGraph {
 
 function createEmptyGraph(): AudioGraph {
   return {
-    toneSplit: null, toneMerge: null, gainL: null, gainR: null,
-    masterGain: null, reverb: null, rvbLowCut: null, rvbHighCut: null,
-    rvbCrossFade: null, eqNodes: [], preamp: null, widener: null,
-    globalLowPass: null, analyser: null,
-    vbSubLP: null, vbSubHP: null, vbSubComp: null, vbSubTrim: null,
-    vbSubShaper: null, vbSubPostHP: null, vbSubPostLP: null, vbSubMix: null,
-    vbMidLP: null, vbMidHP: null, vbMidComp: null, vbMidTrim: null,
-    vbMidShaper: null, vbMidPostHP: null, vbMidPostLP: null, vbMidMix: null,
-    vbSum: null, vbLimiter: null, vbGain: null,
-    surroundSplitter: null, surroundGain: null,
+    toneSplit: null,
+    toneMerge: null,
+    gainL: null,
+    gainR: null,
+    masterGain: null,
+    reverb: null,
+    rvbLowCut: null,
+    rvbHighCut: null,
+    rvbCrossFade: null,
+    eqNodes: [],
+    preamp: null,
+    widener: null,
+    globalLowPass: null,
+    analyser: null,
+    vbSubLP: null,
+    vbSubHP: null,
+    vbSubComp: null,
+    vbSubTrim: null,
+    vbSubShaper: null,
+    vbSubPostHP: null,
+    vbSubPostLP: null,
+    vbSubMix: null,
+    vbMidLP: null,
+    vbMidHP: null,
+    vbMidComp: null,
+    vbMidTrim: null,
+    vbMidShaper: null,
+    vbMidPostHP: null,
+    vbMidPostLP: null,
+    vbMidMix: null,
+    vbSum: null,
+    vbLimiter: null,
+    vbGain: null,
+    surroundSplitter: null,
+    surroundGain: null,
   };
 }
 
@@ -103,23 +147,57 @@ let _ctxStateChangeHandler: (() => void) | null = null;
 
 // ─── Public Getters ────────────────────────────────────────────────
 
-export function getMasterGain(): GainNode | null { return _graph.masterGain; }
-export function getAnalyser(): AnalyserNode | null { return _graph.analyser; }
-export function getToneMerge(): ChannelMergerNode | null { return _graph.toneMerge; }
-export function getGainL(): GainNode | null { return _graph.gainL; }
-export function getGainR(): GainNode | null { return _graph.gainR; }
-export function getPreamp(): GainNode | null { return _graph.preamp; }
-export function getWidener(): StereoWidenerGraph | null { return _graph.widener; }
-export function getReverb(): ConvolverNode | null { return _graph.reverb; }
-export function getRvbLowCut(): BiquadFilterNode | null { return _graph.rvbLowCut; }
-export function getRvbHighCut(): BiquadFilterNode | null { return _graph.rvbHighCut; }
-export function getRvbCrossFade(): CrossFadeGraph | null { return _graph.rvbCrossFade; }
-export function getEqNodes(): BiquadFilterNode[] { return _graph.eqNodes; }
-export function getGlobalLowPass(): BiquadFilterNode | null { return _graph.globalLowPass; }
-export function getVbGain(): GainNode | null { return _graph.vbGain; }
-export function getSurroundSplitter(): ChannelSplitterNode | null { return _graph.surroundSplitter; }
-export function getSurroundGain(): GainNode | null { return _graph.surroundGain; }
-export function isAudioReady(): boolean { return _graph.masterGain !== null; }
+export function getMasterGain(): GainNode | null {
+  return _graph.masterGain;
+}
+export function getAnalyser(): AnalyserNode | null {
+  return _graph.analyser;
+}
+export function getToneMerge(): ChannelMergerNode | null {
+  return _graph.toneMerge;
+}
+export function getGainL(): GainNode | null {
+  return _graph.gainL;
+}
+export function getGainR(): GainNode | null {
+  return _graph.gainR;
+}
+export function getPreamp(): GainNode | null {
+  return _graph.preamp;
+}
+export function getWidener(): StereoWidenerGraph | null {
+  return _graph.widener;
+}
+export function getReverb(): ConvolverNode | null {
+  return _graph.reverb;
+}
+export function getRvbLowCut(): BiquadFilterNode | null {
+  return _graph.rvbLowCut;
+}
+export function getRvbHighCut(): BiquadFilterNode | null {
+  return _graph.rvbHighCut;
+}
+export function getRvbCrossFade(): CrossFadeGraph | null {
+  return _graph.rvbCrossFade;
+}
+export function getEqNodes(): BiquadFilterNode[] {
+  return _graph.eqNodes;
+}
+export function getGlobalLowPass(): BiquadFilterNode | null {
+  return _graph.globalLowPass;
+}
+export function getVbGain(): GainNode | null {
+  return _graph.vbGain;
+}
+export function getSurroundSplitter(): ChannelSplitterNode | null {
+  return _graph.surroundSplitter;
+}
+export function getSurroundGain(): GainNode | null {
+  return _graph.surroundGain;
+}
+export function isAudioReady(): boolean {
+  return _graph.masterGain !== null;
+}
 
 // Re-exported from context.ts for backward compatibility
 export { getAudioContext } from './context.ts';
@@ -152,7 +230,11 @@ export async function initAudio(): Promise<void> {
   if (_graph.masterGain) {
     const ctx = getAudioContext();
     if (ctx.state !== 'running') {
-      try { await ensureRunning(); } catch (e) { log.debug('[Engine] ensureRunning:', e); }
+      try {
+        await ensureRunning();
+      } catch (e) {
+        log.debug('[Engine] ensureRunning:', e);
+      }
     }
     return;
   }
@@ -188,8 +270,8 @@ async function _doInitAudio(): Promise<void> {
   _graph.gainL = ctx.createGain();
   _graph.gainR = ctx.createGain();
 
-  _graph.toneSplit.connect(_graph.gainL, 0, 0);  // L -> gainL
-  _graph.toneSplit.connect(_graph.gainR, 1, 0);  // R -> gainR
+  _graph.toneSplit.connect(_graph.gainL, 0, 0); // L -> gainL
+  _graph.toneSplit.connect(_graph.gainR, 1, 0); // R -> gainR
 
   // Default Routing: Stereo (L→0, R→1 of merge)
   _graph.gainL.connect(_graph.toneMerge, 0, 0);
@@ -199,7 +281,7 @@ async function _doInitAudio(): Promise<void> {
   _graph.masterGain = ctx.createGain();
 
   // EQ (5-Band Peaking Filters)
-  _graph.eqNodes = EQ_FREQUENCIES.map(f => {
+  _graph.eqNodes = EQ_FREQUENCIES.map((f) => {
     const filter = ctx.createBiquadFilter();
     filter.type = 'peaking';
     filter.frequency.value = f;
@@ -241,47 +323,63 @@ async function _doInitAudio(): Promise<void> {
   for (let i = 0; i < VB_CURVE_LENGTH; i++) {
     const x = (i / (VB_CURVE_LENGTH - 1)) * 2 - 1;
     const ax = Math.abs(x);
-    const shaped = ax <= 1.0 ? (2 * ax - ax * ax) : 1.0;
+    const shaped = ax <= 1.0 ? 2 * ax - ax * ax : 1.0;
     midCurve[i] = x >= 0 ? shaped : -shaped;
   }
 
   // Sub-bass path (40-80 Hz)
-  _graph.vbSubLP = createCascadedFilter('lowpass', VB_SUB_LP_FREQ, 2);       // -24dB
+  _graph.vbSubLP = createCascadedFilter('lowpass', VB_SUB_LP_FREQ, 2); // -24dB
   _graph.vbSubHP = ctx.createBiquadFilter();
-  _graph.vbSubHP.type = 'highpass'; _graph.vbSubHP.frequency.value = VB_SUB_HP_FREQ;
+  _graph.vbSubHP.type = 'highpass';
+  _graph.vbSubHP.frequency.value = VB_SUB_HP_FREQ;
   _graph.vbSubComp = ctx.createDynamicsCompressor();
-  _graph.vbSubComp.threshold.value = VB_SUB_COMP.threshold; _graph.vbSubComp.ratio.value = VB_SUB_COMP.ratio;
-  _graph.vbSubComp.attack.value = VB_SUB_COMP.attack; _graph.vbSubComp.release.value = VB_SUB_COMP.release;
+  _graph.vbSubComp.threshold.value = VB_SUB_COMP.threshold;
+  _graph.vbSubComp.ratio.value = VB_SUB_COMP.ratio;
+  _graph.vbSubComp.attack.value = VB_SUB_COMP.attack;
+  _graph.vbSubComp.release.value = VB_SUB_COMP.release;
   _graph.vbSubComp.knee.value = VB_SUB_COMP.knee;
-  _graph.vbSubTrim = ctx.createGain(); _graph.vbSubTrim.gain.value = VB_SUB_TRIM_GAIN;
-  _graph.vbSubShaper = ctx.createWaveShaper(); _graph.vbSubShaper.curve = subCurve;
+  _graph.vbSubTrim = ctx.createGain();
+  _graph.vbSubTrim.gain.value = VB_SUB_TRIM_GAIN;
+  _graph.vbSubShaper = ctx.createWaveShaper();
+  _graph.vbSubShaper.curve = subCurve;
   _graph.vbSubPostHP = ctx.createBiquadFilter();
-  _graph.vbSubPostHP.type = 'highpass'; _graph.vbSubPostHP.frequency.value = VB_SUB_POST_HP_FREQ;
-  _graph.vbSubPostLP = createCascadedFilter('lowpass', VB_SUB_POST_LP_FREQ, 2);  // -24dB
+  _graph.vbSubPostHP.type = 'highpass';
+  _graph.vbSubPostHP.frequency.value = VB_SUB_POST_HP_FREQ;
+  _graph.vbSubPostLP = createCascadedFilter('lowpass', VB_SUB_POST_LP_FREQ, 2); // -24dB
   _graph.vbSubMix = ctx.createGain();
 
   // Mid-bass path (80-160 Hz)
-  _graph.vbMidLP = createCascadedFilter('lowpass', VB_MID_LP_FREQ, 2);      // -24dB
+  _graph.vbMidLP = createCascadedFilter('lowpass', VB_MID_LP_FREQ, 2); // -24dB
   _graph.vbMidHP = ctx.createBiquadFilter();
-  _graph.vbMidHP.type = 'highpass'; _graph.vbMidHP.frequency.value = VB_MID_HP_FREQ;
+  _graph.vbMidHP.type = 'highpass';
+  _graph.vbMidHP.frequency.value = VB_MID_HP_FREQ;
   _graph.vbMidComp = ctx.createDynamicsCompressor();
-  _graph.vbMidComp.threshold.value = VB_MID_COMP.threshold; _graph.vbMidComp.ratio.value = VB_MID_COMP.ratio;
-  _graph.vbMidComp.attack.value = VB_MID_COMP.attack; _graph.vbMidComp.release.value = VB_MID_COMP.release;
+  _graph.vbMidComp.threshold.value = VB_MID_COMP.threshold;
+  _graph.vbMidComp.ratio.value = VB_MID_COMP.ratio;
+  _graph.vbMidComp.attack.value = VB_MID_COMP.attack;
+  _graph.vbMidComp.release.value = VB_MID_COMP.release;
   _graph.vbMidComp.knee.value = VB_MID_COMP.knee;
-  _graph.vbMidTrim = ctx.createGain(); _graph.vbMidTrim.gain.value = VB_MID_TRIM_GAIN;
-  _graph.vbMidShaper = ctx.createWaveShaper(); _graph.vbMidShaper.curve = midCurve;
+  _graph.vbMidTrim = ctx.createGain();
+  _graph.vbMidTrim.gain.value = VB_MID_TRIM_GAIN;
+  _graph.vbMidShaper = ctx.createWaveShaper();
+  _graph.vbMidShaper.curve = midCurve;
   _graph.vbMidPostHP = ctx.createBiquadFilter();
-  _graph.vbMidPostHP.type = 'highpass'; _graph.vbMidPostHP.frequency.value = VB_MID_POST_HP_FREQ;
-  _graph.vbMidPostLP = createCascadedFilter('lowpass', VB_MID_POST_LP_FREQ, 2);  // -24dB
-  _graph.vbMidMix = ctx.createGain(); _graph.vbMidMix.gain.value = VB_MID_MIX_GAIN;
+  _graph.vbMidPostHP.type = 'highpass';
+  _graph.vbMidPostHP.frequency.value = VB_MID_POST_HP_FREQ;
+  _graph.vbMidPostLP = createCascadedFilter('lowpass', VB_MID_POST_LP_FREQ, 2); // -24dB
+  _graph.vbMidMix = ctx.createGain();
+  _graph.vbMidMix.gain.value = VB_MID_MIX_GAIN;
 
   // Output stage
   _graph.vbSum = ctx.createGain();
   _graph.vbLimiter = ctx.createDynamicsCompressor();
-  _graph.vbLimiter.threshold.value = VB_LIMITER.threshold; _graph.vbLimiter.ratio.value = VB_LIMITER.ratio;
-  _graph.vbLimiter.attack.value = VB_LIMITER.attack; _graph.vbLimiter.release.value = VB_LIMITER.release;
+  _graph.vbLimiter.threshold.value = VB_LIMITER.threshold;
+  _graph.vbLimiter.ratio.value = VB_LIMITER.ratio;
+  _graph.vbLimiter.attack.value = VB_LIMITER.attack;
+  _graph.vbLimiter.release.value = VB_LIMITER.release;
   _graph.vbLimiter.knee.value = VB_LIMITER.knee;
-  _graph.vbGain = ctx.createGain(); _graph.vbGain.gain.value = 0;
+  _graph.vbGain = ctx.createGain();
+  _graph.vbGain.gain.value = 0;
 
   // ── Connections ──
   // Player → Widener → Preamp → Split → (Channel Logic) → Merge → EQ → Reverb → Master
@@ -305,12 +403,12 @@ async function _doInitAudio(): Promise<void> {
   }
 
   // Wet/Dry Routing with Damping
-  eqIn.connect(_graph.rvbCrossFade.a);              // Dry path
-  eqIn.connect(_graph.reverb);                      // Wet path
+  eqIn.connect(_graph.rvbCrossFade.a); // Dry path
+  eqIn.connect(_graph.reverb); // Wet path
   _graph.reverb.connect(_graph.rvbLowCut);
   _graph.rvbLowCut.connect(_graph.rvbHighCut);
   _graph.rvbHighCut.connect(_graph.rvbCrossFade.b);
-  _graph.rvbCrossFade.output.connect(_graph.masterGain);  // Output
+  _graph.rvbCrossFade.output.connect(_graph.masterGain); // Output
 
   // Virtual Bass — dual-band parallel tap after EQ
   // Sub-bass path
@@ -350,7 +448,7 @@ async function _doInitAudio(): Promise<void> {
   try {
     const silentAudio = document.getElementById('silent-trigger') as HTMLAudioElement | null;
     if (silentAudio) {
-      silentAudio.play().catch(e => log.debug('[Audio] Silent Audio play failed', e));
+      silentAudio.play().catch((e) => log.debug('[Audio] Silent Audio play failed', e));
     }
   } catch (e) {
     log.debug('[Audio] iOS unlock attempt failed:', e);
@@ -361,13 +459,15 @@ async function _doInitAudio(): Promise<void> {
   try {
     if (_ctxStateChangeHandler) {
       // Remove from both the old context and current, in case they differ
-      if (_ctxStateChangeCtx) _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
-      if (_ctxStateChangeCtx !== ctx) ctx.removeEventListener('statechange', _ctxStateChangeHandler);
+      if (_ctxStateChangeCtx)
+        _ctxStateChangeCtx.removeEventListener('statechange', _ctxStateChangeHandler);
+      if (_ctxStateChangeCtx !== ctx)
+        ctx.removeEventListener('statechange', _ctxStateChangeHandler);
     }
     const handler = () => {
       if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
         log.info(`[Audio] AudioContext ${ctx.state} — auto-resuming`);
-        ctx.resume().catch(e => log.debug('[Audio] Auto-resume failed', e));
+        ctx.resume().catch((e) => log.debug('[Audio] Auto-resume failed', e));
       }
     };
     ctx.addEventListener('statechange', handler);
@@ -385,15 +485,34 @@ async function _doInitAudio(): Promise<void> {
 
 function _cleanupAllNodes(): void {
   const simpleNodes: (AudioNode | null)[] = [
-    _graph.toneSplit, _graph.toneMerge, _graph.gainL, _graph.gainR,
-    _graph.masterGain, _graph.reverb, _graph.preamp,
-    _graph.rvbLowCut, _graph.rvbHighCut, _graph.globalLowPass, _graph.analyser,
-    _graph.vbSubHP, _graph.vbSubComp, _graph.vbSubTrim, _graph.vbSubShaper,
-    _graph.vbSubPostHP, _graph.vbSubMix,
-    _graph.vbMidHP, _graph.vbMidComp, _graph.vbMidTrim, _graph.vbMidShaper,
-    _graph.vbMidPostHP, _graph.vbMidMix,
-    _graph.vbSum, _graph.vbLimiter, _graph.vbGain,
-    _graph.surroundSplitter, _graph.surroundGain,
+    _graph.toneSplit,
+    _graph.toneMerge,
+    _graph.gainL,
+    _graph.gainR,
+    _graph.masterGain,
+    _graph.reverb,
+    _graph.preamp,
+    _graph.rvbLowCut,
+    _graph.rvbHighCut,
+    _graph.globalLowPass,
+    _graph.analyser,
+    _graph.vbSubHP,
+    _graph.vbSubComp,
+    _graph.vbSubTrim,
+    _graph.vbSubShaper,
+    _graph.vbSubPostHP,
+    _graph.vbSubMix,
+    _graph.vbMidHP,
+    _graph.vbMidComp,
+    _graph.vbMidTrim,
+    _graph.vbMidShaper,
+    _graph.vbMidPostHP,
+    _graph.vbMidMix,
+    _graph.vbSum,
+    _graph.vbLimiter,
+    _graph.vbGain,
+    _graph.surroundSplitter,
+    _graph.surroundGain,
   ];
   for (const n of simpleNodes) safeDisconnect(n);
   for (const n of _graph.eqNodes) safeDisconnect(n);
@@ -451,10 +570,18 @@ bus.on('audio:connect-surround', (playerNode, channelIdx) => {
   if (!pre) return;
   const { splitter, gain } = ensureSurroundNodes();
 
-  try { gain.disconnect(); } catch { /* expected */ }
+  try {
+    gain.disconnect();
+  } catch {
+    /* expected */
+  }
   gain.connect(pre);
 
-  try { splitter.disconnect(); } catch { /* expected */ }
+  try {
+    splitter.disconnect();
+  } catch {
+    /* expected */
+  }
 
   (playerNode as AudioNode).connect(splitter);
 

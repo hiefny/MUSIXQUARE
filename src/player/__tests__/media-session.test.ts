@@ -106,8 +106,9 @@ describe('initMediaSession', () => {
 
   it('registers all 7 action handlers', () => {
     expect(navigator.mediaSession.setActionHandler).toHaveBeenCalledTimes(7);
-    const actions = (navigator.mediaSession.setActionHandler as ReturnType<typeof vi.fn>)
-      .mock.calls.map((c: unknown[]) => c[0]);
+    const actions = (
+      navigator.mediaSession.setActionHandler as ReturnType<typeof vi.fn>
+    ).mock.calls.map((c: unknown[]) => c[0]);
     expect(actions).toContain('play');
     expect(actions).toContain('pause');
     expect(actions).toContain('previoustrack');

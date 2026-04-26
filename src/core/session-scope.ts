@@ -24,10 +24,14 @@ export class SessionScope {
   private _timers = new Set<string>();
 
   /** AbortSignal — pass to fetch() or check in async loops. */
-  get signal(): AbortSignal { return this._controller.signal; }
+  get signal(): AbortSignal {
+    return this._controller.signal;
+  }
 
   /** Whether this scope has been disposed/cancelled. */
-  get aborted(): boolean { return this._controller.signal.aborted; }
+  get aborted(): boolean {
+    return this._controller.signal.aborted;
+  }
 
   /**
    * Register a managed timer scoped to this session.

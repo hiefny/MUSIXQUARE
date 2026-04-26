@@ -24,7 +24,7 @@ vi.mock('../../core/events.ts', () => {
     }),
     emit: vi.fn((event: string, ...args: unknown[]) => {
       const fns = handlers.get(event) || [];
-      fns.forEach(fn => fn(...args));
+      fns.forEach((fn) => fn(...args));
     }),
     clear: vi.fn(() => handlers.clear()),
   };
@@ -49,8 +49,12 @@ vi.mock('../../core/state.ts', () => {
   let state: Record<string, unknown> = { appState: 'IDLE' };
   return {
     getState: vi.fn((path: string) => state[path]),
-    setState: vi.fn((path: string, value: unknown) => { state[path] = value; }),
-    resetState: vi.fn(() => { state = { appState: 'IDLE' }; }),
+    setState: vi.fn((path: string, value: unknown) => {
+      state[path] = value;
+    }),
+    resetState: vi.fn(() => {
+      state = { appState: 'IDLE' };
+    }),
   };
 });
 
@@ -59,7 +63,7 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 
 vi.mock('../../core/constants.ts', async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual };
 });
 
@@ -232,6 +236,5 @@ describe('Visualizer', () => {
       const mod = await import('../visualizer.ts');
       expect(typeof mod.startVisualizer).toBe('function');
     });
-
   });
 });

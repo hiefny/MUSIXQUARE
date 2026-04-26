@@ -77,7 +77,7 @@ async function generateQR(containerId: string): Promise<void> {
       errorCorrectionLevel: 'L',
       color: {
         dark: '#000000',
-        light: '#00000000',  // Fully transparent background
+        light: '#00000000', // Fully transparent background
       },
     });
 
@@ -131,10 +131,10 @@ function _applyValue(value: number): void {
 
   // Prevent reducing below current connected device count (only count peers with open connections)
   const allPeers = getState('network.connectedPeers') || [];
-  const peers = allPeers.filter(p => p.conn?.open !== false);
+  const peers = allPeers.filter((p) => p.conn?.open !== false);
   if (clamped < peers.length && clamped < cur) {
     showToast(t('connect.cannot_reduce', { count: peers.length }));
-    syncAllValues(cur);  // revert display
+    syncAllValues(cur); // revert display
     return;
   }
 
@@ -188,30 +188,39 @@ function initStepper(stepperId: string): void {
       span.classList.remove('editing');
       if (input.parentNode) input.remove();
       if (!isNaN(raw)) _applyValue(raw);
-      else syncAllValues(cur);  // restore on invalid
+      else syncAllValues(cur); // restore on invalid
     };
 
-    input.addEventListener('blur', () => {
-      commit();
-    }, { once: true });
+    input.addEventListener(
+      'blur',
+      () => {
+        commit();
+      },
+      { once: true },
+    );
 
     input.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') { input.blur(); }
-      if (ev.key === 'Escape') { input.value = ''; input.blur(); }
+      if (ev.key === 'Enter') {
+        input.blur();
+      }
+      if (ev.key === 'Escape') {
+        input.value = '';
+        input.blur();
+      }
     });
   });
 }
 
 function syncAllValues(value: number): void {
-  VALUE_IDS.forEach(id => {
+  VALUE_IDS.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.textContent = String(value);
   });
   // Update disabled state on all stepper buttons
-  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="-1"]').forEach(btn => {
+  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="-1"]').forEach((btn) => {
     btn.disabled = value <= MIN_GUEST_SLOTS;
   });
-  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="1"]').forEach(btn => {
+  document.querySelectorAll<HTMLButtonElement>('.stepper-btn[data-dir="1"]').forEach((btn) => {
     btn.disabled = value >= MAX_GUEST_SLOTS_LIMIT;
   });
 }
@@ -222,7 +231,7 @@ let _lastDeviceCount = 0;
 
 function _updateDeviceTitles(): void {
   const titleText = _deviceListTitle(_lastDeviceCount);
-  ['connect-device-title', 'desktop-device-title'].forEach(id => {
+  ['connect-device-title', 'desktop-device-title'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.textContent = titleText;
   });
@@ -244,7 +253,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
     document.getElementById('desktop-device-list'),
   ].filter(Boolean) as HTMLElement[];
 
-  containers.forEach(container => {
+  containers.forEach((container) => {
     container.innerHTML = '';
 
     list.forEach((p) => {
@@ -262,7 +271,6 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       const name = document.createElement('span');
       name.className = 'd-name';
       name.textContent = String(p.label || t('common.peer'));
-
 
       if (p.isOp) {
         const op = document.createElement('span');
@@ -296,7 +304,8 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         kickBtn.className = 'btn-kick-device';
         kickBtn.dataset.kickPeer = String(p.id || '');
         kickBtn.setAttribute('aria-label', t('connect.kick_title'));
-        kickBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+        kickBtn.innerHTML =
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
         kickBtn.addEventListener('click', async (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -383,15 +392,19 @@ export function initConnect(): void {
       message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
       buttonText: t('common.ok'),
       secondaryText: t('common.cancel'),
-    }).then(res => {
+    }).then((res) => {
       if (res && res.action === 'ok') {
         showLoader(true, t('dialog.leaving_session'));
         // Flip the intentional-nav flag from inside the timer callback so
         // a cancelled/cleared timer can't leave the flag stuck true.
-        setManagedTimer('leave-session-reload', () => {
-          markIntentionalNav();
-          window.location.reload();
-        }, 300);
+        setManagedTimer(
+          'leave-session-reload',
+          () => {
+            markIntentionalNav();
+            window.location.reload();
+          },
+          300,
+        );
       }
     });
   };
@@ -414,7 +427,7 @@ export function initConnect(): void {
           const name = val.trim();
           if (!name) return t('connect.rename_reserved');
           const isHostSelf = !getState('network.hostConn');
-          if (RESERVED_NAMES.some(r => name.toLowerCase() === r.toLowerCase())) {
+          if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
             // HOST가 "host"/"방장"/"호스트"로 되돌리는 건 허용
             if (!isHostSelf || !['host', '방장', '호스트'].includes(name.toLowerCase())) {
               return t('connect.rename_reserved');
@@ -424,17 +437,22 @@ export function initConnect(): void {
             return t('connect.rename_reserved');
           }
           // HOST가 "host"/"방장"/"호스트"로 되돌릴 때는 profanity 체크 스킵
-          const isHostRestore = isHostSelf && ['host', '방장', '호스트'].includes(name.toLowerCase());
+          const isHostRestore =
+            isHostSelf && ['host', '방장', '호스트'].includes(name.toLowerCase());
           if (!isHostRestore && containsProfanity(name)) {
             return t('connect.rename_profanity');
           }
           // Check against host's own label + all peers
           const hostLabel = getState('network.myDeviceLabel') || '';
-          if (hostLabel && name.toLowerCase() === hostLabel.toLowerCase() && name !== currentLabel) {
+          if (
+            hostLabel &&
+            name.toLowerCase() === hostLabel.toLowerCase() &&
+            name !== currentLabel
+          ) {
             return t('connect.rename_duplicate');
           }
           const peers = getState('network.connectedPeers') || [];
-          if (peers.some(p => p.label.toLowerCase() === name.toLowerCase())) {
+          if (peers.some((p) => p.label.toLowerCase() === name.toLowerCase())) {
             return t('connect.rename_duplicate');
           }
           return null;

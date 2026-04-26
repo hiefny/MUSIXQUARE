@@ -11,11 +11,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
 } from '../_state.ts';
-import {
-  stopPlayerNode,
-  stopAllMedia,
-  updatePlayState,
-} from '../transport.ts';
+import { stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
 
 beforeEach(() => {
   resetState();

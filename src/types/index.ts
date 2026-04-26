@@ -5,7 +5,13 @@
 // NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
 //       Removed duplicate const enums that were never imported.
 
-import type { AppStateValue, TransferStateValue, MsgType, PlaybackStateValue, LoadSourceValue } from '../core/constants.ts';
+import type {
+  AppStateValue,
+  TransferStateValue,
+  MsgType,
+  PlaybackStateValue,
+  LoadSourceValue,
+} from '../core/constants.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
@@ -20,8 +26,6 @@ export type DataConnection = PeerJSDataConnection & {
 
 /** PeerJS Peer instance */
 export type PeerInstance = PeerClass;
-
-
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {
@@ -141,43 +145,104 @@ type NoPayload = {};
  */
 export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
-  'welcome': { lockChannel: boolean; label: string; chatFrozen?: boolean; slowmodeSeconds?: number; filterEnabled?: boolean };
+  welcome: {
+    lockChannel: boolean;
+    label: string;
+    chatFrozen?: boolean;
+    slowmodeSeconds?: number;
+    filterEnabled?: boolean;
+  };
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
 
   // ── Audio Control ────────────────────────────────────────────────
-  'volume': { value: number };
+  volume: { value: number };
   'eq-update': { band: number; value: number };
   'eq-reset': NoPayload;
-  'preamp': { value: number };
-  'reverb': { value: number };
+  preamp: { value: number };
+  reverb: { value: number };
   'reverb-type': { value: string };
   'reverb-decay': { value: number };
   'reverb-predelay': { value: number };
   'reverb-lowcut': { value: number };
   'reverb-highcut': { value: number };
   'stereo-width': { value: number };
-  'vbass': { value: number };
+  vbass: { value: number };
 
   // ── Playback ─────────────────────────────────────────────────────
-  'play': { time: number; index: number; name?: string | null; state?: AppStateValue; timestamp?: number; hostPlayAt?: number };
-  'pause': { time: number; index?: number; state?: AppStateValue; timestamp?: number; endOfPlaylist?: boolean };
+  play: {
+    time: number;
+    index: number;
+    name?: string | null;
+    state?: AppStateValue;
+    timestamp?: number;
+    hostPlayAt?: number;
+  };
+  pause: {
+    time: number;
+    index?: number;
+    state?: AppStateValue;
+    timestamp?: number;
+    endOfPlaylist?: boolean;
+  };
   'play-preloaded': { index: number; name: string; mime?: string };
-  'file-prepare': { name: string; index: number; sessionId: number; mime: string; size?: number; autoPlayDelayMs?: number };
+  'file-prepare': {
+    name: string;
+    index: number;
+    sessionId: number;
+    mime: string;
+    size?: number;
+    autoPlayDelayMs?: number;
+  };
   // ── Playlist ─────────────────────────────────────────────────────
-  'playlist-update': { list: Array<Record<string, unknown>>; currentTrackIndex?: number; index?: number };
+  'playlist-update': {
+    list: Array<Record<string, unknown>>;
+    currentTrackIndex?: number;
+    index?: number;
+  };
   'repeat-mode': { value: number };
   'shuffle-mode': { value: boolean };
 
   // ── File Transfer ────────────────────────────────────────────────
-  'file-start': { name: string; mime?: string; total?: number; size?: number; index?: number; sessionId: number };
-  'file-chunk': { chunk: Uint8Array | ArrayBuffer; index: number; sessionId: number; total?: number; name?: string; size?: number; mime?: string };
+  'file-start': {
+    name: string;
+    mime?: string;
+    total?: number;
+    size?: number;
+    index?: number;
+    sessionId: number;
+  };
+  'file-chunk': {
+    chunk: Uint8Array | ArrayBuffer;
+    index: number;
+    sessionId: number;
+    total?: number;
+    name?: string;
+    size?: number;
+    mime?: string;
+  };
   'file-end': { name: string; mime: string; sessionId: number };
   'file-wait': { message: string };
-  'file-resume': { name: string; mime?: string; total: number; size: number; startChunk: number; sessionId: number; index?: number };
+  'file-resume': {
+    name: string;
+    mime?: string;
+    total: number;
+    size: number;
+    startChunk: number;
+    sessionId: number;
+    index?: number;
+  };
 
   // ── Preload ──────────────────────────────────────────────────────
-  'preload-start': { name: string; mime?: string; total: number; size: number; index: number; sessionId: number; skipped?: boolean };
+  'preload-start': {
+    name: string;
+    mime?: string;
+    total: number;
+    size: number;
+    index: number;
+    sessionId: number;
+    skipped?: boolean;
+  };
   'preload-chunk': { chunk: Uint8Array; index: number; sessionId: number };
   'preload-end': { name: string; index: number; sessionId: number };
   'preload-ack': { index: number };
@@ -186,7 +251,17 @@ export interface ProtocolMap {
   // 'heartbeat', 'heartbeat-ack', 'ping-latency', 'pong-latency' removed — replaced by sync-ping/pong
 
   // ── Network / Relay ──────────────────────────────────────────────
-  'device-list-update': { list: Array<{ id: string | null; label: string; status: string; isHost: boolean; isOp?: boolean; connectionType?: string; joinOrder?: number }> };
+  'device-list-update': {
+    list: Array<{
+      id: string | null;
+      label: string;
+      status: string;
+      isHost: boolean;
+      isOp?: boolean;
+      connectionType?: string;
+      joinOrder?: number;
+    }>;
+  };
   'assign-data-source': { targetId?: string | null };
   'data-relay': NoPayload;
   'kick-device': { reason?: string };
@@ -205,7 +280,12 @@ export interface ProtocolMap {
   'request-setting': { settingType: string; value?: unknown; band?: number };
   'request-eq-reset': NoPayload;
   'request-current-file': { name?: string; index?: number; reason?: string };
-  'request-data-recovery': { nextChunk: number; fileName: string; index: number; sessionId?: number };
+  'request-data-recovery': {
+    nextChunk: number;
+    fileName: string;
+    index: number;
+    sessionId?: number;
+  };
   'request-youtube-play': NoPayload;
   'request-youtube-pause': NoPayload;
   'request-youtube-toggle': NoPayload;
@@ -213,19 +293,56 @@ export interface ProtocolMap {
   'request-youtube-playlist-info': { playlistId: string };
 
   // ── YouTube ──────────────────────────────────────────────────────
-  'youtube-play': { videoId?: string | null; playlistId?: string | string[] | null; name?: string | null; index: number; autoplay: boolean; subIndex?: number };
+  'youtube-play': {
+    videoId?: string | null;
+    playlistId?: string | string[] | null;
+    name?: string | null;
+    index: number;
+    autoplay: boolean;
+    subIndex?: number;
+  };
   'youtube-stop': NoPayload;
-  'youtube-state': { state: number; time: number; subIndex?: number; videoId?: string; hostPlayAt?: number; hostClock?: number; title?: string };
-  'youtube-sync': { time: number; state: number; subIndex?: number; videoId?: string; hostClock?: number; isManual?: boolean; title?: string };
+  'youtube-state': {
+    state: number;
+    time: number;
+    subIndex?: number;
+    videoId?: string;
+    hostPlayAt?: number;
+    hostClock?: number;
+    title?: string;
+  };
+  'youtube-sync': {
+    time: number;
+    state: number;
+    subIndex?: number;
+    videoId?: string;
+    hostClock?: number;
+    isManual?: boolean;
+    title?: string;
+  };
   'youtube-sub-title-update': { playlistId: string; subIdx: number; title: string };
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
   'sync-ping': { pingId: number; guestTime: number };
-  'sync-pong': { pingId: number; hostTime: number; position: number; appState: string; trackIndex: number };
+  'sync-pong': {
+    pingId: number;
+    hostTime: number;
+    position: number;
+    appState: string;
+    trackIndex: number;
+  };
 
   // ── Chat ─────────────────────────────────────────────────────────
-  'chat': { senderId: string; sender: string; senderLabel: string; senderRole: string; text: string; ts: number; joinOrder?: number };
+  chat: {
+    senderId: string;
+    sender: string;
+    senderLabel: string;
+    senderRole: string;
+    text: string;
+    ts: number;
+    joinOrder?: number;
+  };
 
   // ── Rename ──────────────────────────────────────────────────────
   'request-rename': { newLabel: string };
@@ -236,7 +353,13 @@ export interface ProtocolMap {
   'chat-freeze': NoPayload;
   'chat-unfreeze': NoPayload;
   'chat-clear': NoPayload;
-  'chat-whisper': { senderId: string; senderLabel: string; text: string; ts: number; joinOrder: number };
+  'chat-whisper': {
+    senderId: string;
+    senderLabel: string;
+    text: string;
+    ts: number;
+    joinOrder: number;
+  };
   'chat-notice': { senderLabel: string; text: string; ts: number };
   'chat-slowmode': { seconds: number };
   'chat-filter': { on: boolean };
@@ -259,7 +382,13 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 export interface StateTree {
   appState: AppStateValue;
   setup: { sessionStarted: boolean };
-  player: { startedAt: number; pausedAt: number; isSeeking: boolean; isFirstTrackLoad: boolean; currentTrackMeta: Partial<PlaylistItem> | null };
+  player: {
+    startedAt: number;
+    pausedAt: number;
+    isSeeking: boolean;
+    isFirstTrackLoad: boolean;
+    currentTrackMeta: Partial<PlaylistItem> | null;
+  };
   transfer: {
     state: TransferStateValue;
     receivedCount: number;
@@ -330,7 +459,12 @@ export interface StateTree {
     filterEnabled: boolean;
   };
   relay: { upstreamDataConn: DataConnection | null; downstreamDataPeers: DataConnection[] };
-  playlist: { items: PlaylistItem[]; currentTrackIndex: number; repeatMode: number; isShuffle: boolean };
+  playlist: {
+    items: PlaylistItem[];
+    currentTrackIndex: number;
+    repeatMode: number;
+    isShuffle: boolean;
+  };
   files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
   youtube: {
     currentSubIndex: number;
@@ -353,7 +487,12 @@ export interface StateTree {
      */
     guestPlayLatency: number;
   };
-  recovery: { pending: boolean; retryCount: number; pendingFileName: string; pendingFileIndex: number | undefined };
+  recovery: {
+    pending: boolean;
+    retryCount: number;
+    pendingFileName: string;
+    pendingFileIndex: number | undefined;
+  };
   systemAudio: { isSharing: boolean; isReceiving: boolean; hostMuteLocal: boolean };
   /**
    * Guest-side track playback lifecycle. Orthogonal to `appState` (mode).
@@ -376,29 +515,37 @@ export interface StateTree {
 // ─── State Path Utilities ────────────────────────────────────────────
 
 type IsLeaf<T> = T extends
-  | string | number | boolean | null | undefined
-  | Array<any> | Map<any, any> | Set<any>
-  | Blob | DataConnection | ReturnType<typeof setTimeout>
-  ? true : false;
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Array<any>
+  | Map<any, any>
+  | Set<any>
+  | Blob
+  | DataConnection
+  | ReturnType<typeof setTimeout>
+  ? true
+  : false;
 
 /** Union of all valid dot-separated state paths. */
 export type StatePath = {
   [K in keyof StateTree & string]: IsLeaf<StateTree[K]> extends true
     ? K
-    : `${K}.${keyof StateTree[K] & string}`
+    : `${K}.${keyof StateTree[K] & string}`;
 }[keyof StateTree & string];
 
 /** Maps a StatePath to its value type. */
-export type StatePathValue<P extends string> =
-  P extends keyof StateTree
-    ? StateTree[P]
-    : P extends `${infer D}.${infer K}`
-      ? D extends keyof StateTree
-        ? K extends keyof StateTree[D]
-          ? StateTree[D][K]
-          : never
+export type StatePathValue<P extends string> = P extends keyof StateTree
+  ? StateTree[P]
+  : P extends `${infer D}.${infer K}`
+    ? D extends keyof StateTree
+      ? K extends keyof StateTree[D]
+        ? StateTree[D][K]
         : never
-      : never;
+      : never
+    : never;
 
 // ─── Immutability Utility ────────────────────────────────────────────
 
@@ -407,13 +554,17 @@ export type StatePathValue<P extends string> =
  * Prevents .push(), .set(), .delete() on state-derived collections
  * while keeping inner elements spreadable for immutable updates.
  */
-export type ShallowImmutable<T> =
-  T extends Blob | DataConnection ? T :            // Opaque externals pass through
-  T extends Map<infer K, infer V> ? ReadonlyMap<K, V> :
-  T extends Set<infer U> ? ReadonlySet<U> :
-  T extends Array<infer U> ? ReadonlyArray<U> :
-  T extends object ? Readonly<T> :
-  T;
+export type ShallowImmutable<T> = T extends Blob | DataConnection
+  ? T // Opaque externals pass through
+  : T extends Map<infer K, infer V>
+    ? ReadonlyMap<K, V>
+    : T extends Set<infer U>
+      ? ReadonlySet<U>
+      : T extends Array<infer U>
+        ? ReadonlyArray<U>
+        : T extends object
+          ? Readonly<T>
+          : T;
 
 // ─── State Change Events (auto-derived from StatePath) ────────────
 // Mapped type: generates 'state:appState', 'state:audio.masterVolume', etc.
@@ -474,7 +625,12 @@ interface BaseEventMap {
   'ui:duration-update': [duration: number];
   'ui:seek-reset': [];
   'ui:loop-start': [];
-  'ui:time-update': [currentFormatted: string, totalFormatted: string, currentTime: number, duration: number];
+  'ui:time-update': [
+    currentFormatted: string,
+    totalFormatted: string,
+    currentTime: number,
+    duration: number,
+  ];
   'ui:switch-tab': [tabId: string];
   'ui:settings-tab-opened': [];
   'ui:visualizer-check': [];
@@ -493,7 +649,12 @@ interface BaseEventMap {
 
   // ── YouTube ───────────────────────────────────────────────────────
   'youtube:sync-loading': [loading: boolean];
-  'youtube:load': [videoId: string | null, playlistId: string | null, autoplay?: boolean, subIndex?: number];
+  'youtube:load': [
+    videoId: string | null,
+    playlistId: string | null,
+    autoplay?: boolean,
+    subIndex?: number,
+  ];
   'youtube:toggle-play': [];
   'youtube:auto-play': [];
   'youtube:get-position': [callback: (pos: number) => void];
@@ -610,5 +771,4 @@ interface BaseEventMap {
   // ── Worker ──────────────────────────────────────────────────────────
   'worker:sync-command': [payload: { command: string; id: string; interval?: number }];
   'worker:timer-tick': [id: string];
-
 }

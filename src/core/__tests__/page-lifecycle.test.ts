@@ -142,7 +142,9 @@ describe('initPageLifecycleHandlers — pagehide', () => {
   });
 
   it('swallows a leaveSession throw — pagehide must never raise', () => {
-    leaveSession.mockImplementation(() => { throw new Error('boom'); });
+    leaveSession.mockImplementation(() => {
+      throw new Error('boom');
+    });
     expect(() => {
       window.dispatchEvent(pageTransition('pagehide', false));
     }).not.toThrow();

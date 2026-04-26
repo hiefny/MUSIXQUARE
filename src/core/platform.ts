@@ -8,8 +8,12 @@ import { setManagedTimer } from './timers.ts';
 // ─── Platform Detection ────────────────────────────────────────────
 
 export const IS_IOS: boolean =
-  (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as Record<string, unknown>).MSStream) ||
-  (((navigator as unknown as Record<string, { platform?: string }>).userAgentData?.platform ?? navigator.platform ?? '') === 'MacIntel' && navigator.maxTouchPoints > 1);
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) &&
+    !(window as unknown as Record<string, unknown>).MSStream) ||
+  (((navigator as unknown as Record<string, { platform?: string }>).userAgentData?.platform ??
+    navigator.platform ??
+    '') === 'MacIntel' &&
+    navigator.maxTouchPoints > 1);
 
 export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
 
@@ -97,8 +101,10 @@ function updateAppHeightNow(): void {
   // Collect all available height signals
   const validHeights: number[] = [];
   if (vv && Number.isFinite(vv.height) && vv.height > 0) validHeights.push(Math.round(vv.height));
-  if (Number.isFinite(window.innerHeight) && window.innerHeight > 0) validHeights.push(Math.round(window.innerHeight));
-  if (root && Number.isFinite(root.clientHeight) && root.clientHeight > 0) validHeights.push(Math.round(root.clientHeight));
+  if (Number.isFinite(window.innerHeight) && window.innerHeight > 0)
+    validHeights.push(Math.round(window.innerHeight));
+  if (root && Number.isFinite(root.clientHeight) && root.clientHeight > 0)
+    validHeights.push(Math.round(root.clientHeight));
 
   let h = validHeights.length > 0 ? Math.min(...validHeights) : 0;
 
@@ -108,8 +114,12 @@ function updateAppHeightNow(): void {
 
   if (IS_ANDROID && isLandscape) {
     // Strategy 1: outerHeight vs innerHeight
-    if (Number.isFinite(window.outerHeight) && window.outerHeight > 0 &&
-        Number.isFinite(window.innerHeight) && window.innerHeight > 0) {
+    if (
+      Number.isFinite(window.outerHeight) &&
+      window.outerHeight > 0 &&
+      Number.isFinite(window.innerHeight) &&
+      window.innerHeight > 0
+    ) {
       const delta = Math.round(window.outerHeight - window.innerHeight);
       if (delta < 0) softKeyHeight = Math.abs(delta);
     }
@@ -164,14 +174,17 @@ function updateAppHeightNow(): void {
     try {
       if (!_iosViewportProbe && document.body) {
         _iosViewportProbe = document.createElement('div');
-        _iosViewportProbe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
+        _iosViewportProbe.style.cssText =
+          'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
         document.body.appendChild(_iosViewportProbe);
       }
       if (_iosViewportProbe) {
         const cssVh = _iosViewportProbe.offsetHeight;
         if (cssVh > 0) h = Math.max(h, cssVh);
       }
-    } catch (e) { log.debug('[Platform] iOS viewport probe failed:', e); }
+    } catch (e) {
+      log.debug('[Platform] iOS viewport probe failed:', e);
+    }
   }
 
   // ── Keyboard Detection (mobile only) ───────────────────────────
@@ -183,17 +196,23 @@ function updateAppHeightNow(): void {
 
     // Track the stable (no-keyboard) viewport height
     if (!wasKbOpen) {
-      _stableViewportHeight = Math.max(_stableViewportHeight, kbVvH, Math.round(window.innerHeight));
+      _stableViewportHeight = Math.max(
+        _stableViewportHeight,
+        kbVvH,
+        Math.round(window.innerHeight),
+      );
     }
 
     // Keyboard detected when viewport shrinks >15% from stable height
-    const kbShrink = _stableViewportHeight > 0 ? (_stableViewportHeight - kbVvH) : 0;
+    const kbShrink = _stableViewportHeight > 0 ? _stableViewportHeight - kbVvH : 0;
     const isKbOpen = _stableViewportHeight > 100 && kbShrink > _stableViewportHeight * 0.15;
 
     if (isKbOpen && !wasKbOpen) {
       root.classList.add('keyboard-open');
       // No need for a settle timer — --app-height stays frozen while keyboard-open is present
-      log.debug(`[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`);
+      log.debug(
+        `[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`,
+      );
     } else if (!isKbOpen && wasKbOpen) {
       const active = document.activeElement;
       const stillFocused = active?.matches('input, textarea, [contenteditable="true"]');
@@ -209,15 +228,19 @@ function updateAppHeightNow(): void {
 
     // Set keyboard overlap CSS variable
     const overlap = root.classList.contains('keyboard-open') ? Math.max(0, kbShrink) : 0;
-    try { root.style.setProperty('--keyboard-overlap', `${overlap}px`); } catch (e) { log.debug('[Platform] --keyboard-overlap set failed:', e); }
+    try {
+      root.style.setProperty('--keyboard-overlap', `${overlap}px`);
+    } catch (e) {
+      log.debug('[Platform] --keyboard-overlap set failed:', e);
+    }
   }
 
   // Freeze --app-height while keyboard is open (prevents the "pop" after animation)
   // AND briefly during close animation (prevents jitter as viewport expands back)
-  const shouldFreezeAppHeight = (IS_IOS || IS_ANDROID) && (
-    root.classList.contains('keyboard-open') ||
-    (_keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil)
-  );
+  const shouldFreezeAppHeight =
+    (IS_IOS || IS_ANDROID) &&
+    (root.classList.contains('keyboard-open') ||
+      (_keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil));
 
   // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
   // on iOS standalone. Use the largest available height signal and set html
@@ -226,26 +249,42 @@ function updateAppHeightNow(): void {
   // values during cold-start before the viewport fully stabilises.
   if (IS_IOS && isStandalone && !isLandscape) {
     const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
-    const vvH = (vv && Number.isFinite(vv.height)) ? Math.round(vv.height) : 0;
-    const scrH = (window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0)
-      ? Math.round(window.screen.height) : 0;
+    const vvH = vv && Number.isFinite(vv.height) ? Math.round(vv.height) : 0;
+    const scrH =
+      window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0
+        ? Math.round(window.screen.height)
+        : 0;
     const fullH = Math.max(ih, vvH, scrH);
     if (fullH > 0 && !shouldFreezeAppHeight) {
       try {
         root.style.height = `${fullH}px`;
         root.style.setProperty('--app-height', `${fullH}px`);
-      } catch (e) { log.debug('[Platform] iOS standalone height set failed:', e); }
+      } catch (e) {
+        log.debug('[Platform] iOS standalone height set failed:', e);
+      }
     }
   } else {
     // Clear any iOS standalone inline height override (e.g. after rotation)
-    try { root.style.removeProperty('height'); } catch (e) { log.debug('[Platform] removeProperty failed:', e); }
+    try {
+      root.style.removeProperty('height');
+    } catch (e) {
+      log.debug('[Platform] removeProperty failed:', e);
+    }
     if (h > 0 && !shouldFreezeAppHeight) {
-      try { root.style.setProperty('--app-height', `${h}px`); } catch (e) { log.debug('[Platform] --app-height set failed:', e); }
+      try {
+        root.style.setProperty('--app-height', `${h}px`);
+      } catch (e) {
+        log.debug('[Platform] --app-height set failed:', e);
+      }
     }
   }
 
-  const navBottom = (IS_ANDROID && isLandscape && softKeyHeight > 0) ? softKeyHeight : 0;
-  try { root.style.setProperty('--safe-nav-bottom', `${navBottom}px`); } catch (e) { log.debug('[Platform] --safe-nav-bottom set failed:', e); }
+  const navBottom = IS_ANDROID && isLandscape && softKeyHeight > 0 ? softKeyHeight : 0;
+  try {
+    root.style.setProperty('--safe-nav-bottom', `${navBottom}px`);
+  } catch (e) {
+    log.debug('[Platform] --safe-nav-bottom set failed:', e);
+  }
 }
 
 function scheduleAppHeightUpdate(): void {
@@ -253,12 +292,20 @@ function scheduleAppHeightUpdate(): void {
   try {
     _appHeightRaf = requestAnimationFrame(() => {
       _appHeightRaf = 0;
-      try { updateAppHeightNow(); } catch (e) { log.debug('[Platform] updateAppHeightNow failed:', e); }
+      try {
+        updateAppHeightNow();
+      } catch (e) {
+        log.debug('[Platform] updateAppHeightNow failed:', e);
+      }
     });
   } catch (e) {
     _appHeightRaf = 0;
     log.debug('[Platform] rAF scheduling failed:', e);
-    try { updateAppHeightNow(); } catch (e2) { log.debug('[Platform] updateAppHeightNow fallback failed:', e2); }
+    try {
+      updateAppHeightNow();
+    } catch (e2) {
+      log.debug('[Platform] updateAppHeightNow fallback failed:', e2);
+    }
   }
 }
 
@@ -276,7 +323,9 @@ function endBootingPhase(): void {
         root.classList.remove('is-booting');
       });
     });
-  } catch (e) { log.debug('[Platform] endBootingPhase failed:', e); }
+  } catch (e) {
+    log.debug('[Platform] endBootingPhase failed:', e);
+  }
 }
 
 /**
@@ -286,7 +335,11 @@ function endBootingPhase(): void {
 export function initPlatform(): void {
   // Suppress all transitions/animations during boot to prevent layout shaking.
   // CSS html.is-booting * { transition: none !important } handles the rest.
-  try { document.documentElement.classList.add('is-booting'); } catch (e) { log.debug('[Platform] is-booting class failed:', e); }
+  try {
+    document.documentElement.classList.add('is-booting');
+  } catch (e) {
+    log.debug('[Platform] is-booting class failed:', e);
+  }
 
   preventIOSPinchZoom();
 
@@ -308,12 +361,16 @@ export function initPlatform(): void {
 
   try {
     window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
-    window.addEventListener('orientationchange', () => {
-      // Reset stable viewport height — orientation changes the full viewport dimensions
-      _stableViewportHeight = 0;
-      scheduleAppHeightUpdate();
-      if (IS_ANDROID) setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
-    }, { passive: true });
+    window.addEventListener(
+      'orientationchange',
+      () => {
+        // Reset stable viewport height — orientation changes the full viewport dimensions
+        _stableViewportHeight = 0;
+        scheduleAppHeightUpdate();
+        if (IS_ANDROID) setManagedTimer('orientation-height', scheduleAppHeightUpdate, 500);
+      },
+      { passive: true },
+    );
     window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') scheduleAppHeightUpdate();

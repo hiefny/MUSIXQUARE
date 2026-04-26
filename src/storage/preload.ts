@@ -607,10 +607,22 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   setState('preload.sessionState', newSessionState);
 
   // Update preload progress UI (only if main transfer is not active)
-  if (updatedSession.total > 0) {
+  // To avoid UI flickering when a superseded session finishes in the background,
+  // only update UI if this session is the latest, or if it's the specific
+  // track we're actively waiting for in AWAITING_PRELOAD.
+  let shouldUpdateUI = sessionId === latestPreloadSessionId;
+  const lifecycle = getState('playback.lifecycle');
+  if (lifecycle === 'AWAITING_PRELOAD') {
+    const pendingIdx = getState('recovery.pendingFileIndex');
+    if (updatedSession.index === pendingIdx) {
+      shouldUpdateUI = true;
+    }
+  }
+
+  if (shouldUpdateUI && updatedSession.total > 0) {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
     const transferState = getState('transfer.state');
-    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
+    if (transferState === 'READY' || transferState === 'IDLE' || !transferState) {
       showLoader(true, t('toast.preparing_next_pct', { pct }));
       updateLoader(pct);
     }
@@ -654,8 +666,10 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
   }
   if (!sid) return;
 
-  // Ignore chunks from sessions older than the latest known
-  if (latestPreloadSessionId && sid < latestPreloadSessionId) return;
+  // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
+  // This allows "stale" preloads (like a late-joiner's unicastPreload that
+  // got superseded by a track advance) to finish naturally and be promoted
+  // to the current track without forcing a 0% recovery restart.
 
   const sessionState = getState('preload.sessionState');
   const session = sessionState.get(sid);

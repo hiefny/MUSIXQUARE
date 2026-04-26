@@ -330,6 +330,10 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     const fileName = item?.file?.name || item?.name || `Track ${index}`;
     broadcast({ type: MSG.PLAY_PRELOADED, index, name: fileName, mime: item?.file?.type });
 
+    // Host must transition to DECODING before decode begins, so that the
+    // subsequent DECODE_SUCCESS lands cleanly on READY.
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name: fileName });
+
     await loadPreloadedTrack(index, myLoadToken);
     await play(0);
     broadcast({ type: MSG.PLAY, time: 0, index, name: fileName });

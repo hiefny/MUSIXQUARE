@@ -296,7 +296,7 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
   // to PAUSED per Section 4.
   transition({ type: 'PAUSE', time, endOfPlaylist });
-  
+
   // If host pauses, cancel any deferred play that was waiting for a
   // download/preload to finish. Otherwise, a guest who completes their
   // download while the host is paused will erroneously auto-start playback.
@@ -628,7 +628,7 @@ export function initPlayback(): void {
         // the blob arrived or got superseded — no recovery needed.
         if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
-          setState('transfer.skipIncomingFile', false);
+        setState('transfer.skipIncomingFile', false);
         showLoader(false);
         // Fallback: request file from host
         const hostConn = getState('network.hostConn');

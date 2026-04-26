@@ -513,9 +513,10 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   });
 
   // OPFS: Start preload slot
-  // Reset preload slot before starting (clear stale locks)
-  postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
-
+  // Note: We deliberately do NOT send OPFS_RESET here. The worker now
+  // manages preload slots by sessionId. Sending OPFS_RESET would abort
+  // any still-downloading "stale" preloads (like a late-joiner's Track 2
+  // that was superseded by Track 3).
   postWorkerCommand({
     command: 'OPFS_START',
     filename: data.name as string,
@@ -537,7 +538,7 @@ function handlePreloadStart(data: Record<string, unknown>): void {
   setManagedTimer('preloadWatchdog', () => {
     log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
     showLoader(false);
-      // If main transfer is still in progress, restore its loader
+    // If main transfer is still in progress, restore its loader
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.RECEIVING) {
       const meta = getState('transfer.meta');
@@ -622,7 +623,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   if (shouldUpdateUI && updatedSession.total > 0) {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
     const transferState = getState('transfer.state');
-    if (transferState === 'READY' || transferState === 'IDLE' || !transferState) {
+    if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE || !transferState) {
       showLoader(true, t('toast.preparing_next_pct', { pct }));
       updateLoader(pct);
     }
@@ -941,11 +942,11 @@ function handlePlayPreloaded(data: Record<string, unknown>): void {
       }
 
       if (sendToHost({
-          type: MSG.REQUEST_DATA_RECOVERY,
-          nextChunk: 0,
-          fileName: trackName,
-          index,
-        })) {
+        type: MSG.REQUEST_DATA_RECOVERY,
+        nextChunk: 0,
+        fileName: trackName,
+        index,
+      })) {
         log.debug('[Guest] Requested file recovery from Host for:', trackName);
       }
     }, jitter);
@@ -1098,7 +1099,7 @@ export function initPreload(): void {
         // is now assembled → promote to DECODING. No-op if we're in any other
         // state (e.g. background preload for next track while currently PLAYING).
         transition({ type: 'PRELOAD_FILE_READY', index: nextTrackIndex });
-              bus.emit('storage:use-preloaded', nextTrackIndex, filename);
+        bus.emit('storage:use-preloaded', nextTrackIndex, filename);
       }
     } catch (e) {
       log.error('[Preload] preload-file-ready handler failed:', e);

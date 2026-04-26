@@ -46,7 +46,19 @@ function createOpfsSlot(): OpfsSlot {
 }
 
 const currentFileOpfs = createOpfsSlot();
-const preloadFileOpfs = createOpfsSlot();
+const preloadSlots = new Map<number, OpfsSlot>();
+
+function getOpfsObj(isPreload: boolean, sessionId?: number | null): OpfsSlot {
+  if (!isPreload) return currentFileOpfs;
+  if (sessionId == null) {
+    // Fallback for cleanup operations that might not pass sessionId
+    return createOpfsSlot();
+  }
+  if (!preloadSlots.has(sessionId)) {
+    preloadSlots.set(sessionId, createOpfsSlot());
+  }
+  return preloadSlots.get(sessionId)!;
+}
 let instanceId = 'default';
 
 // ─── Queue ──────────────────────────────────────────────────────
@@ -235,7 +247,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
-    const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+    const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (!filename) {
       safePost({ type: 'OPFS_ERROR', error: 'Missing filename', filename, isPreload, code: 'BAD_ARGS' });
@@ -294,7 +306,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
-    const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+    const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (sessionId !== opfsObj.sessionId) {
       postSessionMismatch({
@@ -346,7 +358,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
     const totalSize = data.totalSize as number | undefined;
-    const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+    const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (sessionId !== opfsObj.sessionId) {
       // Always notify main thread — even when opfsObj.sessionId is null
@@ -420,7 +432,14 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
   if (command === 'OPFS_RESET') {
     const isPreload = !!data.isPreload;
-    await releaseLock(isPreload ? preloadFileOpfs : currentFileOpfs);
+    if (isPreload) {
+      for (const slot of preloadSlots.values()) {
+        await releaseLock(slot);
+      }
+      preloadSlots.clear();
+    } else {
+      await releaseLock(currentFileOpfs);
+    }
     safePost({ type: 'OPFS_RESET_COMPLETE', isPreload });
     return;
   }
@@ -428,14 +447,26 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
   if (command === 'OPFS_CLEANUP') {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
-    const opfsObj = isPreload ? preloadFileOpfs : currentFileOpfs;
+    
+    let opfsObj: OpfsSlot | null = null;
+    if (!isPreload) {
+      opfsObj = currentFileOpfs;
+    } else {
+      // Find the preload slot by filename since OPFS_CLEANUP might not have sessionId
+      for (const slot of preloadSlots.values()) {
+        if (slot.name === filename) {
+          opfsObj = slot;
+          break;
+        }
+      }
+    }
 
     if (!filename) {
       safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
       return;
     }
 
-    if (opfsObj.isLocked && opfsObj.name === filename) {
+    if (opfsObj && opfsObj.isLocked && opfsObj.name === filename) {
       safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload, skipped: true });
       return;
     }
@@ -464,7 +495,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const safeName = buildSafeName(filename, isPreload);
 
     try {
-      const activeOpfs = isPreload ? preloadFileOpfs : currentFileOpfs;
+      const activeOpfs = getOpfsObj(isPreload, sessionId);
       const chunkSize = activeOpfs.chunkSize || DEFAULT_CHUNK_SIZE;
       const offset = index * chunkSize;
 

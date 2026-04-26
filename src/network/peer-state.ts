@@ -11,7 +11,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import type { DataConnection, PeerInstance, AnyProtocolMsg, ConnectedPeer } from '../types/index.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
@@ -51,7 +51,7 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
           return 'remote';
         }
       }
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await delay(200);
     }
   } catch (e) {
     log.debug('[Peer] ICE stats unavailable or failed', e);

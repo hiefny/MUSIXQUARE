@@ -53,9 +53,11 @@ vi.mock('../search.ts', () => ({
     const m = url.match(/v=([a-zA-Z0-9_-]{11})/);
     return m ? m[1] : null;
   }),
+  extractYouTubePlaylistId: vi.fn(() => null),
   fetchOEmbedTitle: vi.fn(async () => 'Test Title'),
   fetchYouTubePreview: vi.fn(),
   fetchPlaylistSubTitles: vi.fn(),
+  cancelSubTitleFetch: vi.fn(),
 }));
 
 vi.mock('../sync.ts', () => ({

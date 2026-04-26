@@ -611,14 +611,10 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // To avoid UI flickering when a superseded session finishes in the background,
   // we must be mutually exclusive. If we're blocked waiting for a track, ONLY show
   // that track's progress. Otherwise, show the latest broadcast preload.
-  let shouldUpdateUI = false;
   const lifecycle = getState('playback.lifecycle');
-  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) {
-    const pendingIdx = getState('recovery.pendingFileIndex');
-    shouldUpdateUI = (updatedSession.index === pendingIdx);
-  } else {
-    shouldUpdateUI = (sessionId === latestPreloadSessionId);
-  }
+  const shouldUpdateUI = lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
+    ? updatedSession.index === getState('recovery.pendingFileIndex')
+    : sessionId === latestPreloadSessionId;
 
   if (shouldUpdateUI && updatedSession.total > 0) {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
@@ -1091,7 +1087,7 @@ export function initPreload(): void {
       // If guest was waiting for this preloaded file, trigger playback.
       // Phase 4: lifecycle is authoritative; the legacy flag is still set
       // in parallel during dual-write but we read from the state machine.
-      const isAwaiting = getState('playback.lifecycle') === 'AWAITING_PRELOAD';
+      const isAwaiting = getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
       const pendingFileIndex = getState('recovery.pendingFileIndex');
       if (isAwaiting && pendingFileIndex === nextTrackIndex) {
         log.debug('[Preload] Guest was waiting for this track. Playing now.');

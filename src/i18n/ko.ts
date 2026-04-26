@@ -25,9 +25,6 @@ const ko = {
   'common.mix': '믹스',
   'common.wait': '잠시만요...',
   'common.guest': '참가자',
-  'common.host': '방장',
-  'common.setup': '설정중',
-  'common.offline': '오프라인',
   'common.help': '도움말',
   'common.increase': '증가',
   'common.decrease': '감소',
@@ -80,7 +77,6 @@ const ko = {
   'player.select_media': '재생할 미디어를 선택해주세요',
   'player.play_together': '동시에 재생',
   'player.play_speakers': '스피커로 재생하기',
-  'player.manual_sync_title': '수동 싱크 조절',
   'player.auto_sync_label': '자동 싱크 (ms)',
   'player.manual_sync_label': '수동 싱크 (ms)',
 
@@ -189,7 +185,6 @@ const ko = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',
   'setup.guest_button': '모임에 참여할래요',
-  'setup.back_to_home': '초기 화면으로 돌아가기',
   'setup.demo_button': '앱 체험하기 (데모)',
   'setup.how_to_connect': '이렇게 연결해요',
   'setup.set_role': '이 기기 역할 설정하기',
@@ -306,7 +301,6 @@ const ko = {
   'youtube.video_unavailable': '재생할 수 없는 영상, 다음 트랙으로 넘어가요',
   'youtube.load_timeout': 'YouTube 로드 시간 초과. 다시 시도해주세요.',
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
-  'youtube.not_valid_link': '유효한 YouTube 링크가 아닙니다',
   'youtube.effects_disabled': 'YouTube 같이 보기\n고급 오디오 효과가 비활성화돼요',
   'youtube.enter_link_placeholder': '동영상 또는 플레이리스트 링크를 입력하세요',
   'youtube.fetching_info': '영상 정보 불러오는 중...',
@@ -447,6 +441,8 @@ const ko = {
   'error.server_disconnected': '서버와의 연결이 끊어졌어요.',
   'error.session_id_unavailable': '세션 ID를 사용할 수 없어요. 다시 시도해 주세요.',
   'error.webrtc_failed': 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.',
+  'error.browser_unsupported': '실시간 연결을 지원하지 않는 브라우저예요. 최신 Chrome이나 Safari로 시도해 주세요.',
+  'error.ssl_required': 'HTTPS 보안 연결이 필요해요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': '세션 나가기',

@@ -27,9 +27,6 @@ const en: Record<I18nKey, string> = {
   'common.mix': 'Mix',
   'common.wait': 'Just a moment...',
   'common.guest': 'Guest',
-  'common.host': 'Host',
-  'common.setup': 'Setup',
-  'common.offline': 'Offline',
   'common.help': 'Help',
   'common.increase': 'Increase',
   'common.decrease': 'Decrease',
@@ -82,7 +79,6 @@ const en: Record<I18nKey, string> = {
   'player.select_media': 'Select media to play',
   'player.play_together': 'Play together',
   'player.play_speakers': 'Play through speakers',
-  'player.manual_sync_title': 'Manual Sync',
   'player.auto_sync_label': 'Auto (ms)',
   'player.manual_sync_label': 'Manual (ms)',
 
@@ -191,7 +187,6 @@ const en: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",
   'setup.guest_button': 'Join a session',
-  'setup.back_to_home': 'Back to start screen',
   'setup.demo_button': 'Try it (Demo)',
   'setup.how_to_connect': 'How to connect',
   'setup.set_role': "Set this device's role",
@@ -308,7 +303,6 @@ const en: Record<I18nKey, string> = {
   'youtube.video_unavailable': 'Video unavailable, skipping to next track',
   'youtube.load_timeout': 'YouTube load timed out. Please try again.',
   'youtube.invalid_link': 'Invalid YouTube link',
-  'youtube.not_valid_link': 'Not a valid YouTube link',
   'youtube.effects_disabled': 'Watch YouTube together.\nAdvanced audio effects are disabled.',
   'youtube.enter_link_placeholder': 'Enter a video or playlist link',
   'youtube.fetching_info': 'Loading video info...',
@@ -449,6 +443,9 @@ const en: Record<I18nKey, string> = {
   'error.server_disconnected': 'Disconnected from the server.',
   'error.session_id_unavailable': 'Session ID is unavailable. Please try again.',
   'error.webrtc_failed': 'WebRTC connection failed. Check your browser settings.',
+  'error.browser_unsupported':
+    'Your browser does not support real-time connections. Try a recent Chrome or Safari.',
+  'error.ssl_required': 'A secure connection (HTTPS) is required.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': 'Leave Session',

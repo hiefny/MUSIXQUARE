@@ -207,28 +207,13 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     // Start unified sync timer (replaces separate heartbeat + ping timers)
     bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'sync', interval: 1000 });
 
-    // Detect local vs remote connection after ICE stabilizes.
-    // 1s is enough for LAN (host→host pair succeeds ~300-500ms).
-    setManagedTimer('guest-ice-detect', async () => {
-      const type = await detectConnectionType(conn);
+    // Detect local vs remote connection. The detectConnectionType function
+    // now internally polls until ICE stabilizes (up to 10 seconds).
+    detectConnectionType(conn).then((type) => {
       setState('network.connectionType', type);
       log.info(`[Peer] Connection type: ${type}`);
       bus.emit('network:role-badge-update');
-
-      // Re-detect after 10s from connection open if classified as 'remote'
-      // (ICE may not have stabilized at 1s for STUN/TURN)
-      if (type === 'remote' && conn.open) {
-        setManagedTimer('guest-ice-redetect', async () => {
-          if (!conn.open) return;
-          const recheck = await detectConnectionType(conn);
-          if (recheck === 'local' && getState('network.connectionType') !== 'local') {
-            setState('network.connectionType', 'local');
-            log.info('[Peer] Reclassified as local on re-detection');
-            bus.emit('network:role-badge-update');
-          }
-        }, 9000); // 1s + 9s = 10s from connection open
-      }
-    }, 1000);
+    });
 
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');

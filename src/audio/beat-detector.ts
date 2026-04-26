@@ -39,7 +39,24 @@ export function isPartyMode(): boolean {
   return _partyMode;
 }
 export function setPartyMode(on: boolean): void {
+  const wasOn = _partyMode;
   _partyMode = on;
+  if (on && !wasOn) {
+    // Lazy analysis: party just turned on. If a track is already playing, kick
+    // off BPM analysis now (the regular state:appState entry point skipped it
+    // while party was off). _analysedBuffer cache survives toggles, so the
+    // same track only ever incurs the analysis cost once.
+    const state = getState('appState') as string;
+    if (state === APP_STATE.PLAYING_AUDIO) {
+      void analyzeAndStart();
+    }
+  } else if (!on && wasOn) {
+    // Party turned off. Stop the rAF beat loop so it isn't burning a frame
+    // every paint just to fire 'beat:pulse' events that no consumer is
+    // listening for. _bpm and _analysedBuffer stay populated so re-enabling
+    // party for the same track is instant.
+    stopBeatLoop();
+  }
 }
 
 // ─── Init ────────────────────────────────────────────────────────
@@ -73,6 +90,14 @@ export function initBeatDetector(): void {
 // ─── Analysis (original v2 algorithm — verbatim) ────────────────
 
 async function analyzeAndStart(): Promise<void> {
+  // Skip the entire pipeline while party mode is off. analyzeFullBuffer()
+  // is heavyweight (autocorrelation over the whole AudioBuffer) and the
+  // only consumer of 'beat:pulse' is party-mode.ts, which itself early-
+  // returns on !isPartyMode(). Running analysis just to discard the result
+  // wasted main-thread time on every track change. setPartyMode(true)
+  // re-entry covers the case where the user enables party mid-playback.
+  if (!_partyMode) return;
+
   const buf = getCurrentAudioBuffer();
   if (!buf) return;
 

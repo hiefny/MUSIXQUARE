@@ -681,7 +681,9 @@ interface BaseEventMap {
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];
-  'youtube:stop-mode': [];
+  // opts.silent: caller is mid-transition to another mode and will set
+  // appState shortly — skip the IDLE bounce so the body class doesn't flash.
+  'youtube:stop-mode': [opts?: { silent?: boolean }];
   'youtube:refresh-display': [];
   'youtube:set-volume': [volumePercent: number];
   'youtube:sub-seek': [playlistIdx: number, subIdx: number, isCurrent: boolean];

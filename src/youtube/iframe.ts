@@ -396,6 +396,30 @@ function createYouTubePlayer(
       if (!needsScrape) {
         setYouTubeSubIndex(subIndex);
         setYtLoadInProgress(false);
+      } else {
+        // Safety net: the reuse-path scrape relies on onStateChange(CUED) →
+        // _pollScrapePlaylist → _finishScrape to clear isScrapingPlaylist +
+        // ytLoadInProgress. If CUED never fires (cued-listener race, iframe
+        // resumed playback directly without re-entering CUED, etc.) the
+        // flags would stay pinned and the next youtube:toggle-play would
+        // be silently dropped by isYtLoadInProgress() guards. Force-clear
+        // after the maximum scrape window (15 polls × 300ms ≈ 4.5s, plus
+        // generous slack). _finishScrape clears this timer on the happy
+        // path so we don't double-clear.
+        setManagedTimer(
+          'yt-scrape-safety',
+          () => {
+            if (_ifr.isScrapingPlaylist) {
+              log.warn(
+                '[YouTube] Scrape safety timer fired — forcing isScrapingPlaylist + ytLoadInProgress cleanup',
+              );
+              _ifr.isScrapingPlaylist = false;
+              setYtLoadInProgress(false);
+              showLoader(false);
+            }
+          },
+          7000,
+        );
       }
 
       // Suppress heartbeat state-sync for 5s after loading a new video.
@@ -647,6 +671,9 @@ function _pollScrapePlaylist(prevCount: number, attempts: number): void {
  * deferred-playlist navigation flow.
  */
 function _finishScrape(ids: string[] | null): void {
+  // Happy-path completion — cancel the safety net armed in createYouTubePlayer's
+  // reuse-needsScrape branch. No-op when scrape was started fresh (no timer).
+  clearManagedTimer('yt-scrape-safety');
   _ifr.isScrapingPlaylist = false;
   setYtLoadInProgress(false);
   showLoader(false);

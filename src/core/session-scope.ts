@@ -69,7 +69,7 @@ export class SessionScope {
    * This is the primary entry point for session transitions.
    *
    * @example
-   *   _loadScope = SessionScope.replace(_loadScope);
+   *   _broadcastScope = SessionScope.replace(_broadcastScope);
    */
   static replace(prev: SessionScope | null): SessionScope {
     prev?.dispose();

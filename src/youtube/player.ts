@@ -207,7 +207,7 @@ export function cancelYtAutoSync(): void {
 
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
-export function stopYouTubeMode(): void {
+export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   getYtScope()?.dispose();
   setYtScope(null);
   setYtLoadInProgress(false);
@@ -230,7 +230,13 @@ export function stopYouTubeMode(): void {
   // leaving — avoids spurious transitions from stopAllMedia→stopYouTubeMode
   // inside loadYouTubeVideo which would kill the guest's YouTube player
   // right after YOUTUBE_PLAY.
-  if (wasInYouTube) {
+  //
+  // opts.silent: caller is about to set a non-IDLE appState immediately
+  // (e.g. stopAllMedia({silent:true}) inside YT→Local track switch — the
+  // host's _internalPlay flips to PLAYING_AUDIO right after). Skipping the
+  // IDLE bounce here keeps body.mode-youtube → body.mode-audio in lockstep
+  // with the audio takeover and prevents the brief blank-mode UI flash.
+  if (wasInYouTube && !opts?.silent) {
     setAppState(APP_STATE.IDLE);
   }
 
@@ -270,6 +276,7 @@ export function stopYouTubeMode(): void {
   // user-driven mode-exit case.
   clearManagedTimer('yt-indexing-poll');
   clearManagedTimer('yt-scrape-poll');
+  clearManagedTimer('yt-scrape-safety');
   clearSnapshotRetries();
 
   // Disconnect relay upstream so stale relay doesn't pump chunks when
@@ -420,7 +427,7 @@ export function initYouTube(): void {
   });
 
   // Bus event handlers from other modules
-  bus.on('youtube:stop-mode', () => stopYouTubeMode());
+  bus.on('youtube:stop-mode', (opts) => stopYouTubeMode(opts));
 
   bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
     // Deferred-playlist navigation: when a playlist row was added to the

@@ -34,8 +34,6 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
   setPlayPreloadedInProgress,
-  getLoadScope,
-  setLoadScope,
 } from './_state.ts';
 
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
@@ -168,9 +166,6 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
     bus.emit('system-audio:force-stop');
   }
 
-  getLoadScope()?.dispose();
-  setLoadScope(null);
-
   try {
     BlobURLManager.revoke();
   } catch (e) {
@@ -182,14 +177,30 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
     log.debug('[Transport] BlobURL flush:', e);
   }
 
-  // 2. Stop YouTube
-  bus.emit('youtube:stop-mode');
+  // 2. Stop YouTube — propagate silent flag so stopYouTubeMode skips the
+  // IDLE bounce when the caller is mid-transition to PLAYING_AUDIO (avoids
+  // a brief body.mode-youtube → no-mode → mode-audio flash on YT→Local).
+  bus.emit('youtube:stop-mode', { silent: !!opts?.silent });
 
   // 3. Clear pending triggers
   clearManagedTimer('preloadScheduleTimer');
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
+  // Guest-side deferred replay (FILE_PREPARE same-file with autoPlayDelayMs).
+  // Without this, a host's same-track re-click followed by a different track
+  // leaves the deferred replay timer alive — it fires after the new track's
+  // buffer has been swapped in and plays the new audio from 0:00 while the
+  // host is still preparing its own playback.
+  clearManagedTimer('playback-replay-defer');
+  // Release the play-lock + cancel its watchdog. _internalPlay's finally
+  // also unlocks (idempotent), but if stopAllMedia is called *during* its
+  // await window — e.g. user mashes Next while a track decode is in flight
+  // — the lock would otherwise stay held until the 15s watchdog fires.
+  // pendingPlayTime is cleared right after, so the queued-request consumer
+  // in _internalPlay's finally sees a consistent (no pending) state.
+  clearManagedTimer('navigator-lock-watchdog');
+  setPlayLocked(false);
   setPendingPlayTime(undefined);
   setPlayPreloadedInProgress(false);
 

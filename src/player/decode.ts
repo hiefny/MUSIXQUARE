@@ -34,7 +34,6 @@ import {
   setPlayPreloadedInProgress,
   getLastClearedTrackName,
   setLastClearedTrackName,
-  replaceLoadScope,
   markTrackFailed,
   isTrackFailed,
   clearFailedTracks,
@@ -90,7 +89,6 @@ export async function loadAndBroadcastFile(
   prepareMsg?: AnyProtocolMsg,
 ): Promise<void> {
   const myLoadId = incrementLoadSessionId();
-  replaceLoadScope();
   const myToken = loadToken ?? getLoadToken();
 
   showLoader(true, t('toast.preparing', { name: file.name }));
@@ -283,9 +281,23 @@ export async function loadAndBroadcastFile(
           }
 
           if (nextIdx !== -1) {
+            // Snapshot the load token at scheduling time. If a user action
+            // (track click, next/prev) bumps the token during the 600ms
+            // backoff, abort — playTrack already cleared this timer at its
+            // entry, but the snapshot guards the timer-fire-vs-clear race
+            // (clearManagedTimer just above the new playTrack's increment
+            // happens *after* the timer's setTimeout body has already begun
+            // executing in some browsers' microtask ordering).
+            const advanceToken = getLoadToken();
             setManagedTimer(
               'decode-fail-advance',
               () => {
+                if (getLoadToken() !== advanceToken) {
+                  log.debug(
+                    '[Decode] Skipping auto-advance — load token bumped (user action superseded)',
+                  );
+                  return;
+                }
                 // Dynamic import to avoid a static cycle with playlist.ts
                 import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
               },
@@ -313,7 +325,6 @@ export async function loadPreloadedTrack(
   expectedIndex?: number,
   loadToken?: number,
 ): Promise<void> {
-  replaceLoadScope();
   const nextMeta = getState('preload.meta');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;

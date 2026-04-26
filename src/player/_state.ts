@@ -6,7 +6,6 @@
  * without circular dependencies.
  */
 
-import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import type { PlaylistItem } from '../types/index.ts';
 // ─── Module State ──────────────────────────────────────────────────
@@ -20,7 +19,6 @@ let _pendingPlayTime: number | undefined;
 let _pendingPlayTimeSetAt = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
-let _loadScope: SessionScope | null = null;
 const _failedTrackKeys = new Set<string>();
 
 // ─── PlayerNode ────────────────────────────────────────────────────
@@ -121,21 +119,6 @@ export function getLastClearedTrackName(): string {
 
 export function setLastClearedTrackName(name: string): void {
   _lastClearedTrackName = name;
-}
-
-// ─── Load Scope ────────────────────────────────────────────────────
-
-export function getLoadScope(): SessionScope | null {
-  return _loadScope;
-}
-
-export function setLoadScope(scope: SessionScope | null): void {
-  _loadScope = scope;
-}
-
-export function replaceLoadScope(): SessionScope {
-  _loadScope = SessionScope.replace(_loadScope);
-  return _loadScope;
 }
 
 // ─── Failed Track Tracking ────────────────────────────────────────

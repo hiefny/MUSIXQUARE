@@ -249,6 +249,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
+  // Cancel any pending auto-advance from a prior track's decode failure.
+  // Without this, a user click during the 600ms backoff window gets stomped
+  // by the timer's playTrack(nextIdx) call. Defense-in-depth — the timer
+  // also performs its own load-token check (see decode.ts), but cancelling
+  // here makes the user's intent strictly authoritative on every entry.
+  clearManagedTimer('decode-fail-advance');
 
   const hostConn = getState('network.hostConn');
 

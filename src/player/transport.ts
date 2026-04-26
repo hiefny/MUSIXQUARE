@@ -35,6 +35,7 @@ import {
 
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
 import { showToast } from '../ui/toast.ts';
+import { transition } from './lifecycle.ts';
 
 // ─── Format Helpers ────────────────────────────────────────────────
 
@@ -409,6 +410,10 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   setAppState(APP_STATE.PLAYING_AUDIO);
 
+  if (!getState('network.hostConn')) {
+    transition({ type: 'PLAY', time: safeOffset, index: getState('playlist.currentTrackIndex'), sameTrack: true });
+  }
+
   bus.emit('visualizer:start');
   bus.emit('ui:loop-start');
 }
@@ -430,6 +435,11 @@ export function pause(forcedTime?: number): void {
 
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
+  
+  if (!getState('network.hostConn')) {
+    transition({ type: 'PAUSE' });
+  }
+
   showToast(t('common.pause'));
 }
 

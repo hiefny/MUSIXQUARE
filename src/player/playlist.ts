@@ -430,6 +430,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
           subIndex ?? 0,
         );
       }
+
+      // Mirror the local-file branch's preload trigger. Without this, the
+      // hybrid playlist case (e.g. local→YT→local) never warmed the next
+      // local file because YouTube playback skipped scheduling entirely.
+      // preloadNextTrack's scan-forward will jump over consecutive YT
+      // entries and land on the next preloadable local file.
+      schedulePreload();
     }
     return;
   }

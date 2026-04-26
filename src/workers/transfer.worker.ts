@@ -59,6 +59,17 @@ function getOpfsObj(isPreload: boolean, sessionId?: number | null): OpfsSlot {
   }
   return preloadSlots.get(sessionId)!;
 }
+
+/**
+ * Lookup-only variant of getOpfsObj — never registers a new slot on miss.
+ * Use for read paths (OPFS_READ) where finding nothing should fall through
+ * to a fresh file handle, not leave an empty slot in preloadSlots.
+ */
+function lookupOpfsObj(isPreload: boolean, sessionId?: number | null): OpfsSlot {
+  if (!isPreload) return currentFileOpfs;
+  if (sessionId == null) return createOpfsSlot();
+  return preloadSlots.get(sessionId) ?? createOpfsSlot();
+}
 let instanceId = 'default';
 
 // ─── Queue ──────────────────────────────────────────────────────
@@ -309,6 +320,10 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (sessionId !== opfsObj.sessionId) {
+      // getOpfsObj() registered an empty slot for this sessionId on lookup;
+      // since we're rejecting the message as stale, drop that slot to avoid
+      // accumulating empty entries in preloadSlots.
+      if (isPreload) preloadSlots.delete(sessionId);
       postSessionMismatch({
         type: 'SESSION_MISMATCH', command: 'OPFS_WRITE',
         expected: opfsObj.sessionId, received: sessionId, filename, isPreload,
@@ -361,6 +376,10 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (sessionId !== opfsObj.sessionId) {
+      // getOpfsObj() registered an empty slot for this sessionId on lookup;
+      // since we're rejecting the message as stale, drop that slot to avoid
+      // accumulating empty entries in preloadSlots.
+      if (isPreload) preloadSlots.delete(sessionId);
       // Always notify main thread — even when opfsObj.sessionId is null
       // (e.g. OPFS_START failed and released lock). Without this, the main
       // thread's SESSION_MISMATCH safety net for stuck PROCESSING never fires.
@@ -422,9 +441,11 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
       const sidSnapshot = opfsObj.sessionId;
       await releaseLock(opfsObj);
+      if (isPreload) preloadSlots.delete(sessionId);
       safePost({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId: sidSnapshot });
     } catch (e: unknown) {
       await releaseLock(opfsObj);
+      if (isPreload) preloadSlots.delete(sessionId);
       safePost({ type: 'OPFS_ERROR', error: (e as Error)?.message ?? String(e), filename, isPreload, code: 'INTEGRITY_FAIL' });
     }
     return;
@@ -495,7 +516,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const safeName = buildSafeName(filename, isPreload);
 
     try {
-      const activeOpfs = getOpfsObj(isPreload, sessionId);
+      const activeOpfs = lookupOpfsObj(isPreload, sessionId);
       const chunkSize = activeOpfs.chunkSize || DEFAULT_CHUNK_SIZE;
       const offset = index * chunkSize;
 

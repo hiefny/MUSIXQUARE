@@ -16,6 +16,7 @@ import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from '../storage/opfs.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
+import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
@@ -86,6 +87,7 @@ export async function loadAndBroadcastFile(
   file: File,
   sessionId: number | null = null,
   loadToken?: number,
+  prepareMsg?: AnyProtocolMsg,
 ): Promise<void> {
   const myLoadId = incrementLoadSessionId();
   replaceLoadScope();
@@ -181,11 +183,12 @@ export async function loadAndBroadcastFile(
     const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !(hostConn && !isOperator));
 
-    // Broadcast file to peers
+    // Broadcast file to peers (FILE_PREPARE coalesced into the same debounce
+    // so guests don't see metadata flicker for tracks the user already left).
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
-      broadcastFileDebounced(file, sessionId);
+      broadcastFileDebounced(file, sessionId, prepareMsg);
     }
 
     if (!hostConn) {

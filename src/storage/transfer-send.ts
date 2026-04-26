@@ -8,9 +8,9 @@ import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { filterEligiblePeers, canSendFileTo } from '../network/peer.ts';
+import { filterEligiblePeers, canSendFileTo, broadcast } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -24,7 +24,11 @@ let _broadcastScope: SessionScope | null = null;
 
 const BROADCAST_DEBOUNCE_KEY = 'broadcast-debounce';
 const BROADCAST_DEBOUNCE_MS = 300;
-let _pendingBroadcast: { file: File; sessionId: number | null } | null = null;
+let _pendingBroadcast: {
+  file: File;
+  sessionId: number | null;
+  prepareMsg?: AnyProtocolMsg;
+} | null = null;
 
 /**
  * Debounced wrapper around broadcastFile. Coalesces rapid consecutive calls
@@ -35,22 +39,36 @@ let _pendingBroadcast: { file: File; sessionId: number | null } | null = null;
  * and infinite recovery loops, since WebRTC reliable+ordered keeps the
  * stale chunks in the queue ahead of the new track's FILE_START.
  *
- * file-prepare and other "track changed" notifications are still broadcast
- * synchronously by the caller (playTrack), so guests see the metadata update
- * immediately; only the chunk stream is deferred by the debounce window.
+ * The optional prepareMsg parameter coalesces the FILE_PREPARE announcement
+ * with the chunk broadcast so guests don't get a flood of metadata updates
+ * for tracks the user already left. Without this, the receiver pipeline
+ * would reset on every prepareMsg, race against PLAY messages still in
+ * flight, and surface as "Name mismatch on PLAY" with the guest stuck
+ * waiting for a FILE_PREPARE that already arrived as a stale earlier one.
  *
  * setManagedTimer is name-keyed: a second call within the window cancels the
  * previous pending fire and replaces _pendingBroadcast with the new file,
  * so the queued broadcast always reflects the latest user intent.
  */
-export function broadcastFileDebounced(file: File, sessionId: number | null): void {
-  _pendingBroadcast = { file, sessionId };
+export function broadcastFileDebounced(
+  file: File,
+  sessionId: number | null,
+  prepareMsg?: AnyProtocolMsg,
+): void {
+  _pendingBroadcast = { file, sessionId, prepareMsg };
   setManagedTimer(
     BROADCAST_DEBOUNCE_KEY,
     () => {
       if (!_pendingBroadcast) return;
       const p = _pendingBroadcast;
       _pendingBroadcast = null;
+      // Send FILE_PREPARE first so guests update their metadata before the
+      // chunk stream lands. Both happen in the same microtask after the
+      // debounce, so guests see exactly one announce + one transfer per
+      // settled track.
+      if (p.prepareMsg) {
+        broadcast(p.prepareMsg);
+      }
       broadcastFile(p.file, p.sessionId).catch((e) =>
         log.error('[Host] broadcastFile (debounced) failed:', e),
       );

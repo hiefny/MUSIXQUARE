@@ -454,15 +454,20 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     // waiting on its autoPlayTimer.
     const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
 
-    broadcast({
+    // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
+    // Sending it eagerly here would flood guests with metadata updates for
+    // every track the user clicked through, racing against PLAY messages
+    // and surfacing as "Name mismatch on PLAY" with the guest stuck waiting
+    // on a FILE_PREPARE that already arrived as a stale earlier one.
+    const prepareMsg = {
       type: MSG.FILE_PREPARE,
       name: file.name,
       index,
       sessionId,
       mime: file.type,
       autoPlayDelayMs,
-    });
-    await loadAndBroadcastFile(file, sessionId, myLoadToken);
+    };
+    await loadAndBroadcastFile(file, sessionId, myLoadToken, prepareMsg);
 
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);

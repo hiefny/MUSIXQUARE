@@ -422,6 +422,8 @@ export function initSetup(): void {
       userMsg = t('error.server_disconnected');
     else if (peerType === 'unavailable-id') userMsg = t('error.session_id_unavailable');
     else if (peerType === 'webrtc') userMsg = t('error.webrtc_failed');
+    else if (peerType === 'browser-incompatible') userMsg = t('error.browser_unsupported');
+    else if (peerType === 'ssl-unavailable') userMsg = t('error.ssl_required');
 
     const isConnecting = getState('network.isConnecting');
     if (isConnecting) {

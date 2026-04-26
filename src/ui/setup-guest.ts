@@ -161,8 +161,9 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
   setupSetGuestJoinBusy(true);
 
   setupRenderActions([
+    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => { markIntentionalNav(); window.location.href = '/'; }, disabled: true },
     { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
-  ], 'vertical');
+  ], 'horizontal-with-back');
 
   joinSession(autoCode);
 }
@@ -230,7 +231,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   updateRoleBadge();
 
   setupRenderActions([
-    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+    { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow(), disabled: true },
     { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
   ], 'horizontal-with-back');
 

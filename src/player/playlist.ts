@@ -381,13 +381,25 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const hostIds = subMap[item.playlistId as string]?.ids;
       const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
 
+      // Decide autoplay up-front so the broadcast and the host's own
+      // youtube:load emit agree. Only the very first YouTube entry of a
+      // fresh app session waits for an explicit play tap (the
+      // 'youtube.ready' toast below). Every other path — auto-advance
+      // from a finished local/YT track, user clicking a different YT
+      // entry mid-session — must autoplay; otherwise the iframe sits
+      // idle and YouTube eventually flags the video as unplayable and
+      // skips to the next one (~15s on Windows desktop).
+      const isFirstTrackLoad = getState('player.isFirstTrackLoad');
+      const isAlreadyYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
+
       broadcast({
         type: MSG.YOUTUBE_PLAY,
         videoId: broadcastVideoId,
         playlistId: item.playlistId ?? null,
         name: item.name || item.title,
         index,
-        autoplay: false,
+        autoplay: shouldAutoplay,
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
@@ -402,17 +414,17 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         });
       }
 
-      const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-      // If we're already in YouTube mode (YT-to-YT transition via ENDED),
-      // this is NOT a first load — always auto-play regardless of the flag.
-      const isAlreadyYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      // shouldAutoplay computed above mirrors this branch decision: the
+      // first-load + first-time-YT path waits for the user, every other
+      // path autoplays. The host's own iframe load uses the same flag
+      // so it stays in lockstep with the broadcast.
       if (isFirstTrackLoad && !isAlreadyYt) {
         setState('player.isFirstTrackLoad', false);
         bus.emit(
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
-          false,
+          shouldAutoplay,
           subIndex ?? 0,
         );
         showToast(t('youtube.ready'));
@@ -426,7 +438,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
-          false,
+          shouldAutoplay,
           subIndex ?? 0,
         );
       }

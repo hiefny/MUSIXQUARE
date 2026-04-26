@@ -743,7 +743,7 @@ export function initPlayback(): void {
   // Re-evaluations from topology changes (e.g. another peer leaving) reuse
   // 'peer-evaluated' for routing only — bootstrapping the file again would
   // re-trigger 'storage:transfer-progress' on a peer that already has it.
-  bus.on('orchestrator:peer-joined', (peerId: string) => {
+  bus.on('orchestrator:peer-joined', async (peerId: string) => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host
 
@@ -763,18 +763,25 @@ export function initPlayback(): void {
         const currentSessionId = getState('transfer.currentSessionId');
         if (currentFileBlob) {
           log.debug(`[Playback] Sending current file to late-joiner ${peer.label || peerId} (post-ICE)`);
-          unicastFile(conn, currentFileBlob, 0, currentSessionId)
-            .catch((e: unknown) => log.error('[Host] unicastFile for late joiner failed', e));
+          try {
+            await unicastFile(conn, currentFileBlob, 0, currentSessionId);
+          } catch (e: unknown) {
+            log.error('[Host] unicastFile for late joiner failed', e);
+            return;
+          }
         }
 
         // Also send preloaded next track
         const nextFileBlob = getState('preload.nextFileBlob');
         const nextMeta = getState('preload.meta');
         const nextTrackIndex = getState('preload.nextTrackIndex');
-        if (nextFileBlob && nextMeta && nextTrackIndex >= 0) {
+        if (nextFileBlob && nextMeta && nextTrackIndex >= 0 && conn.open) {
           const preloadSid = (nextMeta.sessionId as number) || 0;
-          unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid)
-            .catch((e: unknown) => log.error('[Host] unicastPreload for late joiner failed', e));
+          try {
+            await unicastPreload(conn, nextFileBlob, nextTrackIndex, preloadSid);
+          } catch (e: unknown) {
+            log.error('[Host] unicastPreload for late joiner failed', e);
+          }
         }
       }
     }

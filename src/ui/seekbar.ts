@@ -98,7 +98,16 @@ function _seekRafLoop(now: number): void {
   _systemAudioZerosApplied = false;
 
   const isSeeking = getState('player.isSeeking');
-  if (!isSeeking) {
+  // Only interpolate while the audio is actually playing. Without this guard
+  // the loop kept advancing _rafAnchorTime + dt during the host's 3-second
+  // autoPlayDelay, during decode, or while paused — so the thumb crawled
+  // forward (the "drrrr" jitter), then snapped back to 0 once play(0) hit
+  // and reset the anchor. PLAYING_SYSTEM_AUDIO short-circuits above, so this
+  // narrowing to PLAYING_AUDIO covers the only state where wall-clock
+  // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
+  // wherever it last was, which matches user expectation.
+  const isPlaying = getState('appState') === APP_STATE.PLAYING_AUDIO;
+  if (!isSeeking && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {

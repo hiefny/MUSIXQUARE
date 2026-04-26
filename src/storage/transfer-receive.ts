@@ -873,8 +873,15 @@ export function handleFileChunk(data: Record<string, unknown>): void {
       `[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`,
     );
     sessionBuffer.clear();
-    nextExpectedChunk = chunkIndex;
-    setState('transfer.receivedCount', chunkIndex); // keep in sync
+    // Do NOT fast-forward nextExpectedChunk / receivedCount to chunkIndex.
+    // Those positions weren't actually received — the buffered chunks were
+    // beyond the current expected one because intermediate chunks never
+    // arrived (host-side send race during rapid track changes). Marking
+    // them as received forced recovery to resume from the wrong offset,
+    // so the missing chunks were never re-sent and file-end reported a
+    // permanent shortfall (e.g. 5118/5272), kicking off an infinite
+    // recovery loop. Leaving the counters as-is lets recovery resume
+    // from the real position and the missing chunks arrive in order.
     bus.emit('storage:request-recovery');
     return; // Don't fall through to re-add chunk with incorrect offset
   }

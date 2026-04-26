@@ -296,6 +296,11 @@ function handlePauseMsg(data: Record<string, unknown>): void {
   // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
   // to PAUSED per Section 4.
   transition({ type: 'PAUSE', time, endOfPlaylist });
+  
+  // If host pauses, cancel any deferred play that was waiting for a
+  // download/preload to finish. Otherwise, a guest who completes their
+  // download while the host is paused will erroneously auto-start playback.
+  setPendingPlayTime(undefined);
 
   // Host reached end of playlist (Repeat OFF). Short-circuit: skip the
   // regular pause() path which would flash a "일시정지" toast before the
@@ -605,6 +610,7 @@ export function initPlayback(): void {
         clearManagedTimer('preload-blob-watchdog');
         _unsubWatchdog();
         _unsubProgress();
+        _unsubTarget();
         if (_activePreloadWaiterCleanup === cleanup) {
           _activePreloadWaiterCleanup = null;
         }
@@ -643,6 +649,18 @@ export function initPlayback(): void {
       // Phase 4: subscribe to lifecycle instead of the legacy flag.
       const _unsubWatchdog = bus.on('state:playback.lifecycle', (val: unknown) => {
         if (val !== PLAYBACK_STATE.AWAITING_PRELOAD) cleanup();
+      });
+
+      // Target-aware reset: if the host broadcasts PRELOAD_START for a NEW
+      // track while we're waiting for an OLD track (e.g. host advanced track
+      // but late-joiner was still receiving unicastPreload), the target changes.
+      // We must abort immediately instead of waiting 60s for chunks that were wiped.
+      const _unsubTarget = bus.on('state:preload.nextTrackIndex', (newIndex: unknown) => {
+        if (disposed) return;
+        if (newIndex !== index) {
+          log.warn(`[Preload] Preload target changed to ${newIndex}, aborting wait for ${index}`);
+          onWatchdogFire();
+        }
       });
 
       // Progress-aware reset: watch preload.sessionState changes. When the

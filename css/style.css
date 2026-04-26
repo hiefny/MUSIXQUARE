@@ -5024,6 +5024,17 @@
             right: calc(200px + var(--safe-right)) !important;
         }
 
+        /* chat-drawer.transform creates a new containing block for the
+           position:fixed track inside it, so the rule above (which targets
+           viewport-anchored tracks) ends up offsetting from the drawer's
+           own right edge — pushing the scrollbar to the middle of the
+           screen by exactly the sidebar width. The drawer's right edge is
+           already adjacent to the sidebar, so right:0 puts the track
+           where the user expects (just inside the chat panel). */
+        .chat-drawer .cscroll-track {
+            right: 0 !important;
+        }
+
         /* ── Overlays: only cover content area, keep sidebar visible ── */
         #media-source-overlay,
         #youtube-url-overlay {

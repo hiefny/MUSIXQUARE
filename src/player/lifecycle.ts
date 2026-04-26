@@ -154,6 +154,14 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_END':
       case 'PRELOAD_FILE_READY':
         return { stay: true }; // preload machinery can progress alongside IDLE lifecycle
+      case 'FILE_END':
+      case 'DECODE_SUCCESS':
+        // Stale messages buffered in dataChannel from a transfer the receiver
+        // already disengaged from (e.g. host endOfPlaylist or rapid track-change
+        // race). Harmless on idle state; the next FILE_PREPARE will re-engage
+        // the pipeline cleanly. Suppressed so the reject log doesn't drown out
+        // real signal during multi-peer debugging.
+        return { stay: true };
       default:
         return { reject: `${ev.type} not expected in IDLE` };
     }

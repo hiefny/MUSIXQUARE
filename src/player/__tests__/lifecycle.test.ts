@@ -147,9 +147,12 @@ describe('lifecycle: from IDLE', () => {
     expect(step(FROM, { type: 'PRELOAD_FILE_READY', index: 1 })).toEqual({ stay: true });
   });
 
-  it('DECODE_SUCCESS in IDLE is rejected', () => {
-    const r = step(FROM, { type: 'DECODE_SUCCESS' });
-    expect(r).toHaveProperty('reject');
+  it('DECODE_SUCCESS in IDLE is absorbed (stale dataChannel buffered message)', () => {
+    expect(step(FROM, { type: 'DECODE_SUCCESS' })).toEqual({ stay: true });
+  });
+
+  it('FILE_END in IDLE is absorbed (stale dataChannel buffered message)', () => {
+    expect(step(FROM, { type: 'FILE_END' })).toEqual({ stay: true });
   });
 });
 

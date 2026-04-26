@@ -209,6 +209,29 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       log.info(`[Host] ${deviceName} connection type: ${type}`);
       broadcastDeviceList();
       bus.emit('orchestrator:peer-type-detected', peerId);
+
+      // Worst-case fallback: detectConnectionType returns 'remote' both for
+      // genuine WAN peers and for LAN peers whose ICE never produced a
+      // succeeded candidate-pair within the 10s polling window. Recheck once
+      // after 30s to give late-stabilizing LAN ICE a chance to reclassify.
+      // Only acts on a 'remote' → 'local' flip; never demotes 'local'.
+      if (type === 'remote' && conn.open) {
+        setManagedTimer('ice-fallback-' + peerId, async () => {
+          if (!conn.open) return;
+          const recheck = await detectConnectionType(conn);
+          if (recheck !== 'local') return;
+          const ps = getState('network.connectedPeers');
+          const p = ps.find(x => x.id === peerId);
+          if (p && p.connectionType !== 'local') {
+            setState('network.connectedPeers', ps.map(x =>
+              x.id === peerId ? { ...x, connectionType: 'local' as const } : x
+            ));
+            log.info(`[Host] ${deviceName} reclassified as local on fallback`);
+            broadcastDeviceList();
+            bus.emit('orchestrator:peer-type-detected', peerId);
+          }
+        }, 30000);
+      }
     }).catch(e => {
       log.warn('[Host] ICE detection error:', e);
     });
@@ -230,9 +253,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Ignore stale close events from replaced duplicate connections
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
 
-    // Clear ICE detection timers to prevent firing on disconnected peer
-    clearManagedTimer('ice-detect-' + peerId);
-    clearManagedTimer('ice-redetect-' + peerId);
+    // Clear ICE fallback timer to prevent firing on disconnected peer
+    clearManagedTimer('ice-fallback-' + peerId);
 
     // Read current label BEFORE cleanup deletes it from peerLabels.
     // Captures rename (e.g. "Alice") instead of stale slot name ("GUEST 1").
@@ -271,9 +293,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       return;
     }
 
-    // Clear ICE detection timers to prevent firing on disconnected peer
-    clearManagedTimer('ice-detect-' + peerId);
-    clearManagedTimer('ice-redetect-' + peerId);
+    // Clear ICE fallback timer to prevent firing on disconnected peer
+    clearManagedTimer('ice-fallback-' + peerId);
 
     const errLabel = getState('network.peerLabels')?.[peerId] || deviceName;
 

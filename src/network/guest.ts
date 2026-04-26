@@ -65,10 +65,9 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     setState('relay.upstreamDataConn', null);
   }
 
-  // M-2: Clear ICE detection timers from previous connection — prevents stale
+  // M-2: Clear ICE fallback timer from previous connection — prevents stale
   // timers from overwriting the new connection's ICE classification.
-  clearManagedTimer('guest-ice-detect');
-  clearManagedTimer('guest-ice-redetect');
+  clearManagedTimer('guest-ice-fallback');
 
   if (!hostId) {
     bus.emit('network:error', new Error('NO_HOST_ID'));
@@ -213,6 +212,21 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       setState('network.connectionType', type);
       log.info(`[Peer] Connection type: ${type}`);
       bus.emit('network:role-badge-update');
+
+      // Worst-case fallback: see host.ts for rationale. Recheck once after
+      // 30s to recover from a misclassified LAN peer where ICE was still
+      // stabilizing during the initial poll.
+      if (type === 'remote' && conn.open) {
+        setManagedTimer('guest-ice-fallback', async () => {
+          if (!conn.open) return;
+          const recheck = await detectConnectionType(conn);
+          if (recheck === 'local' && getState('network.connectionType') !== 'local') {
+            setState('network.connectionType', 'local');
+            log.info('[Peer] Reclassified as local on fallback');
+            bus.emit('network:role-badge-update');
+          }
+        }, 30000);
+      }
     });
 
     bus.emit('network:peer-connected', conn);

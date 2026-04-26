@@ -411,6 +411,17 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
         setState('playlist.currentTrackIndex', data.index as number);
       }
 
+      // Mirror the fresh branch: surface the awaited track's title now so
+      // the user sees it during the AWAITING_PRELOAD wait instead of after
+      // the preload blob assembles.
+      {
+        const playlist = getState('playlist.items') || [];
+        const trackEntry = playlist[data.index as number];
+        if (trackEntry) {
+          setState('player.currentTrackMeta', trackEntry);
+        }
+      }
+
       // Preload Watchdog: If preloading fails to complete, recover.
       // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
@@ -488,6 +499,19 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
       mime: (data.mime as string) || '',
       sessionId: (data.sessionId as number) || getState('transfer.localSessionId'),
     });
+
+    // Show the new track title immediately. Without this, finalizeGuestFile
+    // is the first place player.currentTrackMeta gets set on the download
+    // path, so the title in the UI stayed on the previous track until every
+    // chunk arrived and decoded — feels broken on slow networks even though
+    // the playlist entry was already known the moment FILE_PREPARE landed.
+    {
+      const playlist = getState('playlist.items') || [];
+      const trackEntry = playlist[data.index as number];
+      if (trackEntry) {
+        setState('player.currentTrackMeta', trackEntry);
+      }
+    }
 
     // Stop YouTube mode for incoming local file
     const currentState = getState('appState');

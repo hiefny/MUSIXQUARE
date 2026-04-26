@@ -12,7 +12,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { sendToHost } from '../network/peer.ts';
 import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
@@ -121,10 +121,33 @@ export function toggleChatDrawer(): void {
   // getBoundingClientRect(). The drawer's open/close animation is a CSS
   // transform on an ancestor — neither ResizeObserver nor MutationObserver
   // on the inner container catches it. Signal a relayout now (for the
-  // open frame) and again after the 200ms transform transition settles
-  // so the track ends up in the final visible position.
+  // open frame) and again after the transform transition truly ends so
+  // the track lands in the final visible position. A fixed 250ms timer
+  // turned out to be brittle — Chrome on Android sometimes finishes the
+  // transition ~5–10ms after the timer fired and the resulting updateLayout
+  // measured a still-mid-flight rect, leaving the scrollbar shorter than
+  // the messages area and offset toward the input bar (the user repro).
+  // transitionend fires precisely at the end of the transform animation;
+  // a 400ms safety timer covers browsers that occasionally drop the event
+  // (e.g. when the drawer is toggled again before the previous transition
+  // resolves).
   bus.emit('ui:scrollbar-relayout');
-  setManagedTimer('chat-drawer-relayout', () => bus.emit('ui:scrollbar-relayout'), 250);
+  const drawerEl = drawer as HTMLElement;
+  const onTransitionEnd = (e: TransitionEvent) => {
+    if (e.propertyName !== 'transform') return;
+    drawerEl.removeEventListener('transitionend', onTransitionEnd);
+    clearManagedTimer('chat-drawer-relayout');
+    bus.emit('ui:scrollbar-relayout');
+  };
+  drawerEl.addEventListener('transitionend', onTransitionEnd);
+  setManagedTimer(
+    'chat-drawer-relayout',
+    () => {
+      drawerEl.removeEventListener('transitionend', onTransitionEnd);
+      bus.emit('ui:scrollbar-relayout');
+    },
+    400,
+  );
 }
 
 // ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────

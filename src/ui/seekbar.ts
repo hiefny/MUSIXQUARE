@@ -188,8 +188,30 @@ function initSeekBarBusHandlers(): void {
           return;
         }
 
-        _rafAnchorTime = getTrackPosition();
-        _rafAnchorTs = performance.now();
+        // Only refresh the rAF anchor when local audio is actually playing
+        // and getTrackPosition reports a valid non-transient value. Without
+        // these guards, two ways the anchor got stuck at 0 every 250ms —
+        // jittering the thumb back to 0 and creating the "drrrr-snap-drrrr"
+        // pattern users saw during the host's "오디오를 준비 중" window:
+        //
+        // 1. PLAYING_YOUTUBE / PLAYING_SYSTEM_AUDIO don't share this
+        //    rAF interpolation model; getTrackPosition there returns
+        //    0 (system audio) or routes through an async callback (YT)
+        //    that is unrelated to the local-file thumb.
+        // 2. Right after PLAYING_AUDIO is set but before player.startedAt
+        //    or audioBuffer have settled, getTrackPosition can briefly
+        //    return 0. Resetting the anchor to 0 in that window collapses
+        //    the thumb back, then the rAF interpolation walks it forward
+        //    until the next 250ms tick collapses it again. Treat 0 as
+        //    transient and let the existing anchor (set by _startSeekRaf
+        //    or by the previous valid tick) keep advancing via dt.
+        if (currentState === APP_STATE.PLAYING_AUDIO) {
+          const pos = getTrackPosition();
+          if (pos > 0 && Number.isFinite(pos)) {
+            _rafAnchorTime = pos;
+            _rafAnchorTs = performance.now();
+          }
+        }
 
         _endedCheckCounter++;
         if (_endedCheckCounter >= 2) {

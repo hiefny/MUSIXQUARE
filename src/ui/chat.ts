@@ -99,6 +99,15 @@ function resetUnread(): void {
 
 // ─── Chat Drawer ─────────────────────────────────────────────────
 
+/**
+ * Safety net for ui:scrollbar-relayout in case transitionend never fires.
+ * The drawer's CSS transform transition is 200ms; doubling that absorbs
+ * timing skew across browsers (Chrome on Android occasionally finishes
+ * 5-10ms late) and survives a toggle that supersedes a previous
+ * transition before it had a chance to emit transitionend.
+ */
+const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 400;
+
 export function toggleChatDrawer(): void {
   const drawer = document.getElementById('chat-drawer');
   if (!drawer) return;
@@ -146,7 +155,7 @@ export function toggleChatDrawer(): void {
       drawerEl.removeEventListener('transitionend', onTransitionEnd);
       bus.emit('ui:scrollbar-relayout');
     },
-    400,
+    CHAT_DRAWER_RELAYOUT_FALLBACK_MS,
   );
 }
 

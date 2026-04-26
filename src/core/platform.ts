@@ -65,6 +65,16 @@ export function preventIOSPinchZoom(): void {
 
 // ─── Viewport Height Management ────────────────────────────────────
 
+/**
+ * Window during which keyboard detection is suppressed after orientationchange.
+ * The OS animates rotation over a few hundred ms and visualViewport.resize
+ * fires repeatedly through that window with intermediate (shrunken) heights
+ * that look identical to a soft keyboard opening. 1s is comfortably longer
+ * than any rotation animation observed across iOS/Android while still feeling
+ * instant if the user types right after rotating.
+ */
+const KB_DETECTION_LOCK_MS = 1000;
+
 let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
@@ -401,12 +411,12 @@ export function initPlatform(): void {
         // wrong dimension. Rotating always implies the keyboard is gone, so
         // it's safe to clear both signals unconditionally.
         _keyboardFreezeUntil = 0;
-        // Suppress keyboard detection for ~1s. visualViewport.resize fires
-        // repeatedly during the rotation animation with shrunken heights
-        // that get mis-detected as a keyboard opening — those false
-        // positives re-add the keyboard-open class right after we clear
-        // it below, defeating every other reset in this handler.
-        _kbDetectionLockedUntil = Date.now() + 1000;
+        // Suppress keyboard detection for KB_DETECTION_LOCK_MS. visualViewport
+        // .resize fires repeatedly during the rotation animation with shrunken
+        // heights that get mis-detected as a keyboard opening — those false
+        // positives re-add the keyboard-open class right after we clear it
+        // below, defeating every other reset in this handler.
+        _kbDetectionLockedUntil = Date.now() + KB_DETECTION_LOCK_MS;
         document.documentElement.classList.remove('keyboard-open');
         scheduleAppHeightUpdate();
         // Settle timer for both platforms — visualViewport can lag behind

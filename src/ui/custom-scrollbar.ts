@@ -24,6 +24,9 @@ interface ScrollbarState {
   visibleHeight: number;
   thumbHeight: number;
   fadeTimer: number;
+  /** Cached transform-containing-block ancestor (resolved lazily on first updateLayout). */
+  transformBlock: HTMLElement | null;
+  transformBlockResolved: boolean;
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
@@ -92,8 +95,19 @@ function updateLayout(state: ScrollbarState): void {
     // CSS-side `right: 0` already inherits the same containing block, so
     // X axis works without intervention here (and the chat-drawer scope
     // override in style.css already handles the wider X case).
-    const transformBlock = findFixedContainingBlock(container);
-    const ancestorTop = transformBlock ? transformBlock.getBoundingClientRect().top : 0;
+    //
+    // Cache the lookup on first call: the transform ancestor is determined
+    // by the DOM structure (e.g. .chat-drawer always wraps .chat-messages),
+    // not by runtime values. Re-walking on every updateLayout would burn a
+    // getComputedStyle call per ancestor on every chunk arrival or chat
+    // message — shallow walks but they add up under heavy traffic.
+    if (!state.transformBlockResolved) {
+      state.transformBlock = findFixedContainingBlock(container);
+      state.transformBlockResolved = true;
+    }
+    const ancestorTop = state.transformBlock
+      ? state.transformBlock.getBoundingClientRect().top
+      : 0;
     track.style.top = `${containerRect.top - ancestorTop}px`;
     track.style.height = `${visibleHeight}px`;
   }
@@ -168,6 +182,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     visibleHeight: 0,
     thumbHeight: 0,
     fadeTimer: 0,
+    transformBlock: null,
+    transformBlockResolved: false,
   };
 
   thumb.style.top = '0px';

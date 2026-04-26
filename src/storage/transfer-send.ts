@@ -7,7 +7,7 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
-import { delay } from '../core/timers.ts';
+import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { filterEligiblePeers, canSendFileTo } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -19,6 +19,51 @@ const _activeUnicasts = new Map<string, SessionScope>();
 
 /** Broadcast-level scope for cancellation */
 let _broadcastScope: SessionScope | null = null;
+
+// ─── Broadcast Debounce ──────────────────────────────────────────────
+
+const BROADCAST_DEBOUNCE_KEY = 'broadcast-debounce';
+const BROADCAST_DEBOUNCE_MS = 300;
+let _pendingBroadcast: { file: File; sessionId: number | null } | null = null;
+
+/**
+ * Debounced wrapper around broadcastFile. Coalesces rapid consecutive calls
+ * (e.g. user clicking next-next-next within ~300ms) so only the last stable
+ * track actually starts a chunk broadcast. Prevents the dataChannel buffer
+ * from accumulating chunks from superseded broadcasts — a stuck buffer is
+ * what surfaces on the receiver as reorder-buffer overflow, decode failures,
+ * and infinite recovery loops, since WebRTC reliable+ordered keeps the
+ * stale chunks in the queue ahead of the new track's FILE_START.
+ *
+ * file-prepare and other "track changed" notifications are still broadcast
+ * synchronously by the caller (playTrack), so guests see the metadata update
+ * immediately; only the chunk stream is deferred by the debounce window.
+ *
+ * setManagedTimer is name-keyed: a second call within the window cancels the
+ * previous pending fire and replaces _pendingBroadcast with the new file,
+ * so the queued broadcast always reflects the latest user intent.
+ */
+export function broadcastFileDebounced(file: File, sessionId: number | null): void {
+  _pendingBroadcast = { file, sessionId };
+  setManagedTimer(
+    BROADCAST_DEBOUNCE_KEY,
+    () => {
+      if (!_pendingBroadcast) return;
+      const p = _pendingBroadcast;
+      _pendingBroadcast = null;
+      broadcastFile(p.file, p.sessionId).catch((e) =>
+        log.error('[Host] broadcastFile (debounced) failed:', e),
+      );
+    },
+    BROADCAST_DEBOUNCE_MS,
+  );
+}
+
+/** Drop any pending debounced broadcast (e.g. on session leave / cancel). */
+export function cancelPendingBroadcast(): void {
+  _pendingBroadcast = null;
+  clearManagedTimer(BROADCAST_DEBOUNCE_KEY);
+}
 
 // ─── broadcastFile ───────────────────────────────────────────────────
 

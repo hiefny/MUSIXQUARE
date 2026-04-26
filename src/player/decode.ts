@@ -15,7 +15,7 @@ import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
 import { postWorkerCommand, cleanupOPFSInWorker } from '../storage/opfs.ts';
-import { broadcastFile } from '../storage/transfer.ts';
+import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
@@ -185,7 +185,7 @@ export async function loadAndBroadcastFile(
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
-      broadcastFile(file, sessionId).catch((e) => log.error('[Host] broadcastFile failed:', e));
+      broadcastFileDebounced(file, sessionId);
     }
 
     if (!hostConn) {

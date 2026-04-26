@@ -28,27 +28,33 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
     const pc = conn.peerConnection as RTCPeerConnection | undefined;
     if (!pc) return 'remote';
 
-    const stats = await pc.getStats();
-    for (const report of stats.values()) {
-      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-        const localCandidate = stats.get(report.localCandidateId);
-        const remoteCandidate = stats.get(report.remoteCandidateId);
+    // Poll up to 50 times (10 seconds) for a succeeded candidate pair
+    for (let i = 0; i < 50; i++) {
+      if (!conn.open) return 'remote';
 
-        const localType = localCandidate?.candidateType;
-        const remoteType = remoteCandidate?.candidateType;
+      const stats = await pc.getStats();
+      for (const report of stats.values()) {
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          const localCandidate = stats.get(report.localCandidateId);
+          const remoteCandidate = stats.get(report.remoteCandidateId);
 
-        log.info(`[Peer] ICE: local=${localType}, remote=${remoteType}`);
+          const localType = localCandidate?.candidateType;
+          const remoteType = remoteCandidate?.candidateType;
 
-        // If either side uses relay (TURN), it's remote
-        if (localType === 'relay' || remoteType === 'relay') return 'remote';
-        // Both sides host = same LAN
-        if (localType === 'host' && remoteType === 'host') return 'local';
-        // srflx (STUN) = different networks
-        return 'remote';
+          log.info(`[Peer] ICE (try ${i + 1}): local=${localType}, remote=${remoteType}`);
+
+          // If either side uses relay (TURN), it's remote
+          if (localType === 'relay' || remoteType === 'relay') return 'remote';
+          // Both sides host = same LAN
+          if (localType === 'host' && remoteType === 'host') return 'local';
+          // srflx (STUN) = different networks
+          return 'remote';
+        }
       }
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
-  } catch {
-    log.debug('[Peer] ICE stats unavailable, assuming remote');
+  } catch (e) {
+    log.debug('[Peer] ICE stats unavailable or failed', e);
   }
   return 'remote';
 }

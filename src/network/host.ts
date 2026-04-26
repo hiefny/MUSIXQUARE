@@ -194,49 +194,24 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
-    // Detect local vs remote for this guest after ICE stabilizes.
-    // 1s is enough for LAN (host→host pair succeeds ~300-500ms).
-    // Reduced from 1.5s to speed up file transfer start for late-joiners.
-    setManagedTimer('ice-detect-' + peerId, async () => {
-      try {
-        const type = await detectConnectionType(conn);
-        const peers = getState('network.connectedPeers');
-        const livePeer = peers.find(p => p.id === peerId);
-        if (livePeer) {
-          // Immutable update: replace peer object with detected connection type
-          setState('network.connectedPeers', peers.map(p =>
-            p.id === peerId ? { ...p, connectionType: type } : p
-          ));
-        }
-        log.info(`[Host] ${deviceName} connection type: ${type}`);
-        broadcastDeviceList();
-        bus.emit('orchestrator:peer-type-detected', peerId);
-
-        // Re-detect after 10s from connection open if classified as 'remote'
-        // (ICE may not have stabilized at 1s for STUN/TURN)
-        if (type === 'remote' && conn.open) {
-          setManagedTimer('ice-redetect-' + peerId, async () => {
-            try {
-              if (!conn.open) return;
-              const recheck = await detectConnectionType(conn);
-              if (recheck === 'local') {
-                const ps = getState('network.connectedPeers');
-                const p = ps.find(x => x.id === peerId);
-                if (p && p.connectionType !== 'local') {
-                  // Immutable update: replace peer object with reclassified connection type
-                  setState('network.connectedPeers', ps.map(x =>
-                    x.id === peerId ? { ...x, connectionType: 'local' as const } : x
-                  ));
-                  log.info(`[Host] ${deviceName} reclassified as local on re-detection`);
-                  broadcastDeviceList();
-                  bus.emit('orchestrator:peer-type-detected', peerId);
-                }
-              }
-            } catch (e) { log.warn('[Host] ICE re-detection error:', e); }
-          }, 9000); // 1s + 9s = 10s from connection open
-        }
-      } catch (e) { log.warn('[Host] ICE detection error:', e); }
-    }, 1000);
+    // Detect local vs remote for this guest.
+    // The detectConnectionType function now internally polls until ICE stabilizes
+    // (up to 10 seconds) to guarantee accurate classification.
+    detectConnectionType(conn).then((type) => {
+      const peers = getState('network.connectedPeers');
+      const livePeer = peers.find(p => p.id === peerId);
+      if (livePeer) {
+        // Immutable update: replace peer object with detected connection type
+        setState('network.connectedPeers', peers.map(p =>
+          p.id === peerId ? { ...p, connectionType: type } : p
+        ));
+      }
+      log.info(`[Host] ${deviceName} connection type: ${type}`);
+      broadcastDeviceList();
+      bus.emit('orchestrator:peer-type-detected', peerId);
+    }).catch(e => {
+      log.warn('[Host] ICE detection error:', e);
+    });
 
     // Broadcast updated device list to all peers
     broadcastDeviceList();

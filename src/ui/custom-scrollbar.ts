@@ -28,6 +28,26 @@ interface ScrollbarState {
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
 
+/**
+ * Walk up the DOM looking for an ancestor whose computed transform/perspective
+ * is non-none. Such an ancestor becomes the containing block for descendant
+ * position:fixed elements (CSS spec), which means inline `top: <viewport-px>`
+ * on the track no longer lands at the viewport top — it's measured from the
+ * ancestor's padding-box top instead. The .chat-drawer's open/close transform
+ * is exactly this case: with no adjustment, the track ends up off-screen
+ * (the user repro: "scrollbar flew far off to the right" — actually downward
+ * by drawer.top, since drawer sits on the bottom half in portrait).
+ */
+function findFixedContainingBlock(el: HTMLElement): HTMLElement | null {
+  let p = el.parentElement;
+  while (p && p !== document.documentElement) {
+    const cs = getComputedStyle(p);
+    if (cs.transform !== 'none' || cs.perspective !== 'none') return p;
+    p = p.parentElement;
+  }
+  return null;
+}
+
 function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
   const { scrollHeight, clientHeight } = container;
@@ -64,8 +84,17 @@ function updateLayout(state: ScrollbarState): void {
     track.style.top = `${offsetTop}px`;
     track.style.height = `${visibleHeight}px`;
   } else {
-    // Mobile: track is position:fixed — use viewport coordinates
-    track.style.top = `${containerRect.top}px`;
+    // Mobile: track is position:fixed. If an ancestor uses transform (or
+    // perspective), it becomes the containing block for the fixed track —
+    // inline top values are then measured from the ancestor's padding-box
+    // top, not from the viewport. Subtract the ancestor's top so the
+    // viewport-based containerRect.top still lands at the right place.
+    // CSS-side `right: 0` already inherits the same containing block, so
+    // X axis works without intervention here (and the chat-drawer scope
+    // override in style.css already handles the wider X case).
+    const transformBlock = findFixedContainingBlock(container);
+    const ancestorTop = transformBlock ? transformBlock.getBoundingClientRect().top : 0;
+    track.style.top = `${containerRect.top - ancestorTop}px`;
     track.style.height = `${visibleHeight}px`;
   }
 

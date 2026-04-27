@@ -117,6 +117,13 @@ async function analyzeAndStart(): Promise<void> {
     // BPM clobbers the newer one's, and the rAF loop pulses out-of-sync until
     // the next track change. Also prevents a leaked rAF self-loop on pause.
     if (buf !== getCurrentAudioBuffer()) return;
+    // Sibling race guard: party turned off while we awaited. setPartyMode(false)'s
+    // stopBeatLoop() was a no-op (no _animId yet — analyzeFullBuffer was blocking),
+    // so without this the post-await startBeatLoop() below spawns a rAF that
+    // emits 'beat:pulse' every paint despite _partyMode=false. The consumer
+    // early-returns on !isPartyMode() so it's silent, but the rAF still burns
+    // ~1 frame of work per paint until the next track change clears it.
+    if (!_partyMode) return;
 
     // Sort candidates by frequency (count)
     candidates.sort((a, b) => b.count - a.count);
@@ -151,6 +158,8 @@ async function analyzeAndStart(): Promise<void> {
     // `buf` captured pre-await. Without this, the fallback path can still
     // publish the wrong track's BPM after a fast track-swap.
     if (buf !== getCurrentAudioBuffer()) return;
+    // Sibling partyMode guard — same reasoning as the try-path version above.
+    if (!_partyMode) return;
     // Fallback to V2 if library fails
     const v2 = detectBPM_V2(buf);
     _bpm = Math.round(v2.bpm);

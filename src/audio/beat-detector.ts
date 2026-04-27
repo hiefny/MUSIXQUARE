@@ -112,6 +112,11 @@ async function analyzeAndStart(): Promise<void> {
   try {
     // 1) Use the robust library for BPM
     const candidates = await analyzeFullBuffer(buf);
+    // Race guard: if a newer buffer was loaded while we awaited (rapid track
+    // switch), discard this stale analysis. Without this, the older track's
+    // BPM clobbers the newer one's, and the rAF loop pulses out-of-sync until
+    // the next track change. Also prevents a leaked rAF self-loop on pause.
+    if (buf !== getCurrentAudioBuffer()) return;
 
     // Sort candidates by frequency (count)
     candidates.sort((a, b) => b.count - a.count);
@@ -142,6 +147,10 @@ async function analyzeAndStart(): Promise<void> {
     startBeatLoop();
   } catch (err) {
     log.error('[BeatDetector] Analysis failed', err);
+    // Same race guard: detectBPM_V2 below is sync but operates on the stale
+    // `buf` captured pre-await. Without this, the fallback path can still
+    // publish the wrong track's BPM after a fast track-swap.
+    if (buf !== getCurrentAudioBuffer()) return;
     // Fallback to V2 if library fails
     const v2 = detectBPM_V2(buf);
     _bpm = Math.round(v2.bpm);

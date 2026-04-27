@@ -106,6 +106,16 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   const hostConn = getState('network.hostConn');
 
+  // Drop CHAT frames not arriving via hostConn. Without this, a peer can
+  // open a DATA_RELAY connection directly to a relay-capable guest
+  // (peer.ts:292 routes any incoming `metadata.type === DATA_RELAY` to
+  // handleRelayConnection without auth) and inject a raw {isHost:true,
+  // senderLabel:'HOST'} frame, spoofing the HOST badge in the L165 guest
+  // branch. Mirrors WHISPER L268 / NOTICE L284 / SYSTEM L312 / mute /
+  // unmute / freeze / unfreeze / clear / slowmode / filter — every other
+  // chat handler already had this guard; CHAT was the gap.
+  if (hostConn && !isFromHost(conn)) return;
+
   // ── Host-side enforcement: rate limit, mute, freeze ──
   if (!hostConn && !isMine) {
     const senderPeerId = (data._originPeer as string) || conn?.peer || '';

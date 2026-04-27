@@ -110,7 +110,13 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
-  [MSG.FILE_RESUME]: (d) => isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
+  // Without `name`, a malicious peer can send file-resume with no name to
+  // poison the host's transfer.localSessionId (handler at transfer-receive.ts:685
+  // bumps it from any incoming sessionId), blocking subsequent legitimate inbound
+  // transfers via the localSid guards at transfer-receive.ts:678,754,765,790.
+  // FILE_START (above) already requires `name` — this brings FILE_RESUME to parity.
+  [MSG.FILE_RESUME]: (d) =>
+    typeof d.name === 'string' && isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
 
   // Chat — validate text field exists and cap length
   [MSG.CHAT]: (d) => typeof d.text === 'string',

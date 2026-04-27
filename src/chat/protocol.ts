@@ -108,7 +108,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   // ── Host-side enforcement: rate limit, mute, freeze ──
   if (!hostConn && !isMine) {
-    const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
+    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
     // Rate limit: silently drop frames over the burst+refill threshold so
     // a flooding peer can't saturate the relay path to every other guest.
     if (!allowChatFromPeer(senderPeerId)) return;
@@ -144,14 +144,22 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   let badge: 'host' | 'op' | undefined;
   if (!hostConn) {
     // Host: derive from authoritative peer list
-    const senderPeerId = (data._originPeer as string) || senderId || conn?.peer || '';
+    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
     const peers = getState('network.connectedPeers');
     const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
     const isOp = peerEntry?.isOp ?? false;
     badge = isOp ? 'op' : undefined; // only host gets 'host' badge (set below)
-    // Overwrite untrusted badge fields before relay
+    // Overwrite untrusted identity + badge fields before relay. Without
+    // overwriting senderId/senderLabel/joinOrder, a malicious peer that pushed
+    // a raw CHAT frame with someone else's senderId would have the spoofed
+    // identity reach every downstream guest verbatim — mirrors WHISPER L243-245.
     data.isHost = false;
     data.isOp = isOp;
+    data.senderId = senderPeerId;
+    if (peerEntry) {
+      data.senderLabel = peerEntry.label.substring(0, MAX_SENDER_LABEL_LENGTH);
+      data.joinOrder = peerEntry.joinOrder;
+    }
   } else {
     // Guest: trust relayed data (host already sanitized it)
     badge = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
@@ -162,7 +170,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
   if (!hostConn) {
-    const senderPeerId = senderId || conn?.peer || '';
+    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
   }
 }

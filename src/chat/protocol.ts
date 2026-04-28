@@ -201,6 +201,13 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 // ─── Admin Handlers ──────────────────────────────────────────────
 
 function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-mute — legitimate path is the
+  // host's own REQUEST_CHAT_COMMAND 'mute' branch in sync.ts:222 which
+  // calls setState + broadcast directly. A raw frame at host with
+  // targetId === hostId triggers a fake muted-state UI flip + spams
+  // addSystemChatMessage. isFromHost on host returns true (no hostConn),
+  // so the guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   const targetId = data.targetId as string;
   const targetLabel = data.targetLabel as string;
@@ -213,6 +220,8 @@ function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): v
 }
 
 function handleChatUnmute(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Same threat model as handleChatMute — host-side guard required.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   const targetId = data.targetId as string;
   const targetLabel = data.targetLabel as string;
@@ -247,6 +256,12 @@ function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnectio
 }
 
 function handleChatClear(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-clear — legitimate path is the
+  // host's own REQUEST_CHAT_COMMAND 'clear' branch in sync.ts:247 which
+  // calls bus.emit('chat:clear-all') directly. A single raw frame at
+  // host wipes the host's entire chat UI. isFromHost on host returns
+  // true (no hostConn), so the guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   bus.emit('chat:clear-all');
 }
@@ -357,6 +372,13 @@ function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection):
 }
 
 function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-system — host injects system
+  // chat lines via local addSystemChatMessage() calls (no network round
+  // trip). A raw frame at host injects arbitrary text into the host's
+  // own system chat (escapeHtml blocks XSS but social-engineering text
+  // passes). isFromHost on host returns true (no hostConn), so the
+  // guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   const text = (data.text as string) || '';
   if (text) addSystemChatMessage(text);

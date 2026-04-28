@@ -402,7 +402,7 @@ export function addNoticeChatMessage(sender: string, text: string): void {
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender notice-label';
-  senderNode.textContent = `${t('chat.cmd_notice_prefix')} — ${displayName}`;
+  senderNode.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
   group.appendChild(senderNode);
 
   const row = document.createElement('div');
@@ -441,7 +441,7 @@ export function setPinnedNotice(sender: string, text: string): void {
   if (!banner || !label || !body) return;
   // Same fallback as addNoticeChatMessage — see comment there.
   const displayName = sender || t('chat.system_sender');
-  label.textContent = `${t('chat.cmd_notice_prefix')} — ${displayName}`;
+  label.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
   body.textContent = text;
   banner.hidden = false;
   // Hide the chat title once a notice is pinned — same rule as first message.

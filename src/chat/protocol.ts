@@ -87,8 +87,33 @@ function isFromHost(conn?: DataConnection): boolean {
 // ─── Incoming Chat Message ───────────────────────────────────────
 
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
-  // Dedup: drop duplicate messages (same sender + timestamp)
-  const msgKey = `${data.senderId}:${data.ts}`;
+  const hostConn = getState('network.hostConn');
+
+  // Drop CHAT frames not arriving via hostConn. Without this, a peer can
+  // open a DATA_RELAY connection directly to a relay-capable guest
+  // (peer.ts:292 routes any incoming `metadata.type === DATA_RELAY` to
+  // handleRelayConnection without auth) and inject a raw {isHost:true,
+  // senderLabel:'HOST'} frame, spoofing the HOST badge in the L165 guest
+  // branch. Mirrors WHISPER L268 / NOTICE L284 / SYSTEM L312 / mute /
+  // unmute / freeze / unfreeze / clear / slowmode / filter — every other
+  // chat handler already had this guard; CHAT was the gap.
+  // Placed before dedup so a malicious peer cannot poison _recentMsgIds with
+  // a victim's predicted (senderId, ts) pair to drop their legitimate message.
+  if (hostConn && !isFromHost(conn)) return;
+
+  // Dedup: drop duplicate messages (same sender + timestamp).
+  // On host, derive sender from authenticated peer ID — data.senderId is
+  // attacker-controllable on raw frames (host's hostConn is null so the guard
+  // above doesn't apply on host), so a malicious guest could pre-poison the
+  // dedup set with someone else's predicted (senderId, ts) pair to drop their
+  // legitimate message. _originPeer is validated against the assigned relay
+  // at protocol.ts:245-256 before reaching here. On guest, host has already
+  // sanitized data.senderId (handler L168) before broadcasting, so trusting
+  // it keeps dedup keys stable across multi-path delivery.
+  const dedupSender = !hostConn
+    ? (data._originPeer as string) || conn?.peer || ''
+    : (data.senderId as string) || '';
+  const msgKey = `${dedupSender}:${data.ts}`;
   if (_recentMsgIds.has(msgKey)) return;
   _recentMsgIds.add(msgKey);
   // Keep set bounded (last 50 messages)
@@ -103,18 +128,6 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   // Already displayed locally in sendChatMessage() — drop echo-back
   if (isMine) return;
-
-  const hostConn = getState('network.hostConn');
-
-  // Drop CHAT frames not arriving via hostConn. Without this, a peer can
-  // open a DATA_RELAY connection directly to a relay-capable guest
-  // (peer.ts:292 routes any incoming `metadata.type === DATA_RELAY` to
-  // handleRelayConnection without auth) and inject a raw {isHost:true,
-  // senderLabel:'HOST'} frame, spoofing the HOST badge in the L165 guest
-  // branch. Mirrors WHISPER L268 / NOTICE L284 / SYSTEM L312 / mute /
-  // unmute / freeze / unfreeze / clear / slowmode / filter — every other
-  // chat handler already had this guard; CHAT was the gap.
-  if (hostConn && !isFromHost(conn)) return;
 
   // ── Host-side enforcement: rate limit, mute, freeze ──
   if (!hostConn && !isMine) {

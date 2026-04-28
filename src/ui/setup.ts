@@ -326,7 +326,11 @@ export function initSetup(): void {
     // Mark session as started so guests can see QR / invite link in Connect tab
     setState('setup.sessionStarted', true);
     const joinCode = getState('network.lastJoinCode');
-    if (joinCode) setState('network.sessionCode', joinCode);
+    // Defense-in-depth: every legitimate writer of lastJoinCode (setup-guest.ts:174, 263)
+    // already gates on /^\d{6}$/, but re-check at the sessionCode sink so a future
+    // joinSession() caller that skips the format check can't poison the session
+    // code that gets composed into the share URL at connect.ts:71.
+    if (joinCode && /^\d{6}$/.test(joinCode)) setState('network.sessionCode', joinCode);
 
     updateRoleBadge();
     hideSetupOverlay();
@@ -453,7 +457,12 @@ export function initSetup(): void {
             // The auto-join URL detection in initSetupOverlay picks up the
             // code on bootstrap and enters guest flow automatically.
             const lastCode = getState('network.lastJoinCode') || '';
-            if (lastCode) {
+            // Defense-in-depth: re-validate format at the URL navigation sink.
+            // Writers in setup-guest.ts already gate on /^\d{6}$/, but a future
+            // joinSession() caller that bypasses validation could let lastCode
+            // contain "../foo" — interpolated into `/` + lastCode it would
+            // navigate off-origin or to an unintended path.
+            if (lastCode && /^\d{6}$/.test(lastCode)) {
               log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
               // Mark this as a reconnect attempt — read after reload by the
               // peer-unavailable error branch to swap the misleading "check

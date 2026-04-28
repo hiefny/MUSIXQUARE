@@ -359,7 +359,7 @@ bus.on('audio:reverb-type-change', (type: string) => {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // Host: apply locally + broadcast
-    handleReverbTypeMsg({ value: type });
+    applyReverbType(type);
     broadcast({ type: MSG.REVERB_TYPE, value: type } as AnyProtocolMsg);
   } else {
     // Guest: request Host to change
@@ -511,10 +511,15 @@ function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): 
   _notifyHostChanged();
 }
 
-function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!isHostBroadcast(conn)) return;
-  if (data.value == null) return;
-  const type = String(data.value);
+// Trusted local-apply path for reverb preset selection. Called by both the
+// network handler (after the isHostBroadcast auth guard) and the host's own
+// `audio:reverb-type-change` bus listener at L362, which fires from host UI
+// clicks (settings.ts:559,562) and from REQUEST_SETTING relayed by an OP
+// guest (playlist.ts:964). Extracting this avoids routing the host's own
+// trusted action through the network handler — that path is now gated by
+// isHostBroadcast(conn) which always returns false on host (hostConn=null),
+// so calling handleReverbTypeMsg locally would silently no-op.
+function applyReverbType(type: string): void {
   switch (type) {
     case 'off':
       resetReverb();
@@ -545,6 +550,12 @@ function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnectio
   applySettingsAsync();
   bus.emit('ui:sync-reverb-preset', type);
   _notifyHostChanged();
+}
+
+function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+  if (data.value == null) return;
+  applyReverbType(String(data.value));
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>, conn?: DataConnection): void {

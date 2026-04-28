@@ -75,8 +75,16 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
+  // sessionId must be a finite number — without this guard, a malicious peer
+  // can send sessionId=Infinity to poison transfer.localSessionId, after which
+  // the localSid<incomingSid guards (transfer-receive.ts:569,678,790,825) reject
+  // every legitimate inbound transfer until session leave. Mirrors FILE_RESUME
+  // sessionId check (6173597) — brings FILE_START to parity.
   [MSG.FILE_START]: (d) =>
-    typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
+    typeof d.name === 'string' &&
+    isFiniteNumber(d.sessionId) &&
+    isNonNegInt(d.total) &&
+    (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
   [MSG.PRELOAD_START]: (d) =>
@@ -269,8 +277,21 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   if (!hostConn) return;
 
   // 1. RELAY DOWNSTREAM (Control commands from Upstream → Downstream)
+  //
+  // Only relay frames that arrived from the actual host. Without `conn ===
+  // hostConn`, a malicious peer (any guest in the same session that opened
+  // a DATA_RELAY connection to us via peer.ts:292) could send a RELAYABLE
+  // frame and we'd amplify it to every downstream peer — and downstream
+  // peers see us as their hostConn, so the spoofed frame passes their
+  // per-handler hostConn guards. This single check stops cross-handler
+  // amplification at the dispatcher; per-handler hostConn guards still
+  // protect the relay node's own state mutation path.
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.has(msgType)) {
+  if (
+    downstreamDataPeers.length > 0 &&
+    RELAYABLE_COMMANDS.has(msgType) &&
+    conn === hostConn
+  ) {
     const senderPeerId = conn?.peer;
     downstreamDataPeers.forEach((p) => {
       // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)

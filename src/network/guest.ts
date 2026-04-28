@@ -267,32 +267,45 @@ function handleWelcome(data: Record<string, unknown>): void {
   bus.emit('network:role-badge-update');
 }
 
-function handleSessionFull(data: Record<string, unknown>): void {
+function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a malicious guest
+  // (same session, raw frame over their own DataConnection) can send
+  // {type:'session-full'} to the host — handleData routes it here, the
+  // bus.emit below triggers setup.ts:503 startGuestFlow(), and the host's
+  // entire session UI swaps to guest-flow. Same threat vector that the
+  // chat handlers already defend against (4157237/dcd3472).
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   const msg = data.message ? String(data.message) : t('network.session_full');
 
   setState('network.isIntentionalDisconnect', true);
 
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
-    try {
-      hostConn.close();
-    } catch {
-      /* noop */
-    }
-    setState('network.hostConn', null);
+  try {
+    hostConn.close();
+  } catch {
+    /* noop */
   }
+  setState('network.hostConn', null);
   setState('network.isConnecting', false);
   bus.emit('network:role-badge-update');
   bus.emit('network:session-full', msg);
 }
 
-function handleDeviceListUpdateMsg(data: Record<string, unknown>): void {
+function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a malicious guest
+  // can send {type:'device-list-update', list:[]} to any guest — the
+  // amIStillConnected check below sees an empty list, fires
+  // 'network:kicked-from-session', and setup.ts:510 reloads the page in
+  // 300ms. Single raw frame → forced session leave for the target.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   const list = Array.isArray(data.list) ? (data.list as DeviceInfo[]) : [];
 
   const myId = getState('network.myId');
-  const hostConn = getState('network.hostConn');
 
-  if (hostConn && myId) {
+  if (myId) {
     const amIStillConnected = list.find((p) => p && p.id === myId);
     if (!amIStillConnected) {
       log.warn('[Guest] Removed from Host device list. Leaving session...');
@@ -339,7 +352,13 @@ function handleOperatorRevoke(): void {
   bus.emit('network:role-badge-update');
 }
 
-function handleKickDeviceMsg(): void {
+function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a malicious guest
+  // can send {type:'kick-device'} to the host — the bus.emit below triggers
+  // setup.ts:524 which calls window.location.reload() in 300ms. Single raw
+  // frame from any session participant terminates the host's whole session.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
   setState('network.isIntentionalDisconnect', true);
   bus.emit('network:kicked-explicitly');
 }

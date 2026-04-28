@@ -390,7 +390,7 @@ const ko = {
   'toast.playlist_ended': '마지막 곡이 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',
-  'toast.host_changed_setting': '방장이 설정을 변경했어요',
+  'toast.host_changed_setting': '관리자가 설정을 변경했어요',
   'toast.session_mismatch': '세션 불일치 감지, 파일 전송을 다시 시도할게요.',
   'toast.same_wifi_only': '동일 네트워크로 연결하면 파일 기능도 이용할 수 있어요!',
   'toast.same_wifi_file_title': '동일 네트워크에서만 미디어 공유가 가능해요',

@@ -392,7 +392,7 @@ const en: Record<I18nKey, string> = {
   'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost, setting not synced',
-  'toast.host_changed_setting': 'The host changed a setting',
+  'toast.host_changed_setting': 'An admin changed a setting',
   'toast.session_mismatch': 'Session mismatch detected, file transfer will retry.',
   'toast.same_wifi_only': 'Connect via the same Wi-Fi to enjoy file sharing!',
   'toast.same_wifi_file_title': 'Media sharing is only available on the same network',

@@ -285,9 +285,9 @@ main {
 .lp-h1 {
   font-size: clamp(44px, 8vw, 104px);
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
   line-height: 0.98;
-  margin: 0 0 32px -0.04em;
+  margin: 0 0 32px -0.03em;
   color: var(--text-main);
 }
 
@@ -296,7 +296,7 @@ main {
   font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 1.05;
-  margin: 0 0 28px -0.04em;
+  margin: 0 0 28px -0.03em;
   color: var(--text-main);
 }
 
@@ -595,7 +595,7 @@ main {
 .lp-code__caption {
   font-size: 12px;
   color: var(--text-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -755,9 +755,9 @@ main {
 .lp-cta .lp-h2 {
   font-size: clamp(56px, 9vw, 128px);
   line-height: 0.95;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
   font-weight: 800;
-  margin-bottom: 40px;
+  margin: 0 0 40px 0;
 }
 
 .lp-cta__inner {
@@ -906,7 +906,7 @@ main {
 .lp-chat-sender {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--text-sub);
   display: inline-flex;
   align-items: center;

@@ -13,6 +13,7 @@ import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { registerHandler } from './protocol.ts';
+import type { DataConnection } from '../types/index.ts';
 import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
@@ -367,7 +368,26 @@ function cleanupGuestSystemAudio(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioGuestListeners(): void {
-  registerHandler(MSG.SYSTEM_AUDIO_START, () => {
+  // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. Both
+  // are RELAYABLE host→guest broadcasts — host triggers via
+  // audio/system-capture.ts:195 (start) / :224 (stop) which call broadcast()
+  // directly, never through the dispatcher. Without this guard, a peer
+  // over DATA_RELAY (peer.ts:292 accepts without auth) can:
+  //   - send raw SYSTEM_AUDIO_START → stopAllMedia() + clobber
+  //     _prevTrackMeta + spoof a "Receiving System Audio" track on the
+  //     target. Single-frame DoS on whatever the user is playing.
+  //   - send raw SYSTEM_AUDIO_STOP → force cleanupGuestSystemAudio() on a
+  //     guest legitimately receiving host's system audio. Single-frame
+  //     DoS on the actual reception.
+  // Same threat class as the post-fe32164 RELAYABLE sweep (PLAY/REPEAT/
+  // SHUFFLE handlers).
+  function isHostBroadcast(conn: DataConnection | undefined): boolean {
+    const hostConn = getState('network.hostConn');
+    return !!hostConn && conn === hostConn;
+  }
+
+  registerHandler(MSG.SYSTEM_AUDIO_START, (_data: Record<string, unknown>, conn?: DataConnection) => {
+    if (!isHostBroadcast(conn)) return;
     log.info('[SysAudioGuest] Host started system audio sharing');
     _prevTrackMeta = getState('player.currentTrackMeta');
     stopAllMedia({ silent: true });
@@ -378,7 +398,8 @@ export function registerSystemAudioGuestListeners(): void {
     });
   });
 
-  registerHandler(MSG.SYSTEM_AUDIO_STOP, () => {
+  registerHandler(MSG.SYSTEM_AUDIO_STOP, (_data: Record<string, unknown>, conn?: DataConnection) => {
+    if (!isHostBroadcast(conn)) return;
     log.info('[SysAudioGuest] Host stopped system audio sharing');
     cleanupGuestSystemAudio();
   });

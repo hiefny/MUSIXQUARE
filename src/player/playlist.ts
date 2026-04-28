@@ -768,12 +768,29 @@ export function playPrevTrack(): void {
 
 // ─── Network Handlers ──────────────────────────────────────────────
 
-function handleRepeatMode(data: Record<string, unknown>): void {
+function handleRepeatMode(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop REPEAT_MODE frames not arriving via hostConn. Sibling to
+  // handlePlaylistUpdate (874a860): host→guest authoritative broadcast.
+  // Host triggers via toggleRepeatMode (broadcast from L130) or
+  // handleRequestSetting (broadcast from L916) — both bypass the network
+  // handler. Without this guard, a peer over DATA_RELAY can inject a raw
+  // frame to flip a target's repeat-mode UI and playback behavior.
+  // Same threat class as the rest of the post-fe32164 sweep.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   const v = Number(data.value) || 0;
   setRepeatMode(Math.max(0, Math.min(2, v)));
 }
 
-function handleShuffleMode(data: Record<string, unknown>): void {
+function handleShuffleMode(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop SHUFFLE_MODE frames not arriving via hostConn. Sibling to
+  // handleRepeatMode — same host→guest broadcast path. Without this
+  // guard, a single raw frame flips shuffle state and recomputes the
+  // shuffle order on the target, scrambling next-track playback.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   setShuffle(!!data.value);
 }
 

@@ -58,7 +58,20 @@ let _activePreloadWaiterCleanup: (() => void) | null = null;
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
-function handlePlayMsg(data: Record<string, unknown>): void {
+function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop PLAY frames not arriving via hostConn. Sibling to handlePauseMsg
+  // (874a860): both are host→guest authoritative broadcasts (host's own
+  // state changes go through setState directly, never through its own
+  // dispatcher). Without this, a peer over DATA_RELAY (peer.ts:292 accepts
+  // without auth) can inject {type:'play', time:<t>, index:<i>} to force
+  // an arbitrary track-index change + play() at attacker time on the
+  // target. PLAY is RELAYABLE so the dispatcher amplification guard
+  // (b2ad18e) blocks past the relay node, but per-handler guards still
+  // protect each receiver's own state mutation path — same rationale as
+  // a6eadce (effects), 8cbf192 (youtube), fe32164 (preload/transfer).
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   // Ignore PLAY during system audio mode (live stream, not file-based)
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
 

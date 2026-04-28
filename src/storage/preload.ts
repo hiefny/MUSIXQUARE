@@ -498,7 +498,32 @@ export async function unicastPreload(
 
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
 
-function handlePreloadStart(data: Record<string, unknown>): void {
+/**
+ * Reject broadcast frames not arriving via hostConn. Preload messages
+ * (START/CHUNK/END/PLAY_PRELOADED) flow host→guest only — host triggers
+ * preloads from its own scheduler and broadcasts; the host's dispatcher
+ * never receives them on the legitimate path. Without this guard, a peer
+ * connected over DATA_RELAY (peer.ts:292 accepts without auth) can inject
+ * raw frames to corrupt preload state, force PLAY_PRELOADED of a wrong
+ * index, or DoS the OPFS pipeline. Same threat-model class as 4838a0c
+ * SYNC_PONG and the post-4838a0c sibling sweep — non-RELAYABLE host→guest
+ * messages need per-handler guards because the dispatcher's RELAY DOWNSTREAM
+ * amplification check (b2ad18e) only fires for RELAYABLE commands. PLAY_
+ * PRELOADED is RELAYABLE so the dispatcher blocks amplification past the
+ * relay, but per-handler guards still protect each receiver's own state.
+ *
+ * handlePreloadAck stays unguarded — it's the host-side reply handler
+ * (guest→host direction); on host hostConn=null so the guard would
+ * fail-closed against every legitimate ack.
+ */
+function isHostBroadcast(conn: DataConnection | undefined): boolean {
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && conn === hostConn;
+}
+
+function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   // Remote guests: skip preload unless relay is active
   if (isRemoteGuest() && !hasActiveRelay()) {
     log.info('[Preload] Skipped — remote/unknown guest without relay');
@@ -763,7 +788,9 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   }
 }
 
-function handlePreloadChunk(data: Record<string, unknown>): void {
+function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   // Remote guests: drop preload chunks unless relay is active
   if (isRemoteGuest() && !hasActiveRelay()) return;
 
@@ -818,7 +845,9 @@ function handlePreloadChunk(data: Record<string, unknown>): void {
   drainPreloadReorderBuffer(sid);
 }
 
-function handlePreloadEnd(data: Record<string, unknown>): void {
+function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   const sid = data.sessionId as number;
   if (!sid) return;
 
@@ -928,7 +957,9 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
   }
 }
 
-function handlePlayPreloaded(data: Record<string, unknown>): void {
+function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   const index = data.index as number;
   const name = (data.name as string) || '';
 

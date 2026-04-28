@@ -253,7 +253,19 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
 // ─── Guest Protocol Handlers ──────────────────────────────────────
 
-function handleWelcome(data: Record<string, unknown>): void {
+function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. WELCOME is host→guest only — host
+  // never receives one on the legitimate path (hostConn=null on host, fail-
+  // closed below). Without this, a peer connected over DATA_RELAY (peer.ts:292
+  // accepts without auth) can inject a raw {chatFrozen:true, slowmodeSeconds:
+  // 99999, filterEnabled:true} frame to spoof chat moderation state on the
+  // target. Same threat-model class as 4838a0c (SYNC_PONG) — non-RELAYABLE
+  // host→guest messages need per-handler guards because the dispatcher's
+  // RELAY DOWNSTREAM amplification check (b2ad18e) only fires for RELAYABLE
+  // commands.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
@@ -332,20 +344,47 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
   bus.emit('network:device-list-update', list);
 }
 
-function handleForceCloseDuplicate(): void {
+function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a peer over
+  // DATA_RELAY can inject {type:'force-close-duplicate'} to set
+  // isIntentionalDisconnect=true on the target, suppressing the
+  // HOST_DISCONNECTED error UI when the connection actually drops. Same
+  // sibling class as handleWelcome / 4838a0c SYNC_PONG.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   log.warn('[Guest] Received force-close-duplicate — connection will close');
   // Mark as intentional so the close handler doesn't show HOST_DISCONNECTED error
   setState('network.isIntentionalDisconnect', true);
 }
 
-function handleOperatorGrant(): void {
+function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a peer over
+  // DATA_RELAY can inject {type:'operator-grant'} to flip the target's
+  // network.isOperator=true client-side. Host's verifyOperator (sync.ts:206
+  // path) blocks actual privilege escalation, but the UI flip exposes OP
+  // controls and shows a fake "OP granted" toast — sociotechnical confusion
+  // + potential request flood as the user clicks newly-visible OP actions.
+  // Same sibling class as 4838a0c SYNC_PONG.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   setState('network.isOperator', true);
   showToast(t('network.op_granted'));
   bus.emit('ui:play-btn-state', true);
   bus.emit('network:role-badge-update');
 }
 
-function handleOperatorRevoke(): void {
+function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. Without this, a peer over
+  // DATA_RELAY can revoke a legitimate OP guest's privileges client-side
+  // (UI flip + fake "OP revoked" toast). Host still has the authoritative
+  // OP list in connectedPeers, so requests would still authenticate, but
+  // the user loses access to OP UI and is misled about their state. Same
+  // sibling class as handleOperatorGrant.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   setState('network.isOperator', false);
   showToast(t('network.op_revoked'));
   bus.emit('ui:play-btn-state', false);

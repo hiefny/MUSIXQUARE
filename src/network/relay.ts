@@ -432,7 +432,17 @@ export function handleRelayConnection(conn: DataConnection): void {
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
-function handleAssignDataSource(data: Record<string, unknown>): void {
+function handleAssignDataSource(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop frames not arriving via hostConn. ASSIGN_DATA_SOURCE is host-driven
+  // routing — host's orchestrator decides which peer relays to whom and
+  // sends this directly to the assignee. Without this guard, a peer over
+  // DATA_RELAY can inject {type:'assign-data-source', targetId:'<attacker>'}
+  // to force connectToRelay() against an attacker-controlled peer, or send
+  // {targetId:null} to drop the upstream and trigger a recovery request
+  // mid-transfer. Same sibling class as 4838a0c SYNC_PONG.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   const targetId = (data.targetId as string | null | undefined) ?? null;
   const myId = getState('network.myId');
 

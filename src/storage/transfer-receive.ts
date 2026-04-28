@@ -29,7 +29,7 @@ import {
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
-import type { FileMeta, AnyProtocolMsg } from '../types/index.ts';
+import type { FileMeta, AnyProtocolMsg, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
@@ -195,7 +195,31 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
 
 // ─── File Receive Handlers ───────────────────────────────────────────
 
-export async function handleFilePrepare(data: Record<string, unknown>): Promise<void> {
+/**
+ * Reject broadcast frames not arriving via hostConn. FILE_* messages flow
+ * host→guest only — host triggers transfers from its own broadcastFile/
+ * unicast pipelines and never receives them on the legitimate path. Without
+ * per-handler guards a peer connected over DATA_RELAY (peer.ts:292 accepts
+ * without auth) can inject raw frames to poison transfer.localSessionId,
+ * stuff the OPFS write pipeline with attacker chunks, or force a recovery
+ * loop. Same threat-model class as 4838a0c SYNC_PONG and the post-4838a0c
+ * sibling sweep — non-RELAYABLE host→guest messages need per-handler guards
+ * because the dispatcher's RELAY DOWNSTREAM amplification check (b2ad18e)
+ * only fires for RELAYABLE commands. FILE_PREPARE is RELAYABLE so the
+ * dispatcher blocks amplification past the relay node, but per-handler
+ * guards still protect each receiver's own state mutation path.
+ */
+function isHostBroadcast(conn: DataConnection | undefined): boolean {
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && conn === hostConn;
+}
+
+export async function handleFilePrepare(
+  data: Record<string, unknown>,
+  conn?: DataConnection,
+): Promise<void> {
+  if (!isHostBroadcast(conn)) return;
+
   // YouTube mode: ignore file transfers entirely — no file to receive
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
     log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
@@ -562,7 +586,9 @@ export async function handleFilePrepare(data: Record<string, unknown>): Promise<
   }
 }
 
-export function handleFileStart(data: Record<string, unknown>): void {
+export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   const incomingSid = data.sessionId as number;
   const localSid = getState('transfer.localSessionId');
 
@@ -657,7 +683,7 @@ export function handleFileStart(data: Record<string, unknown>): void {
         `[file-start] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
       );
       for (const pending of matching) {
-        handleFileChunk(pending);
+        applyFileChunk(pending);
       }
     }
   }
@@ -671,7 +697,9 @@ export function handleFileStart(data: Record<string, unknown>): void {
   showLoader(true, t('transfer.receiving_0pct'));
 }
 
-export function handleFileResume(data: Record<string, unknown>): void {
+export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   const incomingSid = data.sessionId as number;
   const localSid = getState('transfer.localSessionId');
 
@@ -722,7 +750,7 @@ export function handleFileResume(data: Record<string, unknown>): void {
         `[file-resume] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
       );
       for (const pending of matching) {
-        handleFileChunk(pending);
+        applyFileChunk(pending);
       }
     }
   }
@@ -733,7 +761,20 @@ export function handleFileResume(data: Record<string, unknown>): void {
   });
 }
 
-export function handleFileChunk(data: Record<string, unknown>): void {
+// Network entry for FILE_CHUNK. Gates the host-broadcast auth check, then
+// delegates to applyFileChunk for the trusted internal-apply path. The split
+// mirrors a6eadce → 2d3c5e5 (handleReverbTypeMsg / applyReverbType): the
+// internal early-chunk replay sites in handleFileStart, handleFileResume, and
+// applyFileChunk's own meta-recovery branch must call applyFileChunk directly
+// — re-entering handleFileChunk would fail isHostBroadcast (the original conn
+// is not preserved on _pendingEarlyChunks entries) and silently drop already-
+// authenticated chunks.
+export function handleFileChunk(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+  applyFileChunk(data);
+}
+
+function applyFileChunk(data: Record<string, unknown>): void {
   const incomingSid = data.sessionId as number;
   if (!incomingSid) return;
 
@@ -957,7 +998,7 @@ export function handleFileChunk(data: Record<string, unknown>): void {
           `[FileChunk] Replaying ${sessionFiltered.length}/${earlyChunks.length} early chunks after meta-recovery (session ${incomingSid})`,
         );
         for (const ec of sessionFiltered) {
-          handleFileChunk(ec);
+          applyFileChunk(ec);
         }
       }
 
@@ -1070,7 +1111,9 @@ export function handleFileChunk(data: Record<string, unknown>): void {
   }
 }
 
-export function handleFileEnd(data: Record<string, unknown>): void {
+export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   if (getState('transfer.skipIncomingFile')) return;
 
   // Ignore stale FILE_END from old sessions
@@ -1103,7 +1146,9 @@ export function handleFileEnd(data: Record<string, unknown>): void {
   }
 }
 
-export function handleFileWait(): void {
+export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+
   log.debug('[Guest] FILE_WAIT received — source (host or relay) has no data ready yet');
   showToast(t('transfer.file_wait'));
 

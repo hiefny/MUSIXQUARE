@@ -15,6 +15,7 @@ import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
+import { broadcastSystemNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
 
@@ -195,6 +196,10 @@ export async function startSystemAudioCapture(): Promise<void> {
   broadcast({ type: MSG.SYSTEM_AUDIO_START });
   bus.emit('system-audio:streams-ready');
 
+  // 9.1 Localized chat notice for everyone in the room. Same pattern as the
+  // decode-skip notice — each device renders in its own locale.
+  broadcastSystemNotice('chat.system_audio_started_notice');
+
   // 10. Advisory toast — latency is unavoidable, and the host's
   // desktop speakers would otherwise drown out the distributed feed.
   bus.emit('ui:show-toast', t('system_audio.started'));
@@ -222,6 +227,7 @@ export function stopSystemAudioCapture(): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
 
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
+  broadcastSystemNotice('chat.system_audio_stopped_notice');
   cleanupCapture();
   muteLocalOutput(false);
 

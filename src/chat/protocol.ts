@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import { broadcast } from '../network/peer-state.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
@@ -399,6 +400,36 @@ function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection):
 }
 
 // ─── Public API ──────────────────────────────────────────────────
+
+/**
+ * Broadcast a localized system chat-notice to every device in the room.
+ *
+ * Each receiver looks up `i18nKey` in its own dictionary at render time, so a
+ * single host-side broadcast renders in ko on Korean clients and en on English
+ * clients without the host needing to know each guest's locale. The host's own
+ * chat is updated locally (broadcast() doesn't loopback) using the host's
+ * locale via the `chat:notice-message` bus event — same pattern as
+ * sync.ts:285-287's OP /notice command.
+ *
+ * `text` is sent in the host's locale as a fallback so any older client that
+ * doesn't have the i18nKey yet still displays a readable message instead of
+ * the raw key.
+ */
+export function broadcastSystemNotice(
+  i18nKey: I18nKey,
+  params?: Record<string, string | number>,
+): void {
+  const fallbackText = t(i18nKey, params);
+  broadcast({
+    type: MSG.CHAT_NOTICE,
+    senderLabel: '',
+    text: fallbackText,
+    ts: Date.now(),
+    i18nKey,
+    ...(params ? { i18nParams: params } : {}),
+  });
+  bus.emit('chat:notice-message', '', fallbackText);
+}
 
 export function registerChatProtocolHandlers(): void {
   registerHandlers({

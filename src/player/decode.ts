@@ -18,7 +18,8 @@ import { postWorkerCommand, cleanupOPFSInWorker } from '../storage/opfs.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { sendToHost, broadcast } from '../network/peer.ts';
+import { sendToHost } from '../network/peer.ts';
+import { broadcastSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
@@ -248,23 +249,9 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   if (failedIdx < 0 || playlist.length === 0) return;
 
   // System notice in the chat: tells everyone in the room why playback is
-  // jumping. Carries an i18nKey so each device renders in its own locale —
-  // host doesn't know each guest's language, so localizing at the receiver
-  // is the only way to get ko/en to read naturally for everyone. `text`
-  // fallback is filled in this device's locale so older clients (or any
-  // dictionary that doesn't have the key) still see something readable.
-  const fallbackText = t('chat.decode_skip_notice');
-  const noticePayload = {
-    type: MSG.CHAT_NOTICE,
-    senderLabel: '',
-    text: fallbackText,
-    ts: Date.now(),
-    i18nKey: 'chat.decode_skip_notice',
-  };
-  broadcast(noticePayload);
-  // broadcast() doesn't loopback — emit locally so host's chat shows the
-  // notice too. Same pattern as sync.ts:285-287 (cmdNotice from OP).
-  bus.emit('chat:notice-message', '', fallbackText);
+  // jumping. broadcastSystemNotice handles per-recipient i18n + host-local
+  // emit (see chat/protocol.ts).
+  broadcastSystemNotice('chat.decode_skip_notice');
 
   // Key by the file itself when available, so reordering/removing tracks
   // after a failure doesn't strand the "failed" memory on a stale slot.

@@ -144,15 +144,15 @@ function initSyncClock(): void {
     if (n.nodeType === Node.TEXT_NODE) { hostPrefixNode = n as Text; break; }
   }
 
-  // Count 00:00.000 → 00:32.000 continuously, then hold dark for 1s.
-  // [0s,   2s]  fade in  (opacity 0 → 1 while counting 0→2)
-  // [2s,  30s]  full opacity (counting 2→30)
-  // [30s, 32s]  fade out (opacity 1 → 0 while counting 30→32)
-  // [32s, 33s]  dark pause (opacity 0, host display reset to 0)
+  // Count 00:00.000 → 00:32.000 continuously, then hold dark for 0.5s.
+  // [0s,    2s]   fade in  (opacity 0 → 1 while counting 0→2)
+  // [2s,   30s]   full opacity (counting 2→30)
+  // [30s,  32s]   fade out (opacity 1 → 0 while counting 30→32)
+  // [32s,  32.5s] dark pause (opacity 0, host display reset to 0)
   const FADE_IN_END = 2_000;
   const FADE_OUT_START = 30_000;
   const FADE_OUT_END = 32_000;
-  const CYCLE_MS = 33_000;
+  const CYCLE_MS = 32_500;
   const start = performance.now();
 
   function render(): void {

@@ -105,8 +105,10 @@
         <p class="lp-lead" data-i18n="hero.lead">MUSIXQUARE turns every phone, tablet, and laptop in the room into a
           single synchronized sound system. No install, one room code.</p>
         <div class="lp-btn-row">
-          <a class="lp-btn" href="https://musixquare.com" data-i18n="hero.btn_primary">Start session</a>
-          <a class="lp-btn lp-btn--ghost" href="#array" data-i18n="hero.btn_ghost">How it works</a>
+          <a class="lp-btn lp-btn--solid" href="#array">
+            <span data-i18n="hero.btn_ghost">How it works</span>
+            <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+          </a>
         </div>
       </div>
       <div class="lp-hero__visual" aria-hidden="true">
@@ -375,8 +377,10 @@
       </svg>
       <div class="lp-cta__inner">
         <h2 class="lp-h2" data-i18n="cta.h2">Start a session.</h2>
-        <p class="lp-lead" data-i18n="cta.lead">The devices in your room are one system now.</p>
-        <a class="lp-btn lp-btn--lg" href="https://musixquare.com" data-i18n="cta.btn">Launch MUSIXQUARE</a>
+        <a class="lp-btn lp-btn--lg" href="https://musixquare.com">
+          <span data-i18n="cta.btn">Launch MUSIXQUARE</span>
+          <span class="lp-btn__arrow lp-btn__arrow--right" aria-hidden="true">→</span>
+        </a>
       </div>
     </section>
   </main>
@@ -424,7 +428,6 @@
 
           'hero.h1': 'Every device,<br>one system.',
           'hero.lead': 'MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.',
-          'hero.btn_primary': 'Start session',
           'hero.btn_ghost': 'How it works',
 
           'array.h2': 'Surround, without<br>surround speakers.',
@@ -475,7 +478,6 @@
           'sync.meta': 'NTP style sync with 60 samples',
 
           'cta.h2': 'Start a session.',
-          'cta.lead': 'The devices in your room are one system now.',
           'cta.btn': 'Launch MUSIXQUARE',
 
           'footer.app': 'App',
@@ -497,17 +499,16 @@
           'header.try': '바로가기',
           'header.try_aria': 'MUSIXQUARE 바로가기',
 
-          'hero.h1': '모든 기기,<br>하나의 시스템.',
-          'hero.lead': 'MUSIXQUARE는 같은 방의 모든 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 만들어줘요. 설치 없이 코드 하나만으로 가능해요.',
-          'hero.btn_primary': '지금 시작하기',
+          'hero.h1': '모든 기기를<br>하나의 시스템으로',
+          'hero.lead': '뮤직스퀘어는 같은 공간에 있는 모든 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
           'hero.btn_ghost': '자세히 보기',
 
           'array.h2': '서라운드 스피커 없이<br>서라운드 사운드 만들기',
-          'array.lead': '각 기기가 좌측 우측 서브우퍼 풀 스테레오 스피커가 돼요. 방 자체를 하나의 시스템으로 만들 수 있어요',
+          'array.lead': '각 기기가 좌측 우측 서브우퍼 스테레오 스피커가 돼요. 방 전체에 서라운드 시스템을 구현해봐요.',
           'array.aria': '왼쪽 폰, 가운데 노트북, 오른쪽 폰. 3 기기 서라운드 구성.',
 
           'code.h2': '여섯자리 숫자만<br>있으면 돼요',
-          'code.lead': '방을 열고 여섯 자리 숫자만 공유해요. 브라우저만 있으면 누구나 몇 초 안에 참여할 수 있어요.',
+          'code.lead': '방을 열면 여섯 자리 코드가 생겨요. 브라우저가 있는 기기라면 금방 연결할 수 있어요.',
           'code.aria_code': '예시 방 코드',
           'code.aria_qr': 'musixquare.com QR 코드',
           'code.copy_btn': '초대 링크 복사하기',
@@ -517,12 +518,12 @@
           'remote.h2': '같은 공간이 아니어도<br>괜찮아요',
           'remote.lead': '멀리 떨어져 있어도 채팅하면서 유튜브 볼 수 있어요.',
           'remote.chat_label': '채팅',
-          'remote.chat_value': '실시간 텍스트, 제한 없음',
+          'remote.chat_value': '제한 없는 실시간 텍스트 채팅',
           'remote.whisper_label': '귓속말',
           'remote.whisper_value': '1:1 비공개 메시지',
           'remote.cowatch_label': '함께 보기',
           'remote.cowatch_value': '유튜브 동기화 재생',
-          'remote.reach_label': '도달 범위',
+          'remote.reach_label': '가능 환경',
           'remote.reach_value': '모든 브라우저, 모든 네트워크',
           'remote.caveat': '참고: YouTube 모드에서는 채널 분리와 음향 효과를 쓸 수 없어요.',
           'remote.pin_label': '공지 — HOST',
@@ -537,20 +538,19 @@
           'remote.whisper_msg': '공지로 플리 추천좀 받아봐',
 
           'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게',
-          'sync.lead': '각 기기가 방장과의 왕복 지연을 측정해서 공유 마스터 클럭에 맞게 정렬해요.',
+          'sync.lead': '각 기기가 방장과의 왕복 지연을 측정하고 칼같이 정렬해요.',
           'sync.video_label': '미디어',
           'sync.video_value': '프레임 단위 미디어 재생',
           'sync.transport_label': '전송',
           'sync.transport_value': 'P2P, WebRTC',
           'sync.effects_label': '효과',
-          'sync.effects_value': '5밴드 EQ, 리버브, 버추얼라이저',
+          'sync.effects_value': '5밴드 이퀄라이저, 리버브, 버추얼라이저',
           'sync.platforms_label': '플랫폼',
           'sync.platforms_value': 'iOS · Android · macOS · Windows',
           'sync.host_label': 'HOST',
-          'sync.meta': '60 샘플 수집 → NTP 방식 동기화',
+          'sync.meta': '60개 샘플 수집 후 NTP 방식 동기화',
 
           'cta.h2': '지금 시작해봐요!',
-          'cta.lead': '이제 방 안의 모든 기기가 하나의 시스템이에요.',
           'cta.btn': 'MUSIXQUARE 시작하기',
 
           'footer.app': 'App',

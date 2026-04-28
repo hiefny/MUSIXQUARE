@@ -66,6 +66,25 @@ svg {
   -webkit-backdrop-filter: blur(16px);
   z-index: 100;
   overflow: hidden;
+  animation:
+    lp-header-fade 0.6s cubic-bezier(0.22, 1, 0.36, 1) both,
+    lp-header-slide 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes lp-header-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lp-header-slide {
+  from { transform: translateY(-20px); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-header {
+    animation: none;
+  }
 }
 
 /* Mirrors the main app's .header-progress-bg — fills header height-wise,
@@ -159,7 +178,8 @@ main {
   gap: 48px;
 }
 
-.lp-hero__copy {
+.lp-hero__copy .lp-lead,
+.lp-hero__copy .lp-btn-row {
   max-width: 560px;
 }
 
@@ -295,8 +315,9 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   height: 48px;
-  padding: 0 28px;
+  padding: 0 20px 0 28px;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -306,6 +327,19 @@ main {
   color: var(--text-main);
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
   cursor: pointer;
+}
+
+.lp-btn__arrow {
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.lp-btn:hover .lp-btn__arrow--down {
+  transform: translateY(2px);
+}
+
+.lp-btn:hover .lp-btn__arrow--right {
+  transform: translateX(2px);
 }
 
 .lp-btn:hover {
@@ -328,9 +362,15 @@ main {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.lp-btn--solid {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #121212;
+}
+
 .lp-btn--lg {
   height: 56px;
-  padding: 0 36px;
+  padding: 0 28px 0 36px;
   font-size: 15px;
 }
 
@@ -711,17 +751,13 @@ main {
   padding-bottom: clamp(180px, 18vw, 280px);
 }
 
-.lp-cta .lp-lead {
-  margin-bottom: 40px;
-}
-
 /* Boost the CTA headline to match the hero H1 scale. */
 .lp-cta .lp-h2 {
   font-size: clamp(56px, 9vw, 128px);
   line-height: 0.95;
   letter-spacing: -0.04em;
   font-weight: 800;
-  margin-bottom: 24px;
+  margin-bottom: 40px;
 }
 
 .lp-cta__inner {
@@ -1309,7 +1345,7 @@ main {
   }
 
   .lp-hero {
-    padding-top: 24px;
+    padding-top: 64px;
     padding-bottom: 56px;
   }
 
@@ -1448,7 +1484,7 @@ main {
 
 :lang(ko) .lp-h1 {
   letter-spacing: -0.025em;
-  font-size: clamp(48px, 7vw, 88px);
+  font-size: clamp(44px, 7vw, 88px);
   line-height: 1.25;
 }
 

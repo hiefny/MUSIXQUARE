@@ -777,7 +777,19 @@ function handleShuffleMode(data: Record<string, unknown>): void {
   setShuffle(!!data.value);
 }
 
-function handlePlaylistUpdate(data: Record<string, unknown>): void {
+function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop PLAYLIST_UPDATE frames not arriving via hostConn. Without this,
+  // a malicious guest can send {type:'playlist-update', list:[]} to the
+  // host — the empty-list branch below wipes host's playlist.items, calls
+  // stopAllMedia(), clearPreloadState(), cancelIncomingFileTransfer(),
+  // and clears player.currentTrackMeta. Single raw frame from any session
+  // participant deletes the host's loaded tracks and stops playback. A
+  // non-empty `list:[{name:'fake'}]` payload likewise overwrites the
+  // host's playlist with attacker-supplied entries (item validator only
+  // checks name is a string). Mirrors handlePauseMsg defense.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   // Backward-compat: legacy may send `playlist` instead of `list`
   const incoming = Array.isArray(data.list)
     ? data.list

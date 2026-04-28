@@ -292,7 +292,16 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   return true;
 }
 
-function handlePauseMsg(data: Record<string, unknown>): void {
+function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop PAUSE frames not arriving via hostConn. Without this, a malicious
+  // guest can send {type:'pause', endOfPlaylist:true} to the host — the
+  // endOfPlaylist branch below stops host audio, clears currentTrackMeta,
+  // resets currentTrackIndex=-1, and shows the "playlist ended" toast.
+  // Single raw frame from any session participant disrupts the host's
+  // playback. Mirrors the chat handler defenses (4157237/dcd3472).
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   // Ignore PAUSE during system audio mode
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead

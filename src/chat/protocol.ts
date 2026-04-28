@@ -212,12 +212,22 @@ function handleChatUnmute(data: Record<string, unknown>, conn?: DataConnection):
 }
 
 function handleChatFreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-freeze — legitimate path is
+  // host's own cmdFreeze() which calls setState directly. A raw frame at
+  // host means a malicious guest sent it over their own DataConnection
+  // to flip network.chatFrozen=true, which then silently drops every
+  // non-OP guest's message in handleChatMessage L128-133 — disabling
+  // chat for the whole session. isFromHost(conn) returns true on host
+  // (L83 `!hostConn`), so the guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   (setState as (p: string, v: boolean) => void)('network.chatFrozen', true);
   addSystemChatMessage(t('chat.cmd_frozen'));
 }
 
 function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Same threat model as handleChatFreeze — host-side guard required.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   (setState as (p: string, v: boolean) => void)('network.chatFrozen', false);
   addSystemChatMessage(t('chat.cmd_unfrozen'));
@@ -303,6 +313,14 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
 }
 
 function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-slowmode — legitimate path is
+  // host's own cmdSlowmode() which calls setState directly. A raw frame
+  // at host lets a malicious guest set network.slowmodeSeconds, and the
+  // host's WELCOME payload (network/host.ts:234) propagates it to every
+  // future joiner — locking new guests out of chat (ui/chat.ts:288). Mirrors
+  // handleChatFreeze / handleChatUnfreeze / handleChatFilter; isFromHost on
+  // host returns true, so the guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   const seconds = (data.seconds as number) || 0;
   (setState as (p: string, v: number) => void)('network.slowmodeSeconds', seconds);
@@ -312,6 +330,13 @@ function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection
 }
 
 function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Host should never receive a raw chat-filter — legitimate path is
+  // host's own cmdFilter() which calls setState directly. A raw frame
+  // at host lets a malicious guest flip network.filterEnabled, either
+  // forcing profanity censorship on every chat or silently disabling
+  // it (handleChatMessage L144-147 reads this flag). isFromHost on
+  // host returns true, so the guest-side guard alone doesn't cover us.
+  if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   const on = !!data.on;
   (setState as (p: string, v: boolean) => void)('network.filterEnabled', on);

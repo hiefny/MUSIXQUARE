@@ -34,7 +34,7 @@ import { forceStereoSdp } from './peer.ts';
 //   300-500ms — hint actually caps adaptation, while keeping responsiveness
 //               acceptable. 0.4s as the starting point; revisit after real-
 //               device tests on typical home routers.
-const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.4;
+const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 
 // ─── Module State ─────────────────────────────────────────────────
 

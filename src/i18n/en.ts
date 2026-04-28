@@ -241,7 +241,8 @@ const en: Record<I18nKey, string> = {
   'chat.decode_skip_notice': "Some devices couldn't play this track, skipping to next",
   'chat.system_audio_started_notice':
     'System audio sharing started. Some delay between host and participants is unavoidable, so only the host should lower their volume as much as possible.',
-  'chat.system_audio_stopped_notice': 'System audio sharing ended',
+  'chat.system_audio_stopped_notice':
+    'System audio sharing ended. Host, turn the volume back up to be the room speaker.',
   'chat.pinned_close': 'Dismiss notice',
   'chat.cmd_whisper_from': 'Whisper from {{name}}',
   'chat.cmd_whisper_to': 'Whisper to {{name}}',

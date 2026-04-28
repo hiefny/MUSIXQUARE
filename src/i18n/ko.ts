@@ -239,7 +239,8 @@ const ko = {
   'chat.decode_skip_notice': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
   'chat.system_audio_started_notice':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연이 필연적으로 발생하기 때문에 방장만 소리를 최대한 낮춰주세요.',
-  'chat.system_audio_stopped_notice': '시스템 오디오 공유가 종료됐어요',
+  'chat.system_audio_stopped_notice':
+    '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
   'chat.pinned_close': '공지 닫기',
   'chat.cmd_whisper_from': '{{name}} 님의 귓속말',
   'chat.cmd_whisper_to': '{{name}} 님에게 귓속말',

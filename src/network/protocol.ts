@@ -74,7 +74,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
-  [MSG.FILE_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
+  [MSG.FILE_CHUNK]: (d) =>
+    isArrayBufferLike(d.chunk) && isNonNegInt(d.index) && isFiniteNumber(d.sessionId),
   // sessionId must be a finite number — without this guard, a malicious peer
   // can send sessionId=Infinity to poison transfer.localSessionId, after which
   // the localSid<incomingSid guards (transfer-receive.ts:569,678,790,825) reject

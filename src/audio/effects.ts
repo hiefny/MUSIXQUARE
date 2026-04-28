@@ -436,7 +436,25 @@ bus.on('network:peer-connected', (conn) => {
 
 // ─── Network Protocol Handlers ──────────────────────────────────
 
-function handleVolume(data: Record<string, unknown>): void {
+/**
+ * Reject broadcast frames not arriving via hostConn. Effects messages flow
+ * host→guest only — host triggers them through UI bus events / setState
+ * (player-controls.ts:138, settings.ts handlers, etc.) and broadcasts to
+ * guests; the host's own dispatcher never receives them on the legitimate
+ * path. A raw frame at host means a malicious guest sent it directly to
+ * mutate host's audio state. A raw frame at a guest from any conn other
+ * than hostConn means a peer (typically over a DATA_RELAY connection on
+ * a relay-capable guest) is spoofing host broadcasts. The amplification
+ * counterpart for relay-capable guests sits at protocol.ts:281 (RELAY
+ * DOWNSTREAM `conn === hostConn` guard).
+ */
+function isHostBroadcast(conn: DataConnection | undefined): boolean {
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && conn === hostConn;
+}
+
+function handleVolume(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined || data.value === null) return;
   const vol = Math.max(0, Math.min(1, Number(data.value)));
   if (!Number.isFinite(vol)) return;
@@ -446,7 +464,8 @@ function handleVolume(data: Record<string, unknown>): void {
   }
 }
 
-function handleEQUpdateMsg(data: Record<string, unknown>): void {
+function handleEQUpdateMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.band === undefined || data.value === undefined) return;
   const band = Number(data.band);
   const value = Number(data.value);
@@ -455,7 +474,8 @@ function handleEQUpdateMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handlePreampMsg(data: Record<string, unknown>): void {
+function handlePreampMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -474,13 +494,15 @@ function _notifyHostChanged(): void {
   );
 }
 
-function handleEQResetMsg(): void {
+function handleEQResetMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   resetEQ();
   bus.emit('ui:sync-eq-preset', 'off');
   _notifyHostChanged();
 }
 
-function handleReverbMsg(data: Record<string, unknown>): void {
+function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -489,7 +511,8 @@ function handleReverbMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleReverbTypeMsg(data: Record<string, unknown>): void {
+function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value == null) return;
   const type = String(data.value);
   switch (type) {
@@ -524,7 +547,8 @@ function handleReverbTypeMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleReverbDecayMsg(data: Record<string, unknown>): void {
+function handleReverbDecayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -533,7 +557,8 @@ function handleReverbDecayMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
+function handleReverbPreDelayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -542,7 +567,8 @@ function handleReverbPreDelayMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleReverbLowCutMsg(data: Record<string, unknown>): void {
+function handleReverbLowCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -551,7 +577,8 @@ function handleReverbLowCutMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleReverbHighCutMsg(data: Record<string, unknown>): void {
+function handleReverbHighCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -560,7 +587,8 @@ function handleReverbHighCutMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleStereoWidthMsg(data: Record<string, unknown>): void {
+function handleStereoWidthMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
@@ -569,7 +597,8 @@ function handleStereoWidthMsg(data: Record<string, unknown>): void {
   _notifyHostChanged();
 }
 
-function handleVBassMsg(data: Record<string, unknown>): void {
+function handleVBassMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
   if (data.value === undefined) return;
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;

@@ -226,6 +226,12 @@ export async function handleFilePrepare(
     return;
   }
 
+  // New track arriving — reset the per-track decode failure counter so the
+  // 2-strikes give-up logic in finalizeGuestFile starts fresh. Without this,
+  // a guest who failed twice on track A would still have count=2 carried
+  // over and would prematurely give up on track B's first decode failure.
+  setState('player.decodeFailureCount', 0);
+
   // Remote guests (no local P2P path): demo → HTTP fetch from server,
   // other files → guide UI. Local guests always fall through to the
   // normal P2P receive path below (even for the demo), so the host's

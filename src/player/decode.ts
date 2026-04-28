@@ -19,8 +19,10 @@ import { broadcastFileDebounced } from '../storage/transfer.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
+import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
+import type { DataConnection } from '../types/index.ts';
 
 import {
   getCurrentAudioBuffer,
@@ -215,97 +217,7 @@ export async function loadAndBroadcastFile(
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       const failedIdx = getState('playlist.currentTrackIndex');
-      const playlist = getState('playlist.items') || [];
-
-      if (failedIdx >= 0 && playlist.length > 1) {
-        // Key by the file itself, not by index. This way, if the user reorders
-        // or removes tracks after a failure, the "failed" memory stays attached
-        // to the actual bad file rather than a now-stale slot number.
-        const failedKey = getTrackKeyFromFile(file) ?? getTrackKeyFromItem(playlist[failedIdx]);
-        markTrackFailed(failedKey);
-
-        // Count playable (non-failed) tracks remaining. If none, stop.
-        const playableCount = playlist.reduce(
-          (n, item) => n + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
-          0,
-        );
-        if (playableCount === 0) {
-          showToast(t('error.all_tracks_failed'));
-          clearFailedTracks();
-          // Without an explicit stop, the play button stays enabled and the
-          // user falls back into the same failure cycle on the next click.
-          stopAllMedia();
-          setAppState(APP_STATE.IDLE);
-        } else {
-          // Walk order candidates in priority:
-          //   (1) preloaded next — preserves shuffle intent when host already
-          //       staged the shuffle-next, and avoids wasting the preload
-          //   (2) shuffle — random non-failed (when shuffle ON)
-          //   (3) sequential — (failedIdx + 1) % length (when shuffle OFF)
-          const isShuffle = getState('playlist.isShuffle');
-          const preloadIdx = getState('preload.nextTrackIndex');
-
-          const isGoodCandidate = (i: number): boolean =>
-            i >= 0 &&
-            i < playlist.length &&
-            i !== failedIdx &&
-            !isTrackFailed(getTrackKeyFromItem(playlist[i]));
-
-          let nextIdx = -1;
-
-          // (1) preloaded next (matches what playNextTrack would pick)
-          if (isGoodCandidate(preloadIdx)) {
-            nextIdx = preloadIdx;
-          }
-
-          // (2) shuffle — pick a random non-failed track
-          if (nextIdx === -1 && isShuffle) {
-            const pool: number[] = [];
-            for (let i = 0; i < playlist.length; i++) {
-              if (isGoodCandidate(i)) pool.push(i);
-            }
-            if (pool.length > 0) {
-              nextIdx = pool[Math.floor(Math.random() * pool.length)];
-            }
-          }
-
-          // (3) sequential fallback (also used for non-shuffle)
-          if (nextIdx === -1) {
-            for (let probe = 1; probe <= playlist.length; probe++) {
-              const candidate = (failedIdx + probe) % playlist.length;
-              if (isGoodCandidate(candidate)) {
-                nextIdx = candidate;
-                break;
-              }
-            }
-          }
-
-          if (nextIdx !== -1) {
-            // Snapshot the load token at scheduling time. If a user action
-            // (track click, next/prev) bumps the token during the 600ms
-            // backoff, abort — playTrack already cleared this timer at its
-            // entry, but the snapshot guards the timer-fire-vs-clear race
-            // (clearManagedTimer just above the new playTrack's increment
-            // happens *after* the timer's setTimeout body has already begun
-            // executing in some browsers' microtask ordering).
-            const advanceToken = getLoadToken();
-            setManagedTimer(
-              'decode-fail-advance',
-              () => {
-                if (getLoadToken() !== advanceToken) {
-                  log.debug(
-                    '[Decode] Skipping auto-advance — load token bumped (user action superseded)',
-                  );
-                  return;
-                }
-                // Dynamic import to avoid a static cycle with playlist.ts
-                import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
-              },
-              600,
-            );
-          }
-        }
-      }
+      markFailedAndAdvance(file, failedIdx);
     }
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {
@@ -317,6 +229,140 @@ export async function loadAndBroadcastFile(
     const isOperator = getState('network.isOperator');
     bus.emit('ui:play-btn-state', !hostConn || isOperator);
   }
+}
+
+// ─── Host-Side Auto-Advance on Decode Failure ──────────────────────
+//
+// Called when a track fails to play — either the host's own decode failed in
+// loadAndBroadcastFile, or a guest reported decode failure via
+// MSG.GUEST_DECODE_FAILED (e.g. iOS Safari can't decode mp4-as-mp3 even
+// though host's Chrome can). Marks the track as failed and walks to the next
+// playable track via preloaded → shuffle → sequential priority. If no
+// playable track remains, returns to IDLE rather than leaving the UI stuck.
+//
+// Caller must already be on host (hostConn=null) — this function does not
+// re-check, since both call sites have host-only guards.
+function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void {
+  const playlist = getState('playlist.items') || [];
+
+  if (failedIdx < 0 || playlist.length === 0) return;
+
+  // Key by the file itself when available, so reordering/removing tracks
+  // after a failure doesn't strand the "failed" memory on a stale slot.
+  // For guest-reported failures the host doesn't have the original File, so
+  // fall back to the playlist item's own key.
+  const failedKey = getTrackKeyFromFile(file) ?? getTrackKeyFromItem(playlist[failedIdx]);
+  markTrackFailed(failedKey);
+
+  // Count playable (non-failed) tracks remaining. If none — including the
+  // single-track-failed case (formerly `playlist.length > 1` skipped this
+  // path entirely, leaving the iPhone host with one bad track stuck on a
+  // toast and no way back to idle) — stop and return to IDLE.
+  const playableCount = playlist.reduce(
+    (n, item) => n + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
+    0,
+  );
+  if (playableCount === 0) {
+    showToast(t('error.all_tracks_failed'));
+    clearFailedTracks();
+    // Without an explicit stop, the play button stays enabled and the user
+    // falls back into the same failure cycle on the next click.
+    stopAllMedia();
+    setAppState(APP_STATE.IDLE);
+    return;
+  }
+
+  // Walk order candidates in priority:
+  //   (1) preloaded next — preserves shuffle intent when host already
+  //       staged the shuffle-next, and avoids wasting the preload
+  //   (2) shuffle — random non-failed (when shuffle ON)
+  //   (3) sequential — (failedIdx + 1) % length (when shuffle OFF)
+  const isShuffle = getState('playlist.isShuffle');
+  const preloadIdx = getState('preload.nextTrackIndex');
+
+  const isGoodCandidate = (i: number): boolean =>
+    i >= 0 &&
+    i < playlist.length &&
+    i !== failedIdx &&
+    !isTrackFailed(getTrackKeyFromItem(playlist[i]));
+
+  let nextIdx = -1;
+
+  if (isGoodCandidate(preloadIdx)) {
+    nextIdx = preloadIdx;
+  }
+
+  if (nextIdx === -1 && isShuffle) {
+    const pool: number[] = [];
+    for (let i = 0; i < playlist.length; i++) {
+      if (isGoodCandidate(i)) pool.push(i);
+    }
+    if (pool.length > 0) {
+      nextIdx = pool[Math.floor(Math.random() * pool.length)];
+    }
+  }
+
+  if (nextIdx === -1) {
+    for (let probe = 1; probe <= playlist.length; probe++) {
+      const candidate = (failedIdx + probe) % playlist.length;
+      if (isGoodCandidate(candidate)) {
+        nextIdx = candidate;
+        break;
+      }
+    }
+  }
+
+  if (nextIdx !== -1) {
+    // Snapshot the load token at scheduling time. If a user action (track
+    // click, next/prev) bumps the token during the 600ms backoff, abort —
+    // playTrack already cleared this timer at its entry, but the snapshot
+    // guards the timer-fire-vs-clear race (clearManagedTimer just above
+    // the new playTrack's increment happens *after* the timer's setTimeout
+    // body has already begun executing in some browsers' microtask ordering).
+    const advanceToken = getLoadToken();
+    setManagedTimer(
+      'decode-fail-advance',
+      () => {
+        if (getLoadToken() !== advanceToken) {
+          log.debug(
+            '[Decode] Skipping auto-advance — load token bumped (user action superseded)',
+          );
+          return;
+        }
+        // Dynamic import to avoid a static cycle with playlist.ts
+        import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
+      },
+      600,
+    );
+  }
+}
+
+// Host-side handler for guest's "I can't decode this track" report. Triggers
+// the same advance path the host uses for its own decode failures, so the
+// whole room moves on rather than leaving the failing guest in a silent
+// recovery loop. Stale reports (host already advanced) are ignored.
+function handleGuestDecodeFailed(data: Record<string, unknown>, _conn: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Only host acts on this report
+
+  const reportedIdx = data.index as number;
+  const currentIdx = getState('playlist.currentTrackIndex');
+
+  if (reportedIdx !== currentIdx) {
+    log.debug(
+      `[Decode] Stale GUEST_DECODE_FAILED for index ${reportedIdx} (current ${currentIdx})`,
+    );
+    return;
+  }
+
+  log.info(`[Decode] Guest reported decode failure at index ${reportedIdx}, advancing room`);
+  markFailedAndAdvance(null, reportedIdx);
+}
+
+export function initDecodeHandlers(): void {
+  registerHandlers({
+    [MSG.GUEST_DECODE_FAILED]: handleGuestDecodeFailed,
+  });
 }
 
 // ─── Load Preloaded Track ──────────────────────────────────────────
@@ -693,12 +739,27 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
 
-    // On decode timeout, the file is genuinely unplayable — recovery would
-    // re-fetch the same bad bytes and time out again. Skip recovery and wait
-    // for the host to advance to the next track.
-    if (timedOut) return;
+    // Per-track decode failure counter. The first non-timeout failure may be
+    // a rare chunk-loss case that recovery's re-fetch can fix. The second
+    // (or any timeout) means the file is genuinely undecodable on this
+    // device — iOS Safari can't decode mp4-as-mp3 even though host's
+    // Chrome can. Loop-on-fail without this counter would re-fetch + re-fail
+    // until recovery exhausted (3 retries) and then silently hang in FAILED
+    // forever, with the host none the wiser. Tell host so the room advances.
+    const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
+    setState('player.decodeFailureCount', failureCount);
 
-    // Use recovery with retry limit (3 attempts + backoff) instead of unlimited sendToHost
+    if (timedOut || failureCount >= 2) {
+      const failedIdx = getState('playlist.currentTrackIndex');
+      if (failedIdx >= 0) {
+        sendToHost({ type: MSG.GUEST_DECODE_FAILED, index: failedIdx });
+      }
+      return;
+    }
+
+    // First non-timeout failure: try recovery (3 attempts + backoff) for the
+    // chunk-loss case. If decode still fails after recovery completes, the
+    // counter trips on entry to this catch on the second pass.
     sendRecoveryRequest(0);
   } finally {
     showLoader(false);

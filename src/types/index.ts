@@ -154,6 +154,7 @@ export interface ProtocolMap {
   };
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
+  'guest-decode-failed': { index: number };
 
   // ── Audio Control ────────────────────────────────────────────────
   volume: { value: number };
@@ -388,6 +389,7 @@ export interface StateTree {
     isSeeking: boolean;
     isFirstTrackLoad: boolean;
     currentTrackMeta: Partial<PlaylistItem> | null;
+    decodeFailureCount: number;
   };
   transfer: {
     state: TransferStateValue;

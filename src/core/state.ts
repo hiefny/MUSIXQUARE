@@ -62,6 +62,11 @@ function createInitialState(): StateTree {
       isSeeking: false,
       isFirstTrackLoad: true,
       currentTrackMeta: null,
+      // Consecutive decode failures for the current track (reset on FILE_PREPARE).
+      // After 2 failures the guest gives up and signals host via GUEST_DECODE_FAILED
+      // instead of looping recovery → re-decode → fail forever (iOS Safari can't
+      // decode mp4-as-mp3, the original symptom that surfaced this gap).
+      decodeFailureCount: 0,
     },
 
     transfer: {

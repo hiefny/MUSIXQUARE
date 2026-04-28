@@ -136,6 +136,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
   // Playlist — validate list is an array (individual items checked in handler)
   [MSG.PLAYLIST_UPDATE]: (d) => Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
+
+  // Guest → host decode-failure report: index identifies the track. Host
+  // ignores stale reports (index !== currentTrackIndex) at the handler level,
+  // but the validator still requires a sane non-negative integer.
+  [MSG.GUEST_DECODE_FAILED]: (d) => isNonNegInt(d.index),
 };
 
 // ─── Generic Inbound Rate-Limit (per peer) ──────────────────────────

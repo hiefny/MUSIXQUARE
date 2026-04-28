@@ -27,6 +27,7 @@ import type { YouTubePlayerInstance } from './_state.ts';
 import { invalidateYtDurationCache } from './iframe.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
+import type { DataConnection } from '../types/index.ts';
 import {
   DRIFT_SEEK_THRESHOLD_SEC,
   HOST_AD_STALE_THRESHOLD,
@@ -746,7 +747,19 @@ export function resetYouTubeSyncState(): void {
 
 // ─── Handle YouTube State (Host→Guest broadcast) ──────────────────
 
-function handleYouTubeState(data: Record<string, unknown>): void {
+function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_STATE frames not arriving via hostConn. Without this, a
+  // malicious peer (DATA_RELAY connection on a relay-capable guest) can
+  // send {type:'youtube-state', state:1, videoId:'<attacker_id>', ...} —
+  // updateHostSnapshot below corrupts _rt.lastHostSnapshot pre-guard, and
+  // when the guest is in PLAYING_YOUTUBE the L838 videoId-mismatch branch
+  // calls player.loadVideoById('<attacker_id>'), forcing an arbitrary
+  // YouTube video onto the guest. YOUTUBE_STATE is RELAYABLE so the
+  // poisoned frame would also amplify to the relay's downstream peers.
+  // Guard placed at function entry so the snapshot is also protected.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
   const player = getYouTubePlayer();
   const currentState = getState('appState');
 

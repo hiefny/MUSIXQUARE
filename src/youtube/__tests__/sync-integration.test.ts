@@ -54,16 +54,28 @@ vi.mock('../../network/peer.ts', () => ({
 
 // registerHandlers captures the handler map so tests can invoke
 // handleYouTubeSync / handleYouTubeState directly (they're not exported).
-const capturedHandlers: Record<string, (data: Record<string, unknown>) => void> = {};
+// Handlers accept an optional `conn` second arg — handleYouTubeState's
+// hostConn guard requires the test to pass the mocked hostConn.
+const capturedHandlers: Record<
+  string,
+  (data: Record<string, unknown>, conn?: unknown) => void
+> = {};
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn((handlers: Record<string, any>) => {
     for (const [type, h] of Object.entries(handlers)) {
       if (typeof h === 'function')
-        capturedHandlers[type] = h as (data: Record<string, unknown>) => void;
+        capturedHandlers[type] = h as (data: Record<string, unknown>, conn?: unknown) => void;
     }
   }),
   verifyOperator: vi.fn(() => true),
 }));
+
+// Mock hostConn used by handleYouTubeState's guard. Tests that simulate a
+// guest receiving a host broadcast call `setState('network.hostConn',
+// mockHostConn)` and pass it as the stateHandler's second arg. Host-side
+// scheduleYtAutoSync tests intentionally leave hostConn null so the
+// broadcast path stays active.
+const mockHostConn: unknown = { peer: 'mock-host-peer' };
 
 // getHostNow tracks Date.now() so it advances with vitest fake timers.
 vi.mock('../../network/shared-clock.ts', () => ({
@@ -282,25 +294,34 @@ describe('YouTube Sync — Regression Integration', () => {
       const player = installPlayer({ __state: 2, __duration: 300, __currentTime: 0 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
       expect(handler).toBeDefined();
+      // Simulate guest receiving host broadcast — handleYouTubeState's
+      // hostConn guard (sync.ts:751) requires conn === network.hostConn.
+      setState('network.hostConn', mockHostConn as never);
 
       // First host command: pause+seek to 5, play at +1000ms
-      handler({
-        state: 1,
-        time: 5,
-        hostPlayAt: Date.now() + 1000,
-        subIndex: 0,
-        videoId: 'FAKE_VIDEO',
-      });
+      handler(
+        {
+          state: 1,
+          time: 5,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
       vi.advanceTimersByTime(400);
 
       // Second host command 400ms in: should cancel the first and re-schedule to 8
-      handler({
-        state: 1,
-        time: 8,
-        hostPlayAt: Date.now() + 1000,
-        subIndex: 0,
-        videoId: 'FAKE_VIDEO',
-      });
+      handler(
+        {
+          state: 1,
+          time: 8,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
       vi.advanceTimersByTime(1100); // let the second countdown complete
 
       // playVideo should fire exactly once — the second scheduling
@@ -357,15 +378,20 @@ describe('YouTube Sync — Regression Integration', () => {
       });
       const stateHandler = capturedHandlers[MSG.YOUTUBE_STATE];
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      // Simulate guest — handleYouTubeState guard requires hostConn match.
+      setState('network.hostConn', mockHostConn as never);
 
       // Arm the cooldown by triggering a clock-scheduled state change
-      stateHandler({
-        state: 1,
-        time: 10,
-        hostPlayAt: Date.now() + 1000,
-        subIndex: 0,
-        videoId: 'FAKE_VIDEO',
-      });
+      stateHandler(
+        {
+          state: 1,
+          time: 10,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
       // The cooldown is now active until Date.now() + waitMs + 1500
 
       // Clear the pause/seek from stateHandler to focus on sync behavior
@@ -426,15 +452,20 @@ describe('YouTube Sync — Regression Integration', () => {
       const stateHandler = capturedHandlers[MSG.YOUTUBE_STATE];
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
       const { resetYouTubeSyncState } = await importSync();
+      // Simulate guest — handleYouTubeState guard requires hostConn match.
+      setState('network.hostConn', mockHostConn as never);
 
       // Arm the cooldown
-      stateHandler({
-        state: 1,
-        time: 10,
-        hostPlayAt: Date.now() + 1000,
-        subIndex: 0,
-        videoId: 'FAKE_VIDEO',
-      });
+      stateHandler(
+        {
+          state: 1,
+          time: 10,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
 
       // Reset
       resetYouTubeSyncState();
@@ -457,14 +488,19 @@ describe('YouTube Sync — Regression Integration', () => {
     it('drops message when state is not a finite number', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      // Simulate guest — handleYouTubeState guard requires hostConn match.
+      setState('network.hostConn', mockHostConn as never);
 
-      handler({
-        state: 'garbage',
-        time: 5,
-        hostPlayAt: Date.now() + 1000,
-        subIndex: 0,
-        videoId: 'FAKE_VIDEO',
-      });
+      handler(
+        {
+          state: 'garbage',
+          time: 5,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
       vi.advanceTimersByTime(1500);
 
       // No player mutations should have happened
@@ -474,8 +510,13 @@ describe('YouTube Sync — Regression Integration', () => {
     it('drops message when state is undefined', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      // Simulate guest — handleYouTubeState guard requires hostConn match.
+      setState('network.hostConn', mockHostConn as never);
 
-      handler({ time: 5, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler(
+        { time: 5, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
       vi.advanceTimersByTime(1500);
 
       expect(player.__log).toHaveLength(0);

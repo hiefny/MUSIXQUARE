@@ -18,6 +18,24 @@ import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
 
+// ─── Tuning ───────────────────────────────────────────────────────
+//
+// playoutDelayHint target for the WebRTC audio receivers. WebRTC's NetEq
+// adapts each receiver's jitter buffer independently based on packet arrival
+// pattern, so two guests in the same room drift in and out of phase with each
+// other as their buffers grow/shrink at different times. Setting the same
+// hint on every receiver nudges them all toward the same effective delay,
+// narrowing the cross-device variance.
+//
+// Tuning rationale (heuristic — verify on real devices):
+//   < 200ms — NetEq's natural adaptive range often exceeds this anyway, so
+//             the hint doesn't cap anything and we get the same drift.
+//   > 600ms — host pause/skip becomes obviously laggy on guests.
+//   300-500ms — hint actually caps adaptation, while keeping responsiveness
+//               acceptable. 0.4s as the starting point; revisit after real-
+//               device tests on typical home routers.
+const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.4;
+
 // ─── Module State ─────────────────────────────────────────────────
 
 let _mediaConnL: MediaConnection | null = null;
@@ -123,6 +141,25 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);
+
+    // Pin every audio receiver to the same playout-delay target so NetEq's
+    // adaptive jitter buffer doesn't drift independently per device. See the
+    // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
+    // PeerJS exposes the underlying RTCPeerConnection as `peerConnection`
+    // (already used at L41 for SDP munging).
+    const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection })
+      .peerConnection;
+    if (pc) {
+      for (const r of pc.getReceivers()) {
+        // playoutDelayHint is in the WebRTC spec but not in TS's lib.dom yet.
+        // Chrome/Edge implement it; on browsers that don't, the assignment is
+        // a no-op (still a regular property), so the cast is safe at runtime.
+        const recv = r as RTCRtpReceiver & { playoutDelayHint?: number };
+        if (recv.track && recv.track.kind === 'audio') {
+          recv.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
+        }
+      }
+    }
 
     await initAudio();
     const ctx = getAudioContext();

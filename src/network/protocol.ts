@@ -130,7 +130,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // Chat — validate text field exists and cap length
   [MSG.CHAT]: (d) => typeof d.text === 'string',
   [MSG.CHAT_WHISPER]: (d) => typeof d.text === 'string' && typeof d.targetId === 'string',
-  [MSG.CHAT_NOTICE]: (d) => typeof d.text === 'string',
+  // text is required for back-compat fallback; i18nKey/i18nParams are optional
+  // and let receivers render in their own locale when sender supplies them.
+  [MSG.CHAT_NOTICE]: (d) =>
+    typeof d.text === 'string' &&
+    (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
+    (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 

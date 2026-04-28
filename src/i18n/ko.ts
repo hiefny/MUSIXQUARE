@@ -236,6 +236,7 @@ const ko = {
   'chat.cmd_slowmode_off': '슬로우 모드가 해제되었어요',
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
+  'chat.decode_skip_notice': '🔇 일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
   'chat.pinned_close': '공지 닫기',
   'chat.cmd_whisper_from': '{{name}} 님의 귓속말',
   'chat.cmd_whisper_to': '{{name}} 님에게 귓속말',

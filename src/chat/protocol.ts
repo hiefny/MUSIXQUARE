@@ -11,6 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { t } from '../i18n/index.ts';
+import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
 import {
   addChatMessage,
@@ -336,6 +337,19 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
     senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
   let text = (data.text as string) || '';
   if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
+
+  // If the host attached an i18n key, render it in this device's locale so
+  // ko/en users each see their own language. Falls back to `text` if t() returns
+  // the key unchanged (key missing in this client's dictionary — older client
+  // or typo). The cast is because the network payload is a runtime string but
+  // t() expects the I18nKey string-literal union; the dict lookup itself
+  // safely returns the key as the rendered string when not found.
+  const i18nKey = data.i18nKey as string | undefined;
+  if (i18nKey) {
+    const i18nParams = data.i18nParams as Record<string, string | number> | undefined;
+    const localized = t(i18nKey as I18nKey, i18nParams);
+    if (localized !== i18nKey) text = localized;
+  }
 
   addNoticeChatMessage(senderLabel, text);
 }

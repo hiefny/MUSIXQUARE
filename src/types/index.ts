@@ -361,7 +361,19 @@ export interface ProtocolMap {
     ts: number;
     joinOrder: number;
   };
-  'chat-notice': { senderLabel: string; text: string; ts: number };
+  'chat-notice': {
+    senderLabel: string;
+    text: string;
+    ts: number;
+    // Optional i18n key — when present, each receiver renders this key in
+    // their own locale instead of using `text`. Lets system notices (e.g.
+    // "skipped a track that one device couldn't decode") be localized
+    // per-recipient even though the host doesn't know each guest's lang.
+    // Sender still fills `text` as a fallback so older clients (or notices
+    // without a known key) still display something readable.
+    i18nKey?: string;
+    i18nParams?: Record<string, string | number>;
+  };
   'chat-slowmode': { seconds: number };
   'chat-filter': { on: boolean };
   'chat-system': { text: string };

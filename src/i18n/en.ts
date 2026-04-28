@@ -238,6 +238,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Slow mode disabled',
   'chat.cmd_slowmode_wait': 'Wait {{sec}}s before sending',
   'chat.cmd_notice_prefix': 'Notice',
+  'chat.decode_skip_notice': "🔇 Some devices couldn't play this track, skipping to next",
   'chat.pinned_close': 'Dismiss notice',
   'chat.cmd_whisper_from': 'Whisper from {{name}}',
   'chat.cmd_whisper_to': 'Whisper to {{name}}',

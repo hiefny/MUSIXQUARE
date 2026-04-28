@@ -248,9 +248,38 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
   };
 }
 
+// ─── Spoofing Defense Helper ──────────────────────────────────────
+//
+// All host→guest YouTube broadcasts in this file (YOUTUBE_SYNC,
+// YOUTUBE_STATE, YOUTUBE_STOP, YOUTUBE_SUB_TITLE_UPDATE,
+// YOUTUBE_PLAYLIST_INFO) flow one-way: host calls `broadcast()`
+// directly — the host's own dispatcher never receives them on the
+// legitimate path. A raw frame at host means a malicious guest sent it
+// directly; a raw frame at a guest from any conn other than hostConn
+// means a peer is spoofing through a DATA_RELAY connection
+// (peer.ts:292 routes incoming DATA_RELAY without auth). The
+// dispatcher-level RELAY DOWNSTREAM `conn === hostConn` guard
+// (network/protocol.ts:281) blocks amplification past the relay node;
+// per-handler guards still protect the relay node's own state mutation.
+function isHostBroadcast(conn: DataConnection | undefined): boolean {
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && conn === hostConn;
+}
+
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
-function handleYouTubeSync(data: Record<string, unknown>): void {
+function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_SYNC frames not arriving via hostConn. Without this, a
+  // malicious peer over a DATA_RELAY connection can send {videoId:'X',
+  // time:0, state:1} — when the guest is in PLAYING_YOUTUBE the L357
+  // videoId-mismatch branch calls player.loadVideoById('X') forcing
+  // arbitrary content onto the guest. Even outside PLAYING_YOUTUBE the
+  // pre-guard updateHostSnapshot below would poison _rt.lastHostSnapshot,
+  // breaking the next legitimate rendezvous calibration. 8cbf192 patched
+  // YOUTUBE_STATE (which also calls updateHostSnapshot) but missed this
+  // sibling path.
+  if (!isHostBroadcast(conn)) return;
+
   const player = getYouTubePlayer();
   const currentState = getState('appState');
 
@@ -748,17 +777,13 @@ export function resetYouTubeSyncState(): void {
 // ─── Handle YouTube State (Host→Guest broadcast) ──────────────────
 
 function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop YOUTUBE_STATE frames not arriving via hostConn. Without this, a
-  // malicious peer (DATA_RELAY connection on a relay-capable guest) can
-  // send {type:'youtube-state', state:1, videoId:'<attacker_id>', ...} —
-  // updateHostSnapshot below corrupts _rt.lastHostSnapshot pre-guard, and
-  // when the guest is in PLAYING_YOUTUBE the L838 videoId-mismatch branch
-  // calls player.loadVideoById('<attacker_id>'), forcing an arbitrary
-  // YouTube video onto the guest. YOUTUBE_STATE is RELAYABLE so the
-  // poisoned frame would also amplify to the relay's downstream peers.
-  // Guard placed at function entry so the snapshot is also protected.
-  const hostConn = getState('network.hostConn');
-  if (!hostConn || conn !== hostConn) return;
+  // Drop YOUTUBE_STATE frames not arriving via hostConn. Same threat
+  // model as handleYouTubeSync — see isHostBroadcast comment block.
+  // updateHostSnapshot below would corrupt _rt.lastHostSnapshot pre-guard,
+  // and the L838 videoId-mismatch branch calls player.loadVideoById on
+  // attacker-supplied content. Guard placed at function entry so the
+  // snapshot is also protected.
+  if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
   const currentState = getState('appState');
@@ -1077,7 +1102,14 @@ function executeImmediate(
 
 // ─── Handle Sub Title Update ───────────────────────────────────────
 
-function handleSubTitleUpdate(data: Record<string, unknown>): void {
+function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_SUB_TITLE_UPDATE frames not arriving via hostConn.
+  // Without this, a malicious peer can send {playlistId:<active>, subIdx:0,
+  // title:'<phishing text>'} and the L1094 setState below writes the
+  // attacker's title into player.currentTrackMeta.title — escapeHtml
+  // protects against XSS, but social-engineering text passes through.
+  if (!isHostBroadcast(conn)) return;
+
   const playlistId = data.playlistId as string;
   const subIdx = data.subIdx as number;
   const title = data.title as string;
@@ -1102,7 +1134,14 @@ function handleSubTitleUpdate(data: Record<string, unknown>): void {
  * Stores IDs and titles, then triggers background title fetcher
  * for any missing titles.
  */
-function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
+function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_PLAYLIST_INFO frames not arriving via hostConn. Without
+  // this, a malicious peer can poison subItemsMap[playlistId] with
+  // attacker-supplied videoIds — when the guest later navigates to a
+  // sub-track, handlers.ts:200 calls player.loadVideoById(ids[subIdx])
+  // with the attacker's videoId. Indirect arbitrary-video injection.
+  if (!isHostBroadcast(conn)) return;
+
   const playlistId = data.playlistId as string;
   const ids = (data.ids as string[]) || [];
   const titles = (data.titles as string[]) || [];
@@ -1119,7 +1158,14 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>): void {
 
 // ─── Handle YouTube Stop ──────────────────────────────────────────
 
-function handleYouTubeStop(): void {
+function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_STOP frames not arriving via hostConn. Without this, a
+  // single raw frame from any peer (DATA_RELAY connection on a relay-
+  // capable guest) forces a guest in PLAYING_YOUTUBE out of YouTube
+  // mode via the L1131-1132 bus emits — a single-frame DoS on the
+  // target's YouTube session.
+  if (!isHostBroadcast(conn)) return;
+
   _rt.autoSyncUntil = 0;
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();

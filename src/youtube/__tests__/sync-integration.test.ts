@@ -345,8 +345,9 @@ describe('YouTube Sync — Regression Integration', () => {
       });
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       expect(handler).toBeDefined();
+      setState('network.hostConn', mockHostConn as never);
 
-      handler({ time: 14.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 14.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
 
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(1);
@@ -360,8 +361,9 @@ describe('YouTube Sync — Regression Integration', () => {
         __duration: 300,
       });
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
 
-      handler({ time: 12.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 12.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
 
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(0);
@@ -398,7 +400,7 @@ describe('YouTube Sync — Regression Integration', () => {
       player.__log.length = 0;
 
       // Fire a sync with massive drift — should be ignored
-      syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
 
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(0);
@@ -410,36 +412,38 @@ describe('YouTube Sync — Regression Integration', () => {
     it('pauses guest after 3 consecutive stale host-time frames', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 42, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
 
       // First frame establishes baseline
-      handler({ time: 42.0, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 42.0, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
       player.__log.length = 0; // ignore any initial ops
 
       // Frames 2-4 are stale — on frame 4 (counter reaches 3), guest pauses
-      handler({ time: 42.01, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 42.01, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
       expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeUndefined();
 
-      handler({ time: 42.02, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 42.02, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
       expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeUndefined();
 
-      handler({ time: 42.03, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 42.03, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
       expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
     });
 
     it('resumes guest when host time starts moving again', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 42, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
 
       // Enter ad-paused state
-      handler({ time: 42.0, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      handler({ time: 42.01, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      handler({ time: 42.02, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
-      handler({ time: 42.03, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 42.0, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+      handler({ time: 42.01, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+      handler({ time: 42.02, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+      handler({ time: 42.03, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
       player.__state = 2; // pauseVideo flipped us
       player.__log.length = 0;
 
       // Host time moves 5 seconds forward (large delta, ad ended)
-      handler({ time: 47.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      handler({ time: 47.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
 
       expect(player.__log.find((c) => c.op === 'playVideo')).toBeDefined();
     });
@@ -476,7 +480,7 @@ describe('YouTube Sync — Regression Integration', () => {
       player.__log.length = 0;
 
       // Sync with drift > 3s should now seek
-      syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' });
+      syncHandler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
 
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(1);

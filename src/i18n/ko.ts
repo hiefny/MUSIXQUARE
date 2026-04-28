@@ -236,6 +236,7 @@ const ko = {
   'chat.cmd_slowmode_off': '슬로우 모드가 해제되었어요',
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
+  'chat.system_sender': '시스템',
   'chat.decode_skip_notice': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
   'chat.system_audio_started_notice':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연이 필연적으로 발생하기 때문에 방장만 소리를 최대한 낮춰주세요.',

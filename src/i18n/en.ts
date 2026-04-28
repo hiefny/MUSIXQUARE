@@ -238,6 +238,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Slow mode disabled',
   'chat.cmd_slowmode_wait': 'Wait {{sec}}s before sending',
   'chat.cmd_notice_prefix': 'Notice',
+  'chat.system_sender': 'SYSTEM',
   'chat.decode_skip_notice': "Some devices couldn't play this track, skipping to next",
   'chat.system_audio_started_notice':
     'System audio sharing started. Some delay between host and participants is unavoidable, so only the host should lower their volume as much as possible.',

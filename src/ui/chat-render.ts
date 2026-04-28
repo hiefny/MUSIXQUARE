@@ -390,12 +390,19 @@ export function addNoticeChatMessage(sender: string, text: string): void {
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
+  // System-originated notices (broadcastSystemNotice in chat/protocol.ts) ship
+  // with sender=''; fall back to a localized "system" label so the prefix
+  // doesn't render with a dangling separator. Done at render time so each
+  // device sees its own locale's word for "system" — host doesn't need to
+  // know each guest's language.
+  const displayName = sender || t('chat.system_sender');
+
   const group = document.createElement('div');
   group.className = 'chat-group others notice';
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender notice-label';
-  senderNode.textContent = `${t('chat.cmd_notice_prefix')} — ${sender}`;
+  senderNode.textContent = `${t('chat.cmd_notice_prefix')} — ${displayName}`;
   group.appendChild(senderNode);
 
   const row = document.createElement('div');
@@ -432,7 +439,9 @@ export function setPinnedNotice(sender: string, text: string): void {
   const label = document.getElementById('chat-pinned-notice-label');
   const body = document.getElementById('chat-pinned-notice-text');
   if (!banner || !label || !body) return;
-  label.textContent = `${t('chat.cmd_notice_prefix')} — ${sender}`;
+  // Same fallback as addNoticeChatMessage — see comment there.
+  const displayName = sender || t('chat.system_sender');
+  label.textContent = `${t('chat.cmd_notice_prefix')} — ${displayName}`;
   body.textContent = text;
   banner.hidden = false;
   // Hide the chat title once a notice is pinned — same rule as first message.

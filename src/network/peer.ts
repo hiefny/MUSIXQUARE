@@ -20,7 +20,7 @@ import {
   PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
-import { stopBackgroundWorkerTimers } from '../storage/opfs.ts';
+import { stopBackgroundWorkerTimers, sweepAppOpfsFiles } from '../storage/opfs.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 import { Peer, type PeerOptions } from 'peerjs';
@@ -539,6 +539,14 @@ export function leaveSession(): void {
 
   // ── 6. Revoke blob URLs ──
   bus.emit('blob:revoke-all');
+
+  // ── 6b. Sweep all OPFS preload_*/current_* files. The session is over,
+  // these are transient artifacts. Without this, even a clean leave leaves
+  // ~30MB on disk (current + preload) which compounds with the startup-
+  // sweep gap if the user crashes / force-closes before next app load.
+  // Fire-and-forget — running synchronously here would block leaveSession
+  // for a few seconds on a large session.
+  void sweepAppOpfsFiles({ excludeCurrentInstance: false, reason: 'session-leave' });
 
   // ── 7. Reset all state ──
   batchSetState({

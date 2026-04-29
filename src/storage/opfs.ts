@@ -160,6 +160,95 @@ export async function readFileFromOpfs(filename: string, isPreload: boolean): Pr
   }
 }
 
+// ─── OPFS Sweep ─────────────────────────────────────────────────────
+//
+// Removes all `preload_*` and `current_*` files from OPFS root, optionally
+// preserving files belonging to the current INSTANCE_ID. The naming
+// convention from buildSafeName() is `<prefix>_<sanitizedName>_<INSTANCE_ID>`,
+// so we can distinguish files from this app load vs prior loads/sessions
+// by the trailing UUID.
+//
+// Why this exists: iOS PWA persists OPFS across app launches indefinitely.
+// Without an explicit sweep, every track ever downloaded leaves a file on
+// disk forever. Real-device snapshot showed 343 files / 6065MB cumulative
+// across roughly a week of testing — driving the device into memory
+// pressure (OPFS handles count toward RAM accounting on iOS) and making
+// the app crash mid-session.
+//
+// Two sites call this:
+//   - App startup: excludeCurrentInstance=true. Files from THIS load haven't
+//     been created yet (INSTANCE_ID was just generated), so the exclude
+//     filter never triggers — equivalent to "delete everything". The
+//     filter exists for defense in depth: if some module races and creates
+//     a file before the sweep runs, the in-flight file is preserved.
+//   - Session leave: excludeCurrentInstance=false. The user is done; no
+//     reason to keep this session's transient files either.
+//
+// Performance: 343 files × a few ms per removeEntry = ~1-3 seconds.
+// Fire-and-forget from callers; do not await.
+export async function sweepAppOpfsFiles(opts: {
+  excludeCurrentInstance?: boolean;
+  reason: string;
+}): Promise<void> {
+  if (!navigator.storage?.getDirectory) return;
+  let root: FileSystemDirectoryHandle;
+  try {
+    root = await navigator.storage.getDirectory();
+  } catch (e) {
+    log.warn(`[OPFS] Sweep ${opts.reason}: getDirectory failed:`, e);
+    return;
+  }
+  const toRemove: { name: string; size: number }[] = [];
+  try {
+    const dir = root as unknown as {
+      values(): AsyncIterable<{
+        kind: string;
+        name: string;
+        getFile?: () => Promise<{ size: number }>;
+      }>;
+    };
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'file') continue;
+      const name = entry.name;
+      if (!name.startsWith('preload_') && !name.startsWith('current_')) continue;
+      if (opts.excludeCurrentInstance && name.endsWith(`_${INSTANCE_ID}`)) continue;
+      let size = 0;
+      try {
+        if (entry.getFile) {
+          const f = await entry.getFile();
+          size = f.size;
+        }
+      } catch {
+        /* ignore — size is for stats only */
+      }
+      toRemove.push({ name, size });
+    }
+  } catch (e) {
+    log.warn(`[OPFS] Sweep ${opts.reason}: enumeration failed:`, e);
+    return;
+  }
+  if (toRemove.length === 0) {
+    log.debug(`[OPFS] Sweep ${opts.reason}: nothing to remove`);
+    return;
+  }
+  const totalMB = toRemove.reduce((s, e) => s + e.size, 0) / 1048576;
+  log.info(
+    `[OPFS] Sweep ${opts.reason}: removing ${toRemove.length} files (~${totalMB.toFixed(1)}MB)`,
+  );
+  let removed = 0;
+  for (const entry of toRemove) {
+    try {
+      await root.removeEntry(entry.name);
+      removed++;
+    } catch (e) {
+      log.warn(`[OPFS] Sweep ${opts.reason}: removeEntry(${entry.name}) failed:`, e);
+    }
+  }
+  log.info(
+    `[OPFS] Sweep ${opts.reason}: ${removed}/${toRemove.length} files removed`,
+  );
+}
+
 // ─── Stop Background Worker Timers ──────────────────────────────────
 
 export function stopBackgroundWorkerTimers(): void {

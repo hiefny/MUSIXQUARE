@@ -43,7 +43,7 @@ import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 // ── Storage ──
-import { setSyncWorker, setTransferWorker } from './storage/opfs.ts';
+import { setSyncWorker, setTransferWorker, sweepAppOpfsFiles } from './storage/opfs.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
@@ -413,6 +413,15 @@ function bootstrap(): void {
     safeInit('Transfer', initTransfer);
     safeInit('Preload', initPreload);
     safeInit('Recovery', initRecovery);
+
+    // Sweep stale OPFS files from prior app loads. iOS PWA persists OPFS
+    // across app launches; without this sweep, every track ever downloaded
+    // accumulates on disk forever (real-device snapshot showed 343 files /
+    // 6GB cumulative across a week of testing → memory pressure → mid-
+    // session crashes). Filter excludes files with the current INSTANCE_ID
+    // so any in-flight file creation that races with this sweep is safe.
+    // Fire-and-forget — runs in background, doesn't block bootstrap.
+    void sweepAppOpfsFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
   } else {
     log.warn('[App] Skipping transfer/preload/recovery init — worker unavailable');
   }

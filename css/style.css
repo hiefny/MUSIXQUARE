@@ -5889,3 +5889,56 @@ html:not(.ios-standalone) body {
     flex: 1.5;
     opacity: 0.5;
 }
+
+/* ─── Debug Memory Overlay ─────────────────────────────────────
+ * Full-screen translucent surface for /debug memory output.
+ * Tap or press ESC to dismiss. Created and removed dynamically by
+ * commands.ts — no static markup. Hidden from view in CSS audits
+ * by living at the bottom of the file with no usage comment elsewhere.
+ */
+.debug-memory-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.88);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: max(env(safe-area-inset-top, 20px), 20px) 12px
+             max(env(safe-area-inset-bottom, 20px), 20px) 12px;
+    box-sizing: border-box;
+    overflow: auto;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.debug-memory-content {
+    color: #e8e8e8;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre;
+    margin: 0;
+    padding: 14px 16px;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    pointer-events: none;
+}
+
+.debug-memory-hint {
+    position: absolute;
+    bottom: max(env(safe-area-inset-bottom, 16px), 16px);
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    pointer-events: none;
+}
+

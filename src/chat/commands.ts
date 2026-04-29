@@ -812,10 +812,12 @@ async function cmdDebugMemory(): Promise<void> {
   lines.push(`[Tracked] sum of above: ${(trackedBytes / 1048576).toFixed(1)}MB`);
 
   const text = lines.join('\n');
-  addSystemChatMessage(text);
 
-  // Auto-copy to clipboard (mirrors /debug behavior — useful for
-  // sending a snapshot to support without retyping)
+  // Render to a fullscreen translucent overlay instead of the cramped
+  // chat panel. Tap anywhere or press ESC to dismiss. Auto-copy to
+  // clipboard preserved.
+  showDebugMemoryOverlay(text);
+
   try {
     navigator.clipboard
       .writeText(text)
@@ -828,6 +830,47 @@ async function cmdDebugMemory(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+// Render the memory snapshot as a fullscreen translucent overlay.
+// Created and torn down dynamically (no static markup in index.html
+// keeps this stealth-feature self-contained). Single-instance: a
+// second invocation while one is showing replaces the prior overlay
+// so the freshest snapshot wins.
+function showDebugMemoryOverlay(text: string): void {
+  const existing = document.getElementById('debug-memory-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'debug-memory-overlay';
+  overlay.className = 'debug-memory-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', 'Debug memory snapshot');
+
+  const content = document.createElement('pre');
+  content.className = 'debug-memory-content';
+  content.textContent = text;
+  overlay.appendChild(content);
+
+  const hint = document.createElement('div');
+  hint.className = 'debug-memory-hint';
+  hint.textContent = 'tap to close';
+  overlay.appendChild(hint);
+
+  const dismiss = (): void => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      dismiss();
+    }
+  };
+  overlay.addEventListener('click', dismiss);
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(overlay);
 }
 
 function cmdParty(args: string[]): void {

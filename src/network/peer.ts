@@ -262,22 +262,24 @@ function setupPeerEvents(): void {
   peer.on('disconnected', () => {
     log.warn('[PeerJS] Disconnected from signaling server');
 
-    // Common trigger: app went to sleep / minimized / lost network briefly.
-    // Other peers may have already torn down their data connections by the
-    // time we wake up, so a clean reconnect with the same peer ID isn't
-    // realistic — the safe path is a hard reload that re-bootstraps the
-    // session from scratch. The user, however, has no idea their session
-    // died (the UI still shows connected guests etc.) until they try to
-    // do something. Surface a modal so they can decide.
+    // PeerJS 'disconnected' fires when the WebSocket to the signaling server
+    // drops. CRITICAL: existing peer-to-peer data channels are direct WebRTC
+    // and survive this — only NEW peer connections are blocked. So a
+    // signaling drop alone does NOT mean the session is dead.
     //
-    // Only fire if we'd previously made it past initNetwork's open-promise
-    // (appRole set means we joined a session); the open-promise itself
-    // surfaces its own errors, so adding a dialog there would double up.
+    // The original e7c31d4 commit incorrectly assumed "other peers tear
+    // down their data connections" on signaling drop, which produced a
+    // false-positive dialog: signaling blip → 5s grace → dialog appears
+    // even though host/guest data channels are still alive and audio is
+    // playing fine.
     //
-    // Grace period: PeerJS sometimes pings disconnect briefly mid-session
-    // during a network blip. Wait 5s; if peer.disconnected is still true,
-    // show the modal. The peer is destroyed/replaced if reconnect succeeds,
-    // so a stale closure here just no-ops.
+    // Refined trigger:
+    //   1. appRole must be set (post-bootstrap).
+    //   2. After 5s grace, peer.disconnected must STILL be true.
+    //   3. AND there must be no functional data connection (host: no live
+    //      ConnectedPeer.conn; guest: hostConn closed). If either side
+    //      still has a working channel, the session is functional and
+    //      the user shouldn't be bounced to a reload.
     const appRole = getState('network.appRole');
     if (!appRole) return;
 
@@ -285,7 +287,31 @@ function setupPeerEvents(): void {
       'peer-disconnect-grace',
       () => {
         const currentPeer = getPeer();
-        if (!currentPeer || !currentPeer.disconnected) return; // recovered
+        if (!currentPeer || !currentPeer.disconnected) return; // signaling recovered
+
+        // Skip the dialog if we still have a working channel — the session
+        // is functional even without signaling (no new peers can join, but
+        // sync/playback for existing peers continues normally).
+        const role = getState('network.appRole');
+        if (role === 'host') {
+          const peers = getState('network.connectedPeers') || [];
+          const hasLive = peers.some((p) => (p.conn as DataConnection)?.open);
+          if (hasLive) {
+            log.info(
+              '[PeerJS] Signaling disconnected but host has live data channels — skipping dialog',
+            );
+            return;
+          }
+        } else if (role === 'guest') {
+          const hostConn = getState('network.hostConn');
+          if (hostConn?.open) {
+            log.info(
+              '[PeerJS] Signaling disconnected but guest hostConn still open — skipping dialog',
+            );
+            return;
+          }
+        }
+
         showDialog({
           title: t('network.disconnected'),
           message: t('dialog.session_lost_msg'),

@@ -113,16 +113,18 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN via Netlify Function (Metered.ca)
+  // ICE servers: STUN always, TURN via host-side function (Metered.ca)
   const iceServers: Record<string, unknown>[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
   ];
 
-  // Direct URLs only (no .netlify.app → .com redirect, which breaks CORS in some WebViews)
+  // Same path on both Netlify (alias in netlify.toml) and Cloudflare Pages
+  // (functions/api/turn-config.js). Direct URLs only — no .netlify.app →
+  // .com redirect, which breaks CORS in some WebViews.
   const turnEndpoints = [
-    '/.netlify/functions/get-turn-config', // same-origin (works for musixquare.com)
-    'https://musixquare.com/.netlify/functions/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
+    '/api/turn-config', // same-origin (works for musixquare.com)
+    'https://musixquare.com/api/turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
   ];
 
   for (const url of turnEndpoints) {

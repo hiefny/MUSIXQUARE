@@ -7,6 +7,16 @@
   # break a launch-week build. Bump intentionally when upgrading deps.
   NODE_VERSION = "22"
 
+# ─── API alias for migration to Cloudflare Pages ───
+# Client now calls /api/turn-config (same path on both hosts). On Netlify
+# this rewrites to the existing function so deployments stay working until
+# DNS cuts over. Remove once Cloudflare Pages owns the apex.
+[[redirects]]
+  from = "/api/turn-config"
+  to = "/.netlify/functions/get-turn-config"
+  status = 200
+  force = true
+
 # ─── Domain migration: mxqr.netlify.app → musixquare.com ───
 # Explicit robots.txt exception for GSC over Netlify domain
 [[redirects]]

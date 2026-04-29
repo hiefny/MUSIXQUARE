@@ -1,0 +1,31 @@
+# Cloudflare Pages redirects (also honored by Netlify during migration).
+# Top-down order: first match wins, so SPA fallback must be LAST.
+# Different-host redirects (mxqr.netlify.app → musixquare.com) live only
+# in netlify.toml since Cloudflare won't see that hostname's traffic.
+
+# ── Page wrappers (200 = rewrite, URL stays the same) ──
+/designsystem    /designsystem/index.html    200
+/designsystem/   /designsystem/index.html    200
+/roadmap         /roadmap/index.html         200
+/roadmap/        /roadmap/index.html         200
+/changelog       /changelog/index.html       200
+/changelog/      /changelog/index.html       200
+/landing         /landing.html               200
+/landing/        /landing.html               200
+
+# ── Case-variant redirects → canonical lowercase (301) ──
+/DESIGNSYSTEM    /designsystem/    301
+/DESIGNSYSTEM/   /designsystem/    301
+/DesignSystem    /designsystem/    301
+/DesignSystem/   /designsystem/    301
+/CHANGELOG       /changelog/       301
+/CHANGELOG/      /changelog/       301
+/Changelog       /changelog/       301
+/Changelog/      /changelog/       301
+/ROADMAP         /roadmap/         301
+/ROADMAP/        /roadmap/         301
+/Roadmap         /roadmap/         301
+/Roadmap/        /roadmap/         301
+
+# ── SPA fallback ── must be the last rule
+/*    /index.html    200

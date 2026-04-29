@@ -116,7 +116,7 @@
             <div class="header-loading-text" id="header-loading-text">Loading...</div>
         </div>
 
-        <div class="header-right header-default-content" style="display: flex; align-items: center;">
+        <div class="header-right header-default-content flex-row-center">
             <div class="role-badge" id="role-badge">
                 <div class="role-dot"></div>
                 <!-- Role badge text is intentionally English — see player-controls.ts updateRoleBadge() -->
@@ -182,7 +182,7 @@
                             <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M8 5v14l11-7z" />
                             </svg>
-                            <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
+                            <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden>
                                 <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                             </svg>
                         </button>
@@ -222,15 +222,15 @@
                 </button>
 
                 <!-- Buttons Row: SYNC (left) + Media (right) -->
-                <div class="play-action-buttons" style="display:flex; gap:12px;">
-                    <button class="file-select-btn file-select-btn-large" id="btn-sync" style="flex:1;">
+                <div class="play-action-buttons play-actions-row">
+                    <button class="file-select-btn file-select-btn-large flex-1" id="btn-sync">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
                         </svg>
                         <span data-i18n="common.sync"></span>
                     </button>
-                    <button class="file-select-btn file-select-btn-large" id="btn-media-source" style="flex:1;">
+                    <button class="file-select-btn file-select-btn-large flex-1" id="btn-media-source">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8l7 4-7 4V8z" />
@@ -241,7 +241,7 @@
 
                 <input type="file" id="file-input" multiple aria-label="" data-i18n-aria-label="help.local_file"
                     accept=".mp3, .wav, .ogg, .flac, .m4a, .aac, audio/*"
-                    style="display:none">
+                    hidden>
             </div>
         </div>
     </div>
@@ -269,7 +269,7 @@
                 </button>
             </div>
         </div>
-        <div class="tab-body" data-custom-scroll style="position: relative;">
+        <div class="tab-body tab-body-anchor" data-custom-scroll>
             <!-- System Audio overlay (shown during system audio sharing) -->
             <div class="system-audio-playlist-note" id="system-audio-playlist-note">
                 <span data-i18n="system_audio.sharing"></span>
@@ -281,15 +281,14 @@
     </div>
 
     <div id="tab-connect" class="tab-content" role="tabpanel" aria-labelledby="nav-connect" data-custom-scroll>
-        <div class="tab-header" style="justify-content: space-between; align-items: center; padding-bottom: 0px;">
+        <div class="tab-header tab-header-spread">
             <span class="tab-title" data-i18n="nav.connect">연결</span>
-            <div class="settings-invite-wrapper invite-code-container"
-                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
+            <div class="settings-invite-wrapper invite-code-container invite-meta-cluster"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div class="invite-meta-label"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
-                    style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
+                    class="invite-meta-value">------</span>
             </div>
         </div>
         <div class="tab-body" data-custom-scroll>
@@ -348,17 +347,16 @@
     </div>
 
     <div id="tab-guide" class="tab-content" role="tabpanel" aria-labelledby="nav-guide" data-custom-scroll>
-        <div class="tab-header" style="justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="tab-header tab-header-spread-pad">
+            <div class="flex-row-gap-8">
                 <span class="tab-title" data-i18n="nav.help"></span>
             </div>
-            <div class="settings-invite-wrapper invite-code-container"
-                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
+            <div class="settings-invite-wrapper invite-code-container invite-meta-cluster"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div class="invite-meta-label"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
-                    style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
+                    class="invite-meta-value">------</span>
             </div>
         </div>
 
@@ -424,7 +422,7 @@
 
             <!-- Demo / Try the app (mobile) -->
             <button class="rename-device-btn" id="btn-demo-media-mobile"
-                style="margin: 24px 0 24px; width: calc(100% - 88px); align-self: center;">
+                class="divider-narrower">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                         d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
@@ -443,15 +441,14 @@
     </div> <!-- Ends tab-guide -->
 
     <div id="tab-settings" class="tab-content" role="tabpanel" aria-labelledby="nav-settings" data-custom-scroll>
-        <div class="tab-header" style="justify-content: space-between; align-items: center; padding-bottom: 0px;">
+        <div class="tab-header tab-header-spread">
             <span class="tab-title" data-i18n="nav.settings"></span>
-            <div class="settings-invite-wrapper invite-code-container"
-                style="text-align: right; cursor: pointer; display: flex; flex-direction: column; align-items: flex-end;"
+            <div class="settings-invite-wrapper invite-code-container invite-meta-cluster"
                 title="" data-i18n-title="toast.click_copy_invite">
-                <div style="font-size: 9px; font-weight: 700; color: var(--text-sub); letter-spacing: 0.1em; margin-bottom: 2px; text-align: right;"
+                <div class="invite-meta-label"
                     data-i18n="settings.invite_code"></div>
                 <span class="invite-code-value"
-                    style="font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.1em; text-align: right;">------</span>
+                    class="invite-meta-value">------</span>
             </div>
         </div>
 
@@ -628,7 +625,7 @@
                             <div class="slider-wrap">
                                 <div class="slider-header">
                                     <span><span data-i18n="common.mix"></span> <span
-                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            class="role-hint-label"
                                             data-i18n="settings.default_0pct"></span></span>
                                     <span class="val-disp" id="val-reverb">0%</span>
                                 </div>
@@ -640,7 +637,7 @@
                             <div class="slider-wrap">
                                 <div class="slider-header">
                                     <span><span data-i18n="settings.decay_time"></span> <span
-                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            class="role-hint-label"
                                             data-i18n="settings.default_5s"></span></span>
                                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                                 </div>
@@ -652,7 +649,7 @@
                             <div class="slider-wrap">
                                 <div class="slider-header">
                                     <span><span data-i18n="settings.predelay"></span> <span
-                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            class="role-hint-label"
                                             data-i18n="settings.default_01s"></span></span>
                                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                                 </div>
@@ -664,7 +661,7 @@
                             <div class="slider-wrap">
                                 <div class="slider-header">
                                     <span><span data-i18n="settings.highpass"></span> <span
-                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            class="role-hint-label"
                                             data-i18n="settings.default_20hz"></span></span>
                                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                                 </div>
@@ -676,7 +673,7 @@
                             <div class="slider-wrap">
                                 <div class="slider-header">
                                     <span><span data-i18n="settings.lowpass"></span> <span
-                                            style="font-size:10px; color:var(--text-sub); font-weight:normal; margin-left:4px;"
+                                            class="role-hint-label"
                                             data-i18n="settings.default_20khz"></span></span>
                                     <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                                 </div>
@@ -931,7 +928,7 @@
 
                     <!-- Demo / Try the app -->
                     <button class="rename-device-btn" id="btn-demo-media"
-                        style="margin: 8px auto 32px; width: calc(100% - 64px);">
+                        class="divider-narrow">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z" />
@@ -990,7 +987,7 @@
                      and aria-hidden so it never takes tab order or AT focus. -->
                 <input type="text" id="chat-ime-dummy" tabindex="-1" aria-hidden="true"
                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                    style="position:absolute; left:-9999px; top:0; opacity:0; width:1px; height:1px; pointer-events:none;">
+                    class="visually-offscreen">
                 <div class="chat-input" id="chat-input" contenteditable="true" role="textbox" aria-label=""
                     data-i18n-aria-label="chat.input_label" data-placeholder="메시지 입력..."
                     data-i18n-data-placeholder="chat.placeholder" autocomplete="off" autocorrect="off"
@@ -1090,12 +1087,12 @@
 
             <!-- Mobile UI / PC Right Panel Wrapper -->
             <div class="setup-mobile-view" data-custom-scroll>
-                <div class="setup-header-pill" style="display:none;"></div>
+                <div class="setup-header-pill" hidden></div>
                 <!-- Reserved for any extra header info -->
 
                 <!-- Welcome Slides (Shown first) -->
                 <!-- Welcome Area (Header + Slider) -->
-                <div id="setup-welcome-area" style="width: 100%; display: flex; flex-direction: column; flex: 1;">
+                <div id="setup-welcome-area" class="setup-welcome-wrap">
                     <div id="setup-welcome-header" class="setup-header-text">
                         <svg class="logo-svg logo-welcome" viewBox="43 12 214 24" fill="currentColor"
                             xmlns="http://www.w3.org/2000/svg">
@@ -1196,7 +1193,7 @@
                         <p data-i18n="setup.hello_select_role"></p>
                     </div>
 
-                    <div id="ob-slider-area" style="display:block; width:100%; position: relative; flex: 1;">
+                    <div id="ob-slider-area" class="ob-slider-block">
                         <div class="ob-slider-viewport" id="ob-slider-viewport">
                             <div class="ob-slider-track" id="ob-slider-track">
                                 <!-- Slide 1: Invite -->
@@ -1276,7 +1273,7 @@
                 </div>
 
                 <!-- Host: Connection Guide + Short Code -->
-                <div id="setup-code-area" class="setup-code-area" style="display:none;">
+                <div id="setup-code-area" class="setup-code-area" hidden>
                     <div class="setup-header-text">
                         <h2 data-i18n="setup.last_step"></h2>
                         <p data-i18n="setup.connect_devices"></p>
@@ -1284,7 +1281,7 @@
                     <div class="setup-guide-unified">
                         <!-- Method 1: WiFi -->
                         <div class="setup-unified-item">
-                            <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
                                 <!-- Material WiFi Icon Centered -->
                                 <path transform="translate(88, 10) scale(1)" fill="var(--primary)"
                                     d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
@@ -1298,8 +1295,7 @@
                                 <line x1="100" y1="36" x2="160" y2="55" class="graphic-line-active"
                                     stroke-opacity="0.5" />
                                 <!-- Devices -->
-                                <rect x="32" y="50" width="16" height="20" rx="3" class="graphic-device"
-                                    style="stroke:var(--primary); stroke-width:2;" />
+                                <rect x="32" y="50" width="16" height="20" rx="3" class="graphic-device svg-stroke-primary" />
                                 <rect x="72" y="50" width="16" height="20" rx="3" class="graphic-device" />
                                 <rect x="112" y="50" width="16" height="20" rx="3" class="graphic-device" />
                                 <rect x="152" y="50" width="16" height="20" rx="3" class="graphic-device" />
@@ -1309,10 +1305,9 @@
 
                         <!-- Method 2: Hotspot -->
                         <div class="setup-unified-item">
-                            <svg class="setup-graphic-svg" viewBox="0 0 200 90" style="height: 70px;">
+                            <svg class="setup-graphic-svg h-70" viewBox="0 0 200 90">
                                 <g transform="translate(0, 5)">
-                                    <rect x="30" y="25" width="22" height="38" rx="4" class="graphic-device"
-                                        style="stroke:var(--primary); stroke-width:2;" />
+                                    <rect x="30" y="25" width="22" height="38" rx="4" class="graphic-device svg-stroke-primary" />
                                     <circle cx="41" cy="44" r="5" fill="var(--primary)" opacity="0.2" />
                                     <line x1="55" y1="44" x2="115" y2="15" class="graphic-line-active" />
                                     <line x1="55" y1="44" x2="135" y2="44" class="graphic-line-active" />
@@ -1329,12 +1324,12 @@
                     <div class="setup-code-area-bottom">
                         <div class="setup-code-label" data-i18n="setup.enter_code_connect"></div>
                         <input type="text" class="setup-join-input" id="setup-code" value="------" readonly
-                            style="border-bottom: 2px solid transparent; opacity: 1; -webkit-text-fill-color: var(--text-main); color: var(--text-main);">
+                            class="code-input-active">
                     </div>
                 </div>
 
                 <!-- Guest: Connection Guide + Input -->
-                <div id="setup-join-area" style="display:none; width:100%;">
+                <div id="setup-join-area" class="setup-area-block" hidden>
                     <div class="setup-header-text">
                         <h2 data-i18n="setup.last_step"></h2>
                         <p data-i18n="setup.enter_host_code_alt"></p>
@@ -1342,7 +1337,7 @@
                     <div class="setup-guide-unified">
                         <!-- Method 1: WiFi -->
                         <div class="setup-unified-item">
-                            <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
                                 <path transform="translate(88, 10) scale(1)" fill="var(--primary)"
                                     d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
                                 <line x1="100" y1="36" x2="65" y2="55" class="graphic-line-active"
@@ -1350,23 +1345,20 @@
                                 <line x1="100" y1="36" x2="135" y2="55" class="graphic-line-active"
                                     stroke-opacity="0.5" />
                                 <rect x="57" y="50" width="16" height="20" rx="3" class="graphic-device" />
-                                <rect x="127" y="50" width="16" height="20" rx="3" class="graphic-device"
-                                    style="stroke:var(--primary); stroke-width:2;" />
+                                <rect x="127" y="50" width="16" height="20" rx="3" class="graphic-device svg-stroke-primary" />
                             </svg>
                             <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
                         </div>
 
                         <!-- Method 2: Hotspot -->
                         <div class="setup-unified-item">
-                            <svg class="setup-graphic-svg" viewBox="0 0 200 85" style="height: 70px;">
+                            <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
                                 <g transform="translate(0, 5)">
                                     <rect x="50" y="25" width="18" height="30" rx="3" class="graphic-device" />
                                     <path d="M75 40 h50" class="graphic-line-active" />
-                                    <rect x="132" y="25" width="18" height="30" rx="3" class="graphic-device"
-                                        style="stroke:var(--primary); stroke-width:2;" />
-                                    <text x="45" y="70" class="graphic-text" style="font-size: 10px;">HOST</text>
-                                    <text x="125" y="70" class="graphic-text" fill="var(--primary)"
-                                        style="font-size: 10px;">GUEST</text>
+                                    <rect x="132" y="25" width="18" height="30" rx="3" class="graphic-device svg-stroke-primary" />
+                                    <text x="45" y="70" class="graphic-text text-10">HOST</text>
+                                    <text x="125" y="70" class="graphic-text text-10" fill="var(--primary)">GUEST</text>
                                 </g>
                             </svg>
                             <div class="setup-inner-desc" data-i18n="help.wifi_hotspot"></div>
@@ -1383,7 +1375,7 @@
                 </div>
 
                 <!-- Host/Guest: Role selection -->
-                <div id="setup-role-area" style="display:none; width:100%; position: relative;">
+                <div id="setup-role-area" class="setup-area-block is-relative" hidden>
 
                     <div class="setup-header-text">
                         <h2 data-i18n="setup.what_sound"></h2>
@@ -1391,8 +1383,8 @@
                     </div>
 
                     <div class="setup-graphic-container"
-                        style="height: auto; aspect-ratio: 2.2; margin-bottom: 24px; background: transparent; max-height: 180px; margin-left: -28px; margin-right: -28px; width: calc(100% + 56px);">
-                        <svg class="setup-graphic-svg" viewBox="0 0 340 170" style="overflow:visible;">
+                        class="wordmark-decor">
+                        <svg class="setup-graphic-svg svg-overflow-visible" viewBox="0 0 340 170">
                             <defs>
                                 <linearGradient id="grad-tl" x1="1" y1="1" x2="0" y2="0">
                                     <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
@@ -1437,8 +1429,7 @@
                                 <circle cx="60" cy="92" r="4.5" class="spk-driver" />
                                 <circle cx="60" cy="112" r="4.5" class="spk-driver" />
                                 <!-- Base -->
-                                <rect x="49" y="128" width="22" height="3" rx="1"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.5;" />
+                                <rect x="49" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
                             </g>
 
                             <!-- FR (Front Right) -->
@@ -1450,17 +1441,14 @@
                                 <circle cx="282" cy="92" r="4.5" class="spk-driver" />
                                 <circle cx="282" cy="112" r="4.5" class="spk-driver" />
                                 <!-- Base -->
-                                <rect x="271" y="128" width="22" height="3" rx="1"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.5;" />
+                                <rect x="271" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
                             </g>
 
                             <!-- Center (C) -->
                             <g id="svg-spk-center" class="graphic-speaker">
                                 <!-- Feet -->
-                                <rect x="155" y="140" width="4" height="3"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
-                                <rect x="181" y="140" width="4" height="3"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                                <rect x="155" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                                <rect x="181" y="140" width="4" height="3" class="svg-fill-sub-08" />
                                 <!-- Cabinet -->
                                 <rect x="145" y="125" width="50" height="15" rx="2" />
                                 <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
@@ -1471,19 +1459,17 @@
                             <!-- Woofer (SW) -->
                             <g id="svg-spk-woofer" class="graphic-speaker">
                                 <!-- Feet -->
-                                <rect x="111" y="140" width="4" height="3"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
-                                <rect x="133" y="140" width="4" height="3"
-                                    style="fill:var(--text-sub); stroke:none; opacity:0.8;" />
+                                <rect x="111" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                                <rect x="133" y="140" width="4" height="3" class="svg-fill-sub-08" />
                                 <!-- Cabinet -->
                                 <rect x="108" y="108" width="32" height="32" rx="3" />
                                 <!-- Driver -->
                                 <circle cx="124" cy="124" r="9" class="spk-driver"
-                                    style="stroke:var(--surface-3); stroke-width:1;" />
+                                    class="svg-stroke-divider" />
                             </g>
                         </svg>
                     </div>
-                    <div class="channel-grid" id="setup-role-grid" style="padding: 0; margin-top: 0;">
+                    <div class="channel-grid setup-card-tight" id="setup-role-grid">
                         <button type="button" class="ch-opt" data-join-ch="-1">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
@@ -1538,7 +1524,7 @@
             </div>
             <div class="dialog-message" id="dialog-message"></div>
             <div class="dialog-actions">
-                <button type="button" class="dialog-secondary" id="btn-dialog-secondary" style="display:none"
+                <button type="button" class="dialog-secondary" id="btn-dialog-secondary" hidden
                     data-i18n="common.cancel"></button>
                 <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok"></button>
             </div>
@@ -1610,7 +1596,7 @@
             </div>
 
             <div class="ob-actions">
-                <button class="btn-ob-secondary" id="btn-close-media-popup" style="flex: 1;"
+                <button class="btn-ob-secondary flex-1" id="btn-close-media-popup"
                     data-i18n="common.close"></button>
             </div>
         </div>
@@ -1625,33 +1611,33 @@
                 <p data-i18n-html="youtube.enter_link_desc_html"></p>
             </div>
 
-            <div class="setup-join-area" style="margin-top: 0;">
+            <div class="setup-join-area setup-mt-0">
                 <div contenteditable="true" id="youtube-url-input" class="setup-join-input" role="textbox" aria-label=""
                     data-i18n-aria-label="youtube.enter_link" data-placeholder="https://youtube.com/..."
-                    style="font-size: 15px; font-weight: 500; letter-spacing: normal; padding: 12px 0;"></div>
+                    class="yt-intro-text"></div>
 
                 <div id="youtube-preview"
-                    style="display:none; background:var(--surface-2); border-radius:16px; padding:12px; gap:12px;">
+                    class="yt-preview-card" hidden>
                     <img id="youtube-preview-thumb" src="" alt="" data-i18n-alt="youtube.thumbnail"
-                        style="width:100%; border-radius:10px; aspect-ratio:16/9; object-fit:cover; background:#000;">
-                    <div style="margin-top:8px;">
+                        class="yt-preview-thumb">
+                    <div class="setup-card-mt-8">
                         <p id="youtube-preview-title"
-                            style="font-size:13px; font-weight:700; color:var(--text-main); margin:0; line-height:1.4;">
+                            class="yt-preview-title">
                         </p>
                         <p id="youtube-preview-channel"
-                            style="font-size:11px; color:var(--text-sub); margin:4px 0 0 0;"></p>
+                            class="yt-preview-channel"></p>
                     </div>
                 </div>
 
                 <p id="youtube-preview-status"
-                    style="font-size:11px; color:var(--text-sub); text-align:center; margin:4px 0 0 0; font-weight: 600;"
+                    class="yt-preview-meta"
                     data-i18n="youtube.enter_link_prompt">
                 </p>
             </div>
 
-            <div class="ob-actions" style="margin-top: 8px; display: flex; gap: 10px;">
-                <button class="btn-ob-secondary" id="btn-yt-cancel" style="flex: 1;" data-i18n="common.cancel"></button>
-                <button id="youtube-play-btn" class="btn-ob-primary" disabled style="flex: 1.5; opacity: 0.5;"
+            <div class="ob-actions setup-card-mt-8-row">
+                <button class="btn-ob-secondary flex-1" id="btn-yt-cancel" data-i18n="common.cancel"></button>
+                <button id="youtube-play-btn" class="btn-ob-primary" disabled class="yt-play-btn-flex15"
                     data-i18n="player.play_start"></button>
             </div>
         </div>

@@ -5827,3 +5827,60 @@ html:not(.ios-standalone) body {
     margin: 4px 0 0 0;
     font-weight: 600;
 }
+
+/* Onboarding slider strip block (id=ob-slider-area) */
+.ob-slider-block {
+    display: block;
+    width: 100%;
+    position: relative;
+    flex: 1;
+}
+
+/* Setup area body wrap (id=setup-join-area, setup-role-area, ...).
+   Initial state is hidden (HTML5 [hidden]); JS toggles display via
+   el.style.display = 'flex' which overrides the [hidden] default
+   without needing inline-style allowed by CSP. */
+.setup-area-block {
+    width: 100%;
+}
+
+.setup-area-block.is-relative {
+    position: relative;
+}
+
+/* Code input "active" / focused look (was an inline override on a span) */
+.code-input-active {
+    border-bottom: 2px solid transparent;
+    opacity: 1;
+    -webkit-text-fill-color: var(--text-main);
+    color: var(--text-main);
+}
+
+/* Onboarding intro text inside the YT URL card */
+.yt-intro-text {
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: normal;
+    padding: 12px 0;
+}
+
+/* Hidden preview card container that JS toggles to flex */
+.yt-preview-card {
+    background: var(--surface-2);
+    border-radius: 16px;
+    padding: 12px;
+    gap: 12px;
+}
+
+/* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */
+.yt-preview-channel {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin: 4px 0 0 0;
+}
+
+/* "Watch together" button: 1.5x flex grow, dimmed while disabled */
+.yt-play-btn-flex15 {
+    flex: 1.5;
+    opacity: 0.5;
+}

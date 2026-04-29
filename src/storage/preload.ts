@@ -34,15 +34,8 @@ let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
 let _activePlayPreloadedIndex: number | undefined;
 let _preloadScope: SessionScope | null = null;
-/** Per-peer unicast preload abort controls (key: peerId).
- *  Tracks scope + sid + conn so cancelPreloadTransfer can send a targeted
- *  PRELOAD_ABORT to the receiving peer before disposing the scope. */
-interface UnicastEntry {
-  scope: SessionScope;
-  sid: number;
-  conn: DataConnection;
-}
-const _activePreloadUnicasts = new Map<string, UnicastEntry>();
+/** Per-peer unicast preload abort controls (key: peerId) */
+const _activePreloadUnicasts = new Map<string, SessionScope>();
 
 // ─── Approach B: Serialized Preload Transfers ──────────────────────
 // Track the in-flight backgroundTransfer promise so the next preload
@@ -102,53 +95,12 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
  * Cancel any in-flight preload transfer (host-only).
  * Called by clearPreloadState() during backward navigation to prevent stale
  * preload data from reaching guests after the host changes tracks.
- *
- * Sends PRELOAD_ABORT to receivers BEFORE disposing the scopes so guests
- * can release their OPFS preload slot, sessionState entry, and reorder
- * buffer for this sid. Without the explicit abort signal, a mid-stream
- * cancel leaves guests with `finalized=false, skipped=false` zombie
- * sessions — cleanupStalePreloadSessions only purges finalized/skipped,
- * so they sit until the PRELOAD_SESSION_MAX=20 cap evicts oldest, while
- * the worker's preloadSlots[N] keeps its sync access handle until same-
- * filename preempt or session leave. The abort path tells guests to
- * tear down immediately.
- *
- * Order matters — send first, then dispose. The data channel is FIFO,
- * so the ABORT lands BEFORE any chunk that the loop might still send
- * after dispose (loop checks scope.aborted only at iteration top, so
- * one chunk in flight is possible). Guest's handlePreloadAbort marks
- * the session skipped; subsequent chunks for that sid hit the existing
- * skipped guard at handlePreloadChunk:814 and are dropped.
  */
 export function cancelPreloadTransfer(): void {
   // Supersede any pending preloadNextTrack that is still awaiting a prior
   // serialized transfer — it will notice the generation mismatch after its
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
-
-  // Notify receivers of in-flight transfers BEFORE disposing scopes.
-  const sid = getState('preload.sessionId') as number;
-
-  // Broadcast: every eligible peer that the broadcast loop targets shares
-  // the current preload sid. Send ABORT to all of them — handler is a
-  // no-op if a peer never had a session for this sid.
-  if (sid) {
-    const broadcastTargets = filterEligiblePeers();
-    broadcastTargets.forEach((p) => {
-      const conn = p.conn as DataConnection;
-      safeSend(conn, { type: MSG.PRELOAD_ABORT, sessionId: sid });
-    });
-  }
-
-  // Unicast: each entry tracks its own (sid, conn). May differ from the
-  // broadcast sid if a unicast was started for an earlier preload session
-  // that's still streaming to a late-joiner.
-  for (const entry of _activePreloadUnicasts.values()) {
-    safeSend(entry.conn, { type: MSG.PRELOAD_ABORT, sessionId: entry.sid });
-    entry.scope.dispose();
-  }
-  _activePreloadUnicasts.clear();
-
   if (_preloadScope) {
     _preloadScope.dispose();
     _preloadScope = null;
@@ -478,9 +430,9 @@ export async function unicastPreload(
 ): Promise<void> {
   // Per-peer scope isolation: cancel any previous unicast preload to same peer
   const unicastKey = conn.peer;
-  const prevEntry = _activePreloadUnicasts.get(unicastKey);
-  const scope = SessionScope.replace(prevEntry?.scope ?? null);
-  _activePreloadUnicasts.set(unicastKey, { scope, sid: sessionId, conn });
+  const prevScope = _activePreloadUnicasts.get(unicastKey) ?? null;
+  const scope = SessionScope.replace(prevScope);
+  _activePreloadUnicasts.set(unicastKey, scope);
 
   if (!conn || !conn.open || !file) {
     scope.dispose();
@@ -537,7 +489,7 @@ export async function unicastPreload(
     safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
   } finally {
     // Clean up scope if still ours
-    if (_activePreloadUnicasts.get(unicastKey)?.scope === scope) {
+    if (_activePreloadUnicasts.get(unicastKey) === scope) {
       scope.dispose();
       _activePreloadUnicasts.delete(unicastKey);
     }
@@ -982,97 +934,6 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
   bus.emit('storage:preload-ready', data.index as number);
 }
 
-/**
- * Tear down a preload session aborted mid-stream by the host.
- *
- * Why this exists: cancelPreloadTransfer disposes the host's broadcast and
- * unicast scopes, which makes the loops stop sending chunks. But scope
- * disposal is local to the host — receivers don't know the transfer was
- * cut and would otherwise carry a `finalized=false, skipped=false` session
- * entry until PRELOAD_SESSION_MAX=20 evicts them, plus a worker preloadSlot
- * keeping a sync access handle on the partial OPFS file. This handler
- * propagates the abort.
- *
- * Idempotent on every guard:
- *   - !session         → no work to undo, return.
- *   - session.finalized → natural finalize already cleaned up; skip skip-
- *                         marking + skip OPFS_RESET_SESSION (firing it now
- *                         would race against a possibly-already-released
- *                         worker slot — silent no-op there too, but no
- *                         reason to post in the first place).
- *   - session.skipped   → already torn down by an earlier abort or skipped
- *                         flag from PRELOAD_START; bail out.
- *
- * Late chunks for sid arriving AFTER abort hit handlePreloadChunk's
- * existing skipped guard (preload.ts:814) and are dropped.
- */
-function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!isHostBroadcast(conn)) return;
-
-  const sid = data.sessionId as number;
-  if (!sid) return;
-
-  const sessionState = getState('preload.sessionState');
-  const session = sessionState.get(sid);
-
-  // Cancel any pending deferred-end timer that handlePreloadEnd may have
-  // set when it saw a partial session. Idempotent (no-op if absent).
-  clearManagedTimer(`preload-end-deferred-${sid}`);
-
-  // Drop any reorder buffer entries for this sid — they would otherwise
-  // wait forever for chunks that aren't coming. Idempotent.
-  preloadReorderBuffer.delete(sid);
-
-  if (!session || session.finalized || session.skipped) {
-    log.debug(
-      `[Preload] Abort received for sid ${sid} — session ${
-        !session ? 'absent' : session.finalized ? 'finalized' : 'skipped'
-      }, no teardown needed`,
-    );
-    // Still relay downstream — a deeper relay-host may have an in-flight
-    // session for the same sid that we don't track here.
-    const downstreamPeersEarly = getState('relay.downstreamDataPeers');
-    downstreamPeersEarly.forEach((p) => {
-      safeSend(p, { type: MSG.PRELOAD_ABORT, sessionId: sid });
-    });
-    return;
-  }
-
-  log.debug(`[Preload] Abort: tearing down sid ${sid} (${session.name})`);
-
-  // Mark skipped so cleanupStalePreloadSessions can evict on the next
-  // PRELOAD_START, and so any in-flight chunks for this sid are dropped
-  // by the existing skipped guard.
-  const updated = new Map(sessionState);
-  updated.set(sid, { ...session, skipped: true });
-  setState('preload.sessionState', updated);
-
-  // Release the worker preload slot for this sid. Critical: do NOT use
-  // OPFS_END here — that path posts OPFS_FILE_READY which would push a
-  // partial blob into preload.nextFileBlob via the storage:preload-file-
-  // ready handler. OPFS_RESET_SESSION just releases the lock and removes
-  // the slot.
-  if (session.name) {
-    postWorkerCommand({
-      command: 'OPFS_RESET_SESSION',
-      isPreload: true,
-      sessionId: validateSessionId(sid),
-    });
-  }
-
-  // Hide the preparing-next loader if it was showing for THIS preload.
-  const preloadMeta = getState('preload.meta');
-  if (preloadMeta && (preloadMeta.sessionId as number) === sid) {
-    showLoader(false);
-  }
-
-  // Relay downstream so remote-via-relay guests also tear down.
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, { type: MSG.PRELOAD_ABORT, sessionId: sid });
-  });
-}
-
 function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guest ignores
@@ -1272,7 +1133,6 @@ export function initPreload(): void {
     [MSG.PRELOAD_START]: handlePreloadStart,
     [MSG.PRELOAD_CHUNK]: handlePreloadChunk,
     [MSG.PRELOAD_END]: handlePreloadEnd,
-    [MSG.PRELOAD_ABORT]: handlePreloadAbort,
     [MSG.PRELOAD_ACK]: handlePreloadAck,
     [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
@@ -1429,7 +1289,7 @@ export function initPreload(): void {
       _activePlayPreloadedIndex = undefined;
       _preloadScope?.dispose();
       _preloadScope = null;
-      _activePreloadUnicasts.forEach((e) => e.scope.dispose());
+      _activePreloadUnicasts.forEach((s) => s.dispose());
       _activePreloadUnicasts.clear();
     }
   });

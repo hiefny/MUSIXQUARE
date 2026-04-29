@@ -247,7 +247,6 @@ export interface ProtocolMap {
   'preload-chunk': { chunk: Uint8Array; index: number; sessionId: number };
   'preload-end': { name: string; index: number; sessionId: number };
   'preload-ack': { index: number };
-  'preload-abort': { sessionId: number };
 
   // 'sync-response', 'get-sync-time', 'global-resync-request' removed — dead code
   // 'heartbeat', 'heartbeat-ack', 'ping-latency', 'pong-latency' removed — replaced by sync-ping/pong

@@ -52,15 +52,7 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
   const cmd = payload.command;
 
   // OPFS commands require filename + valid numeric sessionId
-  // OPFS_RESET_SESSION is a per-sid cleanup (used by PRELOAD_ABORT) — needs
-  // sessionId but not filename, so it joins the same exception list as
-  // OPFS_RESET (whole-pool wipe) and OPFS_CLEANUP (filename-targeted).
-  if (
-    cmd.startsWith('OPFS_') &&
-    cmd !== 'OPFS_RESET' &&
-    cmd !== 'OPFS_RESET_SESSION' &&
-    cmd !== 'OPFS_CLEANUP'
-  ) {
+  if (cmd.startsWith('OPFS_') && cmd !== 'OPFS_RESET' && cmd !== 'OPFS_CLEANUP') {
     if (!payload.filename) log.warn(`[Worker] Missing filename in ${cmd}`);
 
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
@@ -69,16 +61,6 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
     const isCriticalOp = cmd === 'OPFS_START' || cmd === 'OPFS_WRITE' || cmd === 'OPFS_END';
     if (isCriticalOp && !payload.sessionId) {
       log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
-      return;
-    }
-  }
-
-  // OPFS_RESET_SESSION still needs a valid numeric sessionId (it's the only
-  // identifier for which slot to release). Validate without the filename gate.
-  if (cmd === 'OPFS_RESET_SESSION') {
-    payload.sessionId = validateSessionId(payload.sessionId ?? 0);
-    if (!payload.sessionId) {
-      log.warn(`[Worker] Dropped OPFS_RESET_SESSION: invalid sessionId`);
       return;
     }
   }

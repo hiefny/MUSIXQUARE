@@ -90,11 +90,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
   [MSG.PRELOAD_START]: (d) =>
     typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
-  // sessionId required — handler uses it to scope sessionState/reorder/OPFS
-  // cleanup. Without the guard, an injected abort with no sid would no-op
-  // through every guard in handlePreloadAbort but still consume rate-limit
-  // budget. Mirrors PRELOAD_END's name-required style.
-  [MSG.PRELOAD_ABORT]: (d) => isFiniteNumber(d.sessionId),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) =>
     isFiniteNumber(d.band) &&
@@ -303,7 +298,11 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   // amplification at the dispatcher; per-handler hostConn guards still
   // protect the relay node's own state mutation path.
   const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.has(msgType) && conn === hostConn) {
+  if (
+    downstreamDataPeers.length > 0 &&
+    RELAYABLE_COMMANDS.has(msgType) &&
+    conn === hostConn
+  ) {
     const senderPeerId = conn?.peer;
     downstreamDataPeers.forEach((p) => {
       // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)

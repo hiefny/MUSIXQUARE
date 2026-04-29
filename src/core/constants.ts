@@ -102,7 +102,6 @@ export const MSG = {
   PLAYLIST_UPDATE: 'playlist-update',
   PLAY_PRELOADED: 'play-preloaded',
   PREAMP: 'preamp',
-  PRELOAD_ABORT: 'preload-abort',
   PRELOAD_ACK: 'preload-ack',
   PRELOAD_CHUNK: 'preload-chunk',
   PRELOAD_END: 'preload-end',

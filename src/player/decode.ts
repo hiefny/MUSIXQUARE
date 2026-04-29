@@ -442,6 +442,28 @@ export async function loadPreloadedTrack(
 
     const activeMeta = localMeta || getState('transfer.meta');
 
+    // OPFS rotation — delete the previous track's on-disk file before
+    // overwriting currentFileBlob. handleFileStart already does this for
+    // the main-transfer path; the preload-promoted path didn't, which
+    // accumulated one preload_*-named OPFS file per track. With 100
+    // tracks the disk hit ~1.5GB and iOS started dropping the app under
+    // memory pressure (mmap'd OPFS handles count toward RAM accounting).
+    //
+    // We attempt cleanup with both isPreload variants because the prior
+    // track's OPFS file could be either current_<name>_<inst> (came via
+    // main transfer) or preload_<name>_<inst> (came via preload promote).
+    // Worker's removeEntry is idempotent — the wrong-prefix call hits
+    // "file may not exist" and is a no-op.
+    const newName = (activeMeta?.name as string) || '';
+    const prevOpfsName = getState('files.currentFileOpfs')?.name;
+    if (prevOpfsName && prevOpfsName !== newName) {
+      cleanupOPFSInWorker(prevOpfsName, false);
+      cleanupOPFSInWorker(prevOpfsName, true);
+    }
+    if (newName) {
+      setState('files.currentFileOpfs', { name: newName });
+    }
+
     // Update global state
     setState('files.currentFileBlob', localBlob);
     setState('transfer.meta', activeMeta);

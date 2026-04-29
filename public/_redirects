@@ -1,15 +1,22 @@
 # Cloudflare Pages redirects (also honored by Netlify during migration).
-# Top-down order: first match wins, so SPA fallback must be LAST.
-# Different-host redirects (mxqr.netlify.app → musixquare.com) live only
-# in netlify.toml since Cloudflare won't see that hostname's traffic.
+# Top-down order: first match wins.
 #
-# Cloudflare Pages auto-handles directory index and `.html` stripping
-# (e.g. `/landing` → `/landing.html`, `/designsystem` →
-# `/designsystem/index.html`), so explicit wrapper rules aren't needed
-# here. Adding them tripped Cloudflare's cycle-detection guard since
-# `/foo → /foo/index.html` paired with the SPA catch-all looks like a
-# strip-then-rematch loop. Netlify still has the same wrappers in
-# netlify.toml; harmless duplication during migration.
+# Two things deliberately omitted:
+#   1. Page wrappers (/landing → /landing.html, /designsystem →
+#      /designsystem/index.html, etc.). Cloudflare Pages auto-handles
+#      directory index and `.html` stripping, so these were redundant
+#      and combined with the SPA catch-all looked like a strip-and-
+#      rematch loop to its static analyzer.
+#   2. SPA catch-all (/* → /index.html 200). Cloudflare Pages serves
+#      /index.html for any 404 response automatically, so an explicit
+#      catch-all isn't needed and itself trips cycle-detection because
+#      Cloudflare strips `.html` from the destination and re-matches
+#      the rule.
+#
+# Different-host redirects (mxqr.netlify.app → musixquare.com) live in
+# netlify.toml only; Cloudflare never sees that hostname's traffic.
+# Netlify also keeps the wrappers + SPA fallback in netlify.toml, so
+# behavior on both hosts stays identical.
 
 # ── Case-variant redirects → canonical lowercase (301) ──
 /DESIGNSYSTEM    /designsystem/    301
@@ -24,6 +31,3 @@
 /ROADMAP/        /roadmap/         301
 /Roadmap         /roadmap/         301
 /Roadmap/        /roadmap/         301
-
-# ── SPA fallback ── must be the last rule
-/*    /index.html    200

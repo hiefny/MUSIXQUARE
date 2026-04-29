@@ -125,18 +125,15 @@ function syncCanvasSize(
 // near-silent for a sustained window. This handles long reverb tails
 // (settings.default_5s and beyond) cleanly — the visual stops when
 // the audio actually stops, not after an arbitrary timer.
-// Tuned by feel for cathedral-tier reverb tails. -65 dB was technically
-// silent but musically still audible (the long wash users described as
-// "잔잔한 애들") and the visualizer kept twitching for it. -45 dB is
-// closer to the perceptual noise floor — once the tail has decayed below
-// that for 800ms straight, the audio is inaudible enough that the visual
-// stopping reads as "the song ended" rather than "the visualizer broke".
-const VIZ_SILENCE_THRESHOLD_DB = -45;
-const VIZ_SILENCE_SUSTAINED_MS = 800;
-// Hard cap: even with a stuck analyser the loop won't poll forever. 15s
-// covers any practical reverb preset (settings cap user-facing decay at
-// 5s, plus a few seconds of true tail).
-const VIZ_SILENCE_MAX_CAP_MS = 15_000;
+// Follow the audio all the way down. -100 dB is the analyser's float
+// floor — frequency data only stays at -100 when the source is truly
+// silent (or disconnected), so anything brushing above it is still
+// audible to careful listeners and the visualizer should keep tracking
+// it. 1000ms sustained absorbs brief gaps in long reverb washes;
+// 30s cap is a safety net for stuck/disconnected analysers.
+const VIZ_SILENCE_THRESHOLD_DB = -100;
+const VIZ_SILENCE_SUSTAINED_MS = 1000;
+const VIZ_SILENCE_MAX_CAP_MS = 30_000;
 const VIZ_SILENCE_POLL_MS = 100;
 let _silenceFirstSeenAt = 0;
 

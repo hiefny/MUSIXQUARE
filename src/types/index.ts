@@ -504,8 +504,11 @@ export interface StateTree {
   recovery: {
     pending: boolean;
     retryCount: number;
-    pendingFileName: string;
-    pendingFileIndex: number | undefined;
+    /**
+     * Phase 4 removed `pendingFileName` + `pendingFileIndex` from this slice.
+     * Consumers now read `playback.pendingRecoveryTarget` (single atomic
+     * { index, name } object).
+     */
   };
   systemAudio: { isReceiving: boolean };
   /**
@@ -531,6 +534,14 @@ export interface StateTree {
      */
     pendingPlayTimeSetAt: number;
     pendingPausedAt: number | undefined;
+    /**
+     * The track we're awaiting (recovery, preload-promoted blob, deferred
+     * play). Replaces the legacy `recovery.pendingFileIndex` +
+     * `recovery.pendingFileName` pair so consumers read one atomic
+     * snapshot instead of two fields that could disagree mid-update.
+     * `null` = no recovery target.
+     */
+    pendingRecoveryTarget: { index: number; name: string } | null;
     /**
      * Content-keyed identifiers of tracks whose decode failed (timeout,
      * corrupt, unsupported). Consulted on auto-advance to skip rather than

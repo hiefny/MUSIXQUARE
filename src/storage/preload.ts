@@ -788,9 +788,10 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // we must be mutually exclusive. If we're blocked waiting for a track, ONLY show
   // that track's progress. Otherwise, show the latest broadcast preload.
   const lifecycle = getState('playback.lifecycle');
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
   const shouldUpdateUI =
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
-      ? updatedSession.index === getState('recovery.pendingFileIndex')
+      ? updatedSession.index === recoveryTarget?.index
       : sessionId === latestPreloadSessionId;
 
   if (shouldUpdateUI && updatedSession.total > 0) {
@@ -1137,7 +1138,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     // Lifecycle (Phase 3 dual-write): blob is ready in memory → promote to DECODING.
     // The subsequent loadPreloadedTrack flow will emit DECODE_SUCCESS on completion.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name });
-    setState('recovery.pendingFileIndex', index);
+    setState('playback.pendingRecoveryTarget', { index, name });
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
 
@@ -1184,7 +1185,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index, name });
-    setState('recovery.pendingFileIndex', index);
+    setState('playback.pendingRecoveryTarget', { index, name });
     showLoader(true, t('transfer.download_finishing'));
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
@@ -1206,8 +1207,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index, name });
   _activePlayPreloadedIndex = undefined;
 
-  setState('recovery.pendingFileIndex', index);
-  setState('recovery.pendingFileName', name);
+  setState('playback.pendingRecoveryTarget', { index, name });
   showLoader(true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');
@@ -1290,8 +1290,8 @@ export function initPreload(): void {
       // HOTFIX (2026-04-20): there's ONE case where a "stale" completion is not
       // actually stale — we explicitly want it. When the user advances to a
       // track whose preload was still assembling, we transition the lifecycle
-      // to AWAITING_PRELOAD for that track (recovery.pendingFileIndex records
-      // it). Host then schedules the NEXT preload, which bumps
+      // to AWAITING_PRELOAD for that track (playback.pendingRecoveryTarget
+      // records it). Host then schedules the NEXT preload, which bumps
       // latestPreloadSessionId. When OUR target's OPFS write finally resolves
       // moments later, the naïve guard drops it because its session ID is now
       // behind latest. Result: guest stalls in AWAITING_PRELOAD for 10s, then
@@ -1310,18 +1310,16 @@ export function initPreload(): void {
       //       of the beta regression: session 2 finalizes → PRELOAD_START(3)
       //       cleans session 2 up → OPFS completion for 2 fires → lookup
       //       misses → we wrongly think it's stale → drop.
-      //   (b) filename compared against the playlist entry at
-      //       recovery.pendingFileIndex — our AWAITING_PRELOAD target.
+      //   (b) filename compared against playback.pendingRecoveryTarget.name
+      //       — our AWAITING_PRELOAD target.
       //
       // Fall through to (b) when (a) is missing AND we're AWAITING_PRELOAD.
       const sessionForFile = getState('preload.sessionState').get(sessionId);
       const lifecycle = getState('playback.lifecycle');
-      const pendingIdx = getState('recovery.pendingFileIndex');
-      const playlist = getState('playlist.items') || [];
+      const recoveryTarget = getState('playback.pendingRecoveryTarget');
       const awaitedName =
-        lifecycle === 'AWAITING_PRELOAD' && typeof pendingIdx === 'number' && pendingIdx >= 0
-          ? (playlist[pendingIdx]?.name ?? '')
-          : '';
+        lifecycle === 'AWAITING_PRELOAD' ? (recoveryTarget?.name ?? '') : '';
+      const pendingIdx = recoveryTarget?.index ?? -1;
       const isOurAwaitTarget =
         lifecycle === 'AWAITING_PRELOAD' && !!filename && !!awaitedName && filename === awaitedName;
 
@@ -1396,10 +1394,10 @@ export function initPreload(): void {
       showLoader(false);
 
       // If guest was waiting for this preloaded file, trigger playback.
-      // Phase 4: lifecycle is authoritative; the legacy flag is still set
-      // in parallel during dual-write but we read from the state machine.
+      // Lifecycle is authoritative for the wait gate; pendingRecoveryTarget
+      // confirms the index match.
       const isAwaiting = getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
-      const pendingFileIndex = getState('recovery.pendingFileIndex');
+      const pendingFileIndex = getState('playback.pendingRecoveryTarget')?.index;
       if (isAwaiting && pendingFileIndex === nextTrackIndex) {
         log.debug('[Preload] Guest was waiting for this track. Playing now.');
         // Lifecycle (Phase 3 dual-write): the blob we were AWAITING_PRELOAD for

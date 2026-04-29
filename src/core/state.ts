@@ -171,8 +171,8 @@ function createInitialState(): StateTree {
     recovery: {
       pending: false,
       retryCount: 0,
-      pendingFileName: '',
-      pendingFileIndex: undefined,
+      // Phase 4: pendingFileName + pendingFileIndex moved to
+      // playback.pendingRecoveryTarget (atomic { index, name }).
     },
 
     systemAudio: {
@@ -185,6 +185,7 @@ function createInitialState(): StateTree {
       pendingPlayTime: undefined,
       pendingPlayTimeSetAt: 0,
       pendingPausedAt: undefined,
+      pendingRecoveryTarget: null,
       failedTrackKeys: new Set<string>(),
     },
   };

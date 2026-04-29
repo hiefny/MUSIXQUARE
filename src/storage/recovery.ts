@@ -79,8 +79,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   }
 
   const meta = getState('transfer.meta');
-  const pendingFileName = getState('recovery.pendingFileName');
-  const fileName = (meta?.name as string) || pendingFileName || '';
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  const fileName = (meta?.name as string) || recoveryTarget?.name || '';
 
   // Progressive backoff
   const backoffMs = RECOVERY_BACKOFF[Math.min(retryCount, RECOVERY_BACKOFF.length - 1)];
@@ -112,7 +112,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
       // Check if track changed during backoff
       const latestMeta = getState('transfer.meta');
-      const latestName = (latestMeta?.name as string) || getState('recovery.pendingFileName') || '';
+      const latestTarget = getState('playback.pendingRecoveryTarget');
+      const latestName = (latestMeta?.name as string) || latestTarget?.name || '';
       if (latestName && fileName && latestName !== fileName) {
         log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
         setState('recovery.retryCount', 0);
@@ -131,10 +132,13 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       const freshSid = freshLocalSid || freshTransferSid;
 
       // Re-read index after backoff — track position may have changed during delay
-      const freshPendingFileIndex = getState('recovery.pendingFileIndex');
+      const freshTarget = getState('playback.pendingRecoveryTarget');
+      const freshPendingFileIndex = freshTarget?.index;
       const freshCurrentTrackIndex = getState('playlist.currentTrackIndex');
       const freshIndex =
-        freshPendingFileIndex !== undefined ? freshPendingFileIndex : freshCurrentTrackIndex;
+        freshPendingFileIndex !== undefined && freshPendingFileIndex >= 0
+          ? freshPendingFileIndex
+          : freshCurrentTrackIndex;
 
       try {
         freshConn.send({

@@ -477,8 +477,6 @@ export function leaveSession(): void {
     // Recovery
     'recovery.pending': false,
     'recovery.retryCount': 0,
-    'recovery.pendingFileName': '',
-    'recovery.pendingFileIndex': undefined,
     // Files
     'files.currentFileBlob': null,
     'files.currentFileOpfs': { name: null },
@@ -491,6 +489,7 @@ export function leaveSession(): void {
     'playback.pendingPlayTime': undefined,
     'playback.pendingPlayTimeSetAt': 0,
     'playback.pendingPausedAt': undefined,
+    'playback.pendingRecoveryTarget': null,
     'playback.failedTrackKeys': new Set<string>(),
     // Sync
     'sync.localOffset': 0,

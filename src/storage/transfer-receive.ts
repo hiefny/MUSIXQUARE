@@ -505,8 +505,10 @@ export async function handleFilePrepare(
       });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
-      setState('recovery.pendingFileName', (data.name as string) || '');
-      setState('recovery.pendingFileIndex', data.index as number);
+      setState('playback.pendingRecoveryTarget', {
+        index: (data.index as number) ?? -1,
+        name: (data.name as string) || '',
+      });
 
       if (data.index !== undefined) {
         setState('playlist.currentTrackIndex', data.index as number);
@@ -559,13 +561,16 @@ export async function handleFilePrepare(
   // Check if same file (resume scenario) — read BEFORE updating pending info
   const meta = getState('transfer.meta');
   const receivedCount = getState('transfer.receivedCount');
-  const pendingFileIndex = getState('recovery.pendingFileIndex');
+  const prevTarget = getState('playback.pendingRecoveryTarget');
   const isSameFile =
-    meta?.name === data.name || (pendingFileIndex !== undefined && pendingFileIndex === data.index);
+    meta?.name === data.name ||
+    (prevTarget !== null && prevTarget.index === data.index);
 
   // Store pending file info (after reading old values above)
-  setState('recovery.pendingFileName', (data.name as string) || '');
-  setState('recovery.pendingFileIndex', data.index as number);
+  setState('playback.pendingRecoveryTarget', {
+    index: (data.index as number) ?? -1,
+    name: (data.name as string) || '',
+  });
   const isResuming = isSameFile && receivedCount > 0;
 
   if (isResuming) {
@@ -1245,9 +1250,10 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
         // Remote guest with no relay: show WiFi guidance instead of futile host request
         if (isRemoteGuest() && !hasActiveRelay()) {
           log.info('[file-wait timeout] Remote guest — showing WiFi guidance');
+          const target = getState('playback.pendingRecoveryTarget');
           showRemoteGuideUI({
             index: getState('playlist.currentTrackIndex'),
-            name: getState('recovery.pendingFileName') || '',
+            name: target?.name ?? '',
           });
           return;
         }
@@ -1257,11 +1263,14 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
         // Request file from Host
         const hostConn = getState('network.hostConn');
         if (hostConn && hostConn.open) {
-          const pendingFileName = getState('recovery.pendingFileName') || '';
-          const pendingFileIndex = getState('recovery.pendingFileIndex');
+          const target = getState('playback.pendingRecoveryTarget');
+          const pendingFileName = target?.name ?? '';
+          const pendingFileIndex = target?.index;
           const currentTrackIndex = getState('playlist.currentTrackIndex');
           const recoveryIndex =
-            pendingFileIndex !== undefined ? pendingFileIndex : currentTrackIndex;
+            pendingFileIndex !== undefined && pendingFileIndex >= 0
+              ? pendingFileIndex
+              : currentTrackIndex;
           const playlist = getState('playlist.items') || [];
 
           // Validation: Don't send recovery with invalid index

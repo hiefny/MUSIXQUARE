@@ -5576,3 +5576,254 @@
 }
 
 /* end @layer base */
+
+/* ─── FOUC guard ──────────────────────────────────────────────
+   Replaces the inline <style id="fouc-guard"> that used to live in
+   index.html. Hides body until the bootstrap finishes (fouc-cleanup.js
+   adds .fouc-loaded once style.css has parsed and --bg resolves).
+   Unlayered rules so they take precedence over the body rules inside
+   @layer base. This file itself is the stylesheet whose load gates the
+   reveal — style.css cannot be parsed without these rules existing,
+   so the [opacity:0] default applies before first paint. */
+
+body {
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+}
+
+body.fouc-loaded {
+    opacity: 1;
+}
+
+/* ─── Viewport-safe height clamps (was inline <style id="viewport-safe">) ───
+   iOS standalone (PWA) is excluded from the body clamp because CSS units
+   (100%, 100dvh) exclude safe-area-inset-top — platform.ts handles it via
+   JS instead. */
+html:not(.ios-standalone) body {
+    max-height: var(--app-height, 100dvh) !important;
+}
+
+/* Generic overlays (setup / media / YouTube URL) */
+.onboarding-overlay {
+    max-height: var(--app-height, 100dvh) !important;
+}
+
+.onboarding-overlay .setup-card.full-screen {
+    height: var(--app-height, 100dvh) !important;
+    max-height: var(--app-height, 100dvh) !important;
+}
+
+.onboarding-overlay .setup-mobile-view {
+    max-height: var(--app-height, 100dvh) !important;
+    overflow-y: auto;
+}
+
+/* ─── noscript fallback (was inline style on the <div> in <noscript>) ─── */
+.noscript-fallback {
+    padding: 16px;
+    background: #111;
+    color: #fff;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* ─── Inline-style refactor utilities ─────────────────────────────────
+   Replaces style="..." attributes that previously needed
+   `style-src 'unsafe-inline'`. Most are 1:1 named classes for the spot
+   they replace (kept literal so a future grep can map them back). */
+
+/* Stereo / top-of-tab "invite code mini display" cluster (#tab-play, etc) */
+.invite-meta-cluster {
+    text-align: right;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.invite-meta-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-sub);
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+    text-align: right;
+}
+
+.invite-meta-value {
+    font-size: 16px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.1em;
+    text-align: right;
+}
+
+/* Setup-screen role hint label (small "(중앙)" text) */
+.role-hint-label {
+    font-size: 10px;
+    color: var(--text-sub);
+    font-weight: normal;
+    margin-left: 4px;
+}
+
+/* SVG color utilities used by inline icons */
+.svg-stroke-primary {
+    stroke: var(--primary);
+    stroke-width: 2;
+}
+
+.svg-fill-sub-08 {
+    fill: var(--text-sub);
+    stroke: none;
+    opacity: 0.8;
+}
+
+.svg-fill-sub-05 {
+    fill: var(--text-sub);
+    stroke: none;
+    opacity: 0.5;
+}
+
+.svg-stroke-divider {
+    stroke: var(--surface-3);
+    stroke-width: 1;
+}
+
+.svg-overflow-visible {
+    overflow: visible;
+}
+
+/* Tab header layout (one-line spread + center) */
+.tab-header-spread {
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0;
+}
+
+.tab-header-spread-pad {
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Header right side: flex row */
+.flex-row-center {
+    display: flex;
+    align-items: center;
+}
+
+.flex-row-gap-8 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* play-action-buttons row */
+.play-actions-row {
+    display: flex;
+    gap: 12px;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.h-70 {
+    height: 70px;
+}
+
+.text-10 {
+    font-size: 10px;
+}
+
+/* Hidden file input for file picker (kept tabbable but visually offscreen) */
+.visually-offscreen {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+}
+
+/* Tab body anchor for absolutely-positioned children */
+.tab-body-anchor {
+    position: relative;
+}
+
+/* Onboarding welcome wrapper (was inline width/flex on a setup container) */
+.setup-welcome-wrap {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+/* Wordmark + onboarding decorative svg */
+.wordmark-decor {
+    height: auto;
+    aspect-ratio: 2.2;
+    margin-bottom: 24px;
+    background: transparent;
+    max-height: 180px;
+    margin-left: -28px;
+    margin-right: -28px;
+    width: calc(100% + 56px);
+}
+
+/* Generic divider used in onboarding cards */
+.divider-narrow {
+    margin: 8px auto 32px;
+    width: calc(100% - 64px);
+}
+
+.divider-narrower {
+    margin: 24px 0 24px;
+    width: calc(100% - 88px);
+    align-self: center;
+}
+
+/* YouTube preview thumb (16:9) */
+.yt-preview-thumb {
+    width: 100%;
+    border-radius: 10px;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #000;
+}
+
+/* Setup-card stack tweaks */
+.setup-card-tight {
+    padding: 0;
+    margin-top: 0;
+}
+
+.setup-card-mt-8 {
+    margin-top: 8px;
+}
+
+.setup-card-mt-8-row {
+    margin-top: 8px;
+    display: flex;
+    gap: 10px;
+}
+
+.setup-mt-0 {
+    margin-top: 0;
+}
+
+/* YouTube preview text rows */
+.yt-preview-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+    line-height: 1.4;
+}
+
+.yt-preview-meta {
+    font-size: 11px;
+    color: var(--text-sub);
+    text-align: center;
+    margin: 4px 0 0 0;
+    font-weight: 600;
+}

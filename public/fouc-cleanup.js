@@ -1,30 +1,31 @@
 /**
  * MUSIXQUARE — FOUC guard cleanup (index.html)
  *
- * Removes the inline `<style id="fouc-guard">` rule (body { opacity: 0 })
- * once the main stylesheet has loaded. Detected via the --bg CSS variable
- * that style.css defines on :root; falls back to a 3s timeout in case the
- * stylesheet never loads (offline / blocked by CSP / network failure).
+ * Adds `body.fouc-loaded` once the main stylesheet has parsed (detected
+ * via the --bg CSS variable that style.css defines on :root). The stylesheet
+ * has its own `body { opacity: 0 }` rule that gets overridden when the
+ * class is added.
  *
- * Loaded as a <script> AFTER the fouc-guard <style> tag in <head>, so
- * document.getElementById('fouc-guard') resolves on first try.
+ * Falls back to a 3s timeout in case the stylesheet never loads (offline /
+ * network failure) so the page isn't permanently blank.
  *
- * Extracted from inline <script> in index.html so the production CSP can
- * drop `script-src 'unsafe-inline'`.
+ * Earlier version manipulated an inline `<style id="fouc-guard">` element;
+ * that inlined CSS forced `style-src 'unsafe-inline'` in the CSP, so the
+ * guard was moved into style.css proper. This script just toggles the class.
  */
 
 (function () {
-  var g = document.getElementById('fouc-guard');
-  if (!g) return;
+  function reveal() {
+    if (document.body) document.body.classList.add('fouc-loaded');
+  }
+
   function check() {
     if (getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()) {
-      g.remove();
+      reveal();
     } else {
       requestAnimationFrame(check);
     }
   }
   requestAnimationFrame(check);
-  setTimeout(function () {
-    if (g.parentNode) g.remove();
-  }, 3000);
+  setTimeout(reveal, 3000);
 })();

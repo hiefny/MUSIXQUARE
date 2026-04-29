@@ -1304,8 +1304,34 @@ export function initPlaylist(): void {
       setState('transfer.meta', {});
       newIdx = -1;
     } else if (isCurrentTrack) {
-      // Was playing the removed track — play previous or adjusted index
-      newIdx = Math.min(index, playlist.length - 1);
+      // Was playing the removed track. In sequential mode the natural
+      // successor is the same playlist slot (or the new last). In shuffle
+      // mode it's the next entry in _shuffleOrder, which adjustShuffleOrder
+      // ForRemoval already lined up: posOfRemoved equals the cursor here
+      // (since _shuffleOrder[_shufflePosition] === currentTrackIndex ===
+      // index), so after the splice the cursor naturally points at what
+      // used to be the *next* shuffle entry. Without this branch the
+      // sequential newIdx would skip the shuffle order entirely and play
+      // a different track than the cursor expects, leaving prev/next
+      // misaligned for the rest of the session.
+      const isShuffle = getState('playlist.isShuffle');
+      if (isShuffle && _shuffleOrder.length > 0) {
+        const repeatMode = getState('playlist.repeatMode') || 0;
+        if (_shufflePosition < _shuffleOrder.length) {
+          // Cursor still in range — splice already placed the next entry here
+          newIdx = _shuffleOrder[_shufflePosition];
+        } else if (repeatMode === 1) {
+          // End of shuffle pass with repeat-all — wrap to first
+          newIdx = _shuffleOrder[0];
+          _shufflePosition = 0;
+        } else {
+          // End of shuffle pass without repeat — fall back to index-based
+          newIdx = Math.min(index, playlist.length - 1);
+          _shufflePosition = _shuffleOrder.indexOf(newIdx);
+        }
+      } else {
+        newIdx = Math.min(index, playlist.length - 1);
+      }
       setState('playlist.currentTrackIndex', newIdx);
       needsPlayRestart = true;
     } else if (index < currentTrackIndex) {

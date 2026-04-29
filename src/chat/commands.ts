@@ -663,6 +663,57 @@ async function cmdDebugMemory(): Promise<void> {
     /* ignore */
   }
 
+  // ── OPFS file enumeration ──
+  // Direct view into what's actually on disk. The leak triage workflow:
+  //   (a) snapshot taken at 0 tracks shows baseline OPFS file set
+  //   (b) snapshot at N tracks should show ~the same file count if rotation
+  //       is working, OR (current_ + preload_) × N if it isn't.
+  // The names also let us correlate with the rotate-log "prev/new" pairs to
+  // verify which files cleanup actually deleted.
+  try {
+    if (navigator.storage?.getDirectory) {
+      const root = await navigator.storage.getDirectory();
+      const files: string[] = [];
+      let totalBytes = 0;
+      // FileSystemDirectoryHandle.values() is async-iterable
+      // (Safari supports it as of iOS 17.4)
+      const dir = root as unknown as {
+        values(): AsyncIterable<{
+          kind: string;
+          name: string;
+          getFile?: () => Promise<{ size: number }>;
+        }>;
+      };
+      for await (const entry of dir.values()) {
+        if (entry.kind === 'file') {
+          let size = 0;
+          try {
+            if (entry.getFile) {
+              const f = await entry.getFile();
+              size = f.size;
+            }
+          } catch {
+            /* ignore */
+          }
+          totalBytes += size;
+          files.push(`${entry.name} (${(size / 1048576).toFixed(1)}MB)`);
+        }
+      }
+      lines.push(`[OPFS] ${files.length} files, ${(totalBytes / 1048576).toFixed(1)}MB total`);
+      // List up to 10 files (truncate the rest with a count). Long Korean
+      // filenames are ugly but actionable — the user can see exact accumulation.
+      const shown = files.slice(0, 10);
+      for (const f of shown) {
+        lines.push(`        ${f}`);
+      }
+      if (files.length > shown.length) {
+        lines.push(`        ... +${files.length - shown.length} more`);
+      }
+    }
+  } catch {
+    /* ignore — OPFS enumeration not critical */
+  }
+
   // ── Audio ──
   try {
     const audioBuf = getCurrentAudioBuffer();

@@ -64,9 +64,16 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 // the relay path is downstream-only and downstream guests run their own
 // derive.
 function shouldSkipIncomingFile(incomingName?: string): boolean {
-  // YouTube mode owns its own state path; lifecycle.ts::transition() is
-  // a no-op there, so we can't rely on lifecycle to gate file frames.
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return true;
+  // YouTube and system-audio modes own their own state paths;
+  // lifecycle.ts::transition() is a no-op in either, so we can't rely on
+  // lifecycle to gate file frames — appState must be checked directly.
+  // System-audio is unlikely to receive stale FILE_* frames in practice
+  // (host doesn't send while in that mode), but defense in depth: a
+  // spoofed or out-of-order frame would otherwise fall through to the
+  // (frozen) lifecycle check and possibly let chunks through.
+  const appState = getState('appState');
+  if (appState === APP_STATE.PLAYING_YOUTUBE) return true;
+  if (appState === APP_STATE.PLAYING_SYSTEM_AUDIO) return true;
 
   // Remote guest with no relay: orchestrator gates isDataTarget=false so
   // legitimate transfers shouldn't reach this layer, but defense in depth

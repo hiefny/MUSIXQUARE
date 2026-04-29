@@ -463,6 +463,9 @@ const en: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Would you like to reconnect?',
   'dialog.reconnect': 'Reconnect',
   'dialog.go_back': 'Go back',
+  'dialog.session_lost_msg':
+    'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
+  'dialog.session_lost_btn': 'Restart',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.local_recommended_html':

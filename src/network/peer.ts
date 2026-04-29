@@ -7,8 +7,11 @@
  */
 
 import { log } from '../core/log.ts';
+import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
+import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { showDialog } from '../ui/dialog.ts';
 import {
   MSG,
   DEFAULT_MAX_GUEST_SLOTS,
@@ -258,6 +261,43 @@ function setupPeerEvents(): void {
 
   peer.on('disconnected', () => {
     log.warn('[PeerJS] Disconnected from signaling server');
+
+    // Common trigger: app went to sleep / minimized / lost network briefly.
+    // Other peers may have already torn down their data connections by the
+    // time we wake up, so a clean reconnect with the same peer ID isn't
+    // realistic — the safe path is a hard reload that re-bootstraps the
+    // session from scratch. The user, however, has no idea their session
+    // died (the UI still shows connected guests etc.) until they try to
+    // do something. Surface a modal so they can decide.
+    //
+    // Only fire if we'd previously made it past initNetwork's open-promise
+    // (appRole set means we joined a session); the open-promise itself
+    // surfaces its own errors, so adding a dialog there would double up.
+    //
+    // Grace period: PeerJS sometimes pings disconnect briefly mid-session
+    // during a network blip. Wait 5s; if peer.disconnected is still true,
+    // show the modal. The peer is destroyed/replaced if reconnect succeeds,
+    // so a stale closure here just no-ops.
+    const appRole = getState('network.appRole');
+    if (!appRole) return;
+
+    setManagedTimer(
+      'peer-disconnect-grace',
+      () => {
+        const currentPeer = getPeer();
+        if (!currentPeer || !currentPeer.disconnected) return; // recovered
+        showDialog({
+          title: t('network.disconnected'),
+          message: t('dialog.session_lost_msg'),
+          buttonText: t('dialog.session_lost_btn'),
+        }).then((res) => {
+          if (res.action !== 'ok') return; // ESC / background dismiss
+          markIntentionalNav();
+          window.location.reload();
+        });
+      },
+      5000,
+    );
   });
 
   // System Audio: handle incoming media calls (WebRTC audio stream)

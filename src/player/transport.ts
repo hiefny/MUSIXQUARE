@@ -230,6 +230,24 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // sets slider.value = 0 directly, which is now the only path that
   // clears stale thumb during a silent transition.
   bus.emit('ui:seek-reset');
+
+  // Mirror the stop on guests. Without this, a host-side stopAllMedia
+  // ({silent:true}) — used by every track-change / preload-swap /
+  // system-audio-swap path — leaves guests still playing the previous
+  // track via SharedClock for the duration of the host's autoPlayDelay
+  // window (~3s). The host's player.startedAt resets locally but isn't
+  // broadcast, so guests interpret the wall clock as "host is replaying
+  // the previous track from 0:00" until MSG.PLAY arrives. handleEnded
+  // and stopPlayback already emit their own MSG.PAUSE — those are
+  // explicit terminal stops, not the silent transition path. Duplicate
+  // PAUSEs from those callers are no-ops on guests.
+  //
+  // Host-only: stopAllMedia is also called from system-audio-guest.ts
+  // on the guest side, and guests must not broadcast playback state.
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) {
+    broadcast({ type: MSG.PAUSE, time: 0 });
+  }
 }
 
 // ─── Seek ──────────────────────────────────────────────────────────

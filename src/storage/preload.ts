@@ -1199,14 +1199,13 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
 
   // Fallback: no preloaded file available — request from host
   log.warn('[Guest] No preloaded file for track', index, '— requesting from Host');
-  // Lifecycle (Phase 3 dual-write): no preload session exists for this
-  // track. Enter DOWNLOADING (fresh) via the recovery fallback. The actual
-  // REQUEST_DATA_RECOVERY fires below after a small jitter.
+  // No preload session exists for this track. Enter DOWNLOADING (fresh) via
+  // the recovery fallback. shouldSkipIncomingFile() returns false naturally
+  // once lifecycle = DOWNLOADING. The actual REQUEST_DATA_RECOVERY fires
+  // below after a small jitter.
   transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index, name });
   _activePlayPreloadedIndex = undefined;
 
-  // Ensure incoming file transfer is not skipped
-  setState('transfer.skipIncomingFile', false);
   setState('recovery.pendingFileIndex', index);
   setState('recovery.pendingFileName', name);
   showLoader(true, t('transfer.file_requesting'));

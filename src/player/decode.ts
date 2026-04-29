@@ -478,9 +478,10 @@ export async function loadPreloadedTrack(
     setState('preload.nextTrackIndex', -1);
     log.debug('[Preload] Safe clear: nextFileBlob moved to current.');
 
-    // Reset transfer guards — transfer.state must be READY so next preload loader shows
+    // Reset transfer guards — transfer.state must be READY so next preload loader shows.
+    // shouldSkipIncomingFile() returns true via the PRELOAD_PROMOTED loadSource
+    // branch (lifecycle is READY/PLAYING after this), so no flag needed.
     setState('transfer.state', 'READY');
-    setState('transfer.skipIncomingFile', true);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
@@ -539,7 +540,6 @@ export async function loadPreloadedTrack(
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
-    setState('transfer.skipIncomingFile', false);
     clearManagedTimer('preloadWatchdog');
 
     // On decode timeout, the file itself is unplayable — asking host for a
@@ -607,7 +607,6 @@ export function clearPreviousTrackState(reason = ''): void {
     setCurrentAudioBuffer(null);
   }
   stopPlayerNode();
-  setState('transfer.skipIncomingFile', false);
 
   // Don't clear pendingPlayTime for 'new-session-start' — late-join flow sends
   // PLAY bootstrap (which sets pendingPlayTime) BEFORE FILE_START arrives.
@@ -657,8 +656,8 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // transfer, this is a belt-and-suspenders second layer.)
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
     log.debug('[Guest] finalizeGuestFile aborted — app switched to YouTube mode');
+    // shouldSkipIncomingFile() returns true via the appState check.
     setState('transfer.state', TRANSFER_STATE.IDLE);
-    setState('transfer.skipIncomingFile', true);
     showLoader(false);
     return;
   }
@@ -702,7 +701,6 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     // Reset guards
     setState('transfer.state', TRANSFER_STATE.READY);
-    setState('transfer.skipIncomingFile', false);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 

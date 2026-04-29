@@ -246,7 +246,8 @@ function cancelInFlightTransfer(): void {
   const transferState = getState('transfer.state');
   if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
     log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
-    setState('transfer.skipIncomingFile', true);
+    // shouldSkipIncomingFile() returns true via the appState=PLAYING_YOUTUBE
+    // check (set by handleYouTubePlay before this helper runs), so no flag.
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
     clearManagedTimer('prepareWatchdog');

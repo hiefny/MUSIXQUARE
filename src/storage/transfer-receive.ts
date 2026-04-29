@@ -16,6 +16,7 @@ import {
   APP_STATE,
   DEMO_FILE_NAME,
   PLAYBACK_STATE,
+  LOAD_SOURCE,
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -45,6 +46,71 @@ let nextExpectedChunk = 0;
 let lastChunkTime = 0;
 let _demoFetchPromise: Promise<void> | null = null;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
+
+// ─── Skip-Incoming Derivation ────────────────────────────────────────
+//
+// Replaces the legacy `transfer.skipIncomingFile` flag (Phase 4 of the
+// playback-state-machine migration). Computes the same boolean from
+// primary state — lifecycle, appState, transfer.meta, files.currentFileBlob
+// — instead of being mutated from 9 different modules. The flag-based
+// version produced the bug class fixed in 61a1c2b: a sticky `true` from
+// a prior preload-consume survived a rapid track switch and silently
+// dropped every chunk for the new track until chunkWatchdog (12s)
+// triggered recovery.
+//
+// Callers that have access to the incoming message's `name` should pass
+// it so same-track replay can be detected; callers without (relay relay
+// gate) pass nothing and lose only the same-track skip — harmless because
+// the relay path is downstream-only and downstream guests run their own
+// derive.
+function shouldSkipIncomingFile(incomingName?: string): boolean {
+  // YouTube mode owns its own state path; lifecycle.ts::transition() is
+  // a no-op there, so we can't rely on lifecycle to gate file frames.
+  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return true;
+
+  // Remote guest with no relay: orchestrator gates isDataTarget=false so
+  // legitimate transfers shouldn't reach this layer, but defense in depth
+  // — drop any frame an upstream injected.
+  if (isRemoteGuest() && !hasActiveRelay()) return true;
+
+  const lifecycle = getState('playback.lifecycle');
+
+  // Waiting for preload blob (or demo HTTP fetch). The main-transfer
+  // pipeline isn't the source — drop until lifecycle moves on
+  // (PRELOAD_FILE_READY → DECODING, watchdog → DOWNLOADING fresh, etc.).
+  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) return true;
+
+  // Already promoted from a preload. Main-transfer chunks for this track
+  // are stale — host's broadcastFile keeps streaming until its scope
+  // disposes, and we don't want them re-overwriting the loaded blob.
+  if (
+    (lifecycle === PLAYBACK_STATE.DECODING ||
+      lifecycle === PLAYBACK_STATE.READY ||
+      lifecycle === PLAYBACK_STATE.PLAYING ||
+      lifecycle === PLAYBACK_STATE.PAUSED) &&
+    getState('playback.loadSource') === LOAD_SOURCE.PRELOAD_PROMOTED
+  ) {
+    return true;
+  }
+
+  // Same-track replay: host re-broadcasts on every playTrack() call,
+  // including a re-click of the currently-loaded track. We already have
+  // it — no work needed. Skip ONLY when we're in a passive state; when
+  // lifecycle is DOWNLOADING or transfer.state is RECEIVING, a same-name
+  // arrival is recovery-resend territory and the receive pipeline wants
+  // those chunks (e.g. handleFileStart's "same-session recovery" branch).
+  if (
+    incomingName &&
+    lifecycle !== PLAYBACK_STATE.DOWNLOADING &&
+    getState('transfer.state') !== TRANSFER_STATE.RECEIVING
+  ) {
+    const blob = getState('files.currentFileBlob');
+    const meta = getState('transfer.meta');
+    if (blob && meta?.name === incomingName) return true;
+  }
+
+  return false;
+}
 
 // ─── Chunk Watchdog ──────────────────────────────────────────────────
 
@@ -166,14 +232,15 @@ async function _doFetchDemoFromServer(
     // dangling colon in the toast (matches playlist.ts:987 usage).
     showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message || ''}`.trim());
     showLoader(false);
-    // Fallback: allow normal P2P transfer
-    setState('transfer.skipIncomingFile', false);
+    // Fallback: request from host. shouldSkipIncomingFile() will return false
+    // once the host's FILE_PREPARE response transitions us out of
+    // AWAITING_PRELOAD via the fresh-download path.
     sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: DEMO_FILE_NAME, index });
   }
 }
 
 function showRemoteGuideUI(data: Record<string, unknown>): void {
-  setState('transfer.skipIncomingFile', true);
+  // (skip is derived: isRemoteGuest() && !hasActiveRelay() returns true.)
   if (data.index !== undefined) {
     const idx = Number(data.index);
     const playlist = getState('playlist.items') || [];
@@ -252,15 +319,15 @@ export async function handleFilePrepare(
 
     if (confirmedRemote) {
       if (data.name === DEMO_FILE_NAME) {
-        // Lifecycle (Phase 3 dual-write): demo files go through a preload-like
-        // path (HTTP fetch + storage:use-preloaded) so we enter AWAITING_PRELOAD.
+        // Demo files go through a preload-like path (HTTP fetch +
+        // storage:use-preloaded) so we enter AWAITING_PRELOAD —
+        // shouldSkipIncomingFile() returns true automatically.
         transition({
           type: 'FILE_PREPARE',
           variant: 'demo',
           index: Number(data.index) || 0,
           name: data.name as string,
         });
-        setState('transfer.skipIncomingFile', true);
 
         // Preserve pendingPlayTime before stopAllMedia clears it, since we
         // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
@@ -308,36 +375,9 @@ export async function handleFilePrepare(
   //
   // Fix: on every new-session FILE_PREPARE, wipe the receive state and
   // restart the chunkWatchdog from NOW so both safety nets are armed.
-  //
-  // Extended (2026-04-29): the original reset missed three fields whose
-  // sticky values from a prior preload-consume + slow-path back-and-forth
-  // produced the "수신중 0% → 로더 사라짐 → 30s 후 자가 복구" pattern:
-  //
-  //   - transfer.state — if it stayed at READY/PROCESSING from the prior
-  //     decode, applyFileChunk:810-815 drops every chunk for the new
-  //     session whose incomingSid <= localSid (and we just wrote
-  //     localSid := incomingSid above, so the inequality is satisfied).
-  //   - transfer.skipIncomingFile — set true by every preload-consume
-  //     path (loadPreloadedTrack, preload-match, AWAITING_PRELOAD).
-  //     applyFileChunk:800 drops every chunk while it is true. The flag
-  //     is cleared only on (a) preload mismatch in handleFilePrepare,
-  //     (b) preloadWatchdog timeout, or (c) handleFileStart's same-name
-  //     recovery branch. Slow-path FILE_PREPAREs that happen to fall
-  //     through *without* a name mismatch (preloadMeta already null from
-  //     a prior consume, so isMismatch=false) reach the fresh download
-  //     branch with the flag still true; the resulting FILE_START hits
-  //     the same-name recovery branch only if names match exactly, which
-  //     races during rapid switching when broadcastFileDebounced
-  //     coalescing pairs FILE_PREPARE with the wrong file. Forcing the
-  //     flag false here breaks the silent-stall path.
-  //   - transfer.staleChunkBurstStart/Count — already reset above
-  //     (kept; just noting for completeness).
-  //
-  // Risk: clearing skipIncomingFile here is safe because the
-  // preload-match (line 367), same-track replay (line 394), and
-  // AWAITING_PRELOAD (line 438) branches each re-set it to true after
-  // this block runs. Only the fresh-download fallthrough — the path
-  // that actually wants chunks — observes the cleared flag.
+  // transfer.state must also be reset to IDLE so the stale-on-completed
+  // guard in applyFileChunk doesn't filter out the new session's chunks
+  // when the prior decode left state at READY/PROCESSING.
   if (isNewSession) {
     log.debug(
       `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`,
@@ -350,7 +390,6 @@ export async function handleFilePrepare(
     setState('transfer.staleChunkBurstStart', 0);
     setState('transfer.staleChunkBurstCount', 0);
     setState('transfer.state', TRANSFER_STATE.IDLE);
-    setState('transfer.skipIncomingFile', false);
     // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
     // not from the last chunk of the previous (defunct) session.
     startChunkWatchdog();
@@ -369,9 +408,9 @@ export async function handleFilePrepare(
     log.warn(
       `[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`,
     );
-    setState('transfer.skipIncomingFile', false);
     clearManagedTimer('preloadWatchdog');
-    // Clear stale preload state
+    // Clear stale preload state — also makes shouldSkipIncomingFile() false
+    // for this incoming track (no preload sessionState/blob/meta to match).
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
@@ -388,15 +427,15 @@ export async function handleFilePrepare(
       setState('playlist.currentTrackIndex', data.index as number);
     }
 
-    // Lifecycle (Phase 3 dual-write): FILE_PREPARE where blob already assembled
-    // → promote straight to DECODING via the preload-promoted path.
+    // FILE_PREPARE where blob already assembled → promote straight to DECODING
+    // via the preload-promoted path. shouldSkipIncomingFile() returns true
+    // automatically once lifecycle is DECODING with PRELOAD_PROMOTED loadSource.
     transition({
       type: 'FILE_PREPARE',
       variant: 'preload-match',
       index: data.index as number,
       name: data.name as string,
     });
-    setState('transfer.skipIncomingFile', true);
     bus.emit('storage:use-preloaded', data.index as number, data.name as string);
 
     showLoader(false);
@@ -414,16 +453,16 @@ export async function handleFilePrepare(
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );
-    // Lifecycle (Phase 3 dual-write): same file already loaded. No state
-    // change — replay-current fires and the existing PLAYING/READY/PAUSED
-    // state keeps its audio buffer.
+    // Same file already loaded. No lifecycle change — replay-current fires
+    // and the existing PLAYING/READY/PAUSED state keeps its audio buffer.
+    // shouldSkipIncomingFile() returns true via the same-track-replay
+    // branch (currentFileBlob + meta.name === data.name).
     transition({
       type: 'FILE_PREPARE',
       variant: 'same-file',
       index: data.index as number,
       name: data.name as string,
     });
-    setState('transfer.skipIncomingFile', true);
     showLoader(false);
     // Honor host's auto-play delay if provided — otherwise the guest would
     // play(0) immediately and drift for 3s while the host still waits on
@@ -454,9 +493,10 @@ export async function handleFilePrepare(
       // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
-      // Lifecycle (Phase 3 dual-write): preload still downloading for THIS
-      // track → AWAITING_PRELOAD. This mirrors the PLAY_PRELOADED
-      // blob-waiting branch; both lead to the same waiter semantics.
+      // Preload still downloading for THIS track → AWAITING_PRELOAD. This
+      // mirrors the PLAY_PRELOADED blob-waiting branch; both lead to the
+      // same waiter semantics. shouldSkipIncomingFile() returns true once
+      // lifecycle = AWAITING_PRELOAD.
       transition({
         type: 'FILE_PREPARE',
         variant: 'preload-waiting',
@@ -467,7 +507,6 @@ export async function handleFilePrepare(
 
       setState('recovery.pendingFileName', (data.name as string) || '');
       setState('recovery.pendingFileIndex', data.index as number);
-      setState('transfer.skipIncomingFile', true);
 
       if (data.index !== undefined) {
         setState('playlist.currentTrackIndex', data.index as number);
@@ -490,13 +529,14 @@ export async function handleFilePrepare(
       setManagedTimer(
         'preloadWatchdog',
         () => {
-          // Phase 4: check lifecycle instead of the legacy flag. If the state
-          // machine has moved on (to DECODING, DOWNLOADING, etc.), the preload
-          // succeeded or was superseded and we must not recover.
+          // Check lifecycle: if the state machine has moved on (to DECODING,
+          // DOWNLOADING, etc.), the preload succeeded or was superseded and
+          // we must not recover. The host's REQUEST_CURRENT_FILE response
+          // will transition us out of AWAITING_PRELOAD via the fresh-download
+          // path, breaking shouldSkipIncomingFile().
           if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
             log.warn('[Guest] Preload wait timed out. Force recovering...');
             showLoader(false);
-            setState('transfer.skipIncomingFile', false);
 
             sendToHost({
               type: MSG.REQUEST_CURRENT_FILE,
@@ -512,8 +552,9 @@ export async function handleFilePrepare(
     }
   }
 
-  // Normal flow: No preload available, prepare for download
-  setState('transfer.skipIncomingFile', false);
+  // Normal flow: No preload available, prepare for download.
+  // (No flag to clear — shouldSkipIncomingFile() returns false naturally
+  //  once transition() below moves lifecycle to DOWNLOADING.)
 
   // Check if same file (resume scenario) — read BEFORE updating pending info
   const meta = getState('transfer.meta');
@@ -616,7 +657,7 @@ export async function handleFilePrepare(
 
   // Relay FILE_PREPARE to downstream peers (mirrors FILE_START/CHUNK/END relay).
   // Downstream peers need FILE_PREPARE to update their playlist index and metadata.
-  if (!getState('transfer.skipIncomingFile')) {
+  if (!shouldSkipIncomingFile(data.name as string | undefined)) {
     const downstreamPeers = getState('relay.downstreamDataPeers');
     downstreamPeers.forEach((p) => {
       safeSend(p, data as AnyProtocolMsg);
@@ -641,27 +682,24 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'new-session-start');
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
-    // New session always resets skipIncomingFile — a stale flag from a previous
-    // preload/demo/same-file skip must not block the new session's file transfer.
-    setState('transfer.skipIncomingFile', false);
   }
 
   // Skip if using preloaded file — do NOT relay FILE_START downstream.
   // Downstream peers would begin expecting chunks that will never arrive
-  // (since chunks are also skipped when skipIncomingFile is true).
-  // Exception: if this FILE_START is a recovery re-send (same file, same session),
-  // the host explicitly wants us to receive data — clear the stale skip flag.
-  if (getState('transfer.skipIncomingFile')) {
+  // (since chunks are also skipped when shouldSkipIncomingFile() is true).
+  // Exception: if this FILE_START is a recovery re-send (same file, same
+  // session), the host explicitly wants us to receive data — fall through
+  // and let the OPFS_START + transfer.state=RECEIVING below break the
+  // skip condition for subsequent chunks.
+  if (shouldSkipIncomingFile(data.name as string | undefined)) {
     const meta = getState('transfer.meta');
     const isRecoveryResend = !isNewSession && meta?.name === data.name;
-    if (isRecoveryResend) {
-      log.info('[file-start] Clearing stale skipIncomingFile for same-session recovery');
-      setState('transfer.skipIncomingFile', false);
-    } else {
+    if (!isRecoveryResend) {
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
       return;
     }
+    log.info('[file-start] Accepting same-session recovery resend');
   }
 
   clearManagedTimer('prepareWatchdog');
@@ -742,7 +780,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   const localSid = getState('transfer.localSessionId');
 
   if (!incomingSid || incomingSid < localSid) return;
-  if (getState('transfer.skipIncomingFile')) {
+  if (shouldSkipIncomingFile(data.name as string | undefined)) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     return;
@@ -761,7 +799,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   setState('transfer.receivedCount', startChunk);
 
   clearManagedTimer('prepareWatchdog');
-  setState('transfer.skipIncomingFile', false);
   postWorkerCommand({
     command: 'OPFS_START',
     filename: data.name as string,
@@ -829,7 +866,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   // Skip if using preloaded file
-  if (getState('transfer.skipIncomingFile')) {
+  if (shouldSkipIncomingFile(data.name as string | undefined)) {
     const localSid = getState('transfer.localSessionId');
     if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
     return;
@@ -1152,7 +1189,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  if (getState('transfer.skipIncomingFile')) return;
+  if (shouldSkipIncomingFile(data.name as string | undefined)) return;
 
   // Ignore stale FILE_END from old sessions
   const incomingSid = data.sessionId as number;

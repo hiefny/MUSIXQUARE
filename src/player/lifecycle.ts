@@ -18,9 +18,9 @@
  *     handlers that call transition() — this file only decides which state
  *     is next and applies pending-data field updates.
  *
- * During the migration (Steps 1-4 of the plan) this machine runs in parallel
- * with the legacy flags (`transfer.waitingForPreload`, `transfer.skipIncomingFile`,
- * etc.). Once all handlers are rewired, those flags are deleted.
+ * Phase 4 complete (2026-04-29): the legacy flags `transfer.waitingForPreload`
+ * and `transfer.skipIncomingFile` are gone. Receive-side guards derive from
+ * this state machine via `shouldSkipIncomingFile()` in transfer-receive.ts.
  */
 
 import { log } from '../core/log.ts';

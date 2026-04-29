@@ -297,8 +297,9 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   // compensation) once decode finishes — without this the post-fetch
   // handler sees pendingPlayTime=undefined and never calls play().
   setPendingPlayTime(time);
+  // Demo variant transitions lifecycle to AWAITING_PRELOAD —
+  // shouldSkipIncomingFile() returns true automatically.
   transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
-  setState('transfer.skipIncomingFile', true);
   fetchDemoFromServer(index, time, getPendingPlayTimeSetAt()).catch((e) =>
     log.error('[Guest] Demo fetch failed:', e),
   );
@@ -625,7 +626,8 @@ export function initPlayback(): void {
       _activePreloadWaiterCleanup = null;
     }
 
-    setState('transfer.skipIncomingFile', true);
+    // (lifecycle is already AWAITING_PRELOAD or DECODING+PRELOAD_PROMOTED
+    //  by the caller's transition() — shouldSkipIncomingFile() returns true.)
 
     // Try to activate immediately if blob is already available
     const nextFileBlob = getState('preload.nextFileBlob');
@@ -679,7 +681,8 @@ export function initPlayback(): void {
         // the blob arrived or got superseded — no recovery needed.
         if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
-        setState('transfer.skipIncomingFile', false);
+        // shouldSkipIncomingFile() will return false once host's response
+        // FILE_PREPARE transitions us out of AWAITING_PRELOAD into DOWNLOADING.
         showLoader(false);
         // Fallback: request file from host
         const hostConn = getState('network.hostConn');

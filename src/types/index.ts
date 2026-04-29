@@ -412,10 +412,10 @@ export interface StateTree {
     currentSessionId: number;
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
-    skipIncomingFile: boolean;
     /**
-     * Phase 4 removed `waitingForPreload` from this slice. Use
-     * `playback.lifecycle === 'AWAITING_PRELOAD'` instead.
+     * Phase 4 removed `waitingForPreload` and `skipIncomingFile` from this
+     * slice. Both are derived from `playback.lifecycle` now (see
+     * `shouldSkipIncomingFile()` in transfer-receive.ts).
      */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
     staleChunkBurstStart: number;
@@ -513,10 +513,11 @@ export interface StateTree {
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
    * See `.workshop/design/playback-state-machine.md` for the full table.
    *
-   * During the migration (Steps 1-4 of the plan), this field is observed in
-   * parallel with the legacy flags (`transfer.waitingForPreload`,
-   * `transfer.skipIncomingFile`, etc). Once all handlers are rewired, the
-   * legacy flags are deleted.
+   * Phase 4 complete (2026-04-29): `transfer.waitingForPreload` and
+   * `transfer.skipIncomingFile` are gone — both are derived from this
+   * field now. New flags here would just resurrect the same divergence
+   * problem; if you're tempted to add one, ask whether it can instead
+   * be a derived helper that reads lifecycle + loadSource.
    */
   playback: {
     lifecycle: PlaybackStateValue;

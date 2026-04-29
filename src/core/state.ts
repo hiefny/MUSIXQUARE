@@ -77,8 +77,8 @@ function createInitialState(): StateTree {
       currentSessionId: 0,
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
-      skipIncomingFile: false,
-      // Phase 4: waitingForPreload removed; use playback.lifecycle
+      // Phase 4: waitingForPreload + skipIncomingFile removed; both derived
+      // from playback.lifecycle now (see transfer-receive.ts shouldSkipIncomingFile).
       staleChunkBurstStart: 0,
       staleChunkBurstCount: 0,
     },

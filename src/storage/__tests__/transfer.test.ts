@@ -54,10 +54,6 @@ describe('initial transfer state', () => {
     expect(getState('transfer.currentSessionId')).toBe(0);
   });
 
-  it('transfer.skipIncomingFile defaults to false', () => {
-    expect(getState('transfer.skipIncomingFile')).toBe(false);
-  });
-
   it('transfer.activeBroadcastSession defaults to null', () => {
     expect(getState('transfer.activeBroadcastSession')).toBeNull();
   });

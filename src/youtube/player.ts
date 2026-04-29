@@ -915,7 +915,14 @@ export function initYouTube(): void {
     }
 
     const currentState = getState('appState');
-    const isIdle = currentState === APP_STATE.IDLE || isYtIndexing();
+    // Auto-play only when this YouTube entry really IS the first track —
+    // i.e. the playlist was empty before this add. The previous condition
+    // (appState === IDLE) misfired when the user had already loaded local
+    // tracks but hadn't pressed play yet: appState was still IDLE, so
+    // adding a YouTube link jumped playback to it instead of queuing.
+    // isYtIndexing keeps its original behavior (mid-index re-add path).
+    const playlistWasEmpty = playlist.length === 0;
+    const isIdle = (currentState === APP_STATE.IDLE && playlistWasEmpty) || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);

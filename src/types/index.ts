@@ -523,7 +523,24 @@ export interface StateTree {
     lifecycle: PlaybackStateValue;
     loadSource: LoadSourceValue | null;
     pendingPlayTime: number | undefined;
+    /**
+     * Wall-clock time (Date.now ms) when pendingPlayTime was set. Consumers
+     * add the elapsed delta to estimate the host's current position — important
+     * when decode/HTTP-fetch takes seconds and the host keeps playing forward.
+     * 0 = no pending time.
+     */
+    pendingPlayTimeSetAt: number;
     pendingPausedAt: number | undefined;
+    /**
+     * Content-keyed identifiers of tracks whose decode failed (timeout,
+     * corrupt, unsupported). Consulted on auto-advance to skip rather than
+     * loop forever. Keys are content-based ("file:name:size:lastModified",
+     * "yt:videoId", "name:fallback") so reorder/add doesn't invalidate
+     * the memory. Cleared when count reaches playlist.length.
+     *
+     * Mutations follow the immutable-update rule: setState('playback.failedTrackKeys', new Set([...prev, key])).
+     */
+    failedTrackKeys: Set<string>;
   };
 }
 

@@ -489,7 +489,9 @@ export function leaveSession(): void {
     'playback.lifecycle': PLAYBACK_STATE.IDLE,
     'playback.loadSource': null,
     'playback.pendingPlayTime': undefined,
+    'playback.pendingPlayTimeSetAt': 0,
     'playback.pendingPausedAt': undefined,
+    'playback.failedTrackKeys': new Set<string>(),
     // Sync
     'sync.localOffset': 0,
     // Player

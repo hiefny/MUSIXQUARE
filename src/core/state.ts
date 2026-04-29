@@ -183,7 +183,9 @@ function createInitialState(): StateTree {
       lifecycle: PLAYBACK_STATE.IDLE,
       loadSource: null,
       pendingPlayTime: undefined,
+      pendingPlayTimeSetAt: 0,
       pendingPausedAt: undefined,
+      failedTrackKeys: new Set<string>(),
     },
   };
 }

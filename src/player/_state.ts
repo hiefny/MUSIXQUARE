@@ -7,19 +7,23 @@
  */
 
 import { bus } from '../core/events.ts';
+import { getState, setState } from '../core/state.ts';
 import type { PlaylistItem } from '../types/index.ts';
 // ─── Module State ──────────────────────────────────────────────────
+//
+// pendingPlayTime, pendingPlayTimeSetAt, and failedTrackKeys live in the
+// state tree (Phase 4-B). The accessor functions below now wrap state
+// reads/writes — kept as functions so all existing callers stay
+// untouched and the immutable-update rule for Sets is enforced in one
+// place (markTrackFailed).
 
 let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
 let _currentLoadToken = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
-let _pendingPlayTime: number | undefined;
-let _pendingPlayTimeSetAt = 0;
 let _playPreloadedInProgress = false;
 let _lastClearedTrackName = '';
-const _failedTrackKeys = new Set<string>();
 
 // ─── PlayerNode ────────────────────────────────────────────────────
 
@@ -78,16 +82,16 @@ export function setPlayLocked(v: boolean): void {
 // ─── Pending Play ──────────────────────────────────────────────────
 
 export function getPendingPlayTime(): number | undefined {
-  return _pendingPlayTime;
+  return getState('playback.pendingPlayTime');
 }
 
 export function setPendingPlayTime(time: number | undefined, setAt?: number): void {
-  _pendingPlayTime = time;
-  _pendingPlayTimeSetAt = time === undefined ? 0 : (setAt ?? Date.now());
+  setState('playback.pendingPlayTime', time);
+  setState('playback.pendingPlayTimeSetAt', time === undefined ? 0 : (setAt ?? Date.now()));
 }
 
 export function getPendingPlayTimeSetAt(): number {
-  return _pendingPlayTimeSetAt;
+  return getState('playback.pendingPlayTimeSetAt');
 }
 
 /**
@@ -97,8 +101,10 @@ export function getPendingPlayTimeSetAt(): number {
  * HTTP fetch for the demo), during which the host keeps playing forward.
  */
 export function getPendingPlayTimeAge(): number {
-  if (_pendingPlayTime === undefined || _pendingPlayTimeSetAt === 0) return 0;
-  return (Date.now() - _pendingPlayTimeSetAt) / 1000;
+  const time = getState('playback.pendingPlayTime');
+  const setAt = getState('playback.pendingPlayTimeSetAt');
+  if (time === undefined || setAt === 0) return 0;
+  return (Date.now() - setAt) / 1000;
 }
 
 // ─── Preloaded In Progress ─────────────────────────────────────────
@@ -167,17 +173,25 @@ export function getTrackKeyFromItem(item: PlaylistItem | null | undefined): stri
 }
 
 export function markTrackFailed(key: string | null | undefined): void {
-  if (key) _failedTrackKeys.add(key);
+  if (!key) return;
+  // Immutable update — direct Set.add() on the returned reference would
+  // not propagate to subscribers and would create stale snapshots.
+  const current = getState('playback.failedTrackKeys');
+  if (current.has(key)) return;
+  setState('playback.failedTrackKeys', new Set([...current, key]));
 }
 
 export function isTrackFailed(key: string | null | undefined): boolean {
-  return key ? _failedTrackKeys.has(key) : false;
+  if (!key) return false;
+  return getState('playback.failedTrackKeys').has(key);
 }
 
 export function getFailedTrackCount(): number {
-  return _failedTrackKeys.size;
+  return getState('playback.failedTrackKeys').size;
 }
 
 export function clearFailedTracks(): void {
-  _failedTrackKeys.clear();
+  // Skip the setState if already empty so we don't churn subscribers.
+  if (getState('playback.failedTrackKeys').size === 0) return;
+  setState('playback.failedTrackKeys', new Set<string>());
 }

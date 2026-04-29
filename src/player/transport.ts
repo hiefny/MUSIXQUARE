@@ -400,6 +400,13 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   if (!hasBufferSource) {
     log.warn('[Play] No media source available');
+    // Surface the empty state to the user so the play button doesn't
+    // silently no-op. Hits in two situations:
+    //   - Fresh boot, user taps play before adding anything.
+    //   - User cleared every track via the X button, then taps play.
+    // The hint copy ("미디어를 추가해주세요.") matches the empty-list
+    // placeholder shown in the playlist tab for a consistent UX.
+    showToast(t('playlist.empty_hint'));
     return;
   }
 

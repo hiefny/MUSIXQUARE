@@ -1303,6 +1303,44 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
   );
 }
 
+// ─── Debug: Memory Stats ─────────────────────────────────────────────
+//
+// Exposes module-local main-transfer reorder buffer + pending-early queue
+// footprint for `/debug memory`. Hot-path safe: only called from chat
+// command handler.
+
+export function getTransferMemoryStats(): {
+  reorderSessions: number;
+  reorderChunks: number;
+  reorderBytes: number;
+  pendingEarlyChunks: number;
+  pendingEarlyBytes: number;
+  nextExpectedChunk: number;
+} {
+  let chunks = 0;
+  let bytes = 0;
+  for (const sessionBuf of fileReorderBuffer.values()) {
+    chunks += sessionBuf.size;
+    for (const chunk of sessionBuf.values()) {
+      bytes += chunk.byteLength;
+    }
+  }
+  let earlyBytes = 0;
+  for (const c of _pendingEarlyChunks) {
+    const chunk = c.chunk;
+    if (chunk instanceof Uint8Array) earlyBytes += chunk.byteLength;
+    else if (chunk instanceof ArrayBuffer) earlyBytes += chunk.byteLength;
+  }
+  return {
+    reorderSessions: fileReorderBuffer.size,
+    reorderChunks: chunks,
+    reorderBytes: bytes,
+    pendingEarlyChunks: _pendingEarlyChunks.length,
+    pendingEarlyBytes: earlyBytes,
+    nextExpectedChunk,
+  };
+}
+
 // ─── Session Cleanup (exported for initTransfer) ─────────────────────
 
 export function clearReceiveState(): void {

@@ -21,6 +21,10 @@ import type { ConnectedPeer } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { getDetectedBPM, setPartyMode } from '../audio/beat-detector.ts';
 import { isAudioReady, getAudioContext } from '../audio/engine.ts';
+import { getPreloadMemoryStats } from '../storage/preload.ts';
+import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
+import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { BlobURLManager } from '../core/blob-manager.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -449,7 +453,16 @@ function _parseOS(ua: string): string {
   return 'Unknown';
 }
 
-function cmdDebug(): void {
+function cmdDebug(args: string[]): void {
+  // Hidden subcommands. Not surfaced in /help / autocomplete (the chat
+  // command framework doesn't expose subcommand discovery, so passing
+  // any string after `/debug ` works only for users who already know).
+  const sub = (args[0] || '').toLowerCase();
+  if (sub === 'memory' || sub === 'mem') {
+    cmdDebugMemory();
+    return;
+  }
+
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
   // Device & Browser
@@ -577,6 +590,197 @@ function cmdDebug(): void {
   try {
     navigator.clipboard
       .writeText(debugText)
+      .then(() => {
+        showToast(t('chat.debug_copied'));
+      })
+      .catch(() => {
+        /* clipboard not available */
+      });
+  } catch {
+    /* ignore */
+  }
+}
+
+// ─── /debug memory ──────────────────────────────────────────────
+//
+// Hidden subcommand for diagnosing memory pressure. Not surfaced in
+// /help, autocomplete, or i18n — by design. Operators who know the
+// command type `/debug memory` to dump a per-domain snapshot.
+//
+// Captures everything that could plausibly accumulate per-track, so
+// repeated calls during a 100-track playback session expose which
+// domain grows monotonically. Domains:
+//   - Heap (performance.memory if Chromium)
+//   - Audio buffer (current decoded PCM in RAM)
+//   - Blob URLs (active + pending revocation)
+//   - Files (current blob, preload blob, playlist file refs sum)
+//   - Transfer (main reorder buffer + early-chunk queue)
+//   - Preload (reorder buffer + sessionState + ackSent)
+//   - Network (peer connections + relay)
+//   - Lifecycle (state machine + recovery target)
+function cmdDebugMemory(): void {
+  const lines: string[] = ['MEMORY SNAPSHOT'];
+
+  // ── Heap ──
+  try {
+    const perf = performance as unknown as Record<string, unknown>;
+    const mem = perf.memory as
+      | { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number }
+      | undefined;
+    if (mem) {
+      const used = mem.usedJSHeapSize / 1048576;
+      const total = mem.totalJSHeapSize / 1048576;
+      const limit = mem.jsHeapSizeLimit / 1048576;
+      const pct = ((used / limit) * 100).toFixed(1);
+      lines.push(
+        `[Heap] ${used.toFixed(1)}MB used / ${total.toFixed(0)}MB total / ${limit.toFixed(0)}MB limit (${pct}%)`,
+      );
+    } else {
+      lines.push('[Heap] performance.memory unavailable (non-Chromium)');
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // ── Audio ──
+  try {
+    const audioBuf = getCurrentAudioBuffer();
+    if (audioBuf) {
+      // PCM bytes = numberOfChannels × length × 4 (Float32)
+      const pcmBytes = audioBuf.numberOfChannels * audioBuf.length * 4;
+      lines.push(
+        `[Audio] buffer:${(pcmBytes / 1048576).toFixed(1)}MB (${audioBuf.duration.toFixed(1)}s × ${audioBuf.numberOfChannels}ch @ ${audioBuf.sampleRate}Hz)`,
+      );
+    } else {
+      lines.push('[Audio] buffer:none');
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // ── Blob URLs ──
+  try {
+    const bm = BlobURLManager as unknown as Record<string, unknown>;
+    const active = bm._activeURL ? 1 : 0;
+    const preparing = bm._preparingURL ? 1 : 0;
+    const pending = (bm._pendingRevocations as Map<unknown, unknown>)?.size ?? 0;
+    const deferred = (bm._deferredUntilDetached as Set<unknown>)?.size ?? 0;
+    lines.push(
+      `[BlobURLs] active:${active} preparing:${preparing} pendingRevoke:${pending} deferred:${deferred}`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── Files ──
+  try {
+    const currentBlob = getState('files.currentFileBlob') as Blob | null;
+    const preloadBlob = getState('preload.nextFileBlob') as File | Blob | null;
+    const currentMB = currentBlob ? (currentBlob.size / 1048576).toFixed(1) : '0.0';
+    const preloadMB = preloadBlob ? (preloadBlob.size / 1048576).toFixed(1) : '0.0';
+    lines.push(`[Files] currentBlob:${currentMB}MB preloadBlob:${preloadMB}MB`);
+
+    const playlist = (getState('playlist.items') || []) as unknown as Array<{
+      file?: File | Blob;
+      type?: string;
+    }>;
+    let plBytes = 0;
+    let plFileCount = 0;
+    for (const item of playlist) {
+      if (item.file && typeof item.file.size === 'number') {
+        plBytes += item.file.size;
+        plFileCount++;
+      }
+    }
+    lines.push(
+      `[Playlist] ${playlist.length} items, ${plFileCount} with file ref, ~${(plBytes / 1048576).toFixed(0)}MB total`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── Transfer (main) ──
+  try {
+    const ts = getTransferMemoryStats();
+    const meta = getState('transfer.meta');
+    const total = (meta?.total as number) || 0;
+    const received = (getState('transfer.receivedCount') as number) || 0;
+    lines.push(
+      `[Transfer] reorderBuf:${ts.reorderSessions}sess/${ts.reorderChunks}ch/${(ts.reorderBytes / 1048576).toFixed(2)}MB`,
+    );
+    lines.push(
+      `           pendingEarly:${ts.pendingEarlyChunks}ch/${(ts.pendingEarlyBytes / 1048576).toFixed(2)}MB | progress:${received}/${total}`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── Preload ──
+  try {
+    const ps = getPreloadMemoryStats();
+    const sessionState = (getState('preload.sessionState') as Map<number, unknown>) || new Map();
+    const ackSent = (getState('preload.ackSent') as Set<number>) || new Set();
+    let finalized = 0;
+    let skipped = 0;
+    let inProgress = 0;
+    for (const s of sessionState.values()) {
+      const e = s as { finalized?: boolean; skipped?: boolean };
+      if (e.finalized) finalized++;
+      else if (e.skipped) skipped++;
+      else inProgress++;
+    }
+    lines.push(
+      `[Preload] reorderBuf:${ps.reorderSessions}sess/${ps.reorderChunks}ch/${(ps.reorderBytes / 1048576).toFixed(2)}MB`,
+    );
+    lines.push(
+      `          sessionState:${sessionState.size} (final:${finalized}/skip:${skipped}/active:${inProgress}) | ackSent:${ackSent.size} | latestSid:${ps.latestSessionId}`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── Network ──
+  try {
+    const peers = (getState('network.connectedPeers') || []) as ConnectedPeer[];
+    const openPeers = peers.filter(
+      (p) => (p.conn as { open?: boolean } | undefined)?.open,
+    ).length;
+    const hostConn = getState('network.hostConn') as { open?: boolean } | null;
+    const upstreamRelay = getState('relay.upstreamDataConn') as { open?: boolean } | null;
+    const downstream = (getState('relay.downstreamDataPeers') ||
+      []) as unknown as Array<{ open?: boolean }>;
+    lines.push(
+      `[Network] hostConn:${hostConn?.open ? 'open' : hostConn ? 'closed' : 'none'} | peers:${peers.length}(${openPeers} open) | upRelay:${upstreamRelay?.open ? 'open' : 'none'} | downstream:${downstream.length}`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── Lifecycle ──
+  try {
+    const lifecycle = getState('playback.lifecycle') || '?';
+    const loadSource = getState('playback.loadSource') || 'none';
+    const target = getState('playback.pendingRecoveryTarget') as {
+      index?: number;
+      name?: string;
+    } | null;
+    const failed = (getState('playback.failedTrackKeys') as Set<string>) || new Set();
+    lines.push(`[Lifecycle] ${lifecycle} (loadSource:${loadSource}) | failedTracks:${failed.size}`);
+    if (target) {
+      lines.push(`            recoveryTarget: idx:${target.index} name:${target.name || '-'}`);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const text = lines.join('\n');
+  addSystemChatMessage(text);
+
+  // Auto-copy to clipboard (mirrors /debug behavior — useful for
+  // sending a snapshot to support without retyping)
+  try {
+    navigator.clipboard
+      .writeText(text)
       .then(() => {
         showToast(t('chat.debug_copied'));
       })

@@ -1265,6 +1265,35 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   });
 }
 
+// ─── Debug: Memory Stats ────────────────────────────────────────────
+//
+// Exposes module-local reorder buffer footprint for `/debug memory`. Walks
+// the nested Map<sid, Map<chunkIndex, Uint8Array>> to sum chunk byteLengths.
+// Hot-path safe: only called from chat command handler, not from the
+// receive pipeline.
+
+export function getPreloadMemoryStats(): {
+  reorderSessions: number;
+  reorderChunks: number;
+  reorderBytes: number;
+  latestSessionId: number;
+} {
+  let chunks = 0;
+  let bytes = 0;
+  for (const sessionBuf of preloadReorderBuffer.values()) {
+    chunks += sessionBuf.size;
+    for (const chunk of sessionBuf.values()) {
+      bytes += chunk.byteLength;
+    }
+  }
+  return {
+    reorderSessions: preloadReorderBuffer.size,
+    reorderChunks: chunks,
+    reorderBytes: bytes,
+    latestSessionId: latestPreloadSessionId,
+  };
+}
+
 // ─── Register Handlers ──────────────────────────────────────────────
 
 export function initPreload(): void {

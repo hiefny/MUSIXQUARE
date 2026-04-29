@@ -5,55 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <!-- Android: remove viewport-fit=cover immediately (before first paint)
-         to prevent the viewport extending behind the system navigation bar.
-         This MUST run synchronously in <head> to avoid reflow. -->
-    <script>
-        // Android: remove viewport-fit=cover immediately (before first paint).
-        // Some Android tablets/WebViews can extend the viewport behind the
-        // system navigation bar when viewport-fit=cover is present, which
-        // keeps bottom content clipped.
-        if (/Android/i.test(navigator.userAgent)) {
-            var m = document.querySelector('meta[name="viewport"]');
-            if (m) {
-                var c = m.getAttribute('content') || '';
-                // Remove regardless of formatting: ", viewport-fit=cover" or "viewport-fit=cover".
-                c = c.replace(/(?:,?\s*)viewport-fit=cover/g, '');
-                // Cleanup possible trailing commas/spaces.
-                c = c.replace(/,\s*,/g, ',').replace(/,\s*$/g, '').trim();
-                m.setAttribute('content', c);
-            }
-        }
-    </script>
+    <!-- Sync bootstrap: Android viewport-fit fix + theme preflight.
+         Must run before first paint, before stylesheets, so :lang/data-theme
+         rules apply on first frame. Source: public/bootstrap.js -->
+    <script src="/bootstrap.js"></script>
 
     <link rel="canonical" href="https://musixquare.com/">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 
-    <!-- Theme preflight (before CSS):
-         - Prevent light-mode overlay scrollbars becoming white (invisible) on mobile/PWA
-         - Reduce first-paint flicker by setting data-theme early -->
-    <script>
-        (function () {
-            try {
-                var mode = localStorage.getItem('musixquare-theme') || 'system';
-                var resolved = (mode === 'dark') ? 'dark' : (mode === 'light') ? 'light'
-                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-
-                document.documentElement.setAttribute('data-theme', resolved);
-                document.documentElement.style.colorScheme = resolved;
-
-                // Match status-bar / address-bar color on first paint (header/nav solid resting colors)
-                var themeColor = (resolved === 'dark') ? '#212121' : '#ffffff';
-                var m = document.querySelector('meta[name="theme-color"]');
-                if (m) m.setAttribute('content', themeColor);
-
-                var cs = document.querySelector('meta[name="color-scheme"]');
-                if (cs) cs.setAttribute('content', resolved);
-            } catch (e) { }
-        })();
-    </script>
     <meta name="application-name" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-title" content="MUSIXQUARE">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -101,23 +62,9 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/desktop.css">
 
-    <!-- Remove FOUC guard as soon as CSS is parsed (works with both dev & Vite-bundled builds).
-         Polls via rAF for the --bg custom property defined in :root — typically resolves in 1-2 frames. -->
-    <script>
-        (function () {
-            var g = document.getElementById('fouc-guard');
-            if (!g) return;
-            function check() {
-                if (getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()) {
-                    g.remove();
-                } else {
-                    requestAnimationFrame(check);
-                }
-            }
-            requestAnimationFrame(check);
-            setTimeout(function () { if (g.parentNode) g.remove(); }, 3000);
-        })();
-    </script>
+    <!-- Remove FOUC guard once stylesheets are parsed. Polls for --bg CSS
+         variable from style.css. Source: public/fouc-cleanup.js -->
+    <script src="/fouc-cleanup.js"></script>
 
     <!-- Setup overlay: cap to the *visible* viewport height (no clipping on Android tablets).
          iOS standalone (PWA) is excluded from the body clamp because CSS units (100%, 100dvh)

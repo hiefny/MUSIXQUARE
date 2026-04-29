@@ -489,6 +489,8 @@ export function initVisualizer(): void {
   _busScope.on('state:appState', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
+      // PAUSED is a deliberate user action — freeze immediately so the
+      // last frame stays visible until they press play again.
       if (_animationId) {
         cancelAnimationFrame(_animationId);
         _animationId = null;
@@ -498,14 +500,40 @@ export function initVisualizer(): void {
       currentState === APP_STATE.PLAYING_YOUTUBE ||
       currentState === APP_STATE.PLAYING_SYSTEM_AUDIO
     ) {
+      // Cancel any pending fade-out from a previous IDLE pass — we're
+      // playing again, the loop should keep running.
+      clearManagedTimer('viz-fadeout-stop');
       // Only spin up the rAF loop when there's actually audio to visualize.
       // Previously this branch fired for IDLE too — wasting frames during
       // landing/setup since the analyser had nothing to report.
       startVisualizer();
     } else if (_animationId) {
-      // IDLE / unknown state — stop any active loop.
-      cancelAnimationFrame(_animationId);
-      _animationId = null;
+      // IDLE / unknown — let the analyser keep ticking for a moment so
+      // its frequency data smooth-decays to silence (smoothingTimeConstant
+      // does the work). Without this grace window an immediate
+      // cancelAnimationFrame freezes the last loud frame on screen until
+      // playback resumes — exactly what users see when a track is removed
+      // mid-playback or the playlist hits its natural end.
+      clearManagedTimer('viz-fadeout-stop');
+      setManagedTimer(
+        'viz-fadeout-stop',
+        () => {
+          if (_animationId) {
+            cancelAnimationFrame(_animationId);
+            _animationId = null;
+          }
+          // Explicit clear: if the analyser was disconnected from its
+          // source (track removed, audio context torn down), its data
+          // can stay non-zero. clearRect guarantees a blank canvas
+          // regardless of how the analyser ended up.
+          const canvas = document.getElementById(
+            'visualizerCanvas',
+          ) as HTMLCanvasElement | null;
+          const ctx = canvas?.getContext('2d');
+          if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        },
+        800,
+      );
     }
   });
 

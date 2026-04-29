@@ -219,13 +219,17 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   setState('player.startedAt', 0);
   setState('player.pausedAt', 0);
 
-  // Stop seekbar animation (silent mode leaves appState as PLAYING,
-  // but audio is stopped — rAF must not interpolate stale positions).
-  // For silent transitions (track change, preload swap) the new track's
-  // duration-update + loop-start follow immediately; emitting seek-reset
-  // here would flash the bar to 0:00 between the two. handleEnded and
-  // stopPlayback already emit `ui:seek-reset` explicitly on their paths.
-  if (!opts?.silent) bus.emit('ui:seek-reset');
+  // Always reset the seekbar on stop. The silent guard used to skip this
+  // to avoid a 0:00 flash during track change, since the rAF loop would
+  // re-paint the thumb between the stop and the next loop-start. After
+  // c80abcc the rAF loop skips thumb updates outside PLAYING_AUDIO, so
+  // it no longer produces that flash on its own — but it also no longer
+  // clears the stale thumb position. Without this emit, switching tracks
+  // mid-playback leaves the previous track's position painted on the
+  // seekbar throughout the new track's decode. The seek-reset handler
+  // sets slider.value = 0 directly, which is now the only path that
+  // clears stale thumb during a silent transition.
+  bus.emit('ui:seek-reset');
 }
 
 // ─── Seek ──────────────────────────────────────────────────────────

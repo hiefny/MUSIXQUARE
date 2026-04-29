@@ -618,10 +618,16 @@ function cmdDebug(args: string[]): void {
 //   - Preload (reorder buffer + sessionState + ackSent)
 //   - Network (peer connections + relay)
 //   - Lifecycle (state machine + recovery target)
-function cmdDebugMemory(): void {
+async function cmdDebugMemory(): Promise<void> {
   const lines: string[] = ['MEMORY SNAPSHOT'];
 
-  // ── Heap ──
+  // Track sum-of-known allocations as a Chromium-independent lower bound.
+  // Safari/iOS WebKit doesn't expose performance.memory, so this is the
+  // primary monotonic-leak signal for those platforms — compare snapshots
+  // taken at different points in the session and watch which line grew.
+  let trackedBytes = 0;
+
+  // ── Heap (Chromium only) ──
   try {
     const perf = performance as unknown as Record<string, unknown>;
     const mem = perf.memory as
@@ -636,7 +642,22 @@ function cmdDebugMemory(): void {
         `[Heap] ${used.toFixed(1)}MB used / ${total.toFixed(0)}MB total / ${limit.toFixed(0)}MB limit (${pct}%)`,
       );
     } else {
-      lines.push('[Heap] performance.memory unavailable (non-Chromium)');
+      lines.push('[Heap] performance.memory unavailable (Safari/iOS) — see [Tracked]');
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // ── Storage (OPFS + IndexedDB on disk) ──
+  // Safari supports navigator.storage.estimate(). Useful for spotting OPFS
+  // file accumulation when 100 tracks each leave a slot file behind.
+  try {
+    if (navigator.storage?.estimate) {
+      const est = await navigator.storage.estimate();
+      const used = (est.usage || 0) / 1048576;
+      const quota = (est.quota || 0) / 1048576;
+      const pct = quota > 0 ? ((used / quota) * 100).toFixed(1) : '?';
+      lines.push(`[Storage] disk:${used.toFixed(1)}MB / quota:${quota.toFixed(0)}MB (${pct}%)`);
     }
   } catch {
     /* ignore */
@@ -648,6 +669,7 @@ function cmdDebugMemory(): void {
     if (audioBuf) {
       // PCM bytes = numberOfChannels × length × 4 (Float32)
       const pcmBytes = audioBuf.numberOfChannels * audioBuf.length * 4;
+      trackedBytes += pcmBytes;
       lines.push(
         `[Audio] buffer:${(pcmBytes / 1048576).toFixed(1)}MB (${audioBuf.duration.toFixed(1)}s × ${audioBuf.numberOfChannels}ch @ ${audioBuf.sampleRate}Hz)`,
       );
@@ -676,6 +698,8 @@ function cmdDebugMemory(): void {
   try {
     const currentBlob = getState('files.currentFileBlob') as Blob | null;
     const preloadBlob = getState('preload.nextFileBlob') as File | Blob | null;
+    if (currentBlob) trackedBytes += currentBlob.size;
+    if (preloadBlob) trackedBytes += preloadBlob.size;
     const currentMB = currentBlob ? (currentBlob.size / 1048576).toFixed(1) : '0.0';
     const preloadMB = preloadBlob ? (preloadBlob.size / 1048576).toFixed(1) : '0.0';
     lines.push(`[Files] currentBlob:${currentMB}MB preloadBlob:${preloadMB}MB`);
@@ -692,6 +716,11 @@ function cmdDebugMemory(): void {
         plFileCount++;
       }
     }
+    // playlist file refs counted only if they're host-uploaded Files
+    // (held in RAM). Guest-side OPFS-backed File objects technically
+    // wrap an OPFS handle, not RAM, but the size still represents
+    // potential RAM if the engine reads them. Include in tracked total.
+    trackedBytes += plBytes;
     lines.push(
       `[Playlist] ${playlist.length} items, ${plFileCount} with file ref, ~${(plBytes / 1048576).toFixed(0)}MB total`,
     );
@@ -702,6 +731,7 @@ function cmdDebugMemory(): void {
   // ── Transfer (main) ──
   try {
     const ts = getTransferMemoryStats();
+    trackedBytes += ts.reorderBytes + ts.pendingEarlyBytes;
     const meta = getState('transfer.meta');
     const total = (meta?.total as number) || 0;
     const received = (getState('transfer.receivedCount') as number) || 0;
@@ -718,6 +748,7 @@ function cmdDebugMemory(): void {
   // ── Preload ──
   try {
     const ps = getPreloadMemoryStats();
+    trackedBytes += ps.reorderBytes;
     const sessionState = (getState('preload.sessionState') as Map<number, unknown>) || new Map();
     const ackSent = (getState('preload.ackSent') as Set<number>) || new Set();
     let finalized = 0;
@@ -772,6 +803,13 @@ function cmdDebugMemory(): void {
   } catch {
     /* ignore */
   }
+
+  // ── Tracked Total (sum of all measurable allocations above) ──
+  // Lower bound — doesn't capture engine internals, AudioContext nodes,
+  // bus subscriptions, DOM, etc. But monotonic growth here is a clear
+  // signal of leak in our own code. On Safari this is the primary
+  // proxy for heap pressure since performance.memory is unavailable.
+  lines.push(`[Tracked] sum of above: ${(trackedBytes / 1048576).toFixed(1)}MB`);
 
   const text = lines.join('\n');
   addSystemChatMessage(text);

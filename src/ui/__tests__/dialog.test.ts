@@ -119,9 +119,12 @@ describe('Dialog System', () => {
       showDialog({ title: 'Test', secondaryText: 'Cancel' });
       vi.advanceTimersByTime(10);
 
-      const btn = document.getElementById('btn-dialog-secondary');
+      const btn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
       expect(btn?.textContent).toBe('Cancel');
-      expect(btn?.style.display).not.toBe('none');
+      // Use the `hidden` IDL property — index.html uses the HTML5 `hidden`
+      // attribute on the static markup (CSP-friendly), so toggling visibility
+      // via `style.display` would no-op (user-agent CSS keeps `display: none`).
+      expect(btn?.hidden).toBe(false);
 
       closeDialog();
       vi.advanceTimersByTime(10);
@@ -132,8 +135,8 @@ describe('Dialog System', () => {
       showDialog({ title: 'Test' });
       vi.advanceTimersByTime(10);
 
-      const btn = document.getElementById('btn-dialog-secondary');
-      expect(btn?.style.display).toBe('none');
+      const btn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
+      expect(btn?.hidden).toBe(true);
 
       closeDialog();
       vi.advanceTimersByTime(10);

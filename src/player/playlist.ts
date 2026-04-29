@@ -1267,6 +1267,18 @@ export function initPlaylist(): void {
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const isCurrentTrack = index === currentTrackIndex;
+    // Snapshot the removed track BEFORE splice — we need its type later to
+    // decide whether to tear down the YouTube iframe. Using appState here
+    // would miss the PAUSED-YouTube case (a YT track that's loaded into
+    // the iframe but currently paused), since appState wouldn't be
+    // PLAYING_YOUTUBE at that moment. Track type is the unambiguous signal:
+    // if the active track is type='youtube', the iframe is mounted, full
+    // stop. stopAllMedia / playTrack only touch audio nodes — the YouTube
+    // iframe is owned by the youtube module, so without an explicit
+    // stop-mode emit it stays mounted as a stale empty player while the
+    // playlist moves on.
+    const removedTrack = playlist[index];
+    const wasYoutubeActive = isCurrentTrack && removedTrack?.type === 'youtube';
 
     // Remove the item
     playlist.splice(index, 1);
@@ -1300,6 +1312,14 @@ export function initPlaylist(): void {
       // Removed before current — shift index down
       newIdx = currentTrackIndex - 1;
       setState('playlist.currentTrackIndex', newIdx);
+    }
+
+    // Tear down YouTube iframe if the removed track was the active YT one
+    // AND we're leaving YouTube mode (empty playlist or next track is local).
+    // YT → YT removal leaves the iframe up so loadYouTubeVideo can reuse it.
+    if (wasYoutubeActive) {
+      const newIsYoutube = newIdx >= 0 && playlist[newIdx]?.type === 'youtube';
+      if (!newIsYoutube) bus.emit('youtube:stop-mode');
     }
 
     // Preload invalidation:

@@ -1,0 +1,18 @@
+{
+  // Cloudflare Pages configuration. Without this file, the recent
+  // "Workers Builds" path treats the repo as a static-assets-only
+  // Worker and silently ignores the functions/ directory.
+  //
+  // Setting `pages_build_output_dir` flips Cloudflare into Pages mode,
+  // which auto-discovers functions/ (file-based routing: /api/turn-config,
+  // /og/invite/[[path]], /[code]) and processes _redirects / _headers.
+  //
+  // nodejs_compat flag is required because the OG image route imports
+  // `satori` and `@resvg/resvg-wasm`, which expect a Node-compatible
+  // runtime (Buffer, util, etc.) rather than the bare Workers runtime.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "musixquare",
+  "compatibility_date": "2026-04-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./dist"
+}

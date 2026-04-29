@@ -107,6 +107,43 @@ export function getPendingPlayTimeAge(): number {
   return (Date.now() - setAt) / 1000;
 }
 
+// ─── Pending Recovery Target ──────────────────────────────────────
+//
+// Centralized writer for `playback.pendingRecoveryTarget` so the
+// "valid (index, name) pair OR null" invariant is enforced in one
+// place. Callers don't have to remember to default index to -1 or
+// guard reads with `>= 0` — the helper either writes a valid object
+// or writes null.
+//
+// Why a helper instead of inlining the conditional at each call site:
+// without it, every set site has to repeat the same validation, and
+// future call sites are likely to forget. The Phase 4-C migration
+// originally inlined `(data.index ?? -1)` defaults, which leaked the
+// -1 sentinel into reads and forced every consumer to add `>= 0`
+// guards. This consolidates the contract.
+
+export function setPendingRecoveryTarget(
+  index: number | null | undefined,
+  name: string | null | undefined,
+): void {
+  if (
+    typeof index === 'number' &&
+    Number.isFinite(index) &&
+    index >= 0 &&
+    typeof name === 'string' &&
+    name.length > 0
+  ) {
+    setState('playback.pendingRecoveryTarget', { index, name });
+  } else {
+    setState('playback.pendingRecoveryTarget', null);
+  }
+}
+
+export function clearPendingRecoveryTarget(): void {
+  if (getState('playback.pendingRecoveryTarget') === null) return;
+  setState('playback.pendingRecoveryTarget', null);
+}
+
 // ─── Preloaded In Progress ─────────────────────────────────────────
 
 export function isPlayPreloadedInProgress(): boolean {

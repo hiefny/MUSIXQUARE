@@ -37,6 +37,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
+  setPendingRecoveryTarget,
 } from '../player/_state.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
@@ -512,10 +513,7 @@ export async function handleFilePrepare(
       });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
-      setState('playback.pendingRecoveryTarget', {
-        index: (data.index as number) ?? -1,
-        name: (data.name as string) || '',
-      });
+      setPendingRecoveryTarget(data.index as number | undefined, data.name as string | undefined);
 
       if (data.index !== undefined) {
         setState('playlist.currentTrackIndex', data.index as number);
@@ -574,10 +572,7 @@ export async function handleFilePrepare(
     (prevTarget !== null && prevTarget.index === data.index);
 
   // Store pending file info (after reading old values above)
-  setState('playback.pendingRecoveryTarget', {
-    index: (data.index as number) ?? -1,
-    name: (data.name as string) || '',
-  });
+  setPendingRecoveryTarget(data.index as number | undefined, data.name as string | undefined);
   const isResuming = isSameFile && receivedCount > 0;
 
   if (isResuming) {
@@ -1267,17 +1262,14 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
 
         showToast(t('transfer.relay_no_response'));
 
-        // Request file from Host
+        // Request file from Host. setPendingRecoveryTarget() guarantees the
+        // target is null OR a valid (index, name) pair, so optional-chain
+        // returns either a non-negative index or undefined.
         const hostConn = getState('network.hostConn');
         if (hostConn && hostConn.open) {
           const target = getState('playback.pendingRecoveryTarget');
           const pendingFileName = target?.name ?? '';
-          const pendingFileIndex = target?.index;
-          const currentTrackIndex = getState('playlist.currentTrackIndex');
-          const recoveryIndex =
-            pendingFileIndex !== undefined && pendingFileIndex >= 0
-              ? pendingFileIndex
-              : currentTrackIndex;
+          const recoveryIndex = target?.index ?? getState('playlist.currentTrackIndex');
           const playlist = getState('playlist.items') || [];
 
           // Validation: Don't send recovery with invalid index

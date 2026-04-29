@@ -26,6 +26,7 @@ import {
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
+import { setPendingRecoveryTarget } from '../player/_state.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -1138,7 +1139,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     // Lifecycle (Phase 3 dual-write): blob is ready in memory → promote to DECODING.
     // The subsequent loadPreloadedTrack flow will emit DECODE_SUCCESS on completion.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name });
-    setState('playback.pendingRecoveryTarget', { index, name });
+    setPendingRecoveryTarget(index, name);
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
 
@@ -1185,7 +1186,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index, name });
-    setState('playback.pendingRecoveryTarget', { index, name });
+    setPendingRecoveryTarget(index, name);
     showLoader(true, t('transfer.download_finishing'));
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
@@ -1207,7 +1208,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index, name });
   _activePlayPreloadedIndex = undefined;
 
-  setState('playback.pendingRecoveryTarget', { index, name });
+  setPendingRecoveryTarget(index, name);
   showLoader(true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');

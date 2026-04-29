@@ -131,14 +131,12 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       const freshTransferSid = getState('transfer.currentSessionId');
       const freshSid = freshLocalSid || freshTransferSid;
 
-      // Re-read index after backoff — track position may have changed during delay
-      const freshTarget = getState('playback.pendingRecoveryTarget');
-      const freshPendingFileIndex = freshTarget?.index;
-      const freshCurrentTrackIndex = getState('playlist.currentTrackIndex');
+      // Re-read index after backoff — track position may have changed during delay.
+      // setPendingRecoveryTarget() guarantees target is null OR a valid pair, so
+      // optional-chain returns either a non-negative index or undefined.
       const freshIndex =
-        freshPendingFileIndex !== undefined && freshPendingFileIndex >= 0
-          ? freshPendingFileIndex
-          : freshCurrentTrackIndex;
+        getState('playback.pendingRecoveryTarget')?.index ??
+        getState('playlist.currentTrackIndex');
 
       try {
         freshConn.send({

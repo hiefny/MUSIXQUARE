@@ -1298,6 +1298,13 @@ export function initPlaylist(): void {
       // Abort any in-flight broadcast/unicast so guests aren't forced to
       // finish downloading a file that's no longer in the playlist.
       cancelOutgoingFileTransfers();
+      // Clear the decoded buffer too. Without this, togglePlay's "no
+      // current track? redirect to playTrack(0)" path is fine, but a
+      // direct play() call (e.g. media-session, keyboard) finds the
+      // last-played track's AudioBuffer still resident and silently
+      // resumes that audio under a "미디어 없음" UI. Mirrors the
+      // handleEndOfPlaylist cleanup for the same reason.
+      setCurrentAudioBuffer(null);
       setState('playlist.currentTrackIndex', -1);
       setState('player.currentTrackMeta', null);
       setState('files.currentFileBlob', null);

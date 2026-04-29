@@ -1,6 +1,8 @@
 import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 // Emits landing.html at dist root (instead of dist/.workshop/landing/)
 // so Netlify can serve it without exposing the dotfolder path.
 const flattenLandingHtml = (): Plugin => ({
@@ -42,7 +44,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [flattenLandingHtml(), landingDevAlias()],
+  plugins: [flattenLandingHtml(), landingDevAlias(), cloudflare()],
   build: {
     outDir: 'dist',
     target: 'es2022',

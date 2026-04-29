@@ -1309,6 +1309,9 @@ export function initPlaylist(): void {
       setState('player.currentTrackMeta', null);
       setState('files.currentFileBlob', null);
       setState('transfer.meta', {});
+      // Soft-disable the play button to match the boot state. Click still
+      // fires so the toast hint can show.
+      bus.emit('ui:play-btn-state', false);
       newIdx = -1;
     } else if (isCurrentTrack) {
       // Was playing the removed track. In sequential mode the natural

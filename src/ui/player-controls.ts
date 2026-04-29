@@ -798,11 +798,13 @@ export function initPlayerControls(): void {
   // bus.on handlers removed: no module emits these events.
 
   // Play button state (enabled/disabled)
+  // aria-disabled instead of HTML `disabled` so the click handler still
+  // fires when there's no media — _internalPlay surfaces a toast hint
+  // ("미디어를 추가해주세요") that real `disabled` would silence.
   _busScope.on('ui:play-btn-state', (enabled) => {
     const btn = document.getElementById('play-btn');
     if (btn) {
-      (btn as HTMLButtonElement).disabled = !enabled;
-      btn.style.opacity = enabled ? '1' : '0.4';
+      btn.setAttribute('aria-disabled', String(!enabled));
     }
   });
 

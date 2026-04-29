@@ -1308,8 +1308,13 @@
         transform: scale(0.92);
     }
 
-    .play-fab:disabled {
-        opacity: 0.3;
+    /* Soft-disabled: aria-disabled keeps the button clickable so the
+       click handler can show a "미디어를 추가해주세요" toast, but
+       visually it reads as disabled. Real `disabled` would suppress
+       the click event entirely. */
+    .play-fab[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: not-allowed;
     }
 
     .play-fab svg {

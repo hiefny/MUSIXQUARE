@@ -234,6 +234,80 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 
 // ─── PeerJS Event Setup ─────────────────────────────────────────────
 
+// ─── Signaling Reconnect ────────────────────────────────────────────
+//
+// PeerJS does NOT auto-reconnect to its signaling server when the WebSocket
+// drops — the application has to call peer.reconnect() manually. Without this,
+// a brief network blip leaves the peer stuck disconnected: existing data
+// channels keep working (they're direct WebRTC) but new peers can't join
+// because the signaling handshake is unavailable.
+//
+// We retry with exponential backoff. Each retry checks `peer.disconnected`
+// before calling reconnect() — if a prior attempt already succeeded (or
+// the user left the session), we bail and reset the counter.
+//
+// Backoff total: 1+2+4+8+15 = 30s across 5 attempts. After that we give up
+// and let the existing 5s grace dialog (peer.on('disconnected') below)
+// surface the failure to the user IF data channels are also dead. If data
+// channels are still alive, we silently degrade: existing playback works,
+// just no new joins.
+let _reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+
+function attemptPeerReconnect(): void {
+  const peer = getPeer();
+  if (!peer || peer.destroyed) {
+    _reconnectAttempts = 0;
+    return;
+  }
+  if (!peer.disconnected) {
+    if (_reconnectAttempts > 0) {
+      log.info('[PeerJS] Signaling reconnected');
+    }
+    _reconnectAttempts = 0;
+    return;
+  }
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    log.warn(
+      `[PeerJS] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
+    );
+    return;
+  }
+
+  const delay = RECONNECT_BACKOFF_MS[_reconnectAttempts] ?? 15000;
+  _reconnectAttempts++;
+  log.info(
+    `[PeerJS] Scheduling signaling reconnect attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`,
+  );
+
+  setManagedTimer(
+    'peer-signaling-reconnect',
+    () => {
+      const p = getPeer();
+      if (!p || p.destroyed) {
+        _reconnectAttempts = 0;
+        return;
+      }
+      if (!p.disconnected) {
+        log.info('[PeerJS] Already reconnected before scheduled attempt');
+        _reconnectAttempts = 0;
+        return;
+      }
+      log.info(`[PeerJS] Calling peer.reconnect() (attempt ${_reconnectAttempts})`);
+      try {
+        p.reconnect();
+      } catch (e) {
+        log.warn('[PeerJS] reconnect() threw:', (e as Error)?.message ?? e);
+      }
+      // Recurse to check after the next backoff window. If reconnect() actually
+      // succeeded, this next call sees !peer.disconnected and resets the counter.
+      attemptPeerReconnect();
+    },
+    delay,
+  );
+}
+
 function setupPeerEvents(): void {
   const peer = getPeer();
   if (!peer) return;
@@ -261,6 +335,13 @@ function setupPeerEvents(): void {
 
   peer.on('disconnected', () => {
     log.warn('[PeerJS] Disconnected from signaling server');
+
+    // Auto-reconnect: PeerJS doesn't reconnect to its signaling server on
+    // its own. Without this, a brief network blip permanently breaks
+    // "new peer can join" until the user reloads. We retry with backoff;
+    // existing data channels keep working throughout.
+    _reconnectAttempts = 0; // fresh budget per disconnect event
+    attemptPeerReconnect();
 
     // PeerJS 'disconnected' fires when the WebSocket to the signaling server
     // drops. CRITICAL: existing peer-to-peer data channels are direct WebRTC

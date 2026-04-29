@@ -119,6 +119,77 @@ function syncCanvasSize(
   }
 }
 
+// ─── Silence-aware fade-out stop ────────────────────────────────
+
+// On IDLE the rAF loop keeps running until the analyser has been
+// near-silent for a sustained window. This handles long reverb tails
+// (settings.default_5s and beyond) cleanly — the visual stops when
+// the audio actually stops, not after an arbitrary timer.
+const VIZ_SILENCE_THRESHOLD_DB = -65; // analyser dB floor below which we count a frame as silent
+const VIZ_SILENCE_SUSTAINED_MS = 500; // sustained silence required before stopping
+const VIZ_SILENCE_MAX_CAP_MS = 30_000; // hard cap so a stuck analyser can't poll forever
+const VIZ_SILENCE_POLL_MS = 100;
+let _silenceFirstSeenAt = 0;
+
+function stopVisualizerAndClear(): void {
+  if (_animationId) {
+    cancelAnimationFrame(_animationId);
+    _animationId = null;
+  }
+  clearManagedTimer('viz-silence-poll');
+  _silenceFirstSeenAt = 0;
+  // Explicit clear — analyser data can stay non-zero if the source was
+  // disconnected without flushing the buffer (track removal, context
+  // teardown). clearRect guarantees a blank canvas regardless.
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function scheduleVisualizerSilenceStop(): void {
+  _silenceFirstSeenAt = 0;
+  const pollStart = performance.now();
+  const poll = (): void => {
+    // User resumed playback in the meantime — startVisualizer cleared
+    // the timer already, but be defensive.
+    if (!_animationId) return;
+
+    const analyser = getEngineAnalyser();
+    if (!analyser) {
+      stopVisualizerAndClear();
+      return;
+    }
+
+    const data = new Float32Array(analyser.frequencyBinCount);
+    analyser.getFloatFrequencyData(data);
+    let max = -Infinity;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      if (v > max) max = v;
+    }
+    const isSilent = !isFinite(max) || max < VIZ_SILENCE_THRESHOLD_DB;
+    const now = performance.now();
+
+    if (isSilent) {
+      if (!_silenceFirstSeenAt) _silenceFirstSeenAt = now;
+      if (now - _silenceFirstSeenAt >= VIZ_SILENCE_SUSTAINED_MS) {
+        stopVisualizerAndClear();
+        return;
+      }
+    } else {
+      _silenceFirstSeenAt = 0;
+    }
+
+    if (now - pollStart >= VIZ_SILENCE_MAX_CAP_MS) {
+      stopVisualizerAndClear();
+      return;
+    }
+
+    setManagedTimer('viz-silence-poll', poll, VIZ_SILENCE_POLL_MS);
+  };
+  setManagedTimer('viz-silence-poll', poll, VIZ_SILENCE_POLL_MS);
+}
+
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
@@ -500,40 +571,25 @@ export function initVisualizer(): void {
       currentState === APP_STATE.PLAYING_YOUTUBE ||
       currentState === APP_STATE.PLAYING_SYSTEM_AUDIO
     ) {
-      // Cancel any pending fade-out from a previous IDLE pass — we're
-      // playing again, the loop should keep running.
-      clearManagedTimer('viz-fadeout-stop');
+      // Cancel any pending silence-stop poll from a previous IDLE pass
+      // — we're playing again, the loop should keep running.
+      clearManagedTimer('viz-silence-poll');
+      _silenceFirstSeenAt = 0;
       // Only spin up the rAF loop when there's actually audio to visualize.
       // Previously this branch fired for IDLE too — wasting frames during
       // landing/setup since the analyser had nothing to report.
       startVisualizer();
     } else if (_animationId) {
-      // IDLE / unknown — let the analyser keep ticking for a moment so
-      // its frequency data smooth-decays to silence (smoothingTimeConstant
-      // does the work). Without this grace window an immediate
-      // cancelAnimationFrame freezes the last loud frame on screen until
-      // playback resumes — exactly what users see when a track is removed
-      // mid-playback or the playlist hits its natural end.
-      clearManagedTimer('viz-fadeout-stop');
-      setManagedTimer(
-        'viz-fadeout-stop',
-        () => {
-          if (_animationId) {
-            cancelAnimationFrame(_animationId);
-            _animationId = null;
-          }
-          // Explicit clear: if the analyser was disconnected from its
-          // source (track removed, audio context torn down), its data
-          // can stay non-zero. clearRect guarantees a blank canvas
-          // regardless of how the analyser ended up.
-          const canvas = document.getElementById(
-            'visualizerCanvas',
-          ) as HTMLCanvasElement | null;
-          const ctx = canvas?.getContext('2d');
-          if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-        },
-        800,
-      );
+      // IDLE / unknown — keep the rAF loop running until the analyser
+      // actually goes silent, then stop. A fixed 800ms timeout was the
+      // first try, but reverb tails can ring out for 10+ seconds and
+      // cutting the visual at 800ms while audio keeps playing looks
+      // worse than the original stuck-frame bug. Poll the analyser
+      // and only stop once the spectrum has been near-silent for a
+      // sustained window. Hard 30s cap as a safety net (analyser
+      // can stay non-zero forever if the source was disconnected
+      // without the data buffer being cleared).
+      scheduleVisualizerSilenceStop();
     }
   });
 

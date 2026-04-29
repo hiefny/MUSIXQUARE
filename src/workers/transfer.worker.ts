@@ -583,6 +583,26 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     return;
   }
 
+  // Per-sid preload slot release (called by PRELOAD_ABORT cleanup on guest).
+  // Differs from OPFS_RESET in two ways:
+  //   1. Targets a single sessionId instead of wiping every preload slot —
+  //      avoids collateral damage to other in-flight preloads.
+  //   2. Does NOT post OPFS_FILE_READY. The aborted file is partial; firing
+  //      file-ready would push the partial blob into preload.nextFileBlob via
+  //      the storage:preload-file-ready handler.
+  // Silent no-op when the slot doesn't exist — covers races where ABORT
+  // arrives after natural finalize already released the slot.
+  if (command === 'OPFS_RESET_SESSION') {
+    const sessionId = data.sessionId as number;
+    if (!isValidSessionId(sessionId)) return;
+    const slot = preloadSlots.get(sessionId);
+    if (slot) {
+      await releaseLock(slot);
+      preloadSlots.delete(sessionId);
+    }
+    return;
+  }
+
   if (command === 'OPFS_CLEANUP') {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;

@@ -308,6 +308,36 @@ export async function handleFilePrepare(
   //
   // Fix: on every new-session FILE_PREPARE, wipe the receive state and
   // restart the chunkWatchdog from NOW so both safety nets are armed.
+  //
+  // Extended (2026-04-29): the original reset missed three fields whose
+  // sticky values from a prior preload-consume + slow-path back-and-forth
+  // produced the "수신중 0% → 로더 사라짐 → 30s 후 자가 복구" pattern:
+  //
+  //   - transfer.state — if it stayed at READY/PROCESSING from the prior
+  //     decode, applyFileChunk:810-815 drops every chunk for the new
+  //     session whose incomingSid <= localSid (and we just wrote
+  //     localSid := incomingSid above, so the inequality is satisfied).
+  //   - transfer.skipIncomingFile — set true by every preload-consume
+  //     path (loadPreloadedTrack, preload-match, AWAITING_PRELOAD).
+  //     applyFileChunk:800 drops every chunk while it is true. The flag
+  //     is cleared only on (a) preload mismatch in handleFilePrepare,
+  //     (b) preloadWatchdog timeout, or (c) handleFileStart's same-name
+  //     recovery branch. Slow-path FILE_PREPAREs that happen to fall
+  //     through *without* a name mismatch (preloadMeta already null from
+  //     a prior consume, so isMismatch=false) reach the fresh download
+  //     branch with the flag still true; the resulting FILE_START hits
+  //     the same-name recovery branch only if names match exactly, which
+  //     races during rapid switching when broadcastFileDebounced
+  //     coalescing pairs FILE_PREPARE with the wrong file. Forcing the
+  //     flag false here breaks the silent-stall path.
+  //   - transfer.staleChunkBurstStart/Count — already reset above
+  //     (kept; just noting for completeness).
+  //
+  // Risk: clearing skipIncomingFile here is safe because the
+  // preload-match (line 367), same-track replay (line 394), and
+  // AWAITING_PRELOAD (line 438) branches each re-set it to true after
+  // this block runs. Only the fresh-download fallthrough — the path
+  // that actually wants chunks — observes the cleared flag.
   if (isNewSession) {
     log.debug(
       `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`,
@@ -319,6 +349,8 @@ export async function handleFilePrepare(
     nextExpectedChunk = 0;
     setState('transfer.staleChunkBurstStart', 0);
     setState('transfer.staleChunkBurstCount', 0);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('transfer.skipIncomingFile', false);
     // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
     // not from the last chunk of the previous (defunct) session.
     startChunkWatchdog();

@@ -138,12 +138,16 @@ function stopVisualizerAndClear(): void {
   }
   clearManagedTimer('viz-silence-poll');
   _silenceFirstSeenAt = 0;
-  // Explicit clear — analyser data can stay non-zero if the source was
-  // disconnected without flushing the buffer (track removal, context
-  // teardown). clearRect guarantees a blank canvas regardless.
-  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
-  const ctx = canvas?.getContext('2d');
-  if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Intentionally NO clearRect: the silence-poll only stops once the
+  // analyser has been near-silent for 500ms, so the last drawn frame
+  // is already a tiny "idle" shape. clearing the canvas would leave a
+  // black void where the visualizer used to be — users read that as
+  // "the visualizer broke / disappeared". Leaving the residual silent
+  // frame keeps an idle visual on screen until playback resumes.
+  //
+  // Edge case: 30s hard-cap path with a disconnected analyser leaves
+  // whatever loud frame was last drawn frozen. That's still better
+  // than a black void, and the next playback will overwrite it.
 }
 
 function scheduleVisualizerSilenceStop(): void {

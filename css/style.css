@@ -4262,7 +4262,7 @@
     .chat-scroll-down-btn {
         position: absolute;
         bottom: 16px;
-        right: 16px;
+        left: 50%;
         width: 36px;
         height: 36px;
         min-height: 36px;
@@ -4279,7 +4279,7 @@
         z-index: 20;
         opacity: 0;
         pointer-events: none;
-        transform: translateY(10px);
+        transform: translate(-50%, 10px);
         transition: opacity 0.2s, transform 0.2s, background-color 0.2s;
         padding: 0;
     }
@@ -4287,7 +4287,7 @@
     .chat-scroll-down-btn.show {
         opacity: 1;
         pointer-events: auto;
-        transform: translateY(0);
+        transform: translate(-50%, 0);
     }
 
     .chat-scroll-down-btn:hover {
@@ -4295,7 +4295,7 @@
     }
 
     .chat-scroll-down-btn:active {
-        transform: scale(0.92) translateY(0);
+        transform: translate(-50%, 0) scale(0.92);
     }
 
     .chat-scroll-down-btn svg {

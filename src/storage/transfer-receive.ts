@@ -725,11 +725,11 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   const receivedCount = getState('transfer.receivedCount');
   const isRecoverySameFile = meta?.name === data.name && meta?.total === (data.total as number);
 
-  const currentTrackEntry = getState('files.currentFileOpfs');
+  const currentTrackEntry = getState('files.currentTrack');
   if (currentTrackEntry.name && currentTrackEntry.name !== data.name) {
     cleanupStoredFile(currentTrackEntry.name, false);
   }
-  setState('files.currentFileOpfs', { name: (data.name as string) || null });
+  setState('files.currentTrack', { name: (data.name as string) || null });
 
   // Always fresh start — host resends from chunk 0 on recovery,
   // so keepExisting is unnecessary and stale counters cause infinite loops.
@@ -815,7 +815,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     keepExisting: startChunk > 0, // preserve existing data on resume
   });
 
-  setState('files.currentFileOpfs', { name: data.name as string });
+  setState('files.currentTrack', { name: data.name as string });
 
   nextExpectedChunk = startChunk;
   setState('transfer.meta', data as Partial<FileMeta>);
@@ -932,7 +932,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         sessionId: validateSessionId(incomingSid),
         size: CHUNK_SIZE,
       });
-      setState('files.currentFileOpfs', { name: chunkName });
+      setState('files.currentTrack', { name: chunkName });
       setState('transfer.state', TRANSFER_STATE.RECEIVING);
       if (data.total) {
         setState('transfer.meta', {
@@ -1037,7 +1037,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   sessionBuffer.set(chunkIndex, chunkData);
 
   const meta = getState('transfer.meta');
-  let currentTrackEntry = getState('files.currentFileOpfs');
+  let currentTrackEntry = getState('files.currentTrack');
   let receivedCount = getState('transfer.receivedCount');
 
   // Meta-recovery: if we missed FILE_START, extract meta from chunk data
@@ -1055,7 +1055,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
-        setState('files.currentFileOpfs', { name: fname });
+        setState('files.currentTrack', { name: fname });
         postWorkerCommand({
           command: 'OPFS_START',
           filename: fname,
@@ -1085,7 +1085,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       }
 
       // Re-read after meta-recovery updated state (prevents stale reference)
-      currentTrackEntry = getState('files.currentFileOpfs');
+      currentTrackEntry = getState('files.currentTrack');
       receivedCount = getState('transfer.receivedCount');
     } else if (!meta || meta.total === undefined) {
       // Orphan chunk with no meta — can't process

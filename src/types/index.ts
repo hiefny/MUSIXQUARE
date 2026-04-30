@@ -489,7 +489,7 @@ export interface StateTree {
     repeatMode: number;
     isShuffle: boolean;
   };
-  files: { currentFileBlob: Blob | null; currentFileOpfs: { name: string | null } };
+  files: { currentFileBlob: Blob | null; currentTrack: { name: string | null } };
   youtube: {
     currentSubIndex: number;
     subItemsMap: Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;

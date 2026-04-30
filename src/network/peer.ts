@@ -594,7 +594,7 @@ export function leaveSession(): void {
     'recovery.retryCount': 0,
     // Files
     'files.currentFileBlob': null,
-    'files.currentFileOpfs': { name: null },
+    'files.currentTrack': { name: null },
     // Preload
     'preload.nextFileBlob': null,
     'preload.meta': null,

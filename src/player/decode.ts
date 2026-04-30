@@ -455,7 +455,7 @@ export async function loadPreloadedTrack(
     // Worker's removeEntry is idempotent — the wrong-prefix call hits
     // "file may not exist" and is a no-op.
     const newName = (activeMeta?.name as string) || '';
-    const prevTrackName = getState('files.currentFileOpfs')?.name;
+    const prevTrackName = getState('files.currentTrack')?.name;
     if (prevTrackName && prevTrackName !== newName) {
       log.info(`[Preload] Track rotate: prev="${prevTrackName}" new="${newName}"`);
       cleanupStoredFile(prevTrackName, false);
@@ -466,7 +466,7 @@ export async function loadPreloadedTrack(
       );
     }
     if (newName) {
-      setState('files.currentFileOpfs', { name: newName });
+      setState('files.currentTrack', { name: newName });
     }
 
     // Update global state
@@ -661,14 +661,14 @@ export function clearPreviousTrackState(reason = ''): void {
   }
 
   // Physically delete OLD current file from OPFS
-  const currentTrackEntry = getState('files.currentFileOpfs');
+  const currentTrackEntry = getState('files.currentTrack');
   if (currentTrackEntry?.name) {
     const nextMeta = getState('preload.meta');
     const isActuallyChanging = currentTrackEntry.name !== nextMeta?.name;
     if (isActuallyChanging) {
       postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
       cleanupStoredFile(currentTrackEntry.name, false);
-      setState('files.currentFileOpfs', { name: null });
+      setState('files.currentTrack', { name: null });
     }
   }
 }

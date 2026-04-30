@@ -156,7 +156,7 @@ function createInitialState(): StateTree {
 
     files: {
       currentFileBlob: null,
-      currentFileOpfs: { name: null },
+      currentTrack: { name: null },
     },
 
     youtube: {

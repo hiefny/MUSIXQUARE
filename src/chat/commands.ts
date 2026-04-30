@@ -774,6 +774,42 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     /* ignore — OPFS enumeration not critical */
   }
 
+  // ── Cache API (Service Worker caches) ──
+  // iOS doesn't ship `usageDetails` so we can't see the cache vs OPFS split
+  // from `navigator.storage.estimate()`. Iterate the Cache API directly
+  // instead — `caches.keys()` + `cache.keys()` are cheap (just metadata),
+  // entry count alone is a strong leak signal. On Windows we already saw
+  // `caches: 2.4GB` was the dominant backend; this block makes the same
+  // bisection possible from iOS.
+  try {
+    if (typeof caches !== 'undefined' && caches.keys) {
+      const cacheNames = await caches.keys();
+      let totalEntries = 0;
+      const stats: Array<{ name: string; entries: number }> = [];
+      for (const name of cacheNames) {
+        try {
+          const cache = await caches.open(name);
+          const reqs = await cache.keys();
+          stats.push({ name, entries: reqs.length });
+          totalEntries += reqs.length;
+        } catch {
+          /* skip cache that errored — partial info is still useful */
+        }
+      }
+      if (stats.length > 0) {
+        lines.push(`[Caches] ${stats.length} caches, ${totalEntries} entries`);
+        // Stable sort by entry count desc — biggest cache lands on top.
+        stats.sort((a, b) => b.entries - a.entries);
+        for (const s of stats) {
+          const noun = s.entries === 1 ? 'entry' : 'entries';
+          lines.push(`         ${s.name}: ${s.entries} ${noun}`);
+        }
+      }
+    }
+  } catch {
+    /* ignore — Cache API not critical */
+  }
+
   // ── Audio ──
   try {
     const audioBuf = getCurrentAudioBuffer();

@@ -9,6 +9,8 @@ import {
   animateTransition,
   updateOverlayOpenClass,
   initOverlayOpenObserver,
+  initOverlayInertObserver,
+  __resetModalStackForTests,
 } from '../dom.ts';
 
 describe('escapeHtml', () => {
@@ -143,5 +145,85 @@ describe('initOverlayOpenObserver', () => {
     initOverlayOpenObserver();
     initOverlayOpenObserver();
     // Should not throw — disconnects previous observer
+  });
+});
+
+describe('initOverlayInertObserver — modal stack', () => {
+  // Wait for MutationObserver microtask + a tick for the inert mutations
+  // it triggers in turn (the observer modifies sibling attributes, which
+  // schedules another microtask round in jsdom).
+  const flushObservers = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <header id="hdr"></header>
+      <div id="non-modal"></div>
+      <div id="setup-overlay"></div>
+      <div id="media-source-overlay"></div>
+      <div id="youtube-url-overlay"></div>
+      <div id="dialog-overlay"></div>
+    `;
+    __resetModalStackForTests();
+    initOverlayInertObserver();
+  });
+
+  const isInert = (id: string) => document.getElementById(id)!.hasAttribute('inert');
+
+  it('inerts nothing when no modal is shown', () => {
+    expect(isInert('hdr')).toBe(false);
+    expect(isInert('non-modal')).toBe(false);
+    expect(isInert('setup-overlay')).toBe(false);
+    expect(isInert('dialog-overlay')).toBe(false);
+  });
+
+  it('inerts everything except setup when setup becomes active', async () => {
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await flushObservers();
+    expect(isInert('hdr')).toBe(true);
+    expect(isInert('non-modal')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(true);
+    expect(isInert('setup-overlay')).toBe(false);
+  });
+
+  it('moves dialog to top when shown over setup, inerting setup', async () => {
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await flushObservers();
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushObservers();
+    expect(isInert('setup-overlay')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('hdr')).toBe(true);
+  });
+
+  it('returns setup to top when dialog closes', async () => {
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await flushObservers();
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushObservers();
+    document.getElementById('dialog-overlay')!.classList.remove('show');
+    await flushObservers();
+    expect(isInert('setup-overlay')).toBe(false);
+    expect(isInert('dialog-overlay')).toBe(true);
+    expect(isInert('hdr')).toBe(true);
+  });
+
+  it('clears every inert when the stack drains', async () => {
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await flushObservers();
+    document.getElementById('setup-overlay')!.classList.remove('active');
+    await flushObservers();
+    expect(isInert('hdr')).toBe(false);
+    expect(isInert('non-modal')).toBe(false);
+    expect(isInert('setup-overlay')).toBe(false);
+    expect(isInert('dialog-overlay')).toBe(false);
+  });
+
+  it('handles dialog opening with no other modal — only dialog stays interactive', async () => {
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushObservers();
+    expect(isInert('hdr')).toBe(true);
+    expect(isInert('non-modal')).toBe(true);
+    expect(isInert('setup-overlay')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(false);
   });
 });

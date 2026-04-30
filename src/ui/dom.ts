@@ -80,64 +80,110 @@ export function animateTransition(callback: () => void): void {
 
 // ─── HTML Escaping ───────────────────────────────────────────────
 
-// ─── Overlay Inert Management ────────────────────────────────────
-// When a fullscreen overlay is active, set `inert` on all sibling elements
-// of <body> children so keyboard focus is trapped inside the overlay.
-// The OVERLAY_IDS list covers the three main overlays that lack focus traps.
+// ─── Modal Stack Management (focus trap via inert) ───────────────
+// Modals can stack on top of each other (e.g. the SW update dialog opening
+// over the initial setup overlay). Tab focus must stay inside the *topmost*
+// modal — every other body child, including modals further down the stack,
+// gets the HTML5 `inert` attribute so keyboard nav can't escape and pointer
+// hits don't fall through.
+//
+// Each entry pairs a modal element id with the class that signals "this
+// modal is currently showing". History: setup/media/youtube overlays use
+// `.active` (legacy onboarding markup), dialog-overlay uses `.show`. We
+// keep them in one list rather than two parallel mechanisms.
+//
+// History note
+// ────────────
+// [a3c84db] introduced the original observer with a flat `OVERLAY_IDS`
+// allowlist — anything not on the list got inerted. That worked for the
+// three onboarding overlays but missed dialog-overlay, which is also a
+// body child. When the SW update dialog opened over the setup screen it
+// was rendered correctly but inerted, so taps fell through to the setup
+// content underneath — see [1b09816]. The band-aid there added a
+// `NEVER_INERT_IDS` skip-list, which fixed the click-through but left
+// the wrong focus model: with both overlays "interactive", Tab could
+// reach focusable controls underneath the dialog. This rewrite moves to
+// proper LIFO stacking so only the top stays interactive.
 
-const OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overlay'];
+interface ModalDef {
+  id: string;
+  /** Class on the element that means "currently shown/active". */
+  cls: string;
+}
 
-// IDs that must NEVER be inerted, even while one of OVERLAY_IDS is active.
-// dialog-overlay can stack on top of any setup/media overlay (e.g. the SW
-// update prompt firing during the initial setup screen). Inerting it makes
-// the dialog visually present but click-transparent — taps fall through to
-// the overlay underneath, which is the exact "refresh button does nothing"
-// bug we hit on launch week.
-const NEVER_INERT_IDS = new Set(['dialog-overlay']);
+const MODALS: readonly ModalDef[] = [
+  { id: 'setup-overlay', cls: 'active' },
+  { id: 'media-source-overlay', cls: 'active' },
+  { id: 'youtube-url-overlay', cls: 'active' },
+  { id: 'dialog-overlay', cls: 'show' },
+] as const;
 
-/**
- * Observe overlay .active class changes and toggle `inert` on non-overlay
- * body children. Uses a single MutationObserver on <body> for efficiency.
- */
-export function initOverlayInertObserver(): void {
-  function syncInert(): void {
-    const anyOverlayActive = OVERLAY_IDS.some((id) => {
-      const el = document.getElementById(id);
-      return el?.classList.contains('active');
-    });
-    // Toggle inert on all direct children of body that aren't the active overlay
-    for (const child of Array.from(document.body.children)) {
-      if (!(child instanceof HTMLElement)) continue;
-      if (OVERLAY_IDS.includes(child.id)) continue;
-      if (NEVER_INERT_IDS.has(child.id)) continue;
-      if (anyOverlayActive) {
-        child.setAttribute('inert', '');
-      } else {
-        child.removeAttribute('inert');
-      }
-    }
+// LIFO order: index 0 = oldest currently-shown modal, last index = top.
+// Module-scoped so successive open/close events preserve stack order
+// without re-deriving it from the DOM.
+const _modalStack: string[] = [];
+
+/** @internal Test-only helper to reset stack between cases. */
+export function __resetModalStackForTests(): void {
+  _modalStack.length = 0;
+}
+
+function isShown(def: ModalDef): boolean {
+  const el = document.getElementById(def.id);
+  return !!el?.classList.contains(def.cls);
+}
+
+function syncModalStack(): void {
+  // 1. Drop modals that are no longer shown (preserves order of survivors).
+  for (let i = _modalStack.length - 1; i >= 0; i--) {
+    const def = MODALS.find((m) => m.id === _modalStack[i]);
+    if (!def || !isShown(def)) _modalStack.splice(i, 1);
   }
 
+  // 2. Append modals that have just become shown, in MODALS declaration order
+  //    (only relevant when multiple appear on the same tick — single openings
+  //    just push one entry).
+  for (const def of MODALS) {
+    if (isShown(def) && !_modalStack.includes(def.id)) _modalStack.push(def.id);
+  }
+
+  const top = _modalStack.length > 0 ? _modalStack[_modalStack.length - 1] : null;
+
+  // 3. Apply inert to every body child except the top of the stack. When the
+  //    stack is empty (no modals open), nothing should be inert.
+  for (const child of Array.from(document.body.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (top !== null && child.id !== top) {
+      child.setAttribute('inert', '');
+    } else {
+      child.removeAttribute('inert');
+    }
+  }
+}
+
+/**
+ * Watch every modal in {@link MODALS} for class changes and keep the body's
+ * `inert` distribution in sync with the modal stack. One MutationObserver
+ * total, attached per modal element.
+ */
+export function initOverlayInertObserver(): void {
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
-      if (m.type === 'attributes' && m.attributeName === 'class') {
-        const target = m.target as HTMLElement;
-        if (OVERLAY_IDS.includes(target.id)) {
-          syncInert();
-          return;
-        }
+      if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+      const target = m.target as HTMLElement;
+      if (MODALS.some((d) => d.id === target.id)) {
+        syncModalStack();
+        return;
       }
     }
   });
 
-  // Observe each overlay element for class changes
-  for (const id of OVERLAY_IDS) {
-    const el = document.getElementById(id);
+  for (const def of MODALS) {
+    const el = document.getElementById(def.id);
     if (el) observer.observe(el, { attributes: true, attributeFilter: ['class'] });
   }
 
-  // Initial sync
-  syncInert();
+  syncModalStack();
 }
 
 const _ESCAPE_HTML_RE = /[&<>"']/;

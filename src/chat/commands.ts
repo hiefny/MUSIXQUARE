@@ -683,17 +683,41 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     /* ignore */
   }
 
-  // ── Storage (OPFS + IndexedDB on disk) ──
+  // ── Storage (OPFS + IndexedDB + Cache + SW on disk) ──
   // Safari supports navigator.storage.estimate(). Useful for spotting OPFS
   // file accumulation when 100 tracks each leave a slot file behind.
+  // Chromium additionally exposes `usageDetails` with a per-backend
+  // breakdown (fileSystem / indexedDB / caches / serviceWorkerRegistrations).
+  // That lets us tell whether a "storage growing forever" symptom is OPFS,
+  // SW Cache API, IndexedDB, or something else — saves a long bisect.
   try {
     if (navigator.storage?.estimate) {
-      const est = await navigator.storage.estimate();
+      const est = (await navigator.storage.estimate()) as StorageEstimate & {
+        usageDetails?: Record<string, number>;
+      };
       const used = (est.usage || 0) / 1048576;
       const quota = (est.quota || 0) / 1048576;
       const pct = quota > 0 ? ((used / quota) * 100).toFixed(1) : '?';
       storageMB = used;
       lines.push(`[Storage] disk:${used.toFixed(1)}MB / quota:${quota.toFixed(0)}MB (${pct}%)`);
+
+      // Sort the breakdown so the largest backend bubbles to the top —
+      // that's where any growth signal will show first.
+      if (est.usageDetails && typeof est.usageDetails === 'object') {
+        const entries = Object.entries(est.usageDetails)
+          .filter(([, v]) => typeof v === 'number')
+          .sort((a, b) => (b[1] as number) - (a[1] as number));
+        if (entries.length > 0) {
+          const parts = entries.map(
+            ([k, v]) => `${k}:${((v as number) / 1048576).toFixed(1)}MB`,
+          );
+          lines.push(`          breakdown: ${parts.join(' | ')}`);
+        }
+      } else {
+        // Safari/iOS path — usageDetails is unavailable. The OPFS
+        // enumeration below still gives a partial picture.
+        lines.push(`          breakdown: unavailable (Safari/iOS — see [OPFS])`);
+      }
     }
   } catch {
     /* ignore */

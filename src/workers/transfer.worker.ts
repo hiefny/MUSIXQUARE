@@ -572,10 +572,32 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
   if (command === 'OPFS_RESET') {
     const isPreload = !!data.isPreload;
     if (isPreload) {
+      // Capture filenames BEFORE releasing locks — releaseLock may null
+      // out the slot's fields, and we still need the names to remove the
+      // partial files from disk.
+      const namesToDelete: string[] = [];
       for (const slot of preloadSlots.values()) {
+        if (slot.name) namesToDelete.push(slot.name);
         await releaseLock(slot);
       }
       preloadSlots.clear();
+
+      // Remove the partial preload files from OPFS. Without this step,
+      // every aborted in-flight preload (rapid track skipping, backward
+      // navigation that triggers clearPreloadState) leaves an orphan on
+      // disk until the next startup or session-leave sweep runs.
+      if (namesToDelete.length > 0) {
+        const root = await navigator.storage.getDirectory().catch(() => null);
+        if (root) {
+          for (const name of namesToDelete) {
+            try {
+              await root.removeEntry(buildSafeName(name, true));
+            } catch {
+              /* file may not exist or already removed */
+            }
+          }
+        }
+      }
     } else {
       await releaseLock(currentFileOpfs);
     }
@@ -597,8 +619,22 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     if (!isValidSessionId(sessionId)) return;
     const slot = preloadSlots.get(sessionId);
     if (slot) {
+      // Capture the filename before releaseLock has a chance to null it.
+      const filename = slot.name;
       await releaseLock(slot);
       preloadSlots.delete(sessionId);
+
+      // Remove the partial file from disk. Without this, every PRELOAD_ABORT
+      // leaks one orphan file (rapid track skipping made this very visible:
+      // /debug memory was showing 12+ residual entries growing per skip).
+      if (filename) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          await root.removeEntry(buildSafeName(filename, true));
+        } catch {
+          /* file may not exist or already removed */
+        }
+      }
     }
     return;
   }

@@ -469,7 +469,10 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
-  // Sanitize offset
+  // 1. Get the current manual sync offset (nudge) for both audio-engine and clock
+  const localOffset = getState('sync.localOffset') || 0;
+
+  // 2. Sanitize offset
   let safeOffset = Number(offset);
   if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
   const duration =
@@ -509,16 +512,22 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
       }
     });
 
-    // scheduleDelay > 0: Web Audio hardware-timed start (sub-ms precision)
-    // scheduleDelay = 0: immediate start (host or local play)
+    // Determine the exact audio-context time to start
     const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
-    newNode.start(startWhen, safeOffset);
+
+    // Apply manual nudge to the audible start position
+    const nudgeOffset = safeOffset + localOffset;
+    let finalStartPos = nudgeOffset;
+    if (duration > 0) {
+      finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
+    }
+
+    newNode.start(startWhen, finalStartPos);
   }
 
   // Update timing
   // startedAt = wall-clock time when playback would have started from 0:00
   //   = now - playbackPosition + syncCorrection
-  const localOffset = getState('sync.localOffset') || 0;
   const startedAt = getCurrentTime() + scheduleDelay - safeOffset + localOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);

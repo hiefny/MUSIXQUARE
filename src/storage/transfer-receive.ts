@@ -20,7 +20,7 @@ import {
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { postWorkerCommand, cleanupOPFSInWorker } from './opfs.ts';
+import { postWorkerCommand, cleanupStoredFile } from './opfs.ts';
 import { t } from '../i18n/index.ts';
 import {
   safeSend,
@@ -725,9 +725,9 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   const receivedCount = getState('transfer.receivedCount');
   const isRecoverySameFile = meta?.name === data.name && meta?.total === (data.total as number);
 
-  const opfsFilename = getState('files.currentFileOpfs');
-  if (opfsFilename.name && opfsFilename.name !== data.name) {
-    cleanupOPFSInWorker(opfsFilename.name, false);
+  const currentTrackEntry = getState('files.currentFileOpfs');
+  if (currentTrackEntry.name && currentTrackEntry.name !== data.name) {
+    cleanupStoredFile(currentTrackEntry.name, false);
   }
   setState('files.currentFileOpfs', { name: (data.name as string) || null });
 
@@ -1037,7 +1037,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   sessionBuffer.set(chunkIndex, chunkData);
 
   const meta = getState('transfer.meta');
-  let opfsFilename = getState('files.currentFileOpfs');
+  let currentTrackEntry = getState('files.currentFileOpfs');
   let receivedCount = getState('transfer.receivedCount');
 
   // Meta-recovery: if we missed FILE_START, extract meta from chunk data
@@ -1085,7 +1085,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       }
 
       // Re-read after meta-recovery updated state (prevents stale reference)
-      opfsFilename = getState('files.currentFileOpfs');
+      currentTrackEntry = getState('files.currentFileOpfs');
       receivedCount = getState('transfer.receivedCount');
     } else if (!meta || meta.total === undefined) {
       // Orphan chunk with no meta — can't process
@@ -1109,7 +1109,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
       index: nextExpectedChunk,
       isPreload: false,
-      filename: opfsFilename.name || '',
+      filename: currentTrackEntry.name || '',
       sessionId: validateSessionId(incomingSid),
     });
 

@@ -235,7 +235,7 @@ export async function ramReadChunk(
 
 /**
  * Return the finalized blob for a logical filename. Used by
- * `readFileFromOpfs` callers (decode promote / preload promote paths).
+ * `readStoredFile` callers (decode promote / preload promote paths).
  */
 export function ramReadBlob(filename: string, isPreload: boolean): Blob | null {
   const slot = findSlotForRead(filename, isPreload);

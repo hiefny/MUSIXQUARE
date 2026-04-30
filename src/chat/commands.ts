@@ -26,7 +26,7 @@ import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { sweepAppOpfsFiles } from '../storage/opfs.ts';
+import { sweepLegacyDiskFiles } from '../storage/opfs.ts';
 import { log } from '../core/log.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -1270,7 +1270,7 @@ async function cmdDebugSweep(): Promise<void> {
     navigator.storage?.estimate ? await navigator.storage.estimate() : null;
   const beforeBytes = beforeEst?.usage || 0;
 
-  // OPFS pre-sweep stats — captured before sweepAppOpfsFiles wipes them.
+  // OPFS pre-sweep stats — captured before sweepLegacyDiskFiles wipes them.
   let opfsBytes = 0;
   let opfsCount = 0;
   if (navigator.storage?.getDirectory) {
@@ -1319,7 +1319,7 @@ async function cmdDebugSweep(): Promise<void> {
   // Wipe every preload/current OPFS file we own — including the one for the
   // currently-playing track. The decoded AudioBuffer keeps playback running
   // even after the source file is gone, so this is non-disruptive.
-  await sweepAppOpfsFiles({ excludeCurrentInstance: false, reason: 'debug-sweep' });
+  await sweepLegacyDiskFiles({ excludeCurrentInstance: false, reason: 'debug-sweep' });
 
   // Give iOS a beat to actually reclaim. WebKit's OPFS deletion is async
   // under the hood — without this delay we'd sample mid-reclaim and

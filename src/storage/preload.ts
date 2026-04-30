@@ -13,7 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
-import { postWorkerCommand, readFileFromOpfs } from './opfs.ts';
+import { postWorkerCommand, readStoredFile } from './opfs.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   safeSend,
@@ -1367,7 +1367,7 @@ export function initPreload(): void {
         );
       }
 
-      const file = await readFileFromOpfs(filename, true);
+      const file = await readStoredFile(filename, true);
       if (!file) {
         log.error('[Preload] Failed to read preload file:', filename);
         return;

@@ -45,7 +45,7 @@ import { registerSystemAudioGuestListeners } from './network/system-audio-guest.
 // ── Storage ──
 // `setTransferWorker` is no longer referenced on this branch — RAM-only
 // dispatches OPFS commands in-process. Kept exported in opfs.ts for tests.
-import { setSyncWorker, sweepAppOpfsFiles } from './storage/opfs.ts';
+import { setSyncWorker, sweepLegacyDiskFiles } from './storage/opfs.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
@@ -408,7 +408,7 @@ function bootstrap(): void {
   // the OPFS-based code, it left behind files matching `preload_*` /
   // `current_*`. Sweep them now to free disk. RAM-only itself never
   // creates OPFS entries, so subsequent calls to this sweep stay no-ops.
-  void sweepAppOpfsFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
+  void sweepLegacyDiskFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
 
   // 7. YouTube
   safeInit('YouTube', initYouTube);

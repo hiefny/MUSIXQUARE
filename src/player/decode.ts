@@ -14,7 +14,7 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
-import { postWorkerCommand, cleanupOPFSInWorker } from '../storage/opfs.ts';
+import { postWorkerCommand, cleanupStoredFile } from '../storage/opfs.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
@@ -455,14 +455,14 @@ export async function loadPreloadedTrack(
     // Worker's removeEntry is idempotent — the wrong-prefix call hits
     // "file may not exist" and is a no-op.
     const newName = (activeMeta?.name as string) || '';
-    const prevOpfsName = getState('files.currentFileOpfs')?.name;
-    if (prevOpfsName && prevOpfsName !== newName) {
-      log.info(`[Preload] Track rotate: prev="${prevOpfsName}" new="${newName}"`);
-      cleanupOPFSInWorker(prevOpfsName, false);
-      cleanupOPFSInWorker(prevOpfsName, true);
+    const prevTrackName = getState('files.currentFileOpfs')?.name;
+    if (prevTrackName && prevTrackName !== newName) {
+      log.info(`[Preload] Track rotate: prev="${prevTrackName}" new="${newName}"`);
+      cleanupStoredFile(prevTrackName, false);
+      cleanupStoredFile(prevTrackName, true);
     } else {
       log.info(
-        `[Preload] Track rotate skip (prev=${prevOpfsName ?? 'null'}, new=${newName})`,
+        `[Preload] Track rotate skip (prev=${prevTrackName ?? 'null'}, new=${newName})`,
       );
     }
     if (newName) {
@@ -661,13 +661,13 @@ export function clearPreviousTrackState(reason = ''): void {
   }
 
   // Physically delete OLD current file from OPFS
-  const opfsFilename = getState('files.currentFileOpfs');
-  if (opfsFilename?.name) {
+  const currentTrackEntry = getState('files.currentFileOpfs');
+  if (currentTrackEntry?.name) {
     const nextMeta = getState('preload.meta');
-    const isActuallyChanging = opfsFilename.name !== nextMeta?.name;
+    const isActuallyChanging = currentTrackEntry.name !== nextMeta?.name;
     if (isActuallyChanging) {
       postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
-      cleanupOPFSInWorker(opfsFilename.name, false);
+      cleanupStoredFile(currentTrackEntry.name, false);
       setState('files.currentFileOpfs', { name: null });
     }
   }

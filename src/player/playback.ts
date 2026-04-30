@@ -18,7 +18,7 @@ import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constant
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
-import { readFileFromOpfs } from '../storage/opfs.ts';
+import { readStoredFile } from '../storage/opfs.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
@@ -583,14 +583,14 @@ export function initPlayback(): void {
       );
     }
 
-    const file = await readFileFromOpfs(filename, false);
+    const file = await readStoredFile(filename, false);
     if (!file) {
       log.error('[Playback] Failed to read file:', filename);
       showLoader(false);
       return;
     }
 
-    // Re-check session after async readFileFromOpfs — the read itself is
+    // Re-check session after async readStoredFile — the read itself is
     // async and the session may have advanced while we were waiting.
     // Same fallback applies: accept when filename still matches.
     const sidAfterRead = getState('transfer.localSessionId');

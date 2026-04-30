@@ -2,7 +2,7 @@
  * MUSIXQUARE — RAM-only storage adapter (mxqr_beta branch)
  *
  * Same external API as the OPFS worker wrapper on `main` (postWorkerCommand,
- * readFileFromOpfs, cleanupOPFSInWorker, sweepAppOpfsFiles, …) so consumers
+ * readStoredFile, cleanupStoredFile, sweepLegacyDiskFiles, …) so consumers
  * don't have to know which branch they're running on. Internally, every
  * `OPFS_*` command is dispatched to the in-memory ramstore instead of a
  * Web Worker — there is no transfer.worker.ts on this branch, no
@@ -346,7 +346,7 @@ export function buildSafeOpfsName(filename: string, isPreload = false): string {
  * Fire-and-forget with a 10s watchdog — if the worker doesn't confirm
  * cleanup in time, we log a warning and move on (non-blocking).
  */
-export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void {
+export function cleanupStoredFile(filename: string, isPreload: boolean): void {
   if (!filename) return;
 
   const expectedOpfsName = buildSafeOpfsName(filename, isPreload);
@@ -381,14 +381,14 @@ export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void 
  * that introspect `.name` continue to work — same return-type contract as
  * the OPFS branch where `getFile()` already gave them a File.
  */
-export async function readFileFromOpfs(filename: string, isPreload: boolean): Promise<File | null> {
+export async function readStoredFile(filename: string, isPreload: boolean): Promise<File | null> {
   if (!filename) return null;
   const blob = ramReadBlob(filename, isPreload);
   if (!blob) return null;
   try {
     return new File([blob], filename, { type: blob.type || '' });
   } catch (err) {
-    log.error('[Ramstore] readFileFromOpfs wrap failed:', err);
+    log.error('[Ramstore] readStoredFile wrap failed:', err);
     return null;
   }
 }
@@ -416,7 +416,7 @@ export async function readFileFromOpfs(filename: string, isPreload: boolean): Pr
 //
 // Fire-and-forget; do not await. Performance scales with surviving disk
 // debris and is bounded by the iOS quota.
-export async function sweepAppOpfsFiles(opts: {
+export async function sweepLegacyDiskFiles(opts: {
   excludeCurrentInstance?: boolean;
   reason: string;
 }): Promise<void> {

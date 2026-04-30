@@ -20,7 +20,7 @@ import {
   PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
-import { stopBackgroundWorkerTimers, sweepAppOpfsFiles } from '../storage/opfs.ts';
+import { stopBackgroundWorkerTimers, sweepLegacyDiskFiles } from '../storage/opfs.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 import { Peer, type PeerOptions } from 'peerjs';
@@ -546,7 +546,7 @@ export function leaveSession(): void {
   // sweep gap if the user crashes / force-closes before next app load.
   // Fire-and-forget — running synchronously here would block leaveSession
   // for a few seconds on a large session.
-  void sweepAppOpfsFiles({ excludeCurrentInstance: false, reason: 'session-leave' });
+  void sweepLegacyDiskFiles({ excludeCurrentInstance: false, reason: 'session-leave' });
 
   // ── 7. Reset all state ──
   batchSetState({

@@ -110,9 +110,9 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
  * cancel leaves guests with `finalized=false, skipped=false` zombie
  * sessions — cleanupStalePreloadSessions only purges finalized/skipped,
  * so they sit until the PRELOAD_SESSION_MAX=20 cap evicts oldest, while
- * the worker's preloadSlots[N] keeps its sync access handle until same-
- * filename preempt or session leave. The abort path tells guests to
- * tear down immediately.
+ * the worker's preload slot keeps its sync access handle until same-
+ * filename preempt or session leave (see transfer.worker.ts slot pool).
+ * The abort path tells guests to tear down immediately.
  *
  * Order matters — send first, then dispose. The data channel is FIFO,
  * so the ABORT lands BEFORE any chunk that the loop might still send

@@ -163,29 +163,42 @@ export async function readFileFromOpfs(filename: string, isPreload: boolean): Pr
 // ─── OPFS Sweep ─────────────────────────────────────────────────────
 //
 // Removes all `preload_*` and `current_*` files from OPFS root, optionally
-// preserving files belonging to the current INSTANCE_ID. The naming
-// convention from buildSafeName() is `<prefix>_<sanitizedName>_<INSTANCE_ID>`,
-// so we can distinguish files from this app load vs prior loads/sessions
-// by the trailing UUID.
+// preserving files belonging to the current INSTANCE_ID. The trailing
+// `_<INSTANCE_ID>` lets us distinguish files from this app load vs prior
+// loads/sessions; both the legacy per-filename layout
+// (`preload_<sanitized>_<INSTANCE>`) and the slot-pool layout
+// (`preload_slot_<i>_<INSTANCE>` / `current_slot_0_<INSTANCE>`, see
+// transfer.worker.ts [d07b4b2]) match the same prefix filter, so this
+// function works as a single sweep across both eras.
 //
 // Why this exists: iOS PWA persists OPFS across app launches indefinitely.
-// Without an explicit sweep, every track ever downloaded leaves a file on
-// disk forever. Real-device snapshot showed 343 files / 6065MB cumulative
-// across roughly a week of testing — driving the device into memory
-// pressure (OPFS handles count toward RAM accounting on iOS) and making
-// the app crash mid-session.
+// In the old per-filename era this meant every track ever downloaded
+// leaked a file forever — a real-device snapshot showed 343 files /
+// 6065MB cumulative over a week of testing, eventually crashing the
+// session under storage pressure. The slot pool prevents that growth
+// inside a single page lifetime, but the sweep is still load-bearing for:
+//   1. Cross-instance cleanup. INSTANCE_ID is regenerated per page load,
+//      so the previous load's slot files (which iOS WebKit will not
+//      reclaim until reload anyway) get formally swept here.
+//   2. Migration from the legacy layout. Users updating from a pre-pool
+//      version will have `preload_<filename>_<oldInstance>` files on
+//      disk; cross-instance sweep collects them naturally.
 //
-// Two sites call this:
-//   - App startup: excludeCurrentInstance=true. Files from THIS load haven't
-//     been created yet (INSTANCE_ID was just generated), so the exclude
-//     filter never triggers — equivalent to "delete everything". The
-//     filter exists for defense in depth: if some module races and creates
-//     a file before the sweep runs, the in-flight file is preserved.
-//   - Session leave: excludeCurrentInstance=false. The user is done; no
-//     reason to keep this session's transient files either.
+// Two call sites:
+//   - App startup: excludeCurrentInstance=true. Files from THIS load
+//     haven't been created yet (INSTANCE_ID was just generated), so the
+//     exclude filter never triggers in practice — equivalent to "delete
+//     everything not from this load". Defense in depth for the rare race
+//     where a module creates a file before the sweep finishes.
+//   - Session leave: excludeCurrentInstance=false. The user is done with
+//     this session; the slot files from this load are also dropped.
 //
-// Performance: 343 files × a few ms per removeEntry = ~1-3 seconds.
-// Fire-and-forget from callers; do not await.
+// Performance: per-file `removeEntry` is a few ms; total time scales with
+// surviving cross-instance debris. Fire-and-forget from callers; do not
+// await. Note that on iOS WebKit `removeEntry` does not eagerly reclaim
+// disk pages — that's an OS-level deferral we can't influence; the sweep
+// still does the right thing semantically (file becomes invisible on
+// next listing).
 export async function sweepAppOpfsFiles(opts: {
   excludeCurrentInstance?: boolean;
   reason: string;

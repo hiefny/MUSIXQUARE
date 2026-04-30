@@ -62,7 +62,7 @@ import { initYouTubeSync } from './youtube/sync.ts';
 import { initBeatDetector } from './audio/beat-detector.ts';
 
 // ── UI ──
-import { initOverlayOpenObserver, initOverlayInertObserver } from './ui/dom.ts';
+import { initOverlayObservers } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
@@ -351,8 +351,7 @@ function bootstrap(): void {
   safeInit('Platform', initPlatform);
 
   // 2. Core UI init (must run before other UI modules)
-  safeInit('OverlayObserver', initOverlayOpenObserver);
-  safeInit('OverlayInert', initOverlayInertObserver);
+  safeInit('OverlayObservers', initOverlayObservers);
   safeInit('Toast', initToast);
   safeInit('EmailCopy', initEmailCopyLinks);
   safeInit('Dialog', initDialog);

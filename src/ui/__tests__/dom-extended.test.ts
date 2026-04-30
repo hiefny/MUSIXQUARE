@@ -8,8 +8,7 @@ import {
   copyTextToClipboard,
   animateTransition,
   updateOverlayOpenClass,
-  initOverlayOpenObserver,
-  initOverlayInertObserver,
+  initOverlayObservers,
   __resetModalStackForTests,
 } from '../dom.ts';
 
@@ -128,27 +127,44 @@ describe('updateOverlayOpenClass', () => {
   });
 });
 
-describe('initOverlayOpenObserver', () => {
+describe('initOverlayObservers', () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="setup-overlay"></div>
       <div id="media-source-overlay"></div>
       <div id="youtube-url-overlay"></div>
+      <div id="dialog-overlay"></div>
     `;
+    __resetModalStackForTests();
   });
 
   it('runs without error', () => {
-    expect(() => initOverlayOpenObserver()).not.toThrow();
+    expect(() => initOverlayObservers()).not.toThrow();
   });
 
   it('can be called multiple times without error (reinit)', () => {
-    initOverlayOpenObserver();
-    initOverlayOpenObserver();
+    initOverlayObservers();
+    initOverlayObservers();
     // Should not throw — disconnects previous observer
+  });
+
+  it('toggles body.overlay-open on fullscreen overlay activation', async () => {
+    initOverlayObservers();
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+  });
+
+  it('does NOT toggle body.overlay-open for the centered dialog overlay', async () => {
+    initOverlayObservers();
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
   });
 });
 
-describe('initOverlayInertObserver — modal stack', () => {
+describe('initOverlayObservers — modal stack', () => {
   // Wait for MutationObserver microtask + a tick for the inert mutations
   // it triggers in turn (the observer modifies sibling attributes, which
   // schedules another microtask round in jsdom).
@@ -164,7 +180,7 @@ describe('initOverlayInertObserver — modal stack', () => {
       <div id="dialog-overlay"></div>
     `;
     __resetModalStackForTests();
-    initOverlayInertObserver();
+    initOverlayObservers();
   });
 
   const isInert = (id: string) => document.getElementById(id)!.hasAttribute('inert');

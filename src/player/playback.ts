@@ -579,13 +579,13 @@ export function initPlayback(): void {
         return;
       }
       log.info(
-        `[Playback] Accepting "stale" OPFS completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`,
+        `[Playback] Accepting "stale" file completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`,
       );
     }
 
     const file = await readFileFromOpfs(filename, false);
     if (!file) {
-      log.error('[Playback] Failed to read OPFS file:', filename);
+      log.error('[Playback] Failed to read file:', filename);
       showLoader(false);
       return;
     }

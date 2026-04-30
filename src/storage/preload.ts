@@ -1309,7 +1309,7 @@ export function initPreload(): void {
   // Handle preload file ready from OPFS (bridged from opfs:file-ready via playback.ts)
   bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
     try {
-      log.debug(`[Preload] OPFS preload ready: ${filename} (SID: ${sessionId})`);
+      log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
 
       // Guard: ignore stale OPFS completions from superseded preload sessions.
       // After backward navigation, clearPreloadState cancels the host's transfer
@@ -1358,18 +1358,18 @@ export function initPreload(): void {
         // our wait target by filename (handles the session-cleanup race).
         if (!isOurAwaitTarget) {
           log.debug(
-            `[Preload] Ignoring stale OPFS completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`,
+            `[Preload] Ignoring stale preload completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`,
           );
           return;
         }
         log.info(
-          `[Preload] Accepting "stale" OPFS completion — matches our AWAITING_PRELOAD target by filename (${filename}, SID ${sessionId}, latest ${latestPreloadSessionId}, session ${sessionForFile ? 'present' : 'cleaned up'})`,
+          `[Preload] Accepting "stale" preload completion — matches our AWAITING_PRELOAD target by filename (${filename}, SID ${sessionId}, latest ${latestPreloadSessionId}, session ${sessionForFile ? 'present' : 'cleaned up'})`,
         );
       }
 
       const file = await readFileFromOpfs(filename, true);
       if (!file) {
-        log.error('[Preload] Failed to read preload file from OPFS:', filename);
+        log.error('[Preload] Failed to read preload file:', filename);
         return;
       }
 

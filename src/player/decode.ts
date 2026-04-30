@@ -457,12 +457,12 @@ export async function loadPreloadedTrack(
     const newName = (activeMeta?.name as string) || '';
     const prevOpfsName = getState('files.currentFileOpfs')?.name;
     if (prevOpfsName && prevOpfsName !== newName) {
-      log.info(`[Preload] OPFS rotate: prev="${prevOpfsName}" new="${newName}"`);
+      log.info(`[Preload] Track rotate: prev="${prevOpfsName}" new="${newName}"`);
       cleanupOPFSInWorker(prevOpfsName, false);
       cleanupOPFSInWorker(prevOpfsName, true);
     } else {
       log.info(
-        `[Preload] OPFS rotate skip (prev=${prevOpfsName ?? 'null'}, new=${newName})`,
+        `[Preload] Track rotate skip (prev=${prevOpfsName ?? 'null'}, new=${newName})`,
       );
     }
     if (newName) {

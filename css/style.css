@@ -4268,19 +4268,19 @@
         min-height: 36px;
         min-width: 36px;
         border-radius: 50%;
-        background-color: var(--surface-3);
+        background-color: var(--surface-1);
         color: var(--text-main);
         border: none;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        box-shadow: none;
         z-index: 20;
         opacity: 0;
         pointer-events: none;
         transform: translate(-50%, 10px);
-        transition: opacity 0.2s, transform 0.2s, background-color 0.2s;
+        transition: opacity 0.2s, transform 0.2s, background-color 0.2s, box-shadow 0.2s;
         padding: 0;
     }
 
@@ -4291,7 +4291,8 @@
     }
 
     .chat-scroll-down-btn:hover {
-        background-color: var(--surface-hover, var(--surface-2));
+        background-color: var(--surface-2);
+        box-shadow: none;
     }
 
     .chat-scroll-down-btn:active {

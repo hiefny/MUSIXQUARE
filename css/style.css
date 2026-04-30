@@ -4258,6 +4258,52 @@
         overscroll-behavior-y: none;
     }
 
+    /* ── Chat Scroll Down Button ── */
+    .chat-scroll-down-btn {
+        position: absolute;
+        bottom: 16px;
+        right: 16px;
+        width: 36px;
+        height: 36px;
+        min-height: 36px;
+        min-width: 36px;
+        border-radius: 50%;
+        background-color: var(--surface-3);
+        color: var(--text-main);
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 20;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(10px);
+        transition: opacity 0.2s, transform 0.2s, background-color 0.2s;
+        padding: 0;
+    }
+
+    .chat-scroll-down-btn.show {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+    }
+
+    .chat-scroll-down-btn:hover {
+        background-color: var(--surface-hover, var(--surface-2));
+    }
+
+    .chat-scroll-down-btn:active {
+        transform: scale(0.92) translateY(0);
+    }
+
+    .chat-scroll-down-btn svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+    }
+
     /* ── Universal Custom Scrollbar ── */
     .cscroll-track {
         position: fixed;

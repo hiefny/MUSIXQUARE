@@ -1,25 +1,73 @@
 /**
  * MUSIXQUARE — Transfer Worker (OPFS File I/O)
- * Ported from js/transfer.worker.js
  *
- * Handles heavy file I/O operations with session-aware locking.
+ * Slot-pool architecture
+ * ──────────────────────
+ * Earlier versions allocated one OPFS file per logical filename
+ * (`preload_<safe-name>_<INSTANCE>` and `current_<safe-name>_<INSTANCE>`)
+ * and called `removeEntry()` to clean up. On iOS WebKit this turned out
+ * to be a long-tail bug: `removeEntry()` returns immediately but the
+ * underlying disk pages are NOT reclaimed in real time. `/debug sweep`
+ * confirmed it — wiping 17.2 MB of OPFS files left
+ * `navigator.storage.estimate().usage` unchanged at 217 MB. The deferred
+ * reclaim only fires when the app suspends, so a long PWA session with
+ * many track switches accumulates ghost storage until iOS kills the tab.
+ *
+ * The fix is structural: never create more than a fixed pool of OPFS
+ * files. We back the API with N pre-named slots that get truncated and
+ * reused instead of removed and recreated. Each slot has:
+ *   - a stable index (0..N-1) that picks its disk filename
+ *     (`preload_slot_<i>_<INSTANCE>` or `current_slot_0_<INSTANCE>`)
+ *   - the *logical* name currently mapped to it (the filename callers
+ *     speak in), which changes every time the slot is reused
+ *   - the OPFS handle and the read/write state
+ *
+ * Allocation:
+ *   - Main pool: 1 slot. Always slot 0.
+ *   - Preload pool: PRELOAD_POOL_SIZE slots. Allocator looks up the
+ *     filename → if mapped, return that slot (resume). Else find an
+ *     unused slot. Else LRU-evict an unlocked finalized slot.
+ *   - All-locked exhaustion is rejected back to the caller; preload
+ *     depth in production is 1–2 so this requires a pathological burst.
+ *
+ * Disk usage with a pool of size 1+4 ≈ 50 MB upper bound (max song size
+ * × pool size). Compare with the previous unbounded growth that hit
+ * 245 MB / 39 GB quota over ~3 minutes of testing.
  */
 
 // self is already typed as DedicatedWorkerGlobalScope in WebWorker lib
 
 // ─── Types ──────────────────────────────────────────────────────
 
-interface OpfsSlot {
+interface PoolSlot {
+  /** Stable position within its pool; picks the disk filename. */
+  index: number;
+  /** True for preload pool, false for the single main slot. */
+  isPreload: boolean;
+  /**
+   * Disk filename. Computed lazily on first use because instanceId is
+   * only known after INIT_INSTANCE arrives. Once set, never changes.
+   */
+  diskName: string;
+
+  /** Current caller-visible filename held by this slot, or null if free. */
+  logicalName: string | null;
+
+  /** OPFS handles. */
   handle: FileSystemFileHandle | null;
   accessHandle: FileSystemSyncAccessHandle | null;
   writable: FileSystemWritableFileStream | null;
   mode: 'sync' | 'writable' | null;
-  name: string | null;
+
+  /** Transfer state. */
   chunkSize: number;
   writtenChunks: number;
   sessionId: number | null;
   isLocked: boolean;
   lockTime: number;
+
+  /** Monotonic counter incremented on every touch — drives LRU eviction. */
+  lastUsed: number;
 }
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -28,49 +76,144 @@ const DEFAULT_CHUNK_SIZE = 16384;
 const LOCK_TIMEOUT_MS = 60000;
 const PRELOAD_LOCK_TIMEOUT_MS = 20000;
 
+/**
+ * Number of OPFS files reserved for in-flight + finalized preloads.
+ * Production preload depth is typically 1–2 ahead, so 4 leaves slack
+ * for short LRU windows where a just-finalized preload can sit while
+ * the next one starts streaming. Bumping this raises the disk-usage
+ * ceiling proportionally — keep small.
+ */
+const PRELOAD_POOL_SIZE = 4;
+
 // ─── State ──────────────────────────────────────────────────────
 
-function createOpfsSlot(): OpfsSlot {
+let instanceId = 'default';
+
+let _useCounter = 0;
+function nextLastUsed(): number {
+  _useCounter++;
+  return _useCounter;
+}
+
+function makeSlot(index: number, isPreload: boolean): PoolSlot {
   return {
+    index,
+    isPreload,
+    diskName: '',
+    logicalName: null,
     handle: null,
     accessHandle: null,
     writable: null,
     mode: null,
-    name: null,
     chunkSize: DEFAULT_CHUNK_SIZE,
     writtenChunks: 0,
     sessionId: null,
     isLocked: false,
     lockTime: 0,
+    lastUsed: 0,
   };
 }
 
-const currentFileOpfs = createOpfsSlot();
-const preloadSlots = new Map<number, OpfsSlot>();
+const mainSlot: PoolSlot = makeSlot(0, false);
+const preloadPool: PoolSlot[] = Array.from({ length: PRELOAD_POOL_SIZE }, (_, i) =>
+  makeSlot(i, true),
+);
 
-function getOpfsObj(isPreload: boolean, sessionId?: number | null): OpfsSlot {
-  if (!isPreload) return currentFileOpfs;
-  if (sessionId == null) {
-    // Fallback for cleanup operations that might not pass sessionId
-    return createOpfsSlot();
+/** filename → preloadPool index. Single source of truth for resume lookups. */
+const preloadNameToSlot = new Map<string, number>();
+/** sessionId → preloadPool index. Lookup path for OPFS_WRITE / OPFS_END. */
+const preloadSidToSlot = new Map<number, number>();
+
+// ─── Slot Helpers ───────────────────────────────────────────────
+
+function slotDiskName(slot: PoolSlot): string {
+  if (!slot.diskName) {
+    slot.diskName =
+      (slot.isPreload ? 'preload_slot_' : 'current_slot_') + slot.index + '_' + instanceId;
   }
-  if (!preloadSlots.has(sessionId)) {
-    preloadSlots.set(sessionId, createOpfsSlot());
+  return slot.diskName;
+}
+
+/** Lookup-only by sessionId — never registers a new slot. */
+function findSlotBySessionId(isPreload: boolean, sessionId: number): PoolSlot | null {
+  if (!isPreload) {
+    return mainSlot.sessionId === sessionId ? mainSlot : null;
   }
-  return preloadSlots.get(sessionId)!;
+  const idx = preloadSidToSlot.get(sessionId);
+  return idx === undefined ? null : preloadPool[idx];
+}
+
+/** Lookup-only by logical filename — never registers a new slot. */
+function findSlotByName(isPreload: boolean, filename: string): PoolSlot | null {
+  if (!isPreload) {
+    return mainSlot.logicalName === filename ? mainSlot : null;
+  }
+  const idx = preloadNameToSlot.get(filename);
+  return idx === undefined ? null : preloadPool[idx];
 }
 
 /**
- * Lookup-only variant of getOpfsObj — never registers a new slot on miss.
- * Use for read paths (OPFS_READ) where finding nothing should fall through
- * to a fresh file handle, not leave an empty slot in preloadSlots.
+ * Resolve the slot that should handle a brand-new OPFS_START. For preload
+ * this either resumes an existing mapping, picks a free slot, or evicts
+ * the LRU unlocked entry. Returns null only when every preload slot is
+ * actively locked — pathological burst, never observed in production.
  */
-function lookupOpfsObj(isPreload: boolean, sessionId?: number | null): OpfsSlot {
-  if (!isPreload) return currentFileOpfs;
-  if (sessionId == null) return createOpfsSlot();
-  return preloadSlots.get(sessionId) ?? createOpfsSlot();
+function findOrAllocateSlotForStart(
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+): PoolSlot | null {
+  if (!isPreload) {
+    mainSlot.lastUsed = nextLastUsed();
+    return mainSlot;
+  }
+
+  // Resume: filename already mapped to a slot.
+  const existingIdx = preloadNameToSlot.get(filename);
+  if (existingIdx !== undefined) {
+    const slot = preloadPool[existingIdx];
+    slot.lastUsed = nextLastUsed();
+    // sessionId may have advanced; refresh the sid map.
+    if (slot.sessionId !== sessionId) {
+      if (slot.sessionId !== null) preloadSidToSlot.delete(slot.sessionId);
+      preloadSidToSlot.set(sessionId, slot.index);
+    }
+    return slot;
+  }
+
+  // Free slot.
+  for (const slot of preloadPool) {
+    if (!slot.isLocked && slot.logicalName === null) {
+      slot.lastUsed = nextLastUsed();
+      slot.logicalName = filename;
+      preloadNameToSlot.set(filename, slot.index);
+      preloadSidToSlot.set(sessionId, slot.index);
+      return slot;
+    }
+  }
+
+  // LRU evict — pick the oldest unlocked slot. Locked slots (active write)
+  // are protected from eviction so we don't corrupt an in-flight transfer.
+  let victim: PoolSlot | null = null;
+  for (const slot of preloadPool) {
+    if (slot.isLocked) continue;
+    if (!victim || slot.lastUsed < victim.lastUsed) victim = slot;
+  }
+  if (!victim) {
+    // All slots locked. Caller will surface as OPFS_ERROR.
+    return null;
+  }
+
+  // Drop old mappings before reassigning.
+  if (victim.logicalName) preloadNameToSlot.delete(victim.logicalName);
+  if (victim.sessionId !== null) preloadSidToSlot.delete(victim.sessionId);
+
+  victim.lastUsed = nextLastUsed();
+  victim.logicalName = filename;
+  preloadNameToSlot.set(filename, victim.index);
+  preloadSidToSlot.set(sessionId, victim.index);
+  return victim;
 }
-let instanceId = 'default';
 
 // ─── Queue ──────────────────────────────────────────────────────
 
@@ -128,14 +271,6 @@ function isValidSessionId(sessionId: unknown): sessionId is number {
   return typeof sessionId === 'number' && Number.isInteger(sessionId);
 }
 
-function sanitizeFilename(filename: string): string {
-  return String(filename || '').replace(/[^a-z0-9._-]/gi, '_');
-}
-
-function buildSafeName(filename: string, isPreload: boolean): string {
-  return (isPreload ? 'preload_' : 'current_') + sanitizeFilename(filename) + '_' + instanceId;
-}
-
 function normalizeChunkSize(v: unknown): number {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_CHUNK_SIZE;
@@ -167,40 +302,47 @@ function postSessionMismatch(payload: Record<string, unknown>): void {
   safePost(payload);
 }
 
-// ─── Lock ───────────────────────────────────────────────────────
+// ─── Lock / Handle Lifecycle ───────────────────────────────────
 
-async function cleanupHandle(opfsObj: OpfsSlot, reason: string): Promise<void> {
-  if (opfsObj.accessHandle) {
-    console.log(`[TransferWorker] Closing sync handle for ${opfsObj.name} (${reason})`);
+async function cleanupHandle(slot: PoolSlot, reason: string): Promise<void> {
+  if (slot.accessHandle) {
+    console.log(`[TransferWorker] Closing sync handle for slot ${slot.index} (${reason})`);
     try {
-      if (typeof opfsObj.accessHandle.flush === 'function') await opfsObj.accessHandle.flush();
-      if (typeof opfsObj.accessHandle.close === 'function') await opfsObj.accessHandle.close();
+      if (typeof slot.accessHandle.flush === 'function') await slot.accessHandle.flush();
+      if (typeof slot.accessHandle.close === 'function') await slot.accessHandle.close();
     } catch (e: unknown) {
       console.warn('[TransferWorker] Sync handle cleanup warning:', (e as Error)?.message ?? e);
     } finally {
-      opfsObj.accessHandle = null;
+      slot.accessHandle = null;
     }
   }
-  if (opfsObj.writable) {
-    console.log(`[TransferWorker] Closing writable stream for ${opfsObj.name} (${reason})`);
+  if (slot.writable) {
+    console.log(`[TransferWorker] Closing writable stream for slot ${slot.index} (${reason})`);
     try {
-      if (typeof opfsObj.writable.close === 'function') await opfsObj.writable.close();
+      if (typeof slot.writable.close === 'function') await slot.writable.close();
     } catch {
       try {
-        if (typeof opfsObj.writable!.abort === 'function') await opfsObj.writable!.abort();
+        if (typeof slot.writable!.abort === 'function') await slot.writable!.abort();
       } catch {
         /* ignore */
       }
     } finally {
-      opfsObj.writable = null;
+      slot.writable = null;
     }
   }
-  opfsObj.mode = null;
-  opfsObj.handle = null;
+  slot.mode = null;
+  slot.handle = null;
 }
 
-async function acquireLock(
-  opfsObj: OpfsSlot,
+/**
+ * Attempt to acquire the slot for a session. Slot allocation already happened
+ * upstream (`findOrAllocateSlotForStart`) — this just adjudicates between
+ * concurrent OPFS_START messages targeting the same slot (e.g. a stale
+ * retry racing the latest session). Returns false when the older request
+ * loses to the newer.
+ */
+async function acquireSlotLock(
+  slot: PoolSlot,
   sessionId: number,
   filename: string,
   isPreload: boolean,
@@ -213,64 +355,119 @@ async function acquireLock(
     return false;
   }
 
-  // Preload slots are partitioned by sessionId, but the OPFS file lock is
-  // per-filename (buildSafeName ignores sessionId). If another preload slot
-  // still holds the same filename, OPFS will reject the new
-  // createSyncAccessHandle/createWritable with "modifications are not allowed",
-  // leaving this slot half-initialized and every subsequent chunk in mismatch.
-  // Pre-empt the older slot so the new sessionId can take over cleanly.
-  if (isPreload) {
-    for (const [otherSid, otherSlot] of preloadSlots) {
-      if (otherSid !== sessionId && otherSlot.isLocked && otherSlot.name === filename) {
-        await cleanupHandle(otherSlot, `Preempted by sid=${sessionId} (same file)`);
-        otherSlot.isLocked = false;
-        otherSlot.sessionId = null;
-        otherSlot.name = null;
-        preloadSlots.delete(otherSid);
-      }
-    }
-  }
-
-  if (opfsObj.isLocked && opfsObj.name === filename) {
-    if (sessionId === opfsObj.sessionId) {
-      opfsObj.lockTime = now;
+  if (slot.isLocked && slot.logicalName === filename) {
+    if (sessionId === slot.sessionId) {
+      slot.lockTime = now;
       return true;
     }
-    if (opfsObj.sessionId != null && sessionId < opfsObj.sessionId) {
+    if (slot.sessionId != null && sessionId < slot.sessionId) {
       console.warn(
-        `[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${opfsObj.sessionId}`,
+        `[TransferWorker] Stale session ${sessionId} tried to renew lock held by ${slot.sessionId}`,
       );
       return false;
     }
-    await cleanupHandle(opfsObj, `Preemption by session ${sessionId} (was ${opfsObj.sessionId})`);
+    await cleanupHandle(slot, `Preemption by session ${sessionId} (was ${slot.sessionId})`);
   }
 
-  if (opfsObj.isLocked && opfsObj.name !== filename) {
-    const age = now - opfsObj.lockTime;
-    if (opfsObj.sessionId == null || sessionId >= opfsObj.sessionId) {
-      await cleanupHandle(opfsObj, `Preemption for new file by session ${sessionId}`);
+  if (slot.isLocked && slot.logicalName !== filename) {
+    const age = now - slot.lockTime;
+    if (slot.sessionId == null || sessionId >= slot.sessionId) {
+      await cleanupHandle(slot, `Preemption for new file by session ${sessionId}`);
     } else if (age < timeout) {
       return false;
     } else {
-      await cleanupHandle(opfsObj, `Stale lock cleanup by session ${sessionId}`);
+      await cleanupHandle(slot, `Stale lock cleanup by session ${sessionId}`);
     }
   }
 
-  opfsObj.sessionId = sessionId;
-  opfsObj.name = filename;
-  opfsObj.isLocked = true;
-  opfsObj.lockTime = now;
+  slot.sessionId = sessionId;
+  slot.logicalName = filename;
+  slot.isLocked = true;
+  slot.lockTime = now;
   return true;
 }
 
-async function releaseLock(opfsObj: OpfsSlot): Promise<void> {
-  const oldName = opfsObj.name;
-  opfsObj.isLocked = false;
-  opfsObj.sessionId = null;
-  opfsObj.name = null;
-  opfsObj.lockTime = 0;
-  await cleanupHandle(opfsObj, `Manual release for ${oldName}`);
-  opfsObj.writtenChunks = 0;
+async function releaseSlotLock(slot: PoolSlot): Promise<void> {
+  const oldName = slot.logicalName;
+  slot.isLocked = false;
+  slot.sessionId = null;
+  slot.lockTime = 0;
+  await cleanupHandle(slot, `Manual release for ${oldName}`);
+  slot.writtenChunks = 0;
+}
+
+/**
+ * Free a slot — handles closed, lock released, name unmapped, file
+ * truncated. After this the slot is available for the next allocator
+ * pass. Never calls `removeEntry()` — the disk file persists with size
+ * 0 so iOS doesn't have to reclaim anything.
+ */
+async function freeSlot(slot: PoolSlot): Promise<void> {
+  await cleanupHandle(slot, `Free slot ${slot.index}`);
+
+  if (slot.logicalName) {
+    if (slot.isPreload) preloadNameToSlot.delete(slot.logicalName);
+    slot.logicalName = null;
+  }
+  if (slot.sessionId !== null) {
+    if (slot.isPreload) preloadSidToSlot.delete(slot.sessionId);
+    slot.sessionId = null;
+  }
+  slot.isLocked = false;
+  slot.lockTime = 0;
+  slot.writtenChunks = 0;
+
+  // Truncate the slot's disk file to 0 so it doesn't keep its previous
+  // contents around. The file itself stays on disk — that's the whole
+  // point of the slot pool. Truncate is best-effort: the file may not
+  // exist yet (slot never used) and that's fine.
+  await truncateSlotFileToZero(slot);
+}
+
+async function truncateSlotFileToZero(slot: PoolSlot): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const handle = await root.getFileHandle(slotDiskName(slot)).catch(() => null);
+    if (!handle) return;
+
+    // Prefer SyncAccessHandle.truncate — runs in worker, no async writable
+    // overhead and doesn't allocate a separate writable stream.
+    if (
+      typeof (handle as unknown as Record<string, unknown>).createSyncAccessHandle === 'function'
+    ) {
+      try {
+        const ah = await (
+          handle as unknown as {
+            createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle>;
+          }
+        ).createSyncAccessHandle();
+        try {
+          ah.truncate(0);
+          if (typeof ah.flush === 'function') await ah.flush();
+        } finally {
+          await ah.close();
+        }
+        return;
+      } catch (e) {
+        console.warn(
+          '[TransferWorker] truncate via sync handle failed, falling back:',
+          (e as Error)?.message,
+        );
+      }
+    }
+
+    // Fallback: open writable with keepExistingData=false (which truncates).
+    if (typeof handle.createWritable === 'function') {
+      try {
+        const w = await handle.createWritable({ keepExistingData: false });
+        await w.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore — best-effort */
+  }
 }
 
 // ─── Message Handler ────────────────────────────────────────────
@@ -281,6 +478,10 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
   if (command === 'INIT_INSTANCE') {
     instanceId = (data.instanceId as string) || 'default';
     _lastMismatchKey = null;
+    // Force disk-name regeneration in case INIT_INSTANCE arrives twice with
+    // different IDs (e.g. test harness reusing a worker).
+    mainSlot.diskName = '';
+    for (const slot of preloadPool) slot.diskName = '';
     console.log(`[TransferWorker] Instance Initialized: ${instanceId}`);
     return;
   }
@@ -289,7 +490,6 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
-    const opfsObj = getOpfsObj(isPreload, sessionId);
 
     if (!filename) {
       safePost({
@@ -302,10 +502,19 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       return;
     }
 
-    if (!(await acquireLock(opfsObj, sessionId, filename, isPreload))) {
-      // Drop the empty slot getOpfsObj() registered on lookup; otherwise
-      // every retry leaks an additional entry until OPFS_RESET.
-      if (isPreload) preloadSlots.delete(sessionId);
+    const slot = findOrAllocateSlotForStart(filename, isPreload, sessionId);
+    if (!slot) {
+      safePost({
+        type: 'OPFS_ERROR',
+        error: 'Preload pool exhausted',
+        filename,
+        isPreload,
+        code: 'POOL_EXHAUSTED',
+      });
+      return;
+    }
+
+    if (!(await acquireSlotLock(slot, sessionId, filename, isPreload))) {
       safePost({
         type: 'OPFS_ERROR',
         error: 'Lock Collision',
@@ -316,37 +525,43 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       return;
     }
 
-    opfsObj.chunkSize = normalizeChunkSize(data.size);
-    opfsObj.writtenChunks = 0;
+    slot.chunkSize = normalizeChunkSize(data.size);
+    slot.writtenChunks = 0;
 
     try {
-      await cleanupHandle(opfsObj, 'New start');
+      await cleanupHandle(slot, 'New start');
       const root = await navigator.storage.getDirectory();
-      const safeName = buildSafeName(filename, isPreload);
+      const diskName = slotDiskName(slot);
 
-      if (!data.keepExisting) {
-        try {
-          await root.removeEntry(safeName);
-        } catch {
-          /* file may not exist */
-        }
-      }
-
-      opfsObj.handle = await root.getFileHandle(safeName, { create: true });
+      // Slot files are persistent — we do NOT call removeEntry. Instead the
+      // file is opened and truncated in-place (sync handle) or recreated
+      // with keepExistingData=false (writable fallback). On iOS this is
+      // critical: removeEntry doesn't reclaim disk for the deleted file
+      // until the app suspends, so removing-and-recreating leaks pages.
+      slot.handle = await root.getFileHandle(diskName, { create: true });
 
       let opened = false;
       if (
-        opfsObj.handle &&
-        typeof (opfsObj.handle as unknown as Record<string, unknown>).createSyncAccessHandle ===
+        slot.handle &&
+        typeof (slot.handle as unknown as Record<string, unknown>).createSyncAccessHandle ===
           'function'
       ) {
         try {
-          opfsObj.accessHandle = await (
-            opfsObj.handle as unknown as {
+          slot.accessHandle = await (
+            slot.handle as unknown as {
               createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle>;
             }
           ).createSyncAccessHandle();
-          opfsObj.mode = 'sync';
+          slot.mode = 'sync';
+          // Truncate any leftover bytes from the slot's previous tenant.
+          // `keepExisting` from the caller is honored — recovery reuses the
+          // same filename and wants whatever already-written prefix remains.
+          if (!data.keepExisting) {
+            slot.accessHandle.truncate(0);
+            if (typeof slot.accessHandle.flush === 'function') {
+              await slot.accessHandle.flush();
+            }
+          }
           opened = true;
         } catch (e: unknown) {
           console.warn(
@@ -357,11 +572,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       }
 
       if (!opened) {
-        if (opfsObj.handle && typeof opfsObj.handle.createWritable === 'function') {
-          opfsObj.writable = await opfsObj.handle.createWritable({
+        if (slot.handle && typeof slot.handle.createWritable === 'function') {
+          // keepExistingData=false performs the truncate for us; for recovery
+          // we keep existing bytes so already-received chunks are preserved.
+          slot.writable = await slot.handle.createWritable({
             keepExistingData: !!data.keepExisting,
           });
-          opfsObj.mode = 'writable';
+          slot.mode = 'writable';
           opened = true;
         }
       }
@@ -370,11 +587,18 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
 
       safePost({ type: 'OPFS_STARTED', filename, isPreload, sessionId });
     } catch (e: unknown) {
-      await releaseLock(opfsObj);
-      // releaseLock cleared the slot's lock fields, but preloadSlots still
-      // holds the (now empty) entry. Drop it so subsequent chunks for this
-      // sessionId don't get stuck in SESSION_MISMATCH against a null sid.
-      if (isPreload) preloadSlots.delete(sessionId);
+      await releaseSlotLock(slot);
+      // Drop the just-allocated mapping so the caller's retry can grab a
+      // fresh slot instead of bouncing off our own stale entry.
+      if (isPreload) {
+        if (slot.logicalName) preloadNameToSlot.delete(slot.logicalName);
+        if (slot.sessionId !== null) preloadSidToSlot.delete(slot.sessionId);
+        slot.logicalName = null;
+        slot.sessionId = null;
+      } else {
+        slot.logicalName = null;
+        slot.sessionId = null;
+      }
       safePost({
         type: 'OPFS_ERROR',
         error: (e as Error)?.message ?? String(e),
@@ -390,22 +614,37 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
-    const opfsObj = getOpfsObj(isPreload, sessionId);
 
-    if (sessionId !== opfsObj.sessionId) {
-      // getOpfsObj() registered an empty slot for this sessionId on lookup;
-      // since we're rejecting the message as stale, drop that slot to avoid
-      // accumulating empty entries in preloadSlots.
-      if (isPreload) preloadSlots.delete(sessionId);
+    const slot = findSlotBySessionId(isPreload, sessionId);
+    if (!slot) {
       postSessionMismatch({
         type: 'SESSION_MISMATCH',
         command: 'OPFS_WRITE',
-        expected: opfsObj.sessionId,
+        expected: null,
         received: sessionId,
         filename,
         isPreload,
       });
-      // Explicit error ACK so the main thread doesn't hang waiting for a response
+      safePost({
+        type: 'OPFS_WRITE_ERROR',
+        error: 'Session not found',
+        filename,
+        index: data.index,
+        isPreload,
+        code: 'SESSION_MISMATCH',
+      });
+      return;
+    }
+
+    if (sessionId !== slot.sessionId) {
+      postSessionMismatch({
+        type: 'SESSION_MISMATCH',
+        command: 'OPFS_WRITE',
+        expected: slot.sessionId,
+        received: sessionId,
+        filename,
+        isPreload,
+      });
       safePost({
         type: 'OPFS_WRITE_ERROR',
         error: 'Session mismatch',
@@ -417,8 +656,8 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       return;
     }
 
-    if (!filename || opfsObj.name !== filename) return;
-    if (!opfsObj.isLocked) return;
+    if (!filename || slot.logicalName !== filename) return;
+    if (!slot.isLocked) return;
 
     const index = normalizeIndex(data.index);
     if (index === null) {
@@ -439,22 +678,22 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     }
 
     try {
-      const offset = index * opfsObj.chunkSize;
-      if (opfsObj.mode === 'sync' && opfsObj.accessHandle) {
-        opfsObj.accessHandle.write(chunk, { at: offset });
-        opfsObj.writtenChunks++;
-        opfsObj.lockTime = nowMs();
-        if (opfsObj.writtenChunks % 100 === 0 && typeof opfsObj.accessHandle.flush === 'function') {
-          await opfsObj.accessHandle.flush();
+      const offset = index * slot.chunkSize;
+      if (slot.mode === 'sync' && slot.accessHandle) {
+        slot.accessHandle.write(chunk, { at: offset });
+        slot.writtenChunks++;
+        slot.lockTime = nowMs();
+        if (slot.writtenChunks % 100 === 0 && typeof slot.accessHandle.flush === 'function') {
+          await slot.accessHandle.flush();
         }
-      } else if (opfsObj.mode === 'writable' && opfsObj.writable) {
-        await opfsObj.writable.write({
+      } else if (slot.mode === 'writable' && slot.writable) {
+        await slot.writable.write({
           type: 'write',
           position: offset,
           data: chunk as unknown as BufferSource,
         });
-        opfsObj.writtenChunks++;
-        opfsObj.lockTime = nowMs();
+        slot.writtenChunks++;
+        slot.lockTime = nowMs();
       }
     } catch (e: unknown) {
       safePost({
@@ -473,20 +712,13 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const isPreload = !!data.isPreload;
     const sessionId = data.sessionId as number;
     const totalSize = data.totalSize as number | undefined;
-    const opfsObj = getOpfsObj(isPreload, sessionId);
 
-    if (sessionId !== opfsObj.sessionId) {
-      // getOpfsObj() registered an empty slot for this sessionId on lookup;
-      // since we're rejecting the message as stale, drop that slot to avoid
-      // accumulating empty entries in preloadSlots.
-      if (isPreload) preloadSlots.delete(sessionId);
-      // Always notify main thread — even when opfsObj.sessionId is null
-      // (e.g. OPFS_START failed and released lock). Without this, the main
-      // thread's SESSION_MISMATCH safety net for stuck PROCESSING never fires.
+    const slot = findSlotBySessionId(isPreload, sessionId);
+    if (!slot || sessionId !== slot.sessionId) {
       postSessionMismatch({
         type: 'SESSION_MISMATCH',
         command: 'OPFS_END',
-        expected: opfsObj.sessionId,
+        expected: slot?.sessionId ?? null,
         received: sessionId,
         filename,
         isPreload,
@@ -495,15 +727,15 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     }
 
     try {
-      if (opfsObj.mode === 'sync' && opfsObj.accessHandle) {
-        if (typeof opfsObj.accessHandle.flush === 'function') await opfsObj.accessHandle.flush();
+      if (slot.mode === 'sync' && slot.accessHandle) {
+        if (typeof slot.accessHandle.flush === 'function') await slot.accessHandle.flush();
         if (totalSize) {
-          const actualSize = await opfsObj.accessHandle.getSize();
+          const actualSize = await slot.accessHandle.getSize();
           if (actualSize !== totalSize) {
-            if (actualSize > totalSize && typeof opfsObj.accessHandle.truncate === 'function') {
+            if (actualSize > totalSize && typeof slot.accessHandle.truncate === 'function') {
               try {
-                await opfsObj.accessHandle.truncate(totalSize);
-                const resized = await opfsObj.accessHandle.getSize();
+                await slot.accessHandle.truncate(totalSize);
+                const resized = await slot.accessHandle.getSize();
                 if (resized !== totalSize)
                   throw new Error(`Integrity Fail: ${resized}/${totalSize}`);
               } catch {
@@ -514,23 +746,20 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
             }
           }
         }
-      } else if (opfsObj.mode === 'writable' && opfsObj.writable) {
-        await opfsObj.writable.close();
-        opfsObj.writable = null;
-        if (totalSize && opfsObj.handle) {
-          const f = await opfsObj.handle.getFile();
+      } else if (slot.mode === 'writable' && slot.writable) {
+        await slot.writable.close();
+        slot.writable = null;
+        if (totalSize && slot.handle) {
+          const f = await slot.handle.getFile();
           if (f.size !== totalSize) {
             if (f.size > totalSize) {
-              // Track the recovery writable so a throw on write/close still
-              // releases the underlying OPFS lock — otherwise the next
-              // OPFS_START on this filename hits "could not lock" until GC.
               let w: FileSystemWritableFileStream | null = null;
               try {
-                w = await opfsObj.handle.createWritable({ keepExistingData: true });
+                w = await slot.handle.createWritable({ keepExistingData: true });
                 await w.write({ type: 'truncate', size: totalSize });
                 await w.close();
                 w = null;
-                const f2 = await opfsObj.handle.getFile();
+                const f2 = await slot.handle.getFile();
                 if (f2.size !== totalSize)
                   throw new Error(`Integrity Fail: ${f2.size}/${totalSize}`);
               } finally {
@@ -551,13 +780,19 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
         throw new Error('No open handle for OPFS_END');
       }
 
-      const sidSnapshot = opfsObj.sessionId;
-      await releaseLock(opfsObj);
-      if (isPreload) preloadSlots.delete(sessionId);
+      const sidSnapshot = slot.sessionId;
+      // Release the lock but KEEP the slot mapping — the consumer still
+      // needs to read this file via OPFS_READ. Cleanup happens later via
+      // OPFS_CLEANUP / OPFS_RESET / LRU eviction in the next allocator pass.
+      await cleanupHandle(slot, 'OPFS_END finalize');
+      slot.isLocked = false;
+      slot.lockTime = 0;
+      slot.writtenChunks = 0;
       safePost({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId: sidSnapshot });
     } catch (e: unknown) {
-      await releaseLock(opfsObj);
-      if (isPreload) preloadSlots.delete(sessionId);
+      // On integrity failure, free the slot and truncate so the next
+      // tenant gets a clean file.
+      await freeSlot(slot);
       safePost({
         type: 'OPFS_ERROR',
         error: (e as Error)?.message ?? String(e),
@@ -572,70 +807,32 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
   if (command === 'OPFS_RESET') {
     const isPreload = !!data.isPreload;
     if (isPreload) {
-      // Capture filenames BEFORE releasing locks — releaseLock may null
-      // out the slot's fields, and we still need the names to remove the
-      // partial files from disk.
-      const namesToDelete: string[] = [];
-      for (const slot of preloadSlots.values()) {
-        if (slot.name) namesToDelete.push(slot.name);
-        await releaseLock(slot);
+      // Free every preload slot — closes handles, unmaps names, truncates
+      // disk files to 0 (we keep the slot files themselves for reuse).
+      for (const slot of preloadPool) {
+        await freeSlot(slot);
       }
-      preloadSlots.clear();
-
-      // Remove the partial preload files from OPFS. Without this step,
-      // every aborted in-flight preload (rapid track skipping, backward
-      // navigation that triggers clearPreloadState) leaves an orphan on
-      // disk until the next startup or session-leave sweep runs.
-      if (namesToDelete.length > 0) {
-        const root = await navigator.storage.getDirectory().catch(() => null);
-        if (root) {
-          for (const name of namesToDelete) {
-            try {
-              await root.removeEntry(buildSafeName(name, true));
-            } catch {
-              /* file may not exist or already removed */
-            }
-          }
-        }
-      }
+      // Defensive: name/sid maps should already be empty after the loop,
+      // but a stray entry pointing to a slot we just freed would silently
+      // wedge the next allocator pass — wipe them too.
+      preloadNameToSlot.clear();
+      preloadSidToSlot.clear();
     } else {
-      await releaseLock(currentFileOpfs);
+      await freeSlot(mainSlot);
     }
     safePost({ type: 'OPFS_RESET_COMPLETE', isPreload });
     return;
   }
 
   // Per-sid preload slot release (called by PRELOAD_ABORT cleanup on guest).
-  // Differs from OPFS_RESET in two ways:
-  //   1. Targets a single sessionId instead of wiping every preload slot —
-  //      avoids collateral damage to other in-flight preloads.
-  //   2. Does NOT post OPFS_FILE_READY. The aborted file is partial; firing
-  //      file-ready would push the partial blob into preload.nextFileBlob via
-  //      the storage:preload-file-ready handler.
-  // Silent no-op when the slot doesn't exist — covers races where ABORT
-  // arrives after natural finalize already released the slot.
+  // Was: per-sessionId removeEntry that left the underlying disk pages
+  // allocated on iOS. Now: free the slot — no disk delete, just truncate
+  // and unmap. The slot file is reused by the next allocator pass.
   if (command === 'OPFS_RESET_SESSION') {
     const sessionId = data.sessionId as number;
     if (!isValidSessionId(sessionId)) return;
-    const slot = preloadSlots.get(sessionId);
-    if (slot) {
-      // Capture the filename before releaseLock has a chance to null it.
-      const filename = slot.name;
-      await releaseLock(slot);
-      preloadSlots.delete(sessionId);
-
-      // Remove the partial file from disk. Without this, every PRELOAD_ABORT
-      // leaks one orphan file (rapid track skipping made this very visible:
-      // /debug memory was showing 12+ residual entries growing per skip).
-      if (filename) {
-        try {
-          const root = await navigator.storage.getDirectory();
-          await root.removeEntry(buildSafeName(filename, true));
-        } catch {
-          /* file may not exist or already removed */
-        }
-      }
-    }
+    const slot = findSlotBySessionId(true, sessionId);
+    if (slot) await freeSlot(slot);
     return;
   }
 
@@ -643,36 +840,27 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
     const filename = data.filename as string;
     const isPreload = !!data.isPreload;
 
-    let opfsObj: OpfsSlot | null = null;
-    if (!isPreload) {
-      opfsObj = currentFileOpfs;
-    } else {
-      // Find the preload slot by filename since OPFS_CLEANUP might not have sessionId
-      for (const slot of preloadSlots.values()) {
-        if (slot.name === filename) {
-          opfsObj = slot;
-          break;
-        }
-      }
-    }
-
     if (!filename) {
       safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
       return;
     }
 
-    if (opfsObj && opfsObj.isLocked && opfsObj.name === filename) {
+    const slot = findSlotByName(isPreload, filename);
+    // No slot mapped to this filename — already gone, treat as success.
+    if (!slot) {
+      safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
+      return;
+    }
+
+    // Slot is currently locked for this filename — the caller probably
+    // raced an in-flight write. Bail with skipped=true so the upstream
+    // logic knows to retry once the write finishes (matches old contract).
+    if (slot.isLocked && slot.logicalName === filename) {
       safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload, skipped: true });
       return;
     }
 
-    const safeName = buildSafeName(filename, isPreload);
-    try {
-      const root = await navigator.storage.getDirectory();
-      await root.removeEntry(safeName);
-    } catch {
-      /* file may not exist */
-    }
+    await freeSlot(slot);
     safePost({ type: 'OPFS_CLEANUP_COMPLETE', filename, isPreload });
     return;
   }
@@ -695,32 +883,59 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
       return;
     }
 
-    const safeName = buildSafeName(filename, isPreload);
-
-    try {
-      const activeOpfs = lookupOpfsObj(isPreload, sessionId);
-      const chunkSize = activeOpfs.chunkSize || DEFAULT_CHUNK_SIZE;
-      const offset = index * chunkSize;
-
-      // Preferred: reuse existing SyncAccessHandle
-      if (
-        activeOpfs.isLocked &&
-        activeOpfs.name === filename &&
-        activeOpfs.mode === 'sync' &&
-        activeOpfs.accessHandle
-      ) {
+    // Preferred path: the caller's session is still mapped and the slot's
+    // sync handle is open from OPFS_START → reuse it directly.
+    const sidSlot =
+      sessionId !== undefined ? findSlotBySessionId(isPreload, sessionId as number) : null;
+    if (
+      sidSlot &&
+      sidSlot.isLocked &&
+      sidSlot.logicalName === filename &&
+      sidSlot.mode === 'sync' &&
+      sidSlot.accessHandle
+    ) {
+      try {
+        const chunkSize = sidSlot.chunkSize || DEFAULT_CHUNK_SIZE;
+        const offset = index * chunkSize;
         const buffer = new Uint8Array(chunkSize);
-        const bytesRead = activeOpfs.accessHandle.read(buffer, { at: offset });
+        const bytesRead = sidSlot.accessHandle.read(buffer, { at: offset });
         const chunk = bytesRead === chunkSize ? buffer : buffer.slice(0, bytesRead);
         safePost({ type: 'OPFS_READ_COMPLETE', chunk, index, filename, requestId, sessionId }, [
           chunk.buffer,
         ]);
-        return;
+      } catch (e: unknown) {
+        safePost({
+          type: 'OPFS_READ_ERROR',
+          error: (e as Error)?.message ?? String(e),
+          filename,
+          index,
+          requestId,
+        });
       }
+      return;
+    }
 
-      // Otherwise open fresh handle
+    // Otherwise the slot has been finalized (lock released after OPFS_END)
+    // or the caller is reading a sibling slot. Open a fresh handle on the
+    // slot's disk file.
+    const slot = findSlotByName(isPreload, filename);
+    if (!slot) {
+      safePost({
+        type: 'OPFS_READ_ERROR',
+        error: 'No slot mapped for filename',
+        filename,
+        index,
+        requestId,
+      });
+      return;
+    }
+
+    try {
       const root = await navigator.storage.getDirectory();
-      const fileHandle = await root.getFileHandle(safeName);
+      const fileHandle = await root.getFileHandle(slotDiskName(slot));
+
+      const chunkSize = slot.chunkSize || DEFAULT_CHUNK_SIZE;
+      const offset = index * chunkSize;
 
       if (
         fileHandle &&
@@ -759,7 +974,7 @@ async function handleMessage(data: Record<string, unknown>): Promise<void> {
         }
       }
 
-      // Fallback: async File slicing
+      // Fallback: async File slicing.
       const file = await fileHandle.getFile();
       const slice = file.slice(offset, offset + chunkSize);
       const buf = await slice.arrayBuffer();

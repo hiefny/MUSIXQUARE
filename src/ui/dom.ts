@@ -87,6 +87,14 @@ export function animateTransition(callback: () => void): void {
 
 const OVERLAY_IDS = ['setup-overlay', 'media-source-overlay', 'youtube-url-overlay'];
 
+// IDs that must NEVER be inerted, even while one of OVERLAY_IDS is active.
+// dialog-overlay can stack on top of any setup/media overlay (e.g. the SW
+// update prompt firing during the initial setup screen). Inerting it makes
+// the dialog visually present but click-transparent — taps fall through to
+// the overlay underneath, which is the exact "refresh button does nothing"
+// bug we hit on launch week.
+const NEVER_INERT_IDS = new Set(['dialog-overlay']);
+
 /**
  * Observe overlay .active class changes and toggle `inert` on non-overlay
  * body children. Uses a single MutationObserver on <body> for efficiency.
@@ -101,6 +109,7 @@ export function initOverlayInertObserver(): void {
     for (const child of Array.from(document.body.children)) {
       if (!(child instanceof HTMLElement)) continue;
       if (OVERLAY_IDS.includes(child.id)) continue;
+      if (NEVER_INERT_IDS.has(child.id)) continue;
       if (anyOverlayActive) {
         child.setAttribute('inert', '');
       } else {

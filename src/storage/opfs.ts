@@ -1,8 +1,37 @@
 /**
- * MUSIXQUARE — OPFS Worker Wrapper
+ * MUSIXQUARE — RAM-only storage adapter (mxqr_beta branch)
  *
- * Manages: transfer.worker communication, OPFS commands routing,
- * session ID validation for worker commands, cleanup helpers.
+ * Same external API as the OPFS worker wrapper on `main` (postWorkerCommand,
+ * readFileFromOpfs, cleanupOPFSInWorker, sweepAppOpfsFiles, …) so consumers
+ * don't have to know which branch they're running on. Internally, every
+ * `OPFS_*` command is dispatched to the in-memory ramstore instead of a
+ * Web Worker — there is no transfer.worker.ts on this branch, no
+ * `navigator.storage.getDirectory()` writes, no disk persistence.
+ *
+ * Why
+ * ───
+ * iOS WebKit defers OPFS disk reclaim until app suspension; main branch
+ * mitigated this with a fixed slot pool but `/debug sweep` confirmed the
+ * deferred-reclaim mechanism still grew the storage estimate inside a
+ * single PWA session. mxqr_beta exists to compare a pure RAM path side-
+ * by-side: encoded chunks live in `Uint8Array[]` per session, blobs are
+ * built with `new Blob([…])` on finalize, and reads slice from the cached
+ * blob. iOS may still back individual large Blob objects to its private
+ * storage, but that allocation is GC-driven (frees with the JS reference)
+ * rather than tied to OPFS's deferred-reclaim quirk.
+ *
+ * Memory characteristics
+ * ──────────────────────
+ *   - Active main blob:    ~5–15 MB typical mp3, up to ~50 MB hi-res
+ *   - Preload blobs:       depth × track size (preload depth is 1–2)
+ *   - Decoded AudioBuffer: ~80 MB / 4-min song (same as OPFS branch)
+ * Foreground footprint typically lands at 100–150 MB — well inside the
+ * iOS PWA budget. Long podcasts crash on AudioBuffer decode regardless
+ * of storage strategy; that's a hard ceiling neither path can soften.
+ *
+ * The `setTransferWorker` export is retained for tests that mock the
+ * worker shape, but the assigned reference is never actually used to
+ * dispatch OPFS commands here.
  */
 
 import { log } from '../core/log.ts';
@@ -13,6 +42,16 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
 import { showLoader } from '../ui/toast.ts';
+import {
+  ramStart,
+  ramWrite,
+  ramEnd,
+  ramReadChunk,
+  ramReadBlob,
+  ramCleanup,
+  ramResetSession,
+  ramReset,
+} from './ramstore.ts';
 
 // ─── Worker References ──────────────────────────────────────────────
 let _transferWorker: Worker | null = null;
@@ -43,18 +82,19 @@ export function setSyncWorker(worker: Worker): void {
 // ─── Command Dispatch ───────────────────────────────────────────────
 
 /**
- * Send a command to the appropriate worker.
- * OPFS commands go to transferWorker; timer commands go to syncWorker.
+ * Send a command to the appropriate destination.
+ * OPFS commands → in-process ramstore (no worker hop).
+ * Timer commands → syncWorker (still a real worker).
  */
 export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferable[]): void {
   if (!payload || !payload.command) return;
 
   const cmd = payload.command;
 
-  // OPFS commands require filename + valid numeric sessionId
-  // OPFS_RESET_SESSION is a per-sid cleanup (used by PRELOAD_ABORT) — needs
-  // sessionId but not filename, so it joins the same exception list as
-  // OPFS_RESET (whole-pool wipe) and OPFS_CLEANUP (filename-targeted).
+  // Same validation contract as the worker branch — keeps callers
+  // consistent across main / mxqr_beta. Critical write-path commands
+  // require sessionId; OPFS_RESET / RESET_SESSION / CLEANUP are exempt
+  // from the filename gate.
   if (
     cmd.startsWith('OPFS_') &&
     cmd !== 'OPFS_RESET' &&
@@ -65,7 +105,6 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
 
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
 
-    // For critical write-path operations, never send with sid=0
     const isCriticalOp = cmd === 'OPFS_START' || cmd === 'OPFS_WRITE' || cmd === 'OPFS_END';
     if (isCriticalOp && !payload.sessionId) {
       log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
@@ -73,8 +112,6 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
     }
   }
 
-  // OPFS_RESET_SESSION still needs a valid numeric sessionId (it's the only
-  // identifier for which slot to release). Validate without the filename gate.
   if (cmd === 'OPFS_RESET_SESSION') {
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
     if (!payload.sessionId) {
@@ -84,18 +121,214 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
   }
 
   if (cmd.startsWith('OPFS_')) {
-    if (_transferWorker) {
-      _transferWorker.postMessage(payload, transfers || []);
-    } else {
-      log.warn(`[Worker] TransferWorker not ready. Dropping command: ${cmd}`);
-    }
-  } else {
-    if (_syncWorker) {
-      _syncWorker.postMessage(payload, transfers || []);
-    } else {
-      log.warn(`[Worker] SyncWorker not ready. Dropping command: ${cmd}`);
-    }
+    routeOpfsCommandToRam(payload);
+    return;
   }
+
+  if (_syncWorker) {
+    _syncWorker.postMessage(payload, transfers || []);
+  } else {
+    log.warn(`[Worker] SyncWorker not ready. Dropping command: ${cmd}`);
+  }
+}
+
+// ─── In-Process OPFS Bridge ─────────────────────────────────────────
+//
+// Runs OPFS_* commands against the ramstore and synthesizes the same
+// response messages the worker would have posted, so the existing
+// `handleTransferWorkerMessage` switch (and downstream bus events)
+// stay unchanged. We `queueMicrotask` the dispatch to preserve the
+// async-postMessage semantics consumers rely on — without it, ack
+// callbacks could land before the calling stack frame returns and
+// surprise call-chain logic.
+
+function routeOpfsCommandToRam(payload: WorkerCommand): void {
+  queueMicrotask(() => {
+    try {
+      runOpfsCommand(payload);
+    } catch (err) {
+      log.error('[Ramstore] command failed:', err);
+    }
+  });
+}
+
+function runOpfsCommand(payload: WorkerCommand): void {
+  const cmd = payload.command;
+  const filename = (payload.filename as string) || '';
+  const isPreload = !!payload.isPreload;
+  const sessionId = (payload.sessionId as number) || 0;
+
+  switch (cmd) {
+    case 'OPFS_START': {
+      const chunkSize = (payload.size as number) || 16384;
+      const keepExisting = !!payload.keepExisting;
+      const result = ramStart(filename, isPreload, sessionId, chunkSize, keepExisting);
+      if (result.ok) {
+        dispatchWorkerResponse({ type: 'OPFS_STARTED', filename, isPreload, sessionId });
+      } else {
+        dispatchWorkerResponse({
+          type: 'OPFS_ERROR',
+          error: result.reason || 'start failed',
+          filename,
+          isPreload,
+          code: 'START_FAILED',
+        });
+      }
+      return;
+    }
+
+    case 'OPFS_WRITE': {
+      const rawChunk = payload.chunk as unknown;
+      const chunk =
+        rawChunk instanceof Uint8Array
+          ? rawChunk
+          : rawChunk instanceof ArrayBuffer
+            ? new Uint8Array(rawChunk)
+            : ArrayBuffer.isView(rawChunk) && (rawChunk as ArrayBufferView).buffer
+              ? new Uint8Array(
+                  (rawChunk as ArrayBufferView).buffer,
+                  (rawChunk as ArrayBufferView).byteOffset,
+                  (rawChunk as ArrayBufferView).byteLength,
+                )
+              : null;
+      if (!chunk) {
+        dispatchWorkerResponse({
+          type: 'OPFS_WRITE_ERROR',
+          error: 'Invalid chunk',
+          filename,
+          index: payload.index as number | undefined,
+          isPreload,
+        });
+        return;
+      }
+      const index = payload.index as number;
+      const result = ramWrite(filename, isPreload, sessionId, index, chunk);
+      if (!result.ok && result.reason === 'Session mismatch') {
+        dispatchWorkerResponse({
+          type: 'SESSION_MISMATCH',
+          command: 'OPFS_WRITE',
+          expected: result.expectedSid ?? null,
+          received: sessionId,
+          filename,
+          isPreload,
+        });
+        dispatchWorkerResponse({
+          type: 'OPFS_WRITE_ERROR',
+          error: 'Session mismatch',
+          filename,
+          index,
+          isPreload,
+          code: 'SESSION_MISMATCH',
+        });
+      }
+      // Other failure modes (Session not found / Filename mismatch /
+      // Already finalized) are silently dropped, matching the worker.
+      return;
+    }
+
+    case 'OPFS_END': {
+      const totalSize = payload.totalSize as number | undefined;
+      const result = ramEnd(filename, isPreload, sessionId, totalSize);
+      if (result.blob) {
+        dispatchWorkerResponse({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId });
+      } else if (result.reason && result.reason.startsWith('Integrity Fail')) {
+        dispatchWorkerResponse({
+          type: 'OPFS_ERROR',
+          error: result.reason,
+          filename,
+          isPreload,
+          code: 'INTEGRITY_FAIL',
+        });
+      } else if (result.reason === 'Session mismatch') {
+        dispatchWorkerResponse({
+          type: 'SESSION_MISMATCH',
+          command: 'OPFS_END',
+          expected: result.expectedSid ?? null,
+          received: sessionId,
+          filename,
+          isPreload,
+        });
+      }
+      return;
+    }
+
+    case 'OPFS_RESET': {
+      ramReset(isPreload);
+      dispatchWorkerResponse({ type: 'OPFS_RESET_COMPLETE', isPreload });
+      return;
+    }
+
+    case 'OPFS_RESET_SESSION': {
+      // RAM-only contract: per-sid cleanup is preload-only (mirrors the
+      // worker behaviour where this command targets `preloadSlots`).
+      ramResetSession(sessionId, true);
+      // No response — matches worker.
+      return;
+    }
+
+    case 'OPFS_CLEANUP': {
+      const result = ramCleanup(filename, isPreload);
+      dispatchWorkerResponse({
+        type: 'OPFS_CLEANUP_COMPLETE',
+        filename,
+        isPreload,
+        skipped: result.skipped,
+      });
+      return;
+    }
+
+    case 'OPFS_READ': {
+      const index = payload.index as number;
+      const requestId = payload.requestId;
+      // ramReadChunk is async (slices a Blob → ArrayBuffer). Don't block
+      // the calling microtask; resolve and dispatch when ready.
+      ramReadChunk(filename, isPreload, sessionId, index)
+        .then((chunk) => {
+          if (chunk) {
+            dispatchWorkerResponse({
+              type: 'OPFS_READ_COMPLETE',
+              chunk,
+              index,
+              filename,
+              requestId,
+              sessionId,
+            });
+          } else {
+            dispatchWorkerResponse({
+              type: 'OPFS_READ_ERROR',
+              error: 'Slot not found',
+              filename,
+              index,
+              requestId,
+            });
+          }
+        })
+        .catch((e) => {
+          dispatchWorkerResponse({
+            type: 'OPFS_READ_ERROR',
+            error: (e as Error)?.message ?? String(e),
+            filename,
+            index,
+            requestId,
+          });
+        });
+      return;
+    }
+
+    default:
+      log.warn(`[Ramstore] Unknown OPFS command: ${cmd}`);
+  }
+}
+
+/**
+ * Synthesize the MessageEvent shape that `handleTransferWorkerMessage`
+ * expects, so all the existing bus.emit / state mutation logic in that
+ * switch keeps running unchanged.
+ */
+function dispatchWorkerResponse(response: WorkerResponse): void {
+  handleTransferWorkerMessage({
+    data: response,
+  } as MessageEvent<WorkerResponse>);
 }
 
 // ─── OPFS Helpers ───────────────────────────────────────────────────
@@ -144,61 +377,45 @@ export function cleanupOPFSInWorker(filename: string, isPreload: boolean): void 
 }
 
 /**
- * Read a finalized file from OPFS.
+ * Read a finalized file from the ramstore. Wrapped as a `File` so callers
+ * that introspect `.name` continue to work — same return-type contract as
+ * the OPFS branch where `getFile()` already gave them a File.
  */
 export async function readFileFromOpfs(filename: string, isPreload: boolean): Promise<File | null> {
   if (!filename) return null;
-  if (!(navigator.storage && navigator.storage.getDirectory)) return null;
+  const blob = ramReadBlob(filename, isPreload);
+  if (!blob) return null;
   try {
-    const root = await navigator.storage.getDirectory();
-    const safeName = buildSafeOpfsName(filename, isPreload);
-    const fileHandle = await root.getFileHandle(safeName);
-    return await fileHandle.getFile();
+    return new File([blob], filename, { type: blob.type || '' });
   } catch (err) {
-    log.error('[OPFS] readFileFromOpfs failed:', err);
+    log.error('[Ramstore] readFileFromOpfs wrap failed:', err);
     return null;
   }
 }
 
 // ─── OPFS Sweep ─────────────────────────────────────────────────────
 //
-// Removes all `preload_*` and `current_*` files from OPFS root, optionally
-// preserving files belonging to the current INSTANCE_ID. The trailing
-// `_<INSTANCE_ID>` lets us distinguish files from this app load vs prior
-// loads/sessions; both the legacy per-filename layout
-// (`preload_<sanitized>_<INSTANCE>`) and the slot-pool layout
-// (`preload_slot_<i>_<INSTANCE>` / `current_slot_0_<INSTANCE>`, see
-// transfer.worker.ts [d07b4b2]) match the same prefix filter, so this
-// function works as a single sweep across both eras.
+// Walks the OPFS root and removes any `preload_*` / `current_*` files.
+// On the RAM-only branch we never *create* OPFS entries, so this exists
+// purely as a one-shot legacy migration helper:
 //
-// Why this exists: iOS PWA persists OPFS across app launches indefinitely.
-// In the old per-filename era this meant every track ever downloaded
-// leaked a file forever — a real-device snapshot showed 343 files /
-// 6065MB cumulative over a week of testing, eventually crashing the
-// session under storage pressure. The slot pool prevents that growth
-// inside a single page lifetime, but the sweep is still load-bearing for:
-//   1. Cross-instance cleanup. INSTANCE_ID is regenerated per page load,
-//      so the previous load's slot files (which iOS WebKit will not
-//      reclaim until reload anyway) get formally swept here.
-//   2. Migration from the legacy layout. Users updating from a pre-pool
-//      version will have `preload_<filename>_<oldInstance>` files on
-//      disk; cross-instance sweep collects them naturally.
+//   1. Cleans up files left behind from a prior app load that ran the
+//      OPFS-based code (slot pool layout `preload_slot_<i>_<INSTANCE>`
+//      or the older per-filename `preload_<safe>_<oldInstance>`).
+//   2. Frees the disk space those files were holding (subject to iOS
+//      WebKit's deferred reclaim — `removeEntry` returns immediately
+//      but pages may stay until the app suspends).
 //
 // Two call sites:
-//   - App startup: excludeCurrentInstance=true. Files from THIS load
-//     haven't been created yet (INSTANCE_ID was just generated), so the
-//     exclude filter never triggers in practice — equivalent to "delete
-//     everything not from this load". Defense in depth for the rare race
-//     where a module creates a file before the sweep finishes.
-//   - Session leave: excludeCurrentInstance=false. The user is done with
-//     this session; the slot files from this load are also dropped.
+//   - App startup: excludeCurrentInstance=true. Defensive — the RAM
+//     branch shouldn't have files matching the current INSTANCE_ID at
+//     startup, but we keep the filter to avoid a regression if something
+//     downstream ever creates one before the sweep runs.
+//   - Session leave: excludeCurrentInstance=false. Drops everything,
+//     including any legacy current-instance files.
 //
-// Performance: per-file `removeEntry` is a few ms; total time scales with
-// surviving cross-instance debris. Fire-and-forget from callers; do not
-// await. Note that on iOS WebKit `removeEntry` does not eagerly reclaim
-// disk pages — that's an OS-level deferral we can't influence; the sweep
-// still does the right thing semantically (file becomes invisible on
-// next listing).
+// Fire-and-forget; do not await. Performance scales with surviving disk
+// debris and is bounded by the iOS quota.
 export async function sweepAppOpfsFiles(opts: {
   excludeCurrentInstance?: boolean;
   reason: string;

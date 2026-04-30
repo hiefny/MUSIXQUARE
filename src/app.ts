@@ -43,7 +43,9 @@ import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 // ── Storage ──
-import { setSyncWorker, setTransferWorker, sweepAppOpfsFiles } from './storage/opfs.ts';
+// `setTransferWorker` is no longer referenced on this branch — RAM-only
+// dispatches OPFS commands in-process. Kept exported in opfs.ts for tests.
+import { setSyncWorker, sweepAppOpfsFiles } from './storage/opfs.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
@@ -394,36 +396,19 @@ function bootstrap(): void {
     log.warn('[App] SyncWorker failed:', e);
   }
 
-  let transferWorkerReady = false;
-  try {
-    const transferW = new Worker(new URL('./workers/transfer.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    setTransferWorker(transferW);
-    transferW.onerror = (ev) => log.error('[App] TransferWorker error:', ev.message || ev);
-    transferWorkerReady = true;
-    transferW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
-    log.info('[App] TransferWorker started');
-  } catch (e) {
-    log.warn('[App] TransferWorker failed:', e);
-  }
+  // RAM-only branch (mxqr_beta): the transfer worker is gone. OPFS_*
+  // commands are dispatched in-process by storage/opfs.ts → ramstore.ts.
+  // Transfer / Preload / Recovery init unconditionally — there's no
+  // worker readiness gate to fail.
+  safeInit('Transfer', initTransfer);
+  safeInit('Preload', initPreload);
+  safeInit('Recovery', initRecovery);
 
-  if (transferWorkerReady) {
-    safeInit('Transfer', initTransfer);
-    safeInit('Preload', initPreload);
-    safeInit('Recovery', initRecovery);
-
-    // Sweep stale OPFS files from prior app loads. iOS PWA persists OPFS
-    // across app launches; without this sweep, every track ever downloaded
-    // accumulates on disk forever (real-device snapshot showed 343 files /
-    // 6GB cumulative across a week of testing → memory pressure → mid-
-    // session crashes). Filter excludes files with the current INSTANCE_ID
-    // so any in-flight file creation that races with this sweep is safe.
-    // Fire-and-forget — runs in background, doesn't block bootstrap.
-    void sweepAppOpfsFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
-  } else {
-    log.warn('[App] Skipping transfer/preload/recovery init — worker unavailable');
-  }
+  // Legacy migration: if a previous app load (or a previous version) ran
+  // the OPFS-based code, it left behind files matching `preload_*` /
+  // `current_*`. Sweep them now to free disk. RAM-only itself never
+  // creates OPFS entries, so subsequent calls to this sweep stay no-ops.
+  void sweepAppOpfsFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
 
   // 7. YouTube
   safeInit('YouTube', initYouTube);

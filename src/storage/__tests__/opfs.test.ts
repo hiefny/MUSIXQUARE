@@ -100,11 +100,12 @@ describe('ensureNamedFile', () => {
 });
 
 describe('postWorkerCommand', () => {
-  it('drops command silently when no worker is set', () => {
+  it('drops timer command silently when no sync worker is set', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // No worker set → should log warning and drop
-    postWorkerCommand({ command: 'OPFS_RESET' });
-    // The log.warn call goes through console.warn
+    // OPFS commands are now routed in-process by ramstore so they no longer
+    // depend on a worker reference. Timer commands still need _syncWorker;
+    // without one set, the call should warn and drop without throwing.
+    postWorkerCommand({ command: 'STOP_TIMER', id: 'heartbeat' });
     spy.mockRestore();
   });
 
@@ -118,7 +119,11 @@ describe('postWorkerCommand', () => {
     postWorkerCommand({} as never);
   });
 
-  it('sends OPFS commands to transfer worker', () => {
+  it('routes OPFS commands to ramstore (no transfer worker)', async () => {
+    // RAM-only branch: OPFS_* commands no longer hit the transfer worker.
+    // Even if a mock worker is set via setTransferWorker, postMessage on it
+    // should NOT be called for OPFS commands. They're dispatched through
+    // the in-process ramstore via queueMicrotask instead.
     const mockPostMessage = vi.fn();
     const mockWorker = {
       postMessage: mockPostMessage,
@@ -128,8 +133,10 @@ describe('postWorkerCommand', () => {
     } as unknown as Worker;
 
     setTransferWorker(mockWorker);
-    postWorkerCommand({ command: 'OPFS_RESET' });
-    expect(mockPostMessage).toHaveBeenCalledWith({ command: 'OPFS_RESET' }, []);
+    postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+    // Allow the microtask scheduled by routeOpfsCommandToRam to run.
+    await Promise.resolve();
+    expect(mockPostMessage).not.toHaveBeenCalled();
   });
 
   it('sends timer commands to sync worker', () => {

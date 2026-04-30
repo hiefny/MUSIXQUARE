@@ -100,13 +100,23 @@ export interface WorkerResponse {
   filename?: string;
   sessionId?: number;
   index?: number;
-  chunk?: ArrayBuffer;
+  // OPFS_READ_COMPLETE delivers chunks as Uint8Array (with .buffer
+  // transferred). Allow either shape so the in-process RAM bridge in
+  // mxqr_beta and the worker on main can both produce values matching
+  // this contract.
+  chunk?: ArrayBuffer | Uint8Array;
   isPreload?: boolean;
   requestId?: string;
   error?: string;
   command?: string;
   code?: string;
   skipped?: boolean;
+  // SESSION_MISMATCH reporting fields. The worker on main sets these
+  // through `safePost(Record<string, unknown>)` which bypasses typing —
+  // declaring them here lets the in-process RAM bridge satisfy strict
+  // mode without losing the wire shape.
+  expected?: number | null;
+  received?: number;
 }
 
 // ─── Device List ───────────────────────────────────────────────────

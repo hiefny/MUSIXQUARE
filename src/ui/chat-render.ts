@@ -19,6 +19,29 @@ export const MAX_CHAT_MESSAGES = 200;
 export const MAX_SENDER_LABEL_LENGTH = 30;
 export const MAX_MSG_LENGTH = 500;
 
+// Sticky-bottom tolerance: how close to the bottom (in CSS px) counts as
+// "still at the bottom" when deciding whether a new message should auto-
+// scroll the chat. Browsers can leave fractional pixel offsets after
+// momentum scroll; a flat ≤24 cutoff would let a sub-pixel jitter flip
+// the user out of sticky mode mid-conversation.
+const STICKY_BOTTOM_TOLERANCE_PX = 25;
+
+/**
+ * True iff the user is currently scrolled to the bottom (within tolerance)
+ * of a chat-messages-style container. Used by every render function to
+ * decide whether a new message should auto-scroll. Capture the value
+ * BEFORE mutating the DOM so the next-tick scroll reflects the user's
+ * pre-message intent, not the new content's geometry.
+ */
+function isContainerAtBottom(container: HTMLElement): boolean {
+  return (
+    container.scrollHeight - container.scrollTop - container.clientHeight <
+    STICKY_BOTTOM_TOLERANCE_PX
+  );
+}
+
+export { STICKY_BOTTOM_TOLERANCE_PX, isContainerAtBottom };
+
 const CROWN_SVG =
   '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
 
@@ -128,7 +151,7 @@ export function addChatMessage(
   const container = document.getElementById('chat-messages');
 
   if (container) {
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
+    const isAtBottom = isContainerAtBottom(container);
     const empty = container.querySelector('.chat-empty');
     if (empty) empty.remove();
 
@@ -273,7 +296,7 @@ export function addSystemChatMessage(text: string): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
 
-  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
+  const isAtBottom = isContainerAtBottom(container);
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -327,7 +350,7 @@ export function addSystemChatMessage(text: string): void {
 export function addWhisperMessage(peerLabel: string, text: string, isSent: boolean): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
+  const isAtBottom = isContainerAtBottom(container);
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -384,7 +407,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
 export function addNoticeChatMessage(sender: string, text: string): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
+  const isAtBottom = isContainerAtBottom(container);
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 

@@ -299,5 +299,20 @@ export function initPlaylistView(): void {
     updatePlaylistUI();
   });
 
+  // Defense in depth for session-leave/rejoin: tab-opened handles 95% of
+  // the cases where the user re-enters the playlist tab. Edge case missed
+  // by tab-opened — user stays on the playlist tab during a session leave
+  // then plays the *same* track again on rejoin: indices match the saved
+  // value, no auto-scroll fires, and the active track stays wherever it
+  // was visually before the leave. Resetting the saved indices when
+  // network role flips back to idle covers it without waking up the tab
+  // observer.
+  _busScope.on('state:network.appRole', (role: unknown) => {
+    if (role === 'idle') {
+      _lastScrolledTrackIndex = -1;
+      _lastScrolledSubIndex = -1;
+    }
+  });
+
   log.info('[PlaylistView] Initialized');
 }

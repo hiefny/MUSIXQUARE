@@ -31,6 +31,7 @@ import {
   addNoticeChatMessage,
   clearPinnedNotice,
   formatChatDisplayName,
+  isContainerAtBottom,
   MAX_MSG_LENGTH,
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
@@ -436,10 +437,16 @@ export function initChat(): void {
   const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
   
   if (chatMessages && scrollDownBtn) {
-    chatMessages.addEventListener('scroll', () => {
-      const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 25;
-      scrollDownBtn.classList.toggle('show', !isAtBottom);
-    });
+    // `passive: true` is the modern default for scroll listeners but we
+    // mark it explicitly — Safari ≤ 11 still required the hint, and the
+    // browsers that don't need it ignore the option harmlessly.
+    chatMessages.addEventListener(
+      'scroll',
+      () => {
+        scrollDownBtn.classList.toggle('show', !isContainerAtBottom(chatMessages));
+      },
+      { passive: true },
+    );
 
     scrollDownBtn.addEventListener('click', () => {
       chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });

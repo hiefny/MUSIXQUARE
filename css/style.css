@@ -699,6 +699,7 @@
        This lets the scrollbar track extend to the viewport bottom (including
        the iOS safe area) while content ends above the floating nav. */
         padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 24px);
+        scroll-padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 24px);
     }
 
     /* Structural Fix: Targeted Persistence Hack.

@@ -291,6 +291,13 @@ export function initPlaylistView(): void {
   _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
   _busScope.on('state:appState', debouncedUpdate);
   _busScope.on('state:network.connectionType', debouncedUpdate);
+  
+  _busScope.on('ui:playlist-tab-opened', () => {
+    // Reset indices to force scroll on the next UI update
+    _lastScrolledTrackIndex = -1;
+    _lastScrolledSubIndex = -1;
+    updatePlaylistUI();
+  });
 
   log.info('[PlaylistView] Initialized');
 }

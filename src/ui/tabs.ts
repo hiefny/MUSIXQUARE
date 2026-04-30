@@ -40,6 +40,10 @@ export function switchTab(tabId: string): void {
       bus.emit('ui:connect-tab-opened');
     }
 
+    if (tabId === 'playlist') {
+      bus.emit('ui:playlist-tab-opened');
+    }
+
     if (tabId === 'play') {
       setManagedTimer(
         'tab-play-check',

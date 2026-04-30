@@ -479,6 +479,7 @@ const ko = {
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
   'chat.msg_truncated': '메시지가 {{max}}자로 잘렸어요',
+  'chat.scroll_to_bottom': '맨 아래로 스크롤',
   'setup.brand_tagline_html': '언제 어디서나 함께 듣는<br>완벽한 사운드 경험',
   'setup.invite_share_desc_html':
     '여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 숫자 코드로 연결할 수 있어요.',

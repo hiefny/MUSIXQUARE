@@ -432,6 +432,20 @@ export function initChat(): void {
       if (_isChatDrawerOpen) toggleChatDrawer();
     });
 
+  const chatMessages = document.getElementById('chat-messages');
+  const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
+  
+  if (chatMessages && scrollDownBtn) {
+    chatMessages.addEventListener('scroll', () => {
+      const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 25;
+      scrollDownBtn.classList.toggle('show', !isAtBottom);
+    });
+
+    scrollDownBtn.addEventListener('click', () => {
+      chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+    });
+  }
+
   // Wire up UI buttons
   const sendBtn = document.getElementById('btn-chat-send');
   if (sendBtn) {

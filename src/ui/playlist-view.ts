@@ -14,8 +14,12 @@ import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { showToast } from './toast.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
+
+let _lastScrolledTrackIndex = -1;
+let _lastScrolledSubIndex = -1;
 
 // ─── Expansion Toggle ────────────────────────────────────────────
 
@@ -144,6 +148,7 @@ export function updatePlaylistUI(): void {
       const op = getState('network.isOperator');
       if (!hc) bus.emit('playlist:play-track', idx);
       else if (op) safeSend(hc, { type: MSG.REQUEST_TRACK_CHANGE, index: idx });
+      else showToast(t('toast.host_only_control'));
     };
 
     const isHost = !getState('network.hostConn');
@@ -207,7 +212,10 @@ export function updatePlaylistUI(): void {
             e.stopPropagation();
             const hc = getState('network.hostConn');
             const op = getState('network.isOperator');
-            if (hc && !op) return;
+            if (hc && !op) {
+              showToast(t('toast.host_only_control'));
+              return;
+            }
             if (!hc) {
               // Compute isCurrent at click time (not render time) to avoid stale closure
               const isCurrentNow = idx === getState('playlist.currentTrackIndex');
@@ -239,8 +247,24 @@ export function updatePlaylistUI(): void {
     }
   });
 
+  let shouldAutoScroll = false;
+  if (_lastScrolledTrackIndex !== currentTrackIndex || _lastScrolledSubIndex !== currentYouTubeSubIndex) {
+    shouldAutoScroll = true;
+    _lastScrolledTrackIndex = currentTrackIndex;
+    _lastScrolledSubIndex = currentYouTubeSubIndex;
+  }
+
   // Restore scroll position after DOM rebuild
-  if (savedScrollTop > 0) ul.scrollTop = savedScrollTop;
+  if (shouldAutoScroll) {
+    const activeLi = ul.querySelector('li.active') as HTMLElement | null;
+    if (activeLi) {
+      activeLi.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (savedScrollTop > 0) {
+      ul.scrollTop = savedScrollTop;
+    }
+  } else if (savedScrollTop > 0) {
+    ul.scrollTop = savedScrollTop;
+  }
 }
 
 // ─── Init ────────────────────────────────────────────────────────

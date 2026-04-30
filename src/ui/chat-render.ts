@@ -128,6 +128,7 @@ export function addChatMessage(
   const container = document.getElementById('chat-messages');
 
   if (container) {
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
     const empty = container.querySelector('.chat-empty');
     if (empty) empty.remove();
 
@@ -258,7 +259,7 @@ export function addChatMessage(
     }
 
     pruneOldMessages(container);
-    container.scrollTop = container.scrollHeight;
+    if (isAtBottom || isMine) container.scrollTop = container.scrollHeight;
   }
 
   bus.emit('chat:message-rendered', sender, text, isMine);
@@ -272,6 +273,7 @@ export function addSystemChatMessage(text: string): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
 
+  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -317,7 +319,7 @@ export function addSystemChatMessage(text: string): void {
   group.appendChild(row);
   container.appendChild(group);
   pruneOldMessages(container);
-  container.scrollTop = container.scrollHeight;
+  if (isAtBottom) container.scrollTop = container.scrollHeight;
 }
 
 // ─── Render: Whisper Message ─────────────────────────────────────
@@ -325,6 +327,7 @@ export function addSystemChatMessage(text: string): void {
 export function addWhisperMessage(peerLabel: string, text: string, isSent: boolean): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
+  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -369,7 +372,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   group.appendChild(row);
   container.appendChild(group);
   pruneOldMessages(container);
-  container.scrollTop = container.scrollHeight;
+  if (isAtBottom || isSent) container.scrollTop = container.scrollHeight;
 
   // isMine=isSent so chat.ts's handler skips incrementUnread for outgoing
   // whispers but still updates preview for both directions.
@@ -381,6 +384,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
 export function addNoticeChatMessage(sender: string, text: string): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
+  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 25;
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
 
@@ -424,7 +428,7 @@ export function addNoticeChatMessage(sender: string, text: string): void {
   group.appendChild(row);
   container.appendChild(group);
   pruneOldMessages(container);
-  container.scrollTop = container.scrollHeight;
+  if (isAtBottom) container.scrollTop = container.scrollHeight;
 
   // Also pin above the feed so a fast-scrolling chat doesn't bury it.
   setPinnedNotice(sender, text);

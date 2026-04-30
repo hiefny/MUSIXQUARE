@@ -47,7 +47,7 @@ export function initTransfer(): void {
 
   // OPFS write failure: trigger recovery to re-request the corrupted chunk
   // instead of silently continuing with a hole in the file data.
-  bus.on('opfs:write-error', (data: unknown) => {
+  bus.on('storage:write-error', (data: unknown) => {
     const info = data as
       | { filename?: string; chunkIndex?: number; isPreload?: boolean }
       | undefined;

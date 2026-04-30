@@ -83,14 +83,14 @@ export interface WorkerCommand {
 }
 
 export type WorkerResponseType =
-  | 'OPFS_STARTED'
-  | 'OPFS_FILE_READY'
-  | 'OPFS_READ_COMPLETE'
-  | 'OPFS_WRITE_ERROR'
-  | 'OPFS_READ_ERROR'
-  | 'OPFS_ERROR'
-  | 'OPFS_RESET_COMPLETE'
-  | 'OPFS_CLEANUP_COMPLETE'
+  | 'STORAGE_STARTED'
+  | 'STORAGE_FILE_READY'
+  | 'STORAGE_READ_COMPLETE'
+  | 'STORAGE_WRITE_ERROR'
+  | 'STORAGE_READ_ERROR'
+  | 'STORAGE_ERROR'
+  | 'STORAGE_RESET_COMPLETE'
+  | 'STORAGE_CLEANUP_COMPLETE'
   | 'SESSION_MISMATCH'
   | 'WORKER_ERROR'
   | 'TICK';
@@ -100,7 +100,7 @@ export interface WorkerResponse {
   filename?: string;
   sessionId?: number;
   index?: number;
-  // OPFS_READ_COMPLETE delivers chunks as Uint8Array (with .buffer
+  // STORAGE_READ_COMPLETE delivers chunks as Uint8Array (with .buffer
   // transferred). Allow either shape so the in-process RAM bridge in
   // mxqr_beta and the worker on main can both produce values matching
   // this contract.
@@ -773,13 +773,13 @@ interface BaseEventMap {
   'storage:clear-previous-track': [context: string];
   'storage:use-preloaded': [index: number, name: string];
   'storage:preload-file-ready': [filename: string, sessionId: number];
-  'opfs:file-ready': [filename: string, sessionId: number, isPreload: boolean];
-  'opfs:read-complete': [data: unknown];
-  'opfs:read-error': [data: unknown];
-  'opfs:error': [error: string, filename: string];
-  'opfs:write-error': [data: unknown];
-  'opfs:session-mismatch': [data: unknown];
-  'opfs:cleanup-complete': [filename: string];
+  'storage:file-ready': [filename: string, sessionId: number, isPreload: boolean];
+  'storage:read-complete': [data: unknown];
+  'storage:read-error': [data: unknown];
+  'storage:error': [error: string, filename: string];
+  'storage:write-error': [data: unknown];
+  'storage:session-mismatch': [data: unknown];
+  'storage:cleanup-complete': [filename: string];
 
   // ── Blob ──────────────────────────────────────────────────────────
   'blob:revoke-all': [];

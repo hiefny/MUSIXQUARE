@@ -234,7 +234,7 @@ export function clearPreloadState(): void {
   }
 
   // Guest side
-  postWorkerCommand({ command: 'OPFS_RESET', isPreload: true });
+  postWorkerCommand({ command: 'STORAGE_RESET', isPreload: true });
 }
 
 // ─── Play Track ────────────────────────────────────────────────────

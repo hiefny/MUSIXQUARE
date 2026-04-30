@@ -133,7 +133,7 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
     return;
   }
 
-  // Wait for previous OPFS_READ response (sequential pump)
+  // Wait for previous STORAGE_READ response (sequential pump)
   if (pump.awaiting) {
     const stuckMs = Date.now() - pump.lastActivity;
     if (stuckMs > 6000 && pump.awaitingIndex !== null) {
@@ -169,7 +169,7 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   pump.lastActivity = Date.now();
 
   postWorkerCommand({
-    command: 'OPFS_READ',
+    command: 'STORAGE_READ',
     filename: pump.filename,
     index: idx,
     isPreload: pump.isPreload,
@@ -591,7 +591,7 @@ export function initRelay(): void {
   });
 
   // Handle OPFS read failure during recovery/catchup serving
-  bus.on('opfs:read-error', (data: unknown) => {
+  bus.on('storage:read-error', (data: unknown) => {
     const d = data as Record<string, unknown>;
     if (!d) return;
     const requestId = (d.requestId as string) || '';
@@ -621,7 +621,7 @@ export function initRelay(): void {
   });
 
   // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump
-  bus.on('opfs:read-complete', (data: unknown) => {
+  bus.on('storage:read-complete', (data: unknown) => {
     const d = data as Record<string, unknown>;
     if (!d) return;
 
@@ -644,7 +644,7 @@ export function initRelay(): void {
     // Session guard: discard stale chunks
     const localSid = getState('transfer.localSessionId');
     if (sessionId && sessionId < localSid) {
-      log.warn(`[OPFS_READ] Stale session chunk discarded (got ${sessionId}, current ${localSid})`);
+      log.warn(`[STORAGE_READ] Stale session chunk discarded (got ${sessionId}, current ${localSid})`);
       return;
     }
 

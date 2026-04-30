@@ -543,7 +543,7 @@ export function initPlayback(): void {
   });
 
   // OPFS file ready: finalize guest download processing
-  bus.on('opfs:file-ready', async (filename, _sessionId, isPreload) => {
+  bus.on('storage:file-ready', async (filename, _sessionId, isPreload) => {
     if (isPreload) {
       // Preload files are handled by preload module via storage:preload-file-ready
       bus.emit('storage:preload-file-ready', filename, _sessionId);
@@ -574,7 +574,7 @@ export function initPlayback(): void {
       const matchesCurrent = !!filename && !!currentName && filename === currentName;
       if (!matchesCurrent) {
         log.debug(
-          `[Playback] opfs:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`,
+          `[Playback] storage:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`,
         );
         return;
       }
@@ -599,7 +599,7 @@ export function initPlayback(): void {
       const stillMatches = !!filename && !!currentNameAfter && filename === currentNameAfter;
       if (!stillMatches) {
         log.debug(
-          `[Playback] opfs:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`,
+          `[Playback] storage:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`,
         );
         return;
       }
@@ -640,7 +640,7 @@ export function initPlayback(): void {
       loadPreloadedTrack(index, newToken);
     } else {
       // Blob not ready yet — set progress-aware watchdog. Will be triggered
-      // by opfs:file-ready → storage:preload-file-ready → use-preloaded re-emit.
+      // by storage:file-ready → storage:preload-file-ready → use-preloaded re-emit.
       log.debug('[Playback] Preload blob not ready yet, waiting for download completion...');
 
       // Approach B: progress-aware watchdog

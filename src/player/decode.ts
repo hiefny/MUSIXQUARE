@@ -666,7 +666,7 @@ export function clearPreviousTrackState(reason = ''): void {
     const nextMeta = getState('preload.meta');
     const isActuallyChanging = currentTrackEntry.name !== nextMeta?.name;
     if (isActuallyChanging) {
-      postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+      postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
       cleanupStoredFile(currentTrackEntry.name, false);
       setState('files.currentTrack', { name: null });
     }

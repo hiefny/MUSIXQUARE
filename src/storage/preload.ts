@@ -667,12 +667,12 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   });
 
   // OPFS: Start preload slot
-  // Note: We deliberately do NOT send OPFS_RESET here. The worker now
-  // manages preload slots by sessionId. Sending OPFS_RESET would abort
+  // Note: We deliberately do NOT send STORAGE_RESET here. The worker now
+  // manages preload slots by sessionId. Sending STORAGE_RESET would abort
   // any still-downloading "stale" preloads (like a late-joiner's Track 2
   // that was superseded by Track 3).
   postWorkerCommand({
-    command: 'OPFS_START',
+    command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: true,
     sessionId: validateSessionId(sid),
@@ -680,7 +680,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   });
 
   // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
-  // Use setTimeout(0) to let the worker process OPFS_START before receiving WRITE commands
+  // Use setTimeout(0) to let the worker process STORAGE_START before receiving WRITE commands
   setManagedTimer(
     'preload-drain-' + sid,
     () => {
@@ -758,7 +758,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     }
 
     postWorkerCommand({
-      command: 'OPFS_WRITE',
+      command: 'STORAGE_WRITE',
       chunk: chunkClone.buffer as ArrayBuffer,
       index: nextChunkPtr,
       isPreload: true,
@@ -828,7 +828,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   if (isComplete && !session.finalized) {
     log.debug(`[Preload] All chunks received (${nextChunkPtr}/${totalExpected}). Finalizing...`);
     postWorkerCommand({
-      command: 'OPFS_END',
+      command: 'STORAGE_END',
       filename: updatedSession.name,
       isPreload: true,
       sessionId: validateSessionId(sessionId),
@@ -905,8 +905,8 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
   const session = sessionState.get(sid);
   if (!session || session.skipped) return;
 
-  // Drain any remaining buffered chunks FIRST — ensures OPFS_WRITE messages
-  // are posted to the worker before OPFS_END (worker processes sequentially).
+  // Drain any remaining buffered chunks FIRST — ensures STORAGE_WRITE messages
+  // are posted to the worker before STORAGE_END (worker processes sequentially).
   drainPreloadReorderBuffer(sid);
 
   // Re-read session after drain (drain may have updated it via immutable setState)
@@ -917,14 +917,14 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
   if (!freshSession.finalized) {
     const allReceived = freshSession.total > 0 && freshSession.progress >= freshSession.total;
     if (allReceived) {
-      // All chunks drained — safe to send OPFS_END
+      // All chunks drained — safe to send STORAGE_END
       const finalizedSession = { ...freshSession, finalized: true };
       const updatedSessionState = new Map(getState('preload.sessionState'));
       updatedSessionState.set(sid, finalizedSession);
       setState('preload.sessionState', updatedSessionState);
 
       postWorkerCommand({
-        command: 'OPFS_END',
+        command: 'STORAGE_END',
         filename: freshSession.name,
         isPreload: true,
         sessionId: validateSessionId(sid),
@@ -932,9 +932,9 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
       });
     } else {
       // Some chunks still missing — let future handlePreloadChunk → drain finalize it.
-      // This prevents premature OPFS_END when network reordering causes late chunk arrival.
+      // This prevents premature STORAGE_END when network reordering causes late chunk arrival.
       log.debug(
-        `[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring OPFS_END`,
+        `[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring STORAGE_END`,
       );
 
       // Bound the deferred state. Preload broadcasts are one-way (no per-chunk
@@ -998,7 +998,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
  * Idempotent on every guard:
  *   - !session         → no work to undo, return.
  *   - session.finalized → natural finalize already cleaned up; skip skip-
- *                         marking + skip OPFS_RESET_SESSION (firing it now
+ *                         marking + skip STORAGE_RESET_SESSION (firing it now
  *                         would race against a possibly-already-released
  *                         worker slot — silent no-op there too, but no
  *                         reason to post in the first place).
@@ -1050,13 +1050,13 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   setState('preload.sessionState', updated);
 
   // Release the worker preload slot for this sid. Critical: do NOT use
-  // OPFS_END here — that path posts OPFS_FILE_READY which would push a
+  // STORAGE_END here — that path posts STORAGE_FILE_READY which would push a
   // partial blob into preload.nextFileBlob via the storage:preload-file-
-  // ready handler. OPFS_RESET_SESSION just releases the lock and removes
+  // ready handler. STORAGE_RESET_SESSION just releases the lock and removes
   // the slot.
   if (session.name) {
     postWorkerCommand({
-      command: 'OPFS_RESET_SESSION',
+      command: 'STORAGE_RESET_SESSION',
       isPreload: true,
       sessionId: validateSessionId(sid),
     });
@@ -1306,7 +1306,7 @@ export function initPreload(): void {
     [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
 
-  // Handle preload file ready from OPFS (bridged from opfs:file-ready via playback.ts)
+  // Handle preload file ready from OPFS (bridged from storage:file-ready via playback.ts)
   bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
     try {
       log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
@@ -1445,7 +1445,7 @@ export function initPreload(): void {
   bus.on('storage:preload-ready', (index: number) => {
     log.debug(`[Preload] Preload ready for index: ${index}`);
     // This signals the preload chain is complete.
-    // The actual file finalization is handled by opfs:file-ready → storage:preload-file-ready
+    // The actual file finalization is handled by storage:file-ready → storage:preload-file-ready
   });
 
   // Clean up module-local variables when the session is left

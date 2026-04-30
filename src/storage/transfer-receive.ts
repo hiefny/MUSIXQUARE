@@ -686,7 +686,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   const isNewSession = incomingSid > localSid;
   if (isNewSession) {
     setState('transfer.localSessionId', incomingSid);
-    postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+    postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'new-session-start');
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
@@ -696,7 +696,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   // (since chunks are also skipped when shouldSkipIncomingFile() is true).
   // Exception: if this FILE_START is a recovery re-send (same file, same
   // session), the host explicitly wants us to receive data — fall through
-  // and let the OPFS_START + transfer.state=RECEIVING below break the
+  // and let the STORAGE_START + transfer.state=RECEIVING below break the
   // skip condition for subsequent chunks.
   if (shouldSkipIncomingFile(data.name as string | undefined)) {
     const meta = getState('transfer.meta');
@@ -738,7 +738,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   }
 
   postWorkerCommand({
-    command: 'OPFS_START',
+    command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
@@ -807,7 +807,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   clearManagedTimer('prepareWatchdog');
   postWorkerCommand({
-    command: 'OPFS_START',
+    command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
@@ -915,18 +915,18 @@ function applyFileChunk(data: Record<string, unknown>): void {
   // Reset worker on new session detection
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
-    postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+    postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'session-change');
     fileReorderBuffer.clear();
     _pendingEarlyChunks.length = 0;
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
 
-    // Send OPFS_START so worker accepts subsequent writes (prevents 12-60s recovery delay)
+    // Send STORAGE_START so worker accepts subsequent writes (prevents 12-60s recovery delay)
     const chunkName = (data.name as string) || '';
     if (chunkName) {
       postWorkerCommand({
-        command: 'OPFS_START',
+        command: 'STORAGE_START',
         filename: chunkName,
         isPreload: false,
         sessionId: validateSessionId(incomingSid),
@@ -1057,7 +1057,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       if (fname) {
         setState('files.currentTrack', { name: fname });
         postWorkerCommand({
-          command: 'OPFS_START',
+          command: 'STORAGE_START',
           filename: fname,
           isPreload: false,
           sessionId: validateSessionId(incomingSid),
@@ -1105,7 +1105,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     }
 
     postWorkerCommand({
-      command: 'OPFS_WRITE',
+      command: 'STORAGE_WRITE',
       chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
       index: nextExpectedChunk,
       isPreload: false,
@@ -1182,7 +1182,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
     // Finalize in OPFS
     postWorkerCommand({
-      command: 'OPFS_END',
+      command: 'STORAGE_END',
       filename: (currentMeta?.name as string) || '',
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
@@ -1376,6 +1376,6 @@ export function cancelIncomingFileTransfer(reason: string): void {
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', {});
 
-  postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
+  postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
   showLoader(false);
 }

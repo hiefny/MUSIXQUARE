@@ -4,7 +4,7 @@
  * Same external API as the OPFS worker wrapper on `main` (postWorkerCommand,
  * readStoredFile, cleanupStoredFile, sweepLegacyDiskFiles, …) so consumers
  * don't have to know which branch they're running on. Internally, every
- * `OPFS_*` command is dispatched to the in-memory ramstore instead of a
+ * `STORAGE_*` command is dispatched to the in-memory ramstore instead of a
  * Web Worker — there is no transfer.worker.ts on this branch, no
  * `navigator.storage.getDirectory()` writes, no disk persistence.
  *
@@ -84,34 +84,34 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
 
   // Same validation contract as the worker branch — keeps callers
   // consistent across main / mxqr_beta. Critical write-path commands
-  // require sessionId; OPFS_RESET / RESET_SESSION / CLEANUP are exempt
+  // require sessionId; STORAGE_RESET / RESET_SESSION / CLEANUP are exempt
   // from the filename gate.
   if (
-    cmd.startsWith('OPFS_') &&
-    cmd !== 'OPFS_RESET' &&
-    cmd !== 'OPFS_RESET_SESSION' &&
-    cmd !== 'OPFS_CLEANUP'
+    cmd.startsWith('STORAGE_') &&
+    cmd !== 'STORAGE_RESET' &&
+    cmd !== 'STORAGE_RESET_SESSION' &&
+    cmd !== 'STORAGE_CLEANUP'
   ) {
     if (!payload.filename) log.warn(`[Worker] Missing filename in ${cmd}`);
 
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
 
-    const isCriticalOp = cmd === 'OPFS_START' || cmd === 'OPFS_WRITE' || cmd === 'OPFS_END';
+    const isCriticalOp = cmd === 'STORAGE_START' || cmd === 'STORAGE_WRITE' || cmd === 'STORAGE_END';
     if (isCriticalOp && !payload.sessionId) {
       log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
       return;
     }
   }
 
-  if (cmd === 'OPFS_RESET_SESSION') {
+  if (cmd === 'STORAGE_RESET_SESSION') {
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
     if (!payload.sessionId) {
-      log.warn(`[Worker] Dropped OPFS_RESET_SESSION: invalid sessionId`);
+      log.warn(`[Worker] Dropped STORAGE_RESET_SESSION: invalid sessionId`);
       return;
     }
   }
 
-  if (cmd.startsWith('OPFS_')) {
+  if (cmd.startsWith('STORAGE_')) {
     routeOpfsCommandToRam(payload);
     return;
   }
@@ -125,7 +125,7 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
 
 // ─── In-Process OPFS Bridge ─────────────────────────────────────────
 //
-// Runs OPFS_* commands against the ramstore and synthesizes the same
+// Runs STORAGE_* commands against the ramstore and synthesizes the same
 // response messages the worker would have posted, so the existing
 // `handleTransferWorkerMessage` switch (and downstream bus events)
 // stay unchanged. We `queueMicrotask` the dispatch to preserve the
@@ -150,15 +150,15 @@ function runOpfsCommand(payload: WorkerCommand): void {
   const sessionId = (payload.sessionId as number) || 0;
 
   switch (cmd) {
-    case 'OPFS_START': {
+    case 'STORAGE_START': {
       const chunkSize = (payload.size as number) || 16384;
       const keepExisting = !!payload.keepExisting;
       const result = ramStart(filename, isPreload, sessionId, chunkSize, keepExisting);
       if (result.ok) {
-        dispatchWorkerResponse({ type: 'OPFS_STARTED', filename, isPreload, sessionId });
+        dispatchWorkerResponse({ type: 'STORAGE_STARTED', filename, isPreload, sessionId });
       } else {
         dispatchWorkerResponse({
-          type: 'OPFS_ERROR',
+          type: 'STORAGE_ERROR',
           error: result.reason || 'start failed',
           filename,
           isPreload,
@@ -168,7 +168,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
       return;
     }
 
-    case 'OPFS_WRITE': {
+    case 'STORAGE_WRITE': {
       const rawChunk = payload.chunk as unknown;
       const chunk =
         rawChunk instanceof Uint8Array
@@ -184,7 +184,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
               : null;
       if (!chunk) {
         dispatchWorkerResponse({
-          type: 'OPFS_WRITE_ERROR',
+          type: 'STORAGE_WRITE_ERROR',
           error: 'Invalid chunk',
           filename,
           index: payload.index as number | undefined,
@@ -197,14 +197,14 @@ function runOpfsCommand(payload: WorkerCommand): void {
       if (!result.ok && result.reason === 'Session mismatch') {
         dispatchWorkerResponse({
           type: 'SESSION_MISMATCH',
-          command: 'OPFS_WRITE',
+          command: 'STORAGE_WRITE',
           expected: result.expectedSid ?? null,
           received: sessionId,
           filename,
           isPreload,
         });
         dispatchWorkerResponse({
-          type: 'OPFS_WRITE_ERROR',
+          type: 'STORAGE_WRITE_ERROR',
           error: 'Session mismatch',
           filename,
           index,
@@ -217,14 +217,14 @@ function runOpfsCommand(payload: WorkerCommand): void {
       return;
     }
 
-    case 'OPFS_END': {
+    case 'STORAGE_END': {
       const totalSize = payload.totalSize as number | undefined;
       const result = ramEnd(filename, isPreload, sessionId, totalSize);
       if (result.blob) {
-        dispatchWorkerResponse({ type: 'OPFS_FILE_READY', filename, isPreload, sessionId });
+        dispatchWorkerResponse({ type: 'STORAGE_FILE_READY', filename, isPreload, sessionId });
       } else if (result.reason && result.reason.startsWith('Integrity Fail')) {
         dispatchWorkerResponse({
-          type: 'OPFS_ERROR',
+          type: 'STORAGE_ERROR',
           error: result.reason,
           filename,
           isPreload,
@@ -233,7 +233,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
       } else if (result.reason === 'Session mismatch') {
         dispatchWorkerResponse({
           type: 'SESSION_MISMATCH',
-          command: 'OPFS_END',
+          command: 'STORAGE_END',
           expected: result.expectedSid ?? null,
           received: sessionId,
           filename,
@@ -243,13 +243,13 @@ function runOpfsCommand(payload: WorkerCommand): void {
       return;
     }
 
-    case 'OPFS_RESET': {
+    case 'STORAGE_RESET': {
       ramReset(isPreload);
-      dispatchWorkerResponse({ type: 'OPFS_RESET_COMPLETE', isPreload });
+      dispatchWorkerResponse({ type: 'STORAGE_RESET_COMPLETE', isPreload });
       return;
     }
 
-    case 'OPFS_RESET_SESSION': {
+    case 'STORAGE_RESET_SESSION': {
       // RAM-only contract: per-sid cleanup is preload-only (mirrors the
       // worker behaviour where this command targets `preloadSlots`).
       ramResetSession(sessionId, true);
@@ -257,10 +257,10 @@ function runOpfsCommand(payload: WorkerCommand): void {
       return;
     }
 
-    case 'OPFS_CLEANUP': {
+    case 'STORAGE_CLEANUP': {
       const result = ramCleanup(filename, isPreload);
       dispatchWorkerResponse({
-        type: 'OPFS_CLEANUP_COMPLETE',
+        type: 'STORAGE_CLEANUP_COMPLETE',
         filename,
         isPreload,
         skipped: result.skipped,
@@ -268,7 +268,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
       return;
     }
 
-    case 'OPFS_READ': {
+    case 'STORAGE_READ': {
       const index = payload.index as number;
       const requestId = payload.requestId;
       // ramReadChunk is async (slices a Blob → ArrayBuffer). Don't block
@@ -277,7 +277,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
         .then((chunk) => {
           if (chunk) {
             dispatchWorkerResponse({
-              type: 'OPFS_READ_COMPLETE',
+              type: 'STORAGE_READ_COMPLETE',
               chunk,
               index,
               filename,
@@ -286,7 +286,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
             });
           } else {
             dispatchWorkerResponse({
-              type: 'OPFS_READ_ERROR',
+              type: 'STORAGE_READ_ERROR',
               error: 'Slot not found',
               filename,
               index,
@@ -296,7 +296,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
         })
         .catch((e) => {
           dispatchWorkerResponse({
-            type: 'OPFS_READ_ERROR',
+            type: 'STORAGE_READ_ERROR',
             error: (e as Error)?.message ?? String(e),
             filename,
             index,
@@ -347,7 +347,7 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
     10_000,
   );
 
-  const unsub = bus.on('opfs:cleanup-complete', (cleanedFile: unknown) => {
+  const unsub = bus.on('storage:cleanup-complete', (cleanedFile: unknown) => {
     if (cleanedFile === filename) {
       clearManagedTimer(watchdogName);
       unsub();
@@ -355,7 +355,7 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
   });
 
   postWorkerCommand({
-    command: 'OPFS_CLEANUP',
+    command: 'STORAGE_CLEANUP',
     filename,
     isPreload,
     instanceId: INSTANCE_ID,
@@ -488,44 +488,44 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
   // transfer for the rest of the session.
   try {
     switch (data.type) {
-      case 'OPFS_STARTED':
+      case 'STORAGE_STARTED':
         log.debug(`[OPFS] Session started: ${data.filename} (SID: ${data.sessionId})`);
         break;
 
-      case 'OPFS_FILE_READY':
+      case 'STORAGE_FILE_READY':
         log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
         bus.emit(
-          'opfs:file-ready',
+          'storage:file-ready',
           data.filename || '',
           data.sessionId || 0,
           data.isPreload || false,
         );
         break;
 
-      case 'OPFS_READ_COMPLETE':
-        bus.emit('opfs:read-complete', data);
+      case 'STORAGE_READ_COMPLETE':
+        bus.emit('storage:read-complete', data);
         break;
 
-      case 'OPFS_WRITE_ERROR':
+      case 'STORAGE_WRITE_ERROR':
         log.warn(`[OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
         // Notify transfer module so it can trigger recovery instead of silently
         // continuing with a corrupted file (missing chunk data).
-        bus.emit('opfs:write-error', {
+        bus.emit('storage:write-error', {
           filename: data.filename || '',
           chunkIndex: data.index,
           isPreload: data.isPreload || false,
         });
         break;
 
-      case 'OPFS_READ_ERROR':
+      case 'STORAGE_READ_ERROR':
         log.error(`[OPFS] Read error for ${data.filename}:`, data.error);
-        bus.emit('opfs:read-error', data);
+        bus.emit('storage:read-error', data);
         break;
 
-      case 'OPFS_ERROR': {
+      case 'STORAGE_ERROR': {
         const isPreload = !!data.isPreload;
         log.error(`[OPFS] Worker error: ${data.error} (${data.filename}, code: ${data.code})`);
-        bus.emit('opfs:error', data.error || '', data.filename || '');
+        bus.emit('storage:error', data.error || '', data.filename || '');
 
         if (!isPreload) {
           if (data.code === 'INTEGRITY_FAIL') {
@@ -557,10 +557,10 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         );
         // Preload mismatches are non-fatal
         if (!isPreload) {
-          bus.emit('opfs:session-mismatch', data);
+          bus.emit('storage:session-mismatch', data);
 
-          // Safety net: if OPFS_END was dropped while state is PROCESSING,
-          // the transfer is stuck forever (no watchdog, no OPFS_FILE_READY).
+          // Safety net: if STORAGE_END was dropped while state is PROCESSING,
+          // the transfer is stuck forever (no watchdog, no STORAGE_FILE_READY).
           // Reset state so the UI doesn't stay on "수신 중... 100%".
           //
           // Use IDLE (not READY) for symmetry with the START_FAILED/LOCKED
@@ -568,10 +568,10 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           // on disk is unfinalized and NOT actually playable. Marking READY
           // would lie about playability; any caller that keys off transfer
           // state would think the file is ready when it isn't.
-          if (data.command === 'OPFS_END') {
+          if (data.command === 'STORAGE_END') {
             const transferState = getState('transfer.state');
             if (transferState === TRANSFER_STATE.PROCESSING) {
-              log.warn('[OPFS] OPFS_END dropped — resetting stuck PROCESSING state');
+              log.warn('[OPFS] STORAGE_END dropped — resetting stuck PROCESSING state');
               setState('transfer.state', TRANSFER_STATE.IDLE);
               showLoader(false);
             }
@@ -584,22 +584,22 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         log.error(`[OPFS] Worker error: ${data.error} (command: ${data.command})`);
         break;
 
-      case 'OPFS_RESET_COMPLETE':
+      case 'STORAGE_RESET_COMPLETE':
         log.debug('[OPFS] Reset complete');
         break;
 
-      case 'OPFS_CLEANUP_COMPLETE':
+      case 'STORAGE_CLEANUP_COMPLETE':
         if (data.skipped) {
           // The worker held a lock on this filename and bailed without removing
           // it. The file stays on disk; without a follow-up the entry orphans.
           // The fire-and-forget caller already moved on, so the best we can do
-          // here is log loudly. Real recovery happens when the next OPFS_RESET
+          // here is log loudly. Real recovery happens when the next STORAGE_RESET
           // for this file releases the lock and a subsequent cleanup succeeds.
           log.warn(`[OPFS] Cleanup skipped (file still locked): ${data.filename}`);
         } else {
           log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
         }
-        bus.emit('opfs:cleanup-complete', data.filename || '');
+        bus.emit('storage:cleanup-complete', data.filename || '');
         break;
 
       default:

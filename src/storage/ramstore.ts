@@ -3,7 +3,7 @@
  *
  * Drop-in replacement for the OPFS worker on the slot-pool main branch.
  * Keeps the same logical contract — sessions accumulate chunks until
- * OPFS_END, after which a Blob is available for read — but never
+ * STORAGE_END, after which a Blob is available for read — but never
  * touches `navigator.storage` and never spawns a worker.
  *
  * Why this exists
@@ -40,11 +40,11 @@ interface RamSlot {
   sessionId: number;
   /** Chunks indexed by chunk index. Out-of-order arrival is normal here. */
   chunks: Map<number, Uint8Array>;
-  /** Set on the first OPFS_START, used to compute byte offsets for reads. */
+  /** Set on the first STORAGE_START, used to compute byte offsets for reads. */
   chunkSize: number;
-  /** Set on OPFS_END; null while writing. */
+  /** Set on STORAGE_END; null while writing. */
   totalSize: number | null;
-  /** True after OPFS_END has produced a finalizedBlob. */
+  /** True after STORAGE_END has produced a finalizedBlob. */
   finalized: boolean;
   /**
    * Concatenated final blob. Created lazily by ramEnd; reused on read.
@@ -208,7 +208,7 @@ export function ramEnd(
 // ─── Read Path ──────────────────────────────────────────────────
 
 /**
- * Read a chunk from the slot. Mirrors the worker's OPFS_READ contract:
+ * Read a chunk from the slot. Mirrors the worker's STORAGE_READ contract:
  * caller passes chunk index, we slice from the finalized blob (or live
  * chunks if not yet finalized).
  */

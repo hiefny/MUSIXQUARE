@@ -396,7 +396,7 @@ function bootstrap(): void {
     log.warn('[App] SyncWorker failed:', e);
   }
 
-  // RAM-only branch (mxqr_beta): the transfer worker is gone. OPFS_*
+  // RAM-only branch (mxqr_beta): the transfer worker is gone. STORAGE_*
   // commands are dispatched in-process by storage/opfs.ts → ramstore.ts.
   // Transfer / Preload / Recovery init unconditionally — there's no
   // worker readiness gate to fail.

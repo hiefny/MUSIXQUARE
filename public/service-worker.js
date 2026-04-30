@@ -36,7 +36,8 @@
 // v92: Filled tab bar + SEO + wake lock rollback
 // v93: EQ preset grid + host-ctrl badge + toast fixes + spacing cleanup
 // v110: OPFS rotation in loadPreloadedTrack + /debug memory file enumeration
-const CACHE_VERSION = "v110";
+// v111: bump-only — trigger the SW update dialog on existing clients to repro the "refresh button not clickable" report
+const CACHE_VERSION = "v111";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

@@ -441,12 +441,37 @@
       <div class="body">Design reference + a transparent list of every technical limit we know about. You're reading the third one.</div>
     </li>
   </ul>
+<!-- ── 07 MAY ─────────────────────── -->
+<section class="section">
+  <div class="section-head"><h2>May · Simpler, faster, cleaner</h2><span class="num">08</span></div>
+  <ul class="log">
+    <li>
+      <div class="lead">RAM-only architecture (OPFS discarded)</div>
+      <div class="body">Removed the complexity of the File System Access API (OPFS) in favor of a <strong>RAM-only slot pool</strong>. Faster preloads, zero disk-leak bugs, and a significantly simpler storage lifecycle.</div>
+    </li>
+    <li>
+      <div class="lead">Experimental Video Mode removed</div>
+      <div class="body">Discarded local video file support to double down on <strong>audio engine performance</strong> and YouTube synchronization. Smaller bundle, cleaner UI, less friction.</div>
+    </li>
+    <li>
+      <div class="lead">Chat UX: Auto-scroll button</div>
+      <div class="body">A dedicated "scroll to bottom" button appears when you're looking at older messages. Smoothly return to the latest conversation with one tap.</div>
+    </li>
+    <li>
+      <div class="lead">Playlist UX: Active track follow</div>
+      <div class="body">The playlist view now <strong>automatically scrolls</strong> to keep the currently playing track in focus. No more manual hunting for track 78.</div>
+    </li>
+    <li>
+      <div class="lead">Guest interaction restrictions</div>
+      <div class="body">Clear toast notifications ("Only the host can control this") when guests attempt to modify the playlist, preventing accidental session disruption.</div>
+    </li>
+  </ul>
 </section>
 
 </div>
 
 <footer>
-  <span>MUSIXQUARE Changelog · v1.0</span>
+  <span>MUSIXQUARE Changelog · v1.1</span>
   <span>
     <a href="../roadmap/">Roadmap</a> &nbsp;·&nbsp;
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;

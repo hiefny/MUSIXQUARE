@@ -221,9 +221,33 @@
   </div>
 
   <div class="items">
+  
+    <div class="item">
+      <div class="num">00</div>
+      <div class="body">
+        <div class="prob">PeerJS signaling latency — public servers are a bottleneck for reliability</div>
+        <div class="fix"><strong>Build a dedicated signaling server</strong> to replace PeerJS. Guarantees 99.9% uptime and faster connection handshakes.</div>
+      </div>
+      <div class="tradeoff">
+        <span class="lbl">Trade-off</span>
+        <span class="val">Server maintenance — moving from a free service to self-hosted infra</span>
+      </div>
+    </div>
 
     <div class="item">
       <div class="num">01</div>
+      <div class="body">
+        <div class="prob">AI-generated demo tracks — lack professional production quality and "soul"</div>
+        <div class="fix"><strong>Contract real music producers</strong> to purchase or license official high-quality demo tracks.</div>
+      </div>
+      <div class="tradeoff">
+        <span class="lbl">Trade-off</span>
+        <span class="val">Budget requirement — Shift from free assets to professional licensing</span>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="num">02</div>
       <div class="body">
         <div class="prob">System-audio sharing unavailable on mobile — <code>getDisplayMedia({audio})</code> not implemented by iOS / Android</div>
         <div class="fix"><strong>Ship a native mobile app</strong> and route system audio through screen share.</div>
@@ -235,7 +259,7 @@
     </div>
 
     <div class="item">
-      <div class="num">02</div>
+      <div class="num">03</div>
       <div class="body">
         <div class="prob">Local-file and system-audio modes only work on the same network</div>
         <div class="fix"><strong>Run (or rent) a TURN relay</strong> so WebRTC can reach across networks — unlocks remote listening parties.</div>
@@ -260,7 +284,7 @@
   <div class="items">
 
     <div class="item">
-      <div class="num">03</div>
+      <div class="num">04</div>
       <div class="body">
         <div class="prob">Many connected devices becomes flaky — P2P mesh scales O(n²)</div>
         <div class="fix"><strong>Introduce an SFU (media relay).</strong> Shares infrastructure with the TURN rollout above, so this is the cheapest time to ship it.</div>
@@ -272,7 +296,7 @@
     </div>
 
     <div class="item">
-      <div class="num">04</div>
+      <div class="num">05</div>
       <div class="body">
         <div class="prob">No UI for 7.1-channel routing — the engine already supports it</div>
         <div class="fix"><strong>Re-expose the UI once there's real demand.</strong> Gated on user requests; code is ready.</div>
@@ -297,7 +321,7 @@
   <div class="items">
 
     <div class="item blocked">
-      <div class="num">05</div>
+      <div class="num">06</div>
       <div class="body">
         <div class="prob">YouTube can't be split into channels — IFrame API doesn't expose raw audio</div>
         <div class="fix">No path forward — it's a DRM / CORS wall on Google's side.</div>
@@ -309,7 +333,7 @@
     </div>
 
     <div class="item blocked">
-      <div class="num">06</div>
+      <div class="num">07</div>
       <div class="body">
         <div class="prob">Spotify / Apple Music / Tidal and other DRM streaming services can't be used</div>
         <div class="fix">Would require per-platform licensing — not viable for a free solo project.</div>
@@ -339,7 +363,7 @@
 </div>
 
 <footer>
-  <span>MUSIXQUARE Roadmap · v1.0</span>
+  <span>MUSIXQUARE Roadmap · v1.1</span>
   <span>
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;
     <a href="../changelog/">Changelog</a> &nbsp;·&nbsp;

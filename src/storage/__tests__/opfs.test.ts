@@ -12,53 +12,14 @@ vi.mock('../../core/session.ts', async (importOriginal) => {
 });
 
 import {
-  buildSafeOpfsName,
   ensureNamedFile,
   postWorkerCommand,
-  setTransferWorker,
   setSyncWorker,
   stopBackgroundWorkerTimers,
 } from '../opfs.ts';
 
 beforeEach(() => {
   resetState();
-});
-
-describe('buildSafeOpfsName', () => {
-  it('sanitizes filename with special characters', () => {
-    const result = buildSafeOpfsName('my file (1).mp3');
-    expect(result).toBe('current_my_file__1_.mp3_test-instance-id');
-  });
-
-  it('adds current_ prefix by default', () => {
-    const result = buildSafeOpfsName('track.mp3');
-    expect(result).toMatch(/^current_/);
-  });
-
-  it('adds preload_ prefix when isPreload is true', () => {
-    const result = buildSafeOpfsName('track.mp3', true);
-    expect(result).toMatch(/^preload_/);
-  });
-
-  it('appends instance ID', () => {
-    const result = buildSafeOpfsName('track.mp3');
-    expect(result).toContain('test-instance-id');
-  });
-
-  it('handles empty filename', () => {
-    const result = buildSafeOpfsName('');
-    expect(result).toBe('current__test-instance-id');
-  });
-
-  it('preserves alphanumeric, dots, hyphens, underscores', () => {
-    const result = buildSafeOpfsName('my-file_v2.0.mp3');
-    expect(result).toBe('current_my-file_v2.0.mp3_test-instance-id');
-  });
-
-  it('replaces unicode characters', () => {
-    const result = buildSafeOpfsName('한글파일.mp3');
-    expect(result).toBe('current_____.mp3_test-instance-id');
-  });
 });
 
 describe('ensureNamedFile', () => {
@@ -117,26 +78,6 @@ describe('postWorkerCommand', () => {
 
   it('returns early for payload without command', () => {
     postWorkerCommand({} as never);
-  });
-
-  it('routes OPFS commands to ramstore (no transfer worker)', async () => {
-    // RAM-only branch: OPFS_* commands no longer hit the transfer worker.
-    // Even if a mock worker is set via setTransferWorker, postMessage on it
-    // should NOT be called for OPFS commands. They're dispatched through
-    // the in-process ramstore via queueMicrotask instead.
-    const mockPostMessage = vi.fn();
-    const mockWorker = {
-      postMessage: mockPostMessage,
-      onmessage: null,
-      onerror: null,
-      addEventListener: vi.fn(),
-    } as unknown as Worker;
-
-    setTransferWorker(mockWorker);
-    postWorkerCommand({ command: 'OPFS_RESET', isPreload: false });
-    // Allow the microtask scheduled by routeOpfsCommandToRam to run.
-    await Promise.resolve();
-    expect(mockPostMessage).not.toHaveBeenCalled();
   });
 
   it('sends timer commands to sync worker', () => {

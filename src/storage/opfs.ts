@@ -28,10 +28,6 @@
  * Foreground footprint typically lands at 100–150 MB — well inside the
  * iOS PWA budget. Long podcasts crash on AudioBuffer decode regardless
  * of storage strategy; that's a hard ceiling neither path can soften.
- *
- * The `setTransferWorker` export is retained for tests that mock the
- * worker shape, but the assigned reference is never actually used to
- * dispatch OPFS commands here.
  */
 
 import { log } from '../core/log.ts';
@@ -54,7 +50,8 @@ import {
 } from './ramstore.ts';
 
 // ─── Worker References ──────────────────────────────────────────────
-let _transferWorker: Worker | null = null;
+// Only the sync worker is real on RAM-only — it carries the video-sync
+// timer. Storage commands stay in-process (see routeOpfsCommandToRam below).
 let _syncWorker: Worker | null = null;
 
 // ─── Worker Timer IDs ───────────────────────────────────────────────
@@ -65,18 +62,12 @@ const WORKER_TIMER_IDS = ['video-sync'];
 
 // ─── Worker Initialization ──────────────────────────────────────────
 
-export function setTransferWorker(worker: Worker): void {
-  _transferWorker = worker;
-  _transferWorker.onmessage = handleTransferWorkerMessage;
-  // onerror is assigned in app.ts after this call; assigning here would be
-  // silently overwritten (property assignment, not addEventListener). Keep
-  // the single-owner convention in app.ts.
-}
-
 export function setSyncWorker(worker: Worker): void {
   _syncWorker = worker;
   _syncWorker.onmessage = handleSyncWorkerMessage;
-  // See note in setTransferWorker — onerror is owned by app.ts.
+  // onerror is assigned in app.ts after this call; assigning here would be
+  // silently overwritten (property assignment, not addEventListener). Keep
+  // the single-owner convention in app.ts.
 }
 
 // ─── Command Dispatch ───────────────────────────────────────────────
@@ -334,35 +325,30 @@ function dispatchWorkerResponse(response: WorkerResponse): void {
 // ─── OPFS Helpers ───────────────────────────────────────────────────
 
 /**
- * Build the OPFS entry name used by transfer.worker.js.
- */
-export function buildSafeOpfsName(filename: string, isPreload = false): string {
-  const sanitized = String(filename || '').replace(/[^a-z0-9._-]/gi, '_');
-  return (isPreload ? 'preload_' : 'current_') + sanitized + '_' + INSTANCE_ID;
-}
-
-/**
- * Cleanup OPFS file in worker.
- * Fire-and-forget with a 10s watchdog — if the worker doesn't confirm
- * cleanup in time, we log a warning and move on (non-blocking).
+ * Cleanup a stored file by logical filename. Fire-and-forget with a 10 s
+ * watchdog — if the cleanup ack doesn't come back in time we log and
+ * release the listener so the bus subscription doesn't leak.
+ *
+ * The watchdog's managed-timer key is prefixed by `p`/`c` (preload vs
+ * current pool) and the filename so two simultaneous cleanups for the
+ * same logical name on different pools don't share a timer slot.
  */
 export function cleanupStoredFile(filename: string, isPreload: boolean): void {
   if (!filename) return;
 
-  const expectedOpfsName = buildSafeOpfsName(filename, isPreload);
-  const watchdogName = `opfs-cleanup-watchdog-${expectedOpfsName}`;
+  const watchdogName = `cleanup-watchdog-${isPreload ? 'p' : 'c'}-${filename}`;
 
   setManagedTimer(
     watchdogName,
     () => {
-      log.warn(`[OPFS] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
+      log.warn(`[Storage] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
       unsub();
     },
     10_000,
   );
 
   const unsub = bus.on('opfs:cleanup-complete', (cleanedFile: unknown) => {
-    if (cleanedFile === filename || cleanedFile === expectedOpfsName) {
+    if (cleanedFile === filename) {
       clearManagedTimer(watchdogName);
       unsub();
     }

@@ -41,10 +41,39 @@ export function getCurrentAudioBuffer(): AudioBuffer | null {
   return _currentAudioBuffer;
 }
 
+// WeakRef tracking of every AudioBuffer ever surfaced through this setter.
+// Lets `/debug memory` distinguish "iOS hasn't GC'd yet" (live count > 1)
+// from "we're holding a hard reference somewhere" (count grows unbounded).
+// Each entry is a WeakRef so adding to the list never *prevents* GC.
+//
+// `_decodedBufferTotal` is the cumulative count for the session — diff
+// against `liveAudioBufferCount()` to see how many decoded buffers iOS
+// has released.
+const _audioBufferRefs: Array<WeakRef<AudioBuffer>> = [];
+let _decodedBufferTotal = 0;
+
+export function liveAudioBufferCount(): { live: number; everSeen: number } {
+  // Compact dead refs in-place so the list doesn't grow unbounded across a
+  // long session. Iterate from the end so splice doesn't shift our index.
+  let live = 0;
+  for (let i = _audioBufferRefs.length - 1; i >= 0; i--) {
+    if (_audioBufferRefs[i].deref()) {
+      live++;
+    } else {
+      _audioBufferRefs.splice(i, 1);
+    }
+  }
+  return { live, everSeen: _decodedBufferTotal };
+}
+
 export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
   const prev = _currentAudioBuffer;
   _currentAudioBuffer = buf;
   if (buf && buf !== prev) {
+    if (typeof WeakRef !== 'undefined') {
+      _audioBufferRefs.push(new WeakRef(buf));
+    }
+    _decodedBufferTotal++;
     bus.emit('player:buffer-changed');
   }
 }

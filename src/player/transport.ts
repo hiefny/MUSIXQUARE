@@ -144,18 +144,57 @@ export function updatePlayState(playing: boolean): void {
 
 // ─── Stop Player Node ──────────────────────────────────────────────
 
+/**
+ * Stop and release the active source node.
+ *
+ * iOS WebKit retention quirk
+ * ──────────────────────────
+ * `setPlayerNode(null)` drops the JS reference to the AudioBufferSourceNode,
+ * but the node still holds `.buffer` referencing its AudioBuffer (Web Audio
+ * spec makes `buffer` set-once, so we can't reassign). On iOS during active
+ * playback the audio rendering thread is lazy about reclaiming retired
+ * nodes, so the old node + its ~80 MB AudioBuffer linger until JSC GC. Five
+ * track switches in a row stack ~400 MB of invisible RAM that never shows
+ * up in `[Audio]` (we only count the *current* buffer) — which is the
+ * shape of the iOS-only crash beta-tester confirmed.
+ *
+ * Mitigations applied here, all best-effort:
+ *
+ *   - `disconnect()` before `stop()` — order helps iOS realise the node
+ *     is leaving the graph synchronously, before the rendering thread
+ *     queues another frame.
+ *   - Try to assign `buffer = null` and an empty `onended`. Safari has
+ *     historically accepted post-start `buffer` writes despite spec
+ *     saying it should throw `InvalidStateError`; if it accepts, the
+ *     node→buffer back-reference dies immediately. Chrome / spec-strict
+ *     engines throw and we ignore.
+ *   - Clear `onended` so any closure captured there (and whatever it
+ *     transitively holds) is eligible for collection straight away.
+ */
 export function stopPlayerNode(): void {
-  const _playerNode = getPlayerNode();
-  if (_playerNode) {
-    try {
-      _playerNode.stop();
-      _playerNode.disconnect();
-    } catch (e) {
-      log.warn('Error stopping playerNode:', e);
-    } finally {
-      setPlayerNode(null);
-    }
+  const node = getPlayerNode();
+  if (!node) return;
+  try {
+    node.disconnect();
+  } catch (e) {
+    log.debug('disconnect node:', e);
   }
+  try {
+    node.stop();
+  } catch (e) {
+    log.debug('stop node:', e);
+  }
+  try {
+    node.onended = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    (node as unknown as { buffer: AudioBuffer | null }).buffer = null;
+  } catch {
+    /* InvalidStateError on spec-strict engines — ignore */
+  }
+  setPlayerNode(null);
 }
 
 // ─── Stop All Media ────────────────────────────────────────────────

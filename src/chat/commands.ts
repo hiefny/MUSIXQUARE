@@ -23,7 +23,7 @@ import { getDetectedBPM, setPartyMode } from '../audio/beat-detector.ts';
 import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
-import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { sweepAppOpfsFiles } from '../storage/opfs.ts';
@@ -829,6 +829,17 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     } else {
       lines.push('[Audio] buffer:none');
     }
+    // WeakRef-based count of every AudioBuffer ever decoded vs how many
+    // are still alive in the JS heap. `live` should hover at 1 (the
+    // current buffer); a value that climbs across track switches means
+    // iOS hasn't reclaimed retired AudioBufferSourceNodes / their buffers
+    // yet — the smoking gun for the "track-switch leak" pattern. `everSeen`
+    // is the cumulative decode count for the session and should match the
+    // number of distinct tracks loaded.
+    const bufStats = liveAudioBufferCount();
+    lines.push(
+      `        live AudioBuffers:${bufStats.live} (everSeen:${bufStats.everSeen})`,
+    );
   } catch {
     /* ignore */
   }

@@ -25,6 +25,7 @@ import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -618,8 +619,41 @@ function cmdDebug(args: string[]): void {
 //   - Preload (reorder buffer + sessionState + ackSent)
 //   - Network (peer connections + relay)
 //   - Lifecycle (state machine + recovery target)
+interface MemSnapshot {
+  lines: string[];
+  /** usedJSHeapSize in MB (Chromium only — null on Safari/iOS). */
+  heapMB: number | null;
+  /** navigator.storage.estimate().usage in MB. 0 if unsupported. */
+  storageMB: number;
+}
+
 async function cmdDebugMemory(): Promise<void> {
+  // Build the first sample synchronously so the overlay opens with data,
+  // then hand off to the live session for continuous updates + graphs.
+  const snapshot = await collectMemorySnapshot();
+
+  // Replaces any in-flight session — single-overlay invariant preserved.
+  startDebugMemorySession(snapshot);
+
+  // Original /debug memory toast + clipboard copy is one-shot — repeated
+  // ticks would spam, and the user can re-run the command if they want a
+  // fresh clipboard payload.
+  try {
+    navigator.clipboard
+      .writeText(snapshot.lines.join('\n'))
+      .then(() => showToast(t('chat.debug_copied')))
+      .catch(() => {
+        /* clipboard not available */
+      });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function collectMemorySnapshot(): Promise<MemSnapshot> {
   const lines: string[] = ['MEMORY SNAPSHOT'];
+  let heapMB: number | null = null;
+  let storageMB = 0;
 
   // Track sum-of-known allocations as a Chromium-independent lower bound.
   // Safari/iOS WebKit doesn't expose performance.memory, so this is the
@@ -638,6 +672,7 @@ async function cmdDebugMemory(): Promise<void> {
       const total = mem.totalJSHeapSize / 1048576;
       const limit = mem.jsHeapSizeLimit / 1048576;
       const pct = ((used / limit) * 100).toFixed(1);
+      heapMB = used;
       lines.push(
         `[Heap] ${used.toFixed(1)}MB used / ${total.toFixed(0)}MB total / ${limit.toFixed(0)}MB limit (${pct}%)`,
       );
@@ -657,6 +692,7 @@ async function cmdDebugMemory(): Promise<void> {
       const used = (est.usage || 0) / 1048576;
       const quota = (est.quota || 0) / 1048576;
       const pct = quota > 0 ? ((used / quota) * 100).toFixed(1) : '?';
+      storageMB = used;
       lines.push(`[Storage] disk:${used.toFixed(1)}MB / quota:${quota.toFixed(0)}MB (${pct}%)`);
     }
   } catch {
@@ -862,33 +898,47 @@ async function cmdDebugMemory(): Promise<void> {
   // proxy for heap pressure since performance.memory is unavailable.
   lines.push(`[Tracked] sum of above: ${(trackedBytes / 1048576).toFixed(1)}MB`);
 
-  const text = lines.join('\n');
+  return { lines, heapMB, storageMB };
+}
 
-  // Render to a fullscreen translucent overlay instead of the cramped
-  // chat panel. Tap anywhere or press ESC to dismiss. Auto-copy to
-  // clipboard preserved.
-  showDebugMemoryOverlay(text);
+// ─── Live Debug Session ──────────────────────────────────────────
+// One overlay at a time; reopening replaces the prior session. The
+// session owns the polling timer and the time-series history so the
+// graph survives across sample updates without sliding off the left.
 
+interface DebugSession {
+  overlay: HTMLElement;
+  pre: HTMLPreElement;
+  heapCanvas: HTMLCanvasElement;
+  storageCanvas: HTMLCanvasElement;
+  /** Append-only — never trimmed. Graph remaps the X axis to fit them all. */
+  heapHistory: number[];
+  storageHistory: number[];
+  cleanup: () => void;
+}
+
+let _activeDebugSession: DebugSession | null = null;
+const DEBUG_POLL_TIMER = 'debug-memory-poll';
+const DEBUG_POLL_INTERVAL_MS = 1000;
+
+function stopDebugMemorySession(): void {
+  if (!_activeDebugSession) return;
   try {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        showToast(t('chat.debug_copied'));
-      })
-      .catch(() => {
-        /* clipboard not available */
-      });
+    _activeDebugSession.cleanup();
   } catch {
     /* ignore */
   }
+  _activeDebugSession = null;
 }
 
-// Render the memory snapshot as a fullscreen translucent overlay.
-// Created and torn down dynamically (no static markup in index.html
-// keeps this stealth-feature self-contained). Single-instance: a
-// second invocation while one is showing replaces the prior overlay
-// so the freshest snapshot wins.
-function showDebugMemoryOverlay(text: string): void {
+// Render the memory snapshot as a fullscreen translucent overlay with
+// live-updating text + heap/storage graphs. Self-contained (no static
+// markup in index.html keeps this stealth-feature isolated). Polling
+// stops when the overlay is dismissed (tap / ESC).
+function startDebugMemorySession(initial: MemSnapshot): void {
+  stopDebugMemorySession();
+
+  // Drop any zombie overlay from a prior crash where cleanup didn't run.
   const existing = document.getElementById('debug-memory-overlay');
   if (existing) existing.remove();
 
@@ -896,32 +946,228 @@ function showDebugMemoryOverlay(text: string): void {
   overlay.id = 'debug-memory-overlay';
   overlay.className = 'debug-memory-overlay';
   overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-label', 'Debug memory snapshot');
+  overlay.setAttribute('aria-label', 'Debug memory live overlay');
 
-  const content = document.createElement('pre');
-  content.className = 'debug-memory-content';
-  content.textContent = text;
-  overlay.appendChild(content);
+  const pre = document.createElement('pre');
+  pre.className = 'debug-memory-content';
+  pre.textContent = initial.lines.join('\n');
+  overlay.appendChild(pre);
+
+  // Graph block sits between the text and the dismiss hint. Two stacked
+  // canvases so each has independent Y-scaling — heap can swing 50–500MB
+  // while storage hovers at 6GB without one squashing the other.
+  const graphs = document.createElement('div');
+  graphs.className = 'debug-memory-graphs';
+
+  const heapCanvas = appendGraphRow(graphs, 'Heap MB', '#ffb454');
+  const storageCanvas = appendGraphRow(graphs, 'Storage MB', '#5fc8ff');
+
+  overlay.appendChild(graphs);
 
   const hint = document.createElement('div');
   hint.className = 'debug-memory-hint';
-  hint.textContent = 'tap to close';
+  hint.textContent = 'tap to close · live 1s';
   overlay.appendChild(hint);
 
-  const dismiss = (): void => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
+  const session: DebugSession = {
+    overlay,
+    pre,
+    heapCanvas,
+    storageCanvas,
+    heapHistory: initial.heapMB !== null ? [initial.heapMB] : [],
+    storageHistory: [initial.storageMB],
+    cleanup: () => {
+      /* replaced below */
+    },
   };
+
+  // Polling loop — managed timer so standard teardown channels can stop it
+  // if the page navigates away with the overlay still mounted.
+  setManagedTimer(
+    DEBUG_POLL_TIMER,
+    () => {
+      if (!document.body.contains(overlay)) {
+        stopDebugMemorySession();
+        return;
+      }
+      void tickDebugMemorySession(session);
+    },
+    DEBUG_POLL_INTERVAL_MS,
+    { interval: true },
+  );
+
+  // Resize handler — keep canvas backing-store in sync with CSS width on
+  // device rotation. Without this the graphs render blurry after rotate.
+  const onResize = (): void => {
+    syncCanvasSize(heapCanvas);
+    syncCanvasSize(storageCanvas);
+    drawAccumulatingGraph(
+      heapCanvas,
+      session.heapHistory,
+      '#ffb454',
+      session.heapHistory.length === 0,
+    );
+    drawAccumulatingGraph(storageCanvas, session.storageHistory, '#5fc8ff', false);
+  };
+  window.addEventListener('resize', onResize);
+
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      dismiss();
+      stopDebugMemorySession();
     }
   };
-  overlay.addEventListener('click', dismiss);
+  overlay.addEventListener('click', () => stopDebugMemorySession());
   document.addEventListener('keydown', onKey);
 
+  session.cleanup = () => {
+    clearManagedTimer(DEBUG_POLL_TIMER);
+    document.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
+    if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+  };
+
   document.body.appendChild(overlay);
+  // After mount: size the canvases from their actual layout width.
+  syncCanvasSize(heapCanvas);
+  syncCanvasSize(storageCanvas);
+  drawAccumulatingGraph(
+    heapCanvas,
+    session.heapHistory,
+    '#ffb454',
+    session.heapHistory.length === 0,
+  );
+  drawAccumulatingGraph(storageCanvas, session.storageHistory, '#5fc8ff', false);
+
+  _activeDebugSession = session;
+}
+
+async function tickDebugMemorySession(session: DebugSession): Promise<void> {
+  const next = await collectMemorySnapshot();
+  // Bail if the user dismissed during the await — overlay is gone.
+  if (_activeDebugSession !== session) return;
+
+  session.pre.textContent = next.lines.join('\n');
+  if (next.heapMB !== null) session.heapHistory.push(next.heapMB);
+  session.storageHistory.push(next.storageMB);
+
+  drawAccumulatingGraph(
+    session.heapCanvas,
+    session.heapHistory,
+    '#ffb454',
+    session.heapHistory.length === 0,
+  );
+  drawAccumulatingGraph(session.storageCanvas, session.storageHistory, '#5fc8ff', false);
+}
+
+function appendGraphRow(parent: HTMLElement, label: string, color: string): HTMLCanvasElement {
+  const row = document.createElement('div');
+  row.className = 'debug-memory-graph-row';
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'debug-memory-graph-label';
+  labelEl.textContent = label;
+  labelEl.style.color = color;
+  row.appendChild(labelEl);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'debug-memory-graph';
+  // Backing-store size is set at mount time once layout is known; CSS
+  // controls displayed size.
+  canvas.width = 1;
+  canvas.height = 1;
+  row.appendChild(canvas);
+
+  parent.appendChild(row);
+  return canvas;
+}
+
+function syncCanvasSize(canvas: HTMLCanvasElement): void {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // Guard against zero-rect (overlay not yet laid out). The resize listener
+  // corrects on first real layout pass.
+  const cssW = Math.max(1, Math.round(rect.width));
+  const cssH = Math.max(1, Math.round(rect.height));
+  const w = cssW * dpr;
+  const h = cssH * dpr;
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+}
+
+// Cumulative-since-start renderer: every sample collected during the
+// session is mapped to the canvas width by even spacing. The X axis
+// effectively zooms out as more samples come in — old data never falls
+// off the left, which is what was explicitly requested over a sliding
+// window. Y autoscales with 10% headroom against the running max.
+function drawAccumulatingGraph(
+  canvas: HTMLCanvasElement,
+  history: number[],
+  color: string,
+  unavailable: boolean,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  ctx.clearRect(0, 0, w, h);
+
+  // Faint baseline so an empty graph still has structure.
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h - 0.5);
+  ctx.lineTo(w, h - 0.5);
+  ctx.stroke();
+
+  if (unavailable) {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = `${10 * dpr}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N/A (Safari/iOS)', w / 2, h / 2);
+    return;
+  }
+  if (history.length === 0) return;
+
+  const maxRaw = Math.max(...history);
+  // Y headroom + minimum scale so a flat-zero series doesn't divide by zero.
+  const max = Math.max(maxRaw * 1.1, 1);
+  const dx = history.length > 1 ? w / (history.length - 1) : 0;
+  const xOf = (i: number): number => (history.length === 1 ? w / 2 : i * dx);
+
+  // Filled area beneath the line for visual weight.
+  ctx.fillStyle = color + '33';
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let i = 0; i < history.length; i++) {
+    const y = h - (history[i] / max) * h;
+    ctx.lineTo(xOf(i), y);
+  }
+  ctx.lineTo(xOf(history.length - 1), h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Line on top of the fill.
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, 1.2 * dpr);
+  ctx.beginPath();
+  for (let i = 0; i < history.length; i++) {
+    const x = xOf(i);
+    const y = h - (history[i] / max) * h;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Current value + sample count, top-right corner.
+  const current = history[history.length - 1];
+  ctx.fillStyle = color;
+  ctx.font = `${10 * dpr}px ui-monospace, monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${current.toFixed(1)} (n=${history.length})`, w - 4 * dpr, 2 * dpr);
 }
 
 function cmdParty(args: string[]): void {

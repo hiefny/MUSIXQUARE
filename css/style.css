@@ -5903,13 +5903,16 @@ html:not(.ios-standalone) body {
     background: rgba(0, 0, 0, 0.88);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
+    /* Column layout so live-updating graphs always sit at the bottom of the
+       viewport rather than below a long, scrolling text snapshot. */
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    /* Reserve room for the absolute-positioned bottom hint so the graphs
+       don't render under it. */
     padding: max(env(safe-area-inset-top, 20px), 20px) 12px
-             max(env(safe-area-inset-bottom, 20px), 20px) 12px;
+             calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px;
     box-sizing: border-box;
-    overflow: auto;
+    overflow: hidden;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     user-select: text;
@@ -5922,13 +5925,54 @@ html:not(.ios-standalone) body {
     font-size: 11px;
     line-height: 1.45;
     white-space: pre;
-    margin: 0;
+    margin: 0 0 8px;
     padding: 14px 16px;
     max-width: 100%;
-    overflow-x: auto;
+    /* Take all remaining vertical space; if text exceeds, scroll INSIDE the
+       pre so graphs stay pinned to the bottom of the viewport. */
+    flex: 1 1 auto;
+    overflow: auto;
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
     pointer-events: none;
+}
+
+.debug-memory-graphs {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 8px;
+    /* Click-through so tap-to-close still works over the graph area. */
+    pointer-events: none;
+}
+
+.debug-memory-graph-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    height: 60px;
+}
+
+.debug-memory-graph-label {
+    width: 64px;
+    flex: 0 0 64px;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    align-self: center;
+}
+
+.debug-memory-graph {
+    flex: 1 1 auto;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    /* JS sets the backing-store size on mount + resize; CSS controls
+       displayed size. width auto lets flex own the dimension. */
+    width: auto;
+    display: block;
 }
 
 .debug-memory-hint {

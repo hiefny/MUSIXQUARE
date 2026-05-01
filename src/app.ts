@@ -44,7 +44,6 @@ import { registerSystemAudioHostListeners } from './network/system-audio-host.ts
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 // ── Storage ──
 // RAM-only dispatches STORAGE_* commands in-process — no transfer worker.
-import { sweepLegacyDiskFiles } from './storage/storage.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
@@ -95,14 +94,6 @@ function checkSystemCompatibility(): void {
     allPassed = false;
     showToast(t('error.https_required'));
     log.warn('[App] Not a secure context');
-  }
-
-  // OPFS API check (used by sweepLegacyDiskFiles for legacy disk reclaim).
-  // RAM-only doesn't write to OPFS, but the legacy sweep needs getDirectory().
-  if (!(navigator.storage && navigator.storage.getDirectory)) {
-    allPassed = false;
-    showToast(t('error.browser_update'));
-    log.warn('[App] storage.getDirectory not supported');
   }
 
   if (allPassed) {
@@ -404,12 +395,6 @@ function bootstrap(): void {
   safeInit('Transfer', initTransfer);
   safeInit('Preload', initPreload);
   safeInit('Recovery', initRecovery);
-
-  // Legacy migration: if a previous app load (or a previous version) ran
-  // the OPFS-based code, it left behind files matching `preload_*` /
-  // `current_*`. Sweep them now to free disk. RAM-only itself never
-  // creates OPFS entries, so subsequent calls to this sweep stay no-ops.
-  void sweepLegacyDiskFiles({ excludeCurrentInstance: true, reason: 'app-startup' });
 
   // 7. YouTube
   safeInit('YouTube', initYouTube);

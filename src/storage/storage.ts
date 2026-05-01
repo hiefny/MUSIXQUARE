@@ -1,34 +1,19 @@
 /**
  * MUSIXQUARE — RAM-only storage adapter
  *
- * Equivalent surface to the OPFS worker wrapper preserved on
- * `mxqr_slotpool_archive` — same shape (`postCommand`, `readStoredFile`,
- * `cleanupStoredFile`, `sweepLegacyDiskFiles`, …), worker hop replaced
- * with in-process ramstore dispatch. There is no transfer.worker.ts on
- * this branch, no `navigator.storage.getDirectory()` writes, no disk
- * persistence.
- *
- * Why
- * ───
- * iOS WebKit defers OPFS disk reclaim until app suspension; the previous
- * approach (mxqr_slotpool_archive) tried to mitigate this with a fixed
- * slot pool but `/debug sweep` confirmed the deferred-reclaim mechanism
- * still grew the storage estimate inside a single PWA session. The
- * RAM-only path bypasses disk entirely: encoded chunks live in
- * `Uint8Array[]` per session, blobs are built with `new Blob([…])` on
- * finalize, and reads slice from the cached blob. iOS may still back
- * individual large Blob objects to its private storage, but that
- * allocation is GC-driven (frees with the JS reference) rather than tied
- * to the deferred-reclaim quirk.
+ * Routes STORAGE_* commands to the in-memory ramstore. Encoded chunks
+ * live in `Uint8Array[]` per session, blobs are built with `new Blob([…])`
+ * on finalize, and reads slice from the cached blob. There is no worker
+ * hop, no `navigator.storage.getDirectory()` writes, no disk persistence.
  *
  * Memory characteristics
  * ──────────────────────
  *   - Active main blob:    ~5–15 MB typical mp3, up to ~50 MB hi-res
  *   - Preload blobs:       depth × track size (preload depth is 1–2)
- *   - Decoded AudioBuffer: ~80 MB / 4-min song (storage-strategy independent)
+ *   - Decoded AudioBuffer: ~80 MB / 4-min song
  * Foreground footprint typically lands at 100–150 MB — well inside the
- * iOS PWA budget. Long podcasts crash on AudioBuffer decode regardless
- * of storage strategy; that's a hard ceiling neither path can soften.
+ * iOS PWA budget. Long podcasts can still crash on AudioBuffer decode;
+ * that's a hard ceiling no storage strategy softens.
  */
 
 import { log } from '../core/log.ts';
@@ -346,92 +331,6 @@ export async function readStoredFile(filename: string, isPreload: boolean): Prom
     log.error('[Ramstore] readStoredFile wrap failed:', err);
     return null;
   }
-}
-
-// ─── OPFS Sweep ─────────────────────────────────────────────────────
-//
-// Walks the OPFS root and removes any `preload_*` / `current_*` files.
-// On the RAM-only branch we never *create* OPFS entries, so this exists
-// purely as a one-shot legacy migration helper:
-//
-//   1. Cleans up files left behind from a prior app load that ran the
-//      OPFS-based code (slot pool layout `preload_slot_<i>_<INSTANCE>`
-//      or the older per-filename `preload_<safe>_<oldInstance>`).
-//   2. Frees the disk space those files were holding (subject to iOS
-//      WebKit's deferred reclaim — `removeEntry` returns immediately
-//      but pages may stay until the app suspends).
-//
-// Two call sites:
-//   - App startup: excludeCurrentInstance=true. Defensive — the RAM
-//     branch shouldn't have files matching the current INSTANCE_ID at
-//     startup, but we keep the filter to avoid a regression if something
-//     downstream ever creates one before the sweep runs.
-//   - Session leave: excludeCurrentInstance=false. Drops everything,
-//     including any legacy current-instance files.
-//
-// Fire-and-forget; do not await. Performance scales with surviving disk
-// debris and is bounded by the iOS quota.
-export async function sweepLegacyDiskFiles(opts: {
-  excludeCurrentInstance?: boolean;
-  reason: string;
-}): Promise<void> {
-  if (!navigator.storage?.getDirectory) return;
-  let root: FileSystemDirectoryHandle;
-  try {
-    root = await navigator.storage.getDirectory();
-  } catch (e) {
-    log.warn(`[OPFS] Sweep ${opts.reason}: getDirectory failed:`, e);
-    return;
-  }
-  const toRemove: { name: string; size: number }[] = [];
-  try {
-    const dir = root as unknown as {
-      values(): AsyncIterable<{
-        kind: string;
-        name: string;
-        getFile?: () => Promise<{ size: number }>;
-      }>;
-    };
-    for await (const entry of dir.values()) {
-      if (entry.kind !== 'file') continue;
-      const name = entry.name;
-      if (!name.startsWith('preload_') && !name.startsWith('current_')) continue;
-      if (opts.excludeCurrentInstance && name.endsWith(`_${INSTANCE_ID}`)) continue;
-      let size = 0;
-      try {
-        if (entry.getFile) {
-          const f = await entry.getFile();
-          size = f.size;
-        }
-      } catch {
-        /* ignore — size is for stats only */
-      }
-      toRemove.push({ name, size });
-    }
-  } catch (e) {
-    log.warn(`[OPFS] Sweep ${opts.reason}: enumeration failed:`, e);
-    return;
-  }
-  if (toRemove.length === 0) {
-    log.debug(`[OPFS] Sweep ${opts.reason}: nothing to remove`);
-    return;
-  }
-  const totalMB = toRemove.reduce((s, e) => s + e.size, 0) / 1048576;
-  log.info(
-    `[OPFS] Sweep ${opts.reason}: removing ${toRemove.length} files (~${totalMB.toFixed(1)}MB)`,
-  );
-  let removed = 0;
-  for (const entry of toRemove) {
-    try {
-      await root.removeEntry(entry.name);
-      removed++;
-    } catch (e) {
-      log.warn(`[OPFS] Sweep ${opts.reason}: removeEntry(${entry.name}) failed:`, e);
-    }
-  }
-  log.info(
-    `[OPFS] Sweep ${opts.reason}: ${removed}/${toRemove.length} files removed`,
-  );
 }
 
 // ─── Worker Message Handlers ────────────────────────────────────────

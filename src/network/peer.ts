@@ -20,7 +20,6 @@ import {
   PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
-import { sweepLegacyDiskFiles } from '../storage/storage.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
@@ -544,14 +543,6 @@ export function leaveSession(): void {
 
   // ── 6. Revoke blob URLs ──
   bus.emit('blob:revoke-all');
-
-  // ── 6b. Legacy migration: sweep any leftover preload_*/current_* files
-  // from a prior load that ran the slot-pool branch. RAM-only doesn't
-  // create these, so this stays a no-op on subsequent leaves; we keep
-  // the call to drain disk debris from upgrades.
-  // Fire-and-forget — running synchronously here would block leaveSession
-  // for a few seconds on a large directory.
-  void sweepLegacyDiskFiles({ excludeCurrentInstance: false, reason: 'session-leave' });
 
   // ── 7. Reset all state ──
   batchSetState({

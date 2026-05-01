@@ -26,8 +26,6 @@ import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { sweepLegacyDiskFiles } from '../storage/storage.ts';
-import { log } from '../core/log.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -465,10 +463,6 @@ function cmdDebug(args: string[]): void {
     cmdDebugMemory();
     return;
   }
-  if (sub === 'sweep') {
-    cmdDebugSweep();
-    return;
-  }
 
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
@@ -689,13 +683,12 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     /* ignore */
   }
 
-  // ── Storage (OPFS + IndexedDB + Cache + SW on disk) ──
-  // Safari supports navigator.storage.estimate(). Useful for spotting OPFS
-  // file accumulation when 100 tracks each leave a slot file behind.
-  // Chromium additionally exposes `usageDetails` with a per-backend
-  // breakdown (fileSystem / indexedDB / caches / serviceWorkerRegistrations).
-  // That lets us tell whether a "storage growing forever" symptom is OPFS,
-  // SW Cache API, IndexedDB, or something else — saves a long bisect.
+  // ── Storage (IndexedDB + Cache + SW on disk) ──
+  // Safari supports navigator.storage.estimate(). Chromium additionally
+  // exposes `usageDetails` with a per-backend breakdown (indexedDB / caches /
+  // serviceWorkerRegistrations) so we can tell whether a "storage growing
+  // forever" symptom is SW Cache API, IndexedDB, or something else without
+  // a long bisect.
   try {
     if (navigator.storage?.estimate) {
       const est = (await navigator.storage.estimate()) as StorageEstimate & {
@@ -720,69 +713,16 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
           lines.push(`          breakdown: ${parts.join(' | ')}`);
         }
       } else {
-        // Safari/iOS path — usageDetails is unavailable. The OPFS
-        // enumeration below still gives a partial picture.
-        lines.push(`          breakdown: unavailable (Safari/iOS — see [OPFS])`);
+        lines.push(`          breakdown: unavailable (Safari/iOS)`);
       }
     }
   } catch {
     /* ignore */
   }
 
-  // ── OPFS file enumeration ──
-  // Direct view into what's actually on disk. The leak triage workflow:
-  //   (a) snapshot taken at 0 tracks shows baseline OPFS file set
-  //   (b) snapshot at N tracks should show ~the same file count if rotation
-  //       is working, OR (current_ + preload_) × N if it isn't.
-  // The names also let us correlate with the rotate-log "prev/new" pairs to
-  // verify which files cleanup actually deleted.
-  try {
-    if (navigator.storage?.getDirectory) {
-      const root = await navigator.storage.getDirectory();
-      const files: string[] = [];
-      let totalBytes = 0;
-      // FileSystemDirectoryHandle.values() is async-iterable
-      // (Safari supports it as of iOS 17.4)
-      const dir = root as unknown as {
-        values(): AsyncIterable<{
-          kind: string;
-          name: string;
-          getFile?: () => Promise<{ size: number }>;
-        }>;
-      };
-      for await (const entry of dir.values()) {
-        if (entry.kind === 'file') {
-          let size = 0;
-          try {
-            if (entry.getFile) {
-              const f = await entry.getFile();
-              size = f.size;
-            }
-          } catch {
-            /* ignore */
-          }
-          totalBytes += size;
-          files.push(`${entry.name} (${(size / 1048576).toFixed(1)}MB)`);
-        }
-      }
-      lines.push(`[OPFS] ${files.length} files, ${(totalBytes / 1048576).toFixed(1)}MB total`);
-      // List up to 10 files (truncate the rest with a count). Long Korean
-      // filenames are ugly but actionable — the user can see exact accumulation.
-      const shown = files.slice(0, 10);
-      for (const f of shown) {
-        lines.push(`        ${f}`);
-      }
-      if (files.length > shown.length) {
-        lines.push(`        ... +${files.length - shown.length} more`);
-      }
-    }
-  } catch {
-    /* ignore — OPFS enumeration not critical */
-  }
-
   // ── Cache API (Service Worker caches) ──
-  // iOS doesn't ship `usageDetails` so we can't see the cache vs OPFS split
-  // from `navigator.storage.estimate()`. Iterate the Cache API directly
+  // iOS doesn't ship `usageDetails` so we can't see the cache split from
+  // `navigator.storage.estimate()`. Iterate the Cache API directly
   // instead — `caches.keys()` + `cache.keys()` are cheap (just metadata),
   // entry count alone is a strong leak signal. On Windows we already saw
   // `caches: 2.4GB` was the dominant backend; this block makes the same
@@ -1244,114 +1184,6 @@ function drawAccumulatingGraph(
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText(`${current.toFixed(1)} (n=${history.length})`, w - 4 * dpr, 2 * dpr);
-}
-
-// `/debug sweep` — diagnostic for the iOS storage-not-reclaimed hypothesis.
-// Forcibly clears every reclaimable disk holder we know about, then samples
-// `navigator.storage.estimate()` before and after to expose how much (if
-// anything) iOS WebKit actually frees. Active playback is kept running —
-// this sweep targets only the *out-of-use* refs so we can isolate whether
-// the leak is "we hold too many refs" vs "iOS doesn't reclaim deleted OPFS".
-//
-// Result is shown as a chat notice line so the user can see the delta even
-// when the live overlay is closed:
-//
-//     /debug sweep
-//     before: 245.8MB | after: 38.2MB | reclaimed: 207.6MB
-//     OPFS was: 25.1MB / 3 files | revoked blobs: 2
-//
-// If `reclaimed` ≈ `OPFS was`, iOS frees disk on removeEntry — the leak is
-// elsewhere (look at AudioBuffer / blob backing). If `reclaimed << OPFS
-// was`, iOS isn't freeing the deleted OPFS space → switch to a fixed slot
-// pool that truncate-and-reuses instead of remove-and-create.
-async function cmdDebugSweep(): Promise<void> {
-  const beforeEst =
-    navigator.storage?.estimate ? await navigator.storage.estimate() : null;
-  const beforeBytes = beforeEst?.usage || 0;
-
-  // OPFS pre-sweep stats — captured before sweepLegacyDiskFiles wipes them.
-  let opfsBytes = 0;
-  let opfsCount = 0;
-  if (navigator.storage?.getDirectory) {
-    try {
-      const root = await navigator.storage.getDirectory();
-      const dir = root as unknown as {
-        values(): AsyncIterable<{
-          kind: string;
-          name: string;
-          getFile?: () => Promise<{ size: number }>;
-        }>;
-      };
-      for await (const entry of dir.values()) {
-        if (entry.kind !== 'file') continue;
-        const name = entry.name;
-        if (!name.startsWith('preload_') && !name.startsWith('current_')) continue;
-        opfsCount++;
-        try {
-          if (entry.getFile) {
-            const f = await entry.getFile();
-            opfsBytes += f.size;
-          }
-        } catch {
-          /* ignore — best-effort sizing */
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Force revoke any deferred blob URLs. Each revocation releases the
-  // backing Blob; iOS may then drop its disk-mapped copy on the next GC.
-  let revokedCount = 0;
-  try {
-    const bm = BlobURLManager as unknown as {
-      _pendingRevocations?: Map<string, unknown>;
-      revokeAllNow?: (reason?: string) => void;
-    };
-    revokedCount = bm._pendingRevocations?.size ?? 0;
-    bm.revokeAllNow?.('debug-sweep');
-  } catch {
-    /* ignore */
-  }
-
-  // Wipe every preload/current OPFS file we own — including the one for the
-  // currently-playing track. The decoded AudioBuffer keeps playback running
-  // even after the source file is gone, so this is non-disruptive.
-  await sweepLegacyDiskFiles({ excludeCurrentInstance: false, reason: 'debug-sweep' });
-
-  // Give iOS a beat to actually reclaim. WebKit's OPFS deletion is async
-  // under the hood — without this delay we'd sample mid-reclaim and
-  // under-report the freed amount.
-  await new Promise((r) => setTimeout(r, 1500));
-
-  const afterEst =
-    navigator.storage?.estimate ? await navigator.storage.estimate() : null;
-  const afterBytes = afterEst?.usage || 0;
-  const reclaimedBytes = beforeBytes - afterBytes;
-
-  const fmt = (b: number): string => `${(b / 1048576).toFixed(1)}MB`;
-  const lines = [
-    `[Sweep] before:${fmt(beforeBytes)} | after:${fmt(afterBytes)} | reclaimed:${fmt(reclaimedBytes)}`,
-    `        OPFS was:${fmt(opfsBytes)} / ${opfsCount} files | revoked blobs:${revokedCount}`,
-  ];
-  // Heuristic verdict — give the user a one-line read on which side of the
-  // hypothesis the result lands on.
-  if (opfsBytes > 0) {
-    const ratio = reclaimedBytes / opfsBytes;
-    if (ratio > 0.85) {
-      lines.push(`        verdict: iOS reclaimed cleanly — leak is NOT in OPFS deletion`);
-    } else if (ratio < 0.3) {
-      lines.push(
-        `        verdict: iOS retained ~${((1 - ratio) * 100).toFixed(0)}% of "deleted" OPFS — confirms reclaim-deferred hypothesis`,
-      );
-    } else {
-      lines.push(`        verdict: partial reclaim (${(ratio * 100).toFixed(0)}%) — mixed signal`);
-    }
-  }
-
-  for (const ln of lines) addNoticeChatMessage('debug', ln);
-  log.info(lines.join('\n'));
 }
 
 function cmdParty(args: string[]): void {

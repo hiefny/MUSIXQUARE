@@ -1,34 +1,18 @@
 /**
  * MUSIXQUARE — RAM-only chunk store
  *
- * Drop-in replacement for the OPFS worker preserved on
- * `mxqr_slotpool_archive`. Keeps the same logical contract — sessions
- * accumulate chunks until STORAGE_END, after which a Blob is available
- * for read — but never touches `navigator.storage` and never spawns
- * a worker.
- *
- * Why this exists
- * ───────────────
- * iOS WebKit's OPFS doesn't reclaim disk pages on `removeEntry()` until
- * the app suspends; the slot-pool path fixed the on-disk *count* by
- * recycling a fixed pool, but `/debug sweep` showed deleted-but-retained
- * pages still grew the storage estimate. RAM-only sidesteps the iOS
- * quirk entirely: encoded blobs live in RAM, decoded AudioBuffers live
- * in RAM (as before), there is no disk path. iOS may still back large
- * Blob objects to its own internal storage but that allocation is GC-
- * driven and tied to the JS reference's lifetime — not stuck behind the
- * OPFS deferred-reclaim quirk.
+ * Sessions accumulate chunks until STORAGE_END, after which a Blob is
+ * available for read. No `navigator.storage` access, no worker.
  *
  * Memory ceiling
  * ──────────────
  * Bounded by the active set of held blobs:
- *   - One main-channel blob (~5–15 MB for typical mp3, up to ~50 MB for hi-res)
- *   - Up to a handful of preload blobs (preload depth × track size)
- *   - Plus the decoded AudioBuffer for the playing track (~80 MB / 4-min song)
+ *   - One main-channel blob (~5–15 MB typical mp3, up to ~50 MB hi-res)
+ *   - A handful of preload blobs (preload depth × track size)
+ *   - Plus the decoded AudioBuffer for the playing track (~80 MB / 4-min)
  * Typical foreground footprint lands around 100–150 MB, well inside the
- * iOS PWA budget (~600 MB+). Long podcasts crash on AudioBuffer decode
- * regardless of storage strategy — that's a hard ceiling neither path
- * can soften.
+ * iOS PWA budget (~600 MB+). Long podcasts can still crash on
+ * AudioBuffer decode — a hard ceiling at the audio layer, not here.
  */
 
 import { log } from '../core/log.ts';

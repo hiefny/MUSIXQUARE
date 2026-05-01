@@ -103,7 +103,7 @@ export const PLAYBACK_STATE = {
 ```ts
 type LoadSource = 'fresh' | 'preload-promoted' | 'recovery-resume';
 // Describes HOW we got here; useful for telemetry and for routing incoming
-// chunks to the right OPFS slot.
+// chunks to the right ramstore slot.
 
 type PendingPlayTime = number | undefined;
 // If host sends PLAY before we reach READY, store the time here. Consumed
@@ -140,7 +140,7 @@ per Open Question #5 decision below.
 |---|---|---|
 | `FILE_START` (same session id) | DOWNLOADING | transfer.state = RECEIVING; swap prepareWatchdog → chunkWatchdog |
 | `FILE_CHUNK` | DOWNLOADING | drain reorder buffer; update progress |
-| `FILE_END` (all received) | DECODING | OPFS finalize; call decodeWithTimeout on blob |
+| `FILE_END` (all received) | DECODING | storage finalize; call decodeWithTimeout on blob |
 | `FILE_RESUME(startChunk=N)` | DOWNLOADING | seek receive to chunk N; loadSource = 'recovery-resume' |
 | chunk watchdog stall (12s local / 60s remote) | DOWNLOADING | emit storage:request-recovery → REQUEST_DATA_RECOVERY |
 | prepare watchdog (15s / 60s) | DOWNLOADING | emit recovery (may switch to DOWNLOADING from fresh) |
@@ -158,8 +158,8 @@ per Open Question #5 decision below.
 
 | Event | Next | Action |
 |---|---|---|
-| `PRELOAD_CHUNK` (matching session) | AWAITING_PRELOAD | drain → OPFS; reset preload stall timer on progress |
-| `PRELOAD_END` (matching session) | AWAITING_PRELOAD | wait for OPFS finalization (chunks may still be in worker queue) |
+| `PRELOAD_CHUNK` (matching session) | AWAITING_PRELOAD | drain → ramstore; reset preload stall timer on progress |
+| `PRELOAD_END` (matching session) | AWAITING_PRELOAD | wait for ramstore finalization (chunks may still be in microtask queue) |
 | `preload-file-ready` (blob assembled, index matches) | **DECODING** | ⭐ loadPreloadedTrack(); this is the path currently broken |
 | preload stall watchdog (10s no progress) | DOWNLOADING | emit REQUEST_DATA_RECOVERY; loadSource='fresh' |
 | preload ceiling watchdog (60s absolute) | DOWNLOADING | same |
@@ -396,7 +396,7 @@ Each step leaves `main`-deployable code. No big-bang cutover.
 - `handlePlayPreloaded` (preload.ts)
 - `handleFilePrepare` (transfer-receive.ts)
 - `handleFileStart`, `handleFileChunk`, `handleFileEnd`, `handleFileResume`
-- `opfs:file-ready` / `storage:preload-file-ready` handlers
+- `storage:file-ready` / `storage:preload-file-ready` handlers
 - Decode success/failure branches in decode.ts
 - `player:ended` listener
 

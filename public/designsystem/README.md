@@ -9,7 +9,7 @@ file-sync, or across networks via YouTube Together.
 - Site: **https://musixquare.com**
 - Source: **github.com/hiefny/MUSIXQUARE** (MIT-compatible — see repo LICENSE)
 - Locale: Korean (primary) + English
-- Stack: TypeScript + Vite, Web Audio API, PeerJS (WebRTC), OPFS
+- Stack: TypeScript + Vite, Web Audio API, PeerJS (WebRTC), RAM-only storage
 - Deploy: Netlify (with TURN Netlify Function)
 
 The product is a **single PWA** — there is no marketing site, no docs site,

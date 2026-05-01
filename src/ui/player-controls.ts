@@ -769,21 +769,21 @@ export function initPlayerControls(): void {
     });
   }
 
-  // OPFS error handler (prevent silent error swallowing)
+  // Storage error handler (prevent silent error swallowing)
   _busScope.on('storage:error', (error, filename) => {
-    log.error(`[OPFS] Error for ${filename}:`, error);
+    log.error(`[Storage] Error for ${filename}:`, error);
     showToast(t('toast.file_save_error', { name: filename || 'unknown' }));
   });
 
   _busScope.on('storage:read-error', (data) => {
     const d = data as Record<string, unknown>;
-    log.error('[OPFS] Read error:', d?.filename, d?.error);
+    log.error('[Storage] Read error:', d?.filename, d?.error);
     showToast(t('toast.file_read_error', { name: String(d?.filename || 'unknown') }));
   });
 
   _busScope.on('storage:session-mismatch', (data) => {
     const d = data as Record<string, unknown>;
-    log.warn('[OPFS] Session mismatch:', d?.filename);
+    log.warn('[Storage] Session mismatch:', d?.filename);
     showToast(t('toast.session_mismatch'));
   });
 

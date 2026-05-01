@@ -270,7 +270,7 @@ describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
     expect(step(FROM, { type: 'PRELOAD_CHUNK' })).toEqual({ stay: true });
   });
 
-  it('PRELOAD_END → stay (wait for OPFS finalize)', () => {
+  it('PRELOAD_END → stay (wait for storage finalize)', () => {
     expect(step(FROM, { type: 'PRELOAD_END' })).toEqual({ stay: true });
   });
 
@@ -631,7 +631,7 @@ describe('regression: preload-handoff bug', () => {
     // Setup: guest is waiting on a preload blob to finalize.
     forceState(PLAYBACK_STATE.AWAITING_PRELOAD);
 
-    // Host sends PLAY while the blob is still being written to OPFS.
+    // Host sends PLAY while the blob is still being written to storage.
     const result = transition({ type: 'PLAY', time: 0, index: 0, sameTrack: true });
 
     // Before the fix, this would have triggered stale-audio-recovery → full
@@ -709,7 +709,7 @@ describe('integration: design-doc acceptance scenarios', () => {
       PLAYBACK_STATE.AWAITING_PRELOAD,
     );
 
-    // PRELOAD_END then OPFS finalize.
+    // PRELOAD_END then storage finalize.
     expect(transition({ type: 'PRELOAD_END' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
     expect(transition({ type: 'PRELOAD_FILE_READY', index: 1 })).toBe(PLAYBACK_STATE.DECODING);
 

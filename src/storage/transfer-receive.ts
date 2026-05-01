@@ -276,7 +276,7 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
  * unicast pipelines and never receives them on the legitimate path. Without
  * per-handler guards a peer connected over DATA_RELAY (peer.ts:292 accepts
  * without auth) can inject raw frames to poison transfer.localSessionId,
- * stuff the OPFS write pipeline with attacker chunks, or force a recovery
+ * stuff the storage pipeline with attacker chunks, or force a recovery
  * loop. Same threat-model class as 4838a0c SYNC_PONG and the post-4838a0c
  * sibling sweep — non-RELAYABLE host→guest messages need per-handler guards
  * because the dispatcher's RELAY DOWNSTREAM amplification check (b2ad18e)
@@ -1064,7 +1064,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
           size: CHUNK_SIZE,
         });
       }
-      // Reset chunk pointer for new OPFS file (mirrors handleFileStart/handleFileResume)
+      // Reset chunk pointer for new file (mirrors handleFileStart/handleFileResume)
       nextExpectedChunk = 0;
       setState('transfer.receivedCount', 0);
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
@@ -1180,7 +1180,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       }
     }
 
-    // Finalize in OPFS
+    // Finalize in storage
     postWorkerCommand({
       command: 'STORAGE_END',
       filename: (currentMeta?.name as string) || '',
@@ -1356,7 +1356,7 @@ export function clearReceiveState(): void {
 /**
  * Abort an in-flight main download on the guest side.
  * Called when the host signals the playlist has been emptied — drops
- * buffered chunks, resets transfer state, and tells the OPFS worker to
+ * buffered chunks, resets transfer state, and tells the storage layer to
  * discard the partially written file.
  */
 export function cancelIncomingFileTransfer(reason: string): void {

@@ -2,7 +2,7 @@
  * E2E: Preload System Tests
  *
  * Tests the background preload mechanism.
- * Note: Preload requires successful audio decode + OPFS storage.
+ * Note: Preload requires successful audio decode + RAM-store finalize.
  * These tests verify the preload scheduling and state management
  * at the host level, since headless Chromium may not decode synthetic MP3s.
  */

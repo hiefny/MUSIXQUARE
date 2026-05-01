@@ -10,7 +10,7 @@ vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn(),
 }));
 
-vi.mock('../opfs.ts', () => ({
+vi.mock('../storage.ts', () => ({
   ensureNamedFile: vi.fn((blob: unknown, name: string) => {
     if (!blob) return null;
     return { name, size: (blob as Blob).size };

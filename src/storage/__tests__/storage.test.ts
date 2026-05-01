@@ -63,7 +63,7 @@ describe('ensureNamedFile', () => {
 describe('postWorkerCommand', () => {
   it('drops timer command silently when no sync worker is set', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // OPFS commands are now routed in-process by ramstore so they no longer
+    // Storage commands are now routed in-process by ramstore so they no longer
     // depend on a worker reference. Timer commands still need _syncWorker;
     // without one set, the call should warn and drop without throwing.
     postWorkerCommand({ command: 'STOP_TIMER', id: 'heartbeat' });

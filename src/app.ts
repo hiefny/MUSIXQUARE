@@ -5,7 +5,7 @@
  * 1. core/   — constants, log, events, state, platform, session, blob-manager, timers
  * 2. audio/  — engine, effects, channel
  * 3. network/ — peer, protocol, sync, relay
- * 4. storage/ — opfs, transfer, preload, recovery
+ * 4. storage/ — storage, transfer, preload, recovery
  * 5. player/ — playback, playlist, video, media-session
  * 6. youtube/ — player, sync, search
  * 7. ui/     — dom, toast, dialog, tabs, i18n, visualizer, chat, playlist-view,
@@ -43,8 +43,7 @@ import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 // ── Storage ──
-// `setTransferWorker` is no longer referenced on this branch — RAM-only
-// dispatches OPFS commands in-process. Kept exported in opfs.ts for tests.
+// RAM-only dispatches STORAGE_* commands in-process — no transfer worker.
 import { setSyncWorker, sweepLegacyDiskFiles } from './storage/storage.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
@@ -97,11 +96,12 @@ function checkSystemCompatibility(): void {
     log.warn('[App] Not a secure context');
   }
 
-  // OPFS support check
+  // OPFS API check (used by sweepLegacyDiskFiles for legacy disk reclaim).
+  // RAM-only doesn't write to OPFS, but the legacy sweep needs getDirectory().
   if (!(navigator.storage && navigator.storage.getDirectory)) {
     allPassed = false;
     showToast(t('error.browser_update'));
-    log.warn('[App] OPFS not supported');
+    log.warn('[App] storage.getDirectory not supported');
   }
 
   if (allPassed) {
@@ -396,8 +396,8 @@ function bootstrap(): void {
     log.warn('[App] SyncWorker failed:', e);
   }
 
-  // RAM-only branch (mxqr_beta): the transfer worker is gone. STORAGE_*
-  // commands are dispatched in-process by storage/opfs.ts → ramstore.ts.
+  // RAM-only: the transfer worker is gone. STORAGE_* commands are
+  // dispatched in-process by storage/storage.ts → ramstore.ts.
   // Transfer / Preload / Recovery init unconditionally — there's no
   // worker readiness gate to fail.
   safeInit('Transfer', initTransfer);

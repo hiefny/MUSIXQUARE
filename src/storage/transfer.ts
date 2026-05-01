@@ -45,7 +45,7 @@ export function initTransfer(): void {
     [MSG.FILE_WAIT]: handleFileWait,
   });
 
-  // OPFS write failure: trigger recovery to re-request the corrupted chunk
+  // Storage write failure: trigger recovery to re-request the corrupted chunk
   // instead of silently continuing with a hole in the file data.
   bus.on('storage:write-error', (data: unknown) => {
     const info = data as
@@ -54,7 +54,7 @@ export function initTransfer(): void {
     if (info?.isPreload) return; // Preload write errors are handled separately
     const transferState = getState('transfer.state');
     if (transferState === TRANSFER_STATE.RECEIVING) {
-      log.warn('[Transfer] OPFS write failed — requesting recovery');
+      log.warn('[Transfer] Storage write failed — requesting recovery');
       bus.emit('storage:request-recovery');
     }
   });

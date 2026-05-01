@@ -540,12 +540,12 @@ export function leaveSession(): void {
   // ── 6. Revoke blob URLs ──
   bus.emit('blob:revoke-all');
 
-  // ── 6b. Sweep all OPFS preload_*/current_* files. The session is over,
-  // these are transient artifacts. Without this, even a clean leave leaves
-  // ~30MB on disk (current + preload) which compounds with the startup-
-  // sweep gap if the user crashes / force-closes before next app load.
+  // ── 6b. Legacy migration: sweep any leftover preload_*/current_* files
+  // from a prior load that ran the slot-pool branch. RAM-only doesn't
+  // create these, so this stays a no-op on subsequent leaves; we keep
+  // the call to drain disk debris from upgrades.
   // Fire-and-forget — running synchronously here would block leaveSession
-  // for a few seconds on a large session.
+  // for a few seconds on a large directory.
   void sweepLegacyDiskFiles({ excludeCurrentInstance: false, reason: 'session-leave' });
 
   // ── 7. Reset all state ──

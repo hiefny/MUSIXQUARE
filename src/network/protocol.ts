@@ -43,7 +43,7 @@ export function validateMessage(
  */
 export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>(RELAYABLE_MSG_TYPES);
 
-/** Relay-local requests that should NOT be forwarded upstream (handled from local OPFS). */
+/** Relay-local requests that should NOT be forwarded upstream (handled from local storage). */
 const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
   'request-current-file',
   'request-data-recovery',
@@ -90,7 +90,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
   [MSG.PRELOAD_START]: (d) =>
     typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
-  // sessionId required — handler uses it to scope sessionState/reorder/OPFS
+  // sessionId required — handler uses it to scope sessionState/reorder/storage
   // cleanup. Without the guard, an injected abort with no sid would no-op
   // through every guard in handlePreloadAbort but still consume rate-limit
   // budget. Mirrors PRELOAD_END's name-required style.
@@ -320,7 +320,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   // 2. RELAY UPSTREAM (Operator requests from Downstream → Upstream)
   //    Attach _originPeer so the host can verify the actual sender, not the relay.
   //    Exclude relay-local messages that the relay node handles itself
-  //    (e.g. request-current-file, request-data-recovery are served from OPFS).
+  //    (e.g. request-current-file, request-data-recovery are served from local storage).
   if (conn && conn !== hostConn) {
     if (msgType.startsWith('request-') && !RELAY_LOCAL_REQUESTS.has(msgType)) {
       const raw = data as Record<string, unknown>;

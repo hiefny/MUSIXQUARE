@@ -39,12 +39,12 @@ export default defineConfig({
         'src/network/sync.ts',
         'src/network/system-audio-host.ts',
         'src/network/system-audio-guest.ts',
-        // Storage — heavy OPFS / Worker interop / DataConnection state
+        // Storage — heavy DataConnection / RAM-store / bus event state
         'src/storage/transfer.ts',
         'src/storage/transfer-send.ts',
         'src/storage/transfer-receive.ts',
         'src/storage/preload.ts',
-        'src/storage/opfs.ts',
+        'src/storage/storage.ts',
         'src/storage/recovery.ts',
         // Player — depends on AudioContext / AudioBufferSourceNode
         'src/player/playback.ts',

@@ -73,7 +73,7 @@ export type PlaybackEvent =
   | { type: 'PRELOAD_START' }
   | { type: 'PRELOAD_CHUNK' }
   | { type: 'PRELOAD_END' }
-  | { type: 'PRELOAD_FILE_READY'; index: number } // OPFS-assembled blob available
+  | { type: 'PRELOAD_FILE_READY'; index: number } // Storage-assembled blob available
   // ── Playback control ──
   | { type: 'PLAY'; time: number; index?: number; sameTrack: boolean }
   | { type: 'PAUSE'; time: number; endOfPlaylist: boolean }
@@ -488,7 +488,7 @@ export function transition(ev: PlaybackEvent): PlaybackStateValue {
 /**
  * Peek: what state would this event move us to, without applying?
  * Useful for pre-flight checks in handlers (e.g. "will this event supersede
- * my current download? if so, cancel the OPFS write first").
+ * my current download? if so, cancel the storage write first").
  */
 export function peekTransition(from: PlaybackStateValue, ev: PlaybackEvent): PlaybackStateValue {
   const result = resolve(from, ev);

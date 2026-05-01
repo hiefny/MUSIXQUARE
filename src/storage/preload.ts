@@ -105,13 +105,13 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
  * preload data from reaching guests after the host changes tracks.
  *
  * Sends PRELOAD_ABORT to receivers BEFORE disposing the scopes so guests
- * can release their OPFS preload slot, sessionState entry, and reorder
- * buffer for this sid. Without the explicit abort signal, a mid-stream
- * cancel leaves guests with `finalized=false, skipped=false` zombie
- * sessions — cleanupStalePreloadSessions only purges finalized/skipped,
- * so they sit until the PRELOAD_SESSION_MAX=20 cap evicts oldest, while
- * the worker's preload slot keeps its sync access handle until same-
- * filename preempt or session leave (see transfer.worker.ts slot pool).
+ * can release their preload slot, sessionState entry, and reorder buffer
+ * for this sid. Without the explicit abort signal, a mid-stream cancel
+ * leaves guests with `finalized=false, skipped=false` zombie sessions —
+ * cleanupStalePreloadSessions only purges finalized/skipped, so they sit
+ * until the PRELOAD_SESSION_MAX=20 cap evicts oldest, while the
+ * ramstore preload slot keeps the partial chunk Map until a same-
+ * filename preempt or session leave releases it.
  * The abort path tells guests to tear down immediately.
  *
  * Order matters — send first, then dispose. The data channel is FIFO,
@@ -554,7 +554,7 @@ export async function unicastPreload(
  * never receives them on the legitimate path. Without this guard, a peer
  * connected over DATA_RELAY (peer.ts:292 accepts without auth) can inject
  * raw frames to corrupt preload state, force PLAY_PRELOADED of a wrong
- * index, or DoS the OPFS pipeline. Same threat-model class as 4838a0c
+ * index, or DoS the storage pipeline. Same threat-model class as 4838a0c
  * SYNC_PONG and the post-4838a0c sibling sweep — non-RELAYABLE host→guest
  * messages need per-handler guards because the dispatcher's RELAY DOWNSTREAM
  * amplification check (b2ad18e) only fires for RELAYABLE commands. PLAY_
@@ -666,8 +666,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     sessionId: sid,
   });
 
-  // OPFS: Start preload slot
-  // Note: We deliberately do NOT send STORAGE_RESET here. The worker now
+  // Start preload slot
+  // Note: We deliberately do NOT send STORAGE_RESET here. The ramstore
   // manages preload slots by sessionId. Sending STORAGE_RESET would abort
   // any still-downloading "stale" preloads (like a late-joiner's Track 2
   // that was superseded by Track 3).
@@ -972,8 +972,8 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
     `[Preload] End: ${freshSession.name} (${freshSession.progress}/${freshSession.total} chunks)`,
   );
 
-  // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after OPFS confirms file)
-  // Previously it was sent here (before OPFS confirmed), causing timing issues.
+  // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after storage confirms file)
+  // Previously it was sent here (before storage confirmed), causing timing issues.
 
   // Relay downstream
   const downstreamPeers = getState('relay.downstreamDataPeers');
@@ -991,9 +991,8 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
  * unicast scopes, which makes the loops stop sending chunks. But scope
  * disposal is local to the host — receivers don't know the transfer was
  * cut and would otherwise carry a `finalized=false, skipped=false` session
- * entry until PRELOAD_SESSION_MAX=20 evicts them, plus a worker preloadSlot
- * keeping a sync access handle on the partial OPFS file. This handler
- * propagates the abort.
+ * entry until PRELOAD_SESSION_MAX=20 evicts them, plus a ramstore preload
+ * slot holding the partial chunk Map. This handler propagates the abort.
  *
  * Idempotent on every guard:
  *   - !session         → no work to undo, return.
@@ -1306,14 +1305,14 @@ export function initPreload(): void {
     [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
 
-  // Handle preload file ready from OPFS (bridged from storage:file-ready via playback.ts)
+  // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)
   bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
     try {
       log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
 
-      // Guard: ignore stale OPFS completions from superseded preload sessions.
+      // Guard: ignore stale storage completions from superseded preload sessions.
       // After backward navigation, clearPreloadState cancels the host's transfer
-      // and bumps the session ID, but the OPFS worker may still signal completion
+      // and bumps the session ID, but the storage layer may still signal completion
       // for the old session. Accepting it would set preload.nextFileBlob to a stale
       // file, causing handlePlayPreloaded to use the wrong track.
       //
@@ -1322,7 +1321,7 @@ export function initPreload(): void {
       // track whose preload was still assembling, we transition the lifecycle
       // to AWAITING_PRELOAD for that track (playback.pendingRecoveryTarget
       // records it). Host then schedules the NEXT preload, which bumps
-      // latestPreloadSessionId. When OUR target's OPFS write finally resolves
+      // latestPreloadSessionId. When OUR target's write finally resolves
       // moments later, the naïve guard drops it because its session ID is now
       // behind latest. Result: guest stalls in AWAITING_PRELOAD for 10s, then
       // the watchdog triggers a 0% re-download — the exact behaviour the
@@ -1337,8 +1336,8 @@ export function initPreload(): void {
       //   (a) preload.sessionState.get(sessionId) — authoritative, but may be
       //       GONE because cleanupStalePreloadSessions() purges finalized
       //       sessions when the NEXT PRELOAD_START arrives. That's the crux
-      //       of the beta regression: session 2 finalizes → PRELOAD_START(3)
-      //       cleans session 2 up → OPFS completion for 2 fires → lookup
+      //       of the regression: session 2 finalizes → PRELOAD_START(3)
+      //       cleans session 2 up → storage completion for 2 fires → lookup
       //       misses → we wrongly think it's stale → drop.
       //   (b) filename compared against playback.pendingRecoveryTarget.name
       //       — our AWAITING_PRELOAD target.
@@ -1407,7 +1406,7 @@ export function initPreload(): void {
       setState('preload.nextTrackIndex', resolvedNextTrackIndex);
       const nextTrackIndex = resolvedNextTrackIndex;
 
-      // Send PRELOAD_ACK to host now that OPFS file is confirmed ready
+      // Send PRELOAD_ACK to host now that storage file is confirmed ready
       if (nextTrackIndex >= 0) {
         const ackSent = getState('preload.ackSent');
         if (!ackSent.has(nextTrackIndex)) {

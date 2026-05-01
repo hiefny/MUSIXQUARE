@@ -27,7 +27,7 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 - **Web Audio API**: Native browser audio graph, no external audio library.
 - **PeerJS (WebRTC)**: P2P data channels for file transfer, media streams for system audio.
 - **STUN + TURN**: Google STUN for NAT traversal. Metered.ca TURN via Netlify Function for remote connections.
-- **OPFS**: Origin Private File System for efficient local media storage.
+- **RAM-only storage**: Encoded chunks held in memory; legacy OPFS files swept on startup.
 
 ---
 

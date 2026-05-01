@@ -542,7 +542,7 @@ export function initPlayback(): void {
     clearPreviousTrackState(context);
   });
 
-  // OPFS file ready: finalize guest download processing
+  // Storage file ready: finalize guest download processing
   bus.on('storage:file-ready', async (filename, _sessionId, isPreload) => {
     if (isPreload) {
       // Preload files are handled by preload module via storage:preload-file-ready
@@ -550,7 +550,7 @@ export function initPlayback(): void {
       return;
     }
 
-    // Only guest processes OPFS files (Host loads directly)
+    // Only guest processes incoming files (Host loads directly)
     const hostConn = getState('network.hostConn');
     if (!hostConn) return;
 
@@ -563,7 +563,7 @@ export function initPlayback(): void {
     //
     // FALLBACK (2026-04-25): a "stale" session may actually be the file
     // we still need. In a rapid A→B→A bounce, A's localSid gets bumped
-    // past A's original sessionId while A's OPFS finalize is still in
+    // past A's original sessionId while A's storage finalize is still in
     // flight; dropping it here stalls the guest at 100% until the chunk
     // watchdog fires a full re-download (~12-60s). Accept the completion
     // when its filename matches the current transfer target — mirrors

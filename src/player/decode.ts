@@ -442,18 +442,16 @@ export async function loadPreloadedTrack(
 
     const activeMeta = localMeta || getState('transfer.meta');
 
-    // OPFS rotation — delete the previous track's on-disk file before
+    // Storage rotation — release the previous track's stored chunks before
     // overwriting currentFileBlob. handleFileStart already does this for
     // the main-transfer path; the preload-promoted path didn't, which
-    // accumulated one preload_*-named OPFS file per track. With 100
-    // tracks the disk hit ~1.5GB and iOS started dropping the app under
-    // memory pressure (mmap'd OPFS handles count toward RAM accounting).
+    // accumulated one ramstore slot per track and grew the heap unbounded
+    // until iOS killed the tab.
     //
     // We attempt cleanup with both isPreload variants because the prior
-    // track's OPFS file could be either current_<name>_<inst> (came via
-    // main transfer) or preload_<name>_<inst> (came via preload promote).
-    // Worker's removeEntry is idempotent — the wrong-prefix call hits
-    // "file may not exist" and is a no-op.
+    // track's slot could live in either pool (came via main transfer
+    // vs. preload promote). cleanupStoredFile is idempotent — the
+    // wrong-pool call is a silent no-op.
     const newName = (activeMeta?.name as string) || '';
     const prevTrackName = getState('files.currentTrack')?.name;
     if (prevTrackName && prevTrackName !== newName) {
@@ -660,7 +658,7 @@ export function clearPreviousTrackState(reason = ''): void {
     /* noop */
   }
 
-  // Physically delete OLD current file from OPFS
+  // Release OLD current file from storage
   const currentTrackEntry = getState('files.currentTrack');
   if (currentTrackEntry?.name) {
     const nextMeta = getState('preload.meta');
@@ -673,7 +671,7 @@ export function clearPreviousTrackState(reason = ''): void {
   }
 }
 
-// ─── Finalize Guest File (after OPFS download) ────────────────────
+// ─── Finalize Guest File (after download) ─────────────────────────
 
 export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // Guard: if the app has switched to YouTube mode mid-transfer, abort the

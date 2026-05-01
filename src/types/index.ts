@@ -766,7 +766,7 @@ interface BaseEventMap {
   // ── Playlist ────────────────────────────────────────────────────
   'playlist:remove-track': [index: number];
 
-  // ── Storage / OPFS ────────────────────────────────────────────────
+  // ── Storage ───────────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];
   'storage:preload-ready': [index: number];
   'storage:request-recovery': [];

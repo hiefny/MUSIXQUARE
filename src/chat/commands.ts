@@ -880,10 +880,9 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
         plFileCount++;
       }
     }
-    // playlist file refs counted only if they're host-uploaded Files
-    // (held in RAM). Guest-side OPFS-backed File objects technically
-    // wrap an OPFS handle, not RAM, but the size still represents
-    // potential RAM if the engine reads them. Include in tracked total.
+    // playlist file refs counted only if they have a measurable size.
+    // RAM-only: both host-uploaded Files and guest-side ramstore-wrapped
+    // Files are RAM-backed, so size maps directly to heap pressure.
     trackedBytes += plBytes;
     lines.push(
       `[Playlist] ${playlist.length} items, ${plFileCount} with file ref, ~${(plBytes / 1048576).toFixed(0)}MB total`,

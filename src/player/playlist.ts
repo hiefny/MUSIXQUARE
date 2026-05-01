@@ -220,8 +220,9 @@ export function clearPreloadState(): void {
   }
   setState('preload.isPreloading', false);
 
-  // Host side: clear peers' preloadedIndexes cache — guests reset their OPFS
-  // on track change, so the host must not assume they still have old files
+  // Host side: clear peers' preloadedIndexes cache — guests reset their
+  // storage on track change, so the host must not assume they still have
+  // old files
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const connectedPeers = getState('network.connectedPeers') || [];
@@ -850,7 +851,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     stopAllMedia();
     clearPreloadState();
     // Abort any in-flight main download — otherwise chunks already in the
-    // data channel keep being written to OPFS to completion.
+    // data channel keep being written to storage to completion.
     cancelIncomingFileTransfer('playlist-emptied');
     bus.emit('storage:clear-previous-track', 'playlist-emptied');
     // Mirror host's empty-playlist reset: clear track meta so the title

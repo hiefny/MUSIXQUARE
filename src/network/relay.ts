@@ -2,7 +2,7 @@
  * MUSIXQUARE — Relay Chain Management
  *
  * Manages: Upstream relay connection, downstream data peers,
- * relay file serving, preload relay, OPFS catch-up streaming.
+ * relay file serving, preload relay, catch-up streaming.
  *
  * Activated by orchestrator.ts which sends ASSIGN_DATA_SOURCE to remote peers,
  * directing them to connect to a local peer for data relay.
@@ -34,9 +34,9 @@ import { showToast } from '../ui/toast.ts';
 // ─── Module State ───────────────────────────────────────────────────
 const RELAY_CONN_TIMER = 'relayConnTimeout';
 
-// ─── OPFS Catch-up Pump ──────────────────────────────────────────────
+// ─── Catch-up Pump ───────────────────────────────────────────────────
 
-interface OpfsCatchupPump {
+interface CatchupPump {
   peerId: string;
   conn: DataConnection;
   filename: string;
@@ -51,18 +51,18 @@ interface OpfsCatchupPump {
   retryCount: number;
 }
 
-const opfsCatchupPumps = new Map<string, OpfsCatchupPump>();
+const catchupPumps = new Map<string, CatchupPump>();
 
-function stopOpfsCatchupStream(peerId: string, reason = ''): void {
-  const pump = opfsCatchupPumps.get(peerId);
+function stopCatchupStream(peerId: string, reason = ''): void {
+  const pump = catchupPumps.get(peerId);
   if (!pump) return;
   pump.active = false;
-  clearManagedTimer('opfs-catchup-' + peerId);
-  opfsCatchupPumps.delete(peerId);
-  if (reason) log.debug(`[OPFS Catchup] Stop ...${peerId.slice(-4)}: ${reason}`);
+  clearManagedTimer('catchup-' + peerId);
+  catchupPumps.delete(peerId);
+  if (reason) log.debug(`[Catchup] Stop ...${peerId.slice(-4)}: ${reason}`);
 }
 
-function startOpfsCatchupStream(
+function startCatchupStream(
   conn: DataConnection,
   opts: {
     filename: string;
@@ -75,15 +75,15 @@ function startOpfsCatchupStream(
   if (!conn || !conn.peer) return;
   const peerId = conn.peer;
 
-  stopOpfsCatchupStream(peerId, 'restart');
+  stopCatchupStream(peerId, 'restart');
 
   const sid = validateSessionId(opts.sessionId);
   if (!sid) {
-    log.warn(`[OPFS Catchup] Invalid sessionId, abort for peer ...${peerId.slice(-4)}`);
+    log.warn(`[Catchup] Invalid sessionId, abort for peer ...${peerId.slice(-4)}`);
     return;
   }
 
-  const pump: OpfsCatchupPump = {
+  const pump: CatchupPump = {
     peerId,
     conn,
     filename: opts.filename,
@@ -98,25 +98,25 @@ function startOpfsCatchupStream(
     retryCount: 0,
   };
 
-  opfsCatchupPumps.set(peerId, pump);
-  scheduleOpfsCatchupPump(pump, 0);
+  catchupPumps.set(peerId, pump);
+  scheduleCatchupPump(pump, 0);
 }
 
-function scheduleOpfsCatchupPump(pump: OpfsCatchupPump, delayMs: number): void {
+function scheduleCatchupPump(pump: CatchupPump, delayMs: number): void {
   if (!pump || !pump.active) return;
-  const timerName = 'opfs-catchup-' + pump.peerId;
-  setManagedTimer(timerName, () => runOpfsCatchupPump(pump), Math.max(0, delayMs | 0));
+  const timerName = 'catchup-' + pump.peerId;
+  setManagedTimer(timerName, () => runCatchupPump(pump), Math.max(0, delayMs | 0));
 }
 
-function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
+function runCatchupPump(pump: CatchupPump): void {
   if (!pump || !pump.active) return;
   // Verify pump from map to avoid running stale reference from timer closure
-  const current = opfsCatchupPumps.get(pump.peerId);
+  const current = catchupPumps.get(pump.peerId);
   if (current !== pump) return;
 
   const conn = pump.conn;
   if (!conn || !conn.open) {
-    stopOpfsCatchupStream(pump.peerId, 'peer closed');
+    stopCatchupStream(pump.peerId, 'peer closed');
     return;
   }
 
@@ -124,12 +124,12 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   // Note: `<` comparison is safe — IDs are timestamp-based and MAX_SAFE_INTEGER won't wrap
   const localSid = getState('transfer.localSessionId');
   if (pump.sessionId && pump.sessionId < localSid) {
-    stopOpfsCatchupStream(pump.peerId, 'session advanced');
+    stopCatchupStream(pump.peerId, 'session advanced');
     return;
   }
 
   if (!pump.filename || pump.nextIndex >= pump.endIndex) {
-    stopOpfsCatchupStream(pump.peerId, 'complete');
+    stopCatchupStream(pump.peerId, 'complete');
     return;
   }
 
@@ -140,17 +140,17 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
       pump.retryCount++;
       const MAX_RETRIES = 5;
       if (pump.retryCount > MAX_RETRIES) {
-        stopOpfsCatchupStream(pump.peerId, `max retries (${MAX_RETRIES}) exceeded`);
+        stopCatchupStream(pump.peerId, `max retries (${MAX_RETRIES}) exceeded`);
         return;
       }
       log.warn(
-        `[OPFS Catchup] Stuck ${stuckMs}ms, retry ${pump.retryCount}/${MAX_RETRIES} idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`,
+        `[Catchup] Stuck ${stuckMs}ms, retry ${pump.retryCount}/${MAX_RETRIES} idx=${pump.awaitingIndex} for ...${pump.peerId.slice(-4)}`,
       );
       pump.awaiting = false;
       pump.nextIndex = pump.awaitingIndex; // rewind to retry
       pump.awaitingIndex = null;
     }
-    scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+    scheduleCatchupPump(pump, DELAY.BACKPRESSURE);
     return;
   }
 
@@ -158,7 +158,7 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   const bufAmt = conn.dataChannel ? conn.dataChannel.bufferedAmount : 0;
 
   if (bufAmt > 256 * 1024) {
-    scheduleOpfsCatchupPump(pump, DELAY.BACKPRESSURE);
+    scheduleCatchupPump(pump, DELAY.BACKPRESSURE);
     return;
   }
 
@@ -178,8 +178,8 @@ function runOpfsCatchupPump(pump: OpfsCatchupPump): void {
   });
 }
 
-function onOpfsCatchupReadComplete(peerId: string, sessionId: number, requestTag: string): void {
-  const pump = opfsCatchupPumps.get(peerId);
+function onCatchupReadComplete(peerId: string, sessionId: number, requestTag: string): void {
+  const pump = catchupPumps.get(peerId);
   if (!pump || !pump.active) return;
 
   // Only advance pump when this response is from catchup-tag
@@ -187,7 +187,7 @@ function onOpfsCatchupReadComplete(peerId: string, sessionId: number, requestTag
 
   // Session guard
   if (sessionId && pump.sessionId && sessionId !== pump.sessionId) {
-    stopOpfsCatchupStream(peerId, 'session mismatch');
+    stopCatchupStream(peerId, 'session mismatch');
     return;
   }
 
@@ -195,7 +195,7 @@ function onOpfsCatchupReadComplete(peerId: string, sessionId: number, requestTag
   pump.awaitingIndex = null;
   pump.lastActivity = Date.now();
   pump.retryCount = 0;
-  scheduleOpfsCatchupPump(pump, 0);
+  scheduleCatchupPump(pump, 0);
 }
 
 // ─── Upstream Relay Connection ──────────────────────────────────────
@@ -364,7 +364,7 @@ export function handleRelayConnection(conn: DataConnection): void {
 
     if (msg.type === MSG.REQUEST_CURRENT_FILE) {
       // Guard: only serve if conn is tracked (open handler has fired).
-      // If data arrives before open, the OPFS catchup pump looks up the peer
+      // If data arrives before open, the catchup pump looks up the peer
       // in downstreamDataPeers — a miss silently drops all chunks.
       const tracked = (getState('relay.downstreamDataPeers') as DataConnection[]).some(
         (p) => p === conn,
@@ -388,9 +388,9 @@ export function handleRelayConnection(conn: DataConnection): void {
   conn.on('error', (err: unknown) => {
     log.warn(`[Relay] Downstream connection error (${conn.peer}):`, err);
     // Only stop pump if it belongs to THIS connection (not a reconnected one)
-    const pump = opfsCatchupPumps.get(conn.peer);
+    const pump = catchupPumps.get(conn.peer);
     if (pump && pump.conn === conn) {
-      stopOpfsCatchupStream(conn.peer, 'downstream error');
+      stopCatchupStream(conn.peer, 'downstream error');
     }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     const wasTracked = downstreamDataPeers.some((p) => p === conn);
@@ -411,9 +411,9 @@ export function handleRelayConnection(conn: DataConnection): void {
 
   conn.on('close', () => {
     log.info(`[Relay] Downstream peer disconnected: ${conn.peer}`);
-    const pump = opfsCatchupPumps.get(conn.peer);
+    const pump = catchupPumps.get(conn.peer);
     if (pump && pump.conn === conn) {
-      stopOpfsCatchupStream(conn.peer, 'downstream disconnected');
+      stopCatchupStream(conn.peer, 'downstream disconnected');
     }
     const downstreamDataPeers = getState('relay.downstreamDataPeers');
     // Use reference equality to avoid removing a new connection from the same peer
@@ -478,11 +478,11 @@ export function initRelay(): void {
     if (conn) handleRelayConnection(conn);
   });
 
-  // Clean up OPFS catch-up pumps when session ends
+  // Clean up catch-up pumps when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
-      for (const peerId of opfsCatchupPumps.keys()) {
-        stopOpfsCatchupStream(peerId, 'session ended');
+      for (const peerId of catchupPumps.keys()) {
+        stopCatchupStream(peerId, 'session ended');
       }
     }
   });
@@ -525,7 +525,7 @@ export function initRelay(): void {
           log.error('[Relay] unicast preload failed:', e),
         );
     } else if (meta?.name) {
-      // Mid-download relay: send header + trigger OPFS catch-up
+      // Mid-download relay: send header + trigger catch-up
       const receivedCount = getState('transfer.receivedCount');
       const bootName = (meta.name as string) || reqName;
       log.debug(
@@ -542,9 +542,9 @@ export function initRelay(): void {
         sessionId: (meta.sessionId as number) ?? getState('transfer.localSessionId'),
       });
 
-      // OPFS catch-up: sequential pump with back-pressure
+      // Catch-up: sequential pump with back-pressure
       if (receivedCount > 0) {
-        startOpfsCatchupStream(conn, {
+        startCatchupStream(conn, {
           filename: bootName,
           sessionId: (meta.sessionId as number) ?? getState('transfer.localSessionId'),
           startIndex: 0,
@@ -578,7 +578,7 @@ export function initRelay(): void {
     );
 
     if (receivedCount > nextChunk) {
-      startOpfsCatchupStream(conn, {
+      startCatchupStream(conn, {
         filename: fileName,
         sessionId,
         startIndex: nextChunk,
@@ -590,7 +590,7 @@ export function initRelay(): void {
     }
   });
 
-  // Handle OPFS read failure during recovery/catchup serving
+  // Handle storage read failure during recovery/catchup serving
   bus.on('storage:read-error', (data: unknown) => {
     const d = data as Record<string, unknown>;
     if (!d) return;
@@ -600,27 +600,27 @@ export function initRelay(): void {
     const tag = sepIdx > 0 ? requestId.slice(sepIdx + 1) : '';
 
     if (tag === 'recovery') {
-      log.warn(`[Relay Recovery] OPFS read failed for ${peerId}: ${d.error || 'unknown'}`);
+      log.warn(`[Relay Recovery] Storage read failed for ${peerId}: ${d.error || 'unknown'}`);
       const downstreamDataPeers = getState('relay.downstreamDataPeers');
       const dConn = downstreamDataPeers.find((p) => p.peer === peerId);
       if (dConn && dConn.open) {
-        safeSend(dConn, { type: MSG.FILE_WAIT, message: 'Relay OPFS read failed' });
+        safeSend(dConn, { type: MSG.FILE_WAIT, message: 'Relay storage read failed' });
       }
     } else if (tag === 'catchup') {
       // Stop the catchup pump on read error to prevent infinite retry (#097).
       // Without this, the pump stays in `awaiting` state until the 6s stuck timer
       // retries indefinitely, since no read-complete event ever arrives.
-      log.warn(`[OPFS Catchup] Read failed for ${peerId}: ${d.error || 'unknown'}`);
+      log.warn(`[Catchup] Read failed for ${peerId}: ${d.error || 'unknown'}`);
       const downstreamDataPeers2 = getState('relay.downstreamDataPeers');
       const dConn2 = downstreamDataPeers2.find((p) => p.peer === peerId);
       if (dConn2 && dConn2.open) {
-        safeSend(dConn2, { type: MSG.FILE_WAIT, message: 'Relay OPFS catchup read failed' });
+        safeSend(dConn2, { type: MSG.FILE_WAIT, message: 'Relay catchup read failed' });
       }
-      stopOpfsCatchupStream(peerId, 'OPFS read error');
+      stopCatchupStream(peerId, 'storage read error');
     }
   });
 
-  // Handle OPFS read-complete: forward read chunks to downstream peers + advance pump
+  // Handle storage read-complete: forward read chunks to downstream peers + advance pump
   bus.on('storage:read-complete', (data: unknown) => {
     const d = data as Record<string, unknown>;
     if (!d) return;
@@ -667,7 +667,7 @@ export function initRelay(): void {
     }
 
     // Advance the catch-up pump (sequential: wait for response before next read)
-    onOpfsCatchupReadComplete(peerId, sessionId, tag);
+    onCatchupReadComplete(peerId, sessionId, tag);
   });
 
   log.info('[Relay] Handlers registered');

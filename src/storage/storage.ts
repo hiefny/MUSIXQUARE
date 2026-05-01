@@ -1,30 +1,32 @@
 /**
- * MUSIXQUARE — RAM-only storage adapter (mxqr_beta branch)
+ * MUSIXQUARE — RAM-only storage adapter
  *
- * Same external API as the OPFS worker wrapper on `main` (postWorkerCommand,
- * readStoredFile, cleanupStoredFile, sweepLegacyDiskFiles, …) so consumers
- * don't have to know which branch they're running on. Internally, every
- * `STORAGE_*` command is dispatched to the in-memory ramstore instead of a
- * Web Worker — there is no transfer.worker.ts on this branch, no
- * `navigator.storage.getDirectory()` writes, no disk persistence.
+ * Same external API as the OPFS worker wrapper preserved on
+ * `mxqr_slotpool_archive` (postWorkerCommand, readStoredFile,
+ * cleanupStoredFile, sweepLegacyDiskFiles, …) so the rest of the codebase
+ * stays branch-agnostic. Internally, every `STORAGE_*` command is dispatched
+ * to the in-memory ramstore instead of a Web Worker — there is no
+ * transfer.worker.ts here, no `navigator.storage.getDirectory()` writes,
+ * no disk persistence.
  *
  * Why
  * ───
- * iOS WebKit defers OPFS disk reclaim until app suspension; main branch
- * mitigated this with a fixed slot pool but `/debug sweep` confirmed the
- * deferred-reclaim mechanism still grew the storage estimate inside a
- * single PWA session. mxqr_beta exists to compare a pure RAM path side-
- * by-side: encoded chunks live in `Uint8Array[]` per session, blobs are
- * built with `new Blob([…])` on finalize, and reads slice from the cached
- * blob. iOS may still back individual large Blob objects to its private
- * storage, but that allocation is GC-driven (frees with the JS reference)
- * rather than tied to OPFS's deferred-reclaim quirk.
+ * iOS WebKit defers OPFS disk reclaim until app suspension; the previous
+ * approach (mxqr_slotpool_archive) tried to mitigate this with a fixed
+ * slot pool but `/debug sweep` confirmed the deferred-reclaim mechanism
+ * still grew the storage estimate inside a single PWA session. The
+ * RAM-only path bypasses disk entirely: encoded chunks live in
+ * `Uint8Array[]` per session, blobs are built with `new Blob([…])` on
+ * finalize, and reads slice from the cached blob. iOS may still back
+ * individual large Blob objects to its private storage, but that
+ * allocation is GC-driven (frees with the JS reference) rather than tied
+ * to the deferred-reclaim quirk.
  *
  * Memory characteristics
  * ──────────────────────
  *   - Active main blob:    ~5–15 MB typical mp3, up to ~50 MB hi-res
  *   - Preload blobs:       depth × track size (preload depth is 1–2)
- *   - Decoded AudioBuffer: ~80 MB / 4-min song (same as OPFS branch)
+ *   - Decoded AudioBuffer: ~80 MB / 4-min song (storage-strategy independent)
  * Foreground footprint typically lands at 100–150 MB — well inside the
  * iOS PWA budget. Long podcasts crash on AudioBuffer decode regardless
  * of storage strategy; that's a hard ceiling neither path can soften.
@@ -51,13 +53,16 @@ import {
 
 // ─── Worker References ──────────────────────────────────────────────
 // Only the sync worker is real on RAM-only — it carries the video-sync
-// timer. Storage commands stay in-process (see routeOpfsCommandToRam below).
+// timer. Storage commands stay in-process (see routeStorageCommand below).
+//
+// (`postWorkerCommand` is named for legacy parity with the slot-pool
+// branch's worker wrapper — most STORAGE_* commands no longer hop a worker.)
 let _syncWorker: Worker | null = null;
 
 // ─── Worker Timer IDs ───────────────────────────────────────────────
 const WORKER_TIMER_IDS = ['video-sync'];
 
-// ─── OPFS Instance ID (same as core session) ───────────────────────
+// ─── Instance ID (same as core session) ─────────────────────────────
 // INSTANCE_ID used directly (no alias needed)
 
 // ─── Worker Initialization ──────────────────────────────────────────
@@ -74,7 +79,7 @@ export function setSyncWorker(worker: Worker): void {
 
 /**
  * Send a command to the appropriate destination.
- * OPFS commands → in-process ramstore (no worker hop).
+ * STORAGE_* commands → in-process ramstore (no worker hop).
  * Timer commands → syncWorker (still a real worker).
  */
 export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferable[]): void {
@@ -112,7 +117,7 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
   }
 
   if (cmd.startsWith('STORAGE_')) {
-    routeOpfsCommandToRam(payload);
+    routeStorageCommand(payload);
     return;
   }
 
@@ -123,27 +128,27 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
   }
 }
 
-// ─── In-Process OPFS Bridge ─────────────────────────────────────────
+// ─── In-Process Bridge ──────────────────────────────────────────────
 //
 // Runs STORAGE_* commands against the ramstore and synthesizes the same
-// response messages the worker would have posted, so the existing
+// response messages a worker would have posted, so the existing
 // `handleTransferWorkerMessage` switch (and downstream bus events)
 // stay unchanged. We `queueMicrotask` the dispatch to preserve the
 // async-postMessage semantics consumers rely on — without it, ack
 // callbacks could land before the calling stack frame returns and
 // surprise call-chain logic.
 
-function routeOpfsCommandToRam(payload: WorkerCommand): void {
+function routeStorageCommand(payload: WorkerCommand): void {
   queueMicrotask(() => {
     try {
-      runOpfsCommand(payload);
+      runStorageCommand(payload);
     } catch (err) {
       log.error('[Ramstore] command failed:', err);
     }
   });
 }
 
-function runOpfsCommand(payload: WorkerCommand): void {
+function runStorageCommand(payload: WorkerCommand): void {
   const cmd = payload.command;
   const filename = (payload.filename as string) || '';
   const isPreload = !!payload.isPreload;
@@ -307,7 +312,7 @@ function runOpfsCommand(payload: WorkerCommand): void {
     }
 
     default:
-      log.warn(`[Ramstore] Unknown OPFS command: ${cmd}`);
+      log.warn(`[Ramstore] Unknown storage command: ${cmd}`);
   }
 }
 
@@ -322,7 +327,7 @@ function dispatchWorkerResponse(response: WorkerResponse): void {
   } as MessageEvent<WorkerResponse>);
 }
 
-// ─── OPFS Helpers ───────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────
 
 /**
  * Cleanup a stored file by logical filename. Fire-and-forget with a 10 s
@@ -365,7 +370,7 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
 /**
  * Read a finalized file from the ramstore. Wrapped as a `File` so callers
  * that introspect `.name` continue to work — same return-type contract as
- * the OPFS branch where `getFile()` already gave them a File.
+ * the worker branch where `getFile()` already gave them a File.
  */
 export async function readStoredFile(filename: string, isPreload: boolean): Promise<File | null> {
   if (!filename) return null;
@@ -489,11 +494,11 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
   try {
     switch (data.type) {
       case 'STORAGE_STARTED':
-        log.debug(`[OPFS] Session started: ${data.filename} (SID: ${data.sessionId})`);
+        log.debug(`[Storage] Session started: ${data.filename} (SID: ${data.sessionId})`);
         break;
 
       case 'STORAGE_FILE_READY':
-        log.debug(`[OPFS] File finalized: ${data.filename} (SID: ${data.sessionId})`);
+        log.debug(`[Storage] File finalized: ${data.filename} (SID: ${data.sessionId})`);
         bus.emit(
           'storage:file-ready',
           data.filename || '',
@@ -507,7 +512,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         break;
 
       case 'STORAGE_WRITE_ERROR':
-        log.warn(`[OPFS] Write error for ${data.filename} chunk ${data.index}:`, data.error);
+        log.warn(`[Storage] Write error for ${data.filename} chunk ${data.index}:`, data.error);
         // Notify transfer module so it can trigger recovery instead of silently
         // continuing with a corrupted file (missing chunk data).
         bus.emit('storage:write-error', {
@@ -518,19 +523,19 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
         break;
 
       case 'STORAGE_READ_ERROR':
-        log.error(`[OPFS] Read error for ${data.filename}:`, data.error);
+        log.error(`[Storage] Read error for ${data.filename}:`, data.error);
         bus.emit('storage:read-error', data);
         break;
 
       case 'STORAGE_ERROR': {
         const isPreload = !!data.isPreload;
-        log.error(`[OPFS] Worker error: ${data.error} (${data.filename}, code: ${data.code})`);
+        log.error(`[Storage] Worker error: ${data.error} (${data.filename}, code: ${data.code})`);
         bus.emit('storage:error', data.error || '', data.filename || '');
 
         if (!isPreload) {
           if (data.code === 'INTEGRITY_FAIL') {
             // File finalization failed — trigger recovery to re-fetch the file
-            log.warn('[OPFS] Integrity fail — requesting recovery');
+            log.warn('[Storage] Integrity fail — requesting recovery');
             bus.emit('storage:request-recovery');
           } else if (data.code === 'START_FAILED' || data.code === 'LOCKED') {
             // Lock acquisition failed — reset transfer state to prevent stuck loader.
@@ -541,7 +546,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
               transferState === TRANSFER_STATE.RECEIVING ||
               transferState === TRANSFER_STATE.PROCESSING
             ) {
-              log.warn(`[OPFS] Start/lock failed — resetting stuck ${transferState} state`);
+              log.warn(`[Storage] Start/lock failed — resetting stuck ${transferState} state`);
               setState('transfer.state', TRANSFER_STATE.IDLE);
               showLoader(false);
             }
@@ -553,7 +558,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       case 'SESSION_MISMATCH': {
         const isPreload = !!data.isPreload;
         log.warn(
-          `[OPFS] Session Mismatch: ${data.filename} cmd=${data.command} (${isPreload ? 'preload' : 'current'})`,
+          `[Storage] Session Mismatch: ${data.filename} cmd=${data.command} (${isPreload ? 'preload' : 'current'})`,
         );
         // Preload mismatches are non-fatal
         if (!isPreload) {
@@ -571,7 +576,7 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           if (data.command === 'STORAGE_END') {
             const transferState = getState('transfer.state');
             if (transferState === TRANSFER_STATE.PROCESSING) {
-              log.warn('[OPFS] STORAGE_END dropped — resetting stuck PROCESSING state');
+              log.warn('[Storage] STORAGE_END dropped — resetting stuck PROCESSING state');
               setState('transfer.state', TRANSFER_STATE.IDLE);
               showLoader(false);
             }
@@ -581,11 +586,11 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
       }
 
       case 'WORKER_ERROR':
-        log.error(`[OPFS] Worker error: ${data.error} (command: ${data.command})`);
+        log.error(`[Storage] Worker error: ${data.error} (command: ${data.command})`);
         break;
 
       case 'STORAGE_RESET_COMPLETE':
-        log.debug('[OPFS] Reset complete');
+        log.debug('[Storage] Reset complete');
         break;
 
       case 'STORAGE_CLEANUP_COMPLETE':
@@ -595,18 +600,18 @@ function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
           // The fire-and-forget caller already moved on, so the best we can do
           // here is log loudly. Real recovery happens when the next STORAGE_RESET
           // for this file releases the lock and a subsequent cleanup succeeds.
-          log.warn(`[OPFS] Cleanup skipped (file still locked): ${data.filename}`);
+          log.warn(`[Storage] Cleanup skipped (file still locked): ${data.filename}`);
         } else {
-          log.debug(`[OPFS] Cleanup complete: ${data.filename}`);
+          log.debug(`[Storage] Cleanup complete: ${data.filename}`);
         }
         bus.emit('storage:cleanup-complete', data.filename || '');
         break;
 
       default:
-        log.debug(`[OPFS] Unknown worker message: ${data.type}`);
+        log.debug(`[Storage] Unknown worker message: ${data.type}`);
     }
   } catch (err) {
-    log.error(`[OPFS] Worker message handler crashed on ${data.type}:`, err);
+    log.error(`[Storage] Worker message handler crashed on ${data.type}:`, err);
   }
 }
 

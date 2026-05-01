@@ -1,17 +1,18 @@
 /**
- * MUSIXQUARE — RAM-only chunk store (mxqr_beta branch)
+ * MUSIXQUARE — RAM-only chunk store
  *
- * Drop-in replacement for the OPFS worker on the slot-pool main branch.
- * Keeps the same logical contract — sessions accumulate chunks until
- * STORAGE_END, after which a Blob is available for read — but never
- * touches `navigator.storage` and never spawns a worker.
+ * Drop-in replacement for the OPFS worker preserved on
+ * `mxqr_slotpool_archive`. Keeps the same logical contract — sessions
+ * accumulate chunks until STORAGE_END, after which a Blob is available
+ * for read — but never touches `navigator.storage` and never spawns
+ * a worker.
  *
  * Why this exists
  * ───────────────
  * iOS WebKit's OPFS doesn't reclaim disk pages on `removeEntry()` until
- * the app suspends; main branch fixed the on-disk *count* by switching
- * to a fixed slot pool, but `/debug sweep` showed deleted-but-retained
- * pages still grew the storage estimate. mxqr_beta sidesteps the iOS
+ * the app suspends; the slot-pool path fixed the on-disk *count* by
+ * recycling a fixed pool, but `/debug sweep` showed deleted-but-retained
+ * pages still grew the storage estimate. RAM-only sidesteps the iOS
  * quirk entirely: encoded blobs live in RAM, decoded AudioBuffers live
  * in RAM (as before), there is no disk path. iOS may still back large
  * Blob objects to its own internal storage but that allocation is GC-

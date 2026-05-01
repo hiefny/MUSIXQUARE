@@ -469,6 +469,11 @@ export function leaveSession(): void {
   bus.emit('system-audio:force-stop');
 
   // ── 1. Stop all background timers ──
+  // Guest started the worker `'sync'` timer on session join (guest.ts:220);
+  // without an explicit STOP, the worker keeps ticking after leave and the
+  // tick handler runs every second as a guarded noop (hostConn=null). Tell
+  // the worker to drop the timer so the noop traffic stops.
+  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'sync' });
   clearAllManagedTimers();
 
   // ── 2. Stop media playback ──

@@ -264,13 +264,31 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // and restart after the standard 3s delay. Guests get a FILE_PREPARE
   // with autoPlayDelayMs which routes through their same-file replay
   // branch — no re-download.
+  //
+  // Gating on `currentAudioBuffer` existence alone is unsafe: rapid
+  // playlist clicking aborts every in-flight decode via loadToken
+  // mismatch in decode.ts, and that abort path leaves the previous
+  // track's `currentAudioBuffer` in place (so the previously-playing
+  // track stays audible for the rest of the click burst). When the
+  // user finally double-clicks track X, `currentTrackIndex === X` but
+  // the still-resident buffer belongs to the pre-burst track A. Without
+  // verifying that the buffer actually corresponds to X, fast path
+  // would skip X's decode entirely and play A — sound + 3 s delay +
+  // guests stranded with a fetched-but-never-played X file.
+  // Cross-checking the active filename closes the race.
   const _currentIdx = getState('playlist.currentTrackIndex');
   const _item = playlist[index];
   const _isSameTrack = index === _currentIdx;
-  const _hasAudioLoaded = !!getCurrentAudioBuffer();
   const _isLocalFileTrack = !!_item && _item.type !== 'youtube' && !!_item.file;
+  const _activeBufferTrackName =
+    (getState('transfer.meta')?.name as string | undefined) ||
+    (getState('files.currentFileBlob') as File | null)?.name;
+  const _bufferMatchesTrack =
+    !!getCurrentAudioBuffer() &&
+    !!_activeBufferTrackName &&
+    _activeBufferTrackName === _item?.file?.name;
 
-  if (!hostConn && _isSameTrack && _hasAudioLoaded && _isLocalFileTrack) {
+  if (!hostConn && _isSameTrack && _isLocalFileTrack && _bufferMatchesTrack) {
     log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
 
     const file = _item.file!;

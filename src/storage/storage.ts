@@ -37,7 +37,7 @@ import { getState, setState } from '../core/state.ts';
 import { TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
-import type { WorkerCommand, WorkerResponse } from '../types/index.ts';
+import type { StorageCommand, StorageEvent } from '../types/index.ts';
 import { showLoader } from '../ui/toast.ts';
 import {
   ramStart,
@@ -50,55 +50,33 @@ import {
   ramReset,
 } from './ramstore.ts';
 
-// ─── Worker References ──────────────────────────────────────────────
-// Only the sync worker is real on RAM-only — it carries the `'sync'`
-// timer that drives Guest→Host SYNC_PING (see network/guest.ts).
-// Storage commands stay in-process (see routeStorageCommand below);
-// `postCommand` routes between the two paths.
-let _syncWorker: Worker | null = null;
-
 // ─── Instance ID (same as core session) ─────────────────────────────
 // INSTANCE_ID used directly (no alias needed)
-
-// ─── Worker Initialization ──────────────────────────────────────────
-
-export function setSyncWorker(worker: Worker): void {
-  _syncWorker = worker;
-  _syncWorker.onmessage = handleSyncWorkerMessage;
-  // onerror is assigned in app.ts after this call; assigning here would be
-  // silently overwritten (property assignment, not addEventListener). Keep
-  // the single-owner convention in app.ts.
-}
 
 // ─── Command Dispatch ───────────────────────────────────────────────
 
 /**
- * Send a command to the appropriate destination.
- * STORAGE_* commands → in-process ramstore (no worker hop).
- * Timer commands → syncWorker (still a real worker).
+ * Validate, normalise, and dispatch a storage command. Storage commands
+ * never hop a worker on RAM-only — they're routed in-process to ramstore.
+ * Timer/worker commands live in network/sync-worker.ts.
  */
-export function postCommand(payload: WorkerCommand, transfers?: Transferable[]): void {
+export function postCommand(payload: StorageCommand): void {
   if (!payload || !payload.command) return;
 
   const cmd = payload.command;
 
-  // Same validation contract as the worker branch — keeps callers
-  // consistent across main / mxqr_beta. Critical write-path commands
-  // require sessionId; STORAGE_RESET / RESET_SESSION / CLEANUP are exempt
-  // from the filename gate.
   if (
-    cmd.startsWith('STORAGE_') &&
     cmd !== 'STORAGE_RESET' &&
     cmd !== 'STORAGE_RESET_SESSION' &&
     cmd !== 'STORAGE_CLEANUP'
   ) {
-    if (!payload.filename) log.warn(`[Worker] Missing filename in ${cmd}`);
+    if (!payload.filename) log.warn(`[Storage] Missing filename in ${cmd}`);
 
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
 
     const isCriticalOp = cmd === 'STORAGE_START' || cmd === 'STORAGE_WRITE' || cmd === 'STORAGE_END';
     if (isCriticalOp && !payload.sessionId) {
-      log.error(`[Worker] Blocked ${cmd}: invalid sessionId`, payload);
+      log.error(`[Storage] Blocked ${cmd}: invalid sessionId`, payload);
       return;
     }
   }
@@ -106,21 +84,12 @@ export function postCommand(payload: WorkerCommand, transfers?: Transferable[]):
   if (cmd === 'STORAGE_RESET_SESSION') {
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
     if (!payload.sessionId) {
-      log.warn(`[Worker] Dropped STORAGE_RESET_SESSION: invalid sessionId`);
+      log.warn(`[Storage] Dropped STORAGE_RESET_SESSION: invalid sessionId`);
       return;
     }
   }
 
-  if (cmd.startsWith('STORAGE_')) {
-    routeStorageCommand(payload);
-    return;
-  }
-
-  if (_syncWorker) {
-    _syncWorker.postMessage(payload, transfers || []);
-  } else {
-    log.warn(`[Worker] SyncWorker not ready. Dropping command: ${cmd}`);
-  }
+  routeStorageCommand(payload);
 }
 
 // ─── In-Process Bridge ──────────────────────────────────────────────
@@ -133,7 +102,7 @@ export function postCommand(payload: WorkerCommand, transfers?: Transferable[]):
 // callbacks could land before the calling stack frame returns and
 // surprise call-chain logic.
 
-function routeStorageCommand(payload: WorkerCommand): void {
+function routeStorageCommand(payload: StorageCommand): void {
   queueMicrotask(() => {
     try {
       runStorageCommand(payload);
@@ -143,7 +112,7 @@ function routeStorageCommand(payload: WorkerCommand): void {
   });
 }
 
-function runStorageCommand(payload: WorkerCommand): void {
+function runStorageCommand(payload: StorageCommand): void {
   const cmd = payload.command;
   const filename = (payload.filename as string) || '';
   const isPreload = !!payload.isPreload;
@@ -155,9 +124,9 @@ function runStorageCommand(payload: WorkerCommand): void {
       const keepExisting = !!payload.keepExisting;
       const result = ramStart(filename, isPreload, sessionId, chunkSize, keepExisting);
       if (result.ok) {
-        dispatchWorkerResponse({ type: 'STORAGE_STARTED', filename, isPreload, sessionId });
+        dispatchStorageEvent({ type: 'STORAGE_STARTED', filename, isPreload, sessionId });
       } else {
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'STORAGE_ERROR',
           error: result.reason || 'start failed',
           filename,
@@ -183,7 +152,7 @@ function runStorageCommand(payload: WorkerCommand): void {
                 )
               : null;
       if (!chunk) {
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'STORAGE_WRITE_ERROR',
           error: 'Invalid chunk',
           filename,
@@ -195,7 +164,7 @@ function runStorageCommand(payload: WorkerCommand): void {
       const index = payload.index as number;
       const result = ramWrite(filename, isPreload, sessionId, index, chunk);
       if (!result.ok && result.reason === 'Session mismatch') {
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'SESSION_MISMATCH',
           command: 'STORAGE_WRITE',
           expected: result.expectedSid ?? null,
@@ -203,7 +172,7 @@ function runStorageCommand(payload: WorkerCommand): void {
           filename,
           isPreload,
         });
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'STORAGE_WRITE_ERROR',
           error: 'Session mismatch',
           filename,
@@ -221,9 +190,9 @@ function runStorageCommand(payload: WorkerCommand): void {
       const totalSize = payload.totalSize as number | undefined;
       const result = ramEnd(filename, isPreload, sessionId, totalSize);
       if (result.blob) {
-        dispatchWorkerResponse({ type: 'STORAGE_FILE_READY', filename, isPreload, sessionId });
+        dispatchStorageEvent({ type: 'STORAGE_FILE_READY', filename, isPreload, sessionId });
       } else if (result.reason && result.reason.startsWith('Integrity Fail')) {
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'STORAGE_ERROR',
           error: result.reason,
           filename,
@@ -231,7 +200,7 @@ function runStorageCommand(payload: WorkerCommand): void {
           code: 'INTEGRITY_FAIL',
         });
       } else if (result.reason === 'Session mismatch') {
-        dispatchWorkerResponse({
+        dispatchStorageEvent({
           type: 'SESSION_MISMATCH',
           command: 'STORAGE_END',
           expected: result.expectedSid ?? null,
@@ -245,7 +214,7 @@ function runStorageCommand(payload: WorkerCommand): void {
 
     case 'STORAGE_RESET': {
       ramReset(isPreload);
-      dispatchWorkerResponse({ type: 'STORAGE_RESET_COMPLETE', isPreload });
+      dispatchStorageEvent({ type: 'STORAGE_RESET_COMPLETE', isPreload });
       return;
     }
 
@@ -259,7 +228,7 @@ function runStorageCommand(payload: WorkerCommand): void {
 
     case 'STORAGE_CLEANUP': {
       const result = ramCleanup(filename, isPreload);
-      dispatchWorkerResponse({
+      dispatchStorageEvent({
         type: 'STORAGE_CLEANUP_COMPLETE',
         filename,
         isPreload,
@@ -276,7 +245,7 @@ function runStorageCommand(payload: WorkerCommand): void {
       ramReadChunk(filename, isPreload, sessionId, index)
         .then((chunk) => {
           if (chunk) {
-            dispatchWorkerResponse({
+            dispatchStorageEvent({
               type: 'STORAGE_READ_COMPLETE',
               chunk,
               index,
@@ -285,7 +254,7 @@ function runStorageCommand(payload: WorkerCommand): void {
               sessionId,
             });
           } else {
-            dispatchWorkerResponse({
+            dispatchStorageEvent({
               type: 'STORAGE_READ_ERROR',
               error: 'Slot not found',
               filename,
@@ -295,7 +264,7 @@ function runStorageCommand(payload: WorkerCommand): void {
           }
         })
         .catch((e) => {
-          dispatchWorkerResponse({
+          dispatchStorageEvent({
             type: 'STORAGE_READ_ERROR',
             error: (e as Error)?.message ?? String(e),
             filename,
@@ -316,10 +285,10 @@ function runStorageCommand(payload: WorkerCommand): void {
  * expects, so all the existing bus.emit / state mutation logic in that
  * switch keeps running unchanged.
  */
-function dispatchWorkerResponse(response: WorkerResponse): void {
+function dispatchStorageEvent(response: StorageEvent): void {
   handleStorageResponse({
     data: response,
-  } as MessageEvent<WorkerResponse>);
+  } as MessageEvent<StorageEvent>);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -467,7 +436,7 @@ export async function sweepLegacyDiskFiles(opts: {
 
 // ─── Worker Message Handlers ────────────────────────────────────────
 
-function handleStorageResponse(e: MessageEvent<WorkerResponse>): void {
+function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
   const data = e.data;
   if (!data || !data.type) return;
 
@@ -598,17 +567,6 @@ function handleStorageResponse(e: MessageEvent<WorkerResponse>): void {
   }
 }
 
-function handleSyncWorkerMessage(e: MessageEvent): void {
-  const data = e.data;
-  if (!data) return;
-
-  if (data.type === 'TICK') {
-    bus.emit('worker:timer-tick', data.id);
-  } else if (data.type === 'WORKER_ERROR') {
-    log.warn('[SyncWorker] Error:', data.error);
-  }
-}
-
 // ─── Ensure Named File ──────────────────────────────────────────────
 
 /**
@@ -628,12 +586,3 @@ export function ensureNamedFile(
     return blob;
   }
 }
-
-// ─── Bus Event Handlers ─────────────────────────────────────────
-
-/** Forward sync commands from bus to the sync worker */
-bus.on('worker:sync-command', (payload: { command: string; id: string; interval?: number }) => {
-  if (payload && payload.command) {
-    postCommand(payload);
-  }
-});

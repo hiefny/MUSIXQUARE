@@ -21,6 +21,7 @@ import {
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { sweepLegacyDiskFiles } from '../storage/storage.ts';
+import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 import { Peer, type PeerOptions } from 'peerjs';
@@ -473,7 +474,7 @@ export function leaveSession(): void {
   // without an explicit STOP, the worker keeps ticking after leave and the
   // tick handler runs every second as a guarded noop (hostConn=null). Tell
   // the worker to drop the timer so the noop traffic stops.
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'sync' });
+  stopWorkerTimer('sync');
   clearAllManagedTimers();
 
   // ── 2. Stop media playback ──

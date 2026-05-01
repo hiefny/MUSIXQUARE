@@ -14,7 +14,6 @@ vi.mock('../../core/session.ts', async (importOriginal) => {
 import {
   ensureNamedFile,
   postCommand,
-  setSyncWorker,
 } from '../storage.ts';
 
 beforeEach(() => {
@@ -60,15 +59,6 @@ describe('ensureNamedFile', () => {
 });
 
 describe('postCommand', () => {
-  it('drops timer command silently when no sync worker is set', () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Storage commands are now routed in-process by ramstore so they no longer
-    // depend on a worker reference. Timer commands still need _syncWorker;
-    // without one set, the call should warn and drop without throwing.
-    postCommand({ command: 'STOP_TIMER', id: 'heartbeat' });
-    spy.mockRestore();
-  });
-
   it('returns early for null/undefined payload', () => {
     // Should not throw
     postCommand(null as never);
@@ -77,23 +67,6 @@ describe('postCommand', () => {
 
   it('returns early for payload without command', () => {
     postCommand({} as never);
-  });
-
-  it('sends timer commands to sync worker', () => {
-    const mockPostMessage = vi.fn();
-    const mockWorker = {
-      postMessage: mockPostMessage,
-      onmessage: null,
-      onerror: null,
-      addEventListener: vi.fn(),
-    } as unknown as Worker;
-
-    setSyncWorker(mockWorker);
-    postCommand({ command: 'START_TIMER', id: 'heartbeat', interval: 1000 });
-    expect(mockPostMessage).toHaveBeenCalledWith(
-      { command: 'START_TIMER', id: 'heartbeat', interval: 1000 },
-      [],
-    );
   });
 });
 

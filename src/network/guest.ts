@@ -18,6 +18,7 @@ import { registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
 
 import { getPeer, detectConnectionType } from './peer-state.ts';
+import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
@@ -217,7 +218,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     });
 
     // Start unified sync timer (replaces separate heartbeat + ping timers)
-    bus.emit('worker:sync-command', { command: 'START_TIMER', id: 'sync', interval: 1000 });
+    startWorkerTimer('sync', 1000);
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).

@@ -64,11 +64,11 @@ export interface PlaylistItem {
   isExpanded?: boolean;
 }
 
-// ─── Worker Messages ───────────────────────────────────────────────
-export interface WorkerCommand {
+// ─── Storage Commands & Events ─────────────────────────────────────
+
+/** Commands accepted by `storage.ts::postCommand`. All are STORAGE_*. */
+export interface StorageCommand {
   command: string;
-  id?: string;
-  interval?: number;
   filename?: string;
   sessionId?: number;
   index?: number;
@@ -82,7 +82,7 @@ export interface WorkerCommand {
   instanceId?: string;
 }
 
-export type WorkerResponseType =
+export type StorageEventType =
   | 'STORAGE_STARTED'
   | 'STORAGE_FILE_READY'
   | 'STORAGE_READ_COMPLETE'
@@ -92,18 +92,21 @@ export type WorkerResponseType =
   | 'STORAGE_RESET_COMPLETE'
   | 'STORAGE_CLEANUP_COMPLETE'
   | 'SESSION_MISMATCH'
-  | 'WORKER_ERROR'
-  | 'TICK';
+  | 'WORKER_ERROR';
 
-export interface WorkerResponse {
-  type: WorkerResponseType;
+/**
+ * Events emitted by the storage layer. On the slot-pool branch these
+ * came from `transfer.worker.ts` postMessage; on RAM-only the in-process
+ * bridge synthesizes the same wire shape so consumers stay unchanged.
+ */
+export interface StorageEvent {
+  type: StorageEventType;
   filename?: string;
   sessionId?: number;
   index?: number;
   // STORAGE_READ_COMPLETE delivers chunks as Uint8Array (with .buffer
-  // transferred). Allow either shape so the in-process RAM bridge in
-  // mxqr_beta and the worker on main can both produce values matching
-  // this contract.
+  // transferred). Allow either shape so the in-process RAM bridge and a
+  // worker-backed implementation both satisfy this contract.
   chunk?: ArrayBuffer | Uint8Array;
   isPreload?: boolean;
   requestId?: string;
@@ -111,10 +114,7 @@ export interface WorkerResponse {
   command?: string;
   code?: string;
   skipped?: boolean;
-  // SESSION_MISMATCH reporting fields. The worker on main sets these
-  // through `safePost(Record<string, unknown>)` which bypasses typing —
-  // declaring them here lets the in-process RAM bridge satisfy strict
-  // mode without losing the wire shape.
+  // SESSION_MISMATCH reporting fields.
   expected?: number | null;
   received?: number;
 }
@@ -826,6 +826,5 @@ interface BaseEventMap {
   'visualizer:set-type': [mode: 'circular' | 'spectrum'];
 
   // ── Worker ──────────────────────────────────────────────────────────
-  'worker:sync-command': [payload: { command: string; id: string; interval?: number }];
   'worker:timer-tick': [id: string];
 }

@@ -44,10 +44,11 @@ import { registerSystemAudioHostListeners } from './network/system-audio-host.ts
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 // ── Storage ──
 // RAM-only dispatches STORAGE_* commands in-process — no transfer worker.
-import { setSyncWorker, sweepLegacyDiskFiles } from './storage/storage.ts';
+import { sweepLegacyDiskFiles } from './storage/storage.ts';
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
+import { setSyncWorker } from './network/sync-worker.ts';
 
 // ── Player ──
 import { initPlayback } from './player/playback.ts';

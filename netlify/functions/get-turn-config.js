@@ -27,7 +27,17 @@ exports.handler = async (event) => {
     origin === `https://${host}` || origin === `http://${host}`
   );
 
-  const isTrusted = sameOrigin || trustedPatterns.some(p => p.test(origin));
+  // Sec-Fetch-Site is browser-attached (curl / server-side fetchers don't
+  // emit it by default), so it's a stronger same-origin signal than Origin
+  // alone. Browsers don't always include the Origin header on same-origin
+  // GET requests — without this fallback the credential gate would 403
+  // legitimate page loads from musixquare.com. The threat model (curl /
+  // scraper exfiltrating long-lived TURN creds) stays addressed because
+  // those callers don't set Sec-Fetch-Site.
+  const fetchSite = (event?.headers?.['sec-fetch-site'] || event?.headers?.['Sec-Fetch-Site'] || '').toLowerCase();
+  const browserSameOrigin = fetchSite === 'same-origin';
+
+  const isTrusted = sameOrigin || browserSameOrigin || trustedPatterns.some(p => p.test(origin));
   const allowOrigin = isTrusted ? origin : "";
 
   const corsHeaders = allowOrigin

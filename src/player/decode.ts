@@ -14,7 +14,7 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
-import { postWorkerCommand, cleanupStoredFile } from '../storage/storage.ts';
+import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
@@ -664,7 +664,7 @@ export function clearPreviousTrackState(reason = ''): void {
     const nextMeta = getState('preload.meta');
     const isActuallyChanging = currentTrackEntry.name !== nextMeta?.name;
     if (isActuallyChanging) {
-      postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
+      postCommand({ command: 'STORAGE_RESET', isPreload: false });
       cleanupStoredFile(currentTrackEntry.name, false);
       setState('files.currentTrack', { name: null });
     }

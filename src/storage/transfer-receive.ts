@@ -20,7 +20,7 @@ import {
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { postWorkerCommand, cleanupStoredFile } from './storage.ts';
+import { postCommand, cleanupStoredFile } from './storage.ts';
 import { t } from '../i18n/index.ts';
 import {
   safeSend,
@@ -686,7 +686,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   const isNewSession = incomingSid > localSid;
   if (isNewSession) {
     setState('transfer.localSessionId', incomingSid);
-    postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
+    postCommand({ command: 'STORAGE_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'new-session-start');
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
@@ -737,7 +737,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     log.debug(`[file-start] Same file re-sent (recovery). Resetting from scratch.`);
   }
 
-  postWorkerCommand({
+  postCommand({
     command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: false,
@@ -806,7 +806,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   setState('transfer.receivedCount', startChunk);
 
   clearManagedTimer('prepareWatchdog');
-  postWorkerCommand({
+  postCommand({
     command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: false,
@@ -915,7 +915,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   // Reset worker on new session detection
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
-    postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
+    postCommand({ command: 'STORAGE_RESET', isPreload: false });
     bus.emit('storage:clear-previous-track', 'session-change');
     fileReorderBuffer.clear();
     _pendingEarlyChunks.length = 0;
@@ -925,7 +925,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     // Send STORAGE_START so worker accepts subsequent writes (prevents 12-60s recovery delay)
     const chunkName = (data.name as string) || '';
     if (chunkName) {
-      postWorkerCommand({
+      postCommand({
         command: 'STORAGE_START',
         filename: chunkName,
         isPreload: false,
@@ -1056,7 +1056,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
         setState('files.currentTrack', { name: fname });
-        postWorkerCommand({
+        postCommand({
           command: 'STORAGE_START',
           filename: fname,
           isPreload: false,
@@ -1104,7 +1104,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       relayCopy = new Uint8Array(chunk);
     }
 
-    postWorkerCommand({
+    postCommand({
       command: 'STORAGE_WRITE',
       chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
       index: nextExpectedChunk,
@@ -1181,7 +1181,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     }
 
     // Finalize in storage
-    postWorkerCommand({
+    postCommand({
       command: 'STORAGE_END',
       filename: (currentMeta?.name as string) || '',
       isPreload: false,
@@ -1376,6 +1376,6 @@ export function cancelIncomingFileTransfer(reason: string): void {
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', {});
 
-  postWorkerCommand({ command: 'STORAGE_RESET', isPreload: false });
+  postCommand({ command: 'STORAGE_RESET', isPreload: false });
   showLoader(false);
 }

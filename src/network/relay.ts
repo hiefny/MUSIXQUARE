@@ -28,7 +28,7 @@ import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { getPeer, safeSend, sendToHost } from './peer.ts';
 import { unicastFile } from '../storage/transfer.ts';
-import { ensureNamedFile, postWorkerCommand } from '../storage/storage.ts';
+import { ensureNamedFile, postCommand } from '../storage/storage.ts';
 import { showToast } from '../ui/toast.ts';
 
 // ─── Module State ───────────────────────────────────────────────────
@@ -168,7 +168,7 @@ function runCatchupPump(pump: CatchupPump): void {
   pump.awaitingIndex = idx;
   pump.lastActivity = Date.now();
 
-  postWorkerCommand({
+  postCommand({
     command: 'STORAGE_READ',
     filename: pump.filename,
     index: idx,

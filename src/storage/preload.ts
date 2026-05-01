@@ -13,7 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
-import { postWorkerCommand, readStoredFile } from './storage.ts';
+import { postCommand, readStoredFile } from './storage.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   safeSend,
@@ -671,7 +671,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   // manages preload slots by sessionId. Sending STORAGE_RESET would abort
   // any still-downloading "stale" preloads (like a late-joiner's Track 2
   // that was superseded by Track 3).
-  postWorkerCommand({
+  postCommand({
     command: 'STORAGE_START',
     filename: data.name as string,
     isPreload: true,
@@ -757,7 +757,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
       });
     }
 
-    postWorkerCommand({
+    postCommand({
       command: 'STORAGE_WRITE',
       chunk: chunkClone.buffer as ArrayBuffer,
       index: nextChunkPtr,
@@ -827,7 +827,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // Finalize if all chunks received (in-chunk finalization)
   if (isComplete && !session.finalized) {
     log.debug(`[Preload] All chunks received (${nextChunkPtr}/${totalExpected}). Finalizing...`);
-    postWorkerCommand({
+    postCommand({
       command: 'STORAGE_END',
       filename: updatedSession.name,
       isPreload: true,
@@ -923,7 +923,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
       updatedSessionState.set(sid, finalizedSession);
       setState('preload.sessionState', updatedSessionState);
 
-      postWorkerCommand({
+      postCommand({
         command: 'STORAGE_END',
         filename: freshSession.name,
         isPreload: true,
@@ -1054,7 +1054,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   // ready handler. STORAGE_RESET_SESSION just releases the lock and removes
   // the slot.
   if (session.name) {
-    postWorkerCommand({
+    postCommand({
       command: 'STORAGE_RESET_SESSION',
       isPreload: true,
       sessionId: validateSessionId(sid),

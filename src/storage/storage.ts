@@ -1,13 +1,12 @@
 /**
  * MUSIXQUARE — RAM-only storage adapter
  *
- * Same external API as the OPFS worker wrapper preserved on
- * `mxqr_slotpool_archive` (postWorkerCommand, readStoredFile,
- * cleanupStoredFile, sweepLegacyDiskFiles, …) so the rest of the codebase
- * stays branch-agnostic. Internally, every `STORAGE_*` command is dispatched
- * to the in-memory ramstore instead of a Web Worker — there is no
- * transfer.worker.ts here, no `navigator.storage.getDirectory()` writes,
- * no disk persistence.
+ * Equivalent surface to the OPFS worker wrapper preserved on
+ * `mxqr_slotpool_archive` — same shape (`postCommand`, `readStoredFile`,
+ * `cleanupStoredFile`, `sweepLegacyDiskFiles`, …), worker hop replaced
+ * with in-process ramstore dispatch. There is no transfer.worker.ts on
+ * this branch, no `navigator.storage.getDirectory()` writes, no disk
+ * persistence.
  *
  * Why
  * ───
@@ -54,10 +53,8 @@ import {
 // ─── Worker References ──────────────────────────────────────────────
 // Only the sync worker is real on RAM-only — it carries the `'sync'`
 // timer that drives Guest→Host SYNC_PING (see network/guest.ts).
-// Storage commands stay in-process (see routeStorageCommand below).
-//
-// (`postWorkerCommand` is named for legacy parity with the slot-pool
-// branch's worker wrapper — most STORAGE_* commands no longer hop a worker.)
+// Storage commands stay in-process (see routeStorageCommand below);
+// `postCommand` routes between the two paths.
 let _syncWorker: Worker | null = null;
 
 // ─── Instance ID (same as core session) ─────────────────────────────
@@ -80,7 +77,7 @@ export function setSyncWorker(worker: Worker): void {
  * STORAGE_* commands → in-process ramstore (no worker hop).
  * Timer commands → syncWorker (still a real worker).
  */
-export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferable[]): void {
+export function postCommand(payload: WorkerCommand, transfers?: Transferable[]): void {
   if (!payload || !payload.command) return;
 
   const cmd = payload.command;
@@ -130,7 +127,7 @@ export function postWorkerCommand(payload: WorkerCommand, transfers?: Transferab
 //
 // Runs STORAGE_* commands against the ramstore and synthesizes the same
 // response messages a worker would have posted, so the existing
-// `handleTransferWorkerMessage` switch (and downstream bus events)
+// `handleStorageResponse` switch (and downstream bus events)
 // stay unchanged. We `queueMicrotask` the dispatch to preserve the
 // async-postMessage semantics consumers rely on — without it, ack
 // callbacks could land before the calling stack frame returns and
@@ -315,12 +312,12 @@ function runStorageCommand(payload: WorkerCommand): void {
 }
 
 /**
- * Synthesize the MessageEvent shape that `handleTransferWorkerMessage`
+ * Synthesize the MessageEvent shape that `handleStorageResponse`
  * expects, so all the existing bus.emit / state mutation logic in that
  * switch keeps running unchanged.
  */
 function dispatchWorkerResponse(response: WorkerResponse): void {
-  handleTransferWorkerMessage({
+  handleStorageResponse({
     data: response,
   } as MessageEvent<WorkerResponse>);
 }
@@ -357,7 +354,7 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
     }
   });
 
-  postWorkerCommand({
+  postCommand({
     command: 'STORAGE_CLEANUP',
     filename,
     isPreload,
@@ -470,7 +467,7 @@ export async function sweepLegacyDiskFiles(opts: {
 
 // ─── Worker Message Handlers ────────────────────────────────────────
 
-function handleTransferWorkerMessage(e: MessageEvent<WorkerResponse>): void {
+function handleStorageResponse(e: MessageEvent<WorkerResponse>): void {
   const data = e.data;
   if (!data || !data.type) return;
 
@@ -637,6 +634,6 @@ export function ensureNamedFile(
 /** Forward sync commands from bus to the sync worker */
 bus.on('worker:sync-command', (payload: { command: string; id: string; interval?: number }) => {
   if (payload && payload.command) {
-    postWorkerCommand(payload);
+    postCommand(payload);
   }
 });

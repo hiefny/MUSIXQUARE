@@ -26,7 +26,7 @@ import {
   setVirtualBass,
   setReverbParam,
 } from '../audio/effects.ts';
-import { postWorkerCommand } from '../storage/storage.ts';
+import { postCommand } from '../storage/storage.ts';
 import { cancelIncomingFileTransfer, cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
@@ -235,7 +235,7 @@ export function clearPreloadState(): void {
   }
 
   // Guest side
-  postWorkerCommand({ command: 'STORAGE_RESET', isPreload: true });
+  postCommand({ command: 'STORAGE_RESET', isPreload: true });
 }
 
 // ─── Play Track ────────────────────────────────────────────────────

@@ -40,7 +40,19 @@ exports.handler = async (event) => {
     : {};
 
   if (event?.httpMethod === "OPTIONS") {
+    // Preflight: trusted-origin responses get CORS headers; everything else
+    // gets a bare 204 (no Allow-Origin → browser blocks the actual request).
     return { statusCode: 204, headers: { ...corsHeaders, "Cache-Control": "no-store" }, body: "" };
+  }
+
+  // Gate the credential body on origin trust. CORS alone doesn't stop
+  // server-side / curl callers from scraping long-lived TURN credentials.
+  if (!isTrusted) {
+    return {
+      statusCode: 403,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+      body: JSON.stringify({ error: "Forbidden" }),
+    };
   }
 
   return {

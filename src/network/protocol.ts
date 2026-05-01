@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, RELAYABLE_MSG_TYPES } from '../core/constants.ts';
+import { MSG, RELAYABLE_MSG_TYPES, CHUNK_SIZE } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { sendToHost } from './peer.ts';
 import { isAssignedRelay } from './orchestrator.ts';
@@ -69,13 +69,20 @@ const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && 
 // Max 200,000 chunks ≈ 3.2 GB at 16 KB/chunk — prevents DoS via unbounded total
 const MAX_FILE_TOTAL = 200_000;
 
+// Per-chunk byte cap. Host always sends exactly CHUNK_SIZE (or smaller for
+// the tail chunk via file.slice()), so anything larger is a malformed or
+// hostile frame. Caps memory cost of the reorder buffer at 500 × CHUNK_SIZE.
+const MAX_CHUNK_BYTES = CHUNK_SIZE;
+const isBoundedChunk = (v: unknown): boolean =>
+  isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
+
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
   [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) =>
-    isArrayBufferLike(d.chunk) && isNonNegInt(d.index) && isFiniteNumber(d.sessionId),
+    isBoundedChunk(d.chunk) && isNonNegInt(d.index) && isFiniteNumber(d.sessionId),
   // sessionId must be a finite number — without this guard, a malicious peer
   // can send sessionId=Infinity to poison transfer.localSessionId, after which
   // the localSid<incomingSid guards (transfer-receive.ts:569,678,790,825) reject
@@ -87,7 +94,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isNonNegInt(d.total) &&
     (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
-  [MSG.PRELOAD_CHUNK]: (d) => isArrayBufferLike(d.chunk) && isNonNegInt(d.index),
+  [MSG.PRELOAD_CHUNK]: (d) => isBoundedChunk(d.chunk) && isNonNegInt(d.index),
   [MSG.PRELOAD_START]: (d) =>
     typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
   // sessionId required — handler uses it to scope sessionState/reorder/storage

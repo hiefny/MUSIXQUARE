@@ -123,7 +123,12 @@ export function releasePeerSlot(peerId: string): void {
 // ─── Session Code ───────────────────────────────────────────────────
 
 export function generateSessionCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  // CSPRNG over Math.random(): closes Math.random()-prediction enumeration.
+  // Modulo bias is ~0.004% across 900_000 outcomes — negligible for a
+  // display code; a separate handshake secret is the right long-term fix.
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return String(100000 + (buf[0] % 900000));
 }
 
 // ─── Broadcast Utilities ────────────────────────────────────────────

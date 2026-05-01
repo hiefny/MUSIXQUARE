@@ -37,7 +37,8 @@
 // v93: EQ preset grid + host-ctrl badge + toast fixes + spacing cleanup
 // v110: OPFS rotation in loadPreloadedTrack + /debug memory file enumeration
 // v111: bump-only — trigger the SW update dialog on existing clients to repro the "refresh button not clickable" report
-const CACHE_VERSION = "v111";
+// v112: invalidate cached /.netlify/functions/* responses (TURN credential endpoint) after the get-turn-config + isCacheableRequest hardening
+const CACHE_VERSION = "v112";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -130,6 +131,11 @@ function isCacheableRequest(request) {
   // Never cache dynamic endpoints (app is fully self-contained)
   // Avoid caching large media downloads (demo media / user content)
   const path = url.pathname || '';
+
+  // Never cache backend functions — they return per-request data (e.g.
+  // TURN credentials). CacheStorage doesn't honour Cache-Control: no-store,
+  // so the only safe move is to skip them entirely from the SW pipeline.
+  if (path.startsWith('/.netlify/functions/')) return false;
 
   // Always allow the tiny built-in dummy audio used for iOS/AudioContext keep-alive.
   // (If we block all .mp3, offline mode would fail even though it's in APP_SHELL.)

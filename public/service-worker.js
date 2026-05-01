@@ -38,8 +38,7 @@
 // v110: OPFS rotation in loadPreloadedTrack + /debug memory file enumeration
 // v111: bump-only — trigger the SW update dialog on existing clients to repro the "refresh button not clickable" report
 // v112: invalidate cached /.netlify/functions/* responses (TURN credential endpoint) after the get-turn-config + isCacheableRequest hardening
-// v113: bypass cross-origin requests entirely — opaque responses from the runtime cache were rendering as broken-image icons for the YouTube paste preview thumbnail (i.ytimg.com) on prod WebView/Safari paths, while dev (no SW) worked fine
-const CACHE_VERSION = "v113";
+const CACHE_VERSION = "v112";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -128,14 +127,6 @@ function isCacheableRequest(request) {
   // (iOS/인앱 웹뷰에서 특히 자주 발생)
   if (request.headers && request.headers.has('range')) return false;
   const url = new URL(request.url);
-
-  // Don't intercept cross-origin requests at all. Opaque responses
-  // returned from the SW for cross-origin assets render as broken-image
-  // icons on some WebView/Safari builds (launch-day report: YouTube
-  // paste-preview thumbnail from i.ytimg.com working in dev — no SW —
-  // but breaking in prod). We get no real cache-hit benefit for assets
-  // that are already CDN-cached at origin, so just stay out of the way.
-  if (url.origin !== self.location.origin) return false;
 
   // Never cache dynamic endpoints (app is fully self-contained)
   // Avoid caching large media downloads (demo media / user content)

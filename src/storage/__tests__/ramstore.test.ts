@@ -155,6 +155,37 @@ describe('ramEnd', () => {
     expect(r.reason).toMatch(/integrity fail/i);
   });
 
+  it('returns Integrity Fail when chunk count is below expectedChunks', () => {
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2, 3, 4));
+    ramWrite('a.mp3', false, 1, 1, u8(5, 6, 7, 8));
+    const r = ramEnd('a.mp3', false, 1, undefined, 5);
+    expect(r.blob).toBeNull();
+    expect(r.reason).toMatch(/2\/5 chunks/);
+  });
+
+  it('finalizes when expectedChunks matches even if totalSize is missing', async () => {
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2));
+    ramWrite('a.mp3', false, 1, 1, u8(3, 4));
+    const r = ramEnd('a.mp3', false, 1, undefined, 2);
+    expect(r.blob).not.toBeNull();
+    const bytes = new Uint8Array(await r.blob!.arrayBuffer());
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('catches missing index gap via expectedChunks even when bytes happen to match', () => {
+    // Slot has chunks {0, 2} (gap at 1). Total bytes happen to equal totalSize,
+    // so the byte-size gate alone would let this through. expectedChunks=3
+    // catches the structural defect that byte-size cannot.
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2));
+    ramWrite('a.mp3', false, 1, 2, u8(5, 6));
+    const r = ramEnd('a.mp3', false, 1, 4, 3);
+    expect(r.blob).toBeNull();
+    expect(r.reason).toMatch(/2\/3 chunks/);
+  });
+
   it('rejects on session mismatch with expectedSid', () => {
     ramStart('a.mp3', false, 1, 16, false);
     const r = ramEnd('a.mp3', false, 999);

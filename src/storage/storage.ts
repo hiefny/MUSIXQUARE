@@ -173,7 +173,8 @@ function runStorageCommand(payload: StorageCommand): void {
 
     case 'STORAGE_END': {
       const totalSize = payload.totalSize as number | undefined;
-      const result = ramEnd(filename, isPreload, sessionId, totalSize);
+      const expectedChunks = payload.total as number | undefined;
+      const result = ramEnd(filename, isPreload, sessionId, totalSize, expectedChunks);
       if (result.blob) {
         dispatchStorageEvent({ type: 'STORAGE_FILE_READY', filename, isPreload, sessionId });
       } else if (result.reason && result.reason.startsWith('Integrity Fail')) {

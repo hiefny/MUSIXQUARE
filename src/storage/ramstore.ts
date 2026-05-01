@@ -137,16 +137,23 @@ export function ramWrite(
 }
 
 /**
- * Finalize a slot. Concatenates accumulated chunks in index order, applies
- * the optional totalSize cap (truncate if we wrote a tail beyond the
- * declared total), caches the resulting Blob, and frees the chunk map.
- * Returns null if the slot can't be found or session mismatches.
+ * Finalize a slot. Two-tier integrity gate:
+ *   1. expectedChunks (always known — host's FILE_START/FILE_CHUNK both
+ *      carry `total`): structural check that all chunk indices arrived.
+ *      Combined with the upstream chunkIndex bounds check, size match
+ *      ⟹ keys are exactly [0..expectedChunks-1] (pigeonhole).
+ *   2. totalSize (host-declared bytes; missing in the meta-recovery path
+ *      where guest reconstructs meta from a chunk frame because FILE_START
+ *      was lost): tail-trims overshoot, hard-fails undershoot.
+ * Returns null if the slot can't be found, session mismatches, or either
+ * gate detects corruption.
  */
 export function ramEnd(
   filename: string,
   isPreload: boolean,
   sessionId: number,
   totalSize?: number,
+  expectedChunks?: number,
 ): { blob: Blob | null; reason?: string; expectedSid?: number | null } {
   const slot = isPreload ? preloadBySid.get(sessionId) : mainSlot;
   if (!slot) return { blob: null, reason: 'Session not found', expectedSid: null };
@@ -155,6 +162,16 @@ export function ramEnd(
   }
   if (slot.filename !== filename) {
     return { blob: null, reason: 'Filename mismatch' };
+  }
+
+  // Tier 1: structural completeness via chunk count.
+  if (typeof expectedChunks === 'number' && expectedChunks > 0) {
+    if (slot.chunks.size !== expectedChunks) {
+      return {
+        blob: null,
+        reason: `Integrity Fail: ${slot.chunks.size}/${expectedChunks} chunks`,
+      };
+    }
   }
 
   const sortedKeys = Array.from(slot.chunks.keys()).sort((a, b) => a - b);
@@ -168,16 +185,13 @@ export function ramEnd(
   }
   let blob = new Blob(parts);
 
-  // Tail-trim: in recovery scenarios the last chunk may overshoot when
-  // host re-sends after partial receive. Match the worker's contract.
-  if (typeof totalSize === 'number' && totalSize > 0 && blob.size > totalSize) {
-    blob = blob.slice(0, totalSize);
-  }
-  if (typeof totalSize === 'number' && totalSize > 0 && blob.size < totalSize) {
-    return {
-      blob: null,
-      reason: `Integrity Fail: ${blob.size}/${totalSize}`,
-    };
+  // Tier 2: byte-size cap (when host declared a size). Tail-trim overshoot
+  // from CHUNK_SIZE-aligned writes, hard-fail undershoot.
+  if (typeof totalSize === 'number' && totalSize > 0) {
+    if (blob.size > totalSize) blob = blob.slice(0, totalSize);
+    else if (blob.size < totalSize) {
+      return { blob: null, reason: `Integrity Fail: ${blob.size}/${totalSize}` };
+    }
   }
 
   slot.finalizedBlob = blob;

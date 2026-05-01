@@ -1187,6 +1187,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
       totalSize: currentMeta?.size as number,
+      total: currentMeta?.total as number,
     });
 
     clearManagedTimer('chunkWatchdog');

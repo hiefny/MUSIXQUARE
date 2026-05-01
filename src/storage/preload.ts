@@ -833,6 +833,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
       isPreload: true,
       sessionId: validateSessionId(sessionId),
       totalSize: fileSize,
+      total: updatedSession.total,
     });
     preloadReorderBuffer.delete(sessionId); // Prevent memory leak
   }
@@ -929,6 +930,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
         isPreload: true,
         sessionId: validateSessionId(sid),
         totalSize: freshSession.size,
+        total: freshSession.total,
       });
     } else {
       // Some chunks still missing — let future handlePreloadChunk → drain finalize it.

@@ -254,6 +254,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} is already an operator',
   'chat.cmd_not_op': '{{name}} is not an operator',
   'chat.cmd_help_title': 'Available Commands',
+  'chat.cmd_help_target_hint': '* [device] is a unique number (e.g. #1)',
   'chat.cmd_unknown': 'Unknown command: /{{cmd}}',
   'chat.cmd_usage': 'Usage: {{usage}}',
   'chat.cmd_users_title': 'Connected Users',

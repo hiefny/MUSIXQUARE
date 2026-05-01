@@ -383,6 +383,7 @@ function cmdHelp(): void {
       lines.push(`${def.usage} - ${def.description}`);
     }
   }
+  lines.push(t('chat.cmd_help_target_hint'));
   addSystemChatMessage(lines.join('\n'));
 }
 

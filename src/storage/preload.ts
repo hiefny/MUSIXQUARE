@@ -13,7 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
-import { postWorkerCommand, readStoredFile } from './opfs.ts';
+import { postWorkerCommand, readStoredFile } from './storage.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   safeSend,

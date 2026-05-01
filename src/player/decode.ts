@@ -14,7 +14,7 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
-import { postWorkerCommand, cleanupStoredFile } from '../storage/opfs.ts';
+import { postWorkerCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';

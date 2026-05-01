@@ -28,7 +28,7 @@ import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { getPeer, safeSend, sendToHost } from './peer.ts';
 import { unicastFile } from '../storage/transfer.ts';
-import { ensureNamedFile, postWorkerCommand } from '../storage/opfs.ts';
+import { ensureNamedFile, postWorkerCommand } from '../storage/storage.ts';
 import { showToast } from '../ui/toast.ts';
 
 // ─── Module State ───────────────────────────────────────────────────

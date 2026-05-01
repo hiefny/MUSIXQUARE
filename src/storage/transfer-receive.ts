@@ -20,7 +20,7 @@ import {
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { postWorkerCommand, cleanupStoredFile } from './opfs.ts';
+import { postWorkerCommand, cleanupStoredFile } from './storage.ts';
 import { t } from '../i18n/index.ts';
 import {
   safeSend,

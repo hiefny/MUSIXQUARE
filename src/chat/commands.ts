@@ -26,7 +26,7 @@ import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { sweepLegacyDiskFiles } from '../storage/opfs.ts';
+import { sweepLegacyDiskFiles } from '../storage/storage.ts';
 import { log } from '../core/log.ts';
 
 // ─── Types ──────────────────────────────────────────────────────

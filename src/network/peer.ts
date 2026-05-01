@@ -20,7 +20,7 @@ import {
   PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
-import { stopBackgroundWorkerTimers, sweepLegacyDiskFiles } from '../storage/opfs.ts';
+import { stopBackgroundWorkerTimers, sweepLegacyDiskFiles } from '../storage/storage.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 import { Peer, type PeerOptions } from 'peerjs';

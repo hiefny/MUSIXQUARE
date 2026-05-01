@@ -18,7 +18,7 @@ import {
 } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { ensureNamedFile } from './opfs.ts';
+import { ensureNamedFile } from './storage.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { isRemoteGuest, hasActiveRelay } from '../network/peer.ts';

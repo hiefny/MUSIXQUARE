@@ -18,7 +18,7 @@ import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constant
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
-import { readStoredFile } from '../storage/opfs.ts';
+import { readStoredFile } from '../storage/storage.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';

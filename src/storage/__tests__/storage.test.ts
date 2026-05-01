@@ -16,7 +16,7 @@ import {
   postWorkerCommand,
   setSyncWorker,
   stopBackgroundWorkerTimers,
-} from '../opfs.ts';
+} from '../storage.ts';
 
 beforeEach(() => {
   resetState();

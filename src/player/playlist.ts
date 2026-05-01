@@ -26,7 +26,7 @@ import {
   setVirtualBass,
   setReverbParam,
 } from '../audio/effects.ts';
-import { postWorkerCommand } from '../storage/opfs.ts';
+import { postWorkerCommand } from '../storage/storage.ts';
 import { cancelIncomingFileTransfer, cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';

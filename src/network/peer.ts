@@ -20,7 +20,7 @@ import {
   PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
-import { stopBackgroundWorkerTimers, sweepLegacyDiskFiles } from '../storage/storage.ts';
+import { sweepLegacyDiskFiles } from '../storage/storage.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 import { Peer, type PeerOptions } from 'peerjs';
@@ -469,7 +469,6 @@ export function leaveSession(): void {
   bus.emit('system-audio:force-stop');
 
   // ── 1. Stop all background timers ──
-  stopBackgroundWorkerTimers();
   clearAllManagedTimers();
 
   // ── 2. Stop media playback ──

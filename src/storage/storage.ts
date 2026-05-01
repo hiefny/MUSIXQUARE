@@ -52,15 +52,13 @@ import {
 } from './ramstore.ts';
 
 // ─── Worker References ──────────────────────────────────────────────
-// Only the sync worker is real on RAM-only — it carries the video-sync
-// timer. Storage commands stay in-process (see routeStorageCommand below).
+// Only the sync worker is real on RAM-only — it carries the `'sync'`
+// timer that drives Guest→Host SYNC_PING (see network/guest.ts).
+// Storage commands stay in-process (see routeStorageCommand below).
 //
 // (`postWorkerCommand` is named for legacy parity with the slot-pool
 // branch's worker wrapper — most STORAGE_* commands no longer hop a worker.)
 let _syncWorker: Worker | null = null;
-
-// ─── Worker Timer IDs ───────────────────────────────────────────────
-const WORKER_TIMER_IDS = ['video-sync'];
 
 // ─── Instance ID (same as core session) ─────────────────────────────
 // INSTANCE_ID used directly (no alias needed)
@@ -468,18 +466,6 @@ export async function sweepLegacyDiskFiles(opts: {
   log.info(
     `[OPFS] Sweep ${opts.reason}: ${removed}/${toRemove.length} files removed`,
   );
-}
-
-// ─── Stop Background Worker Timers ──────────────────────────────────
-
-export function stopBackgroundWorkerTimers(): void {
-  WORKER_TIMER_IDS.forEach((id) => {
-    try {
-      postWorkerCommand({ command: 'STOP_TIMER', id });
-    } catch {
-      /* noop */
-    }
-  });
 }
 
 // ─── Worker Message Handlers ────────────────────────────────────────

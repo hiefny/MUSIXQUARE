@@ -248,9 +248,6 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
     setAppState(APP_STATE.IDLE);
   }
 
-  // Stop background sync timers
-  bus.emit('worker:sync-command', { command: 'STOP_TIMER', id: 'video-sync' });
-
   // Stop player node
   stopPlayerNode();
 

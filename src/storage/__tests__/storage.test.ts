@@ -15,7 +15,6 @@ import {
   ensureNamedFile,
   postWorkerCommand,
   setSyncWorker,
-  stopBackgroundWorkerTimers,
 } from '../storage.ts';
 
 beforeEach(() => {
@@ -98,25 +97,3 @@ describe('postWorkerCommand', () => {
   });
 });
 
-describe('stopBackgroundWorkerTimers', () => {
-  it('sends STOP_TIMER for all known timer IDs', () => {
-    const mockPostMessage = vi.fn();
-    const mockWorker = {
-      postMessage: mockPostMessage,
-      onmessage: null,
-      onerror: null,
-      addEventListener: vi.fn(),
-    } as unknown as Worker;
-
-    setSyncWorker(mockWorker);
-    stopBackgroundWorkerTimers();
-
-    // Only 'video-sync' remains in the worker; heartbeat/ping were moved to
-    // main-thread managed timers during modularization.
-    expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const commands = mockPostMessage.mock.calls.map(
-      (c: unknown[]) => (c[0] as Record<string, unknown>).id,
-    );
-    expect(commands).toContain('video-sync');
-  });
-});

@@ -210,11 +210,21 @@ export function fetchYouTubePreview(url: string): void {
         const chan = document.getElementById('youtube-preview-channel');
         if (thumb) {
           if (data.thumbnail_url) {
-            thumb.src = data.thumbnail_url;
+            // Order matters: handlers + display reset BEFORE src.
+            // Some WebKit/WebView builds queue an `error` event for the
+            // initial empty `src=""` (or a prior failed load). If we set
+            // `src` first and `onerror` second, that stale error fires
+            // *after* the new handler is attached and hides the freshly
+            // loaded image. Attaching onerror first + onload safety net
+            // keeps the new load visible regardless of stale events.
+            thumb.style.display = '';
+            thumb.onload = () => {
+              thumb.style.display = '';
+            };
             thumb.onerror = () => {
               thumb.style.display = 'none';
             };
-            thumb.style.display = '';
+            thumb.src = data.thumbnail_url;
           } else {
             thumb.style.display = 'none';
           }

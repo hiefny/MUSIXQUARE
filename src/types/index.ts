@@ -711,7 +711,14 @@ interface BaseEventMap {
     subIndex?: number,
   ];
   'youtube:toggle-play': [];
-  'youtube:auto-play': [];
+  // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
+  // (existing player ran loadVideoById on a different video). Handler pauses
+  // the host and uses TRACK_TRANSITION_RENDEZVOUS_MS so guests get a 4s
+  // window to loadVideoById the new entry before the synchronized resume —
+  // mirrors the youtube:sub-video-advanced flow used inside a single
+  // playlist's sub-items. Default (omitted/false) is the URL-input
+  // first-load path where STAGE2_RENDEZVOUS_BROADCAST_MS is enough.
+  'youtube:auto-play': [isTrackTransition?: boolean];
   'youtube:get-position': [callback: (pos: number) => void];
   'youtube:stop-playback': [];
   'youtube:skip-time': [seconds: number];

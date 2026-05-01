@@ -781,6 +781,20 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       }
       return; // Don't broadcast or update UI yet
     }
+
+    // Block-to-block YT-to-YT track transition: playTrack armed
+    // _pendingAutoSyncOnReady but issued the load with autoplay=true,
+    // so we passed straight through the pause-back guard above. Without
+    // consuming the flag here the rendezvous would never fire (only
+    // sub-video transitions had a path) and guests would drift after
+    // every block switch. Pass isTrackTransition=true so the handler
+    // pauses + uses the longer TRACK_TRANSITION_RENDEZVOUS_MS instead
+    // of the URL-input STAGE2 delay.
+    if (getPendingAutoSyncOnReady()) {
+      setPendingAutoSyncOnReady(false);
+      bus.emit('youtube:auto-play', true);
+    }
+
     showYouTubeSyncOverlay(false);
     showLoader(false);
     bus.emit('ui:update-play-state', true);

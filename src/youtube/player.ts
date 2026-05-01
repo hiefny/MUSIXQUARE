@@ -571,26 +571,52 @@ export function initYouTube(): void {
     }
   });
 
-  bus.on('youtube:auto-play', () => {
+  bus.on('youtube:auto-play', (isTrackTransition?: boolean) => {
     const player = getYouTubePlayer();
-    if (player?.playVideo) {
-      // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
-      // doesn't get caught by onStateChange's pause-back guard (the guard
-      // was armed by loadYouTubeVideo's autoplay=false default).
+    if (!player?.playVideo) return;
+
+    if (isTrackTransition) {
+      // Block-to-block YT-to-YT track switch (system-playlist navigation
+      // between distinct YouTube entries). autoplay=true bypassed the
+      // pause-back guard in iframe.ts onStateChange, so without this branch
+      // _pendingAutoSyncOnReady would never be consumed and the rendezvous
+      // would be skipped entirely — guests would drift relative to the
+      // host. Pause + 4s TRACK_TRANSITION mirrors youtube:sub-video-advanced
+      // so cross-block transitions match the rendezvous UX users already
+      // expect from sub-video transitions inside a single playlist.
+      const currentTime = player.getCurrentTime?.() || 0;
+      try {
+        player.pauseVideo?.();
+      } catch {
+        /* noop */
+      }
       setYtAutoplayIntent(true);
-      // Use scheduleYtAutoSync instead of raw playVideo so this path
-      // (auto-play after track load or end-of-video auto-advance) goes
-      // through the same 2-stage rendezvous broadcast as every other
-      // host-initiated YouTube play, keeping guests aligned instead of
-      // forcing drift correction to clean up afterwards.
-      //
-      // skipSeek:true — the freshly loaded video is already at position 0,
-      // so seekTo(0) would be a wasted round-trip (and may trigger an
-      // unwanted BUFFERING transition on CUED players).
-      // playTrack already waited ~1s (or on_ready took at least ~1s), so
-      // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
-      scheduleYtAutoSync(0, { skipSeek: true, rendezvousDelayMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
+      scheduleYtAutoSync(currentTime, {
+        skipSeek: true,
+        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+      });
+      return;
     }
+
+    // First-time URL-input load or pause-back path: host hasn't been
+    // playing the new video yet, so STAGE2 (2s) is enough.
+    //
+    // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
+    // doesn't get caught by onStateChange's pause-back guard (the guard
+    // was armed by loadYouTubeVideo's autoplay=false default).
+    setYtAutoplayIntent(true);
+    // Use scheduleYtAutoSync instead of raw playVideo so this path
+    // (auto-play after track load or end-of-video auto-advance) goes
+    // through the same 2-stage rendezvous broadcast as every other
+    // host-initiated YouTube play, keeping guests aligned instead of
+    // forcing drift correction to clean up afterwards.
+    //
+    // skipSeek:true — the freshly loaded video is already at position 0,
+    // so seekTo(0) would be a wasted round-trip (and may trigger an
+    // unwanted BUFFERING transition on CUED players).
+    // playTrack already waited ~1s (or on_ready took at least ~1s), so
+    // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
+    scheduleYtAutoSync(0, { skipSeek: true, rendezvousDelayMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
   });
 
   // YouTube sub-video auto-advance inside a playlist: iframe.ts's

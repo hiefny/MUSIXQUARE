@@ -118,9 +118,13 @@ test.describe('Edge Cases', () => {
   test('play button on empty playlist is disabled', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Play button should be disabled when no track is loaded
+    // Play button is accessibility-disabled when no track is loaded.
     const isDisabled = await pair.hostPage.locator('#play-btn').evaluate(el => {
-      return el.hasAttribute('disabled') || el.classList.contains('disabled');
+      return (
+        el.hasAttribute('disabled') ||
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.classList.contains('disabled')
+      );
     });
     expect(isDisabled).toBe(true);
 

@@ -32,15 +32,16 @@ test.describe('Storage Round-Trip', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for the guest's transfer pipeline to finalize (lands in IDLE).
+    // Wait for the guest's transfer pipeline to finalize (lands in READY).
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
           | ((p: string) => unknown)
           | undefined;
         if (!get) return false;
-        return get('transfer.state') === 'IDLE' && get('files.currentFileBlob') != null;
+        return get('transfer.state') === 'READY' && get('files.currentFileBlob') != null;
       },
+      undefined,
       { timeout: 25_000 },
     );
 
@@ -86,8 +87,9 @@ test.describe('Storage Round-Trip', () => {
           | ((p: string) => unknown)
           | undefined;
         if (!get) return false;
-        return get('transfer.state') === 'IDLE' && get('files.currentFileBlob') != null;
+        return get('transfer.state') === 'READY' && get('files.currentFileBlob') != null;
       },
+      undefined,
       { timeout: 25_000 },
     );
 

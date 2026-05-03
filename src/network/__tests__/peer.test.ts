@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { safeSend, isRemoteGuest } from '../peer.ts';
+import { safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
 
 beforeEach(() => {
   resetState();
@@ -48,5 +48,49 @@ describe('isRemoteGuest', () => {
   it('returns false when connectionType is local', () => {
     setState('network.connectionType', 'local');
     expect(isRemoteGuest()).toBe(false);
+  });
+});
+
+describe('isTrustedSystemAudioMediaCall', () => {
+  it('accepts system-audio media calls from the connected host peer', () => {
+    setState('network.hostConn', { peer: 'host-123' } as any);
+
+    expect(
+      isTrustedSystemAudioMediaCall({
+        peer: 'host-123',
+        metadata: { type: 'system-audio-synced' },
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects system-audio media calls from non-host peers', () => {
+    setState('network.hostConn', { peer: 'host-123' } as any);
+
+    expect(
+      isTrustedSystemAudioMediaCall({
+        peer: 'guest-evil',
+        metadata: { type: 'system-audio-synced' },
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects system-audio media calls when there is no host connection', () => {
+    expect(
+      isTrustedSystemAudioMediaCall({
+        peer: 'guest-evil',
+        metadata: { type: 'system-audio-synced' },
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects non-system-audio media calls', () => {
+    setState('network.hostConn', { peer: 'host-123' } as any);
+
+    expect(
+      isTrustedSystemAudioMediaCall({
+        peer: 'host-123',
+        metadata: { type: 'camera-call' },
+      }),
+    ).toBe(false);
   });
 });

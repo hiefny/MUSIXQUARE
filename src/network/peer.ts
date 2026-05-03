@@ -48,6 +48,57 @@ export {
 
 export { joinSession } from './guest.ts';
 
+type SystemAudioCallType =
+  | 'system-audio'
+  | 'system-audio-dual'
+  | 'system-audio-stereo'
+  | 'system-audio-synced';
+
+type IncomingMediaConnection = {
+  peer?: string;
+  metadata?: Record<string, unknown>;
+  close: () => void;
+};
+
+const SYSTEM_AUDIO_CALL_TYPES = new Set<string>([
+  'system-audio',
+  'system-audio-dual',
+  'system-audio-stereo',
+  'system-audio-synced',
+]);
+
+function isSystemAudioCallType(type: unknown): type is SystemAudioCallType {
+  return typeof type === 'string' && SYSTEM_AUDIO_CALL_TYPES.has(type);
+}
+
+export function isTrustedSystemAudioMediaCall(mediaConn: {
+  peer?: string;
+  metadata?: Record<string, unknown>;
+}): boolean {
+  if (!isSystemAudioCallType(mediaConn.metadata?.type)) return false;
+
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && typeof mediaConn.peer === 'string' && mediaConn.peer === hostConn.peer;
+}
+
+function closeIncomingMediaCall(mediaConn: IncomingMediaConnection): void {
+  try {
+    mediaConn.close();
+  } catch {
+    /* noop */
+  }
+}
+
+function getSystemAudioCallChannel(
+  type: SystemAudioCallType,
+  metadata?: Record<string, unknown>,
+): string {
+  if (type === 'system-audio-dual') return 'DUAL';
+  if (type === 'system-audio-stereo') return 'STEREO';
+  if (type === 'system-audio-synced') return 'SYNCED';
+  return (metadata?.channel as string) || 'L';
+}
+
 // ─── SDP Utils ──────────────────────────────────────────────────────
 
 /**
@@ -467,28 +518,20 @@ function setupPeerEvents(): void {
 
   // System Audio: handle incoming media calls (WebRTC audio stream)
   peer.on('call', (mediaConn: unknown) => {
-    const mc = mediaConn as { metadata?: Record<string, unknown>; close: () => void };
+    const mc = mediaConn as IncomingMediaConnection;
     const type = mc.metadata?.type;
-    if (
-      type === 'system-audio' ||
-      type === 'system-audio-dual' ||
-      type === 'system-audio-stereo' ||
-      type === 'system-audio-synced'
-    ) {
-      let channel: string;
-      if (type === 'system-audio-dual') channel = 'DUAL';
-      else if (type === 'system-audio-stereo') channel = 'STEREO';
-      else if (type === 'system-audio-synced') channel = 'SYNCED';
-      else channel = (mc.metadata?.channel as string) || 'L';
-
-      bus.emit('system-audio:incoming-call', mediaConn, channel);
-    } else {
-      try {
-        mc.close();
-      } catch {
-        /* noop */
+    if (isSystemAudioCallType(type)) {
+      if (!isTrustedSystemAudioMediaCall(mc)) {
+        log.warn('[PeerJS] Rejected system-audio media call from non-host peer');
+        closeIncomingMediaCall(mc);
+        return;
       }
+
+      bus.emit('system-audio:incoming-call', mediaConn, getSystemAudioCallChannel(type, mc.metadata));
+      return;
     }
+
+    closeIncomingMediaCall(mc);
   });
 
   peer.on('connection', (conn: DataConnection) => {

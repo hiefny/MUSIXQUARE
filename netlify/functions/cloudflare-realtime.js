@@ -157,8 +157,10 @@ exports.handler = async (event) => {
   }
 
   try {
-    const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
-    const requestBody = shouldSendPayloadBody(action, payload) ? JSON.stringify(payload) : undefined;
+    const outboundPayload = body.payload && typeof body.payload === 'object' ? body.payload : {};
+    const requestBody = shouldSendPayloadBody(action, outboundPayload)
+      ? JSON.stringify(outboundPayload)
+      : undefined;
     const cfResponse = await fetch(request.url, {
       method: request.method,
       headers: {

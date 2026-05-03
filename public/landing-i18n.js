@@ -173,7 +173,7 @@
       'sync.meta': '60개 샘플 수집 후 NTP 방식 동기화',
 
       'standin.h2': '혹시 컴퓨터에<br>스피커가 없다면',
-      'standin.lead': '뮤직스퀘어가 좋은 임시방편이 되어줄 수 있어요. 가방 속 폰과 태블릿이면 충분해요.',
+      'standin.lead': '뮤직스퀘어가 좋은 임시방편이 될 수 있어요. 가방 속 폰과 태블릿이면 충분해요.',
       'standin.aria': '음소거된 컴퓨터 아래에 좌우 스피커 역할을 하는 폰 두 대',
       'standin.desktop_label': '데스크톱',
       'standin.desktop_value': '책상 위 폰이나 태블릿으로 스피커 셋업',

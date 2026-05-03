@@ -208,13 +208,13 @@ const en: Record<I18nKey, string> = {
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Need help?',
   'help.local_recommended': 'Local network recommended',
-  'help.connect_all_wifi': 'Local is most stable; remote paths use Cloudflare',
+  'help.connect_all_wifi': 'Same-network connections are the most stable',
   'help.local_file': 'Choose local file',
   'help.load_local': 'Load local file',
   'help.youtube_compat': 'YouTube (Compatible)',
   'help.youtube_no_effects': 'In YouTube mode, role settings and audio effects are unavailable.',
   'help.media_synced_detail': 'The selected media plays simultaneously on all connected devices.',
-  'help.wifi_hotspot': "No Wi\u2011Fi? Connect to the host's hotspot.",
+  'help.wifi_hotspot': "Connecting to the host's hotspot is also stable",
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',
@@ -380,7 +380,7 @@ const en: Record<I18nKey, string> = {
   'connect.slot_guide.aria': 'Open recommended guest count guide',
   'connect.slot_guide.title': 'Number of Guests',
   'connect.slot_guide.body':
-    'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4 recommended (remote supported)',
+    'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4 recommended',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
   'toast.auto_play_canceled': 'Auto-play canceled',
@@ -489,15 +489,15 @@ const en: Record<I18nKey, string> = {
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.local_recommended_html':
-    'Same-network connections give the most stable local file sharing and the lowest latency.<ul class="help-list"><li>Remote participants can still use YouTube, remote file sharing, and system audio sharing.</li><li>Remote system audio uses Cloudflare paths and latency may vary by network.</li><li>A VPN or firewall may make the connection unstable.</li></ul>',
+    'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':
     'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 choose role \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 choose role \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
   'player.play_speakers_html':
     'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
-    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Works over remote networks. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Stream system audio. Available when host is on Windows or Mac. Remote participants receive through Cloudflare when available</li></ul>',
+    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host is using Chrome on Windows or Mac</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may block the connection.</li><li><strong>Unstable connection:</strong> Local sessions work best near the router; remote sessions need a stable internet connection.</li><li><strong>Other issues:</strong> Complete your network setup and restart the app on all devices. If you have any questions, feel free to reach out via the email at the very bottom.</li></ul>',
+    '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check your network settings and restart the app on all devices. If you have any questions, feel free to reach out via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
   'chat.peer_disconnected': '{{name}} left',
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
@@ -533,7 +533,7 @@ const en: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',
   'legal.content_html':
-    '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Notice</strong><br>MUSIXQUARE audio sharing operates primarily on a P2P basis. Same-network file sharing and chat data are transmitted directly between devices and are not stored permanently on a server. When remote file sharing is needed, files may be encrypted in the browser and routed through temporary storage; the decryption key is not stored there, and temporary files are designed to expire after a limited session window. When remote system audio sharing is used, audio streams may be routed through Cloudflare Realtime/SFU. IP addresses may also pass through a signaling server to establish connections. This information is used solely for connection purposes and is not collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube, PeerJS, and Cloudflare, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing features are intended for personal, private use only. Users are responsible for any unauthorized distribution or public transmission of copyrighted content.<br><br><strong>Privacy Policy</strong><br>On the same network, actual content and session data are transmitted directly between devices, and only IP addresses and connection information may pass through the signaling server to establish the connection. However, when remote file sharing or remote system audio sharing is used, actual data passes through Cloudflare. For file sharing, data is encrypted before upload, and the key required for decryption is not stored in storage. All data is temporarily stored or routed only to provide MUSIXQUARE features, and is not separately collected or retained.<br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube, PeerJS, and Cloudflare, and temporary limitations may occur due to changes or outages in those services. Mobile data charges may apply when not on Wi-Fi.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default en;

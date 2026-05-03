@@ -206,13 +206,13 @@ const ko = {
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': '도움이 필요해요',
   'help.local_recommended': '로컬 네트워크 권장',
-  'help.connect_all_wifi': '로컬은 가장 안정적이고, 원격은 Cloudflare 경로를 사용해요',
+  'help.connect_all_wifi': '같은 네트워크에서 가장 안정적이에요',
   'help.local_file': '로컬 파일 선택',
   'help.load_local': '로컬파일 불러오기',
   'help.youtube_compat': '유튜브 (호환 모드)',
   'help.youtube_no_effects': 'YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.',
   'help.media_synced_detail': '연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.',
-  'help.wifi_hotspot': 'Wi-Fi가 없다면 방장의 핫스팟에 연결해주세요',
+  'help.wifi_hotspot': '방장의 핫스팟에 연결하는 방식도 안정적이에요',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': '채팅',
@@ -378,7 +378,7 @@ const ko = {
   'connect.slot_guide.aria': '모드별 권장 인원 안내 열기',
   'connect.slot_guide.title': '모드별 권장 인원',
   'connect.slot_guide.body':
-    '연결된 참여자가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장(원격 지원)',
+    '연결된 참여자가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
   'toast.auto_play_canceled': '자동 재생을 취소했어요',
@@ -486,15 +486,15 @@ const ko = {
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.local_recommended_html':
-    '같은 네트워크에서는 로컬 파일 공유와 가장 낮은 지연시간을 안정적으로 사용할 수 있어요.<ul class="help-list"><li>원격 참여자는 YouTube, 원격 파일 공유, 시스템 오디오 공유를 사용할 수 있어요.</li><li>원격 시스템 오디오는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
+    '같은 네트워크에서는 오디오 공유를 가장 안정적으로 사용할 수 있어요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
     '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
-    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 원격 네트워크 이용 가능. 채널 분리와 음향효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 시스템 오디오 송출. 방장이 Windows나 Mac인 경우 이용 가능. 원격 참여자는 Cloudflare 경로로 수신</li></ul>',
+    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장 환경이 Windows나 Mac의 Chrome인 경우 이용 가능</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 재시도해주세요. 회사/학교망이나 VPN에서는 연결이 막힐 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬은 공유기 가까이에서, 원격은 안정적인 인터넷 환경에서 가장 좋아요.</li><li><strong>기타 문제:</strong> 네트워크 설정을 완료하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
+    '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 설정을 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}} 님이 접속했어요',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
@@ -530,7 +530,7 @@ const ko = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '서비스 이용 안내',
   'legal.content_html':
-    '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 관련 안내</strong><br>같은 네트워크에서 파일 공유와 채팅 데이터는 기기 간에 직접 전송되며, 서버에 영구 저장되지 않아요. 원격 파일 공유가 필요한 경우 파일은 브라우저에서 암호화된 뒤 임시 저장소를 경유할 수 있고, 복호화에 필요한 키는 저장소에 보관되지 않아요. 원격 시스템 오디오 공유를 사용할 때 오디오 스트림은 Cloudflare Realtime/SFU를 경유할 수 있어요. 또한 기기 간 연결을 위해 IP 주소가 시그널링 서버를 경유할 수 있으며, 이 정보는 연결 수립 목적으로만 사용되고 별도로 수집하거나 보관하지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS, Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요.<br><br><strong>개인정보 처리방침</strong><br>같은 네트워크에서는 실제 콘텐츠와 세션 데이터가 기기 간에 직접 전송되며, 연결 수립을 위해 IP 주소와 연결 정보만 시그널링 서버를 경유할 수 있어요. 다만 원격 파일 공유와 원격 시스템 오디오 공유 시에는 실제 데이터가 Cloudflare를 경유해요. 파일 공유의 경우 데이터는 암호화된 후 업로드되며 복호화에 필요한 키는 저장소에 보관되지 않아요. 모든 데이터는 뮤직스퀘어의 기능을 위해서만 일시적으로 저장 또는 경유하되 따로 수집 보관되지 않아요.<br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube, PeerJS, Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요.<br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/landing" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/changelog" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Changelog</a> · <a href="/roadmap" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Roadmap</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 } as const;
 
 export default ko;

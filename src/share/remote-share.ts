@@ -365,6 +365,8 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
  * preloaded index activates it via the existing handlePlayMsg →
  * loadPreloadedTrack flow (zero-wait switch).
  */
+const REMOTE_PRELOAD_LOADER = 'remote-share-preload';
+
 async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promise<void> {
   // Already in flight for the same object — drop dup.
   if (_activePreloadDownload?.objectId === descriptor.objectId) return;
@@ -383,6 +385,7 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
   // Supersede any older preload for a different track.
   if (_activePreloadDownload && _activePreloadDownload.objectId !== descriptor.objectId) {
     _activePreloadDownload.abort.abort();
+    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
   }
 
   const abort = new AbortController();
@@ -392,10 +395,20 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
     abort,
   };
 
+  // Surface the preload progress in the header loader (same channel as
+  // local-network preload UI in preload.ts → "preparing next" toast).
+  // Distinct loader id so the preload's "show: false" on completion
+  // doesn't clobber an active-download loader from a parallel track
+  // switch.
+  showLoader(true, t('share.remote.preload_downloading'), REMOTE_PRELOAD_LOADER);
+  updateLoader(0);
+
   try {
     const file = await downloadRemoteFile(
       descriptor,
       (progress) => {
+        if (abort.signal.aborted) return;
+        updateLoader(Math.round(progress * 100));
         bus.emit('remote-file:progress', 'download', progress);
       },
       abort.signal,
@@ -425,12 +438,14 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
       return;
     }
     log.warn('[RemoteShare] Preload download failed:', error);
-    // Preload failure is silent — the user-facing path (active descriptor
-    // arriving on track advance) will surface its own error if R2 is down.
+    // Preload failure is silent toast-wise — the user-facing path (active
+    // descriptor arriving on track advance) will surface its own error if
+    // R2 is down.
   } finally {
     if (_activePreloadDownload?.objectId === descriptor.objectId) {
       _activePreloadDownload = null;
     }
+    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
   }
 }
 

@@ -13,6 +13,7 @@ import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
+import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { isIdleOrPaused } from '../player/video.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
@@ -149,17 +150,40 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   setState('sync.lastLatencyMs', Math.min(...updated));
   bus.emit('sync:latency-update', ms);
 
-  // 3. File mode drift correction
-  const appState = getState('appState');
-  if (appState !== APP_STATE.PLAYING_AUDIO) return;
-
-  // Skip if host is not playing (appState in pong tells us)
+  // 3. File mode drift correction OR initial-bootstrap kickoff.
+  //
+  // Two scenarios reach this branch:
+  //   (a) Guest is already PLAYING_AUDIO — drift correction (existing).
+  //   (b) Guest just finished decoding a buffer (READY/PAUSED/IDLE) but
+  //       never received an applicable MSG.PLAY. This happens on the very
+  //       first remote-share download: the host had broadcast PLAY before
+  //       the guest joined (or before the encrypted blob finished
+  //       downloading), so pendingPlayTime was either never set or was
+  //       cleared. Without bootstrap, the guest sits at 0:00 until the
+  //       host pauses/seeks/re-plays — exactly the "first remote download
+  //       won't auto-play" symptom.
   const hostAppState = data.appState as string;
   if (hostAppState !== APP_STATE.PLAYING_AUDIO) return;
   if (!Number.isFinite(position)) return;
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
+
+  const appState = getState('appState');
+  if (appState !== APP_STATE.PLAYING_AUDIO) {
+    // Bootstrap: only if we have a decoded buffer. Otherwise the audio
+    // engine has nothing to start, and play() would no-op (or worse,
+    // race with an in-flight decode).
+    if (getCurrentAudioBuffer()) {
+      log.info(
+        `[Sync] Initial bootstrap: starting playback at host position ${estimatedHostPos.toFixed(2)}s`,
+      );
+      play(estimatedHostPos);
+      _needsInitialSync = false;
+      bus.emit('sync:arm-initial');
+    }
+    return;
+  }
 
   // First pong after play start: unconditionally lock to host
   if (_needsInitialSync) {
@@ -370,6 +394,24 @@ export function initSync(): void {
 
   bus.on('sync:auto-sync', () => {
     handleAutoSync();
+  });
+
+  // Fire an out-of-band SYNC_PING immediately. Used by remote-share's
+  // first-load bootstrap path so the SYNC_PONG response can kickstart
+  // playback at the host's current position before the next 1s worker
+  // tick. Without this, a fresh remote guest who finished decoding
+  // AFTER the host's MSG.PLAY had already fired would wait up to 1s
+  // before bootstrap fires.
+  bus.on('sync:request-immediate-ping', () => {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || !hostConn.open) return;
+    const pingId = ++_syncPingCounter;
+    registerPing(pingId);
+    try {
+      hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+    } catch {
+      /* noop */
+    }
   });
 
   bus.on('sync:close-manual', () => {

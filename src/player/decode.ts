@@ -554,7 +554,14 @@ export async function loadPreloadedTrack(
       play(target);
       setPendingPlayTime(undefined);
     } else {
-      log.info('[Preload] No pending play time, staying in READY state');
+      log.info('[Preload] No pending play time, requesting initial sync from host');
+      // First-load case: a remote-share download finished but no MSG.PLAY
+      // landed for this track (host had played BEFORE we joined / before
+      // the encrypted blob was ready). Kick the sync ping immediately so
+      // SYNC_PONG's bootstrap path can start playback at the host's
+      // current position — otherwise we wait up to 1s for the next worker
+      // tick and the user perceives a stuck-at-0:00 first track.
+      bus.emit('sync:request-immediate-ping');
     }
 
     showLoader(false);

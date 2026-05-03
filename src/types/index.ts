@@ -849,6 +849,7 @@ interface BaseEventMap {
   'sync:auto-sync': [];
   'sync:arm-initial': [];
   'sync:close-manual': [];
+  'sync:request-immediate-ping': [];
   // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];
 

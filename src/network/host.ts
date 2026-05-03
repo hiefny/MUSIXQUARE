@@ -11,10 +11,10 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
-import { broadcastSystemNotice, sendSystemNotice } from '../chat/protocol.ts';
+import { broadcastSystemNotice, sendLatestPinnedNotice } from '../chat/protocol.ts';
 
 import {
   detectConnectionType,
@@ -250,9 +250,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     showToast(t('toast.device_connected', { name: deviceName }));
     bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
 
-    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-      sendSystemNotice(conn, 'chat.system_audio_started_notice');
-    }
+    sendLatestPinnedNotice(conn);
 
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);

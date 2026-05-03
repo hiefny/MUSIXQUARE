@@ -528,6 +528,29 @@ test.describe('Late-Join: Chat history', () => {
     }
   });
 
+  test('late guest receives the latest pinned notice', async ({ browser }) => {
+    host = await setupHostOnly(browser);
+
+    await openChatDrawer(host.hostPage);
+    await sendChat(host.hostPage, '/notice Mix note for late joiners');
+    await waitForChatMessage(host.hostPage, 'Mix note for late joiners');
+
+    const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
+
+    try {
+      await openChatDrawer(guestPage);
+      await waitForChatMessage(guestPage, 'Mix note for late joiners');
+
+      const pinnedText = await guestPage.evaluate(() => {
+        const banner = document.getElementById('chat-pinned-notice');
+        return banner?.textContent || '';
+      });
+      expect(pinnedText).toContain('Mix note for late joiners');
+    } finally {
+      await guestContext.close();
+    }
+  });
+
   test('late guest receives new messages sent after joining', async ({ browser }) => {
     host = await setupHostOnly(browser);
 

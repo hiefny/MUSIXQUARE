@@ -24,7 +24,8 @@ const ko = {
   'common.message': '메시지',
   'common.mix': '믹스',
   'common.wait': '잠시만요...',
-  'common.guest': '참가자',
+  'common.host': '방장',
+  'common.guest': '참여자',
   'common.help': '도움말',
   'common.increase': '증가',
   'common.decrease': '감소',
@@ -243,7 +244,7 @@ const ko = {
   'chat.system_audio_stopped_notice':
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
   'chat.remote_guest_detected_notice':
-    '방장과 다른 네트워크에 있는 참여자가 감지되었어요. 데이터 사용량에 주의하세요.',
+    '원격 참여자가 들어왔어요. Wi-Fi가 아니라면 데이터 사용량이 늘어날 수 있어요.',
   'chat.remote_upload_limited_notice':
     '파일 업로드 제한에 걸렸어요. 원격 참여자는 나중에 다시 시도해주세요.',
   'chat.pinned_close': '공지 닫기',
@@ -356,7 +357,7 @@ const ko = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': '복사하지 못했어요',
   'toast.email_copied': '이메일 주소가 복사됐어요!',
-  'toast.host_only': 'Host만 실행할 수 있어요.',
+  'toast.host_only': '방장만 실행할 수 있어요.',
   'toast.host_only_media': '방장만 미디어를 추가할 수 있어요.',
   'toast.host_only_youtube': '방장만 유튜브 링크를 추가할 수 있어요.',
   'toast.host_only_control': '방장만 조작할 수 있어요',
@@ -378,7 +379,7 @@ const ko = {
   'connect.slot_guide.aria': '모드별 권장 인원 안내 열기',
   'connect.slot_guide.title': '모드별 권장 인원',
   'connect.slot_guide.body':
-    '연결된 게스트가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장',
+    '연결된 참여자가 많으면 시스템이 불안정해져요.\n\n• 유튜브 같이보기: 최대 32명 권장\n• 로컬 파일 공유: 최대 8명 권장\n• 시스템 오디오 공유: 최대 4명 권장',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
   'toast.auto_play_canceled': '자동 재생을 취소했어요',
@@ -414,11 +415,11 @@ const ko = {
   'transfer.file_requesting': '파일 요청 중...',
   'transfer.file_sending': '파일을 보내고 있어요…',
   'transfer.file_wait': '파일 대기 중... 잠시만 기다려주세요',
-  'transfer.relay_no_response': '릴레이 응답 없음. Host에서 직접 수신...',
+  'transfer.relay_no_response': '릴레이 응답 없음. 방장에게서 직접 수신...',
   'transfer.preload_done': '프리로드된 파일 사용!',
   'transfer.preload_waiting': '프리로드 완료 대기 중...',
   // Remote file sharing (R2-backed encrypted transfer)
-  'share.remote.encrypting': '원격 게스트용으로 파일을 암호화하고 있어요…',
+  'share.remote.encrypting': '원격 참여자용으로 파일을 암호화하고 있어요…',
   'share.remote.uploading': '암호화된 파일을 업로드하고 있어요…',
   'share.remote.upload_ready': '원격 공유 준비 완료',
   'share.remote.waiting': '원격 파일을 기다리고 있어요…',
@@ -434,7 +435,7 @@ const ko = {
   'share.remote.expired': '원격 파일 링크가 만료됐어요. 다시 공유해주세요',
   'transfer.preload_fail': '프리로드 재생 실패 - 다시 로드할게요',
   'transfer.download_finishing': '다운로드 마무리 중...',
-  'transfer.preparation_delayed': '준비 지연 중... Host 복구 요청',
+  'transfer.preparation_delayed': '준비 지연 중... 방장에게 복구 요청',
   'transfer.receiving_0pct': '수신 중... 0%',
   'transfer.check_conn_type': '연결 유형 확인 중...',
   'transfer.preload_pending': '프리로드 완료 대기 중: {{name}}',
@@ -488,9 +489,9 @@ const ko = {
   'help.local_recommended_html':
     '동일 네트워크에 연결하면 모든 기능을 이용할 수 있어요.<ul class="help-list"><li>모든 기기를 <strong>동일 네트워크</strong>에 연결해주세요.</li><li>VPN/보안망이 켜져 있으면 연결이 안 될 수 있어요.</li><li>연결할 네트워크가 없으면 방장의 핫스팟에 연결해주세요.</li></ul>',
   'setup.how_to_connect_html':
-    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참가자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
+    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html':
-    '참가자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
+    '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
     '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 원격 네트워크 이용 가능. 채널 분리와 음향효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 시스템 오디오 송출. 방장이 Windows나 Mac인 경우 이용 가능</li></ul>',
   'help.need_help_html':
@@ -523,7 +524,7 @@ const ko = {
   'system_audio.stopped': '시스템 오디오 공유가 중단됐어요. 재생목록 항목이 재생돼요.',
   'system_audio.many_devices_warning': '시스템 오디오 공유 시 연결된 기기가 많으면 끊길 수 있어요.',
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
-  'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 게스트에게만 적용돼요',
+  'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only': 'Windows 또는 Mac의 Chrome에서만 사용할 수 있어요.',
 
   // ─── Legal ────────────────────────────────────────────────────────

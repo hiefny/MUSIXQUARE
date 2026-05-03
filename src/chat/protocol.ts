@@ -25,6 +25,61 @@ import {
 } from '../ui/chat-render.ts';
 import type { DataConnection } from '../types/index.ts';
 
+type PinnedNoticePayload = {
+  type: typeof MSG.CHAT_NOTICE;
+  senderLabel: string;
+  text: string;
+  ts: number;
+  i18nKey?: string;
+  i18nParams?: Record<string, string | number>;
+};
+
+let _latestPinnedNotice: PinnedNoticePayload | null = null;
+
+function isNoticeParams(value: unknown): value is Record<string, string | number> {
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value).every((v) => typeof v === 'string' || typeof v === 'number');
+}
+
+function normalizePinnedNoticePayload(data: Record<string, unknown>): PinnedNoticePayload | null {
+  let senderLabel = (data.senderLabel as string) || '';
+  if (senderLabel.length > MAX_SENDER_LABEL_LENGTH)
+    senderLabel = senderLabel.substring(0, MAX_SENDER_LABEL_LENGTH);
+  let text = (data.text as string) || '';
+  if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
+  if (!text) return null;
+
+  const notice: PinnedNoticePayload = {
+    type: MSG.CHAT_NOTICE,
+    senderLabel,
+    text,
+    ts: typeof data.ts === 'number' ? data.ts : Date.now(),
+  };
+
+  if (typeof data.i18nKey === 'string' && data.i18nKey.length < 128) {
+    notice.i18nKey = data.i18nKey;
+  }
+  if (isNoticeParams(data.i18nParams)) {
+    notice.i18nParams = data.i18nParams;
+  }
+
+  return notice;
+}
+
+export function rememberPinnedNotice(data: Record<string, unknown>): void {
+  _latestPinnedNotice = normalizePinnedNoticePayload(data);
+}
+
+export function clearLatestPinnedNotice(): void {
+  _latestPinnedNotice = null;
+}
+
+export function sendLatestPinnedNotice(conn: DataConnection | null | undefined): boolean {
+  if (!_latestPinnedNotice) return false;
+  safeSend(conn, { ..._latestPinnedNotice });
+  return true;
+}
+
 // ─── Dedup ───────────────────────────────────────────────────────
 
 const _recentMsgIds = new Set<string>();
@@ -420,23 +475,24 @@ export function broadcastSystemNotice(
   params?: Record<string, string | number>,
 ): void {
   const fallbackText = t(i18nKey, params);
-  broadcast({
+  const payload = {
     type: MSG.CHAT_NOTICE,
     senderLabel: '',
     text: fallbackText,
     ts: Date.now(),
     i18nKey,
     ...(params ? { i18nParams: params } : {}),
-  });
+  };
+  rememberPinnedNotice(payload);
+  broadcast(payload);
   bus.emit('chat:notice-message', '', fallbackText);
 }
 
 /**
  * Send the same localized system notice shape to one peer only.
  *
- * Used for late-join bootstrap notices: the new guest should see the pinned
- * notice banner, but the host and existing guests should not get a repeated
- * room-wide announcement.
+ * This does not update the room's remembered latest notice; use
+ * broadcastSystemNotice() for room-wide notices that late joiners should see.
  */
 export function sendSystemNotice(
   conn: DataConnection | null | undefined,

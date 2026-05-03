@@ -24,7 +24,7 @@ import {
   getCommandArgHint,
 } from '../chat/commands.ts';
 import { filterProfanity } from '../chat/profanity.ts';
-import { registerChatProtocolHandlers } from '../chat/protocol.ts';
+import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';
 import {
   addChatMessage,
   addSystemChatMessage,
@@ -778,6 +778,7 @@ export function initChat(): void {
       container.innerHTML = '';
       addSystemChatMessage(t('chat.cmd_clear'));
     }
+    clearLatestPinnedNotice();
     clearPinnedNotice();
   });
 

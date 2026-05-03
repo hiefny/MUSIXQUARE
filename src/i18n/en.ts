@@ -26,6 +26,7 @@ const en: Record<I18nKey, string> = {
   'common.message': 'Message',
   'common.mix': 'Mix',
   'common.wait': 'Just a moment...',
+  'common.host': 'Host',
   'common.guest': 'Guest',
   'common.help': 'Help',
   'common.increase': 'Increase',
@@ -245,7 +246,7 @@ const en: Record<I18nKey, string> = {
   'chat.system_audio_stopped_notice':
     'System audio sharing ended. Host, turn the volume back up to be the room speaker.',
   'chat.remote_guest_detected_notice':
-    'A participant on a different network from the host was detected. Watch your data usage.',
+    "A remote participant joined. If you're not on Wi-Fi, playback may use more mobile data.",
   'chat.remote_upload_limited_notice':
     'File upload limit reached. Remote participants should try again later.',
   'chat.pinned_close': 'Dismiss notice',

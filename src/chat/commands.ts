@@ -26,6 +26,7 @@ import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { rememberPinnedNotice } from './protocol.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -280,6 +281,7 @@ function cmdNotice(_: string[], rawArgs: string): void {
   const payload = { type: MSG.CHAT_NOTICE, senderLabel, text: rawArgs.trim(), ts: Date.now() };
 
   if (isHost()) {
+    rememberPinnedNotice(payload);
     bus.emit('network:broadcast', payload);
     addNoticeChatMessage(senderLabel, rawArgs.trim());
   } else {

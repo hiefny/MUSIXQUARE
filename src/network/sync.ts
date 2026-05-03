@@ -27,6 +27,7 @@ import {
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
+import { rememberPinnedNotice } from '../chat/protocol.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -317,6 +318,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       if (!text) return;
       const peerLabel = (peer.label || 'OP').substring(0, MAX_SENDER_LABEL_LENGTH);
       const noticePayload = { type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() };
+      rememberPinnedNotice(noticePayload);
       broadcast(noticePayload);
       bus.emit('chat:notice-message', peerLabel, text);
       break;

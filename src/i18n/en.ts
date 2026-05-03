@@ -26,7 +26,6 @@ const en: Record<I18nKey, string> = {
   'common.message': 'Message',
   'common.mix': 'Mix',
   'common.wait': 'Just a moment...',
-  'common.host': 'Host',
   'common.guest': 'Guest',
   'common.help': 'Help',
   'common.increase': 'Increase',

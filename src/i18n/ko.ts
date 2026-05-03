@@ -24,7 +24,6 @@ const ko = {
   'common.message': '메시지',
   'common.mix': '믹스',
   'common.wait': '잠시만요...',
-  'common.host': '방장',
   'common.guest': '참여자',
   'common.help': '도움말',
   'common.increase': '증가',

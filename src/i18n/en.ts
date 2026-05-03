@@ -207,13 +207,13 @@ const en: Record<I18nKey, string> = {
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Need help?',
   'help.local_recommended': 'Local network recommended',
-  'help.connect_all_wifi': 'Same-network connections are the most stable',
+  'help.connect_all_wifi': 'Same-network connections are the most reliable',
   'help.local_file': 'Choose local file',
   'help.load_local': 'Load local file',
   'help.youtube_compat': 'YouTube (Compatible)',
   'help.youtube_no_effects': 'In YouTube mode, role settings and audio effects are unavailable.',
   'help.media_synced_detail': 'The selected media plays simultaneously on all connected devices.',
-  'help.wifi_hotspot': "Connecting to the host's hotspot is also stable",
+  'help.wifi_hotspot': 'A hotspot can also put everyone on the same network',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Chat',

@@ -739,6 +739,124 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Stand-in diagram (section: no speakers) ─────────────── */
+
+.lp-standin {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.lp-standin svg {
+  width: 100%;
+  max-width: 380px;
+  height: auto;
+  /* Allow sound waves between phones and the computer to extend without
+     being clipped. */
+  overflow: visible;
+}
+
+.lp-standin__notch {
+  fill: var(--text-muted);
+  fill-opacity: 0.5;
+  stroke: none;
+}
+
+/* Silent computer — dim, no fill, just an outline */
+.lp-standin__computer rect,
+.lp-standin__computer path {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  opacity: 0.55;
+}
+
+.lp-standin__mute path {
+  fill: var(--text-muted);
+  fill-opacity: 0.6;
+  stroke: none;
+}
+
+.lp-standin__mute line {
+  stroke: var(--text-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  fill: none;
+  opacity: 1;
+}
+
+/* Active phones — primary outline, glowing screen */
+.lp-standin__phone > rect:first-child {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+
+.lp-standin__phone-screen {
+  fill: var(--primary);
+  fill-opacity: 0.08;
+  stroke: none;
+}
+
+/* EQ bars — primary, animate with stagger */
+.lp-standin__eq rect {
+  fill: var(--primary);
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: lp-standin-eq 1.4s ease-in-out infinite;
+}
+
+.lp-standin__eq rect:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.lp-standin__eq rect:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.lp-standin__eq rect:nth-child(4) {
+  animation-delay: 0.3s;
+}
+
+.lp-standin__eq rect:nth-child(5) {
+  animation-delay: 0.45s;
+}
+
+@keyframes lp-standin-eq {
+  0%, 100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Captions under each device */
+.lp-standin__caption {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-anchor: middle;
+  fill: var(--primary);
+  text-transform: uppercase;
+}
+
+.lp-standin__caption--muted {
+  fill: var(--text-muted);
+  opacity: 0.55;
+  letter-spacing: 0.22em;
+}
+
+/* Pause animations when reduced-motion is requested */
+@media (prefers-reduced-motion: reduce) {
+  .lp-standin__eq rect {
+    animation: none;
+  }
+}
+
 /* ── CTA ────────────────────────────────────────────────── */
 
 .lp-cta {

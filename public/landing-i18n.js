@@ -82,6 +82,21 @@
       'sync.host_label': 'Host',
       'sync.meta': 'NTP style sync with 60 samples',
 
+      'standin.h2': 'No speakers on<br>your computer?',
+      'standin.lead':
+        'MUSIXQUARE works as a quick stand-in. A phone and a tablet from your bag are enough to start.',
+      'standin.aria': 'Silent computer above two active phones acting as left and right speakers',
+      'standin.desktop_label': 'Desktop',
+      'standin.desktop_value': 'Phones or tablets on the desk become the speakers',
+      'standin.laptop_label': 'Laptop',
+      'standin.laptop_value': 'Multiple devices instead of weak built-in speakers',
+      'standin.feature_label': 'Feature',
+      'standin.feature_value': 'System audio sharing mode',
+      'standin.platform_label': 'Platform',
+      'standin.platform_value': 'Chromium-based browsers on Windows / Mac',
+      'standin.caveat':
+        'Note: System audio sharing mode has unavoidable latency, so the host should lower their volume as much as possible.',
+
       'cta.h2': 'Start a session.',
       'cta.btn': 'Launch MUSIXQUARE',
 
@@ -156,6 +171,20 @@
       'sync.platforms_value': 'iOS · Android · macOS · Windows',
       'sync.host_label': 'HOST',
       'sync.meta': '60개 샘플 수집 후 NTP 방식 동기화',
+
+      'standin.h2': '혹시 컴퓨터에<br>스피커가 없다면',
+      'standin.lead': '뮤직스퀘어가 좋은 임시방편이 되어줄 수 있어요. 가방 속 폰과 태블릿이면 충분해요.',
+      'standin.aria': '음소거된 컴퓨터 아래에 좌우 스피커 역할을 하는 폰 두 대',
+      'standin.desktop_label': '데스크톱',
+      'standin.desktop_value': '책상 위 폰이나 태블릿으로 스피커 셋업',
+      'standin.laptop_label': '노트북',
+      'standin.laptop_value': '빈약한 노트북 스피커 대신 여러 개의 디바이스',
+      'standin.feature_label': '기능',
+      'standin.feature_value': '시스템 오디오 공유 모드',
+      'standin.platform_label': '플랫폼',
+      'standin.platform_value': 'Windows / Mac의 Chromium 기반 브라우저',
+      'standin.caveat':
+        '참고: 시스템 오디오 공유 모드는 지연이 필연적으로 발생해요. 사용 시 방장은 소리를 최대한 낮추어야 해요.',
 
       'cta.h2': '지금 시작해봐요!',
       'cta.btn': 'MUSIXQUARE 시작하기',

@@ -306,6 +306,95 @@
 
     <hr class="lp-divider">
 
+    <section class="lp-section lp-section--split lp-section--standin" data-animate>
+      <div class="lp-split__copy">
+        <h2 class="lp-h2" data-i18n="standin.h2">No speakers on<br>your computer?</h2>
+        <p class="lp-lead" data-i18n="standin.lead">MUSIXQUARE works as a quick stand-in. A phone and a tablet from
+          your bag are enough to start.</p>
+        <dl class="lp-specs">
+          <div>
+            <dt data-i18n="standin.desktop_label">Desktop</dt>
+            <dd data-i18n="standin.desktop_value">Phones or tablets on the desk become the speakers</dd>
+          </div>
+          <div>
+            <dt data-i18n="standin.laptop_label">Laptop</dt>
+            <dd data-i18n="standin.laptop_value">Multiple devices instead of weak built-in speakers</dd>
+          </div>
+          <div>
+            <dt data-i18n="standin.feature_label">Feature</dt>
+            <dd data-i18n="standin.feature_value">System audio sharing mode</dd>
+          </div>
+          <div>
+            <dt data-i18n="standin.platform_label">Platform</dt>
+            <dd data-i18n="standin.platform_value">Chromium-based browsers on Windows / Mac</dd>
+          </div>
+        </dl>
+        <p class="lp-caveat" data-i18n="standin.caveat">Note: System audio sharing mode has unavoidable latency, so the
+          host should lower their volume as much as possible.</p>
+      </div>
+      <aside class="lp-split__aside">
+        <div class="lp-standin" data-i18n-attr="aria-label:standin.aria"
+          aria-label="Silent computer above two active phones acting as left and right speakers">
+          <svg viewBox="0 0 320 400" aria-hidden="true">
+            <!-- TOP: Silent laptop (large) -->
+            <g class="lp-standin__computer">
+              <!-- Screen -->
+              <rect x="40" y="20" width="240" height="140" rx="8" />
+              <!-- Camera notch dot -->
+              <circle class="lp-standin__notch" cx="160" cy="30" r="1.6" />
+              <!-- Hinge / base — wider than screen, like a real laptop deck -->
+              <path d="M 24 162 H 296 L 288 178 H 32 Z" />
+              <!-- Mute glyph: centered on screen -->
+              <g class="lp-standin__mute">
+                <!-- Speaker body -->
+                <path d="M 148 80 L 162 66 V 114 L 148 100 H 138 V 80 Z" />
+                <!-- Slash through it -->
+                <line x1="132" y1="68" x2="174" y2="112" />
+              </g>
+              <!-- Tiny "SILENT" caption inside screen, bottom-right -->
+              <text class="lp-standin__caption lp-standin__caption--muted" x="240" y="148">SILENT</text>
+            </g>
+
+            <!-- BOTTOM: Two large active phones, side by side -->
+            <g class="lp-standin__phone lp-standin__phone--left">
+              <!-- Outline -->
+              <rect x="40" y="230" width="104" height="156" rx="14" />
+              <!-- Screen fill -->
+              <rect class="lp-standin__phone-screen" x="48" y="238" width="88" height="140" rx="9" />
+              <!-- EQ bars on screen -->
+              <g class="lp-standin__eq">
+                <rect x="60" y="284" width="6" height="40" rx="1.5" />
+                <rect x="72" y="270" width="6" height="54" rx="1.5" />
+                <rect x="84" y="294" width="6" height="30" rx="1.5" />
+                <rect x="96" y="278" width="6" height="46" rx="1.5" />
+                <rect x="108" y="290" width="6" height="34" rx="1.5" />
+                <rect x="120" y="282" width="6" height="42" rx="1.5" />
+              </g>
+            </g>
+
+            <g class="lp-standin__phone lp-standin__phone--right">
+              <rect x="176" y="230" width="104" height="156" rx="14" />
+              <rect class="lp-standin__phone-screen" x="184" y="238" width="88" height="140" rx="9" />
+              <g class="lp-standin__eq">
+                <rect x="196" y="294" width="6" height="30" rx="1.5" />
+                <rect x="208" y="278" width="6" height="46" rx="1.5" />
+                <rect x="220" y="270" width="6" height="54" rx="1.5" />
+                <rect x="232" y="290" width="6" height="34" rx="1.5" />
+                <rect x="244" y="284" width="6" height="40" rx="1.5" />
+                <rect x="256" y="282" width="6" height="42" rx="1.5" />
+              </g>
+            </g>
+
+            <!-- Bottom captions: L / R under each phone -->
+            <text class="lp-standin__caption" x="92" y="400">L</text>
+            <text class="lp-standin__caption" x="228" y="400">R</text>
+          </svg>
+        </div>
+      </aside>
+    </section>
+
+    <hr class="lp-divider">
+
     <section class="lp-section lp-cta" data-animate>
       <svg class="lp-cta__wordmark lp-cta__wordmark--top" viewBox="40 10 220 30" aria-hidden="true"
         preserveAspectRatio="xMidYMid meet">

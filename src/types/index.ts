@@ -437,6 +437,15 @@ export interface ProtocolMap {
 
   // ── System Audio Sharing ──────────────────────────────────────
   'system-audio-start': NoPayload;
+  'system-audio-sfu-ready': {
+    version: 1;
+    sessionId: string;
+    tracks: Array<{
+      trackName: string;
+      channel: 'L' | 'R';
+      mid?: string;
+    }>;
+  };
   'system-audio-stop': NoPayload;
 }
 
@@ -877,6 +886,7 @@ interface BaseEventMap {
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
+  'system-audio:host-stopped': [];
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];

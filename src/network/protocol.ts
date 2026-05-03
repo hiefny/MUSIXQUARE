@@ -160,6 +160,26 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 
+  [MSG.SYSTEM_AUDIO_SFU_READY]: (d) =>
+    d.version === 1 &&
+    typeof d.sessionId === 'string' &&
+    d.sessionId.length > 0 &&
+    d.sessionId.length <= 128 &&
+    Array.isArray(d.tracks) &&
+    d.tracks.length > 0 &&
+    d.tracks.length <= 4 &&
+    d.tracks.every((track) => {
+      if (!track || typeof track !== 'object') return false;
+      const item = track as Record<string, unknown>;
+      return (
+        typeof item.trackName === 'string' &&
+        item.trackName.length > 0 &&
+        item.trackName.length <= 160 &&
+        (item.channel === 'L' || item.channel === 'R') &&
+        (item.mid === undefined || typeof item.mid === 'string')
+      );
+    }),
+
   // Playlist — validate list is an array (individual items checked in handler)
   [MSG.PLAYLIST_UPDATE]: (d) => Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
 

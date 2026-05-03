@@ -435,6 +435,7 @@ export function registerSystemAudioGuestListeners(): void {
     if (!isHostBroadcast(conn)) return;
     log.info('[SysAudioGuest] Host stopped system audio sharing');
     cleanupGuestSystemAudio();
+    bus.emit('system-audio:host-stopped');
   });
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {

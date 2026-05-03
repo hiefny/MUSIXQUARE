@@ -41,6 +41,7 @@ import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
+import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
 // ── Storage ──
 // RAM-only dispatches STORAGE_* commands in-process — no transfer worker.
 import { initTransfer } from './storage/transfer.ts';
@@ -372,6 +373,7 @@ function bootstrap(): void {
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);
   safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
+  safeInit('SystemAudioSFU', registerSystemAudioSfuListeners);
   // SharedClock init removed — managed by sync.ts (unified sync)
 
   // 6. Workers & Storage

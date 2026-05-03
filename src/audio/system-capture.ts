@@ -15,7 +15,7 @@ import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { broadcast } from '../network/peer.ts';
-import { broadcastSystemNotice } from '../chat/protocol.ts';
+import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
 
@@ -228,6 +228,9 @@ export function stopSystemAudioCapture(): void {
 
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
   broadcastSystemNotice('chat.system_audio_stopped_notice');
+  // Current participants should see the stop notice, but late joiners should not
+  // inherit a stale "stopped" banner after regular playback resumes.
+  clearLatestPinnedNotice();
   cleanupCapture();
   muteLocalOutput(false);
 

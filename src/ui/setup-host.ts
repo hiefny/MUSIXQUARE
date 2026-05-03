@@ -10,6 +10,7 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import { clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
 import {
   t,
@@ -161,6 +162,8 @@ export function startSessionFromHost(): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'host' || getState('setup.sessionStarted')) return;
 
+  // The pinned-notice cache is module-scoped, so a new host session starts clean.
+  clearLatestPinnedNotice();
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
   updateRoleBadge();

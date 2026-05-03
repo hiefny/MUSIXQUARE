@@ -14,8 +14,15 @@ export interface RemoteUploadResponse {
 }
 
 export interface RemoteUploadSessionResponse {
-  token: string;
+  token?: string;
+  uploadUrl: string;
+  uploadHeaders: Record<string, string>;
+  uploadUrlExpiresAt: number;
+  completeToken: string;
+  objectId: string;
+  downloadUrl?: string;
   expiresAt: number;
+  cleanupToken?: string;
 }
 
 export interface RemoteUploadMeta {
@@ -122,6 +129,8 @@ async function requestUploadSession(
         roomId: meta.roomId,
         sessionId: meta.sessionId,
         index: meta.index,
+        name: meta.name,
+        mime: meta.mime || 'application/octet-stream',
         size: meta.size,
         encryptedSize: encryptedBlob.size,
       }),
@@ -133,14 +142,70 @@ async function requestUploadSession(
     }
 
     const body = (await response.json()) as Partial<RemoteUploadSessionResponse> | null;
-    if (typeof body?.token !== 'string' || typeof body.expiresAt !== 'number') {
+    if (
+      typeof body?.uploadUrl !== 'string' ||
+      typeof body.completeToken !== 'string' ||
+      typeof body.objectId !== 'string' ||
+      typeof body.expiresAt !== 'number' ||
+      typeof body.uploadUrlExpiresAt !== 'number' ||
+      !body.uploadHeaders ||
+      typeof body.uploadHeaders !== 'object'
+    ) {
       throw new Error('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     }
-    return { token: body.token, expiresAt: body.expiresAt };
+    return {
+      token: body.token,
+      uploadUrl: body.uploadUrl,
+      uploadHeaders: body.uploadHeaders as Record<string, string>,
+      uploadUrlExpiresAt: body.uploadUrlExpiresAt,
+      completeToken: body.completeToken,
+      objectId: body.objectId,
+      downloadUrl: body.downloadUrl,
+      expiresAt: body.expiresAt,
+      cleanupToken: body.cleanupToken,
+    };
   } catch (error) {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
     if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
     throw new Error('REMOTE_SHARE_SESSION_NETWORK', { cause: error });
+  }
+}
+
+async function completeDirectUpload(
+  endpoint: string,
+  session: RemoteUploadSessionResponse,
+  meta: RemoteUploadMeta,
+  signal?: AbortSignal,
+): Promise<RemoteUploadResponse> {
+  try {
+    const response = await fetch(`${endpoint}/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        roomId: meta.roomId,
+        objectId: session.objectId,
+        completeToken: session.completeToken,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`REMOTE_SHARE_COMPLETE_HTTP_${response.status}`);
+    }
+
+    const body = (await response.json()) as Partial<RemoteUploadResponse> | null;
+    if (typeof body?.objectId !== 'string' || typeof body.expiresAt !== 'number') {
+      throw new Error('REMOTE_SHARE_BAD_COMPLETE_RESPONSE');
+    }
+    return {
+      objectId: body.objectId,
+      downloadUrl: body.downloadUrl,
+      expiresAt: body.expiresAt,
+    };
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_COMPLETE_NETWORK', { cause: error });
   }
 }
 
@@ -156,19 +221,11 @@ export async function uploadEncryptedBlob(
   const session = await requestUploadSession(endpoint, encryptedBlob, meta, signal);
 
   return new Promise((resolve, reject) => {
-    const url = new URL(`${endpoint}/upload`);
-    url.searchParams.set('roomId', meta.roomId);
-    url.searchParams.set('sessionId', String(meta.sessionId));
-    url.searchParams.set('index', String(meta.index));
-
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', url.toString(), true);
-    xhr.responseType = 'json';
-    xhr.setRequestHeader('content-type', 'application/octet-stream');
-    xhr.setRequestHeader('x-mxqr-name', encodeURIComponent(meta.name));
-    xhr.setRequestHeader('x-mxqr-mime', meta.mime || 'application/octet-stream');
-    xhr.setRequestHeader('x-mxqr-size', String(meta.size));
-    xhr.setRequestHeader('x-mxqr-session-token', session.token);
+    xhr.open('PUT', session.uploadUrl, true);
+    for (const [header, value] of Object.entries(session.uploadHeaders)) {
+      xhr.setRequestHeader(header, value);
+    }
 
     const detachAbort = wireAbort(xhr, reject, signal);
 
@@ -180,20 +237,16 @@ export async function uploadEncryptedBlob(
     xhr.onload = () => {
       detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300) {
-        const body = xhr.response as Partial<RemoteUploadResponse> | null;
-        if (body?.objectId && typeof body.expiresAt === 'number') {
-          onProgress?.(1);
-          resolve({
-            objectId: body.objectId,
-            downloadUrl: body.downloadUrl,
-            expiresAt: body.expiresAt,
-          });
-          return;
-        }
-        reject(new Error('REMOTE_SHARE_BAD_UPLOAD_RESPONSE'));
+        void completeDirectUpload(endpoint, session, meta, signal).then(
+          (body) => {
+            onProgress?.(1);
+            resolve(body);
+          },
+          reject,
+        );
         return;
       }
-      reject(new Error(`REMOTE_SHARE_UPLOAD_HTTP_${xhr.status}`));
+      reject(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
       detachAbort?.();

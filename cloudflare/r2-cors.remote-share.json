@@ -1,0 +1,22 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://musixquare.com",
+      "https://www.musixquare.com",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": [
+      "content-type",
+      "x-amz-meta-cleanup-token",
+      "x-amz-meta-expires-at",
+      "x-amz-meta-mime",
+      "x-amz-meta-name",
+      "x-amz-meta-room-id",
+      "x-amz-meta-size-bytes"
+    ],
+    "ExposeHeaders": ["etag"],
+    "MaxAgeSeconds": 3600
+  }
+]

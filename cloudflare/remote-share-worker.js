@@ -5,8 +5,12 @@
  * - REMOTE_SHARE_BUCKET: R2 bucket
  * - REMOTE_SHARE_RATE_LIMIT: KV namespace
  * - REMOTE_SHARE_SIGNING_SECRET: HMAC secret for upload session tokens
+ * - R2_ACCOUNT_ID: Cloudflare account ID for S3 presigned URLs
+ * - R2_ACCESS_KEY_ID: R2 S3 API access key ID
+ * - R2_SECRET_ACCESS_KEY: R2 S3 API secret access key
  *
  * Optional env:
+ * - R2_BUCKET_NAME: default musixquare-remote-share
  * - MAX_UPLOAD_BYTES: default 209715200
  * - OBJECT_TTL_SECONDS: default 3600
  * - UPLOAD_TOKEN_TTL_SECONDS: default 600
@@ -22,6 +26,7 @@ const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 120;
 const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 60;
+const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -64,6 +69,7 @@ function originError(request, env) {
 function requiresAllowedOrigin(path) {
   return (
     path === '/session' ||
+    path === '/complete' ||
     path === '/upload' ||
     /^\/download\/[^/]+\/[^/]+$/.test(path) ||
     /^\/object\/[^/]+\/[^/]+$/.test(path)
@@ -90,6 +96,15 @@ function parseLimit(value, fallback) {
 function getSigningSecret(env) {
   const secret = String(env.REMOTE_SHARE_SIGNING_SECRET || '').trim();
   return secret.length >= 32 ? secret : null;
+}
+
+function getR2S3Config(env) {
+  const accountId = String(env.R2_ACCOUNT_ID || '').trim();
+  const accessKeyId = String(env.R2_ACCESS_KEY_ID || '').trim();
+  const secretAccessKey = String(env.R2_SECRET_ACCESS_KEY || '').trim();
+  const bucketName = String(env.R2_BUCKET_NAME || DEFAULT_R2_BUCKET_NAME).trim();
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) return null;
+  return { accountId, accessKeyId, secretAccessKey, bucketName };
 }
 
 function base64UrlEncode(value) {
@@ -122,6 +137,118 @@ async function importSigningKey(secret) {
     false,
     ['sign', 'verify'],
   );
+}
+
+async function hmacBytes(keyBytes, data) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return new Uint8Array(
+    await crypto.subtle.sign(
+      'HMAC',
+      key,
+      typeof data === 'string' ? new TextEncoder().encode(data) : data,
+    ),
+  );
+}
+
+async function sha256Hex(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return hex(new Uint8Array(hash));
+}
+
+function hex(bytes) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function awsEncode(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function encodeObjectPath(path) {
+  return path.split('/').map(awsEncode).join('/');
+}
+
+function amzDateParts(now) {
+  const iso = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  return {
+    amzDate: iso,
+    dateStamp: iso.slice(0, 8),
+  };
+}
+
+function canonicalQuery(params) {
+  return [...params]
+    .sort(([keyA, valueA], [keyB, valueB]) =>
+      keyA === keyB ? valueA.localeCompare(valueB) : keyA.localeCompare(keyB),
+    )
+    .map(([key, value]) => `${awsEncode(key)}=${awsEncode(value)}`)
+    .join('&');
+}
+
+function canonicalHeaderValue(value) {
+  return String(value).trim().replace(/\s+/g, ' ');
+}
+
+async function createR2PresignedPutUrl({ env, objectKey: key, headers, expiresInSeconds, now }) {
+  const config = getR2S3Config(env);
+  if (!config) return null;
+
+  const { accountId, accessKeyId, secretAccessKey, bucketName } = config;
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const { amzDate, dateStamp } = amzDateParts(now);
+  const scope = `${dateStamp}/auto/s3/aws4_request`;
+  const canonicalUri = `/${awsEncode(bucketName)}/${encodeObjectPath(key)}`;
+  const signedHeaderEntries = {
+    ...headers,
+    host,
+  };
+  const signedHeaderNames = Object.keys(signedHeaderEntries)
+    .map((header) => header.toLowerCase())
+    .sort();
+  const signedHeaders = signedHeaderNames.join(';');
+  const canonicalHeaders = signedHeaderNames
+    .map((header) => `${header}:${canonicalHeaderValue(signedHeaderEntries[header])}\n`)
+    .join('');
+  const queryParams = [
+    ['X-Amz-Algorithm', 'AWS4-HMAC-SHA256'],
+    ['X-Amz-Content-Sha256', 'UNSIGNED-PAYLOAD'],
+    ['X-Amz-Credential', `${accessKeyId}/${scope}`],
+    ['X-Amz-Date', amzDate],
+    ['X-Amz-Expires', String(expiresInSeconds)],
+    ['X-Amz-SignedHeaders', signedHeaders],
+  ];
+  const query = canonicalQuery(queryParams);
+  const canonicalRequest = [
+    'PUT',
+    canonicalUri,
+    query,
+    canonicalHeaders,
+    signedHeaders,
+    'UNSIGNED-PAYLOAD',
+  ].join('\n');
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    scope,
+    await sha256Hex(canonicalRequest),
+  ].join('\n');
+
+  const encoder = new TextEncoder();
+  const dateKey = await hmacBytes(encoder.encode(`AWS4${secretAccessKey}`), dateStamp);
+  const regionKey = await hmacBytes(dateKey, 'auto');
+  const serviceKey = await hmacBytes(regionKey, 's3');
+  const signingKey = await hmacBytes(serviceKey, 'aws4_request');
+  const signature = hex(await hmacBytes(signingKey, stringToSign));
+
+  return `https://${host}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
 }
 
 async function createSignedToken(payload, secret) {
@@ -167,6 +294,19 @@ function decodeHeaderValue(value, fallback = '') {
   } catch {
     return fallback;
   }
+}
+
+function metadataString(value, fallback = '') {
+  const raw = String(value || fallback).replace(/[\r\n]/g, ' ').trim();
+  return encodeURIComponent(raw).slice(0, 512) || fallback;
+}
+
+function readMetadata(object, ...keys) {
+  const metadata = object?.customMetadata || {};
+  for (const key of keys) {
+    if (metadata[key] !== undefined) return metadata[key];
+  }
+  return undefined;
 }
 
 async function consumeLimit(env, key, limit, ttlSeconds) {
@@ -246,8 +386,33 @@ async function handleSession(request, env) {
 
   const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
   const now = Date.now();
-  const expiresAt = now + ttlSeconds * 1000;
-  const token = await createSignedToken(
+  const uploadUrlExpiresAt = now + ttlSeconds * 1000;
+  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
+  const expiresAt = now + objectTtlSeconds * 1000;
+  const objectId = crypto.randomUUID();
+  const objectKeyValue = `room/${roomId}/${objectId}`;
+  const cleanupToken = crypto.randomUUID();
+  const name = metadataString(body?.name, 'track');
+  const mime = metadataString(body?.mime, 'application/octet-stream');
+  const uploadHeaders = {
+    'content-type': 'application/octet-stream',
+    'x-amz-meta-cleanup-token': cleanupToken,
+    'x-amz-meta-expires-at': String(expiresAt),
+    'x-amz-meta-mime': mime,
+    'x-amz-meta-name': name,
+    'x-amz-meta-room-id': roomId,
+    'x-amz-meta-size-bytes': String(size),
+  };
+  const uploadUrl = await createR2PresignedPutUrl({
+    env,
+    objectKey: objectKeyValue,
+    headers: uploadHeaders,
+    expiresInSeconds: ttlSeconds,
+    now: new Date(now),
+  });
+  if (!uploadUrl) return json(request, env, { error: 'r2 s3 config missing' }, 500);
+
+  const legacyToken = await createSignedToken(
     {
       v: 1,
       roomId,
@@ -256,13 +421,105 @@ async function handleSession(request, env) {
       size,
       encryptedSize,
       iat: now,
-      exp: expiresAt,
+      exp: uploadUrlExpiresAt,
+      nonce: crypto.randomUUID(),
+    },
+    secret,
+  );
+  const completeToken = await createSignedToken(
+    {
+      v: 2,
+      kind: 'complete',
+      roomId,
+      objectId,
+      objectKey: objectKeyValue,
+      sessionId,
+      index,
+      size,
+      encryptedSize,
+      expiresAt,
+      cleanupToken,
+      iat: now,
+      exp: uploadUrlExpiresAt,
       nonce: crypto.randomUUID(),
     },
     secret,
   );
 
-  return json(request, env, { token, expiresAt });
+  const url = new URL(request.url);
+  return json(request, env, {
+    token: legacyToken,
+    uploadUrl,
+    uploadHeaders,
+    uploadUrlExpiresAt,
+    completeToken,
+    objectId,
+    expiresAt,
+    downloadUrl: `${url.origin}/download/${roomId}/${objectId}`,
+    cleanupToken,
+  });
+}
+
+async function handleComplete(request, env) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+
+  const secret = getSigningSecret(env);
+  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json(request, env, { error: 'invalid json' }, 400);
+  }
+
+  const payload = await verifySignedToken(body?.completeToken, secret);
+  const roomId = safeRoomId(body?.roomId);
+  const objectId = String(body?.objectId || '');
+  const now = Date.now();
+  if (
+    !payload ||
+    payload.v !== 2 ||
+    payload.kind !== 'complete' ||
+    payload.roomId !== roomId ||
+    payload.objectId !== objectId ||
+    !Number.isFinite(Number(payload.exp)) ||
+    Number(payload.exp) < now
+  ) {
+    return json(request, env, { error: 'invalid upload completion' }, 403);
+  }
+
+  const key = objectKey(roomId, objectId);
+  if (!key || key !== payload.objectKey) return json(request, env, { error: 'not found' }, 404);
+
+  const object = await env.REMOTE_SHARE_BUCKET.head(key);
+  if (!object) return json(request, env, { error: 'not found' }, 404);
+
+  const expectedSize = Number(payload.encryptedSize);
+  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
+  const maxEncryptedBytes = maxBytes + 4096;
+  if (
+    !Number.isFinite(expectedSize) ||
+    object.size !== expectedSize ||
+    object.size > maxEncryptedBytes
+  ) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'invalid uploaded object' }, 403);
+  }
+
+  const expiresAt = Number(payload.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt < now) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  const url = new URL(request.url);
+  return json(request, env, {
+    objectId,
+    expiresAt,
+    downloadUrl: `${url.origin}/download/${roomId}/${objectId}`,
+    cleanupToken: payload.cleanupToken,
+  });
 }
 
 async function validateUploadSession(request, env, roomId, contentLength, maxEncryptedBytes) {
@@ -398,7 +655,15 @@ async function handleDownload(request, env, roomId, objectId) {
   const object = await env.REMOTE_SHARE_BUCKET.get(key);
   if (!object) return json(request, env, { error: 'not found' }, 404);
 
-  const expiresAt = Number(object.customMetadata?.expiresAt || '0');
+  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
+  if (object.size > maxBytes + 4096) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'file too large', maxBytes }, 413);
+  }
+
+  const expiresAt = Number(
+    readMetadata(object, 'expiresAt', 'expires-at', 'expiresat') || '0',
+  );
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
     return json(request, env, { error: 'expired' }, 404);
@@ -421,7 +686,7 @@ async function handleDelete(request, env, roomId, objectId) {
   if (!key) return json(request, env, { ok: true });
 
   const object = await env.REMOTE_SHARE_BUCKET.head(key);
-  const expected = object?.customMetadata?.cleanupToken;
+  const expected = readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken');
   const supplied = request.headers.get('x-mxqr-cleanup-token') || '';
   if (expected && supplied && supplied !== expected) {
     return json(request, env, { error: 'forbidden' }, 403);
@@ -452,6 +717,9 @@ export default {
 
       if (request.method === 'POST' && path === '/session') {
         return handleSession(request, env);
+      }
+      if (request.method === 'POST' && path === '/complete') {
+        return handleComplete(request, env);
       }
       if (request.method === 'POST' && path === '/upload') {
         return handleUpload(request, env);

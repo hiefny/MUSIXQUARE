@@ -135,7 +135,8 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' ||
     raw === 'REMOTE_SHARE_UPLOAD_TIMEOUT' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT' ||
-    raw === 'REMOTE_SHARE_SESSION_NETWORK'
+    raw === 'REMOTE_SHARE_SESSION_NETWORK' ||
+    raw === 'REMOTE_SHARE_COMPLETE_NETWORK'
   ) {
     return t('share.remote.network_error');
   }
@@ -144,12 +145,23 @@ function friendlyErrorMessage(error: unknown): string {
   }
   if (
     raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
+    raw === 'REMOTE_SHARE_BAD_COMPLETE_RESPONSE' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_403'
+    raw === 'REMOTE_SHARE_UPLOAD_HTTP_403' ||
+    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_403' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_403' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_404' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_500'
   ) {
     return t('share.remote.auth_failed');
+  }
+  if (
+    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_413' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_413'
+  ) {
+    return t('share.remote.too_large');
   }
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
   if (raw === 'REMOTE_SHARE_ABORTED') return raw; // never user-visible

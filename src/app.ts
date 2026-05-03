@@ -47,6 +47,7 @@ import { registerSystemAudioGuestListeners } from './network/system-audio-guest.
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
+import { initRemoteShare } from './share/remote-share.ts';
 import { setSyncWorker } from './network/sync-worker.ts';
 
 // ── Player ──
@@ -395,6 +396,7 @@ function bootstrap(): void {
   safeInit('Transfer', initTransfer);
   safeInit('Preload', initPreload);
   safeInit('Recovery', initRecovery);
+  safeInit('RemoteShare', initRemoteShare);
 
   // 7. YouTube
   safeInit('YouTube', initYouTube);

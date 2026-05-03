@@ -22,6 +22,7 @@ import { readStoredFile } from '../storage/storage.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import { shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -114,6 +115,12 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // Wi-Fi" guidance UI.
     if (isRemoteGuest() && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
+      if (shouldWaitForRemoteShare()) {
+        setPendingPlayTime(time);
+        showLoader(true, 'Waiting for encrypted remote file...');
+        log.info('[Guest] Remote guest — waiting for remote share descriptor');
+        return;
+      }
       const playlist = getState('playlist.items') || [];
       const name = playlist[incomingIndex]?.name || (data.name as string) || '';
       setState('player.currentTrackMeta', {
@@ -241,6 +248,12 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
     if (isRemoteGuest() && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
+      if (shouldWaitForRemoteShare()) {
+        setPendingPlayTime(time);
+        showLoader(true, 'Waiting for encrypted remote file...');
+        log.info('[Guest] Remote guest — waiting for remote share descriptor');
+        return;
+      }
       const playlist2 = getState('playlist.items') || [];
       setState('player.currentTrackMeta', {
         type: 'file',

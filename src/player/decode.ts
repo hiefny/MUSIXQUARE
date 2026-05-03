@@ -16,6 +16,7 @@ import { initAudio } from '../audio/engine.ts';
 import { setEngineMode } from './video.ts';
 import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
+import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import type { AnyProtocolMsg } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
@@ -190,6 +191,7 @@ export async function loadAndBroadcastFile(
     if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
       broadcastFileDebounced(file, sessionId, prepareMsg);
+      void shareRemoteFileIfNeeded(file, sessionId);
     }
 
     if (!hostConn) {

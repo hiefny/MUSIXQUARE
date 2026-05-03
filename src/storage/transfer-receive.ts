@@ -29,6 +29,7 @@ import {
   hasActiveRelay,
   waitForGuestConnectionType,
 } from '../network/peer.ts';
+import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, AnyProtocolMsg, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
@@ -350,6 +351,16 @@ export async function handleFilePrepare(
         }
 
         fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt);
+        return;
+      }
+      if (shouldWaitForRemoteShare()) {
+        const idx = Number(data.index);
+        const safeIndex = Number.isFinite(idx) && idx >= 0 ? idx : 0;
+        prepareRemoteShareWait(
+          safeIndex,
+          (data.name as string) || '',
+          (data.sessionId as number) || getState('transfer.localSessionId') || 0,
+        );
         return;
       }
       showRemoteGuideUI(data);

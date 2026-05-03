@@ -51,6 +51,40 @@ export interface PreloadSessionEntry {
   finalized: boolean;
 }
 
+export interface RemoteFileSharePayload {
+  roomId: string;
+  objectId: string;
+  downloadUrl?: string;
+  keyB64: string;
+  ivB64: string;
+  name: string;
+  mime: string;
+  size: number;
+  encryptedSize: number;
+  index: number;
+  sessionId: number;
+  expiresAt: number;
+}
+
+export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
+export type RemoteShareDownloadStatus = 'idle' | 'fetching' | 'decrypting' | 'ready' | 'error';
+
+export interface RemoteShareState {
+  upload: {
+    status: RemoteShareUploadStatus;
+    progress: number;
+    objectId: string | null;
+    expiresAt: number | null;
+    error: string | null;
+  };
+  download: {
+    status: RemoteShareDownloadStatus;
+    progress: number;
+    blobUrl: string | null;
+    error: string | null;
+  };
+}
+
 // ─── Playlist ──────────────────────────────────────────────────────
 export interface PlaylistItem {
   type: 'file' | 'youtube';
@@ -205,6 +239,7 @@ export interface ProtocolMap {
     size?: number;
     autoPlayDelayMs?: number;
   };
+  'remote-file-share': RemoteFileSharePayload;
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': {
     list: Array<Record<string, unknown>>;
@@ -413,6 +448,9 @@ export interface StateTree {
     isFirstTrackLoad: boolean;
     currentTrackMeta: Partial<PlaylistItem> | null;
     decodeFailureCount: number;
+  };
+  share: {
+    remote: RemoteShareState;
   };
   transfer: {
     state: TransferStateValue;
@@ -787,6 +825,11 @@ interface BaseEventMap {
   'storage:write-error': [data: unknown];
   'storage:session-mismatch': [data: unknown];
   'storage:cleanup-complete': [filename: string];
+
+  // ── Remote Share ─────────────────────────────────────────────────
+  'share:remote-file': [descriptor: RemoteFileSharePayload];
+  'remote-file:ready': [index: number, name: string];
+  'remote-file:progress': [phase: 'download' | 'decrypt', progress: number];
 
   // ── Blob ──────────────────────────────────────────────────────────
   'blob:revoke-all': [];

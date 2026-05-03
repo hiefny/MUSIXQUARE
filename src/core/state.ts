@@ -69,6 +69,24 @@ function createInitialState(): StateTree {
       decodeFailureCount: 0,
     },
 
+    share: {
+      remote: {
+        upload: {
+          status: 'idle',
+          progress: 0,
+          objectId: null,
+          expiresAt: null,
+          error: null,
+        },
+        download: {
+          status: 'idle',
+          progress: 0,
+          blobUrl: null,
+          error: null,
+        },
+      },
+    },
+
     transfer: {
       state: TRANSFER_STATE.IDLE,
       receivedCount: 0,

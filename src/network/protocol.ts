@@ -68,6 +68,7 @@ const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && 
 
 // Max 200,000 chunks ≈ 3.2 GB at 16 KB/chunk — prevents DoS via unbounded total
 const MAX_FILE_TOTAL = 200_000;
+const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
 
 // Per-chunk byte cap. Host always sends exactly CHUNK_SIZE (or smaller for
 // the tail chunk via file.slice()), so anything larger is a malformed or
@@ -131,6 +132,25 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
+  [MSG.REMOTE_FILE_SHARE]: (d) =>
+    typeof d.roomId === 'string' &&
+    d.roomId.length <= 80 &&
+    typeof d.objectId === 'string' &&
+    d.objectId.length <= 160 &&
+    (d.downloadUrl === undefined || typeof d.downloadUrl === 'string') &&
+    typeof d.keyB64 === 'string' &&
+    d.keyB64.length <= 128 &&
+    typeof d.ivB64 === 'string' &&
+    d.ivB64.length <= 64 &&
+    typeof d.name === 'string' &&
+    typeof d.mime === 'string' &&
+    isNonNegInt(d.index) &&
+    isFiniteNumber(d.sessionId) &&
+    isFiniteNumber(d.size) &&
+    (d.size as number) <= MAX_REMOTE_SHARE_BYTES &&
+    isFiniteNumber(d.encryptedSize) &&
+    (d.encryptedSize as number) <= MAX_REMOTE_SHARE_BYTES + 4096 &&
+    isFiniteNumber(d.expiresAt),
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (handler at transfer-receive.ts:685
   // bumps it from any incoming sessionId), blocking subsequent legitimate inbound

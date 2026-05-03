@@ -90,6 +90,7 @@ export const MSG = {
   FILE_CHUNK: 'file-chunk',
   FILE_END: 'file-end',
   FILE_PREPARE: 'file-prepare',
+  REMOTE_FILE_SHARE: 'remote-file-share',
   FILE_RESUME: 'file-resume',
   FILE_START: 'file-start',
   FILE_WAIT: 'file-wait',
@@ -217,6 +218,7 @@ export const RELAYABLE_MSG_TYPES = [
   MSG.PLAY_PRELOADED,
   MSG.DEVICE_LIST_UPDATE,
   MSG.FILE_PREPARE,
+  MSG.REMOTE_FILE_SHARE,
   MSG.SYSTEM_AUDIO_START,
   MSG.SYSTEM_AUDIO_STOP,
 ] as const satisfies readonly MsgType[];

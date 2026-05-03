@@ -1,0 +1,16 @@
+name = "musixquare-remote-share"
+main = "remote-share-worker.js"
+compatibility_date = "2026-05-03"
+
+[vars]
+MAX_UPLOAD_BYTES = "209715200"
+OBJECT_TTL_SECONDS = "3600"
+ALLOWED_ORIGINS = "https://musixquare.com,http://localhost:5173,http://127.0.0.1:5173"
+
+[[r2_buckets]]
+binding = "REMOTE_SHARE_BUCKET"
+bucket_name = "musixquare-remote-share"
+
+[[kv_namespaces]]
+binding = "REMOTE_SHARE_RATE_LIMIT"
+id = "replace-with-kv-namespace-id"

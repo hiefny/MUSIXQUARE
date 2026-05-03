@@ -119,6 +119,7 @@ function friendlyErrorMessage(error: unknown): string {
   if (raw === 'REMOTE_SHARE_UPLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK') {
     return t('share.remote.network_error');
   }
+  if (raw === 'REMOTE_SHARE_UPLOAD_HTTP_429') return t('share.remote.rate_limited');
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
   if (raw === 'REMOTE_SHARE_ABORTED') return raw; // never user-visible
   return raw;

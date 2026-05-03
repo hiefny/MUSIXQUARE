@@ -425,6 +425,7 @@ const ko = {
   'share.remote.timeout': '원격 파일 대기 시간이 초과됐어요',
   'share.remote.too_large': '파일이 너무 커요 (200MB 이하만 가능)',
   'share.remote.network_error': '네트워크 오류로 원격 공유에 실패했어요',
+  'share.remote.rate_limited': '원격 공유 요청이 잠시 많아요. 잠깐 뒤 다시 시도해주세요',
   'share.remote.expired': '원격 파일 링크가 만료됐어요. 다시 공유해주세요',
   'transfer.preload_fail': '프리로드 재생 실패 - 다시 로드할게요',
   'transfer.download_finishing': '다운로드 마무리 중...',

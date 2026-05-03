@@ -8,11 +8,17 @@
  * Optional env:
  * - MAX_UPLOAD_BYTES: default 209715200
  * - OBJECT_TTL_SECONDS: default 3600
+ * - RATE_LIMIT_WINDOW_SECONDS: default 3600
+ * - IP_UPLOADS_PER_WINDOW: default 120
+ * - ROOM_UPLOADS_PER_WINDOW: default 60
  * - ALLOWED_ORIGINS: comma-separated origins
  */
 
 const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEFAULT_TTL_SECONDS = 60 * 60;
+const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const DEFAULT_IP_UPLOADS_PER_WINDOW = 120;
+const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 60;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -38,11 +44,12 @@ function corsHeaders(request, env) {
   };
 }
 
-function json(request, env, body, status = 200) {
+function json(request, env, body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       ...corsHeaders(request, env),
+      ...extraHeaders,
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
     },
@@ -78,6 +85,16 @@ async function consumeLimit(env, key, limit, ttlSeconds) {
   return true;
 }
 
+function rateLimited(request, env, message, retryAfterSeconds) {
+  return json(
+    request,
+    env,
+    { error: message, retryAfterSeconds },
+    429,
+    { 'retry-after': String(retryAfterSeconds) },
+  );
+}
+
 async function handleUpload(request, env) {
   if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
 
@@ -97,11 +114,23 @@ async function handleUpload(request, env) {
     request.headers.get('x-forwarded-for') ||
     'unknown';
 
-  const ipAllowed = await consumeLimit(env, `ip:${ip}`, 10, 60 * 60);
-  if (!ipAllowed) return json(request, env, { error: 'rate limited' }, 429);
+  const rateWindowSeconds = parseLimit(
+    env.RATE_LIMIT_WINDOW_SECONDS,
+    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
+  const roomUploadLimit = parseLimit(env.ROOM_UPLOADS_PER_WINDOW, DEFAULT_ROOM_UPLOADS_PER_WINDOW);
 
-  const roomAllowed = await consumeLimit(env, `room:${roomId}`, 5, 60 * 60);
-  if (!roomAllowed) return json(request, env, { error: 'room rate limited' }, 429);
+  const ipAllowed = await consumeLimit(env, `ip:${ip}`, ipUploadLimit, rateWindowSeconds);
+  if (!ipAllowed) return rateLimited(request, env, 'rate limited', rateWindowSeconds);
+
+  const roomAllowed = await consumeLimit(
+    env,
+    `room:${roomId}`,
+    roomUploadLimit,
+    rateWindowSeconds,
+  );
+  if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
 
   const ttlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
   const expiresAt = Date.now() + ttlSeconds * 1000;

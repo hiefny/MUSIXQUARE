@@ -244,9 +244,11 @@ const ko = {
   'chat.system_audio_stopped_notice':
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
   'chat.remote_guest_detected_notice':
-    '원격 참여자가 들어왔어요. Wi-Fi가 아니라면 데이터 사용량이 늘어날 수 있어요.',
+    '원격 참여자가 들어왔어요. 네트워크 환경에 따라 연결이 불안정할 수 있어요.',
   'chat.remote_upload_limited_notice':
     '파일 업로드 제한에 걸렸어요. 원격 참여자는 나중에 다시 시도해주세요.',
+  'chat.remote_upload_failed_notice':
+    '원격 파일 업로드에 실패했어요. 원격 참여자는 잠시 후 다시 시도해주세요.',
   'chat.pinned_close': '공지 닫기',
   'chat.cmd_whisper_from': '{{name}} 님의 귓속말',
   'chat.cmd_whisper_to': '{{name}} 님에게 귓속말',

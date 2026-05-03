@@ -248,6 +248,12 @@ export interface ProtocolMap {
     size?: number;
     autoPlayDelayMs?: number;
   };
+  'remote-file-unavailable': {
+    name: string;
+    index: number;
+    sessionId: number;
+    limited?: boolean;
+  };
   'remote-file-share': RemoteFileSharePayload;
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': {

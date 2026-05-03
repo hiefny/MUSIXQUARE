@@ -132,6 +132,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
+  [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
+    typeof d.name === 'string' &&
+    isNonNegInt(d.index) &&
+    isFiniteNumber(d.sessionId) &&
+    (d.limited === undefined || typeof d.limited === 'boolean'),
   [MSG.REMOTE_FILE_SHARE]: (d) =>
     typeof d.roomId === 'string' &&
     d.roomId.length <= 80 &&

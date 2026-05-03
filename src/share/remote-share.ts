@@ -29,7 +29,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
-import { broadcastSystemNotice } from '../chat/protocol.ts';
+import { sendSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   broadcast,
@@ -82,7 +82,7 @@ let _activeDownload: DownloadEntry | null = null;
 // Preload (background) download runs in parallel to the active download
 // because they target distinct ownership of preload.nextFileBlob slot.
 let _activePreloadDownload: DownloadEntry | null = null;
-let _lastUploadLimitNoticeAt = 0;
+let _lastUploadFailureNoticeAt = 0;
 
 function rawRemoteShareError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -100,6 +100,21 @@ function toRemoteShareMessage(
   preload: boolean,
 ): AnyProtocolMsg {
   return { type: MSG.REMOTE_FILE_SHARE, ...descriptor, preload } as AnyProtocolMsg;
+}
+
+function toRemoteFileUnavailableMessage(
+  file: File,
+  sessionId: number,
+  index: number,
+  limited: boolean,
+): AnyProtocolMsg {
+  return {
+    type: MSG.REMOTE_FILE_UNAVAILABLE,
+    name: file.name,
+    index,
+    sessionId,
+    limited,
+  } as AnyProtocolMsg;
 }
 
 function hasRemoteTargets(): boolean {
@@ -201,12 +216,45 @@ function isUploadLimitError(error: unknown): boolean {
   );
 }
 
-function maybeBroadcastUploadLimitNotice(error: unknown): void {
-  if (!isUploadLimitError(error)) return;
+function getRemoteNoticeTargets(targetConn?: DataConnection): DataConnection[] {
+  if (targetConn?.open) return [targetConn];
+
+  const peers = getState('network.connectedPeers') || [];
+  return peers
+    .filter(
+      (peer) =>
+        peer.status === 'connected' &&
+        peer.conn?.open &&
+        (peer.connectionType === 'remote' || peer.connectionType === 'unknown'),
+    )
+    .map((peer) => peer.conn as DataConnection);
+}
+
+function maybeNotifyRemoteUploadFailure(
+  error: unknown,
+  file: File,
+  sessionId: number,
+  index: number,
+  targetConn?: DataConnection,
+): void {
   const now = Date.now();
-  if (now - _lastUploadLimitNoticeAt < 60_000) return;
-  _lastUploadLimitNoticeAt = now;
-  broadcastSystemNotice('chat.remote_upload_limited_notice');
+  const targets = getRemoteNoticeTargets(targetConn);
+  if (targets.length === 0) return;
+
+  const limited = isUploadLimitError(error);
+  const unavailable = toRemoteFileUnavailableMessage(file, sessionId, index, limited);
+  for (const conn of targets) {
+    safeSend(conn, unavailable);
+  }
+
+  if (now - _lastUploadFailureNoticeAt < 60_000) return;
+  _lastUploadFailureNoticeAt = now;
+  const key = limited
+    ? 'chat.remote_upload_limited_notice'
+    : 'chat.remote_upload_failed_notice';
+  for (const conn of targets) {
+    sendSystemNotice(conn, key);
+  }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -359,7 +407,7 @@ export async function shareRemoteFileIfNeeded(
     });
     log.warn('[RemoteShare] Upload/share failed:', error);
     if (!preload) {
-      maybeBroadcastUploadLimitNotice(error);
+      maybeNotifyRemoteUploadFailure(error, file, sessionId, index, targetConn);
       showToast(t('share.remote.upload_failed', { msg: message }));
     }
   }
@@ -830,9 +878,57 @@ async function handleRemoteFileShare(
   }
 }
 
+function handleRemoteFileUnavailable(
+  data: Record<string, unknown>,
+  conn?: DataConnection,
+): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+  if (!isRemoteGuest() && getState('network.connectionType') !== 'unknown') return;
+
+  const index = Number(data.index);
+  const sessionId = Number(data.sessionId);
+  const name = (data.name as string) || '';
+  if (!Number.isFinite(index) || index < 0 || !Number.isFinite(sessionId) || !name) return;
+
+  const pendingTarget = getState('playback.pendingRecoveryTarget');
+  const transferMeta = getState('transfer.meta');
+  const activeSessionId = Number(transferMeta?.sessionId) || 0;
+  const matchesPending = pendingTarget?.index === index && pendingTarget.name === name;
+  const matchesSession = activeSessionId === 0 || activeSessionId === sessionId;
+  const shouldAct =
+    matchesPending &&
+    matchesSession &&
+    getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
+  if (!shouldAct) return;
+
+  if (_activeDownload?.index === index) {
+    _activeDownload.abort.abort();
+    _activeDownload = null;
+  }
+
+  const message = data.limited
+    ? t('chat.remote_upload_limited_notice')
+    : t('chat.remote_upload_failed_notice');
+  clearManagedTimer(REMOTE_WAIT_TIMER);
+  showLoader(false);
+  showToast(message);
+  setState('share.remote', {
+    ...getState('share.remote'),
+    download: {
+      status: 'error',
+      progress: 0,
+      blobUrl: null,
+      error: message,
+    },
+  });
+  transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+}
+
 export function initRemoteShare(): void {
   registerHandlers({
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
+    [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
 
   bus.on('orchestrator:peer-joined', (peerId) => {

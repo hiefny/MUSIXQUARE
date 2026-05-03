@@ -246,9 +246,11 @@ const en: Record<I18nKey, string> = {
   'chat.system_audio_stopped_notice':
     'System audio sharing ended. Host, turn the volume back up to be the room speaker.',
   'chat.remote_guest_detected_notice':
-    "A remote participant joined. If you're not on Wi-Fi, playback may use more mobile data.",
+    'A remote participant joined. Connection quality may vary depending on network conditions.',
   'chat.remote_upload_limited_notice':
     'File upload limit reached. Remote participants should try again later.',
+  'chat.remote_upload_failed_notice':
+    'Remote file upload failed. Remote participants should try again shortly.',
   'chat.pinned_close': 'Dismiss notice',
   'chat.cmd_whisper_from': 'Whisper from {{name}}',
   'chat.cmd_whisper_to': 'Whisper to {{name}}',

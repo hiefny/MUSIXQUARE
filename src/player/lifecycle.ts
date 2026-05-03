@@ -88,6 +88,7 @@ export type PlaybackEvent =
   | { type: 'PRELOAD_STALL' }
   | { type: 'PRELOAD_CEILING' }
   | { type: 'LOAD_TOKEN_MISMATCH' }
+  | { type: 'REMOTE_FILE_UNAVAILABLE' }
   // ── Host-side control (host is guest-of-itself for this machine) ──
   | { type: 'HOST_AUTO_ADVANCE' };
 
@@ -244,6 +245,8 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         return { stay: true }; // store pausedAt
       case 'LOAD_TOKEN_MISMATCH':
         return { stay: true };
+      case 'REMOTE_FILE_UNAVAILABLE':
+        return { next: PLAYBACK_STATE.FAILED };
       default:
         return { reject: `${ev.type} not expected in AWAITING_PRELOAD` };
     }

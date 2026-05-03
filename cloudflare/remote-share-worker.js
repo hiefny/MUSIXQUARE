@@ -15,8 +15,8 @@
  * - OBJECT_TTL_SECONDS: default 3600
  * - UPLOAD_TOKEN_TTL_SECONDS: default 600
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
- * - IP_UPLOADS_PER_WINDOW: default 120
- * - ROOM_UPLOADS_PER_WINDOW: default 60
+ * - IP_UPLOADS_PER_WINDOW: default 60
+ * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
  * - ALLOWED_ORIGINS: comma-separated origins
  */
 
@@ -24,8 +24,8 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEFAULT_TTL_SECONDS = 60 * 60;
 const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
-const DEFAULT_IP_UPLOADS_PER_WINDOW = 120;
-const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 60;
+const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
+const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 0;
 const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
@@ -91,6 +91,12 @@ function json(request, env, body, status = 200, extraHeaders = {}) {
 function parseLimit(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseOptionalLimit(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function getSigningSecret(env) {
@@ -371,18 +377,23 @@ async function handleSession(request, env) {
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
   );
   const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
-  const roomUploadLimit = parseLimit(env.ROOM_UPLOADS_PER_WINDOW, DEFAULT_ROOM_UPLOADS_PER_WINDOW);
+  const roomUploadLimit = parseOptionalLimit(
+    env.ROOM_UPLOADS_PER_WINDOW,
+    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
+  );
 
   const ipAllowed = await consumeLimit(env, `session-ip:${ip}`, ipUploadLimit, rateWindowSeconds);
   if (!ipAllowed) return rateLimited(request, env, 'rate limited', rateWindowSeconds);
 
-  const roomAllowed = await consumeLimit(
-    env,
-    `session-room:${roomId}`,
-    roomUploadLimit,
-    rateWindowSeconds,
-  );
-  if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+  if (roomUploadLimit > 0) {
+    const roomAllowed = await consumeLimit(
+      env,
+      `session-room:${roomId}`,
+      roomUploadLimit,
+      rateWindowSeconds,
+    );
+    if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+  }
 
   const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
   const now = Date.now();
@@ -595,18 +606,23 @@ async function handleUpload(request, env) {
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
   );
   const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
-  const roomUploadLimit = parseLimit(env.ROOM_UPLOADS_PER_WINDOW, DEFAULT_ROOM_UPLOADS_PER_WINDOW);
+  const roomUploadLimit = parseOptionalLimit(
+    env.ROOM_UPLOADS_PER_WINDOW,
+    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
+  );
 
   const ipAllowed = await consumeLimit(env, `ip:${ip}`, ipUploadLimit, rateWindowSeconds);
   if (!ipAllowed) return rateLimited(request, env, 'rate limited', rateWindowSeconds);
 
-  const roomAllowed = await consumeLimit(
-    env,
-    `room:${roomId}`,
-    roomUploadLimit,
-    rateWindowSeconds,
-  );
-  if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+  if (roomUploadLimit > 0) {
+    const roomAllowed = await consumeLimit(
+      env,
+      `room:${roomId}`,
+      roomUploadLimit,
+      rateWindowSeconds,
+    );
+    if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+  }
 
   const ttlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
   const expiresAt = Date.now() + ttlSeconds * 1000;

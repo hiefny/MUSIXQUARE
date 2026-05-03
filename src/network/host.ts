@@ -4,16 +4,17 @@
  * Manages: incoming guest connections, welcome messages, device list,
  * operator toggle, kick, max-guests resize.
  *
- * Imports from peer-state.ts (leaf) only — never from peer.ts.
+ * Avoids importing from peer.ts; host-side helpers stay on peer-state.ts.
  */
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { APP_STATE, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
+import { broadcastSystemNotice, sendSystemNotice } from '../chat/protocol.ts';
 
 import {
   detectConnectionType,
@@ -26,6 +27,14 @@ import {
 import { showToast } from '../ui/toast.ts';
 
 // ─── Host: Incoming Connection ──────────────────────────────────────
+
+let remoteGuestNoticeShown = false;
+
+function maybeBroadcastRemoteGuestNotice(): void {
+  if (remoteGuestNoticeShown) return;
+  remoteGuestNoticeShown = true;
+  broadcastSystemNotice('chat.remote_guest_detected_notice');
+}
 
 export function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
@@ -241,6 +250,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     showToast(t('toast.device_connected', { name: deviceName }));
     bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
 
+    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      sendSystemNotice(conn, 'chat.system_audio_started_notice');
+    }
+
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
@@ -261,6 +274,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         log.info(`[Host] ${deviceName} connection type: ${type}`);
         broadcastDeviceList();
         bus.emit('orchestrator:peer-type-detected', peerId);
+        if (type === 'remote') {
+          maybeBroadcastRemoteGuestNotice();
+        }
 
         // Worst-case fallback: detectConnectionType returns 'remote' both for
         // genuine WAN peers and for LAN peers whose ICE never produced a
@@ -503,6 +519,10 @@ bus.on('network:device-list', (list) => {
     setState('network.lastKnownDeviceList', list as DeviceInfo[]);
     bus.emit('network:device-list-update', list);
   }
+});
+
+bus.on('state:network.sessionCode', () => {
+  remoteGuestNoticeShown = false;
 });
 
 // ─── Host: Rename Device ─────────────────────────────────────────

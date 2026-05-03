@@ -29,6 +29,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
+import { broadcastSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   broadcast,
@@ -81,6 +82,11 @@ let _activeDownload: DownloadEntry | null = null;
 // Preload (background) download runs in parallel to the active download
 // because they target distinct ownership of preload.nextFileBlob slot.
 let _activePreloadDownload: DownloadEntry | null = null;
+let _lastUploadLimitNoticeAt = 0;
+
+function rawRemoteShareError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function clearStaleRemotePlayback(reason: string): void {
   const pendingTime = getPendingPlayTime();
@@ -140,7 +146,7 @@ function showUploadProgress(message: string, progress = 0): void {
  * but keeps internal tokens out of the UI for the common cases.
  */
 function friendlyErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw = rawRemoteShareError(error);
   if (raw === 'REMOTE_SHARE_FILE_TOO_LARGE') return t('share.remote.too_large');
   if (
     raw === 'REMOTE_SHARE_UPLOAD_NETWORK' ||
@@ -152,7 +158,12 @@ function friendlyErrorMessage(error: unknown): string {
   ) {
     return t('share.remote.network_error');
   }
-  if (raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' || raw === 'REMOTE_SHARE_SESSION_HTTP_429') {
+  if (
+    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
+    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
+  ) {
     return t('share.remote.rate_limited');
   }
   if (
@@ -178,6 +189,24 @@ function friendlyErrorMessage(error: unknown): string {
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
   if (raw === 'REMOTE_SHARE_ABORTED') return raw; // never user-visible
   return raw;
+}
+
+function isUploadLimitError(error: unknown): boolean {
+  const raw = rawRemoteShareError(error);
+  return (
+    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
+    raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
+    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
+  );
+}
+
+function maybeBroadcastUploadLimitNotice(error: unknown): void {
+  if (!isUploadLimitError(error)) return;
+  const now = Date.now();
+  if (now - _lastUploadLimitNoticeAt < 60_000) return;
+  _lastUploadLimitNoticeAt = now;
+  broadcastSystemNotice('chat.remote_upload_limited_notice');
 }
 
 function isAbortError(error: unknown): boolean {
@@ -330,6 +359,7 @@ export async function shareRemoteFileIfNeeded(
     });
     log.warn('[RemoteShare] Upload/share failed:', error);
     if (!preload) {
+      maybeBroadcastUploadLimitNotice(error);
       showToast(t('share.remote.upload_failed', { msg: message }));
     }
   }

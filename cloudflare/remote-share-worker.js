@@ -317,12 +317,17 @@ function readMetadata(object, ...keys) {
 
 async function consumeLimit(env, key, limit, ttlSeconds) {
   if (!env.REMOTE_SHARE_RATE_LIMIT) return true;
-  const current = Number((await env.REMOTE_SHARE_RATE_LIMIT.get(key)) || '0');
-  if (current >= limit) return false;
-  await env.REMOTE_SHARE_RATE_LIMIT.put(key, String(current + 1), {
-    expirationTtl: ttlSeconds,
-  });
-  return true;
+  try {
+    const current = Number((await env.REMOTE_SHARE_RATE_LIMIT.get(key)) || '0');
+    if (current >= limit) return false;
+    await env.REMOTE_SHARE_RATE_LIMIT.put(key, String(current + 1), {
+      expirationTtl: ttlSeconds,
+    });
+    return true;
+  } catch (error) {
+    console.warn('remote share rate-limit storage unavailable', error);
+    return false;
+  }
 }
 
 function rateLimited(request, env, message, retryAfterSeconds) {

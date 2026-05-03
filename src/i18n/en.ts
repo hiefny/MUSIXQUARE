@@ -244,6 +244,10 @@ const en: Record<I18nKey, string> = {
     'System audio sharing started. Some delay between host and participants is unavoidable, so only the host should lower their volume as much as possible.',
   'chat.system_audio_stopped_notice':
     'System audio sharing ended. Host, turn the volume back up to be the room speaker.',
+  'chat.remote_guest_detected_notice':
+    'A participant on a different network from the host was detected. Watch your data usage.',
+  'chat.remote_upload_limited_notice':
+    'File upload limit reached. Remote participants should try again later.',
   'chat.pinned_close': 'Dismiss notice',
   'chat.cmd_whisper_from': 'Whisper from {{name}}',
   'chat.cmd_whisper_to': 'Whisper to {{name}}',

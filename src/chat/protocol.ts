@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { broadcast } from '../network/peer-state.ts';
+import { broadcast, safeSend } from '../network/peer-state.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';
@@ -429,6 +429,29 @@ export function broadcastSystemNotice(
     ...(params ? { i18nParams: params } : {}),
   });
   bus.emit('chat:notice-message', '', fallbackText);
+}
+
+/**
+ * Send the same localized system notice shape to one peer only.
+ *
+ * Used for late-join bootstrap notices: the new guest should see the pinned
+ * notice banner, but the host and existing guests should not get a repeated
+ * room-wide announcement.
+ */
+export function sendSystemNotice(
+  conn: DataConnection | null | undefined,
+  i18nKey: I18nKey,
+  params?: Record<string, string | number>,
+): void {
+  const fallbackText = t(i18nKey, params);
+  safeSend(conn, {
+    type: MSG.CHAT_NOTICE,
+    senderLabel: '',
+    text: fallbackText,
+    ts: Date.now(),
+    i18nKey,
+    ...(params ? { i18nParams: params } : {}),
+  });
 }
 
 export function registerChatProtocolHandlers(): void {

@@ -17,10 +17,8 @@ import type {
 
 import type { Peer as PeerClass, DataConnection as PeerJSDataConnection } from 'peerjs';
 
-/** PeerJS DataConnection extended with relay properties */
+/** PeerJS DataConnection with app-local lifecycle flags. */
 export type DataConnection = PeerJSDataConnection & {
-  _relayQueue?: unknown[];
-  _relayBusy?: boolean;
   _errorHandled?: boolean;
 };
 
@@ -312,7 +310,7 @@ export interface ProtocolMap {
   // 'sync-response', 'get-sync-time', 'global-resync-request' removed — dead code
   // 'heartbeat', 'heartbeat-ack', 'ping-latency', 'pong-latency' removed — replaced by sync-ping/pong
 
-  // ── Network / Relay ──────────────────────────────────────────────
+  // ── Network ─────────────────────────────────────────────────────
   'device-list-update': {
     list: Array<{
       id: string | null;
@@ -324,10 +322,7 @@ export interface ProtocolMap {
       joinOrder?: number;
     }>;
   };
-  'assign-data-source': { targetId?: string | null };
-  'data-relay': NoPayload;
   'kick-device': { reason?: string };
-  'relay-downstream-lost': { lostPeerId: string };
   'operator-grant': NoPayload;
   'operator-revoke': NoPayload;
 
@@ -535,7 +530,6 @@ export interface StateTree {
     slowmodeSeconds: number;
     filterEnabled: boolean;
   };
-  relay: { upstreamDataConn: DataConnection | null; downstreamDataPeers: DataConnection[] };
   playlist: {
     items: PlaylistItem[];
     currentTrackIndex: number;
@@ -859,10 +853,7 @@ interface BaseEventMap {
   // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];
 
-  // ── Relay / Orchestrator ─────────────────────────────────────────
-  'relay:incoming-connection': [conn: DataConnection];
-  'relay:serve-current-file': [conn: DataConnection, msg: unknown];
-  'relay:serve-recovery': [conn: DataConnection, msg: unknown];
+  // ── Orchestrator ────────────────────────────────────────────────
   'orchestrator:peer-type-detected': [peerId: string];
   'orchestrator:peer-evaluated': [peerId: string];
   'orchestrator:peer-joined': [peerId: string];

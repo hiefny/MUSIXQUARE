@@ -21,9 +21,8 @@ import {
   canSendFileTo,
   filterEligiblePeers,
   isRemoteGuest,
-  hasActiveRelay,
 } from '../network/peer.ts';
-import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
@@ -562,22 +561,10 @@ export async function unicastPreload(
 // ─── Guest: Preload Receive Handlers ────────────────────────────────
 
 /**
- * Reject broadcast frames not arriving via hostConn. Preload messages
- * (START/CHUNK/END/PLAY_PRELOADED) flow host→guest only — host triggers
- * preloads from its own scheduler and broadcasts; the host's dispatcher
- * never receives them on the legitimate path. Without this guard, a peer
- * connected over DATA_RELAY (peer.ts:292 accepts without auth) can inject
- * raw frames to corrupt preload state, force PLAY_PRELOADED of a wrong
- * index, or DoS the storage pipeline. Same threat-model class as 4838a0c
- * SYNC_PONG and the post-4838a0c sibling sweep — non-RELAYABLE host→guest
- * messages need per-handler guards because the dispatcher's RELAY DOWNSTREAM
- * amplification check (b2ad18e) only fires for RELAYABLE commands. PLAY_
- * PRELOADED is RELAYABLE so the dispatcher blocks amplification past the
- * relay, but per-handler guards still protect each receiver's own state.
- *
- * handlePreloadAck stays unguarded — it's the host-side reply handler
- * (guest→host direction); on host hostConn=null so the guard would
- * fail-closed against every legitimate ack.
+ * Reject broadcast frames not arriving via hostConn. Preload messages flow
+ * host-to-guest only: the host schedules preloads and guests only trust frames
+ * from that authenticated connection. handlePreloadAck stays unguarded because
+ * it is the host-side guest-to-host reply handler.
  */
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
@@ -587,9 +574,9 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
 function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  // Remote guests: skip preload unless relay is active
-  if (isRemoteGuest() && !hasActiveRelay()) {
-    log.info('[Preload] Skipped — remote/unknown guest without relay');
+  // Remote guests receive preloads through the encrypted remote-share path.
+  if (isRemoteGuest()) {
+    log.info('[Preload] Skipped direct preload for remote guest');
     return;
   }
 
@@ -707,12 +694,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     0,
   );
 
-  // Relay downstream
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, data as AnyProtocolMsg);
-  });
-
   // Watchdog: unconditionally clear preload loader after 30s
   clearManagedTimer('preloadWatchdog');
   setManagedTimer(
@@ -749,27 +730,12 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   while (sessionBuffer.has(nextChunkPtr)) {
     const chunk = sessionBuffer.get(nextChunkPtr)!;
 
-    // Clone chunk to prevent detachment issues (one for relay, one for worker)
+    // Clone chunk to prevent detachment issues before handing it to the worker.
     const chunkClone = new Uint8Array(chunk);
     const fileName = session.name;
 
     // If we still don't know the filename, keep buffering
     if (!fileName) break;
-
-    // Relay downstream
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    if (downstreamPeers.length > 0) {
-      const relayCopy = new Uint8Array(chunk);
-      const relayMsg = {
-        type: MSG.PRELOAD_CHUNK,
-        chunk: relayCopy,
-        index: nextChunkPtr,
-        sessionId,
-      };
-      downstreamPeers.forEach((p) => {
-        safeSend(p, relayMsg);
-      });
-    }
 
     postCommand({
       command: 'STORAGE_WRITE',
@@ -856,8 +822,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  // Remote guests: drop preload chunks unless relay is active
-  if (isRemoteGuest() && !hasActiveRelay()) return;
+  // Remote guests receive encrypted remote-share blobs instead of direct chunks.
+  if (isRemoteGuest()) return;
 
   // Require explicit sessionId — fallback to latestPreloadSessionId
   let sid = data.sessionId as number;
@@ -991,12 +957,6 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
   // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after storage confirms file)
   // Previously it was sent here (before storage confirmed), causing timing issues.
 
-  // Relay downstream
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, data as AnyProtocolMsg);
-  });
-
   bus.emit('storage:preload-ready', data.index as number);
 }
 
@@ -1046,12 +1006,6 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
         !session ? 'absent' : session.finalized ? 'finalized' : 'skipped'
       }, no teardown needed`,
     );
-    // Still relay downstream — a deeper relay-host may have an in-flight
-    // session for the same sid that we don't track here.
-    const downstreamPeersEarly = getState('relay.downstreamDataPeers');
-    downstreamPeersEarly.forEach((p) => {
-      safeSend(p, { type: MSG.PRELOAD_ABORT, sessionId: sid });
-    });
     return;
   }
 
@@ -1083,11 +1037,6 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
     showLoader(false);
   }
 
-  // Relay downstream so remote-via-relay guests also tear down.
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, { type: MSG.PRELOAD_ABORT, sessionId: sid });
-  });
 }
 
 function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): void {
@@ -1158,11 +1107,6 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
 
-    // Relay downstream
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach((p) => {
-      safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
-    });
     return;
   }
 
@@ -1206,11 +1150,6 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
 
-    // Relay downstream
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach((p) => {
-      safeSend(p, { type: MSG.PLAY_PRELOADED, index, name });
-    });
     return;
   }
 
@@ -1273,11 +1212,6 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     );
   }
 
-  // Relay downstream regardless
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, { type: MSG.PLAY_PRELOADED, index, name: trackName });
-  });
 }
 
 // ─── Debug: Memory Stats ────────────────────────────────────────────

@@ -363,7 +363,7 @@ function cmdWhisper(args: string[], rawArgs: string): void {
     const conn = connMap.get(target.peerId);
     if (conn) conn.send(payload);
   } else {
-    // Guest sends to host, host relays to target
+    // Guest sends to host, host forwards to target
     sendToHost(payload);
   }
 
@@ -620,7 +620,7 @@ function cmdDebug(args: string[]): void {
 //   - Files (current blob, preload blob, playlist file refs sum)
 //   - Transfer (main reorder buffer + early-chunk queue)
 //   - Preload (reorder buffer + sessionState + ackSent)
-//   - Network (peer connections + relay)
+//   - Network (peer connections)
 //   - Lifecycle (state machine + recovery target)
 interface MemSnapshot {
   lines: string[];
@@ -883,11 +883,8 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
       (p) => (p.conn as { open?: boolean } | undefined)?.open,
     ).length;
     const hostConn = getState('network.hostConn') as { open?: boolean } | null;
-    const upstreamRelay = getState('relay.upstreamDataConn') as { open?: boolean } | null;
-    const downstream = (getState('relay.downstreamDataPeers') ||
-      []) as unknown as Array<{ open?: boolean }>;
     lines.push(
-      `[Network] hostConn:${hostConn?.open ? 'open' : hostConn ? 'closed' : 'none'} | peers:${peers.length}(${openPeers} open) | upRelay:${upstreamRelay?.open ? 'open' : 'none'} | downstream:${downstream.length}`,
+      `[Network] hostConn:${hostConn?.open ? 'open' : hostConn ? 'closed' : 'none'} | peers:${peers.length}(${openPeers} open)`,
     );
   } catch {
     /* ignore */

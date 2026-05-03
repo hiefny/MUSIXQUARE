@@ -124,12 +124,11 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
 function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): void {
   // SYNC_PONG is host's reply to a guest's SYNC_PING — host never receives
   // it on the legitimate path, and a guest only receives it from hostConn.
-  // Without this guard, a peer connected over DATA_RELAY can inject a
-  // fake hostTime/position which feeds processSyncPong (clock-offset
-  // poisoning) and play() at L155/161 (file-mode position jump).
+  // Without this guard, any non-host peer could inject a fake
+  // hostTime/position which feeds processSyncPong (clock-offset poisoning)
+  // and play() at L155/161 (file-mode position jump).
   // pingId matching in processSyncPong gives partial protection but pingIds
   // are sequential (L30 _syncPingCounter) and predictable. SYNC_PONG is
-  // not RELAYABLE so the dispatcher amplification guard doesn't apply —
   // per-handler defense is required.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
@@ -219,7 +218,7 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host processes this
 
-  const peerId = (data._originPeer as string) || conn?.peer;
+  const peerId = conn?.peer;
   if (!peerId) return;
 
   const newLabel = String(data.newLabel || '')
@@ -254,7 +253,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host processes this
 
-  const peerId = (data._originPeer as string) || conn?.peer;
+  const peerId = conn?.peer;
   if (!peerId) return;
 
   // Verify OP status

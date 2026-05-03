@@ -21,7 +21,7 @@ import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-c
 import { readStoredFile } from '../storage/storage.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
-import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
@@ -92,12 +92,10 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   // Drop PLAY frames not arriving via hostConn. Sibling to handlePauseMsg
   // (874a860): both are host→guest authoritative broadcasts (host's own
   // state changes go through setState directly, never through its own
-  // dispatcher). Without this, a peer over DATA_RELAY (peer.ts:292 accepts
-  // without auth) can inject {type:'play', time:<t>, index:<i>} to force
+  // dispatcher). Without this, a peer can inject
+  // {type:'play', time:<t>, index:<i>} to force
   // an arbitrary track-index change + play() at attacker time on the
-  // target. PLAY is RELAYABLE so the dispatcher amplification guard
-  // (b2ad18e) blocks past the relay node, but per-handler guards still
-  // protect each receiver's own state mutation path — same rationale as
+  // target. Per-handler guards protect each receiver's own state mutation path — same rationale as
   // a6eadce (effects), 8cbf192 (youtube), fe32164 (preload/transfer).
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
@@ -136,13 +134,13 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       return;
     }
 
-    // Remote guest without relay: orchestrator won't unicast the file
+    // Remote guest: orchestrator won't unicast the file
     // (isDataTarget=false) and a REQUEST_CURRENT_FILE would route over
     // TURN. Handle this case up-front — it applies to both fresh-join
     // and mid-stream track switches. The demo gets an HTTP fallback
     // fetch from the server; any other file falls back to the "same
     // Wi-Fi" guidance UI.
-    if (isRemoteGuest() && !hasActiveRelay()) {
+    if (isRemoteGuest()) {
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
         const waitName = data.name as string | undefined;
@@ -268,7 +266,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // to an HTTP fetch (covers the case where PLAYLIST_UPDATE arrived
     // before PLAY, so currentTrackIndex already matches and we skipped
     // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
-    if (isRemoteGuest() && !hasActiveRelay()) {
+    if (isRemoteGuest()) {
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
         const safeIndex =
@@ -870,7 +868,7 @@ export function initPlayback(): void {
 
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((p) => p.id === peerId);
-    if (!peer || !peer.isDataTarget) return; // Remote/relay peer — no direct file send
+    if (!peer || !peer.isDataTarget) return; // Remote peer — no direct file send
     const conn = peer.conn as DataConnection;
     if (!conn?.open) return;
 

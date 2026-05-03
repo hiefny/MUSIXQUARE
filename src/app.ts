@@ -4,7 +4,7 @@
  * Module initialization order:
  * 1. core/   — constants, log, events, state, platform, session, blob-manager, timers
  * 2. audio/  — engine, effects, channel
- * 3. network/ — peer, protocol, sync, relay
+ * 3. network/ — peer, protocol, sync
  * 4. storage/ — storage, transfer, preload, recovery
  * 5. player/ — playback, playlist, video, media-session
  * 6. youtube/ — player, sync, search
@@ -37,7 +37,6 @@ import { setChannelMode } from './audio/channel.ts';
 import { initProtocol } from './network/protocol.ts';
 import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
-import { initRelay } from './network/relay.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
@@ -369,7 +368,6 @@ function bootstrap(): void {
   safeInit('Protocol', initProtocol);
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
-  safeInit('Relay', initRelay);
   safeInit('Orchestrator', initOrchestrator);
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);

@@ -332,9 +332,6 @@ const ko = {
   'network.session_full': '세션이 가득 찼어요',
   'network.session_full_detail':
     '연결 가능한 기기 한도에 도달했어요.\n연결할 수 있는 기기 수는 "연결"탭에서 설정할 수 있어요.',
-  'network.relay_timeout': 'Relay 연결 시간초과',
-  'network.relay_connected': 'Relay 연결됨',
-  'network.relay_disconnected': 'Relay 연결 해제',
   'network.op_granted': '관리자 권한이 부여되었어요.',
   'network.op_revoked': '관리자 권한이 해제되었어요.',
 
@@ -417,7 +414,6 @@ const ko = {
   'transfer.file_requesting': '파일 요청 중...',
   'transfer.file_sending': '파일을 보내고 있어요…',
   'transfer.file_wait': '파일 대기 중... 잠시만 기다려주세요',
-  'transfer.relay_no_response': '릴레이 응답 없음. 방장에게서 직접 수신...',
   'transfer.preload_done': '프리로드된 파일 사용!',
   'transfer.preload_waiting': '프리로드 완료 대기 중...',
   // Remote file sharing (R2-backed encrypted transfer)

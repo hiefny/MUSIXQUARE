@@ -10,7 +10,6 @@ import {
   registerHandler,
   hasHandler,
   verifyOperator,
-  RELAYABLE_COMMANDS,
 } from '../protocol.ts';
 
 beforeEach(() => {
@@ -114,24 +113,6 @@ describe('registerHandlers', () => {
     expect(hasHandler('NEVER_REGISTERED_TYPE_XYZ' as any)).toBe(false);
   });
 });
-
-// ─── RELAYABLE_COMMANDS ───────────────────────────────────────────────
-
-describe('RELAYABLE_COMMANDS', () => {
-  it('is a non-empty Set', () => {
-    expect(RELAYABLE_COMMANDS instanceof Set).toBe(true);
-    expect(RELAYABLE_COMMANDS.size).toBeGreaterThan(0);
-  });
-
-  it('contains known command types', () => {
-    // MSG constants use lowercase values (e.g., MSG.PLAY = 'play')
-    expect(RELAYABLE_COMMANDS.has('play')).toBe(true);
-    expect(RELAYABLE_COMMANDS.has('pause')).toBe(true);
-    expect(RELAYABLE_COMMANDS.has('volume')).toBe(true);
-  });
-});
-
-// ─── verifyOperator ───────────────────────────────────────────────────
 
 describe('verifyOperator', () => {
   it('returns false when connection is null', () => {

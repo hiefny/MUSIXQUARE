@@ -23,7 +23,6 @@ vi.mock('../transfer.ts', () => ({
 
 vi.mock('../../network/peer.ts', () => ({
   isRemoteGuest: vi.fn(() => false),
-  hasActiveRelay: vi.fn(() => false),
 }));
 
 vi.mock('../../i18n/index.ts', () => ({
@@ -91,37 +90,15 @@ describe('sendRecoveryRequest', () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     setState('recovery.retryCount', 0);
     setState('network.hostConn', null);
-    setState('relay.upstreamDataConn', null);
     sendRecoveryRequest();
     // pending should not be set since we exit early
     expect(getState('recovery.pending')).toBeFalsy();
   });
 
-  it('prefers upstream connection over host', async () => {
-    const sendRecoveryRequest = await getSendRecoveryRequest();
-    const upstreamSend = vi.fn();
-    const hostSend = vi.fn();
-
-    setState('relay.upstreamDataConn', { open: true, send: upstreamSend } as AnyConn);
-    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('recovery.retryCount', 0);
-    setState('transfer.meta', { name: 'test.mp3' });
-
-    sendRecoveryRequest();
-    expect(getState('recovery.pending')).toBe(true);
-
-    // Advance past backoff (first backoff = 2000ms)
-    vi.advanceTimersByTime(2000);
-
-    expect(upstreamSend).toHaveBeenCalled();
-    expect(hostSend).not.toHaveBeenCalled();
-  });
-
-  it('falls back to host when upstream is closed', async () => {
+  it('sends recovery request to host', async () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     const hostSend = vi.fn();
 
-    setState('relay.upstreamDataConn', { open: false, send: vi.fn() } as AnyConn);
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
     setState('recovery.retryCount', 0);
     setState('transfer.meta', { name: 'test.mp3' });

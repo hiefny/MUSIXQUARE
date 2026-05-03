@@ -255,12 +255,8 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 // YOUTUBE_PLAYLIST_INFO) flow one-way: host calls `broadcast()`
 // directly — the host's own dispatcher never receives them on the
 // legitimate path. A raw frame at host means a malicious guest sent it
-// directly; a raw frame at a guest from any conn other than hostConn
-// means a peer is spoofing through a DATA_RELAY connection
-// (peer.ts:292 routes incoming DATA_RELAY without auth). The
-// dispatcher-level RELAY DOWNSTREAM `conn === hostConn` guard
-// (network/protocol.ts:281) blocks amplification past the relay node;
-// per-handler guards still protect the relay node's own state mutation.
+// directly; a raw frame at a guest from any conn other than hostConn means
+// a peer is spoofing host broadcasts.
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
   return !!hostConn && conn === hostConn;
@@ -270,7 +266,7 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
 
 function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_SYNC frames not arriving via hostConn. Without this, a
-  // malicious peer over a DATA_RELAY connection can send {videoId:'X',
+  // malicious peer can send {videoId:'X',
   // time:0, state:1} — when the guest is in PLAYING_YOUTUBE the L357
   // videoId-mismatch branch calls player.loadVideoById('X') forcing
   // arbitrary content onto the guest. Even outside PLAYING_YOUTUBE the
@@ -1160,8 +1156,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataCon
 
 function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_STOP frames not arriving via hostConn. Without this, a
-  // single raw frame from any peer (DATA_RELAY connection on a relay-
-  // capable guest) forces a guest in PLAYING_YOUTUBE out of YouTube
+  // single raw frame from any peer forces a guest in PLAYING_YOUTUBE out of YouTube
   // mode via the L1131-1132 bus emits — a single-frame DoS on the
   // target's YouTube session.
   if (!isHostBroadcast(conn)) return;

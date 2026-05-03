@@ -279,18 +279,6 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   clearManagedTimer('yt-scrape-safety');
   clearSnapshotRetries();
 
-  // Disconnect relay upstream so stale relay doesn't pump chunks when
-  // switching to file mode. Guest-only — host doesn't have upstreamDataConn.
-  const upstreamDataConn = getState('relay.upstreamDataConn');
-  if (upstreamDataConn) {
-    try {
-      upstreamDataConn.close();
-    } catch {
-      /* noop */
-    }
-    setState('relay.upstreamDataConn', null);
-  }
-
   // Full reset of guest-side sync module state (rendezvous flag, host
   // snapshot, drift-correction cooldown, ad detection, rendezvous timers).
   // Without this, a mid-rendezvous mode exit would leak timers, leave
@@ -981,7 +969,7 @@ export function initYouTube(): void {
           // Use the single-video-mode-forced IDs so guests receive the same
           // playlist intent host is operating under. handlers.ts reapplies
           // the safeguard, but broadcasting the authoritative pair keeps
-          // the payload self-consistent for debugging and future relays.
+          // the payload self-consistent for debugging and future fanout paths.
           videoId: finalVideoId,
           playlistId: finalPlaylistId,
           index: newIndex,

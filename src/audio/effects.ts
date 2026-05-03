@@ -443,10 +443,7 @@ bus.on('network:peer-connected', (conn) => {
  * guests; the host's own dispatcher never receives them on the legitimate
  * path. A raw frame at host means a malicious guest sent it directly to
  * mutate host's audio state. A raw frame at a guest from any conn other
- * than hostConn means a peer (typically over a DATA_RELAY connection on
- * a relay-capable guest) is spoofing host broadcasts. The amplification
- * counterpart for relay-capable guests sits at protocol.ts:281 (RELAY
- * DOWNSTREAM `conn === hostConn` guard).
+ * than hostConn means a peer is spoofing host broadcasts.
  */
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
@@ -514,7 +511,7 @@ function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): 
 // Trusted local-apply path for reverb preset selection. Called by both the
 // network handler (after the isHostBroadcast auth guard) and the host's own
 // `audio:reverb-type-change` bus listener at L362, which fires from host UI
-// clicks (settings.ts:559,562) and from REQUEST_SETTING relayed by an OP
+// clicks (settings.ts:559,562) and from REQUEST_SETTING forwarded by an OP
 // guest (playlist.ts:964). Extracting this avoids routing the host's own
 // trusted action through the network handler — that path is now gated by
 // isHostBroadcast(conn) which always returns false on host (hostConn=null),

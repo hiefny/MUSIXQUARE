@@ -23,15 +23,13 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postCommand, cleanupStoredFile } from './storage.ts';
 import { t } from '../i18n/index.ts';
 import {
-  safeSend,
   sendToHost,
   isRemoteGuest,
-  hasActiveRelay,
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
-import type { FileMeta, AnyProtocolMsg, DataConnection } from '../types/index.ts';
+import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
@@ -61,10 +59,7 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 // triggered recovery.
 //
 // Callers that have access to the incoming message's `name` should pass
-// it so same-track replay can be detected; callers without (relay relay
-// gate) pass nothing and lose only the same-track skip — harmless because
-// the relay path is downstream-only and downstream guests run their own
-// derive.
+// it so same-track replay can be detected.
 function shouldSkipIncomingFile(incomingName?: string): boolean {
   // YouTube and system-audio modes own their own state paths;
   // lifecycle.ts::transition() is a no-op in either, so we can't rely on
@@ -77,10 +72,9 @@ function shouldSkipIncomingFile(incomingName?: string): boolean {
   if (appState === APP_STATE.PLAYING_YOUTUBE) return true;
   if (appState === APP_STATE.PLAYING_SYSTEM_AUDIO) return true;
 
-  // Remote guest with no relay: orchestrator gates isDataTarget=false so
-  // legitimate transfers shouldn't reach this layer, but defense in depth
-  // — drop any frame an upstream injected.
-  if (isRemoteGuest() && !hasActiveRelay()) return true;
+  // Remote guests use encrypted remote-share instead of direct file chunks;
+  // orchestrator gates isDataTarget=false so stale direct frames are dropped.
+  if (isRemoteGuest()) return true;
 
   const lifecycle = getState('playback.lifecycle');
 
@@ -163,8 +157,8 @@ export async function fetchDemoFromServer(
   // This prevents local guests from hitting the HTTP demo path during bootstrap.
   if (isRemoteGuest() && getState('network.connectionType') === 'unknown') {
     const resolvedType = await waitForGuestConnectionType(2000);
-    if (resolvedType === 'local' || hasActiveRelay()) {
-      log.debug('[Transfer] Resolved to local/relay during demo fetch — aborting HTTP path');
+    if (resolvedType === 'local') {
+      log.debug('[Transfer] Resolved to local during demo fetch — aborting HTTP path');
       return;
     }
   }
@@ -249,7 +243,7 @@ async function _doFetchDemoFromServer(
 }
 
 function showRemoteGuideUI(data: Record<string, unknown>): void {
-  // (skip is derived: isRemoteGuest() && !hasActiveRelay() returns true.)
+  // (skip is derived: isRemoteGuest() returns true.)
   if (data.index !== undefined) {
     const idx = Number(data.index);
     const playlist = getState('playlist.items') || [];
@@ -273,17 +267,9 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
 
 /**
  * Reject broadcast frames not arriving via hostConn. FILE_* messages flow
- * host→guest only — host triggers transfers from its own broadcastFile/
- * unicast pipelines and never receives them on the legitimate path. Without
- * per-handler guards a peer connected over DATA_RELAY (peer.ts:292 accepts
- * without auth) can inject raw frames to poison transfer.localSessionId,
- * stuff the storage pipeline with attacker chunks, or force a recovery
- * loop. Same threat-model class as 4838a0c SYNC_PONG and the post-4838a0c
- * sibling sweep — non-RELAYABLE host→guest messages need per-handler guards
- * because the dispatcher's RELAY DOWNSTREAM amplification check (b2ad18e)
- * only fires for RELAYABLE commands. FILE_PREPARE is RELAYABLE so the
- * dispatcher blocks amplification past the relay node, but per-handler
- * guards still protect each receiver's own state mutation path.
+ * host-to-guest only: the host triggers transfers from its own broadcastFile
+ * and unicast pipelines, and guests only trust the authenticated host
+ * connection for file state mutations.
  */
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
@@ -357,7 +343,7 @@ export async function handleFilePrepare(
   // other files → guide UI. Local guests always fall through to the
   // normal P2P receive path below (even for the demo), so the host's
   // broadcastFile has one coherent audience.
-  if (isRemoteGuest() && !hasActiveRelay()) {
+  if (isRemoteGuest()) {
     let confirmedRemote = true;
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
@@ -727,14 +713,6 @@ export async function handleFilePrepare(
     prepareTimeout,
   );
 
-  // Relay FILE_PREPARE to downstream peers (mirrors FILE_START/CHUNK/END relay).
-  // Downstream peers need FILE_PREPARE to update their playlist index and metadata.
-  if (!shouldSkipIncomingFile(data.name as string | undefined)) {
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    downstreamPeers.forEach((p) => {
-      safeSend(p, data as AnyProtocolMsg);
-    });
-  }
 }
 
 export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -756,7 +734,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
-  // Skip if using preloaded file — do NOT relay FILE_START downstream.
+  // Skip if using preloaded file; no direct receive pipeline is needed.
   // Downstream peers would begin expecting chunks that will never arrive
   // (since chunks are also skipped when shouldSkipIncomingFile() is true).
   // Exception: if this FILE_START is a recovery re-send (same file, same
@@ -836,12 +814,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     }
   }
 
-  // Relay header downstream
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, data as AnyProtocolMsg);
-  });
-
   showLoader(true, t('transfer.receiving_0pct'));
 }
 
@@ -902,10 +874,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     }
   }
 
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, data as AnyProtocolMsg);
-  });
 }
 
 // Network entry for FILE_CHUNK. Gates the host-broadcast auth check, then
@@ -1162,13 +1130,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
   while (sessionBuffer.has(nextExpectedChunk)) {
     const chunk = sessionBuffer.get(nextExpectedChunk)!;
 
-    // Prepare relay copy before transfer to worker
-    const downstreamPeers = getState('relay.downstreamDataPeers');
-    let relayCopy: Uint8Array | null = null;
-    if (downstreamPeers.length > 0) {
-      relayCopy = new Uint8Array(chunk);
-    }
-
     postCommand({
       command: 'STORAGE_WRITE',
       chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
@@ -1177,27 +1138,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
       filename: currentTrackEntry.name || '',
       sessionId: validateSessionId(incomingSid),
     });
-
-    // Relay to downstream (12-14: include total/name so downstream can recover meta)
-    if (relayCopy && downstreamPeers.length > 0) {
-      const currentMetaForRelay = getState('transfer.meta');
-      const chunkMsg = {
-        type: MSG.FILE_CHUNK,
-        chunk: relayCopy,
-        index: nextExpectedChunk,
-        sessionId: incomingSid,
-        total: currentMetaForRelay?.total ?? data.total,
-        name: currentMetaForRelay?.name ?? data.name,
-      };
-      downstreamPeers.forEach((p) => {
-        if (p.open)
-          try {
-            p.send(chunkMsg);
-          } catch {
-            /* noop */
-          }
-      });
-    }
 
     sessionBuffer.delete(nextExpectedChunk);
     nextExpectedChunk++;
@@ -1269,12 +1209,6 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
   const localSid = getState('transfer.localSessionId');
   if (incomingSid && incomingSid < localSid) return;
 
-  // Relay to downstream
-  const downstreamPeers = getState('relay.downstreamDataPeers');
-  downstreamPeers.forEach((p) => {
-    safeSend(p, data as AnyProtocolMsg);
-  });
-
   log.debug(`[file-end] Received end signal for: ${data.name}`);
 
   // Host has finished sending all chunks. If we still have gaps (a tail
@@ -1297,27 +1231,17 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
 export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  log.debug('[Guest] FILE_WAIT received — source (host or relay) has no data ready yet');
+  log.debug('[Guest] FILE_WAIT received — host has no data ready yet');
   showToast(t('transfer.file_wait'));
 
-  clearManagedTimer('relayWaitTimeout');
+  clearManagedTimer('fileWaitTimeout');
   setManagedTimer(
-    'relayWaitTimeout',
+    'fileWaitTimeout',
     () => {
       const receivedCount = getState('transfer.receivedCount');
       if (receivedCount === 0) {
-        log.debug('[Guest] Relay wait timeout - falling back to Host');
-
-        // Disconnect from relay upstream
-        const upstreamDataConn = getState('relay.upstreamDataConn');
-        if (upstreamDataConn) {
-          upstreamDataConn.close();
-          setState('relay.upstreamDataConn', null);
-        }
-
-        // Remote guest with no relay: show WiFi guidance instead of futile host request
-        if (isRemoteGuest() && !hasActiveRelay()) {
-          log.info('[file-wait timeout] Remote guest — showing WiFi guidance');
+        if (isRemoteGuest()) {
+          log.info('[file-wait timeout] Remote guest — showing remote-share guidance');
           const target = getState('playback.pendingRecoveryTarget');
           showRemoteGuideUI({
             index: getState('playlist.currentTrackIndex'),
@@ -1325,8 +1249,6 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
           });
           return;
         }
-
-        showToast(t('transfer.relay_no_response'));
 
         // Request file from Host. setPendingRecoveryTarget() guarantees the
         // target is null OR a valid (index, name) pair, so optional-chain

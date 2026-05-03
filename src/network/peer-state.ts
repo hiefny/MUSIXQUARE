@@ -155,7 +155,7 @@ export function broadcast(msg: AnyProtocolMsg, isDataOnly = false): void {
 }
 
 /**
- * Broadcast to all peers except one (used for chat relays).
+ * Broadcast to all peers except one (used for host chat fanout).
  */
 export function broadcastExcept(
   excludePeerId: string,
@@ -290,8 +290,7 @@ function waitForPeerConnectionType(peerObj: ConnectedPeer, timeout: number): Pro
  *
  * TURN cost policy: file data NEVER flows through TURN.
  * Only local (LAN) peers with isDataTarget=true receive file data from host.
- * Remote peers receive file data only via local relay peers, never from host.
- * TODO(pro): Pro tier could relax connectionType check for host-direct TURN.
+ * Remote peers use the encrypted remote-share path instead of direct file data.
  */
 export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   if (!conn || !conn.open) return false;
@@ -299,7 +298,7 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   const peerObj = connectedPeers.find((p) => p.conn === conn);
   if (!peerObj) return false;
 
-  // Orchestrator controls isDataTarget: false = relay-served or no-data, true = host-direct
+  // Orchestrator controls isDataTarget: false = no direct file data, true = host-direct
   if (peerObj.isDataTarget === false) return false;
 
   const type = peerObj.connectionType as string | undefined;
@@ -322,8 +321,7 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
  * TURN cost policy: double-gated by isDataTarget AND connectionType.
  * - isDataTarget must be true (set by orchestrator after ICE detection)
  * - connectionType must be 'local' (defense-in-depth against TURN leaks)
- * Remote peers NEVER appear here; they receive data only via local relay.
- * TODO(pro): Pro tier could remove connectionType gate for TURN fallback.
+ * Remote peers NEVER appear here; they use the encrypted remote-share path.
  */
 export function filterEligiblePeers(): ConnectedPeer[] {
   const connectedPeers = getState('network.connectedPeers');
@@ -342,15 +340,6 @@ export function filterEligiblePeers(): ConnectedPeer[] {
 export function isRemoteGuest(): boolean {
   const connType = getState('network.connectionType');
   return connType === 'remote' || connType === 'unknown';
-}
-
-/**
- * Guest-side: do I have an active upstream relay connection?
- * Used to relax remote guards when relay is serving data.
- */
-export function hasActiveRelay(): boolean {
-  const up = getState('relay.upstreamDataConn');
-  return !!(up && (up as DataConnection).open);
 }
 
 /**

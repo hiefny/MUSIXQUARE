@@ -334,9 +334,6 @@ const en: Record<I18nKey, string> = {
   'network.session_full': 'Session is full',
   'network.session_full_detail':
     'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
-  'network.relay_timeout': 'Relay connection timed out',
-  'network.relay_connected': 'Relay connected',
-  'network.relay_disconnected': 'Relay disconnected',
   'network.op_granted': 'Admin permission granted.',
   'network.op_revoked': 'Admin permission revoked.',
 
@@ -419,7 +416,6 @@ const en: Record<I18nKey, string> = {
   'transfer.file_requesting': 'Requesting file...',
   'transfer.file_sending': 'Sending file\u2026',
   'transfer.file_wait': 'Waiting for file... please hold on',
-  'transfer.relay_no_response': 'No relay response. Receiving directly from Host...',
   'transfer.preload_done': 'Using preloaded file!',
   'transfer.preload_waiting': 'Waiting for preload to complete...',
   // Remote file sharing (R2-backed encrypted transfer)

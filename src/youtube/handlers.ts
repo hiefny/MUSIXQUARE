@@ -26,13 +26,12 @@ declare const YT: YTNamespace;
 
 export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_PLAY frames not arriving via hostConn. Without this, a
-  // malicious peer (DATA_RELAY connection on any guest) can send
+  // malicious peer can send
   // {type:'youtube-play', videoId:'<attacker_id>', autoplay:true} — the
   // handler cancels in-flight file transfer, sets currentTrackMeta, and
   // calls loadYouTubeVideo() which forces the target into YouTube mode
   // playing arbitrary attacker-supplied content regardless of the target's
-  // current mode. YOUTUBE_PLAY is RELAYABLE so a poisoned frame received
-  // by a relay-capable guest would amplify to its downstream peers.
+  // current mode.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 

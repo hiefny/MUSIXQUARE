@@ -81,9 +81,7 @@ export const PEER_NAME_PREFIX = 'Peer';
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
 export const MSG = {
-  ASSIGN_DATA_SOURCE: 'assign-data-source',
   CHAT: 'chat',
-  DATA_RELAY: 'data-relay',
   DEVICE_LIST_UPDATE: 'device-list-update',
   EQ_RESET: 'eq-reset',
   EQ_UPDATE: 'eq-update',
@@ -157,7 +155,6 @@ export const MSG = {
 
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
-  RELAY_DOWNSTREAM_LOST: 'relay-downstream-lost',
 
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',
@@ -178,52 +175,6 @@ export const MSG = {
 } as const;
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];
-
-// ─── Relayable Message Types ─────────────────────────────────────────
-// 3.0: `satisfies` ensures every entry is a valid MsgType at compile time.
-// Adding a typo or non-existent MSG key → TS error.
-export const RELAYABLE_MSG_TYPES = [
-  MSG.PLAY,
-  MSG.PAUSE,
-  MSG.VOLUME,
-  MSG.EQ_UPDATE,
-  MSG.PREAMP,
-  MSG.EQ_RESET,
-  MSG.REVERB,
-  MSG.REVERB_TYPE,
-  MSG.REVERB_DECAY,
-  MSG.REVERB_PREDELAY,
-  MSG.REVERB_LOWCUT,
-  MSG.REVERB_HIGHCUT,
-  MSG.STEREO_WIDTH,
-  MSG.VBASS,
-  MSG.REPEAT_MODE,
-  MSG.SHUFFLE_MODE,
-  MSG.YOUTUBE_PLAY,
-  MSG.YOUTUBE_SYNC,
-  MSG.YOUTUBE_STATE,
-  MSG.YOUTUBE_STOP,
-  MSG.YOUTUBE_SUB_TITLE_UPDATE,
-  MSG.YOUTUBE_PLAYLIST_INFO,
-  MSG.CHAT,
-  MSG.CHAT_MUTE,
-  MSG.CHAT_UNMUTE,
-  MSG.CHAT_FREEZE,
-  MSG.CHAT_UNFREEZE,
-  MSG.CHAT_CLEAR,
-  MSG.CHAT_NOTICE,
-  MSG.CHAT_SLOWMODE,
-  MSG.CHAT_FILTER,
-  MSG.CHAT_SYSTEM,
-  MSG.PLAYLIST_UPDATE,
-  MSG.PLAY_PRELOADED,
-  MSG.DEVICE_LIST_UPDATE,
-  MSG.FILE_PREPARE,
-  MSG.REMOTE_FILE_UNAVAILABLE,
-  MSG.REMOTE_FILE_SHARE,
-  MSG.SYSTEM_AUDIO_START,
-  MSG.SYSTEM_AUDIO_STOP,
-] as const satisfies readonly MsgType[];
 
 // ─── Audio ──────────────────────────────────────────────────────────
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;

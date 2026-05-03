@@ -237,8 +237,8 @@ export async function unicastFile(
     return;
   }
 
-  // Transport guard: block remote/unknown peers
-  // skipTransportGuard=true for relay→downstream (conn is in relay.downstreamDataPeers, not connectedPeers)
+  // Transport guard: block remote/unknown peers.
+  // Internal recovery callers can opt out when they already validated the connection.
   if (!skipTransportGuard && !(await canSendFileTo(conn))) {
     log.info('[Unicast] Skipped — remote/unknown peer');
     return;

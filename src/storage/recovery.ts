@@ -21,7 +21,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './storage.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
+import { isRemoteGuest } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -30,12 +30,12 @@ import { showToast, showLoader } from '../ui/toast.ts';
 
 /**
  * Send a recovery request with progressive backoff.
- * Targets relay or host depending on what's available.
+ * Requests a resend from the host when direct local file transfer is available.
  */
 export function sendRecoveryRequest(forceChunk: number | null = null): void {
-  // Remote guest with no relay: recovery from Host is futile (no direct data channel)
-  if (isRemoteGuest() && !hasActiveRelay()) {
-    log.info('[Recovery] Remote guest without relay — skipping recovery, showing WiFi guidance');
+  // Remote guests receive files through remote-share descriptors; host resend is local-only.
+  if (isRemoteGuest()) {
+    log.info('[Recovery] Remote guest - skipping direct host recovery');
     clearManagedTimer('chunkWatchdog');
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
@@ -69,12 +69,9 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     return;
   }
 
-  // Find best connection
-  const upstreamDataConn = getState('relay.upstreamDataConn');
   const hostConn = getState('network.hostConn');
-  const targetConn = upstreamDataConn && upstreamDataConn.open ? upstreamDataConn : hostConn;
 
-  if (!targetConn || !targetConn.open) {
+  if (!hostConn || !hostConn.open) {
     log.warn('[Recovery] No healthy connection for recovery');
     return;
   }
@@ -88,9 +85,8 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   setState('recovery.retryCount', retryCount + 1);
   setState('recovery.pending', true);
 
-  const sourceLabel = targetConn === upstreamDataConn ? 'Relay' : 'Host';
   log.debug(
-    `[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from ${sourceLabel}: ${fileName} (backoff: ${backoffMs}ms)`,
+    `[Recovery] Attempt ${retryCount + 1}/${MAX_RECOVERY_RETRIES} from Host: ${fileName} (backoff: ${backoffMs}ms)`,
   );
 
   setManagedTimer(
@@ -99,9 +95,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       setState('recovery.pending', false);
 
       // Re-fetch connection after backoff — the original reference may be stale
-      const freshUpstream = getState('relay.upstreamDataConn');
-      const freshHostConn = getState('network.hostConn');
-      const freshConn = freshUpstream && freshUpstream.open ? freshUpstream : freshHostConn;
+      const freshConn = getState('network.hostConn');
 
       if (!freshConn || !freshConn.open) {
         log.warn('[Recovery] No healthy connection after backoff');

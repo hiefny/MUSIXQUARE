@@ -405,19 +405,15 @@ function cleanupGuestSystemAudio(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioGuestListeners(): void {
-  // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. Both
-  // are RELAYABLE host→guest broadcasts — host triggers via
-  // audio/system-capture.ts:195 (start) / :224 (stop) which call broadcast()
-  // directly, never through the dispatcher. Without this guard, a peer
-  // over DATA_RELAY (peer.ts:292 accepts without auth) can:
+  // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. The host
+  // triggers these via audio/system-capture.ts and guests only trust that
+  // authenticated host connection. Without this guard, a peer can:
   //   - send raw SYSTEM_AUDIO_START → stopAllMedia() + clobber
   //     _prevTrackMeta + spoof a "Receiving System Audio" track on the
   //     target. Single-frame DoS on whatever the user is playing.
   //   - send raw SYSTEM_AUDIO_STOP → force cleanupGuestSystemAudio() on a
   //     guest legitimately receiving host's system audio. Single-frame
   //     DoS on the actual reception.
-  // Same threat class as the post-fe32164 RELAYABLE sweep (PLAY/REPEAT/
-  // SHUFFLE handlers).
   function isHostBroadcast(conn: DataConnection | undefined): boolean {
     const hostConn = getState('network.hostConn');
     return !!hostConn && conn === hostConn;

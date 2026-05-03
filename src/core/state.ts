@@ -160,11 +160,6 @@ function createInitialState(): StateTree {
       filterEnabled: false,
     },
 
-    relay: {
-      upstreamDataConn: null,
-      downstreamDataPeers: [],
-    },
-
     playlist: {
       items: [],
       currentTrackIndex: -1,

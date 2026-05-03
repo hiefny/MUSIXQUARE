@@ -89,11 +89,11 @@ const _recentMsgIds = new Set<string>();
 // Client-side slowmode (ui/chat.ts) is enforceable only by well-behaved
 // guests. A malicious peer can bypass sendChatMessage() and push raw CHAT
 // frames over the DataConnection. Without a host-side cap, one peer can
-// hose the relay loop and flood every other guest.
+// flood every other guest through host fanout.
 //
 // Token-bucket per peer: BURST messages instant, then one every REFILL_MS.
-// This runs on the host before relay, so a floodbot costs at most BURST
-// messages of host CPU and 0 messages of downstream bandwidth.
+// This runs on the host before fanout, so a floodbot costs at most BURST
+// messages of host CPU and downstream bandwidth.
 
 const CHAT_RATE_BURST = 10;
 const CHAT_RATE_REFILL_MS = 1000; // ~1 msg/sec sustained after burst
@@ -132,8 +132,7 @@ export function resetChatRateLimit(peerId: string): void {
 
 /**
  * Guest-side guard: admin chat commands (freeze/unfreeze/clear/slowmode/filter/system)
- * must only be processed when they arrive from the host connection. Without this,
- * a compromised relay node could inject these commands and silence all guests.
+ * must only be processed when they arrive from the host connection.
  */
 function isFromHost(conn?: DataConnection): boolean {
   const hostConn = getState('network.hostConn');
@@ -146,14 +145,9 @@ function isFromHost(conn?: DataConnection): boolean {
 function handleChatMessage(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
 
-  // Drop CHAT frames not arriving via hostConn. Without this, a peer can
-  // open a DATA_RELAY connection directly to a relay-capable guest
-  // (peer.ts:292 routes any incoming `metadata.type === DATA_RELAY` to
-  // handleRelayConnection without auth) and inject a raw {isHost:true,
-  // senderLabel:'HOST'} frame, spoofing the HOST badge in the L165 guest
-  // branch. Mirrors WHISPER L268 / NOTICE L284 / SYSTEM L312 / mute /
-  // unmute / freeze / unfreeze / clear / slowmode / filter — every other
-  // chat handler already had this guard; CHAT was the gap.
+  // Drop CHAT frames not arriving via hostConn. Guests only trust chat
+  // broadcasts from the authenticated host connection, matching the admin
+  // and system-message handlers below.
   // Placed before dedup so a malicious peer cannot poison _recentMsgIds with
   // a victim's predicted (senderId, ts) pair to drop their legitimate message.
   if (hostConn && !isFromHost(conn)) return;
@@ -163,13 +157,9 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   // attacker-controllable on raw frames (host's hostConn is null so the guard
   // above doesn't apply on host), so a malicious guest could pre-poison the
   // dedup set with someone else's predicted (senderId, ts) pair to drop their
-  // legitimate message. _originPeer is validated against the assigned relay
-  // at protocol.ts:245-256 before reaching here. On guest, host has already
-  // sanitized data.senderId (handler L168) before broadcasting, so trusting
-  // it keeps dedup keys stable across multi-path delivery.
-  const dedupSender = !hostConn
-    ? (data._originPeer as string) || conn?.peer || ''
-    : (data.senderId as string) || '';
+  // legitimate message. On guest, host has already sanitized data.senderId
+  // before broadcasting, so trusting it keeps dedup keys stable.
+  const dedupSender = !hostConn ? conn?.peer || '' : (data.senderId as string) || '';
   const msgKey = `${dedupSender}:${data.ts}`;
   if (_recentMsgIds.has(msgKey)) return;
   _recentMsgIds.add(msgKey);
@@ -188,9 +178,8 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
   // ── Host-side enforcement: rate limit, mute, freeze ──
   if (!hostConn && !isMine) {
-    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
-    // Rate limit: silently drop frames over the burst+refill threshold so
-    // a flooding peer can't saturate the relay path to every other guest.
+    const senderPeerId = conn?.peer || '';
+    // Rate limit: silently drop frames over the burst+refill threshold.
     if (!allowChatFromPeer(senderPeerId)) return;
     // Muted user — silently drop
     if (getState('network.mutedPeers').has(senderPeerId)) return;
@@ -213,23 +202,23 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   // ── Host-side profanity filter ──
   if (!hostConn && getState('network.filterEnabled')) {
     text = filterProfanity(text);
-    data.text = text; // Update data so relay sends filtered text
+    data.text = text; // Update data so broadcast sends filtered text
   }
 
-  // ── Badge derivation: Host-side uses authoritative peer list, guest trusts relay ──
+  // ── Badge derivation: Host-side uses authoritative peer list, guest trusts host ──
   // A malicious guest could send { isHost: true } or { isOp: true } to spoof badges.
   // On the host, we derive the badge from our own connectedPeers list (source of truth)
-  // and overwrite data.isHost/isOp BEFORE relaying, so downstream guests receive the
+  // and overwrite data.isHost/isOp BEFORE broadcasting, so guests receive the
   // correct badge regardless of what the original sender claimed.
   let badge: 'host' | 'op' | undefined;
   if (!hostConn) {
     // Host: derive from authoritative peer list
-    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
+    const senderPeerId = conn?.peer || '';
     const peers = getState('network.connectedPeers');
     const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
     const isOp = peerEntry?.isOp ?? false;
     badge = isOp ? 'op' : undefined; // only host gets 'host' badge (set below)
-    // Overwrite untrusted identity + badge fields before relay. Without
+    // Overwrite untrusted identity + badge fields before broadcast. Without
     // overwriting senderId/senderLabel/joinOrder, a malicious peer that pushed
     // a raw CHAT frame with someone else's senderId would have the spoofed
     // identity reach every downstream guest verbatim — mirrors WHISPER L243-245.
@@ -241,16 +230,16 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
       data.joinOrder = peerEntry.joinOrder;
     }
   } else {
-    // Guest: trust relayed data (host already sanitized it)
+    // Guest: trust broadcast data (host already sanitized it)
     badge = data.isHost ? 'host' : data.isOp ? 'op' : undefined;
   }
 
   const joinOrder = typeof data.joinOrder === 'number' ? data.joinOrder : undefined;
   addChatMessage(displayName, text, isMine, badge, joinOrder);
 
-  // Relay to downstream peers (Host only), excluding the sender to avoid duplicates
+  // Broadcast to other peers (Host only), excluding the sender to avoid duplicates.
   if (!hostConn) {
-    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
+    const senderPeerId = conn?.peer || '';
     bus.emit('network:broadcast-except', senderPeerId, data);
   }
 }
@@ -343,12 +332,12 @@ function handleChatWhisper(data: Record<string, unknown>, conn?: DataConnection)
 
   if (!hostConn) {
     // Host side — enforce rate-limit + authoritative label derivation.
-    const senderPeerId = (data._originPeer as string) || conn?.peer || '';
+    const senderPeerId = conn?.peer || '';
     if (!allowChatFromPeer(senderPeerId)) return;
     if (getState('network.mutedPeers').has(senderPeerId)) return;
 
     // Authoritative label/id from peer list — a malicious guest could set
-    // `senderLabel: 'HOST'` + `senderId: '<hostId>'` and host-relay would
+    // `senderLabel: 'HOST'` + `senderId: '<hostId>'` and the host would
     // have forwarded those raw to the target without this re-derivation.
     const peers = getState('network.connectedPeers');
     const peerEntry = peers.find((p: { id: string }) => p.id === senderPeerId);
@@ -385,7 +374,7 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
   // broadcast. A raw CHAT_NOTICE arriving at the host is a spoofing attempt.
   if (!hostConn) return;
 
-  // Guest side — trust only notices relayed by the host.
+  // Guest side — trust only notices broadcast by the host.
   if (!isFromHost(conn)) return;
 
   let senderLabel = (data.senderLabel as string) || '';

@@ -58,19 +58,6 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     setState('network.hostConn', null);
   }
 
-  // ── Reconnect cleanup ──
-  // H-3: Close stale upstream relay — prevents old relay session from pumping
-  // data into a new session context after reconnection.
-  const staleRelay = getState('relay.upstreamDataConn');
-  if (staleRelay) {
-    try {
-      staleRelay.close();
-    } catch {
-      /* noop */
-    }
-    setState('relay.upstreamDataConn', null);
-  }
-
   // M-2: Clear ICE fallback timer from previous connection — prevents stale
   // timers from overwriting the new connection's ICE classification.
   clearManagedTimer('guest-ice-fallback');
@@ -144,7 +131,6 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   // Register data handler BEFORE 'open' to avoid missing early messages
   // (e.g. WELCOME sent by host in its own 'open' handler).
-  // Same pattern as relay.ts:247.
   conn.on('data', (data: unknown) => {
     bus.emit('network:data', data, conn);
   });
@@ -255,15 +241,8 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 // ─── Guest Protocol Handlers ──────────────────────────────────────
 
 function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop frames not arriving via hostConn. WELCOME is host→guest only — host
-  // never receives one on the legitimate path (hostConn=null on host, fail-
-  // closed below). Without this, a peer connected over DATA_RELAY (peer.ts:292
-  // accepts without auth) can inject a raw {chatFrozen:true, slowmodeSeconds:
-  // 99999, filterEnabled:true} frame to spoof chat moderation state on the
-  // target. Same threat-model class as 4838a0c (SYNC_PONG) — non-RELAYABLE
-  // host→guest messages need per-handler guards because the dispatcher's
-  // RELAY DOWNSTREAM amplification check (b2ad18e) only fires for RELAYABLE
-  // commands.
+  // Drop frames not arriving via hostConn. WELCOME is host-to-guest only; a
+  // guest must not trust raw setup frames from any other peer.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -346,8 +325,8 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
 }
 
 function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop frames not arriving via hostConn. Without this, a peer over
-  // DATA_RELAY can inject {type:'force-close-duplicate'} to set
+  // Drop frames not arriving via hostConn. Without this, a peer can inject
+  // {type:'force-close-duplicate'} to set
   // isIntentionalDisconnect=true on the target, suppressing the
   // HOST_DISCONNECTED error UI when the connection actually drops. Same
   // sibling class as handleWelcome / 4838a0c SYNC_PONG.
@@ -360,8 +339,8 @@ function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataCo
 }
 
 function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop frames not arriving via hostConn. Without this, a peer over
-  // DATA_RELAY can inject {type:'operator-grant'} to flip the target's
+  // Drop frames not arriving via hostConn. Without this, a peer can inject
+  // {type:'operator-grant'} to flip the target's
   // network.isOperator=true client-side. Host's verifyOperator (sync.ts:206
   // path) blocks actual privilege escalation, but the UI flip exposes OP
   // controls and shows a fake "OP granted" toast — sociotechnical confusion
@@ -377,8 +356,8 @@ function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnecti
 }
 
 function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop frames not arriving via hostConn. Without this, a peer over
-  // DATA_RELAY can revoke a legitimate OP guest's privileges client-side
+  // Drop frames not arriving via hostConn. Without this, a peer can revoke
+  // a legitimate OP guest's privileges client-side
   // (UI flip + fake "OP revoked" toast). Host still has the authoritative
   // OP list in connectedPeers, so requests would still authenticate, but
   // the user loses access to OP UI and is misled about their state. Same

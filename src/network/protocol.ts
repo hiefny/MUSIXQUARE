@@ -1,18 +1,15 @@
 /**
  * MUSIXQUARE — Message Protocol & Dispatch
  *
- * Manages: Message validation, handler registry, dispatch (handleData),
- * relay command routing (upstream/downstream), RELAYABLE_COMMANDS list.
+ * Manages: Message validation, handler registry, dispatch (handleData).
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, RELAYABLE_MSG_TYPES, CHUNK_SIZE } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
-import { sendToHost } from './peer.ts';
-import { isAssignedRelay } from './orchestrator.ts';
-import type { DataConnection, ProtocolMsg, AnyProtocolMsg } from '../types/index.ts';
+import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -35,19 +32,6 @@ export function validateMessage(
   }
   return true;
 }
-
-// ─── Relayable Commands ─────────────────────────────────────────────
-
-/** Commands that should be automatically relayed through the chain.
- *  3.0: Source of truth is RELAYABLE_MSG_TYPES in constants.ts (satisfies MsgType[]).
- */
-export const RELAYABLE_COMMANDS: ReadonlySet<string> = new Set<string>(RELAYABLE_MSG_TYPES);
-
-/** Relay-local requests that should NOT be forwarded upstream (handled from local storage). */
-const RELAY_LOCAL_REQUESTS: ReadonlySet<string> = new Set([
-  'request-current-file',
-  'request-data-recovery',
-]);
 
 // ─── Lightweight Protocol Validators ─────────────────────────────────
 // 3.0: Validate high-risk message payloads before dispatch.
@@ -269,8 +253,7 @@ export function hasHandler(type: MsgType): boolean {
 // ─── Message Dispatch ───────────────────────────────────────────────
 
 /**
- * Main message dispatcher. Validates, dispatches to registered handler,
- * then handles relay routing (downstream/upstream).
+ * Main message dispatcher. Validates and dispatches to registered handlers.
  */
 export async function handleData(data: unknown, conn: DataConnection): Promise<void> {
   // Generic validation
@@ -283,24 +266,6 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   // by transfer-layer backpressure). Silently drops frames over the cap.
   if (conn?.peer && !RATE_LIMIT_EXEMPT.has(msgType) && !allowInboundFromPeer(conn.peer)) {
     return;
-  }
-
-  // Security: validate _originPeer to prevent spoofing.
-  // If _originPeer is set and differs from conn.peer, the message must
-  // be arriving through a known relay node. Verify the sender is actually
-  // the assigned relay for the claimed origin — prevents any guest from
-  // impersonating an operator by setting _originPeer to an operator's ID.
-  if (msg._originPeer && msg._originPeer !== conn?.peer) {
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      // Host side: verify sender is the assigned relay for the claimed _originPeer
-      if (!isAssignedRelay(msg._originPeer as string, conn?.peer)) {
-        log.warn(
-          `[Protocol] Stripping spoofed _originPeer=${msg._originPeer} from ${conn?.peer} (not assigned relay)`,
-        );
-        delete msg._originPeer;
-      }
-    }
   }
 
   // 3.0: Validate high-risk message payloads before dispatch
@@ -320,51 +285,6 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     }
   }
 
-  // Relay Architecture (only applies to guests with a host connection)
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) return;
-
-  // 1. RELAY DOWNSTREAM (Control commands from Upstream → Downstream)
-  //
-  // Only relay frames that arrived from the actual host. Without `conn ===
-  // hostConn`, a malicious peer (any guest in the same session that opened
-  // a DATA_RELAY connection to us via peer.ts:292) could send a RELAYABLE
-  // frame and we'd amplify it to every downstream peer — and downstream
-  // peers see us as their hostConn, so the spoofed frame passes their
-  // per-handler hostConn guards. This single check stops cross-handler
-  // amplification at the dispatcher; per-handler hostConn guards still
-  // protect the relay node's own state mutation path.
-  const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  if (downstreamDataPeers.length > 0 && RELAYABLE_COMMANDS.has(msgType) && conn === hostConn) {
-    const senderPeerId = conn?.peer;
-    downstreamDataPeers.forEach((p) => {
-      // Prevent infinite loop: do not relay back to sender (compare by peer ID, not reference)
-      if (p.open && (!senderPeerId || p.peer !== senderPeerId)) {
-        try {
-          p.send(data);
-        } catch {
-          /* peer might have closed */
-        }
-      }
-    });
-  }
-
-  // 2. RELAY UPSTREAM (Operator requests from Downstream → Upstream)
-  //    Attach _originPeer so the host can verify the actual sender, not the relay.
-  //    Exclude relay-local messages that the relay node handles itself
-  //    (e.g. request-current-file, request-data-recovery are served from local storage).
-  if (conn && conn !== hostConn) {
-    if (msgType.startsWith('request-') && !RELAY_LOCAL_REQUESTS.has(msgType)) {
-      const raw = data as Record<string, unknown>;
-      // Always overwrite _originPeer with actual sender — never trust downstream value
-      // (prevents spoofing: malicious peer could set _originPeer to an operator's ID)
-      const forwarded = { ...raw, _originPeer: conn.peer };
-      log.debug(
-        `[Relay] Forwarding request downstream->upstream: ${msgType} (origin: ${forwarded._originPeer})`,
-      );
-      sendToHost(forwarded as unknown as AnyProtocolMsg);
-    }
-  }
 }
 
 // ─── Operator Verification ──────────────────────────────────────────
@@ -372,10 +292,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 /**
  * Check whether the peer behind `conn` has been granted Operator privileges.
  * Called by Host-side `request-*` handlers before executing commands.
- * When `data` contains `_originPeer` (relay-forwarded), verify the original sender.
  */
-export function verifyOperator(conn: DataConnection, data?: Record<string, unknown>): boolean {
-  const peerId = (typeof data?._originPeer === 'string' && data._originPeer) || conn?.peer;
+export function verifyOperator(conn: DataConnection, _data?: Record<string, unknown>): boolean {
+  const peerId = conn?.peer;
   if (!peerId) return false;
   const connectedPeers = getState('network.connectedPeers');
   const peer = connectedPeers.find((p) => p.id === peerId);

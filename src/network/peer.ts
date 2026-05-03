@@ -12,13 +12,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from '../ui/dialog.ts';
-import {
-  MSG,
-  DEFAULT_MAX_GUEST_SLOTS,
-  APP_STATE,
-  TRANSFER_STATE,
-  PLAYBACK_STATE,
-} from '../core/constants.ts';
+import { DEFAULT_MAX_GUEST_SLOTS, APP_STATE, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -44,7 +38,6 @@ export {
   canSendFileTo,
   filterEligiblePeers,
   isRemoteGuest,
-  hasActiveRelay,
   waitForGuestConnectionType,
 } from './peer-state.ts';
 
@@ -434,14 +427,6 @@ function setupPeerEvents(): void {
   });
 
   peer.on('connection', (conn: DataConnection) => {
-    // Check if this is a relay connection from a downstream peer
-    const connMeta = conn.metadata as Record<string, unknown> | undefined;
-    if (connMeta?.type === MSG.DATA_RELAY) {
-      // Route to relay handler via bus (any peer can be a relay node)
-      bus.emit('relay:incoming-connection', conn);
-      return;
-    }
-
     const appRole = getState('network.appRole');
     if (appRole !== 'host') {
       try {
@@ -499,26 +484,6 @@ export function leaveSession(): void {
     }
   });
 
-  // Close upstream relay connection (guest→relay link)
-  const upstreamDataConn = getState('relay.upstreamDataConn');
-  if (upstreamDataConn) {
-    try {
-      upstreamDataConn.close();
-    } catch {
-      /* noop */
-    }
-  }
-
-  // Close downstream relay connections
-  const downstreamDataPeers = getState('relay.downstreamDataPeers');
-  downstreamDataPeers.forEach((p) => {
-    try {
-      p.close();
-    } catch {
-      /* noop */
-    }
-  });
-
   // Destroy peer AFTER all connections are closed
   const peer = getPeer();
   if (peer) {
@@ -566,9 +531,6 @@ export function leaveSession(): void {
     'network.chatFrozen': false,
     'network.slowmodeSeconds': 0,
     'network.filterEnabled': false,
-    // Relay
-    'relay.upstreamDataConn': null,
-    'relay.downstreamDataPeers': [],
     // Playlist
     'playlist.items': [],
     'playlist.currentTrackIndex': -1,

@@ -798,8 +798,8 @@ function handleRepeatMode(data: Record<string, unknown>, conn?: DataConnection):
   // handlePlaylistUpdate (874a860): host→guest authoritative broadcast.
   // Host triggers via toggleRepeatMode (broadcast from L130) or
   // handleRequestSetting (broadcast from L916) — both bypass the network
-  // handler. Without this guard, a peer over DATA_RELAY can inject a raw
-  // frame to flip a target's repeat-mode UI and playback behavior.
+  // handler. Without this guard, a peer can inject a raw frame to flip a
+  // target's repeat-mode UI and playback behavior.
   // Same threat class as the rest of the post-fe32164 sweep.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;

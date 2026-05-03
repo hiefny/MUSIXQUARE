@@ -34,7 +34,6 @@ import { registerHandlers } from '../network/protocol.ts';
 import {
   broadcast,
   isRemoteGuest,
-  hasActiveRelay,
   safeSend,
   waitForGuestConnectionType,
 } from '../network/peer.ts';
@@ -70,10 +69,11 @@ interface DownloadEntry {
   abort: AbortController;
 }
 
-// Upload tracking. Keyed by file-signature so a preload upload for track N
-// can be reused/awaited by a subsequent active upload for the same track.
+// Upload tracking stays keyed by playback request so existing cancellation
+// semantics remain narrow while an upload is still in flight.
 const _activeUploads = new Map<string, UploadEntry>();
-// Cached completed descriptors (per file-signature). Reused if still fresh.
+// Completed descriptors are keyed by file fingerprint so revisiting a track
+// can reuse the already-encrypted R2 object until it expires.
 const _descriptorCache = new Map<string, RemoteFileSharePayload>();
 
 // Only one active (foreground) download at a time. A newer one supersedes
@@ -132,8 +132,32 @@ function isDescriptorFresh(descriptor: RemoteFileSharePayload | null): boolean {
   return descriptor.expiresAt - Date.now() > EXPIRY_SAFETY_MARGIN_MS;
 }
 
-function fileSignatureKey(file: File, sessionId: number, index: number): string {
-  return `${sessionId}:${index}:${file.name}:${file.size}:${file.lastModified}`;
+function uploadRequestKey(file: File, sessionId: number, index: number): string {
+  return JSON.stringify([
+    sessionId,
+    index,
+    file.name,
+    file.size,
+    file.lastModified,
+    file.type || '',
+  ]);
+}
+
+function currentRemoteShareRoomId(): string {
+  return getState('network.sessionCode') || getState('network.myId') || 'room';
+}
+
+function descriptorCacheKey(file: File, roomId: string): string {
+  return JSON.stringify([roomId, file.name, file.size, file.lastModified, file.type || '']);
+}
+
+function withPlaybackContext(
+  descriptor: RemoteFileSharePayload,
+  sessionId: number,
+  index: number,
+): RemoteFileSharePayload {
+  if (descriptor.sessionId === sessionId && descriptor.index === index) return descriptor;
+  return { ...descriptor, sessionId, index };
 }
 
 function isHostActiveFile(file: File, index: number): boolean {
@@ -284,10 +308,10 @@ export interface ShareRemoteFileOptions {
 
 /**
  * Host-side: encrypt + upload the file and broadcast the descriptor to
- * remote guests. Idempotent — repeat calls for the same file/session/index
- * reuse the cached descriptor (when fresh) or share the in-flight upload
- * promise. Cancels superseded uploads via AbortController so a rapid
- * track switch doesn't race two completed-but-stale descriptors.
+ * remote guests. Completed uploads are reused for the same file while fresh,
+ * rebasing the wire descriptor to the current playback session/index.
+ * In-flight uploads remain scoped to the original playback request so
+ * cancellation stays narrow during rapid track switches.
  */
 export async function shareRemoteFileIfNeeded(
   file: File,
@@ -305,22 +329,24 @@ export async function shareRemoteFileIfNeeded(
     options?.index !== undefined ? options.index : (getState('playlist.currentTrackIndex') as number);
   if (!Number.isFinite(index) || index < 0) return;
 
-  const key = fileSignatureKey(file, sessionId, index);
+  const roomId = currentRemoteShareRoomId();
+  const uploadKey = uploadRequestKey(file, sessionId, index);
+  const cacheKey = descriptorCacheKey(file, roomId);
 
   try {
     let descriptor: RemoteFileSharePayload;
 
     // Fast path: reuse a cached, still-fresh descriptor for this file.
-    const cached = _descriptorCache.get(key);
+    const cached = _descriptorCache.get(cacheKey);
     if (cached && isDescriptorFresh(cached)) {
       descriptor = cached;
     } else {
       // Drop expired cache entry — its R2 URL would 404 for guests.
       if (cached && !isDescriptorFresh(cached)) {
-        _descriptorCache.delete(key);
+        _descriptorCache.delete(cacheKey);
       }
 
-      const inFlight = _activeUploads.get(key);
+      const inFlight = _activeUploads.get(uploadKey);
       if (inFlight) {
         // Another caller already uploading the same file — share the result.
         if (!preload) showUploadProgress(t('share.remote.uploading'));
@@ -337,8 +363,8 @@ export async function shareRemoteFileIfNeeded(
           },
         });
 
-        const entry: UploadEntry = { key, promise, abort };
-        _activeUploads.set(key, entry);
+        const entry: UploadEntry = { key: uploadKey, promise, abort };
+        _activeUploads.set(uploadKey, entry);
 
         if (!preload) {
           showToast(t('share.remote.encrypting'));
@@ -347,9 +373,9 @@ export async function shareRemoteFileIfNeeded(
 
         try {
           descriptor = await promise;
-          _descriptorCache.set(key, descriptor);
+          _descriptorCache.set(cacheKey, descriptor);
         } finally {
-          if (_activeUploads.get(key) === entry) _activeUploads.delete(key);
+          if (_activeUploads.get(uploadKey) === entry) _activeUploads.delete(uploadKey);
         }
       }
     }
@@ -375,18 +401,19 @@ export async function shareRemoteFileIfNeeded(
       }
     }
 
-    const msg = toRemoteShareMessage(descriptor, preload);
+    const outboundDescriptor = withPlaybackContext(descriptor, sessionId, index);
+    const msg = toRemoteShareMessage(outboundDescriptor, preload);
     if (targetConn) {
       safeSend(targetConn, msg);
     } else {
       broadcast(msg);
     }
     if (!preload) {
-      bus.emit('share:remote-file', descriptor);
-      log.info(`[RemoteShare] Shared encrypted descriptor for ${descriptor.name}`);
+      bus.emit('share:remote-file', outboundDescriptor);
+      log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
       showToast(t('share.remote.upload_ready'));
     } else {
-      log.info(`[RemoteShare] Shared preload descriptor for ${descriptor.name}`);
+      log.info(`[RemoteShare] Shared preload descriptor for ${outboundDescriptor.name}`);
     }
   } catch (error) {
     if (isAbortError(error)) {
@@ -419,7 +446,7 @@ export async function shareRemoteFileIfNeeded(
  * R2 bandwidth, and prevents a stale descriptor from being broadcast.
  */
 export function cancelInFlightUpload(file: File, sessionId: number, index: number): void {
-  const key = fileSignatureKey(file, sessionId, index);
+  const key = uploadRequestKey(file, sessionId, index);
   const entry = _activeUploads.get(key);
   if (entry) {
     entry.abort.abort();
@@ -693,7 +720,6 @@ async function handleRemoteFileShare(
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
-  if (hasActiveRelay()) return;
 
   if (getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);

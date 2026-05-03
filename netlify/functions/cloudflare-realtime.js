@@ -115,6 +115,12 @@ function buildRealtimeRequest(action, appId, sessionId, correlationId) {
   }
 }
 
+function shouldSendPayloadBody(action, payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (action !== 'new-session') return true;
+  return Object.keys(payload).length > 0;
+}
+
 exports.handler = async (event) => {
   const { isTrusted, headers } = getCorsHeaders(event);
 
@@ -151,13 +157,15 @@ exports.handler = async (event) => {
   }
 
   try {
+    const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
+    const requestBody = shouldSendPayloadBody(action, payload) ? JSON.stringify(payload) : undefined;
     const cfResponse = await fetch(request.url, {
       method: request.method,
       headers: {
         Authorization: `Bearer ${appSecret}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body.payload || {}),
+      body: requestBody,
     });
 
     const text = await cfResponse.text();

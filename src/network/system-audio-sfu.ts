@@ -16,7 +16,6 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
 import { broadcast, safeSend } from './peer-state.ts';
-import { forceStereoSdp } from './peer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
@@ -237,7 +236,7 @@ function sessionDescriptionFromInit(desc: RTCSessionDescriptionInit): RealtimeSe
   if (!desc || !desc.sdp || (desc.type !== 'offer' && desc.type !== 'answer')) {
     throw new Error('Missing SDP');
   }
-  return { type: desc.type, sdp: forceStereoSdp(desc.sdp) };
+  return { type: desc.type, sdp: desc.sdp };
 }
 
 function applyAudioSenderTuning(sender: RTCRtpSender): void {
@@ -338,8 +337,8 @@ async function publishHostTracks(): Promise<HostPublication | null> {
   const trackNameL = buildTrackName('L');
   const trackNameR = buildTrackName('R');
   const requestedTracks: RealtimeTrack[] = [
-    { location: 'local', mid: txL.mid || '0', trackName: trackNameL, kind: 'audio' },
-    { location: 'local', mid: txR.mid || '1', trackName: trackNameR, kind: 'audio' },
+    { location: 'local', mid: txL.mid || '0', trackName: trackNameL },
+    { location: 'local', mid: txR.mid || '1', trackName: trackNameR },
   ];
 
   const tracksResponse = await callRealtime('tracks-new', {
@@ -577,7 +576,6 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
     location: 'remote',
     sessionId: payload.sessionId,
     trackName: track.trackName,
-    kind: 'audio',
   }));
 
   const tracksResponse = await callRealtime('tracks-new', {

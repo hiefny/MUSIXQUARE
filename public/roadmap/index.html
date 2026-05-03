@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <title>Roadmap · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/roadmap">
-  <meta name="description" content="MUSIXQUARE's technical roadmap — every known limit sorted into Now, Next, and Not Ours to Fix.">
+  <meta name="description" content="MUSIXQUARE's technical roadmap — shipped remote file sharing, remaining sync limits, and the next infrastructure trade-offs.">
   <meta property="og:title" content="Roadmap · MUSIXQUARE">
-  <meta property="og:description" content="We know where the seams are — and how we close them.">
+  <meta property="og:description" content="Known limits, recently closed gaps, and the infrastructure choices still ahead.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="MUSIXQUARE Roadmap — Every known limit, documented">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Roadmap · MUSIXQUARE">
-  <meta name="twitter:description" content="We know where the seams are — and how we close them.">
+  <meta name="twitter:description" content="Known limits, recently closed gaps, and the infrastructure choices still ahead.">
   <meta name="twitter:image" content="https://musixquare.com/og-roadmap.png">
   <link rel="icon" href="../designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="../designsystem/colors_and_type.css">
@@ -204,7 +204,7 @@
     <a href="../changelog/">changelog</a>
   </div>
   <p class="tag">
-    We know where the <em>seams</em> are — and how we'd close them.
+    We know where the <em>limits</em> are — and how we'd close them.
     Every known technical limit, sorted into <strong>three horizons</strong> so the team
     agrees on what's next, what's later, and what simply isn't ours to fix.
   </p>
@@ -217,7 +217,7 @@
   <div class="section-head"><h2>Now · Get unstuck</h2><span class="num">01</span></div>
   <div class="horizon-meta">
     <span class="horizon-tag now"><span class="dot"></span>Now · H1</span>
-    <p class="horizon-sub">The biggest friction points, first in line when resources allow.</p>
+    <p class="horizon-sub">The biggest friction points, first in line when resources allow. Local-file remote sharing has landed; the remaining work is mostly reliability, cost control, and clearer surfaces.</p>
   </div>
 
   <div class="items">
@@ -261,12 +261,12 @@
     <div class="item">
       <div class="num">03</div>
       <div class="body">
-        <div class="prob">Local-file and system-audio modes only work on the same network</div>
-        <div class="fix"><strong>Stand up (or rent) a TURN relay</strong> so WebRTC can reach across networks. Would unlock remote listening parties.</div>
+        <div class="prob">Remote file sharing is live — now it needs production hardening</div>
+        <div class="fix"><strong>Keep the encrypted temporary relay path, but harden the edges:</strong> clearer retry UI, abuse monitoring, budget alarms, and safer fallbacks when upload capacity is reached. Exact limits and token details stay out of public docs.</div>
       </div>
       <div class="tradeoff">
         <span class="lbl">Trade-off</span>
-        <span class="val">Ongoing bandwidth cost — our first real operating expense</span>
+        <span class="val">Operating cost and abuse controls — powerful feature, real infrastructure footprint</span>
       </div>
     </div>
 
@@ -287,7 +287,7 @@
       <div class="num">04</div>
       <div class="body">
         <div class="prob">Many connected devices becomes flaky — P2P mesh scales O(n²)</div>
-        <div class="fix"><strong>Plan to introduce an SFU (media relay).</strong> Shares infrastructure with the TURN rollout above, so the cheapest time to ship it would be alongside.</div>
+        <div class="fix"><strong>Plan to introduce a dedicated media relay if demand appears.</strong> Remote file sharing no longer needs TURN bandwidth, but live system-audio and large multi-device rooms still stress browser-to-browser mesh connections.</div>
       </div>
       <div class="tradeoff">
         <span class="lbl">Trade-off</span>
@@ -355,7 +355,7 @@
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
     </div>
     <p>
-      This roadmap covers <strong>technical seams only</strong> — not feature bets, growth goals, or brand work. Use it when deciding what to build next, or for answering "why can't I just paste a Spotify link?"
+      This roadmap covers <strong>technical limits only</strong> — not feature bets, growth goals, or brand work. Security-sensitive implementation details are intentionally kept out of public docs; the public version explains user impact, not exact thresholds, token flows, or internal endpoints.
     </p>
   </div>
 </section>
@@ -363,7 +363,7 @@
 </div>
 
 <footer>
-  <span>MUSIXQUARE Roadmap · v1.1</span>
+  <span>MUSIXQUARE Roadmap · v1.2</span>
   <span>
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;
     <a href="../changelog/">Changelog</a> &nbsp;·&nbsp;

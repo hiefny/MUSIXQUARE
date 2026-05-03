@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <title>Changelog · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/changelog">
-  <meta name="description" content="MUSIXQUARE's month-by-month build log from October 2025 — frequency analysis to P2P sync to channel routing to shipped product.">
+  <meta name="description" content="MUSIXQUARE's month-by-month build log from October 2025 — frequency analysis to P2P sync, remote file sharing, channel routing, and shipped product.">
   <meta property="og:title" content="Changelog · MUSIXQUARE">
-  <meta property="og:description" content="The build log. Frequency analysis → P2P sync → channel routing → shipped product.">
+  <meta property="og:description" content="The build log. Frequency analysis → P2P sync → remote file sharing → shipped product.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="MUSIXQUARE Changelog — The build log, Oct 2025 to now">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Changelog · MUSIXQUARE">
-  <meta name="twitter:description" content="The build log — frequency analysis → P2P sync → channel routing → shipped product.">
+  <meta name="twitter:description" content="The build log — frequency analysis → P2P sync → remote file sharing → shipped product.">
   <meta name="twitter:image" content="https://musixquare.com/og-changelog.png">
   <link rel="icon" href="../designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="../designsystem/colors_and_type.css">
@@ -441,9 +441,10 @@
       <div class="body">Design reference + a transparent list of every technical limit we know about. You're reading the third one.</div>
     </li>
   </ul>
+</section>
 <!-- ── 07 MAY ─────────────────────── -->
 <section class="section">
-  <div class="section-head"><h2>May · Simpler, faster, cleaner</h2><span class="num">08</span></div>
+  <div class="section-head"><h2>May · Simpler, faster, farther</h2><span class="num">08</span></div>
   <ul class="log">
     <li>
       <div class="lead">RAM-only architecture (OPFS discarded)</div>
@@ -465,13 +466,25 @@
       <div class="lead">Guest interaction restrictions</div>
       <div class="body">Clear toast notifications ("Only the host can control this") when guests attempt to modify the playlist, preventing accidental session disruption.</div>
     </li>
+    <li>
+      <div class="lead">Encrypted remote file sharing</div>
+      <div class="body">Local audio can now reach guests outside the host's network through a <strong>temporary encrypted relay</strong>. Files are encrypted before leaving the browser, expire after the session window, and rebuild as local browser blobs on the guest side for synchronized playback.</div>
+    </li>
+    <li>
+      <div class="lead">Direct upload path for remote sharing</div>
+      <div class="body">Remote uploads now use short-lived upload authorization so large encrypted files go directly from the browser to temporary object storage. The public surface stays intentionally small: no exposed storage keys, no permanent library sync, and no reusable file-hosting URL.</div>
+    </li>
+    <li>
+      <div class="lead">Remote-share notices and safeguards</div>
+      <div class="body">Hosts get a system notice when a guest appears to be on another network, and guests get clearer waiting states while encrypted files are prepared. Upload caps, expiry, origin checks, and cleanup hooks reduce abuse without documenting the exact operational thresholds publicly.</div>
+    </li>
   </ul>
 </section>
 
 </div>
 
 <footer>
-  <span>MUSIXQUARE Changelog · v1.1</span>
+  <span>MUSIXQUARE Changelog · v1.2</span>
   <span>
     <a href="../roadmap/">Roadmap</a> &nbsp;·&nbsp;
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;

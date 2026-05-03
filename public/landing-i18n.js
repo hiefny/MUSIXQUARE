@@ -47,7 +47,7 @@
       'code.toast_fail': 'Copy failed',
 
       'remote.h2': 'Not in the room?<br>No problem.',
-      'remote.lead': 'Chat and watch YouTube together, even from across town.',
+      'remote.lead': 'Chat, listen to music, or watch YouTube together, even from across town.',
       'remote.chat_label': 'Chat',
       'remote.chat_value': 'Realtime text, no limits',
       'remote.whisper_label': 'Whisper',
@@ -123,7 +123,7 @@
       'code.toast_fail': '복사에 실패했어요',
 
       'remote.h2': '같은 공간이 아니어도<br>괜찮아요',
-      'remote.lead': '멀리 떨어져 있어도 채팅하면서 유튜브 볼 수 있어요.',
+      'remote.lead': '멀리 떨어져 있어도 채팅하면서 음악을 듣거나 유튜브를 볼 수 있어요.',
       'remote.chat_label': '채팅',
       'remote.chat_value': '제한 없는 실시간 텍스트 채팅',
       'remote.whisper_label': '귓속말',

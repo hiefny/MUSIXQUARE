@@ -12,7 +12,12 @@ import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from '../ui/dialog.ts';
-import { DEFAULT_MAX_GUEST_SLOTS, APP_STATE, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  DEFAULT_MAX_GUEST_SLOTS,
+  APP_STATE,
+  TRANSFER_STATE,
+  PLAYBACK_STATE,
+} from '../core/constants.ts';
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -86,6 +91,65 @@ export function forceStereoSdp(sdp: string): string {
   return modified;
 }
 
+// ─── TURN Config Helpers ────────────────────────────────────────────
+
+interface TurnConfigResponse {
+  provider?: unknown;
+  iceServers?: unknown;
+  username?: unknown;
+  credential?: unknown;
+}
+
+function normalizeIceServerUrls(value: unknown): string[] {
+  const urls = Array.isArray(value) ? value : [value];
+  return urls.filter((url): url is string => {
+    return typeof url === 'string' && /^(stun|turn|turns):/i.test(url);
+  });
+}
+
+function normalizeRemoteIceServers(value: unknown): RTCIceServer[] {
+  if (!Array.isArray(value)) return [];
+
+  const result: RTCIceServer[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+
+    const server = item as Record<string, unknown>;
+    const urls = normalizeIceServerUrls(server.urls);
+    if (urls.length === 0) continue;
+
+    const iceServer: RTCIceServer = {
+      urls: urls.length === 1 ? urls[0] : urls,
+    };
+    if (typeof server.username === 'string' && server.username) {
+      iceServer.username = server.username;
+    }
+    if (typeof server.credential === 'string' && server.credential) {
+      iceServer.credential = server.credential;
+    }
+
+    result.push(iceServer);
+  }
+
+  return result;
+}
+
+function hasTurnServer(server: RTCIceServer): boolean {
+  return normalizeIceServerUrls(server.urls).some((url) => /^turns?:/i.test(url));
+}
+
+function getProviderLabel(payload: TurnConfigResponse): string {
+  return typeof payload.provider === 'string' && payload.provider ? payload.provider : 'remote';
+}
+
+function buildLegacyMeteredIceServers(username: string, credential: string): RTCIceServer[] {
+  return [
+    { urls: 'turn:standard.relay.metered.ca:443', username, credential },
+    { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
+    { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
+  ];
+}
+
 // ─── Network Initialization ─────────────────────────────────────────
 
 /**
@@ -109,10 +173,10 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN via Netlify Function (Metered.ca)
-  const iceServers: Record<string, unknown>[] = [
+  // ICE servers: STUN always, TURN via Netlify Function (Cloudflare primary, Metered fallback)
+  const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
   ];
 
   // Direct URLs only (no .netlify.app → .com redirect, which breaks CORS in some WebViews)
@@ -128,28 +192,29 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
         log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
         continue;
       }
-      const { username, credential } = (await resp.json()) as {
-        username: string;
-        credential: string;
-      };
-      if (!username || !credential) {
-        log.warn(`[Network] TURN fetch returned empty credentials: ${url}`);
-        continue;
+      const payload = (await resp.json()) as TurnConfigResponse;
+      const remoteIceServers = normalizeRemoteIceServers(payload.iceServers);
+      if (remoteIceServers.some(hasTurnServer)) {
+        iceServers.push(...remoteIceServers);
+        log.info(`[Network] TURN ICE servers loaded (${getProviderLabel(payload)}) via ${url}`);
+        break;
       }
-      iceServers.push(
-        { urls: 'turn:standard.relay.metered.ca:443', username, credential },
-        { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
-        { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
-      );
-      log.info(`[Network] TURN credentials loaded (Metered.ca) via ${url}`);
-      break;
+
+      // Legacy response shape kept for older local functions and quick rollbacks.
+      if (typeof payload.username === 'string' && typeof payload.credential === 'string') {
+        iceServers.push(...buildLegacyMeteredIceServers(payload.username, payload.credential));
+        log.info(`[Network] TURN credentials loaded (Metered.ca legacy) via ${url}`);
+        break;
+      }
+
+      log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
     } catch (e) {
       log.warn(
         `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
-  if (iceServers.length <= 2) {
+  if (!iceServers.some(hasTurnServer)) {
     log.warn(
       '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
     );

@@ -20,7 +20,6 @@ import { forceStereoSdp } from './peer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const ICE_GATHERING_TIMEOUT_MS = 3000;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -234,30 +233,9 @@ function assertRealtimeOk(payload: RealtimeResponse, trackCount = 0): void {
   }
 }
 
-function waitForIceGatheringComplete(pc: RTCPeerConnection): Promise<void> {
-  if (pc.iceGatheringState === 'complete') return Promise.resolve();
-
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      pc.removeEventListener('icegatheringstatechange', onStateChange);
-      resolve();
-    };
-    const onStateChange = () => {
-      if (pc.iceGatheringState === 'complete') finish();
-    };
-
-    pc.addEventListener('icegatheringstatechange', onStateChange);
-    window.setTimeout(finish, ICE_GATHERING_TIMEOUT_MS);
-  });
-}
-
-function sessionDescriptionFromLocal(pc: RTCPeerConnection): RealtimeSessionDescription {
-  const desc = pc.localDescription;
+function sessionDescriptionFromInit(desc: RTCSessionDescriptionInit): RealtimeSessionDescription {
   if (!desc || !desc.sdp || (desc.type !== 'offer' && desc.type !== 'answer')) {
-    throw new Error('Missing local SDP');
+    throw new Error('Missing SDP');
   }
   return { type: desc.type, sdp: forceStereoSdp(desc.sdp) };
 }
@@ -354,8 +332,8 @@ async function publishHostTracks(): Promise<HostPublication | null> {
   applyAudioSenderTuning(txR.sender);
 
   const offer = await pc.createOffer();
-  await pc.setLocalDescription({ type: offer.type, sdp: forceStereoSdp(offer.sdp || '') });
-  await waitForIceGatheringComplete(pc);
+  const offerDescription = sessionDescriptionFromInit(offer);
+  await pc.setLocalDescription(offerDescription);
 
   const trackNameL = buildTrackName('L');
   const trackNameR = buildTrackName('R');
@@ -367,7 +345,7 @@ async function publishHostTracks(): Promise<HostPublication | null> {
   const tracksResponse = await callRealtime('tracks-new', {
     sessionId: session.sessionId,
     payload: {
-      sessionDescription: sessionDescriptionFromLocal(pc),
+      sessionDescription: offerDescription,
       tracks: requestedTracks,
     },
   });
@@ -621,12 +599,12 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   await pc.setRemoteDescription(offer);
   const answer = await pc.createAnswer();
-  await pc.setLocalDescription({ type: answer.type, sdp: forceStereoSdp(answer.sdp || '') });
-  await waitForIceGatheringComplete(pc);
+  const answerDescription = sessionDescriptionFromInit(answer);
+  await pc.setLocalDescription(answerDescription);
 
   const renegotiate = await callRealtime('renegotiate', {
     sessionId: guestSessionId,
-    payload: { sessionDescription: sessionDescriptionFromLocal(pc) },
+    payload: { sessionDescription: answerDescription },
   });
   assertRealtimeOk(renegotiate);
 

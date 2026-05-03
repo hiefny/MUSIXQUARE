@@ -28,6 +28,7 @@ import type { AnyProtocolMsg, DataConnection, RemoteFileSharePayload } from '../
 
 const REMOTE_WAIT_TIMER = 'remote-share-wait-timeout';
 const REMOTE_WAIT_MS = 90_000;
+const REMOTE_UPLOAD_LOADER = 'remote-share-upload';
 
 let _activeUpload:
   | { key: string; promise: Promise<RemoteFileSharePayload> }
@@ -63,6 +64,11 @@ function descriptorKey(file: File, sessionId: number, index: number): string {
   return `${sessionId}:${index}:${file.name}:${file.size}:${file.lastModified}`;
 }
 
+function showUploadProgress(message: string, progress = 0): void {
+  showLoader(true, message, REMOTE_UPLOAD_LOADER);
+  updateLoader(Math.round(progress * 100));
+}
+
 export function shouldWaitForRemoteShare(): boolean {
   return isRemoteShareConfigured();
 }
@@ -87,14 +93,25 @@ export async function shareRemoteFileIfNeeded(
       descriptor = _lastDescriptor as RemoteFileSharePayload;
     } else {
       if (_activeUpload?.key === key) {
+        showUploadProgress('Waiting for encrypted remote upload...');
         descriptor = await _activeUpload.promise;
       } else {
-        _activeUpload = { key, promise: uploadRemoteFile(file, sessionId, index) };
+        showToast('Encrypting file for remote guests...');
+        showUploadProgress('Encrypting remote file...');
+        _activeUpload = {
+          key,
+          promise: uploadRemoteFile(file, sessionId, index, (progress) => {
+            showUploadProgress('Uploading encrypted remote file...', progress);
+            bus.emit('remote-file:progress', 'upload', progress);
+          }),
+        };
         descriptor = await _activeUpload.promise;
         _lastDescriptor = descriptor;
         if (_activeUpload?.key === key) _activeUpload = null;
       }
     }
+
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
 
     if (!targetConn && getState('files.currentFileBlob') !== file) {
       log.debug('[RemoteShare] Upload completed for stale track; descriptor not broadcast');
@@ -109,8 +126,10 @@ export async function shareRemoteFileIfNeeded(
     }
     bus.emit('share:remote-file', descriptor);
     log.info(`[RemoteShare] Shared encrypted descriptor for ${descriptor.name}`);
+    showToast('Encrypted remote file ready');
   } catch (error) {
     if (_activeUpload?.key === key) _activeUpload = null;
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
     const message = error instanceof Error ? error.message : String(error);
     setState('share.remote', {
       ...getState('share.remote'),
@@ -123,7 +142,7 @@ export async function shareRemoteFileIfNeeded(
       },
     });
     log.warn('[RemoteShare] Upload/share failed:', error);
-    showToast('Remote file share failed');
+    showToast(`Remote file share failed: ${message}`);
   }
 }
 

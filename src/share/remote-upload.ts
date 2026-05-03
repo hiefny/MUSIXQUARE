@@ -9,6 +9,7 @@ export async function uploadRemoteFile(
   file: File,
   sessionId: number,
   index: number,
+  onUploadProgress?: (progress: number) => void,
 ): Promise<RemoteFileSharePayload> {
   if (file.size > REMOTE_SHARE_MAX_BYTES) {
     throw new Error('REMOTE_SHARE_FILE_TOO_LARGE');
@@ -26,6 +27,7 @@ export async function uploadRemoteFile(
       error: null,
     },
   });
+  onUploadProgress?.(0);
 
   const encrypted = await encryptFile(file);
 
@@ -60,6 +62,7 @@ export async function uploadRemoteFile(
           progress,
         },
       });
+      onUploadProgress?.(progress);
     },
   );
 
@@ -73,6 +76,7 @@ export async function uploadRemoteFile(
       error: null,
     },
   });
+  onUploadProgress?.(1);
 
   return {
     roomId,

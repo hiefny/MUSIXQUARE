@@ -5,7 +5,7 @@ compatibility_date = "2026-05-03"
 [vars]
 MAX_UPLOAD_BYTES = "209715200"
 OBJECT_TTL_SECONDS = "3600"
-ALLOWED_ORIGINS = "https://musixquare.com,http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:5173,http://127.0.0.1:5173"
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"

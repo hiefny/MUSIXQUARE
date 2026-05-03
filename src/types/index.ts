@@ -829,7 +829,7 @@ interface BaseEventMap {
   // ── Remote Share ─────────────────────────────────────────────────
   'share:remote-file': [descriptor: RemoteFileSharePayload];
   'remote-file:ready': [index: number, name: string];
-  'remote-file:progress': [phase: 'download' | 'decrypt', progress: number];
+  'remote-file:progress': [phase: 'upload' | 'download' | 'decrypt', progress: number];
 
   // ── Blob ──────────────────────────────────────────────────────────
   'blob:revoke-all': [];

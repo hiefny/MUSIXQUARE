@@ -46,7 +46,7 @@ import { isRemoteShareConfigured } from './r2-client.ts';
 import type { AnyProtocolMsg, DataConnection, RemoteFileSharePayload } from '../types/index.ts';
 
 const REMOTE_WAIT_TIMER = 'remote-share-wait-timeout';
-const REMOTE_WAIT_MS = 90_000;
+const REMOTE_WAIT_MS = 5 * 60_000 + 15_000;
 const REMOTE_UPLOAD_LOADER = 'remote-share-upload';
 // Treat a descriptor as expired if it would expire within this window —
 // avoids handing out a 30-second-window URL to a guest who'd race the TTL.
@@ -103,6 +103,20 @@ function fileSignatureKey(file: File, sessionId: number, index: number): string 
   return `${sessionId}:${index}:${file.name}:${file.size}:${file.lastModified}`;
 }
 
+function isHostActiveFile(file: File, index: number): boolean {
+  if (getState('files.currentFileBlob') === file) return true;
+
+  // Host preload activation calls shareRemoteFileIfNeeded before
+  // loadPreloadedTrack publishes files.currentFileBlob. In that window the
+  // selected playlist slot is the authoritative "still current" signal.
+  const currentIndex = getState('playlist.currentTrackIndex');
+  if (currentIndex !== index) return false;
+
+  const playlist = getState('playlist.items') || [];
+  const item = playlist[index] as { file?: File } | undefined;
+  return item?.file === file;
+}
+
 function showUploadProgress(message: string, progress = 0): void {
   showLoader(true, message, REMOTE_UPLOAD_LOADER);
   updateLoader(Math.round(progress * 100));
@@ -116,7 +130,12 @@ function showUploadProgress(message: string, progress = 0): void {
 function friendlyErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   if (raw === 'REMOTE_SHARE_FILE_TOO_LARGE') return t('share.remote.too_large');
-  if (raw === 'REMOTE_SHARE_UPLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK') {
+  if (
+    raw === 'REMOTE_SHARE_UPLOAD_NETWORK' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' ||
+    raw === 'REMOTE_SHARE_UPLOAD_TIMEOUT' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT'
+  ) {
     return t('share.remote.network_error');
   }
   if (raw === 'REMOTE_SHARE_UPLOAD_HTTP_429') return t('share.remote.rate_limited');
@@ -231,7 +250,7 @@ export async function shareRemoteFileIfNeeded(
     //   - preload: stale if preload.nextTrackIndex moved off our index
     //     (host scheduled a newer preload before our upload finished)
     if (!targetConn) {
-      if (!preload && getState('files.currentFileBlob') !== file) {
+      if (!preload && !isHostActiveFile(file, index)) {
         log.debug('[RemoteShare] Active upload completed for stale track; descriptor not broadcast');
         return;
       }
@@ -314,22 +333,32 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
 
   setPendingRecoveryTarget(index, name);
   setState('playlist.currentTrackIndex', index);
-  setState('preload.meta', {
-    name,
-    title: name.replace(/\.[^/.]+$/, ''),
-    index,
-    size: 0,
-    mime: '',
-    sessionId,
-  });
+  const existingPreloadBlob = getState('preload.nextFileBlob');
+  const existingPreloadMeta = getState('preload.meta');
+  const existingPreloadMatches =
+    existingPreloadBlob &&
+    existingPreloadMeta &&
+    Number(existingPreloadMeta.index) === index &&
+    existingPreloadMeta.name === name;
+  const waitMeta = existingPreloadMatches
+    ? {
+        ...existingPreloadMeta,
+        sessionId: existingPreloadMeta.sessionId ?? sessionId,
+      }
+    : {
+        name,
+        title: name.replace(/\.[^/.]+$/, ''),
+        index,
+        size: 0,
+        mime: '',
+        sessionId,
+      };
+  if (existingPreloadBlob && !existingPreloadMatches) {
+    setState('preload.nextFileBlob', null);
+  }
+  setState('preload.meta', waitMeta);
   setState('preload.nextTrackIndex', index);
-  setState('transfer.meta', {
-    name,
-    index,
-    size: 0,
-    mime: '',
-    sessionId,
-  });
+  setState('transfer.meta', waitMeta);
 
   const playlist = getState('playlist.items') || [];
   if (playlist[index]) {
@@ -351,7 +380,16 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
   setManagedTimer(
     REMOTE_WAIT_TIMER,
     () => {
-      if (getState('preload.nextFileBlob')) return;
+      const readyBlob = getState('preload.nextFileBlob');
+      const readyMeta = getState('preload.meta');
+      if (
+        readyBlob &&
+        readyMeta &&
+        Number(readyMeta.index) === index &&
+        readyMeta.name === name
+      ) {
+        return;
+      }
       log.warn('[RemoteShare] Wait timed out before descriptor/download completed');
       showToast(t('share.remote.timeout'));
       showLoader(false);
@@ -374,12 +412,7 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
   // Already have this exact track preloaded — drop dup.
   const existingMeta = getState('preload.meta');
   const existingBlob = getState('preload.nextFileBlob');
-  if (
-    existingBlob &&
-    existingMeta &&
-    (existingMeta.index as number) === descriptor.index &&
-    (existingMeta.name as string) === descriptor.name
-  ) {
+  if (existingBlob && isPreloadedRemoteFile(descriptor, existingBlob, existingMeta)) {
     return;
   }
 
@@ -433,6 +466,7 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
     });
     setState('preload.nextTrackIndex', descriptor.index);
     log.info(`[RemoteShare] Preload ready for index ${descriptor.index} (${descriptor.name})`);
+    promoteRemotePreloadIfActive(descriptor, file);
   } catch (error) {
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Preload download superseded — abort is expected');
@@ -448,6 +482,92 @@ async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promis
     }
     showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
   }
+}
+
+function remoteFileMeta(descriptor: RemoteFileSharePayload, file: File): Record<string, unknown> {
+  return {
+    name: descriptor.name,
+    title: descriptor.name.replace(/\.[^/.]+$/, ''),
+    index: descriptor.index,
+    size: file.size,
+    mime: descriptor.mime,
+    sessionId: descriptor.sessionId,
+  };
+}
+
+function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean {
+  const currentBlob = getState('files.currentFileBlob');
+  const meta = getState('transfer.meta');
+  if (!currentBlob || !meta) return false;
+  const metaSessionId = Number(meta.sessionId);
+  const sessionMatches =
+    !Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId;
+  return (
+    Number(meta.index) === descriptor.index &&
+    meta.name === descriptor.name &&
+    currentBlob.size === descriptor.size &&
+    sessionMatches
+  );
+}
+
+function isPreloadedRemoteFile(descriptor: RemoteFileSharePayload, blob: Blob, meta: unknown): boolean {
+  const preloadMeta = meta as Record<string, unknown> | null;
+  if (!preloadMeta) return false;
+  const metaSessionId = Number(preloadMeta.sessionId);
+  return (
+    blob.size === descriptor.size &&
+    Number(preloadMeta.index) === descriptor.index &&
+    preloadMeta.name === descriptor.name &&
+    (!Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId)
+  );
+}
+
+function shouldPromoteRemotePreload(descriptor: RemoteFileSharePayload): boolean {
+  if ((getState('playlist.currentTrackIndex') as number) !== descriptor.index) return false;
+  if (isCurrentRemoteFileLoaded(descriptor)) return false;
+
+  const lifecycle = getState('playback.lifecycle');
+  const pendingTarget = getState('playback.pendingRecoveryTarget');
+  return (
+    pendingTarget?.index === descriptor.index ||
+    lifecycle === PLAYBACK_STATE.IDLE ||
+    lifecycle === PLAYBACK_STATE.DOWNLOADING ||
+    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
+  );
+}
+
+function promoteRemotePreloadIfActive(descriptor: RemoteFileSharePayload, file: File): void {
+  if (!shouldPromoteRemotePreload(descriptor)) return;
+
+  const meta = remoteFileMeta(descriptor, file);
+  log.info(
+    `[RemoteShare] Completed preload is now active (index ${descriptor.index}); promoting`,
+  );
+  setPendingRecoveryTarget(descriptor.index, descriptor.name);
+  setState('preload.meta', meta);
+  setState('preload.nextTrackIndex', descriptor.index);
+  setState('transfer.meta', meta);
+  const playlist = getState('playlist.items') || [];
+  if (playlist[descriptor.index]) {
+    setState('player.currentTrackMeta', playlist[descriptor.index]);
+  } else {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      title: descriptor.name.replace(/\.[^/.]+$/, '') || descriptor.name,
+      name: descriptor.name,
+      videoId: null,
+      playlistId: null,
+    });
+  }
+  clearManagedTimer(REMOTE_WAIT_TIMER);
+  transition({
+    type: 'FILE_PREPARE',
+    variant: 'preload-match',
+    index: descriptor.index,
+    name: descriptor.name,
+  });
+  bus.emit('remote-file:ready', descriptor.index, descriptor.name);
+  bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
 }
 
 async function handleRemoteFileShare(
@@ -472,28 +592,31 @@ async function handleRemoteFileShare(
     return;
   }
 
+  if (isCurrentRemoteFileLoaded(descriptor)) {
+    log.debug('[RemoteShare] Active descriptor already loaded, ignoring duplicate');
+    clearManagedTimer(REMOTE_WAIT_TIMER);
+    bus.emit('remote-file:ready', descriptor.index, descriptor.name);
+    return;
+  }
+
   // Fast-path: an active descriptor for a track we already preloaded — the
   // blob is in preload.nextFileBlob, just promote it. Skip the redundant
   // download (and the R2 cost it would incur).
   const preMeta = getState('preload.meta');
   const preBlob = getState('preload.nextFileBlob');
-  if (
-    preBlob &&
-    preMeta &&
-    (preMeta.index as number) === descriptor.index &&
-    (preMeta.name as string) === descriptor.name
-  ) {
+  if (preBlob && isPreloadedRemoteFile(descriptor, preBlob, preMeta)) {
     log.info(
       `[RemoteShare] Active descriptor matches preloaded blob (index ${descriptor.index}); promoting`,
     );
 
+    const preMetaRecord = preMeta as Record<string, unknown>;
     const preservedMeta = {
-      ...preMeta,
+      ...preMetaRecord,
       name: descriptor.name,
       title: descriptor.name.replace(/\.[^/.]+$/, ''),
       index: descriptor.index,
       size: preBlob.size,
-      mime: (preMeta.mime as string) || descriptor.mime,
+      mime: (preMetaRecord.mime as string) || descriptor.mime,
       sessionId: descriptor.sessionId,
     };
     setPendingRecoveryTarget(descriptor.index, descriptor.name);

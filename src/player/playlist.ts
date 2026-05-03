@@ -36,6 +36,7 @@ import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
+import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
 // A persistent permutation of playlist indices so that prev/next in shuffle
@@ -306,6 +307,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       mime: file.type,
       autoPlayDelayMs,
     });
+    void shareRemoteFileIfNeeded(file, sessionId, undefined, { index });
 
     // Reset host position to 0 and wait, mirroring the normal branch's UX
     pause(0);
@@ -359,6 +361,10 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
     const item = playlist[index];
     const fileName = item?.file?.name || item?.name || `Track ${index}`;
+    if (item?.file) {
+      const remoteShareSessionId = getState('transfer.currentSessionId') || null;
+      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { index });
+    }
     broadcast({ type: MSG.PLAY_PRELOADED, index, name: fileName, mime: item?.file?.type });
 
     // Host must transition to DECODING before decode begins, so that the

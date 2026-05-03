@@ -290,6 +290,45 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
   return !!hostConn && conn === hostConn;
 }
 
+function replayLoadedSameFile(data: Record<string, unknown>): boolean {
+  const currentFileBlob = getState('files.currentFileBlob');
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentTransferMeta = getState('transfer.meta');
+  const requestedIndex = data.index as number | undefined;
+  const requestedName = data.name as string | undefined;
+  const replayName = requestedName || ((currentTransferMeta?.name as string | undefined) ?? '');
+  const incomingSessionId = Number(data.sessionId);
+  const loadedSessionId =
+    Number(getState('transfer.localSessionId')) || Number(currentTransferMeta?.sessionId) || 0;
+  const isSameTrackByIndex = requestedIndex !== undefined && requestedIndex === currentTrackIndex;
+  const isSameTrackByName =
+    requestedIndex === undefined && !!requestedName && currentTransferMeta?.name === requestedName;
+
+  if (!currentFileBlob || (!isSameTrackByIndex && !isSameTrackByName)) return false;
+  if (
+    Number.isFinite(incomingSessionId) &&
+    incomingSessionId > 0 &&
+    loadedSessionId > 0 &&
+    incomingSessionId > loadedSessionId
+  ) {
+    return false;
+  }
+
+  log.debug(
+    `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${requestedName}`,
+  );
+  transition({
+    type: 'FILE_PREPARE',
+    variant: 'same-file',
+    index: requestedIndex as number,
+    name: replayName,
+  });
+  showLoader(false);
+  const delayMs = Number(data.autoPlayDelayMs) || 0;
+  bus.emit('playback:replay-current', delayMs);
+  return true;
+}
+
 export async function handleFilePrepare(
   data: Record<string, unknown>,
   conn?: DataConnection,
@@ -307,6 +346,12 @@ export async function handleFilePrepare(
   // a guest who failed twice on track A would still have count=2 carried
   // over and would prematurely give up on track B's first decode failure.
   setState('player.decodeFailureCount', 0);
+
+  // Same-track replay needs to win before the remote-share branch. A remote
+  // guest that already has the Blob should restart it locally, not enter
+  // "waiting for encrypted remote file" for a descriptor the host will not
+  // send on the replay fast path.
+  if (replayLoadedSameFile(data)) return;
 
   // Remote guests (no local P2P path): demo → HTTP fetch from server,
   // other files → guide UI. Local guests always fall through to the
@@ -467,8 +512,17 @@ export async function handleFilePrepare(
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isSameTrackByIndex = data.index !== undefined && data.index === currentTrackIndex;
   const currentTransferMeta = getState('transfer.meta');
-  const isSameTrackByName = data.name && currentTransferMeta?.name === data.name;
-  if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName)) {
+  const isSameTrackByName =
+    data.index === undefined && data.name && currentTransferMeta?.name === data.name;
+  const incomingSameFileSessionId = Number(data.sessionId);
+  const loadedSameFileSessionId =
+    Number(getState('transfer.localSessionId')) || Number(currentTransferMeta?.sessionId) || 0;
+  const isNewerSameFileSession =
+    Number.isFinite(incomingSameFileSessionId) &&
+    incomingSameFileSessionId > 0 &&
+    loadedSameFileSessionId > 0 &&
+    incomingSameFileSessionId > loadedSameFileSessionId;
+  if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName) && !isNewerSameFileSession) {
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );

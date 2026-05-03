@@ -26,6 +26,7 @@ export type ProgressHandler = (progress: number) => void;
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
 const PROD_ENDPOINT = 'https://share.musixquare.com';
+const REMOTE_SHARE_XHR_TIMEOUT_MS = 5 * 60_000;
 
 function normalizeEndpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -158,7 +159,7 @@ export function uploadEncryptedBlob(
       detachAbort?.();
       reject(new Error('REMOTE_SHARE_UPLOAD_TIMEOUT'));
     };
-    xhr.timeout = 120_000;
+    xhr.timeout = REMOTE_SHARE_XHR_TIMEOUT_MS;
     xhr.send(encryptedBlob);
   });
 }
@@ -199,7 +200,7 @@ export function downloadEncryptedObject(
       detachAbort?.();
       reject(new Error('REMOTE_SHARE_DOWNLOAD_TIMEOUT'));
     };
-    xhr.timeout = 120_000;
+    xhr.timeout = REMOTE_SHARE_XHR_TIMEOUT_MS;
     xhr.send();
   });
 }

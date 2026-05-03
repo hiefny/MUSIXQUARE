@@ -486,7 +486,7 @@ const ko = {
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.local_recommended_html':
-    '같은 네트워크에서는 오디오 공유를 가장 안정적으로 사용할 수 있어요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
+    '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
     '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html':

@@ -38,7 +38,12 @@ import {
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
-import { setPendingRecoveryTarget } from '../player/_state.ts';
+import {
+  getPendingPlayTime,
+  getPendingPlayTimeSetAt,
+  setPendingPlayTime,
+  setPendingRecoveryTarget,
+} from '../player/_state.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { uploadRemoteFile } from './remote-upload.ts';
 import { downloadRemoteFile } from './remote-download.ts';
@@ -76,6 +81,13 @@ let _activeDownload: DownloadEntry | null = null;
 // Preload (background) download runs in parallel to the active download
 // because they target distinct ownership of preload.nextFileBlob slot.
 let _activePreloadDownload: DownloadEntry | null = null;
+
+function clearStaleRemotePlayback(reason: string): void {
+  const pendingTime = getPendingPlayTime();
+  const pendingSetAt = getPendingPlayTimeSetAt();
+  bus.emit('storage:clear-previous-track', reason);
+  if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
+}
 
 function toRemoteShareMessage(
   descriptor: RemoteFileSharePayload,
@@ -355,6 +367,7 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
     return;
   }
 
+  clearStaleRemotePlayback('remote-share-wait');
   setPendingRecoveryTarget(index, name);
   setState('playlist.currentTrackIndex', index);
   const existingPreloadBlob = getState('preload.nextFileBlob');
@@ -567,6 +580,7 @@ function promoteRemotePreloadIfActive(descriptor: RemoteFileSharePayload, file: 
   log.info(
     `[RemoteShare] Completed preload is now active (index ${descriptor.index}); promoting`,
   );
+  clearStaleRemotePlayback('remote-share-preload-promote');
   setPendingRecoveryTarget(descriptor.index, descriptor.name);
   setState('preload.meta', meta);
   setState('preload.nextTrackIndex', descriptor.index);
@@ -643,6 +657,7 @@ async function handleRemoteFileShare(
       mime: (preMetaRecord.mime as string) || descriptor.mime,
       sessionId: descriptor.sessionId,
     };
+    clearStaleRemotePlayback('remote-share-preload-promote');
     setPendingRecoveryTarget(descriptor.index, descriptor.name);
     setState('playlist.currentTrackIndex', descriptor.index);
     setState('preload.meta', preservedMeta);
@@ -660,7 +675,6 @@ async function handleRemoteFileShare(
         playlistId: null,
       });
     }
-    bus.emit('player:stop-all-media');
     clearManagedTimer(REMOTE_WAIT_TIMER);
     transition({
       type: 'FILE_PREPARE',
@@ -705,7 +719,6 @@ async function handleRemoteFileShare(
     });
 
     prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
-    bus.emit('player:stop-all-media');
     showLoader(true, t('share.remote.downloading'));
 
     const file = await downloadRemoteFile(

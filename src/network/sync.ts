@@ -8,7 +8,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, RESERVED_NAMES } from '../core/constants.ts';
+import { MSG, APP_STATE, PLAYBACK_STATE, RESERVED_NAMES } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
@@ -171,6 +171,16 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 
   const appState = getState('appState');
   if (appState !== APP_STATE.PLAYING_AUDIO) {
+    const lifecycle = getState('playback.lifecycle');
+    if (
+      lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
+      lifecycle === PLAYBACK_STATE.DOWNLOADING ||
+      lifecycle === PLAYBACK_STATE.DECODING
+    ) {
+      log.debug(`[Sync] Bootstrap skipped while ${lifecycle}; waiting for the new buffer`);
+      return;
+    }
+
     // Bootstrap: only if we have a decoded buffer. Otherwise the audio
     // engine has nothing to start, and play() would no-op (or worse,
     // race with an in-flight decode).

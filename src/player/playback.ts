@@ -22,7 +22,7 @@ import { readStoredFile } from '../storage/storage.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest, hasActiveRelay } from '../network/peer.ts';
-import { shouldWaitForRemoteShare } from '../share/remote-share.ts';
+import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -59,6 +59,14 @@ function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): voi
       playlistId: null,
     },
   );
+}
+
+function getRemoteWaitSessionId(): number {
+  const localSessionId = Number(getState('transfer.localSessionId'));
+  if (Number.isFinite(localSessionId) && localSessionId > 0) return localSessionId;
+  const currentSessionId = Number(getState('transfer.currentSessionId'));
+  if (Number.isFinite(currentSessionId) && currentSessionId > 0) return currentSessionId;
+  return 0;
 }
 
 // ─── Preload waiter: cross-invocation cleanup ───────────────────────
@@ -137,9 +145,9 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     if (isRemoteGuest() && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
+        const waitName = data.name as string | undefined;
+        prepareRemoteShareWait(incomingIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
-        setFileTrackMetaFromPlaylist(incomingIndex, data.name as string | undefined);
-        showLoader(true, 'Waiting for encrypted remote file...');
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }
@@ -263,9 +271,15 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     if (isRemoteGuest() && !hasActiveRelay()) {
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
+        const safeIndex =
+          Number.isFinite(currentTrackIndex) && currentTrackIndex >= 0
+            ? currentTrackIndex
+            : incomingIndex !== undefined && Number.isFinite(incomingIndex) && incomingIndex >= 0
+              ? incomingIndex
+              : 0;
+        const waitName = data.name as string | undefined;
+        prepareRemoteShareWait(safeIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
-        setFileTrackMetaFromPlaylist(currentTrackIndex, data.name as string | undefined);
-        showLoader(true, 'Waiting for encrypted remote file...');
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }

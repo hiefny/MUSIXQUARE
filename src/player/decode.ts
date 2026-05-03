@@ -61,6 +61,25 @@ import { transition } from './lifecycle.ts';
 
 const DECODE_TIMEOUT_MS = 10_000;
 const DECODE_TIMEOUT_TAG = '__decode_timeout__';
+let _preloadActivationSeq = 0;
+let _activePreloadActivation = 0;
+
+function beginPreloadActivation(): number {
+  const owner = ++_preloadActivationSeq;
+  _activePreloadActivation = owner;
+  setPlayPreloadedInProgress(true);
+  return owner;
+}
+
+function isCurrentPreloadActivation(owner: number): boolean {
+  return _activePreloadActivation === owner;
+}
+
+function finishPreloadActivation(owner: number): void {
+  if (!isCurrentPreloadActivation(owner)) return;
+  _activePreloadActivation = 0;
+  setPlayPreloadedInProgress(false);
+}
 
 async function decodeWithTimeout(arrayBuffer: ArrayBuffer, label = 'decode'): Promise<AudioBuffer> {
   const ctx = getAudioContext();
@@ -392,7 +411,7 @@ export async function loadPreloadedTrack(
     return;
   }
 
-  setPlayPreloadedInProgress(true);
+  const activationOwner = beginPreloadActivation();
 
   try {
     if (!isSystemAudioActive()) {
@@ -408,7 +427,7 @@ export async function loadPreloadedTrack(
       log.warn(
         `[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`,
       );
-      setPlayPreloadedInProgress(false);
+      finishPreloadActivation(activationOwner);
       // Preserve pendingPlayTime — it belongs to the LATEST MSG.PLAY (which
       // updated currentTrackIndex), so the matching loadPreloadedTrack call
       // for the current target needs it. Clearing here would leave the
@@ -433,7 +452,7 @@ export async function loadPreloadedTrack(
     // Re-verify after async decode
     if (loadToken !== undefined && getLoadToken() !== myToken) {
       log.warn('[Preload] Token mismatch after decode. Discarding.');
-      setPlayPreloadedInProgress(false);
+      finishPreloadActivation(activationOwner);
       // Same rationale: token mismatch means a newer load is starting; the
       // newer load owns pendingPlayTime consumption.
       return;
@@ -444,7 +463,7 @@ export async function loadPreloadedTrack(
       getState('playlist.currentTrackIndex') !== targetIndex
     ) {
       log.warn('[Preload] Track changed during decode. Discarding.');
-      setPlayPreloadedInProgress(false);
+      finishPreloadActivation(activationOwner);
       // Preserve pendingPlayTime for the new track's loader.
       return;
     }
@@ -531,8 +550,6 @@ export async function loadPreloadedTrack(
         500,
       );
     }
-    setPlayPreloadedInProgress(false);
-    showLoader(false);
 
     // Consume pending play time — compensate for elapsed wall clock so the
     // guest doesn't resume at the host's past position (remote-demo HTTP
@@ -564,9 +581,14 @@ export async function loadPreloadedTrack(
       bus.emit('sync:request-immediate-ping');
     }
 
+    finishPreloadActivation(activationOwner);
     showLoader(false);
   } catch (e: unknown) {
-    setPlayPreloadedInProgress(false);
+    if (!isCurrentPreloadActivation(activationOwner)) {
+      log.debug('[Preload] Stale activation failed after supersession; ignoring', e);
+      return;
+    }
+    finishPreloadActivation(activationOwner);
     setPendingPlayTime(undefined);
     log.error('[Preload] Activation failed:', e);
     showLoader(false);

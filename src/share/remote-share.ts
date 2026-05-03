@@ -485,10 +485,41 @@ async function handleRemoteFileShare(
     log.info(
       `[RemoteShare] Active descriptor matches preloaded blob (index ${descriptor.index}); promoting`,
     );
-    prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
+
+    const preservedMeta = {
+      ...preMeta,
+      name: descriptor.name,
+      title: descriptor.name.replace(/\.[^/.]+$/, ''),
+      index: descriptor.index,
+      size: preBlob.size,
+      mime: (preMeta.mime as string) || descriptor.mime,
+      sessionId: descriptor.sessionId,
+    };
+    setPendingRecoveryTarget(descriptor.index, descriptor.name);
+    setState('playlist.currentTrackIndex', descriptor.index);
+    setState('preload.meta', preservedMeta);
+    setState('preload.nextTrackIndex', descriptor.index);
+    setState('transfer.meta', preservedMeta);
+    const playlist = getState('playlist.items') || [];
+    if (playlist[descriptor.index]) {
+      setState('player.currentTrackMeta', playlist[descriptor.index]);
+    } else {
+      setState('player.currentTrackMeta', {
+        type: 'file',
+        title: descriptor.name.replace(/\.[^/.]+$/, '') || descriptor.name,
+        name: descriptor.name,
+        videoId: null,
+        playlistId: null,
+      });
+    }
     bus.emit('player:stop-all-media');
     clearManagedTimer(REMOTE_WAIT_TIMER);
-    transition({ type: 'PRELOAD_FILE_READY', index: descriptor.index });
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: descriptor.index,
+      name: descriptor.name,
+    });
     bus.emit('remote-file:ready', descriptor.index, descriptor.name);
     bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
     return;

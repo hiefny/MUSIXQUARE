@@ -45,6 +45,22 @@ import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 
+function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): void {
+  const playlist = getState('playlist.items') || [];
+  const item = playlist[index];
+  const name = item?.name || fallbackName || '';
+  setState(
+    'player.currentTrackMeta',
+    item ?? {
+      type: 'file',
+      title: name.replace(/\.[^/.]+$/, '') || name,
+      name,
+      videoId: null,
+      playlistId: null,
+    },
+  );
+}
+
 // ─── Preload waiter: cross-invocation cleanup ───────────────────────
 // Tracks active unsubs from storage:use-preloaded's "blob not ready" path.
 // Rapid track switches (A→B while both are waiting) would otherwise leave
@@ -117,19 +133,12 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
         setPendingPlayTime(time);
+        setFileTrackMetaFromPlaylist(incomingIndex, data.name as string | undefined);
         showLoader(true, 'Waiting for encrypted remote file...');
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }
-      const playlist = getState('playlist.items') || [];
-      const name = playlist[incomingIndex]?.name || (data.name as string) || '';
-      setState('player.currentTrackMeta', {
-        type: 'file',
-        title: t('toast.same_wifi_file_title'),
-        name,
-        videoId: null,
-        playlistId: null,
-      });
+      setFileTrackMetaFromPlaylist(incomingIndex, data.name as string | undefined);
       showLoader(false);
       log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
       return;
@@ -250,18 +259,12 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
         setPendingPlayTime(time);
+        setFileTrackMetaFromPlaylist(currentTrackIndex, data.name as string | undefined);
         showLoader(true, 'Waiting for encrypted remote file...');
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }
-      const playlist2 = getState('playlist.items') || [];
-      setState('player.currentTrackMeta', {
-        type: 'file',
-        title: t('toast.same_wifi_file_title'),
-        name: playlist2[currentTrackIndex]?.name || '',
-        videoId: null,
-        playlistId: null,
-      });
+      setFileTrackMetaFromPlaylist(currentTrackIndex, data.name as string | undefined);
       showLoader(false);
       log.info('[Guest] Remote guest — no file will arrive, showing guide');
       return;

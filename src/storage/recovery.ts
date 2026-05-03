@@ -40,10 +40,11 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
     showToast(t('toast.same_wifi_only'));
+    const name = getState('playback.pendingRecoveryTarget')?.name || '';
     setState('player.currentTrackMeta', {
       type: 'file',
-      title: t('toast.same_wifi_file_title'),
-      name: '',
+      title: name.replace(/\.[^/.]+$/, ''),
+      name,
       videoId: null,
       playlistId: null,
     });

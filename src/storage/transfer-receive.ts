@@ -259,7 +259,7 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
   }
   setState('player.currentTrackMeta', {
     type: 'file',
-    title: t('toast.same_wifi_file_title'),
+    title: ((data.name as string) || '').replace(/\.[^/.]+$/, ''),
     name: (data.name as string) || '',
     videoId: null,
     playlistId: null,

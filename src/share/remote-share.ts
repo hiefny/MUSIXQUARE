@@ -171,6 +171,14 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
   const playlist = getState('playlist.items') || [];
   if (playlist[index]) {
     setState('player.currentTrackMeta', playlist[index]);
+  } else {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      title: name.replace(/\.[^/.]+$/, '') || name,
+      name,
+      videoId: null,
+      playlistId: null,
+    });
   }
 
   transition({ type: 'FILE_PREPARE', variant: 'preload-waiting', index, name });

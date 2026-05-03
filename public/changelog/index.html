@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <title>Changelog · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/changelog">
-  <meta name="description" content="MUSIXQUARE's month-by-month build log from October 2025 — frequency analysis to P2P sync, remote file sharing, channel routing, and shipped product.">
+  <meta name="description" content="MUSIXQUARE's month-by-month build log from October 2025 — frequency analysis to P2P sync, remote file sharing, Cloudflare TURN/SFU, channel routing, and shipped product.">
   <meta property="og:title" content="Changelog · MUSIXQUARE">
-  <meta property="og:description" content="The build log. Frequency analysis → P2P sync → remote file sharing → shipped product.">
+  <meta property="og:description" content="The build log. Frequency analysis → P2P sync → remote file sharing → Cloudflare TURN/SFU → shipped product.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="MUSIXQUARE Changelog — The build log, Oct 2025 to now">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Changelog · MUSIXQUARE">
-  <meta name="twitter:description" content="The build log — frequency analysis → P2P sync → remote file sharing → shipped product.">
+  <meta name="twitter:description" content="The build log — frequency analysis → P2P sync → remote file sharing → Cloudflare TURN/SFU → shipped product.">
   <meta name="twitter:image" content="https://musixquare.com/og-changelog.png">
   <link rel="icon" href="../designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="../designsystem/colors_and_type.css">
@@ -155,7 +155,7 @@
     </svg>
   </div>
   <div class="meta">
-    Changelog · v1.0<br>
+    Changelog · v1.3<br>
     <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">musixquare.com</a><br>
     <a href="../designsystem/">design system</a><br>
     <a href="../roadmap/">roadmap</a>
@@ -478,13 +478,25 @@
       <div class="lead">Remote-share notices and safeguards</div>
       <div class="body">Hosts get a system notice when a guest appears to be on another network, and guests get clearer waiting states while encrypted files are prepared. Upload caps, expiry, origin checks, and cleanup hooks reduce abuse without documenting the exact operational thresholds publicly.</div>
     </li>
+    <li>
+      <div class="lead">Cloudflare TURN as the primary relay</div>
+      <div class="body">TURN credentials now come from a Netlify function backed by Cloudflare, with the previous Metered relay kept as a fallback. Remote joins that need relay networking connect much faster in early tests, while long-lived rooms still keep a safety path.</div>
+    </li>
+    <li>
+      <div class="lead">Cloudflare Realtime SFU for remote system audio</div>
+      <div class="body">System-audio sharing now splits by connection type: local guests stay on the direct PeerJS audio path, while remote guests subscribe through Cloudflare Realtime SFU. The host publishes a stereo system-audio pair once, then remote listeners receive synchronized audio without forcing the host browser to maintain every remote stream directly.</div>
+    </li>
+    <li>
+      <div class="lead">SFU production hardening</div>
+      <div class="body">Realtime proxy payloads now match Cloudflare's API shape, SDP is sent raw for publish/subscribe, and guest receivers attach late-arriving tracks from transceivers if <code>ontrack</code> fires before the audio graph is ready. Early usage tests measured roughly 100 MB per hour per remote system-audio listener.</div>
+    </li>
   </ul>
 </section>
 
 </div>
 
 <footer>
-  <span>MUSIXQUARE Changelog · v1.2</span>
+  <span>MUSIXQUARE Changelog · v1.3</span>
   <span>
     <a href="../roadmap/">Roadmap</a> &nbsp;·&nbsp;
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;

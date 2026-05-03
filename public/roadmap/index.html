@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <title>Roadmap · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/roadmap">
-  <meta name="description" content="MUSIXQUARE's technical roadmap — shipped remote file sharing, remaining sync limits, and the next infrastructure trade-offs.">
+  <meta name="description" content="MUSIXQUARE's technical roadmap — Cloudflare TURN/SFU rollout, shipped remote file sharing, remaining platform limits, and the next infrastructure trade-offs.">
   <meta property="og:title" content="Roadmap · MUSIXQUARE">
-  <meta property="og:description" content="Known limits, recently closed gaps, and the infrastructure choices still ahead.">
+  <meta property="og:description" content="Cloudflare TURN/SFU rollout, known limits, recently closed gaps, and the infrastructure choices still ahead.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
@@ -17,7 +17,7 @@
   <meta property="og:image:alt" content="MUSIXQUARE Roadmap — Every known limit, documented">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Roadmap · MUSIXQUARE">
-  <meta name="twitter:description" content="Known limits, recently closed gaps, and the infrastructure choices still ahead.">
+  <meta name="twitter:description" content="Cloudflare TURN/SFU rollout, known limits, recently closed gaps, and the infrastructure choices still ahead.">
   <meta name="twitter:image" content="https://musixquare.com/og-roadmap.png">
   <link rel="icon" href="../designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="../designsystem/colors_and_type.css">
@@ -198,13 +198,13 @@
     </svg>
   </div>
   <div class="meta">
-    Roadmap · v1.0<br>
+    Roadmap · v1.3<br>
     <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">musixquare.com</a><br>
     <a href="../designsystem/">design system</a><br>
     <a href="../changelog/">changelog</a>
   </div>
   <p class="tag">
-    We know where the <em>limits</em> are — and how we'd close them.
+    We know where the <em>limits</em> are — and which ones are already closing.
     Every known technical limit, sorted into <strong>three horizons</strong> so the team
     agrees on what's next, what's later, and what simply isn't ours to fix.
   </p>
@@ -217,13 +217,25 @@
   <div class="section-head"><h2>Now · Get unstuck</h2><span class="num">01</span></div>
   <div class="horizon-meta">
     <span class="horizon-tag now"><span class="dot"></span>Now · H1</span>
-    <p class="horizon-sub">The biggest friction points, first in line when resources allow. Local-file remote sharing has landed; the remaining work is mostly reliability, cost control, and clearer surfaces.</p>
+    <p class="horizon-sub">The biggest friction points, first in line when resources allow. Local-file remote sharing and remote system audio have both landed; the remaining work is mostly beta validation, cost control, and clearer surfaces.</p>
   </div>
 
   <div class="items">
   
     <div class="item">
       <div class="num">00</div>
+      <div class="body">
+        <div class="prob">Remote system audio is live over Cloudflare Realtime SFU — now it needs beta validation</div>
+        <div class="fix"><strong>Keep the SFU path enabled for remote guests</strong> while validating desktop browser edge cases, audio-output permissions, cache behavior, and receiver diagnostics. Local guests continue using the direct PeerJS audio path.</div>
+      </div>
+      <div class="tradeoff">
+        <span class="lbl">Trade-off</span>
+        <span class="val">New operating surface — excellent latency, but needs monitoring and compatibility proof</span>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="num">01</div>
       <div class="body">
         <div class="prob">PeerJS signaling latency — public servers are a bottleneck for reliability</div>
         <div class="fix"><strong>Plan to build a dedicated signaling server</strong> to replace PeerJS. Would target 99.9% uptime and faster connection handshakes.</div>
@@ -235,7 +247,7 @@
     </div>
 
     <div class="item">
-      <div class="num">01</div>
+      <div class="num">02</div>
       <div class="body">
         <div class="prob">AI-generated demo tracks — lack professional production quality and "soul"</div>
         <div class="fix"><strong>Aim to license tracks from real music producers</strong> for official high-quality demos.</div>
@@ -247,7 +259,7 @@
     </div>
 
     <div class="item">
-      <div class="num">02</div>
+      <div class="num">03</div>
       <div class="body">
         <div class="prob">System-audio sharing unavailable on mobile — <code>getDisplayMedia({audio})</code> not implemented by iOS / Android</div>
         <div class="fix"><strong>Shipping a native mobile app</strong> would route system audio through screen share.</div>
@@ -259,7 +271,7 @@
     </div>
 
     <div class="item">
-      <div class="num">03</div>
+      <div class="num">04</div>
       <div class="body">
         <div class="prob">Remote file sharing is live — now it needs production hardening</div>
         <div class="fix"><strong>Keep the encrypted temporary relay path, but harden the edges:</strong> clearer retry UI, abuse monitoring, budget alarms, and safer fallbacks when upload capacity is reached. Exact limits and token details stay out of public docs.</div>
@@ -278,25 +290,49 @@
   <div class="section-head"><h2>Next · Scale &amp; surface</h2><span class="num">02</span></div>
   <div class="horizon-meta">
     <span class="horizon-tag next"><span class="dot"></span>Next · H2</span>
-    <p class="horizon-sub">Where we'd head once the first wave lands. Infra investment compounds across multiple limits.</p>
+    <p class="horizon-sub">Where we'd head once the Cloudflare beta proves itself. The next layer is policy, paid capacity, and fewer scattered services.</p>
   </div>
 
   <div class="items">
 
     <div class="item">
-      <div class="num">04</div>
+      <div class="num">05</div>
       <div class="body">
-        <div class="prob">Many connected devices becomes flaky — P2P mesh scales O(n²)</div>
-        <div class="fix"><strong>Plan to introduce a dedicated media relay if demand appears.</strong> Remote file sharing no longer needs TURN bandwidth, but live system-audio and large multi-device rooms still stress browser-to-browser mesh connections.</div>
+        <div class="prob">Large rooms need explicit product limits — transport is no longer the only constraint</div>
+        <div class="fix"><strong>Keep free rooms conservative, then unlock larger rooms through a license flow.</strong> Cloudflare Realtime SFU removes the worst remote system-audio pressure, but host CPU, PeerJS control traffic, and support burden still need clear caps.</div>
       </div>
       <div class="tradeoff">
         <span class="lbl">Trade-off</span>
-        <span class="val">Ongoing server cost — scales with concurrent sessions</span>
+        <span class="val">Product complexity — free/pro limits must be easy to understand</span>
       </div>
     </div>
 
     <div class="item">
-      <div class="num">05</div>
+      <div class="num">06</div>
+      <div class="body">
+        <div class="prob">Pro entry and license verification — commercial use needs a clean gate</div>
+        <div class="fix"><strong>Explore a host-only <code>/pro</code> entry path</strong> where the room creator enters a license code, receives a signed entitlement, and can raise the participant limit. System-audio guidance should remain conservative even for pro rooms.</div>
+      </div>
+      <div class="tradeoff">
+        <span class="lbl">Trade-off</span>
+        <span class="val">Business ops — license issuance, revocation, and payment records become real work</span>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="num">07</div>
+      <div class="body">
+        <div class="prob">Netlify still owns hosting functions and OG image generation</div>
+        <div class="fix"><strong>Keep Netlify while Cloudflare usage stabilizes.</strong> A future move to Cloudflare Pages / Workers / R2 would reduce vendor sprawl, but only after Worker limits, billing alerts, and preview workflows are comfortable.</div>
+      </div>
+      <div class="tradeoff">
+        <span class="lbl">Trade-off</span>
+        <span class="val">Migration risk — consolidation helps management, but can concentrate cost pressure</span>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="num">08</div>
       <div class="body">
         <div class="prob">No UI for 7.1-channel routing — the engine already supports it</div>
         <div class="fix"><strong>Re-expose the UI once there's real demand.</strong> Gated on user requests; code is ready.</div>
@@ -321,7 +357,7 @@
   <div class="items">
 
     <div class="item blocked">
-      <div class="num">06</div>
+      <div class="num">09</div>
       <div class="body">
         <div class="prob">YouTube can't be split into channels — IFrame API doesn't expose raw audio</div>
         <div class="fix">No path forward — it's a DRM / CORS wall on Google's side.</div>
@@ -333,7 +369,7 @@
     </div>
 
     <div class="item blocked">
-      <div class="num">07</div>
+      <div class="num">10</div>
       <div class="body">
         <div class="prob">Spotify / Apple Music / Tidal and other DRM streaming services can't be used</div>
         <div class="fix">Would require per-platform licensing — not viable for a free solo project.</div>
@@ -363,7 +399,7 @@
 </div>
 
 <footer>
-  <span>MUSIXQUARE Roadmap · v1.2</span>
+  <span>MUSIXQUARE Roadmap · v1.3</span>
   <span>
     <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;
     <a href="../changelog/">Changelog</a> &nbsp;·&nbsp;

@@ -67,6 +67,11 @@ function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): voi
 // A's listeners alive alongside B's, letting A's closure overwrite B's
 // stall timer or issue a REQUEST_DATA_RECOVERY for the wrong track.
 let _activePreloadWaiterCleanup: (() => void) | null = null;
+// Tracks which playlist index loadPreloadedTrack is currently decoding for,
+// so use-preloaded for a DIFFERENT index can supersede the in-flight call
+// rather than getting silently ignored. See the use-preloaded handler for
+// the supersession protocol.
+let _activePreloadIndex: number | null = null;
 
 // ─── Re-exports ────────────────────────────────────────────────────
 // All public API re-exported so external imports from './playback.ts' keep working.
@@ -649,11 +654,36 @@ export function initPlayback(): void {
     const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
       if (isPlayPreloadedInProgress()) {
-        log.debug('[Playback] Activation already in progress, ignoring redundant use-preloaded');
-        return;
+        // A loadPreloadedTrack is mid-flight. Two cases:
+        //   - Same index: redundant call (e.g. duplicate use-preloaded
+        //     from a re-arm path). Ignore.
+        //   - Different index: a new preload arrived while the old one
+        //     was still decoding. Supersede via load-token bump — the
+        //     in-flight call will detect the mismatch after decode and
+        //     bail out (preserving pendingPlayTime per decode.ts), and
+        //     this new call takes ownership.
+        // Without this distinction, remote-share track 2 → track 3 in
+        // rapid succession would wedge: track 2's decode keeps the flag
+        // set, track 3's use-preloaded gets ignored, and the user sits
+        // with track 3's blob in memory but no decode running.
+        const activeIdx = _activePreloadIndex;
+        if (activeIdx === index) {
+          log.debug('[Playback] Activation already in progress for same index, ignoring');
+          return;
+        }
+        log.info(
+          `[Playback] use-preloaded(${index}) supersedes in-flight load(${activeIdx ?? '?'})`,
+        );
+        // Don't clear setPlayPreloadedInProgress — the in-flight call will
+        // hit token mismatch and clear it itself; we'd otherwise create a
+        // window where the flag is false but a decode is still running,
+        // letting handlePlayMsg fall through and double-trigger play.
       }
+      _activePreloadIndex = index;
       const newToken = incrementLoadToken();
-      loadPreloadedTrack(index, newToken);
+      loadPreloadedTrack(index, newToken).finally(() => {
+        if (_activePreloadIndex === index) _activePreloadIndex = null;
+      });
     } else {
       // Blob not ready yet — set progress-aware watchdog. Will be triggered
       // by storage:file-ready → storage:preload-file-ready → use-preloaded re-emit.

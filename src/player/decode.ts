@@ -409,7 +409,13 @@ export async function loadPreloadedTrack(
         `[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`,
       );
       setPlayPreloadedInProgress(false);
-      setPendingPlayTime(undefined);
+      // Preserve pendingPlayTime — it belongs to the LATEST MSG.PLAY (which
+      // updated currentTrackIndex), so the matching loadPreloadedTrack call
+      // for the current target needs it. Clearing here would leave the
+      // correct-track decode without a play signal, leaving the guest
+      // silently stalled with the blob loaded but never started — exactly
+      // the "downloads but doesn't sync-play" symptom on remote-share track
+      // switching.
       return;
     }
 
@@ -428,7 +434,8 @@ export async function loadPreloadedTrack(
     if (loadToken !== undefined && getLoadToken() !== myToken) {
       log.warn('[Preload] Token mismatch after decode. Discarding.');
       setPlayPreloadedInProgress(false);
-      setPendingPlayTime(undefined);
+      // Same rationale: token mismatch means a newer load is starting; the
+      // newer load owns pendingPlayTime consumption.
       return;
     }
     if (
@@ -438,7 +445,7 @@ export async function loadPreloadedTrack(
     ) {
       log.warn('[Preload] Track changed during decode. Discarding.');
       setPlayPreloadedInProgress(false);
-      setPendingPlayTime(undefined);
+      // Preserve pendingPlayTime for the new track's loader.
       return;
     }
 

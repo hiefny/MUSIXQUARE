@@ -5,15 +5,26 @@ import type { RemoteFileSharePayload } from '../types/index.ts';
 
 export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 
+export interface UploadRemoteFileOptions {
+  onUploadProgress?: (progress: number) => void;
+  signal?: AbortSignal;
+}
+
 export async function uploadRemoteFile(
   file: File,
   sessionId: number,
   index: number,
-  onUploadProgress?: (progress: number) => void,
+  options?: UploadRemoteFileOptions | ((progress: number) => void),
 ): Promise<RemoteFileSharePayload> {
+  // Backward-compat: callers used to pass onUploadProgress directly as the 4th arg.
+  const opts: UploadRemoteFileOptions =
+    typeof options === 'function' ? { onUploadProgress: options } : options ?? {};
+  const { onUploadProgress, signal } = opts;
+
   if (file.size > REMOTE_SHARE_MAX_BYTES) {
     throw new Error('REMOTE_SHARE_FILE_TOO_LARGE');
   }
+  if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
 
   const roomId = getState('network.sessionCode') || getState('network.myId') || 'room';
 
@@ -30,6 +41,7 @@ export async function uploadRemoteFile(
   onUploadProgress?.(0);
 
   const encrypted = await encryptFile(file);
+  if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
 
   setState('share.remote', {
     ...getState('share.remote'),
@@ -64,6 +76,7 @@ export async function uploadRemoteFile(
       });
       onUploadProgress?.(progress);
     },
+    signal,
   );
 
   setState('share.remote', {

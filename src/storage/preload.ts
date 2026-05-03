@@ -27,6 +27,7 @@ import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
+import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -364,6 +365,19 @@ async function preloadNextTrack(): Promise<void> {
   });
 
   log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
+
+  // Remote-share preload (parallel path for cross-network guests).
+  // backgroundTransfer below only reaches local peers — filterEligiblePeers
+  // excludes remote/unknown ICE types because direct chunked transfer over
+  // TURN bills per byte per peer, which kills the cost model. Remote guests
+  // instead receive a `preload: true` descriptor over WebRTC signaling and
+  // pre-fetch the encrypted blob directly from R2 (Cloudflare egress is
+  // free → 1× upload + N× direct downloads, no per-peer multiplier).
+  // Non-blocking — failure is logged but doesn't stall the LAN preload.
+  void shareRemoteFileIfNeeded(file, currentSession, undefined, {
+    preload: true,
+    index: nextIdx,
+  });
 
   // Broadcast preload to connected peers
   const transferPromise = backgroundTransfer(file, nextIdx, currentSession);

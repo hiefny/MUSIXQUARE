@@ -64,6 +64,15 @@ export interface RemoteFileSharePayload {
   index: number;
   sessionId: number;
   expiresAt: number;
+  /**
+   * Speculative descriptor for the next track (preload). When true, the
+   * guest pre-downloads the encrypted blob into preload.nextFileBlob
+   * WITHOUT stopping the current track or transitioning the lifecycle.
+   * When the host eventually advances and broadcasts MSG.PLAY, the guest
+   * promotes the already-downloaded blob via the existing preloaded path
+   * (zero-wait switch).
+   */
+  preload?: boolean;
 }
 
 export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';

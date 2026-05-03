@@ -72,10 +72,41 @@ export function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?:
   return `${endpoint}/download/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`;
 }
 
+/**
+ * Wire an AbortSignal to an XHR. Resolves the abort path before the network
+ * stack has a chance to fire onload/onerror — without this, an aborted
+ * download could still resolve with a partial buffer (or worse, a fully
+ * decrypted-but-stale blob would land in preload.nextFileBlob and be
+ * promoted as the active track on a track-2 supersede race).
+ */
+function wireAbort(
+  xhr: XMLHttpRequest,
+  reject: (err: Error) => void,
+  signal?: AbortSignal,
+): (() => void) | undefined {
+  if (!signal) return undefined;
+  if (signal.aborted) {
+    xhr.abort();
+    reject(new Error('REMOTE_SHARE_ABORTED'));
+    return undefined;
+  }
+  const onAbort = (): void => {
+    try {
+      xhr.abort();
+    } catch {
+      /* ignore */
+    }
+    reject(new Error('REMOTE_SHARE_ABORTED'));
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
 export function uploadEncryptedBlob(
   encryptedBlob: Blob,
   meta: RemoteUploadMeta,
   onProgress?: ProgressHandler,
+  signal?: AbortSignal,
 ): Promise<RemoteUploadResponse> {
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) return Promise.reject(new Error('REMOTE_SHARE_ENDPOINT_MISSING'));
@@ -94,12 +125,15 @@ export function uploadEncryptedBlob(
     xhr.setRequestHeader('x-mxqr-mime', meta.mime || 'application/octet-stream');
     xhr.setRequestHeader('x-mxqr-size', String(meta.size));
 
+    const detachAbort = wireAbort(xhr, reject, signal);
+
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {
         onProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
+      detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300) {
         const body = xhr.response as Partial<RemoteUploadResponse> | null;
         if (body?.objectId && typeof body.expiresAt === 'number') {
@@ -116,8 +150,14 @@ export function uploadEncryptedBlob(
       }
       reject(new Error(`REMOTE_SHARE_UPLOAD_HTTP_${xhr.status}`));
     };
-    xhr.onerror = () => reject(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
-    xhr.ontimeout = () => reject(new Error('REMOTE_SHARE_UPLOAD_TIMEOUT'));
+    xhr.onerror = () => {
+      detachAbort?.();
+      reject(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+    };
+    xhr.ontimeout = () => {
+      detachAbort?.();
+      reject(new Error('REMOTE_SHARE_UPLOAD_TIMEOUT'));
+    };
     xhr.timeout = 120_000;
     xhr.send(encryptedBlob);
   });
@@ -128,17 +168,22 @@ export function downloadEncryptedObject(
   objectId: string,
   downloadUrl?: string,
   onProgress?: ProgressHandler,
+  signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', buildDownloadUrl(roomId, objectId, downloadUrl), true);
     xhr.responseType = 'arraybuffer';
+
+    const detachAbort = wireAbort(xhr, reject, signal);
+
     xhr.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {
         onProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
+      detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) {
         onProgress?.(1);
         resolve(xhr.response);
@@ -146,8 +191,14 @@ export function downloadEncryptedObject(
       }
       reject(new Error(`REMOTE_SHARE_DOWNLOAD_HTTP_${xhr.status}`));
     };
-    xhr.onerror = () => reject(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
-    xhr.ontimeout = () => reject(new Error('REMOTE_SHARE_DOWNLOAD_TIMEOUT'));
+    xhr.onerror = () => {
+      detachAbort?.();
+      reject(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
+    };
+    xhr.ontimeout = () => {
+      detachAbort?.();
+      reject(new Error('REMOTE_SHARE_DOWNLOAD_TIMEOUT'));
+    };
     xhr.timeout = 120_000;
     xhr.send();
   });

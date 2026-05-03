@@ -212,7 +212,7 @@ const ko = {
   'help.youtube_compat': '유튜브 (호환 모드)',
   'help.youtube_no_effects': 'YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.',
   'help.media_synced_detail': '연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.',
-  'help.wifi_hotspot': '방장의 핫스팟에 연결하는 방식도 안정적이에요',
+  'help.wifi_hotspot': '핫스팟을 이용해 같은 네트워크로 연결할 수도 있어요',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': '채팅',

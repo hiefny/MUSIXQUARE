@@ -134,11 +134,23 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_UPLOAD_NETWORK' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' ||
     raw === 'REMOTE_SHARE_UPLOAD_TIMEOUT' ||
-    raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT'
+    raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT' ||
+    raw === 'REMOTE_SHARE_SESSION_NETWORK'
   ) {
     return t('share.remote.network_error');
   }
-  if (raw === 'REMOTE_SHARE_UPLOAD_HTTP_429') return t('share.remote.rate_limited');
+  if (raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' || raw === 'REMOTE_SHARE_SESSION_HTTP_429') {
+    return t('share.remote.rate_limited');
+  }
+  if (
+    raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||
+    raw === 'REMOTE_SHARE_UPLOAD_HTTP_403'
+  ) {
+    return t('share.remote.auth_failed');
+  }
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
   if (raw === 'REMOTE_SHARE_ABORTED') return raw; // never user-visible
   return raw;

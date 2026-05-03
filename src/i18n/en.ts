@@ -428,6 +428,7 @@ const en: Record<I18nKey, string> = {
   'share.remote.too_large': 'File too large (200 MB max)',
   'share.remote.network_error': 'Network error during remote share',
   'share.remote.rate_limited': 'Too many remote share uploads. Please try again in a moment',
+  'share.remote.auth_failed': 'Remote share authorization failed. Please check the Worker settings',
   'share.remote.expired': 'Remote file link expired — please re-share',
   'transfer.preload_fail': 'Preload playback failed, reloading',
   'transfer.download_finishing': 'Finishing download...',

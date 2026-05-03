@@ -13,6 +13,11 @@ export interface RemoteUploadResponse {
   expiresAt: number;
 }
 
+export interface RemoteUploadSessionResponse {
+  token: string;
+  expiresAt: number;
+}
+
 export interface RemoteUploadMeta {
   roomId: string;
   name: string;
@@ -103,14 +108,52 @@ function wireAbort(
   return () => signal.removeEventListener('abort', onAbort);
 }
 
-export function uploadEncryptedBlob(
+async function requestUploadSession(
+  endpoint: string,
+  encryptedBlob: Blob,
+  meta: RemoteUploadMeta,
+  signal?: AbortSignal,
+): Promise<RemoteUploadSessionResponse> {
+  try {
+    const response = await fetch(`${endpoint}/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        roomId: meta.roomId,
+        sessionId: meta.sessionId,
+        index: meta.index,
+        size: meta.size,
+        encryptedSize: encryptedBlob.size,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`REMOTE_SHARE_SESSION_HTTP_${response.status}`);
+    }
+
+    const body = (await response.json()) as Partial<RemoteUploadSessionResponse> | null;
+    if (typeof body?.token !== 'string' || typeof body.expiresAt !== 'number') {
+      throw new Error('REMOTE_SHARE_BAD_SESSION_RESPONSE');
+    }
+    return { token: body.token, expiresAt: body.expiresAt };
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_SESSION_NETWORK', { cause: error });
+  }
+}
+
+export async function uploadEncryptedBlob(
   encryptedBlob: Blob,
   meta: RemoteUploadMeta,
   onProgress?: ProgressHandler,
   signal?: AbortSignal,
 ): Promise<RemoteUploadResponse> {
   const endpoint = getRemoteShareEndpoint();
-  if (!endpoint) return Promise.reject(new Error('REMOTE_SHARE_ENDPOINT_MISSING'));
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+
+  const session = await requestUploadSession(endpoint, encryptedBlob, meta, signal);
 
   return new Promise((resolve, reject) => {
     const url = new URL(`${endpoint}/upload`);
@@ -125,6 +168,7 @@ export function uploadEncryptedBlob(
     xhr.setRequestHeader('x-mxqr-name', encodeURIComponent(meta.name));
     xhr.setRequestHeader('x-mxqr-mime', meta.mime || 'application/octet-stream');
     xhr.setRequestHeader('x-mxqr-size', String(meta.size));
+    xhr.setRequestHeader('x-mxqr-session-token', session.token);
 
     const detachAbort = wireAbort(xhr, reject, signal);
 

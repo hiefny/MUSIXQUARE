@@ -10,6 +10,9 @@ IP_UPLOADS_PER_WINDOW = "120"
 ROOM_UPLOADS_PER_WINDOW = "60"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:5173,http://127.0.0.1:5173"
 
+# Required secret, set outside this file:
+# npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET
+
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"
 bucket_name = "musixquare-remote-share"

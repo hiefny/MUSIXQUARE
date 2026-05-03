@@ -423,10 +423,10 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
   hostSfuUnavailable = false;
 }
 
-function setReceiverDelay(event: RTCTrackEvent): void {
-  if (event.track.kind !== 'audio') return;
-  const receiver = event.receiver as RTCRtpReceiver & { playoutDelayHint?: number };
-  receiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
+function setReceiverDelay(receiver: RTCRtpReceiver): void {
+  if (receiver.track?.kind !== 'audio') return;
+  const delayedReceiver = receiver as RTCRtpReceiver & { playoutDelayHint?: number };
+  delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
 }
 
 async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Promise<void> {
@@ -436,6 +436,10 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
   if (!widener) {
     log.error('[SysAudioSFU] Audio graph not ready');
     return;
+  }
+
+  if (ctx.state !== 'running') {
+    log.warn(`[SysAudioSFU] AudioContext is ${ctx.state}; user interaction may be required`);
   }
 
   if (!guestMerger) {
@@ -551,18 +555,47 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   const fallbackChannels = payload.tracks.map((track) => track.channel);
   let fallbackChannelIndex = 0;
+  const attachedTrackKeys = new Set<string>();
 
-  pc.ontrack = (event) => {
-    setReceiverDelay(event);
-    const mid = event.transceiver.mid;
-    const channel = (mid && channelByMid.get(mid)) || fallbackChannels[fallbackChannelIndex++] || null;
+  const attachReceivedTrack = (
+    channel: Channel | null,
+    track: MediaStreamTrack,
+    receiver: RTCRtpReceiver,
+    reason: string,
+    mid?: string | null,
+  ) => {
     if (!channel) {
       log.warn(`[SysAudioSFU] Received track with unknown mid: ${mid || 'none'}`);
       return;
     }
-    connectGuestTrack(channel, event.track).catch((error) =>
+    if (track.kind !== 'audio') return;
+
+    const key = `${channel}:${track.id}`;
+    if (attachedTrackKeys.has(key)) return;
+    attachedTrackKeys.add(key);
+
+    setReceiverDelay(receiver);
+    log.info(`[SysAudioSFU] Received ${channel} remote track (${reason}, mid=${mid || 'none'})`);
+    connectGuestTrack(channel, track).catch((error) =>
       log.error('[SysAudioSFU] Failed to attach remote track:', error),
     );
+  };
+
+  const attachExistingReceiverTracks = (reason: string) => {
+    pc.getTransceivers().forEach((transceiver, index) => {
+      const track = transceiver.receiver.track;
+      if (!track || track.kind !== 'audio') return;
+
+      const mid = transceiver.mid;
+      const channel = (mid && channelByMid.get(mid)) || fallbackChannels[index] || null;
+      attachReceivedTrack(channel, track, transceiver.receiver, reason, mid);
+    });
+  };
+
+  pc.ontrack = (event) => {
+    const mid = event.transceiver.mid;
+    const channel = (mid && channelByMid.get(mid)) || fallbackChannels[fallbackChannelIndex++] || null;
+    attachReceivedTrack(channel, event.track, event.receiver, 'event', mid);
   };
 
   const session = await callRealtime('new-session', {
@@ -596,6 +629,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
   }
 
   await pc.setRemoteDescription(offer);
+  attachExistingReceiverTracks('remote-description');
   const answer = await pc.createAnswer();
   const answerDescription = sessionDescriptionFromInit(answer);
   await pc.setLocalDescription(answerDescription);
@@ -605,6 +639,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
     payload: { sessionDescription: answerDescription },
   });
   assertRealtimeOk(renegotiate);
+  attachExistingReceiverTracks('renegotiate');
 
   log.info(`[SysAudioSFU] Subscribed to host system audio via Cloudflare SFU (${guestSessionId})`);
 }

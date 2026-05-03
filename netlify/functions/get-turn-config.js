@@ -12,9 +12,11 @@
  * CORS: same-origin, local dev, and trusted cross-origin (Toss in-app etc.)
  */
 
-const CLOUDFLARE_TURN_TTL_DEFAULT = 172800; // 48 hours, Cloudflare's documented max.
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const CLOUDFLARE_TURN_TTL_DEFAULT = 48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const CLOUDFLARE_TURN_TTL_MIN = 60;
-const CLOUDFLARE_TURN_TTL_MAX = 172800;
+const CLOUDFLARE_TURN_TTL_MAX = CLOUDFLARE_TURN_TTL_DEFAULT;
 
 function jsonResponse(statusCode, body, headers) {
   return {

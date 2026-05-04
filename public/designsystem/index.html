@@ -34,11 +34,10 @@
     }
     .hero .logo { width: min(520px, 60vw); color: var(--text-main); }
     .hero .logo svg { width: 100%; height: auto; display: block; }
-    .hero .meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-    .hero .meta a { color: var(--text-sub); text-decoration: none; }
-    .hero .meta a:hover { color: var(--primary); }
-    .hero .meta .sep { color: var(--surface-3); }
-    .hero .meta .cur { color: var(--text-main); font-weight: 700; }
+    .hero .meta { text-align: right; font-size: 12px; color: var(--text-sub); line-height: 1.7; }
+    .hero .meta a { color: var(--text-main); text-decoration: none; border-bottom: 1px solid var(--surface-3); }
+    .hero .meta a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+    .hero .meta .cur { color: var(--primary); font-weight: 700; }
     .hero .tag {
       grid-column: 1 / -1; font-size: 20px; font-weight: 500;
       color: var(--text-sub); max-width: 720px;
@@ -341,12 +340,9 @@
     </svg>
   </div>
   <div class="meta">
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
-    <span class="sep">·</span>
-    <a href="../about/">About</a>
-    <span class="sep">·</span>
-    <span class="cur">Design System</span>
-    <span class="sep">·</span>
+    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a><br>
+    <a href="../about/">About</a><br>
+    <span class="cur">Design System</span><br>
     <a href="../history/">History</a>
   </div>
   <p class="tag">

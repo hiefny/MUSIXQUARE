@@ -181,7 +181,7 @@ const ko = {
   'connect.kicked_message': '방장에 의해 세션에서 내보내졌어요.',
   'connect.copy_invite_link': '초대 링크 복사하기',
   'connect.link_copied': '초대 링크가 복사되었어요',
-  'connect.room_password_title': '방 참여 시 암호 요구',
+  'connect.room_password_title': '방 참여시 암호 요구',
   'connect.room_password_set': '설정',
   'connect.room_password_toggle_aria': '방 참여 암호 요구 전환',
   'connect.room_password_input_aria': '방 참여 암호 8자리 입력',

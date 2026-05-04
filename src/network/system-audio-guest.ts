@@ -57,6 +57,7 @@ let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 const _observedRemoteTracks = new WeakSet<MediaStreamTrack>();
 let _initialUnmuteWaitSeq = 0;
+let _incomingStatsProbeSeq = 0;
 let _volumeSyncRegistered = false;
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
@@ -202,6 +203,117 @@ async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[])
 
 // ─── SDP Munging ──────────────────────────────────────────────────
 
+type RtpProbePrevious = {
+  bytes: number | null;
+  packets: number | null;
+  energy: number | null;
+};
+
+function readStatNumber(report: Record<string, unknown>, key: string): number | null {
+  const value = report[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function findInboundAudioStats(stats: RTCStatsReport): Record<string, unknown> | null {
+  for (const report of stats.values()) {
+    const typed = report as RTCStats & Record<string, unknown>;
+    if (typed.type !== 'inbound-rtp') continue;
+    const kind = typed.kind ?? typed.mediaType;
+    if (kind === 'audio' && typed.isRemote !== true) return typed;
+  }
+  return null;
+}
+
+function formatStat(value: number | null, digits = 3): string {
+  if (value == null) return '?';
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(digits);
+}
+
+function formatDelta(
+  value: number | null,
+  previous: number | null | undefined,
+  digits = 3,
+): string {
+  if (value == null || previous == null) return '+?';
+  return `+${formatStat(value - previous, digits)}`;
+}
+
+function startIncomingAudioStatsProbe(mediaConn: MediaConnection, channel: string): void {
+  const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+  if (!pc) return;
+
+  const id = ++_incomingStatsProbeSeq;
+  const timerName = `sys-audio-guest-rtp-probe-${id}`;
+  const previousByTrack = new Map<string, RtpProbePrevious>();
+  let ticks = 0;
+
+  setManagedTimer(
+    timerName,
+    () => {
+      ticks += 1;
+      const tick = ticks;
+      const receivers = pc.getReceivers().filter((receiver) => receiver.track?.kind === 'audio');
+
+      if (receivers.length === 0) {
+        log.info(`[SysAudioGuest] ${channel} RTP stats #${tick}: no audio receivers`);
+      }
+
+      receivers.forEach((receiver, index) => {
+        const track = receiver.track;
+        const trackKey = track?.id || `receiver-${index}`;
+
+        receiver
+          .getStats()
+          .then((stats) => {
+            const inbound = findInboundAudioStats(stats);
+            if (!inbound) {
+              log.info(
+                `[SysAudioGuest] ${channel} RTP stats #${tick}.${index}: no inbound audio stats`,
+              );
+              return;
+            }
+
+            const bytes = readStatNumber(inbound, 'bytesReceived');
+            const packets = readStatNumber(inbound, 'packetsReceived');
+            const lost = readStatNumber(inbound, 'packetsLost');
+            const jitter = readStatNumber(inbound, 'jitter');
+            const level = readStatNumber(inbound, 'audioLevel');
+            const energy = readStatNumber(inbound, 'totalAudioEnergy');
+            const duration = readStatNumber(inbound, 'totalSamplesDuration');
+            const previous = previousByTrack.get(trackKey);
+
+            log.info(
+              `[SysAudioGuest] ${channel} RTP stats #${tick}.${index}: ` +
+                `bytes=${formatStat(bytes, 0)} (${formatDelta(bytes, previous?.bytes, 0)}) ` +
+                `packets=${formatStat(packets, 0)} (${formatDelta(
+                  packets,
+                  previous?.packets,
+                  0,
+                )}) ` +
+                `level=${formatStat(level, 6)} ` +
+                `energy=${formatStat(energy, 6)} (${formatDelta(energy, previous?.energy, 6)}) ` +
+                `duration=${formatStat(duration, 3)} ` +
+                `lost=${formatStat(lost, 0)} jitter=${formatStat(jitter, 4)} ` +
+                `muted=${track?.muted ? 'yes' : 'no'} ready=${track?.readyState ?? 'none'}`,
+            );
+
+            previousByTrack.set(trackKey, { bytes, packets, energy });
+          })
+          .catch((error) =>
+            log.warn(`[SysAudioGuest] ${channel} RTP stats probe failed:`, error),
+          );
+      });
+
+      if (tick >= 8 || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+        clearManagedTimer(timerName);
+      }
+    },
+    1000,
+    { interval: true },
+  );
+}
+
 function applySdpMunge(mc: MediaConnection): void {
   const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
   if (!pc) return;
@@ -292,6 +404,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       observeRemoteTrack(channel, track);
     }
     await waitForInitialUnmute(channel, streamTracks);
+    startIncomingAudioStatsProbe(mediaConn, channel);
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the

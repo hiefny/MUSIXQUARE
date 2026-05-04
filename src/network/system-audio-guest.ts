@@ -48,6 +48,8 @@ let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
+let _directAudioEl: HTMLAudioElement | null = null;
+let _directAudioStreamKey: string | null = null;
 let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
@@ -55,6 +57,7 @@ let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 const _observedRemoteTracks = new WeakSet<MediaStreamTrack>();
 let _initialUnmuteWaitSeq = 0;
+let _volumeSyncRegistered = false;
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
   return (
@@ -77,6 +80,83 @@ function observeRemoteTrack(channel: string, track: MediaStreamTrack): void {
   track.addEventListener('ended', () =>
     log.info(`[SysAudioGuest] ${channel} track ended: ${track.id.slice(0, 8)}`),
   );
+}
+
+function isWindowsDesktop(): boolean {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = nav.userAgentData?.platform || navigator.platform || '';
+  return /windows/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
+}
+
+function getDirectStreamKey(channel: string, tracks: MediaStreamTrack[]): string {
+  return `${channel}:${tracks.map((track) => track.id).join(',')}`;
+}
+
+function syncDirectAudioVolume(value = getState('audio.masterVolume')): void {
+  if (!_directAudioEl) return;
+  const volume = typeof value === 'number' && Number.isFinite(value) ? value : 1;
+  _directAudioEl.volume = Math.max(0, Math.min(1, volume));
+}
+
+function cleanupDirectAudioPlayback(): void {
+  if (!_directAudioEl) {
+    _directAudioStreamKey = null;
+    return;
+  }
+
+  try {
+    _directAudioEl.pause();
+  } catch {
+    /* noop */
+  }
+  try {
+    _directAudioEl.srcObject = null;
+  } catch {
+    /* noop */
+  }
+  try {
+    _directAudioEl.remove();
+  } catch {
+    /* noop */
+  }
+
+  _directAudioEl = null;
+  _directAudioStreamKey = null;
+}
+
+function attachWindowsDirectPlayback(channel: string, tracks: MediaStreamTrack[]): boolean {
+  if (!isWindowsDesktop()) return false;
+  if (tracks.length === 0) return false;
+
+  const streamKey = getDirectStreamKey(channel, tracks);
+  if (_directAudioEl && _directAudioStreamKey === streamKey) return true;
+
+  cleanupDirectAudioPlayback();
+
+  const audioEl = document.createElement('audio');
+  audioEl.autoplay = true;
+  audioEl.controls = false;
+  audioEl.setAttribute('playsinline', 'true');
+  audioEl.preload = 'auto';
+  audioEl.srcObject = new MediaStream(tracks);
+  audioEl.dataset.mxqrSystemAudio = 'windows-direct';
+  audioEl.style.display = 'none';
+  document.body.appendChild(audioEl);
+
+  _directAudioEl = audioEl;
+  _directAudioStreamKey = streamKey;
+  syncDirectAudioVolume();
+
+  audioEl
+    .play()
+    .then(() =>
+      log.info(`[SysAudioGuest] Windows direct audio playback started (${channel})`),
+    )
+    .catch((error) =>
+      log.warn('[SysAudioGuest] Windows direct audio playback blocked:', error),
+    );
+
+  return true;
 }
 
 async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[]): Promise<void> {
@@ -241,16 +321,20 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     if (channel === 'STEREO') {
-      if (_sourceStereo) {
-        try {
-          _sourceStereo.disconnect();
-        } catch {
-          /* noop */
+      if (attachWindowsDirectPlayback(channel, remoteStream.getAudioTracks())) {
+        _gotStereo = true;
+      } else {
+        if (_sourceStereo) {
+          try {
+            _sourceStereo.disconnect();
+          } catch {
+            /* noop */
+          }
         }
+        _sourceStereo = ctx.createMediaStreamSource(remoteStream);
+        _sourceStereo.connect(widener.input);
+        _gotStereo = true;
       }
-      _sourceStereo = ctx.createMediaStreamSource(remoteStream);
-      _sourceStereo.connect(widener.input);
-      _gotStereo = true;
     } else {
       // Merger-based dual-channel logic
       if (!_merger) {
@@ -288,6 +372,11 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           reason: string,
         ): void => {
           log.info(`[SysAudioGuest] ${reason}`);
+          if (attachWindowsDirectPlayback(channel, [leftTrack, rightTrack])) {
+            _gotL = true;
+            _gotR = true;
+            return;
+          }
           _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
           _sourceL.connect(_merger!, 0, 0);
           _gotL = true;
@@ -319,17 +408,23 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           log.info(
             `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
           );
-          const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-          monoSource.connect(_merger, 0, 0);
-          monoSource.connect(_merger, 0, 1);
-          _sourceL = monoSource;
-          _gotL = true;
-          _gotR = true;
+          if (attachWindowsDirectPlayback(channel, [tracks[0]])) {
+            _gotL = true;
+            _gotR = true;
+          } else {
+            const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
+            monoSource.connect(_merger, 0, 0);
+            monoSource.connect(_merger, 0, 1);
+            _sourceL = monoSource;
+            _gotL = true;
+            _gotR = true;
+          }
         }
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {
-        const source = ctx.createMediaStreamSource(remoteStream);
+        const directPlayback = attachWindowsDirectPlayback(channel, remoteStream.getAudioTracks());
+        const source = directPlayback ? null : ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
           if (_sourceL) {
             try {
@@ -339,7 +434,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
             }
           }
           _sourceL = source;
-          source.connect(_merger, 0, 0);
+          source?.connect(_merger, 0, 0);
           _gotL = true;
         } else {
           if (_sourceR) {
@@ -350,7 +445,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
             }
           }
           _sourceR = source;
-          source.connect(_merger, 0, 1);
+          source?.connect(_merger, 0, 1);
           _gotR = true;
         }
       }
@@ -428,6 +523,7 @@ function cleanupGuestSystemAudio(): void {
     }
     _sourceStereo = null;
   }
+  cleanupDirectAudioPlayback();
   if (_merger) {
     try {
       _merger.disconnect();
@@ -492,6 +588,13 @@ function cleanupGuestSystemAudio(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioGuestListeners(): void {
+  if (!_volumeSyncRegistered) {
+    _volumeSyncRegistered = true;
+    bus.on('state:audio.masterVolume', (value) =>
+      syncDirectAudioVolume(typeof value === 'number' ? value : undefined),
+    );
+  }
+
   // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. The host
   // triggers these via audio/system-capture.ts and guests only trust that
   // authenticated host connection. Without this guard, a peer can:

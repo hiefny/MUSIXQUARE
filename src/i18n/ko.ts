@@ -239,7 +239,7 @@ const ko = {
   'chat.system_sender': '시스템',
   'chat.decode_skip_notice': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
   'chat.system_audio_started_notice':
-    '시스템 오디오 공유가 시작됐어요. 원격 참여자는 Cloudflare 경로로 수신할 수 있고, 방장과 참여자 사이 지연은 자연스럽게 발생할 수 있어요. 방장은 원본 기기 볼륨을 최대한 낮춰주세요.',
+    '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
   'chat.system_audio_stopped_notice':
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
   'chat.remote_guest_detected_notice':

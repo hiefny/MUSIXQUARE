@@ -313,7 +313,7 @@ function showRemoteGuideUI(data: Record<string, unknown>): void {
     playlistId: null,
   });
   showLoader(false);
-  showToast(t('toast.same_wifi_only'));
+  showToast(t('share.remote.unavailable'));
   log.info('[Transfer] Remote guest — file transfer skipped');
 }
 

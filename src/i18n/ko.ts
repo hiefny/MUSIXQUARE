@@ -401,9 +401,6 @@ const ko = {
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',
   'toast.host_changed_setting': '관리자가 설정을 변경했어요',
   'toast.session_mismatch': '세션 불일치 감지, 파일 전송을 다시 시도할게요.',
-  'toast.same_wifi_only':
-    '직접 파일 공유는 동일 네트워크에서만 가능해요. 원격 공유가 준비되지 않았다면 같은 네트워크를 사용해주세요.',
-  'toast.same_wifi_file_title': '직접 미디어 공유는 동일 네트워크에서만 가능해요',
   'toast.receiving_pct': '수신 중... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -431,6 +428,7 @@ const ko = {
   'share.remote.rate_limited': '원격 공유 요청이 잠시 많아요. 잠깐 뒤 다시 시도해주세요',
   'share.remote.auth_failed': '원격 공유 인증에 실패했어요. Worker 설정을 확인해주세요',
   'share.remote.expired': '원격 파일 링크가 만료됐어요. 다시 공유해주세요',
+  'share.remote.unavailable': '원격 공유에 실패했어요. 잠시 후 다시 시도해주세요.',
   'transfer.preload_fail': '프리로드 재생 실패 - 다시 로드할게요',
   'transfer.download_finishing': '다운로드 마무리 중...',
   'transfer.preparation_delayed': '준비 지연 중... 방장에게 복구 요청',

@@ -47,7 +47,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     }
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
-    showToast(t('toast.same_wifi_only'));
+    showToast(t('share.remote.unavailable'));
     const name = getState('playback.pendingRecoveryTarget')?.name || '';
     setState('player.currentTrackMeta', {
       type: 'file',

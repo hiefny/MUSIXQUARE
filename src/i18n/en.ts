@@ -403,9 +403,6 @@ const en: Record<I18nKey, string> = {
   'toast.connection_closing': 'Connection lost, setting not synced',
   'toast.host_changed_setting': 'An admin changed a setting',
   'toast.session_mismatch': 'Session mismatch detected, file transfer will retry.',
-  'toast.same_wifi_only':
-    'Direct file sharing requires the same Wi-Fi. If remote share is not ready, use the same network.',
-  'toast.same_wifi_file_title': 'Direct media sharing requires the same network',
   'toast.receiving_pct': 'Receiving... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -433,6 +430,7 @@ const en: Record<I18nKey, string> = {
   'share.remote.rate_limited': 'Too many remote share uploads. Please try again in a moment',
   'share.remote.auth_failed': 'Remote share authorization failed. Please check the Worker settings',
   'share.remote.expired': 'Remote file link expired — please re-share',
+  'share.remote.unavailable': 'Remote sharing failed. Please try again in a moment.',
   'transfer.preload_fail': 'Preload playback failed, reloading',
   'transfer.download_finishing': 'Finishing download...',
   'transfer.preparation_delayed': 'Preparation delayed... requesting Host recovery',

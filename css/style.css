@@ -1681,7 +1681,7 @@
         align-items: center;
         justify-content: center;
         gap: 6px;
-        padding: 2px 0 0;
+        padding: 16px 0 0;
     }
 
     .room-password-code {

@@ -69,15 +69,15 @@
   to = "/history/index.html"
   status = 200
 
-# Landing: serve /landing and /landing/ as the static landing page
+# About: serve /about and /about/ as the about page
 [[redirects]]
-  from = "/landing"
-  to = "/landing.html"
+  from = "/about"
+  to = "/about.html"
   status = 200
 
 [[redirects]]
-  from = "/landing/"
-  to = "/landing.html"
+  from = "/about/"
+  to = "/about.html"
   status = 200
 
 # Case-variant redirects → canonical lowercase (301)

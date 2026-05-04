@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 
-// Emits landing.html at dist root (instead of dist/.workshop/landing/)
+// Emits about.html at dist root (instead of dist/.workshop/landing/)
 // so Netlify can serve it without exposing the dotfolder path.
 const flattenLandingHtml = (): Plugin => ({
   name: 'flatten-landing-html',
@@ -10,14 +10,14 @@ const flattenLandingHtml = (): Plugin => ({
     for (const key of Object.keys(bundle)) {
       if (key.endsWith('/landing.html') && key.includes('.workshop')) {
         const chunk = bundle[key];
-        bundle['landing.html'] = { ...chunk, fileName: 'landing.html' };
+        bundle['about.html'] = { ...chunk, fileName: 'about.html' };
         delete bundle[key];
       }
     }
   },
 });
 
-// Lets `/landing`, `/landing/`, and `/landing.html` resolve to the page
+// Lets `/about`, `/about/`, and `/about.html` resolve to the page
 // in dev the same way Netlify serves it in prod.
 const landingDevAlias = (): Plugin => ({
   name: 'landing-dev-alias',
@@ -25,7 +25,7 @@ const landingDevAlias = (): Plugin => ({
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
       const path = req.url?.split('?')[0];
-      if (path === '/landing' || path === '/landing/' || path === '/landing.html') {
+      if (path === '/about' || path === '/about/' || path === '/about.html') {
         const q = req.url!.includes('?') ? '?' + req.url!.split('?')[1] : '';
         req.url = '/.workshop/landing/landing.html' + q;
       }

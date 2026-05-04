@@ -89,7 +89,7 @@ const CARDS = [
     outFile: "public/og-history.png",
     props: {
       headline: "History",
-      tagline: "Nine months · One developer · Shipped",
+      tagline: "Changelog · Roadmap · Limitations",
     },
   },
   {

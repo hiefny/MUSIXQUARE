@@ -1052,12 +1052,6 @@ export function initRemoteShare(): void {
     abortActiveUploadsIfNoRemoteTargets('all-peers-local');
   });
 
-  bus.on('state:network.connectionType', (value: unknown) => {
-    if (getState('network.appRole') !== 'guest') return;
-    if (value !== 'local') return;
-    cancelRemoteShareWait('guest-reclassified-local');
-  });
-
   bus.on('state:network.sessionCode', (code) => {
     if (!code) {
       // Tear down any in-flight uploads/downloads so a new session starts clean.

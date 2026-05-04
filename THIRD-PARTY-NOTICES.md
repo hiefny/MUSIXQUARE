@@ -10,7 +10,7 @@ MUSIXQUARE includes several open-source software libraries. This file provides t
 - **License**: Apache License 2.0
 - **Copyright**: Copyright (c) 2016-2024 David Lepaux
 
-## 2. PeerJS (P2P Networking)
+## 2. PeerJS (Fallback WebRTC Transport)
 
 - **Repository**: [https://github.com/peers/peerjs](https://github.com/peers/peerjs)
 - **License**: MIT License

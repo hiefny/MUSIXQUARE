@@ -36,7 +36,7 @@ import { forceStereoSdp } from './peer.ts';
 //               acceptable. 0.4s as the starting point; revisit after real-
 //               device tests on typical home routers.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const ENABLE_WINDOWS_DIRECT_AUDIO_FALLBACK = false;
+const ENABLE_WINDOWS_AUDIO_DECODER_PRIMER = true;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -96,6 +96,10 @@ function getDirectStreamKey(channel: string, tracks: MediaStreamTrack[]): string
 
 function syncDirectAudioVolume(value = getState('audio.masterVolume')): void {
   if (!_directAudioEl) return;
+  if (_directAudioEl.dataset.mxqrSystemAudio === 'windows-decoder-primer') {
+    _directAudioEl.volume = 0;
+    return;
+  }
   const volume = typeof value === 'number' && Number.isFinite(value) ? value : 1;
   _directAudioEl.volume = Math.max(0, Math.min(1, volume));
 }
@@ -126,44 +130,38 @@ function cleanupDirectAudioPlayback(): void {
   _directAudioStreamKey = null;
 }
 
-function attachWindowsDirectPlayback(channel: string, tracks: MediaStreamTrack[]): boolean {
-  // Keep system audio on the app's Web Audio graph. The direct <audio> fallback
-  // can report a successful play() on Windows while producing no audible output,
-  // and previously caused us to skip the graph that drives both sound and the
-  // visualizer.
-  if (!ENABLE_WINDOWS_DIRECT_AUDIO_FALLBACK) return false;
-  if (!isWindowsDesktop()) return false;
-  if (tracks.length === 0) return false;
+function primeWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
+  if (!ENABLE_WINDOWS_AUDIO_DECODER_PRIMER) return;
+  if (!isWindowsDesktop()) return;
+  if (tracks.length === 0) return;
 
   const streamKey = getDirectStreamKey(channel, tracks);
-  if (_directAudioEl && _directAudioStreamKey === streamKey) return true;
+  if (_directAudioEl && _directAudioStreamKey === streamKey) return;
 
   cleanupDirectAudioPlayback();
 
   const audioEl = document.createElement('audio');
   audioEl.autoplay = true;
   audioEl.controls = false;
+  audioEl.volume = 0;
   audioEl.setAttribute('playsinline', 'true');
   audioEl.preload = 'auto';
   audioEl.srcObject = new MediaStream(tracks);
-  audioEl.dataset.mxqrSystemAudio = 'windows-direct';
+  audioEl.dataset.mxqrSystemAudio = 'windows-decoder-primer';
   audioEl.style.display = 'none';
   document.body.appendChild(audioEl);
 
   _directAudioEl = audioEl;
   _directAudioStreamKey = streamKey;
-  syncDirectAudioVolume();
 
   audioEl
     .play()
     .then(() =>
-      log.info(`[SysAudioGuest] Windows direct audio playback started (${channel})`),
+      log.info(`[SysAudioGuest] Windows WebRTC audio decoder primed (${channel})`),
     )
     .catch((error) =>
-      log.warn('[SysAudioGuest] Windows direct audio playback blocked:', error),
+      log.warn('[SysAudioGuest] Windows WebRTC audio decoder primer blocked:', error),
     );
-
-  return true;
 }
 
 async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[]): Promise<void> {
@@ -440,20 +438,17 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     if (channel === 'STEREO') {
-      if (attachWindowsDirectPlayback(channel, remoteStream.getAudioTracks())) {
-        _gotStereo = true;
-      } else {
-        if (_sourceStereo) {
-          try {
-            _sourceStereo.disconnect();
-          } catch {
-            /* noop */
-          }
+      primeWindowsAudioDecoder(channel, remoteStream.getAudioTracks());
+      if (_sourceStereo) {
+        try {
+          _sourceStereo.disconnect();
+        } catch {
+          /* noop */
         }
-        _sourceStereo = ctx.createMediaStreamSource(remoteStream);
-        _sourceStereo.connect(widener.input);
-        _gotStereo = true;
       }
+      _sourceStereo = ctx.createMediaStreamSource(remoteStream);
+      _sourceStereo.connect(widener.input);
+      _gotStereo = true;
     } else {
       // Merger-based dual-channel logic
       if (!_merger) {
@@ -491,11 +486,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           reason: string,
         ): void => {
           log.info(`[SysAudioGuest] ${reason}`);
-          if (attachWindowsDirectPlayback(channel, [leftTrack, rightTrack])) {
-            _gotL = true;
-            _gotR = true;
-            return;
-          }
+          primeWindowsAudioDecoder(channel, [leftTrack, rightTrack]);
           _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
           _sourceL.connect(_merger!, 0, 0);
           _gotL = true;
@@ -527,23 +518,19 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           log.info(
             `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
           );
-          if (attachWindowsDirectPlayback(channel, [tracks[0]])) {
-            _gotL = true;
-            _gotR = true;
-          } else {
-            const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-            monoSource.connect(_merger, 0, 0);
-            monoSource.connect(_merger, 0, 1);
-            _sourceL = monoSource;
-            _gotL = true;
-            _gotR = true;
-          }
+          primeWindowsAudioDecoder(channel, [tracks[0]]);
+          const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
+          monoSource.connect(_merger, 0, 0);
+          monoSource.connect(_merger, 0, 1);
+          _sourceL = monoSource;
+          _gotL = true;
+          _gotR = true;
         }
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {
-        const directPlayback = attachWindowsDirectPlayback(channel, remoteStream.getAudioTracks());
-        const source = directPlayback ? null : ctx.createMediaStreamSource(remoteStream);
+        primeWindowsAudioDecoder(channel, remoteStream.getAudioTracks());
+        const source = ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
           if (_sourceL) {
             try {

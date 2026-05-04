@@ -285,6 +285,76 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.message === 'REMOTE_SHARE_ABORTED';
 }
 
+function resetRemoteDownloadState(message: string | null = null): void {
+  const remote = getState('share.remote');
+  const blobUrl = remote.download.blobUrl;
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  setState('share.remote', {
+    ...remote,
+    download: {
+      status: 'idle',
+      progress: 0,
+      blobUrl: null,
+      error: message,
+    },
+  });
+}
+
+function resetRemoteUploadState(message: string | null = null): void {
+  const remote = getState('share.remote');
+  setState('share.remote', {
+    ...remote,
+    upload: {
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: message,
+    },
+  });
+}
+
+function abortActiveUploadsIfNoRemoteTargets(reason: string): void {
+  if (getState('network.hostConn')) return;
+  if (hasRemoteTargets()) return;
+  if (_activeUploads.size === 0) return;
+
+  for (const entry of _activeUploads.values()) {
+    entry.abort.abort();
+  }
+  _activeUploads.clear();
+  resetRemoteUploadState();
+  showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+  log.info(`[RemoteShare] Active upload cancelled (${reason})`);
+}
+
+export function cancelRemoteShareWait(reason: string): void {
+  const hadActiveDownload = !!_activeDownload;
+  const hadActivePreload = !!_activePreloadDownload;
+
+  if (_activeDownload) {
+    _activeDownload.abort.abort();
+    _activeDownload = null;
+  }
+  if (_activePreloadDownload) {
+    _activePreloadDownload.abort.abort();
+    _activePreloadDownload = null;
+  }
+
+  clearManagedTimer(REMOTE_WAIT_TIMER);
+  if (hadActiveDownload || getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+    resetRemoteDownloadState();
+    showLoader(false);
+  }
+  if (hadActivePreload) {
+    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
+  }
+
+  if (hadActiveDownload || hadActivePreload) {
+    log.info(`[RemoteShare] Active remote download cancelled (${reason})`);
+  }
+}
+
 export function shouldWaitForRemoteShare(): boolean {
   return isRemoteShareConfigured();
 }
@@ -389,6 +459,12 @@ export async function shareRemoteFileIfNeeded(
     //   - preload: stale if preload.nextTrackIndex moved off our index
     //     (host scheduled a newer preload before our upload finished)
     if (!targetConn) {
+      if (!hasRemoteTargets()) {
+        log.debug(
+          '[RemoteShare] Upload completed but no remote targets remain; descriptor not broadcast',
+        );
+        return;
+      }
       if (!preload && !isHostActiveFile(file, index)) {
         log.debug('[RemoteShare] Active upload completed for stale track; descriptor not broadcast');
         return;
@@ -970,6 +1046,16 @@ export function initRemoteShare(): void {
     if (!(currentBlob instanceof File)) return;
     const sessionId = getState('transfer.currentSessionId') || getState('transfer.localSessionId');
     void shareRemoteFileIfNeeded(currentBlob, sessionId || null, peer.conn);
+  });
+
+  bus.on('orchestrator:peer-evaluated', () => {
+    abortActiveUploadsIfNoRemoteTargets('all-peers-local');
+  });
+
+  bus.on('state:network.connectionType', (value: unknown) => {
+    if (getState('network.appRole') !== 'guest') return;
+    if (value !== 'local') return;
+    cancelRemoteShareWait('guest-reclassified-local');
   });
 
   bus.on('state:network.sessionCode', (code) => {

@@ -27,7 +27,11 @@ import {
   isRemoteGuest,
   waitForGuestConnectionType,
 } from '../network/peer.ts';
-import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
+import {
+  cancelRemoteShareWait,
+  prepareRemoteShareWait,
+  shouldWaitForRemoteShare,
+} from '../share/remote-share.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
@@ -113,6 +117,56 @@ function shouldSkipIncomingFile(incomingName?: string): boolean {
   }
 
   return false;
+}
+
+function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolean {
+  if (getState('network.connectionType') !== 'local') return false;
+  if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return false;
+
+  const incomingName = typeof data.name === 'string' ? data.name : '';
+  if (!incomingName) return false;
+
+  const pendingTarget = getState('playback.pendingRecoveryTarget');
+  const meta = getState('transfer.meta');
+  const metaIndex = typeof meta?.index === 'number' ? meta.index : undefined;
+  const incomingIndex = typeof data.index === 'number' ? data.index : undefined;
+  const pendingIndex = pendingTarget?.index ?? metaIndex;
+
+  const nameMatches = incomingName === pendingTarget?.name || incomingName === meta?.name;
+  const indexMatches =
+    incomingIndex === undefined || pendingIndex === undefined || incomingIndex === pendingIndex;
+
+  return nameMatches && indexMatches;
+}
+
+function getLocalDirectFileIndex(data: Record<string, unknown>): number {
+  if (typeof data.index === 'number') return data.index;
+
+  const pendingIndex = getState('playback.pendingRecoveryTarget')?.index;
+  if (typeof pendingIndex === 'number') return pendingIndex;
+
+  const metaIndex = getState('transfer.meta')?.index;
+  if (typeof metaIndex === 'number') return metaIndex;
+
+  return Math.max(0, getState('playlist.currentTrackIndex'));
+}
+
+function switchRemoteWaitToLocalDirect(data: Record<string, unknown>): void {
+  const incomingName = data.name as string;
+  const incomingIndex = getLocalDirectFileIndex(data);
+
+  cancelRemoteShareWait('local-direct-file-start');
+  setState('preload.nextFileBlob', null);
+  setState('preload.meta', null);
+  setState('preload.nextTrackIndex', -1);
+  setPendingRecoveryTarget(incomingIndex, incomingName);
+  transition({
+    type: 'FILE_PREPARE',
+    variant: 'fresh',
+    index: incomingIndex,
+    name: incomingName,
+  });
+  log.info('[Transfer] Local direct file transfer superseded remote-share wait');
 }
 
 // ─── Chunk Watchdog ──────────────────────────────────────────────────
@@ -744,12 +798,17 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (shouldSkipIncomingFile(data.name as string | undefined)) {
     const meta = getState('transfer.meta');
     const isRecoveryResend = !isNewSession && meta?.name === data.name;
-    if (!isRecoveryResend) {
+    const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
+    if (!isRecoveryResend && !isLocalDirectStart) {
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
       return;
     }
-    log.info('[file-start] Accepting same-session recovery resend');
+    if (isLocalDirectStart) {
+      switchRemoteWaitToLocalDirect(data);
+    } else {
+      log.info('[file-start] Accepting same-session recovery resend');
+    }
   }
 
   clearManagedTimer('prepareWatchdog');

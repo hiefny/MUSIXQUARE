@@ -18,6 +18,12 @@ import type { DataConnection } from '../types/index.ts';
 import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
+import {
+  cleanupWindowsAudioDecoderPrimer,
+  getAudioTrackStreamKey,
+  primeWindowsAudioDecoder,
+  type WindowsAudioDecoderPrimer,
+} from './windows-audio-decoder-primer.ts';
 
 // ─── Tuning ───────────────────────────────────────────────────────
 //
@@ -36,7 +42,6 @@ import { forceStereoSdp } from './peer.ts';
 //               acceptable. 0.4s as the starting point; revisit after real-
 //               device tests on typical home routers.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const ENABLE_WINDOWS_AUDIO_DECODER_PRIMER = true;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -49,17 +54,13 @@ let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
-let _directAudioEl: HTMLAudioElement | null = null;
-let _directAudioStreamKey: string | null = null;
+let _decoderPrimer: WindowsAudioDecoderPrimer | null = null;
 let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
 let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
-const _observedRemoteTracks = new WeakSet<MediaStreamTrack>();
 let _initialUnmuteWaitSeq = 0;
-let _incomingStatsProbeSeq = 0;
-let _volumeSyncRegistered = false;
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
   return (
@@ -69,99 +70,14 @@ function describeAudioTracks(tracks: MediaStreamTrack[]): string {
   );
 }
 
-function observeRemoteTrack(channel: string, track: MediaStreamTrack): void {
-  if (_observedRemoteTracks.has(track)) return;
-  _observedRemoteTracks.add(track);
-
-  track.addEventListener('mute', () =>
-    log.warn(`[SysAudioGuest] ${channel} track muted: ${track.id.slice(0, 8)}`),
+function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
+  _decoderPrimer = primeWindowsAudioDecoder(
+    _decoderPrimer,
+    tracks,
+    getAudioTrackStreamKey(channel, tracks),
+    channel,
+    '[SysAudioGuest]',
   );
-  track.addEventListener('unmute', () =>
-    log.info(`[SysAudioGuest] ${channel} track unmuted: ${track.id.slice(0, 8)}`),
-  );
-  track.addEventListener('ended', () =>
-    log.info(`[SysAudioGuest] ${channel} track ended: ${track.id.slice(0, 8)}`),
-  );
-}
-
-function isWindowsDesktop(): boolean {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const platform = nav.userAgentData?.platform || navigator.platform || '';
-  return /windows/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
-}
-
-function getDirectStreamKey(channel: string, tracks: MediaStreamTrack[]): string {
-  return `${channel}:${tracks.map((track) => track.id).join(',')}`;
-}
-
-function syncDirectAudioVolume(value = getState('audio.masterVolume')): void {
-  if (!_directAudioEl) return;
-  if (_directAudioEl.dataset.mxqrSystemAudio === 'windows-decoder-primer') {
-    _directAudioEl.volume = 0;
-    return;
-  }
-  const volume = typeof value === 'number' && Number.isFinite(value) ? value : 1;
-  _directAudioEl.volume = Math.max(0, Math.min(1, volume));
-}
-
-function cleanupDirectAudioPlayback(): void {
-  if (!_directAudioEl) {
-    _directAudioStreamKey = null;
-    return;
-  }
-
-  try {
-    _directAudioEl.pause();
-  } catch {
-    /* noop */
-  }
-  try {
-    _directAudioEl.srcObject = null;
-  } catch {
-    /* noop */
-  }
-  try {
-    _directAudioEl.remove();
-  } catch {
-    /* noop */
-  }
-
-  _directAudioEl = null;
-  _directAudioStreamKey = null;
-}
-
-function primeWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
-  if (!ENABLE_WINDOWS_AUDIO_DECODER_PRIMER) return;
-  if (!isWindowsDesktop()) return;
-  if (tracks.length === 0) return;
-
-  const streamKey = getDirectStreamKey(channel, tracks);
-  if (_directAudioEl && _directAudioStreamKey === streamKey) return;
-
-  cleanupDirectAudioPlayback();
-
-  const audioEl = document.createElement('audio');
-  audioEl.autoplay = true;
-  audioEl.controls = false;
-  audioEl.volume = 0;
-  audioEl.setAttribute('playsinline', 'true');
-  audioEl.preload = 'auto';
-  audioEl.srcObject = new MediaStream(tracks);
-  audioEl.dataset.mxqrSystemAudio = 'windows-decoder-primer';
-  audioEl.style.display = 'none';
-  document.body.appendChild(audioEl);
-
-  _directAudioEl = audioEl;
-  _directAudioStreamKey = streamKey;
-
-  audioEl
-    .play()
-    .then(() =>
-      log.info(`[SysAudioGuest] Windows WebRTC audio decoder primed (${channel})`),
-    )
-    .catch((error) =>
-      log.warn('[SysAudioGuest] Windows WebRTC audio decoder primer blocked:', error),
-    );
 }
 
 async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[]): Promise<void> {
@@ -206,117 +122,6 @@ async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[])
 }
 
 // ─── SDP Munging ──────────────────────────────────────────────────
-
-type RtpProbePrevious = {
-  bytes: number | null;
-  packets: number | null;
-  energy: number | null;
-};
-
-function readStatNumber(report: Record<string, unknown>, key: string): number | null {
-  const value = report[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function findInboundAudioStats(stats: RTCStatsReport): Record<string, unknown> | null {
-  for (const report of stats.values()) {
-    const typed = report as RTCStats & Record<string, unknown>;
-    if (typed.type !== 'inbound-rtp') continue;
-    const kind = typed.kind ?? typed.mediaType;
-    if (kind === 'audio' && typed.isRemote !== true) return typed;
-  }
-  return null;
-}
-
-function formatStat(value: number | null, digits = 3): string {
-  if (value == null) return '?';
-  if (Number.isInteger(value)) return String(value);
-  return value.toFixed(digits);
-}
-
-function formatDelta(
-  value: number | null,
-  previous: number | null | undefined,
-  digits = 3,
-): string {
-  if (value == null || previous == null) return '+?';
-  return `+${formatStat(value - previous, digits)}`;
-}
-
-function startIncomingAudioStatsProbe(mediaConn: MediaConnection, channel: string): void {
-  const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
-  if (!pc) return;
-
-  const id = ++_incomingStatsProbeSeq;
-  const timerName = `sys-audio-guest-rtp-probe-${id}`;
-  const previousByTrack = new Map<string, RtpProbePrevious>();
-  let ticks = 0;
-
-  setManagedTimer(
-    timerName,
-    () => {
-      ticks += 1;
-      const tick = ticks;
-      const receivers = pc.getReceivers().filter((receiver) => receiver.track?.kind === 'audio');
-
-      if (receivers.length === 0) {
-        log.info(`[SysAudioGuest] ${channel} RTP stats #${tick}: no audio receivers`);
-      }
-
-      receivers.forEach((receiver, index) => {
-        const track = receiver.track;
-        const trackKey = track?.id || `receiver-${index}`;
-
-        receiver
-          .getStats()
-          .then((stats) => {
-            const inbound = findInboundAudioStats(stats);
-            if (!inbound) {
-              log.info(
-                `[SysAudioGuest] ${channel} RTP stats #${tick}.${index}: no inbound audio stats`,
-              );
-              return;
-            }
-
-            const bytes = readStatNumber(inbound, 'bytesReceived');
-            const packets = readStatNumber(inbound, 'packetsReceived');
-            const lost = readStatNumber(inbound, 'packetsLost');
-            const jitter = readStatNumber(inbound, 'jitter');
-            const level = readStatNumber(inbound, 'audioLevel');
-            const energy = readStatNumber(inbound, 'totalAudioEnergy');
-            const duration = readStatNumber(inbound, 'totalSamplesDuration');
-            const previous = previousByTrack.get(trackKey);
-
-            log.info(
-              `[SysAudioGuest] ${channel} RTP stats #${tick}.${index}: ` +
-                `bytes=${formatStat(bytes, 0)} (${formatDelta(bytes, previous?.bytes, 0)}) ` +
-                `packets=${formatStat(packets, 0)} (${formatDelta(
-                  packets,
-                  previous?.packets,
-                  0,
-                )}) ` +
-                `level=${formatStat(level, 6)} ` +
-                `energy=${formatStat(energy, 6)} (${formatDelta(energy, previous?.energy, 6)}) ` +
-                `duration=${formatStat(duration, 3)} ` +
-                `lost=${formatStat(lost, 0)} jitter=${formatStat(jitter, 4)} ` +
-                `muted=${track?.muted ? 'yes' : 'no'} ready=${track?.readyState ?? 'none'}`,
-            );
-
-            previousByTrack.set(trackKey, { bytes, packets, energy });
-          })
-          .catch((error) =>
-            log.warn(`[SysAudioGuest] ${channel} RTP stats probe failed:`, error),
-          );
-      });
-
-      if (tick >= 8 || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-        clearManagedTimer(timerName);
-      }
-    },
-    1000,
-    { interval: true },
-  );
-}
 
 function applySdpMunge(mc: MediaConnection): void {
   const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
@@ -404,19 +209,13 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     log.info(`[SysAudioGuest] Received ${channel} stream`);
     const streamTracks = remoteStream.getAudioTracks();
     log.info(`[SysAudioGuest] ${channel} stream tracks: ${describeAudioTracks(streamTracks)}`);
-    for (const track of streamTracks) {
-      observeRemoteTrack(channel, track);
-    }
     await waitForInitialUnmute(channel, streamTracks);
-    startIncomingAudioStatsProbe(mediaConn, channel);
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
     // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
-    // PeerJS exposes the underlying RTCPeerConnection as `peerConnection`
-    // (already used at L41 for SDP munging).
-    const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection })
-      .peerConnection;
+    // PeerJS exposes the underlying RTCPeerConnection as `peerConnection`.
+    const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
     if (pc) {
       for (const r of pc.getReceivers()) {
         // playoutDelayHint is in the WebRTC spec but not in TS's lib.dom yet.
@@ -438,7 +237,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     if (channel === 'STEREO') {
-      primeWindowsAudioDecoder(channel, remoteStream.getAudioTracks());
+      primeGuestWindowsAudioDecoder(channel, streamTracks);
       if (_sourceStereo) {
         try {
           _sourceStereo.disconnect();
@@ -486,7 +285,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           reason: string,
         ): void => {
           log.info(`[SysAudioGuest] ${reason}`);
-          primeWindowsAudioDecoder(channel, [leftTrack, rightTrack]);
+          primeGuestWindowsAudioDecoder(channel, [leftTrack, rightTrack]);
           _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
           _sourceL.connect(_merger!, 0, 0);
           _gotL = true;
@@ -518,7 +317,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           log.info(
             `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
           );
-          primeWindowsAudioDecoder(channel, [tracks[0]]);
+          primeGuestWindowsAudioDecoder(channel, [tracks[0]]);
           const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
           monoSource.connect(_merger, 0, 0);
           monoSource.connect(_merger, 0, 1);
@@ -529,7 +328,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {
-        primeWindowsAudioDecoder(channel, remoteStream.getAudioTracks());
+        primeGuestWindowsAudioDecoder(channel, streamTracks);
         const source = ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
           if (_sourceL) {
@@ -540,7 +339,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
             }
           }
           _sourceL = source;
-          source?.connect(_merger, 0, 0);
+          source.connect(_merger, 0, 0);
           _gotL = true;
         } else {
           if (_sourceR) {
@@ -551,7 +350,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
             }
           }
           _sourceR = source;
-          source?.connect(_merger, 0, 1);
+          source.connect(_merger, 0, 1);
           _gotR = true;
         }
       }
@@ -629,7 +428,8 @@ function cleanupGuestSystemAudio(): void {
     }
     _sourceStereo = null;
   }
-  cleanupDirectAudioPlayback();
+  cleanupWindowsAudioDecoderPrimer(_decoderPrimer);
+  _decoderPrimer = null;
   if (_merger) {
     try {
       _merger.disconnect();
@@ -694,13 +494,6 @@ function cleanupGuestSystemAudio(): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioGuestListeners(): void {
-  if (!_volumeSyncRegistered) {
-    _volumeSyncRegistered = true;
-    bus.on('state:audio.masterVolume', (value) =>
-      syncDirectAudioVolume(typeof value === 'number' ? value : undefined),
-    );
-  }
-
   // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. The host
   // triggers these via audio/system-capture.ts and guests only trust that
   // authenticated host connection. Without this guard, a peer can:
@@ -715,24 +508,30 @@ export function registerSystemAudioGuestListeners(): void {
     return !!hostConn && conn === hostConn;
   }
 
-  registerHandler(MSG.SYSTEM_AUDIO_START, (_data: Record<string, unknown>, conn?: DataConnection) => {
-    if (!isHostBroadcast(conn)) return;
-    log.info('[SysAudioGuest] Host started system audio sharing');
-    _prevTrackMeta = getState('player.currentTrackMeta');
-    stopAllMedia({ silent: true });
-    setState('player.currentTrackMeta', {
-      type: 'file',
-      name: 'system-audio-receiving',
-      title: 'Receiving System Audio',
-    });
-  });
+  registerHandler(
+    MSG.SYSTEM_AUDIO_START,
+    (_data: Record<string, unknown>, conn?: DataConnection) => {
+      if (!isHostBroadcast(conn)) return;
+      log.info('[SysAudioGuest] Host started system audio sharing');
+      _prevTrackMeta = getState('player.currentTrackMeta');
+      stopAllMedia({ silent: true });
+      setState('player.currentTrackMeta', {
+        type: 'file',
+        name: 'system-audio-receiving',
+        title: 'Receiving System Audio',
+      });
+    },
+  );
 
-  registerHandler(MSG.SYSTEM_AUDIO_STOP, (_data: Record<string, unknown>, conn?: DataConnection) => {
-    if (!isHostBroadcast(conn)) return;
-    log.info('[SysAudioGuest] Host stopped system audio sharing');
-    cleanupGuestSystemAudio();
-    bus.emit('system-audio:host-stopped');
-  });
+  registerHandler(
+    MSG.SYSTEM_AUDIO_STOP,
+    (_data: Record<string, unknown>, conn?: DataConnection) => {
+      if (!isHostBroadcast(conn)) return;
+      log.info('[SysAudioGuest] Host stopped system audio sharing');
+      cleanupGuestSystemAudio();
+      bus.emit('system-audio:host-stopped');
+    },
+  );
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
     handleIncomingCall(mediaConn as MediaConnection, channel).catch((e) =>

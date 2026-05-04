@@ -16,10 +16,15 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
 import { broadcast, safeSend } from './peer-state.ts';
+import {
+  cleanupWindowsAudioDecoderPrimer,
+  getAudioTrackStreamKey,
+  primeWindowsAudioDecoder,
+  type WindowsAudioDecoderPrimer,
+} from './windows-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
-const ENABLE_WINDOWS_SFU_AUDIO_DECODER_PRIMER = true;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -84,7 +89,7 @@ let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
-const guestDecoderPrimers = new Map<Channel, { element: HTMLAudioElement; streamKey: string }>();
+const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
 function buildCorrelationId(prefix: string): string {
   const room = getState('network.sessionCode') || getState('network.lastJoinCode') || 'session';
@@ -98,32 +103,8 @@ function buildTrackName(channel: Channel): string {
   return `mxqr-system-audio-${room}-${channel}-${id}`.slice(0, 160);
 }
 
-function isWindowsDesktop(): boolean {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const platform = nav.userAgentData?.platform || navigator.platform || '';
-  return /windows/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
-}
-
 function cleanupGuestDecoderPrimer(channel: Channel): void {
-  const primer = guestDecoderPrimers.get(channel);
-  if (!primer) return;
-
-  try {
-    primer.element.pause();
-  } catch {
-    /* noop */
-  }
-  try {
-    primer.element.srcObject = null;
-  } catch {
-    /* noop */
-  }
-  try {
-    primer.element.remove();
-  } catch {
-    /* noop */
-  }
-
+  cleanupWindowsAudioDecoderPrimer(guestDecoderPrimers.get(channel) ?? null);
   guestDecoderPrimers.delete(channel);
 }
 
@@ -133,34 +114,16 @@ function cleanupGuestDecoderPrimers(): void {
 }
 
 function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack): void {
-  if (!ENABLE_WINDOWS_SFU_AUDIO_DECODER_PRIMER) return;
-  if (!isWindowsDesktop()) return;
+  const primer = primeWindowsAudioDecoder(
+    guestDecoderPrimers.get(channel) ?? null,
+    [track],
+    getAudioTrackStreamKey(`sfu:${channel}`, [track]),
+    channel,
+    '[SysAudioSFU]',
+  );
 
-  const streamKey = `${channel}:${track.id}`;
-  const existing = guestDecoderPrimers.get(channel);
-  if (existing?.streamKey === streamKey) return;
-
-  cleanupGuestDecoderPrimer(channel);
-
-  const audioEl = document.createElement('audio');
-  audioEl.autoplay = true;
-  audioEl.controls = false;
-  audioEl.volume = 0;
-  audioEl.setAttribute('playsinline', 'true');
-  audioEl.preload = 'auto';
-  audioEl.srcObject = new MediaStream([track]);
-  audioEl.dataset.mxqrSystemAudio = 'sfu-windows-decoder-primer';
-  audioEl.style.display = 'none';
-  document.body.appendChild(audioEl);
-
-  guestDecoderPrimers.set(channel, { element: audioEl, streamKey });
-
-  audioEl
-    .play()
-    .then(() => log.info(`[SysAudioSFU] Windows WebRTC audio decoder primed (${channel})`))
-    .catch((error) =>
-      log.warn('[SysAudioSFU] Windows WebRTC audio decoder primer blocked:', error),
-    );
+  if (primer) guestDecoderPrimers.set(channel, primer);
+  else guestDecoderPrimers.delete(channel);
 }
 
 function getRealtimeEndpoints(): string[] {
@@ -277,7 +240,9 @@ async function callRealtime(
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'SFU request failed'));
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError || 'SFU request failed'));
 }
 
 function assertRealtimeOk(payload: RealtimeResponse, trackCount = 0): void {
@@ -336,7 +301,9 @@ function applyAudioSenderTuning(sender: RTCRtpSender): void {
   }
 }
 
-function makeReadyMessage(publication: HostPublication): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
+function makeReadyMessage(
+  publication: HostPublication,
+): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
   return {
     type: MSG.SYSTEM_AUDIO_SFU_READY,
     version: 1,
@@ -663,7 +630,8 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   pc.ontrack = (event) => {
     const mid = event.transceiver.mid;
-    const channel = (mid && channelByMid.get(mid)) || fallbackChannels[fallbackChannelIndex++] || null;
+    const channel =
+      (mid && channelByMid.get(mid)) || fallbackChannels[fallbackChannelIndex++] || null;
     attachReceivedTrack(channel, event.track, event.receiver, 'event', mid);
   };
 

@@ -12,7 +12,12 @@ import { MSG } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { getPeer } from './peer-state.ts';
 import { broadcast } from './peer-state.ts';
-import { isSystemAudioActive, getStreamL, getStreamR } from '../audio/system-capture.ts';
+import {
+  isSystemAudioActive,
+  getStreamL,
+  getStreamR,
+  getCapturedAudioStream,
+} from '../audio/system-capture.ts';
 import type { MediaConnection } from 'peerjs';
 
 import { forceStereoSdp } from './peer.ts';
@@ -95,7 +100,31 @@ function callGuest(guestPeerId: string): void {
   }
 
   try {
-    // SYNCED DUAL-TRACK SINGLE-STREAM:
+    const capturedAudioStream = getCapturedAudioStream();
+    if (capturedAudioStream) {
+      const mc = peer.call(guestPeerId, capturedAudioStream, {
+        metadata: { type: 'system-audio-stereo' },
+      });
+
+      applySdpMunge(mc);
+      _mediaConns.set(guestPeerId, mc);
+      mc.on('close', () => _mediaConns.delete(guestPeerId));
+      mc.on('error', () => {
+        try {
+          mc.close();
+        } catch {
+          /* noop */
+        }
+        _mediaConns.delete(guestPeerId);
+      });
+
+      log.info(
+        `[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`,
+      );
+      return;
+    }
+
+    // Fallback: SYNCED DUAL-TRACK SINGLE-STREAM.
     const trackL = streamL.getAudioTracks()[0];
     const trackR = streamR.getAudioTracks()[0];
 

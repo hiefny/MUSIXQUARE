@@ -54,6 +54,13 @@ export function getStreamR(): MediaStream | null {
   return _streamR;
 }
 
+/** Get the original captured audio track as a stereo stream for local P2P fallback. */
+export function getCapturedAudioStream(): MediaStream | null {
+  const tracks = _capturedStream?.getAudioTracks() || [];
+  if (tracks.length === 0) return null;
+  return new MediaStream(tracks);
+}
+
 /**
  * Start system audio capture.
  * MUST be called from a user gesture handler (click event).

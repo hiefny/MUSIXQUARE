@@ -10,12 +10,11 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
-import { broadcast, safeSend } from './peer-state.ts';
+import { safeSend } from './peer-state.ts';
 import {
   cleanupWindowsAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -80,6 +79,7 @@ let hostSessionId: string | null = null;
 let hostPublishedTracks: SfuReadyTrack[] = [];
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
 let hostSfuUnavailable = false;
+let hostPublishEpoch = 0;
 
 let guestPc: RTCPeerConnection | null = null;
 let guestSessionId: string | null = null;
@@ -317,12 +317,21 @@ function isRemoteHostPeer(peerId: string): boolean {
   return !!peer && peer.status === 'connected' && peer.connectionType === 'remote';
 }
 
+function getRemoteHostPeers(): DataConnection[] {
+  return getState('network.connectedPeers')
+    .filter((peer) => peer.status === 'connected' && peer.connectionType === 'remote')
+    .map((peer) => peer.conn)
+    .filter((conn): conn is DataConnection => !!conn?.open);
+}
+
+function hasRemoteHostPeers(): boolean {
+  return getRemoteHostPeers().length > 0;
+}
+
 function broadcastSfuReady(publication: HostPublication): void {
   const msg = makeReadyMessage(publication);
-  const peers = getState('network.connectedPeers');
-  for (const peer of peers) {
-    if (peer.status !== 'connected' || peer.connectionType !== 'remote') continue;
-    safeSend(peer.conn, msg);
+  for (const conn of getRemoteHostPeers()) {
+    safeSend(conn, msg);
   }
 }
 
@@ -409,13 +418,28 @@ async function publishHostTracks(): Promise<HostPublication | null> {
 }
 
 async function ensureHostPublication(): Promise<HostPublication | null> {
+  if (!hasRemoteHostPeers()) {
+    if (hostSessionId || hostPublishPromise) {
+      log.info('[SysAudioSFU] No remote peers remain; closing host SFU publication');
+      cleanupHostSfu();
+    }
+    return null;
+  }
   if (hostSfuUnavailable) return null;
   if (hostSessionId && hostPublishedTracks.length > 0) {
     return { sessionId: hostSessionId, tracks: hostPublishedTracks };
   }
   if (hostPublishPromise) return hostPublishPromise;
 
+  const publishEpoch = ++hostPublishEpoch;
   hostPublishPromise = publishHostTracks()
+    .then((publication) => {
+      if (publishEpoch !== hostPublishEpoch || !hasRemoteHostPeers()) {
+        cleanupHostSfu();
+        return null;
+      }
+      return publication;
+    })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('REALTIME_SFU_UNAVAILABLE')) {
@@ -435,6 +459,8 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
 }
 
 function cleanupHostSfu(closeRemoteTracks = true): void {
+  hostPublishEpoch += 1;
+
   if (closeRemoteTracks && hostSessionId && hostPublishedTracks.length > 0) {
     const tracks = hostPublishedTracks
       .filter((track) => track.mid)
@@ -708,6 +734,11 @@ export function registerSystemAudioSfuListeners(): void {
 
   bus.on('system-audio:streams-ready', () => {
     if (getState('network.appRole') !== 'host') return;
+    if (!hasRemoteHostPeers()) {
+      log.info('[SysAudioSFU] No remote peers; deferring SFU publish');
+      return;
+    }
+
     ensureHostPublication()
       .then((publication) => {
         if (publication) broadcastSfuReady(publication);
@@ -718,7 +749,10 @@ export function registerSystemAudioSfuListeners(): void {
   bus.on('orchestrator:peer-joined', (peerId: string) => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
-    if (!isRemoteHostPeer(peerId)) return;
+    if (!isRemoteHostPeer(peerId)) {
+      if (!hasRemoteHostPeers()) cleanupHostSfu();
+      return;
+    }
 
     ensureHostPublication()
       .then((publication) => {
@@ -727,25 +761,27 @@ export function registerSystemAudioSfuListeners(): void {
       .catch((error) => log.warn('[SysAudioSFU] Late-join SFU send failed:', error));
   });
 
-  bus.on('network:peer-connected', () => {
+  bus.on('orchestrator:peer-evaluated', () => {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
-
-    setManagedTimer(
-      'sys-audio-sfu-late-ready',
-      () => {
-        if (hostSessionId && hostPublishedTracks.length > 0) {
-          broadcast({ type: MSG.SYSTEM_AUDIO_START });
-          broadcastSfuReady({ sessionId: hostSessionId, tracks: hostPublishedTracks });
-        }
-      },
-      700,
-    );
+    if (!hasRemoteHostPeers()) cleanupHostSfu();
   });
 
   bus.on('network:peer-disconnected', () => {
+    if (getState('network.appRole') === 'host') {
+      if (!hasRemoteHostPeers()) cleanupHostSfu();
+      return;
+    }
+    if (getState('network.appRole') === 'guest' && !getState('network.hostConn')) {
+      cleanupGuestSfu();
+    }
+  });
+
+  bus.on('state:network.connectionType', (value: unknown) => {
     if (getState('network.appRole') !== 'guest') return;
-    if (!getState('network.hostConn')) cleanupGuestSfu();
+    if (value !== 'local' || !guestPc) return;
+    log.info('[SysAudioSFU] Guest reclassified as local; switching away from SFU');
+    cleanupGuestSfu(false);
   });
 
   bus.on('system-audio:incoming-call', () => {

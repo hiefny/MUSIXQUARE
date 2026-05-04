@@ -4,12 +4,66 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { detectConnectionType } from '../peer-state.ts';
 import { safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
 
 beforeEach(() => {
+  vi.useRealTimers();
   resetState();
   bus.clear();
 });
+
+function makeIceStats(
+  pairs: Array<{
+    id: string;
+    localType: string;
+    remoteType: string;
+    selected?: boolean;
+    nominated?: boolean;
+  }>,
+): RTCStatsReport {
+  const entries: [string, RTCStats][] = [
+    ['transport', { id: 'transport', type: 'transport', timestamp: 0 } as RTCStats],
+  ];
+
+  for (const pair of pairs) {
+    const localId = `${pair.id}-local`;
+    const remoteId = `${pair.id}-remote`;
+    entries.push([
+      localId,
+      {
+        id: localId,
+        type: 'local-candidate',
+        timestamp: 0,
+        candidateType: pair.localType,
+      } as unknown as RTCStats,
+    ]);
+    entries.push([
+      remoteId,
+      {
+        id: remoteId,
+        type: 'remote-candidate',
+        timestamp: 0,
+        candidateType: pair.remoteType,
+      } as unknown as RTCStats,
+    ]);
+    entries.push([
+      pair.id,
+      {
+        id: pair.id,
+        type: 'candidate-pair',
+        timestamp: 0,
+        state: 'succeeded',
+        localCandidateId: localId,
+        remoteCandidateId: remoteId,
+        selected: pair.selected,
+        nominated: pair.nominated,
+      } as unknown as RTCStats,
+    ]);
+  }
+
+  return new Map(entries) as unknown as RTCStatsReport;
+}
 
 describe('safeSend', () => {
   it('returns false for null connection', () => {
@@ -48,6 +102,37 @@ describe('isRemoteGuest', () => {
   it('returns false when connectionType is local', () => {
     setState('network.connectionType', 'local');
     expect(isRemoteGuest()).toBe(false);
+  });
+});
+
+describe('detectConnectionType', () => {
+  it('classifies the selected host-host ICE pair as local', async () => {
+    const stats = makeIceStats([
+      { id: 'pair-host', localType: 'host', remoteType: 'host', selected: true },
+    ]);
+    const conn = {
+      open: true,
+      peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
+    } as any;
+
+    await expect(detectConnectionType(conn)).resolves.toBe('local');
+  });
+
+  it('does not classify an unselected host-host pair as local when relay is selected', async () => {
+    vi.useFakeTimers();
+    const stats = makeIceStats([
+      { id: 'pair-relay', localType: 'relay', remoteType: 'srflx', selected: true },
+      { id: 'pair-host', localType: 'host', remoteType: 'host' },
+    ]);
+    const conn = {
+      open: true,
+      peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
+    } as any;
+
+    const result = detectConnectionType(conn);
+    await vi.advanceTimersByTimeAsync(2500);
+
+    await expect(result).resolves.toBe('remote');
   });
 });
 

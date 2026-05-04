@@ -32,66 +32,133 @@ export function setPeer(p: PeerInstance | null): void {
 
 // ─── ICE Connection Type Detection ──────────────────────────────────
 
+const ICE_POLL_INTERVAL_MS = 200;
+const ICE_POLL_ATTEMPTS = 50;
+const REMOTE_SELECTED_STABLE_SAMPLES = 8;
+
+interface IceCandidatePairInfo {
+  id: string;
+  localType?: string;
+  remoteType?: string;
+  selected: boolean;
+  nominated: boolean;
+}
+
+function readStatsString(report: unknown, key: string): string | undefined {
+  const value = (report as Record<string, unknown> | undefined)?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readStatsBoolean(report: unknown, key: string): boolean {
+  return (report as Record<string, unknown> | undefined)?.[key] === true;
+}
+
+function getSelectedCandidatePairId(stats: RTCStatsReport): string | null {
+  for (const report of stats.values()) {
+    if (report.type !== 'transport') continue;
+    const id = readStatsString(report, 'selectedCandidatePairId');
+    if (id) return id;
+  }
+  return null;
+}
+
+function getCandidateType(
+  stats: RTCStatsReport,
+  candidateId: string | undefined,
+): string | undefined {
+  if (!candidateId) return undefined;
+  return readStatsString(stats.get(candidateId), 'candidateType');
+}
+
+function getSucceededCandidatePairs(stats: RTCStatsReport): IceCandidatePairInfo[] {
+  const selectedCandidatePairId = getSelectedCandidatePairId(stats);
+  const pairs: IceCandidatePairInfo[] = [];
+
+  for (const report of stats.values()) {
+    if (report.type !== 'candidate-pair') continue;
+    if (readStatsString(report, 'state') !== 'succeeded') continue;
+
+    const id = readStatsString(report, 'id') || report.id;
+    pairs.push({
+      id,
+      localType: getCandidateType(stats, readStatsString(report, 'localCandidateId')),
+      remoteType: getCandidateType(stats, readStatsString(report, 'remoteCandidateId')),
+      selected: id === selectedCandidatePairId || readStatsBoolean(report, 'selected'),
+      nominated: readStatsBoolean(report, 'nominated'),
+    });
+  }
+
+  return pairs;
+}
+
+function getActiveCandidatePair(pairs: IceCandidatePairInfo[]): IceCandidatePairInfo | null {
+  return pairs.find((pair) => pair.selected) || pairs.find((pair) => pair.nominated) || null;
+}
+
+function getPairKey(pair: IceCandidatePairInfo): string {
+  return `${pair.localType || '?'}-${pair.remoteType || '?'}`;
+}
+
+function describeCandidatePairs(pairs: IceCandidatePairInfo[]): string {
+  if (pairs.length <= 1) return '';
+  return `, pairs=${pairs
+    .map((pair) => `${getPairKey(pair)}${pair.selected ? '*' : pair.nominated ? '+' : ''}`)
+    .join('/')}`;
+}
+
+function isLocalSelectedPair(pair: IceCandidatePairInfo): boolean {
+  return pair.localType === 'host' && pair.remoteType === 'host';
+}
+
 export async function detectConnectionType(conn: DataConnection): Promise<'local' | 'remote'> {
+  let lastRemotePairKey: string | null = null;
+  let remoteStableSamples = 0;
+  let lastActivePair: IceCandidatePairInfo | null = null;
+
   try {
     const pc = conn.peerConnection as RTCPeerConnection | undefined;
     if (!pc) return 'remote';
 
-    // Poll up to 50 times (10 seconds) for a succeeded candidate pair
-    for (let i = 0; i < 50; i++) {
+    // Poll up to 10 seconds for the selected ICE pair to appear and stabilize.
+    for (let i = 0; i < ICE_POLL_ATTEMPTS; i++) {
       if (!conn.open) return 'remote';
 
       const stats = await pc.getStats();
-      const succeededPairs: Array<{
-        localType?: string;
-        remoteType?: string;
-        selected: boolean;
-      }> = [];
+      const succeededPairs = getSucceededCandidatePairs(stats);
+      const activePair = getActiveCandidatePair(succeededPairs);
 
-      for (const report of stats.values()) {
-        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-          const localCandidate = stats.get(report.localCandidateId);
-          const remoteCandidate = stats.get(report.remoteCandidateId);
+      if (activePair) {
+        lastActivePair = activePair;
 
-          succeededPairs.push({
-            localType: localCandidate?.candidateType,
-            remoteType: remoteCandidate?.candidateType,
-            selected: report.selected === true || report.nominated === true,
-          });
+        if (isLocalSelectedPair(activePair)) {
+          log.info(
+            `[Peer] ICE (try ${i + 1}): local=${activePair.localType}, remote=${activePair.remoteType}${describeCandidatePairs(succeededPairs)}`,
+          );
+          return 'local';
+        }
+
+        const pairKey = getPairKey(activePair);
+        remoteStableSamples = pairKey === lastRemotePairKey ? remoteStableSamples + 1 : 1;
+        lastRemotePairKey = pairKey;
+
+        if (remoteStableSamples >= REMOTE_SELECTED_STABLE_SAMPLES) {
+          log.info(
+            `[Peer] ICE (try ${i + 1}): local=${activePair.localType}, remote=${activePair.remoteType}${describeCandidatePairs(succeededPairs)}`,
+          );
+          return 'remote';
         }
       }
 
-      if (succeededPairs.length > 0) {
-        const directPair = succeededPairs.find(
-          (pair) => pair.localType === 'host' && pair.remoteType === 'host',
-        );
-        const selectedPair = succeededPairs.find((pair) => pair.selected) || succeededPairs[0];
-        const pair = directPair || selectedPair;
-        const suffix =
-          succeededPairs.length > 1
-            ? `, pairs=${succeededPairs
-                .map((p) => `${p.localType || '?'}-${p.remoteType || '?'}${p.selected ? '*' : ''}`)
-                .join('/')}`
-            : '';
-
-        log.info(
-          `[Peer] ICE (try ${i + 1}): local=${pair.localType}, remote=${pair.remoteType}${suffix}`,
-        );
-
-        // Any succeeded host-host pair means LAN traversal is available, even
-        // if relay/srflx succeeded first while ICE was still settling.
-        if (directPair) return 'local';
-        // If either side uses relay (TURN), it's remote.
-        if (pair.localType === 'relay' || pair.remoteType === 'relay') return 'remote';
-        // Both sides host = same LAN.
-        if (pair.localType === 'host' && pair.remoteType === 'host') return 'local';
-        // srflx (STUN) = different networks.
-        return 'remote';
-      }
-      await delay(200);
+      await delay(ICE_POLL_INTERVAL_MS);
     }
   } catch (e) {
     log.debug('[Peer] ICE stats unavailable or failed', e);
+  }
+
+  if (lastActivePair) {
+    log.info(
+      `[Peer] ICE timeout fallback: local=${lastActivePair.localType}, remote=${lastActivePair.remoteType}`,
+    );
   }
   return 'remote';
 }

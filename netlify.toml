@@ -58,26 +58,15 @@
   to = "/designsystem/index.html"
   status = 200
 
-# Roadmap: serve /roadmap and /roadmap/ as the static index
+# History: serve /history and /history/ as the static index
 [[redirects]]
-  from = "/roadmap"
-  to = "/roadmap/index.html"
+  from = "/history"
+  to = "/history/index.html"
   status = 200
 
 [[redirects]]
-  from = "/roadmap/"
-  to = "/roadmap/index.html"
-  status = 200
-
-# Changelog: serve /changelog and /changelog/ as the static index
-[[redirects]]
-  from = "/changelog"
-  to = "/changelog/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/changelog/"
-  to = "/changelog/index.html"
+  from = "/history/"
+  to = "/history/index.html"
   status = 200
 
 # Landing: serve /landing and /landing/ as the static landing page
@@ -110,46 +99,6 @@
 [[redirects]]
   from = "/DesignSystem/"
   to = "/designsystem/"
-  status = 301
-
-[[redirects]]
-  from = "/CHANGELOG"
-  to = "/changelog/"
-  status = 301
-
-[[redirects]]
-  from = "/CHANGELOG/"
-  to = "/changelog/"
-  status = 301
-
-[[redirects]]
-  from = "/Changelog"
-  to = "/changelog/"
-  status = 301
-
-[[redirects]]
-  from = "/Changelog/"
-  to = "/changelog/"
-  status = 301
-
-[[redirects]]
-  from = "/ROADMAP"
-  to = "/roadmap/"
-  status = 301
-
-[[redirects]]
-  from = "/ROADMAP/"
-  to = "/roadmap/"
-  status = 301
-
-[[redirects]]
-  from = "/Roadmap"
-  to = "/roadmap/"
-  status = 301
-
-[[redirects]]
-  from = "/Roadmap/"
-  to = "/roadmap/"
   status = 301
 
 # SPA fallback: serve index.html for all routes

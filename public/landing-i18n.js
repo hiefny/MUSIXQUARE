@@ -101,8 +101,7 @@
       'cta.btn': 'Launch MUSIXQUARE',
 
       'footer.app': 'App',
-      'footer.changelog': 'Changelog',
-      'footer.roadmap': 'Roadmap',
+      'footer.history': 'History',
       'footer.designsystem': 'Design System',
     },
 
@@ -190,8 +189,7 @@
       'cta.btn': 'MUSIXQUARE 시작하기',
 
       'footer.app': 'App',
-      'footer.changelog': 'Changelog',
-      'footer.roadmap': 'Roadmap',
+      'footer.history': 'History',
       'footer.designsystem': 'Design System',
     },
   };

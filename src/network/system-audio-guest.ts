@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
@@ -52,6 +53,72 @@ let _gotR = false;
 let _gotStereo = false;
 let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
+const _observedRemoteTracks = new WeakSet<MediaStreamTrack>();
+let _initialUnmuteWaitSeq = 0;
+
+function describeAudioTracks(tracks: MediaStreamTrack[]): string {
+  return (
+    tracks
+      .map((track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`)
+      .join(', ') || 'none'
+  );
+}
+
+function observeRemoteTrack(channel: string, track: MediaStreamTrack): void {
+  if (_observedRemoteTracks.has(track)) return;
+  _observedRemoteTracks.add(track);
+
+  track.addEventListener('mute', () =>
+    log.warn(`[SysAudioGuest] ${channel} track muted: ${track.id.slice(0, 8)}`),
+  );
+  track.addEventListener('unmute', () =>
+    log.info(`[SysAudioGuest] ${channel} track unmuted: ${track.id.slice(0, 8)}`),
+  );
+  track.addEventListener('ended', () =>
+    log.info(`[SysAudioGuest] ${channel} track ended: ${track.id.slice(0, 8)}`),
+  );
+}
+
+async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[]): Promise<void> {
+  if (tracks.length === 0 || tracks.every((track) => !track.muted)) return;
+
+  log.info(
+    `[SysAudioGuest] ${channel} stream arrived muted; waiting for unmute before graph attach`,
+  );
+
+  await new Promise<void>((resolve) => {
+    const id = ++_initialUnmuteWaitSeq;
+    const timeoutTimer = `sys-audio-guest-unmute-timeout-${id}`;
+    const settleTimer = `sys-audio-guest-unmute-settle-${id}`;
+    let settled = false;
+
+    const cleanup = (): void => {
+      clearManagedTimer(timeoutTimer);
+      clearManagedTimer(settleTimer);
+      tracks.forEach((track) => track.removeEventListener('unmute', check));
+    };
+
+    const done = (reason: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      log.info(
+        `[SysAudioGuest] ${channel} graph attach after ${reason}: ${describeAudioTracks(tracks)}`,
+      );
+      resolve();
+    };
+
+    const check = (): void => {
+      if (tracks.every((track) => !track.muted)) {
+        setManagedTimer(settleTimer, () => done('unmute'), 80);
+      }
+    };
+
+    tracks.forEach((track) => track.addEventListener('unmute', check));
+    setManagedTimer(timeoutTimer, () => done('unmute-timeout'), 2000);
+    check();
+  });
+}
 
 // ─── SDP Munging ──────────────────────────────────────────────────
 
@@ -140,24 +207,11 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);
     const streamTracks = remoteStream.getAudioTracks();
-    log.info(
-      `[SysAudioGuest] ${channel} stream tracks: ${
-        streamTracks
-          .map((track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`)
-          .join(', ') || 'none'
-      }`,
-    );
+    log.info(`[SysAudioGuest] ${channel} stream tracks: ${describeAudioTracks(streamTracks)}`);
     for (const track of streamTracks) {
-      track.addEventListener('mute', () =>
-        log.warn(`[SysAudioGuest] ${channel} track muted: ${track.id.slice(0, 8)}`),
-      );
-      track.addEventListener('unmute', () =>
-        log.info(`[SysAudioGuest] ${channel} track unmuted: ${track.id.slice(0, 8)}`),
-      );
-      track.addEventListener('ended', () =>
-        log.info(`[SysAudioGuest] ${channel} track ended: ${track.id.slice(0, 8)}`),
-      );
+      observeRemoteTrack(channel, track);
     }
+    await waitForInitialUnmute(channel, streamTracks);
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the

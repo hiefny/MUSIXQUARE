@@ -18,6 +18,7 @@ import {
   getCapturedAudioStream,
 } from '../audio/system-capture.ts';
 import type { MediaConnection } from '../types/index.ts';
+import { getRuntimeTransportConfig } from './transport/config.ts';
 
 import { forceStereoSdp } from './peer.ts';
 
@@ -81,6 +82,12 @@ function applySdpMunge(mc: MediaConnection): void {
 
 const _mediaConns = new Map<string, MediaConnection>();
 
+function shouldUseDirectMediaCall(connectionType: string | undefined): boolean {
+  if (connectionType === 'local') return true;
+  if (getRuntimeTransportConfig().provider === 'cloudflare') return true;
+  return false;
+}
+
 // ─── Call Guest ───────────────────────────────────────────────────
 
 function callGuest(guestPeerId: string): void {
@@ -94,11 +101,14 @@ function callGuest(guestPeerId: string): void {
   }
   if (_mediaConns.has(guestPeerId)) return;
 
-  // Block remote (TURN) peers
+  // PeerJS remote peers use the Cloudflare Realtime SFU path to avoid relaying
+  // direct media through TURN. The Cloudflare transport already owns raw
+  // RTCPeerConnection/media signaling, so allow it to carry system audio even
+  // when ICE classification is remote/unknown.
   const peers = getState('network.connectedPeers');
   const peerObj = peers.find((p) => p.id === guestPeerId);
-  if (peerObj && peerObj.connectionType !== 'local') {
-    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)}`);
+  if (peerObj && !shouldUseDirectMediaCall(peerObj.connectionType)) {
+    log.info(`[SysAudioHost] Skipping non-local PeerJS peer ${guestPeerId.slice(0, 8)}`);
     return;
   }
 

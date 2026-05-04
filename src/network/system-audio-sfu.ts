@@ -1,9 +1,9 @@
 /**
  * Cloudflare Realtime SFU bridge for remote system-audio guests.
  *
- * PeerJS stays responsible for presence/control. This module only moves the
+ * The active transport stays responsible for presence/control. This module only moves the
  * host's L/R system-audio MediaStreamTracks through Cloudflare Realtime when a
- * guest is remote, leaving local guests on the existing PeerJS media path.
+ * guest is remote, leaving local guests on the existing direct media-call path.
  */
 
 import { log } from '../core/log.ts';

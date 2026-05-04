@@ -14,8 +14,7 @@ import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { registerHandler } from './protocol.ts';
-import type { DataConnection } from '../types/index.ts';
-import type { MediaConnection } from 'peerjs';
+import type { DataConnection, MediaConnection } from '../types/index.ts';
 
 import { forceStereoSdp } from './peer.ts';
 import {

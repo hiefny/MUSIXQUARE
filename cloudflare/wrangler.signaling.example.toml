@@ -1,0 +1,11 @@
+name = "musixquare-signaling"
+main = "signaling-worker.js"
+compatibility_date = "2026-05-04"
+
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_ROOMS"
+class_name = "MusixquareRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MusixquareRoom"]

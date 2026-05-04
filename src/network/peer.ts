@@ -1,7 +1,7 @@
 /**
- * MUSIXQUARE — PeerJS Coordinator
+ * MUSIXQUARE — WebRTC Transport Coordinator
  *
- * Orchestrates: network initialization, PeerJS event wiring, session cleanup.
+ * Orchestrates: network initialization, transport event wiring, session cleanup.
  * Re-exports public API from peer-state.ts, host.ts, guest.ts so that
  * external imports from '../network/peer.ts' continue to work unchanged.
  */
@@ -21,8 +21,8 @@ import {
 import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
-
-import { Peer, type PeerOptions } from 'peerjs';
+import { getRuntimeTransportConfig } from './transport/config.ts';
+import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -204,15 +204,10 @@ function buildLegacyMeteredIceServers(username: string, credential: string): RTC
 // ─── Network Initialization ─────────────────────────────────────────
 
 /**
- * Initialize PeerJS with optional requested ID.
+ * Initialize the configured WebRTC transport with optional requested ID.
  * Returns the assigned peer ID.
  */
 export async function initNetwork(requestedId: string | null = null): Promise<string> {
-  if (typeof Peer === 'undefined') {
-    log.error('[Network] PeerJS not found on window.');
-    throw new Error('PEERJS_NOT_LOADED');
-  }
-
   // Clean up existing peer instance
   const oldPeer = getPeer();
   if (oldPeer) {
@@ -271,26 +266,20 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     );
   }
 
-  const peerOpts: PeerOptions = {
+  const transportConfig = getRuntimeTransportConfig();
+  const peerOpts: TransportPeerOptions = {
     debug: 2,
+    provider: transportConfig.provider,
+    signalingUrl: transportConfig.signalingUrl,
+    peerJsServer: transportConfig.peerJsServer,
     config: {
       iceServers,
       bundlePolicy: 'max-bundle',
     },
   };
 
-  // Allow custom PeerJS signaling server injection
-  const customPeerServer = (window as unknown as Record<string, unknown>)
-    .__MUSIXQUARE_PEER_SERVER__ as Record<string, unknown> | undefined;
-  if (customPeerServer && typeof customPeerServer === 'object') {
-    if (customPeerServer.host) peerOpts.host = customPeerServer.host as string;
-    if (customPeerServer.port) peerOpts.port = customPeerServer.port as number;
-    if (customPeerServer.path) peerOpts.path = customPeerServer.path as string;
-    if (typeof customPeerServer.secure === 'boolean') peerOpts.secure = customPeerServer.secure;
-    if (customPeerServer.key) peerOpts.key = customPeerServer.key as string;
-  }
-
-  const newPeer = requestedId ? new Peer(requestedId, peerOpts) : new Peer(peerOpts);
+  log.info(`[Network] Initializing ${transportConfig.provider} transport`);
+  const newPeer = await createTransportPeer(requestedId, peerOpts);
   setPeer(newPeer);
   setupPeerEvents();
 
@@ -341,12 +330,12 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
   throw new Error('SESSION_CODE_UNAVAILABLE');
 }
 
-// ─── PeerJS Event Setup ─────────────────────────────────────────────
+// ─── Transport Event Setup ──────────────────────────────────────────
 
 // ─── Signaling Reconnect ────────────────────────────────────────────
 //
-// PeerJS does NOT auto-reconnect to its signaling server when the WebSocket
-// drops — the application has to call peer.reconnect() manually. Without this,
+// Some transports do not auto-reconnect to their signaling server when the
+// WebSocket drops — the application has to call reconnect() manually. Without this,
 // a brief network blip leaves the peer stuck disconnected: existing data
 // channels keep working (they're direct WebRTC) but new peers can't join
 // because the signaling handshake is unavailable.
@@ -372,14 +361,14 @@ function attemptPeerReconnect(): void {
   }
   if (!peer.disconnected) {
     if (_reconnectAttempts > 0) {
-      log.info('[PeerJS] Signaling reconnected');
+      log.info('[Transport] Signaling reconnected');
     }
     _reconnectAttempts = 0;
     return;
   }
   if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     log.warn(
-      `[PeerJS] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
+      `[Transport] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
     );
     return;
   }
@@ -387,7 +376,7 @@ function attemptPeerReconnect(): void {
   const delay = RECONNECT_BACKOFF_MS[_reconnectAttempts] ?? 15000;
   _reconnectAttempts++;
   log.info(
-    `[PeerJS] Scheduling signaling reconnect attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`,
+    `[Transport] Scheduling signaling reconnect attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`,
   );
 
   setManagedTimer(
@@ -399,15 +388,15 @@ function attemptPeerReconnect(): void {
         return;
       }
       if (!p.disconnected) {
-        log.info('[PeerJS] Already reconnected before scheduled attempt');
+        log.info('[Transport] Already reconnected before scheduled attempt');
         _reconnectAttempts = 0;
         return;
       }
-      log.info(`[PeerJS] Calling peer.reconnect() (attempt ${_reconnectAttempts})`);
+      log.info(`[Transport] Calling reconnect() (attempt ${_reconnectAttempts})`);
       try {
-        p.reconnect();
+        if (p.reconnect) p.reconnect();
       } catch (e) {
-        log.warn('[PeerJS] reconnect() threw:', (e as Error)?.message ?? e);
+        log.warn('[Transport] reconnect() threw:', (e as Error)?.message ?? e);
       }
       // Recurse to check after the next backoff window. If reconnect() actually
       // succeeded, this next call sees !peer.disconnected and resets the counter.
@@ -422,7 +411,7 @@ function setupPeerEvents(): void {
   if (!peer) return;
 
   peer.on('error', (err: unknown) => {
-    log.error('[PeerJS] Error:', err);
+    log.error('[Transport] Error:', err);
     const appRole = getState('network.appRole');
     const hostConn = getState('network.hostConn');
 
@@ -437,22 +426,22 @@ function setupPeerEvents(): void {
       bus.emit('network:error', err);
     } else if (appRole === 'guest') {
       // Surface peer-level errors for guests too (e.g. network-offline, server-error)
-      log.warn('[PeerJS] Guest peer error surfaced:', err);
+      log.warn('[Transport] Guest peer error surfaced:', err);
       bus.emit('network:error', err);
     }
   });
 
   peer.on('disconnected', () => {
-    log.warn('[PeerJS] Disconnected from signaling server');
+    log.warn('[Transport] Disconnected from signaling server');
 
-    // Auto-reconnect: PeerJS doesn't reconnect to its signaling server on
+    // Auto-reconnect: the active transport may not reconnect to its signaling server on
     // its own. Without this, a brief network blip permanently breaks
     // "new peer can join" until the user reloads. We retry with backoff;
     // existing data channels keep working throughout.
     _reconnectAttempts = 0; // fresh budget per disconnect event
     attemptPeerReconnect();
 
-    // PeerJS 'disconnected' fires when the WebSocket to the signaling server
+    // The transport 'disconnected' event fires when the WebSocket to the signaling server
     // drops. CRITICAL: existing peer-to-peer data channels are direct WebRTC
     // and survive this — only NEW peer connections are blocked. So a
     // signaling drop alone does NOT mean the session is dead.
@@ -488,7 +477,7 @@ function setupPeerEvents(): void {
           const hasLive = peers.some((p) => (p.conn as DataConnection)?.open);
           if (hasLive) {
             log.info(
-              '[PeerJS] Signaling disconnected but host has live data channels — skipping dialog',
+              '[Transport] Signaling disconnected but host has live data channels — skipping dialog',
             );
             return;
           }
@@ -496,7 +485,7 @@ function setupPeerEvents(): void {
           const hostConn = getState('network.hostConn');
           if (hostConn?.open) {
             log.info(
-              '[PeerJS] Signaling disconnected but guest hostConn still open — skipping dialog',
+              '[Transport] Signaling disconnected but guest hostConn still open — skipping dialog',
             );
             return;
           }
@@ -522,7 +511,7 @@ function setupPeerEvents(): void {
     const type = mc.metadata?.type;
     if (isSystemAudioCallType(type)) {
       if (!isTrustedSystemAudioMediaCall(mc)) {
-        log.warn('[PeerJS] Rejected system-audio media call from non-host peer');
+        log.warn('[Transport] Rejected system-audio media call from non-host peer');
         closeIncomingMediaCall(mc);
         return;
       }

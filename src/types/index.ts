@@ -15,15 +15,20 @@ import type {
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
-import type { Peer as PeerClass, DataConnection as PeerJSDataConnection } from 'peerjs';
+import type {
+  TransportDataConnection,
+  TransportMediaConnection,
+  TransportPeer,
+} from '../network/transport/types.ts';
 
-/** PeerJS DataConnection with app-local lifecycle flags. */
-export type DataConnection = PeerJSDataConnection & {
-  _errorHandled?: boolean;
-};
+/** App data channel connection. PeerJS is only one possible provider. */
+export type DataConnection = TransportDataConnection;
 
-/** PeerJS Peer instance */
-export type PeerInstance = PeerClass;
+/** App media connection abstraction. PeerJS media calls are a fallback provider. */
+export type MediaConnection = TransportMediaConnection;
+
+/** Network peer/signaling provider instance. */
+export type PeerInstance = TransportPeer;
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export interface FileMeta {

@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE — Peer Module Shared State & Helpers (Leaf Node)
  *
- * Contains: PeerJS instance holder, peer slot management, ICE detection,
+ * Contains: transport instance holder, peer slot management, ICE detection,
  * broadcast/send utilities, transport guards.
  *
  * This file is a LEAF NODE — it must NOT import from peer.ts, host.ts, or guest.ts.

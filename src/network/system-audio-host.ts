@@ -17,7 +17,7 @@ import {
   getStreamR,
   getCapturedAudioStream,
 } from '../audio/system-capture.ts';
-import type { MediaConnection } from 'peerjs';
+import type { MediaConnection } from '../types/index.ts';
 
 import { forceStereoSdp } from './peer.ts';
 
@@ -88,6 +88,10 @@ function callGuest(guestPeerId: string): void {
   const streamL = getStreamL();
   const streamR = getStreamR();
   if (!peer || !streamL || !streamR) return;
+  if (!peer.call) {
+    log.warn('[SysAudioHost] Current transport does not support direct media calls');
+    return;
+  }
   if (_mediaConns.has(guestPeerId)) return;
 
   // Block remote (TURN) peers

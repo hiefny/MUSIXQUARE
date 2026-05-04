@@ -891,6 +891,7 @@ interface BaseEventMap {
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
+  'system-audio:sfu-fallback': [reason: string];
   'system-audio:host-stopped': [];
 
   // ── Visualizer ────────────────────────────────────────────────────

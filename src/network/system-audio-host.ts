@@ -18,7 +18,6 @@ import {
   getCapturedAudioStream,
 } from '../audio/system-capture.ts';
 import type { MediaConnection } from '../types/index.ts';
-import { getRuntimeTransportConfig } from './transport/config.ts';
 
 import { forceStereoSdp } from './peer.ts';
 
@@ -81,10 +80,11 @@ function applySdpMunge(mc: MediaConnection): void {
 // ─── Module State ─────────────────────────────────────────────────
 
 const _mediaConns = new Map<string, MediaConnection>();
+let _remoteDirectFallbackEnabled = false;
 
 function shouldUseDirectMediaCall(connectionType: string | undefined): boolean {
   if (connectionType === 'local') return true;
-  if (getRuntimeTransportConfig().provider === 'cloudflare') return true;
+  if (_remoteDirectFallbackEnabled && connectionType === 'remote') return true;
   return false;
 }
 
@@ -101,14 +101,12 @@ function callGuest(guestPeerId: string): void {
   }
   if (_mediaConns.has(guestPeerId)) return;
 
-  // PeerJS remote peers use the Cloudflare Realtime SFU path to avoid relaying
-  // direct media through TURN. The Cloudflare transport already owns raw
-  // RTCPeerConnection/media signaling, so allow it to carry system audio even
-  // when ICE classification is remote/unknown.
+  // Remote peers should use the Cloudflare Realtime SFU path. Direct media calls
+  // are kept for local peers and as a fallback when SFU publication fails.
   const peers = getState('network.connectedPeers');
   const peerObj = peers.find((p) => p.id === guestPeerId);
   if (peerObj && !shouldUseDirectMediaCall(peerObj.connectionType)) {
-    log.info(`[SysAudioHost] Skipping non-local PeerJS peer ${guestPeerId.slice(0, 8)}`);
+    log.info(`[SysAudioHost] Skipping non-local peer ${guestPeerId.slice(0, 8)} for SFU`);
     return;
   }
 
@@ -181,6 +179,15 @@ function callAllGuests(): void {
   }
 }
 
+function callRemoteGuestsForFallback(): void {
+  const peers = getState('network.connectedPeers');
+  for (const p of peers) {
+    if (p.status !== 'connected' || p.connectionType !== 'remote' || !p.id) continue;
+    if (p.conn?.open) safeSend(p.conn, { type: MSG.SYSTEM_AUDIO_START });
+    callGuest(p.id);
+  }
+}
+
 function closeAllMediaConns(): void {
   for (const mc of _mediaConns.values()) {
     try {
@@ -197,6 +204,7 @@ function closeAllMediaConns(): void {
 export function registerSystemAudioHostListeners(): void {
   // L/R streams ready → call all connected guests
   bus.on('system-audio:streams-ready', () => {
+    _remoteDirectFallbackEnabled = false;
     callAllGuests();
   });
 
@@ -241,6 +249,21 @@ export function registerSystemAudioHostListeners(): void {
     }
   });
 
-  bus.on('system-audio:force-stop', () => closeAllMediaConns());
-  bus.on('system-audio:stop', () => closeAllMediaConns());
+  bus.on('system-audio:sfu-fallback', (reason: string) => {
+    if (!isSystemAudioActive()) return;
+    if (getState('network.appRole') !== 'host') return;
+    if (_remoteDirectFallbackEnabled) return;
+    _remoteDirectFallbackEnabled = true;
+    log.warn(`[SysAudioHost] SFU unavailable; falling back to direct remote media calls: ${reason}`);
+    callRemoteGuestsForFallback();
+  });
+
+  bus.on('system-audio:force-stop', () => {
+    _remoteDirectFallbackEnabled = false;
+    closeAllMediaConns();
+  });
+  bus.on('system-audio:stop', () => {
+    _remoteDirectFallbackEnabled = false;
+    closeAllMediaConns();
+  });
 }

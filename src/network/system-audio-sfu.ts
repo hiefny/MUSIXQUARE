@@ -15,7 +15,6 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
-import { getRuntimeTransportConfig } from './transport/config.ts';
 import {
   cleanupWindowsAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -93,7 +92,7 @@ let guestReceiving = false;
 const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
 function shouldUseRealtimeSfu(): boolean {
-  return getRuntimeTransportConfig().provider !== 'cloudflare';
+  return true;
 }
 
 function buildCorrelationId(prefix: string): string {
@@ -347,12 +346,6 @@ function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void 
   safeSend(peer.conn, makeReadyMessage(publication));
 }
 
-function stopRemoteSystemAudioGuests(): void {
-  for (const conn of getRemoteHostPeers()) {
-    safeSend(conn, { type: MSG.SYSTEM_AUDIO_STOP });
-  }
-}
-
 async function publishHostTracks(): Promise<HostPublication | null> {
   const streamL = getStreamL();
   const streamR = getStreamR();
@@ -453,13 +446,13 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
+      hostSfuUnavailable = true;
       if (message.includes('REALTIME_SFU_UNAVAILABLE')) {
-        hostSfuUnavailable = true;
         log.info('[SysAudioSFU] Cloudflare Realtime SFU env not configured; using P2P paths only');
       } else {
         log.warn('[SysAudioSFU] Host publish failed:', error);
       }
-      stopRemoteSystemAudioGuests();
+      bus.emit('system-audio:sfu-fallback', message);
       cleanupHostSfu(false);
       return null;
     })

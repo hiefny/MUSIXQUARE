@@ -69,6 +69,17 @@
   to = "/history/index.html"
   status = 200
 
+# Landing → About: permanent redirect for external links scraped before rename
+[[redirects]]
+  from = "/landing"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/landing/"
+  to = "/about"
+  status = 301
+
 # About: serve /about and /about/ as the about page
 [[redirects]]
   from = "/about"

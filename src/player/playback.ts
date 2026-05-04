@@ -138,8 +138,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // (isDataTarget=false) and a REQUEST_CURRENT_FILE would route over
     // TURN. Handle this case up-front — it applies to both fresh-join
     // and mid-stream track switches. The demo gets an HTTP fallback
-    // fetch from the server; any other file falls back to the "same
-    // Wi-Fi" guidance UI.
+    // fetch from the server; any other file falls back to the remote-share
+    // unavailable notice.
     if (isRemoteGuest()) {
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
@@ -151,7 +151,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       }
       setFileTrackMetaFromPlaylist(incomingIndex, data.name as string | undefined);
       showLoader(false);
-      log.info('[Guest] Remote guest — skipping file request (TURN billing prevention)');
+      showToast(t('share.remote.unavailable'));
+      log.info('[Guest] Remote guest — remote share unavailable');
       return;
     }
 
@@ -265,7 +266,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // Remote guest: no file will arrive via P2P. For the demo, fall back
     // to an HTTP fetch (covers the case where PLAYLIST_UPDATE arrived
     // before PLAY, so currentTrackIndex already matches and we skipped
-    // the index-mismatch branch above). Otherwise, show Wi-Fi guidance.
+    // the index-mismatch branch above). Otherwise, surface remote-share
+    // unavailability.
     if (isRemoteGuest()) {
       if (tryFetchDemoForRemote(currentTrackIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
@@ -283,7 +285,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       }
       setFileTrackMetaFromPlaylist(currentTrackIndex, data.name as string | undefined);
       showLoader(false);
-      log.info('[Guest] Remote guest — no file will arrive, showing guide');
+      showToast(t('share.remote.unavailable'));
+      log.info('[Guest] Remote guest — remote share unavailable');
       return;
     }
     setPendingPlayTime(time);

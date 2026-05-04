@@ -296,7 +296,7 @@ async function _doFetchDemoFromServer(
   }
 }
 
-function showRemoteGuideUI(data: Record<string, unknown>): void {
+function showRemoteUnavailableUI(data: Record<string, unknown>): void {
   // (skip is derived: isRemoteGuest() returns true.)
   if (data.index !== undefined) {
     const idx = Number(data.index);
@@ -448,7 +448,7 @@ export async function handleFilePrepare(
         );
         return;
       }
-      showRemoteGuideUI(data);
+      showRemoteUnavailableUI(data);
       return;
     }
   }
@@ -1300,9 +1300,9 @@ export function handleFileWait(_data: Record<string, unknown>, conn?: DataConnec
       const receivedCount = getState('transfer.receivedCount');
       if (receivedCount === 0) {
         if (isRemoteGuest()) {
-          log.info('[file-wait timeout] Remote guest — showing remote-share guidance');
+          log.info('[file-wait timeout] Remote guest — remote share unavailable');
           const target = getState('playback.pendingRecoveryTarget');
-          showRemoteGuideUI({
+          showRemoteUnavailableUI({
             index: getState('playlist.currentTrackIndex'),
             name: target?.name ?? '',
           });

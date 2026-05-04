@@ -23,6 +23,9 @@ export interface DialogOptions {
     placeholder?: string;
     defaultValue?: string;
     maxLength?: number;
+    inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
+    pattern?: string;
+    autocomplete?: string;
     hint?: string;
     validator?: (value: string) => string | null;
   };
@@ -151,6 +154,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     input.className = 'dialog-input';
     input.setAttribute('role', 'textbox');
     if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
+    if (inputCfg.inputMode) input.setAttribute('inputmode', inputCfg.inputMode);
+    if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
+    if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
     if (inputCfg.defaultValue) input.textContent = inputCfg.defaultValue;
     const maxLen = inputCfg.maxLength || 0;
     // Paste: plain text only

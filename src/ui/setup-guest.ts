@@ -373,6 +373,9 @@ export async function promptForRoomPassword(invalid = false): Promise<void> {
     inputField: {
       placeholder: t('dialog.room_password_placeholder'),
       maxLength: 8,
+      inputMode: 'numeric',
+      pattern: '[0-9]*',
+      autocomplete: 'one-time-code',
       validator: (value) => (/^\d{8}$/.test(value.trim()) ? null : t('connect.room_password_invalid')),
     },
     buttonText: t('common.ok'),

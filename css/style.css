@@ -2822,7 +2822,55 @@
         outline: none;
     }
 
+    .dialog-input-split {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        margin-top: 12px;
+    }
+
+    .dialog-input-segment {
+        width: 92px;
+        min-width: 0;
+        padding: 12px 4px;
+        border: none;
+        border-bottom: 2px solid var(--surface-3);
+        background: transparent;
+        color: var(--text-main);
+        font-family: inherit;
+        font-size: 22px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        line-height: 36px;
+        letter-spacing: 0.12em;
+        text-align: center;
+        outline: none;
+        transition: border-bottom-color 0.2s ease;
+        box-sizing: border-box;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+
+    .dialog-input-segment:focus {
+        border-bottom-color: var(--primary);
+    }
+
+    .dialog-input-separator {
+        color: var(--text-muted);
+        font-size: 22px;
+        font-weight: 800;
+        line-height: 36px;
+        transform: translateY(4px);
+        user-select: none;
+    }
+
     .dialog-input.invalid {
+        border-bottom-color: #ef4444;
+    }
+
+    .dialog-input-split.invalid .dialog-input-segment {
         border-bottom-color: #ef4444;
     }
 
@@ -2839,6 +2887,10 @@
     }
 
     .dialog-input.shake {
+        animation: shake 0.4s ease;
+    }
+
+    .dialog-input-split.shake {
         animation: shake 0.4s ease;
     }
 

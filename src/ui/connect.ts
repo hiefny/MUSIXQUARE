@@ -233,6 +233,10 @@ const ROOM_PASSWORD_CODE_IDS = ['room-password-code', 'desktop-room-password-cod
 const ROOM_PASSWORD_REFRESH_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
 const ROOM_PASSWORD_OFF_TEXT = '- - - - - - - -';
 
+function _formatRoomPassword(password: string): string {
+  return password.replace(/^(\d{4})(\d{4})$/, '$1-$2');
+}
+
 function _canEditRoomPassword(): boolean {
   return getState('network.appRole') === 'host' && !getState('network.hostConn');
 }
@@ -290,7 +294,7 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
     const code = document.getElementById(id);
     if (!code) return;
-    code.textContent = active ? password : ROOM_PASSWORD_OFF_TEXT;
+    code.textContent = active ? _formatRoomPassword(password) : ROOM_PASSWORD_OFF_TEXT;
     code.classList.toggle('is-placeholder', !active);
   });
 

@@ -26,6 +26,8 @@ export interface DialogOptions {
     inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
     pattern?: string;
     autocomplete?: string;
+    splitEvery?: number;
+    separator?: string;
     hint?: string;
     validator?: (value: string) => string | null;
   };
@@ -46,6 +48,8 @@ interface DialogActiveState {
 
 let _dialogActive: DialogActiveState | null = null;
 let _dialogInput: HTMLElement | null = null;
+let _dialogInputFocusTarget: HTMLElement | null = null;
+let _dialogInputValueGetter: (() => string) | null = null;
 let _dialogHint: HTMLDivElement | null = null;
 let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
@@ -95,8 +99,14 @@ export function closeDialog(action = 'close'): void {
     }
   }
 
-  const inputValue = _dialogInput ? (_dialogInput.textContent || '').trim() : undefined;
+  const inputValue = _dialogInputValueGetter
+    ? _dialogInputValueGetter().trim()
+    : _dialogInput
+      ? (_dialogInput.textContent || '').trim()
+      : undefined;
   _dialogInput = null;
+  _dialogInputFocusTarget = null;
+  _dialogInputValueGetter = null;
 
   if (typeof active?.resolve === 'function') {
     try {
@@ -149,34 +159,109 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   // Input field support
   const inputCfg = typeof opts === 'object' && opts ? opts.inputField : undefined;
   if (inputCfg) {
-    const input = document.createElement('div');
-    input.contentEditable = 'true';
-    input.className = 'dialog-input';
-    input.setAttribute('role', 'textbox');
-    if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
-    if (inputCfg.inputMode) input.setAttribute('inputmode', inputCfg.inputMode);
-    if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
-    if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
-    if (inputCfg.defaultValue) input.textContent = inputCfg.defaultValue;
     const maxLen = inputCfg.maxLength || 0;
-    // Paste: plain text only
-    input.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const text = e.clipboardData?.getData('text/plain') || '';
-      document.execCommand('insertText', false, maxLen ? text.slice(0, maxLen) : text);
-    });
-    // Maxlength enforcement
-    if (maxLen) {
-      input.addEventListener('beforeinput', (e) => {
-        if (e.inputType === 'insertCompositionText') return; // Don't break IME
-        const current = (input.textContent || '').length;
-        const sel = window.getSelection();
-        const selectedLen = sel && sel.rangeCount ? sel.toString().length : 0;
-        if (e.data && current - selectedLen + e.data.length > maxLen) e.preventDefault();
+    const splitEvery = inputCfg.splitEvery || 0;
+    if (maxLen > 0 && splitEvery > 0 && splitEvery < maxLen) {
+      const group = document.createElement('div');
+      group.className = 'dialog-input-split';
+      group.setAttribute('role', 'group');
+      if (inputCfg.placeholder) group.setAttribute('aria-label', inputCfg.placeholder);
+
+      const inputs: HTMLInputElement[] = [];
+      const separator = inputCfg.separator ?? '-';
+      const initialDigits = (inputCfg.defaultValue || '').replace(/\D+/g, '').slice(0, maxLen);
+      const distributeDigits = (digits: string) => {
+        let offset = 0;
+        inputs.forEach((input) => {
+          input.value = digits.slice(offset, offset + splitEvery);
+          offset += splitEvery;
+        });
+      };
+      const focusByLength = (digits: string) => {
+        const index = Math.min(inputs.length - 1, Math.floor(Math.max(0, digits.length - 1) / splitEvery));
+        inputs[index]?.focus();
+      };
+
+      for (let offset = 0; offset < maxLen; offset += splitEvery) {
+        const index = inputs.length;
+        const size = Math.min(splitEvery, maxLen - offset);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'dialog-input-segment';
+        input.inputMode = inputCfg.inputMode || 'text';
+        input.maxLength = size;
+        if (inputCfg.pattern) input.pattern = inputCfg.pattern;
+        if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
+        input.setAttribute('aria-label', `${inputCfg.placeholder || title} ${index + 1}`);
+
+        input.addEventListener('beforeinput', (e) => {
+          if (e.inputType === 'insertCompositionText') return;
+          if (inputCfg.inputMode === 'numeric' && e.data && /\D/.test(e.data)) e.preventDefault();
+        });
+        input.addEventListener('input', () => {
+          const digits = input.value.replace(/\D+/g, '').slice(0, size);
+          if (input.value !== digits) input.value = digits;
+          if (digits.length >= size) inputs[index + 1]?.focus();
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Backspace' && input.value.length === 0 && index > 0) {
+            e.preventDefault();
+            inputs[index - 1]?.focus();
+          }
+        });
+        input.addEventListener('paste', (e) => {
+          e.preventDefault();
+          const digits = (e.clipboardData?.getData('text/plain') || '').replace(/\D+/g, '').slice(0, maxLen);
+          distributeDigits(digits);
+          focusByLength(digits);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+
+        inputs.push(input);
+        group.appendChild(input);
+        if (offset + size < maxLen) {
+          const sep = document.createElement('span');
+          sep.className = 'dialog-input-separator';
+          sep.textContent = separator;
+          group.appendChild(sep);
+        }
+      }
+
+      if (initialDigits) distributeDigits(initialDigits);
+
+      msgEl.appendChild(group);
+      _dialogInput = group;
+      _dialogInputFocusTarget = inputs[0] || group;
+      _dialogInputValueGetter = () => inputs.map((input) => input.value).join('');
+    } else {
+      const input = document.createElement('div');
+      input.contentEditable = 'true';
+      input.className = 'dialog-input';
+      input.setAttribute('role', 'textbox');
+      if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
+      if (inputCfg.inputMode) input.setAttribute('inputmode', inputCfg.inputMode);
+      if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
+      if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
+      if (inputCfg.defaultValue) input.textContent = inputCfg.defaultValue;
+      input.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = e.clipboardData?.getData('text/plain') || '';
+        document.execCommand('insertText', false, maxLen ? text.slice(0, maxLen) : text);
       });
+      if (maxLen) {
+        input.addEventListener('beforeinput', (e) => {
+          if (e.inputType === 'insertCompositionText') return; // Don't break IME
+          const current = (input.textContent || '').length;
+          const sel = window.getSelection();
+          const selectedLen = sel && sel.rangeCount ? sel.toString().length : 0;
+          if (e.data && current - selectedLen + e.data.length > maxLen) e.preventDefault();
+        });
+      }
+      msgEl.appendChild(input);
+      _dialogInput = input;
+      _dialogInputFocusTarget = input;
+      _dialogInputValueGetter = () => input.textContent || '';
     }
-    msgEl.appendChild(input);
-    _dialogInput = input;
 
     const hint = document.createElement('div');
     hint.className = 'dialog-hint';
@@ -187,6 +272,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     _dialogValidator = inputCfg.validator || null;
   } else {
     _dialogInput = null;
+    _dialogInputFocusTarget = null;
+    _dialogInputValueGetter = null;
     _dialogHint = null;
     _dialogValidator = null;
     _dialogHintDefault = '';
@@ -229,7 +316,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   const tryValidateAndClose = () => {
     if (_dialogValidator && _dialogInput) {
-      const val = (_dialogInput.textContent || '').trim();
+      const val = _dialogInputValueGetter
+        ? _dialogInputValueGetter().trim()
+        : (_dialogInput.textContent || '').trim();
       const error = _dialogValidator(val);
       if (error) {
         // Show inline error
@@ -310,7 +399,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (ke.key === 'Tab') {
       const focusables = [
         closeBtn,
-        _dialogInput as HTMLElement | null,
+        (_dialogInputFocusTarget || _dialogInput) as HTMLElement | null,
         hasSecondary ? secondaryBtn : null,
         okBtn,
       ].filter((x): x is HTMLElement => x != null && x.offsetParent !== null);
@@ -339,14 +428,19 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     () => {
       try {
         if (_dialogInput) {
-          _dialogInput.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
-          // Select all text in contenteditable
-          const sel = window.getSelection();
-          if (sel && _dialogInput.textContent) {
-            const range = document.createRange();
-            range.selectNodeContents(_dialogInput);
-            sel.removeAllRanges();
-            sel.addRange(range);
+          const focusTarget = _dialogInputFocusTarget || _dialogInput;
+          focusTarget.focus({ preventScroll: false, focusVisible: false } as FocusOptions);
+          if (focusTarget instanceof HTMLInputElement) {
+            focusTarget.select();
+          } else {
+            // Select all text in contenteditable
+            const sel = window.getSelection();
+            if (sel && _dialogInput.textContent) {
+              const range = document.createRange();
+              range.selectNodeContents(_dialogInput);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
           }
         } else {
           const pick =

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
+import { PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyConn = any; // Partial mock for DataConnection in tests
 import { bus } from '../../core/events.ts';
@@ -50,6 +51,7 @@ vi.mock('../../core/timers.ts', () => ({
 beforeEach(() => {
   resetState();
   bus.clear();
+  vi.clearAllMocks();
   vi.useFakeTimers();
 });
 
@@ -190,6 +192,25 @@ describe('sendRecoveryRequest', () => {
 
     const msg = hostSend.mock.calls[0][0];
     expect(msg.nextChunk).toBe(42);
+  });
+
+  it('suppresses same-wifi toast while a remote-share wait is active', async () => {
+    const { isRemoteGuest } = await import('../../network/peer.ts');
+    const { showLoader, showToast } = await import('../../ui/toast.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+
+    vi.mocked(isRemoteGuest).mockReturnValue(true);
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    setState('playback.pendingRecoveryTarget', { index: 1, name: 'remote.mp3' });
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
+
+    sendRecoveryRequest();
+
+    expect(clearManagedTimer).toHaveBeenCalledWith('chunkWatchdog');
+    expect(showLoader).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
   });
 });
 

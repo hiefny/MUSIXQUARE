@@ -342,6 +342,12 @@ function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void 
   safeSend(peer.conn, makeReadyMessage(publication));
 }
 
+function stopRemoteSystemAudioGuests(): void {
+  for (const conn of getRemoteHostPeers()) {
+    safeSend(conn, { type: MSG.SYSTEM_AUDIO_STOP });
+  }
+}
+
 async function publishHostTracks(): Promise<HostPublication | null> {
   const streamL = getStreamL();
   const streamR = getStreamR();
@@ -448,6 +454,7 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
       } else {
         log.warn('[SysAudioSFU] Host publish failed:', error);
       }
+      stopRemoteSystemAudioGuests();
       cleanupHostSfu(false);
       return null;
     })
@@ -480,7 +487,7 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
   hostSessionId = null;
   hostPublishedTracks = [];
   hostPublishPromise = null;
-  hostSfuUnavailable = false;
+  if (closeRemoteTracks) hostSfuUnavailable = false;
 }
 
 function setReceiverDelay(receiver: RTCRtpReceiver): void {

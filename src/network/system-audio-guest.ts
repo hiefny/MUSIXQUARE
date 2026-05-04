@@ -512,8 +512,13 @@ export function registerSystemAudioGuestListeners(): void {
     MSG.SYSTEM_AUDIO_START,
     (_data: Record<string, unknown>, conn?: DataConnection) => {
       if (!isHostBroadcast(conn)) return;
+      const currentMeta = getState('player.currentTrackMeta') as Record<string, unknown> | null;
+      if (currentMeta?.name === 'system-audio-receiving') {
+        log.debug('[SysAudioGuest] Duplicate system audio start ignored');
+        return;
+      }
       log.info('[SysAudioGuest] Host started system audio sharing');
-      _prevTrackMeta = getState('player.currentTrackMeta');
+      _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true });
       setState('player.currentTrackMeta', {
         type: 'file',

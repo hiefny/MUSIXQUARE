@@ -15,6 +15,7 @@ import {
   RECOVERY_BACKOFF,
   APP_STATE,
   TRANSFER_STATE,
+  PLAYBACK_STATE,
 } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -37,6 +38,13 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   if (isRemoteGuest()) {
     log.info('[Recovery] Remote guest - skipping direct host recovery');
     clearManagedTimer('chunkWatchdog');
+    if (
+      getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
+      getState('playback.pendingRecoveryTarget')
+    ) {
+      log.debug('[Recovery] Remote-share wait active - suppressing direct recovery UI');
+      return;
+    }
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
     showToast(t('toast.same_wifi_only'));

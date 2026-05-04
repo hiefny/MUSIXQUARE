@@ -10,8 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
-import { getPeer } from './peer-state.ts';
-import { broadcast } from './peer-state.ts';
+import { getPeer, safeSend } from './peer-state.ts';
 import {
   isSystemAudioActive,
   getStreamL,
@@ -195,7 +194,6 @@ export function registerSystemAudioHostListeners(): void {
     setManagedTimer(
       'sys-audio-late-join',
       () => {
-        broadcast({ type: MSG.SYSTEM_AUDIO_START });
         const peers = getState('network.connectedPeers');
         for (const p of peers) {
           if (p.status === 'connected' && p.id && !_mediaConns.has(p.id)) {
@@ -212,6 +210,8 @@ export function registerSystemAudioHostListeners(): void {
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (_mediaConns.has(peerId)) return;
+    const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
+    if (peer?.conn?.open) safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_START });
     callGuest(peerId);
   });
 

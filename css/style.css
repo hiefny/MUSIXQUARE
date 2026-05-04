@@ -2837,6 +2837,7 @@
         padding: 12px 4px;
         border: none;
         border-bottom: 2px solid var(--surface-3);
+        border-radius: 0;
         background: transparent;
         color: var(--text-main);
         font-family: inherit;
@@ -2851,6 +2852,7 @@
         box-sizing: border-box;
         appearance: none;
         -webkit-appearance: none;
+        box-shadow: none;
     }
 
     .dialog-input-segment:focus {

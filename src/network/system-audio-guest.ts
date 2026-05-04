@@ -36,6 +36,7 @@ import { forceStereoSdp } from './peer.ts';
 //               acceptable. 0.4s as the starting point; revisit after real-
 //               device tests on typical home routers.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
+const ENABLE_WINDOWS_DIRECT_AUDIO_FALLBACK = false;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -126,6 +127,11 @@ function cleanupDirectAudioPlayback(): void {
 }
 
 function attachWindowsDirectPlayback(channel: string, tracks: MediaStreamTrack[]): boolean {
+  // Keep system audio on the app's Web Audio graph. The direct <audio> fallback
+  // can report a successful play() on Windows while producing no audible output,
+  // and previously caused us to skip the graph that drives both sound and the
+  // visualizer.
+  if (!ENABLE_WINDOWS_DIRECT_AUDIO_FALLBACK) return false;
   if (!isWindowsDesktop()) return false;
   if (tracks.length === 0) return false;
 

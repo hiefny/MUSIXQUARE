@@ -35,7 +35,7 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
 /**
  * Connect to a host session as a guest.
  */
-export function joinSession(hostId: string, retryAttempt = 0): void {
+export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0): void {
   // Guard against duplicate calls (e.g. rapid double-click)
   // Only check on initial call — retries (retryAttempt > 0) must pass through
   // because isConnecting is already true from the initial call.
@@ -93,7 +93,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
       return;
     }
     _initNetwork(null)
-      .then(() => joinSession(hostId, retryAttempt + 1))
+      .then(() => joinSession(hostId, roomPassword, retryAttempt + 1))
       .catch((e) => {
         log.error('[Join] Failed to init peer', e);
         setState('network.isConnecting', false);
@@ -104,7 +104,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
 
   if (!peer.open) {
     if (retryAttempt < 10) {
-      setManagedTimer('join-retry', () => joinSession(hostId, retryAttempt + 1), 300);
+      setManagedTimer('join-retry', () => joinSession(hostId, roomPassword, retryAttempt + 1), 300);
     } else {
       setState('network.isConnecting', false);
       bus.emit('network:error', new Error('PEER_NOT_READY'));
@@ -118,6 +118,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
     conn = peer.connect(hostId, {
       reliable: true,
       metadata: { label: `mode-${channelMode}` },
+      roomPassword,
     });
   } catch (e) {
     log.error('[Join] peer.connect failed', e);
@@ -129,11 +130,25 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   // Own flag — don't trust conn.open (PeerJS can set it true before 'open' event fires)
   let dataChannelOpened = false;
 
+  const handlePreOpenError = (err: unknown) => {
+    if (dataChannelOpened) return;
+    clearManagedTimer('join-timeout');
+    log.warn('[Join] Host connection error before open', err);
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
+    setState('network.isConnecting', false);
+    bus.emit('network:error', err);
+  };
+
   // Register data handler BEFORE 'open' to avoid missing early messages
   // (e.g. WELCOME sent by host in its own 'open' handler).
   conn.on('data', (data: unknown) => {
     bus.emit('network:data', data, conn);
   });
+  conn.on('error', handlePreOpenError);
 
   // Timeout if host is unreachable (15s to allow TURN relay negotiation)
   setManagedTimer(
@@ -155,6 +170,7 @@ export function joinSession(hostId: string, retryAttempt = 0): void {
   conn.on('open', () => {
     dataChannelOpened = true;
     clearManagedTimer('join-timeout');
+    conn.off?.('error', handlePreOpenError);
     log.info('[Join] Connected to host:', hostId);
 
     setState('network.hostConn', conn);

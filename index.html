@@ -301,6 +301,26 @@
                 </div>
             </div>
 
+            <!-- Room Password -->
+            <div class="section-group room-password-section">
+                <div class="section-header-row">
+                    <span class="section-title" data-i18n="connect.room_password_title">방 참여 시 암호 요구</span>
+                    <button type="button" class="room-password-toggle" id="room-password-toggle" aria-pressed="false"
+                        aria-label="" data-i18n-aria-label="connect.room_password_toggle_aria">
+                        <span class="room-password-toggle-knob" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div class="room-password-code-row" id="room-password-code-row">
+                    <span class="room-password-code" id="room-password-code">- - - - - - - -</span>
+                    <button type="button" class="room-password-refresh" id="room-password-refresh" aria-label=""
+                        data-i18n-aria-label="connect.room_password_refresh_aria">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
             <!-- Max Devices -->
             <div class="section-group">
                 <div class="section-header-row">
@@ -812,6 +832,27 @@
                         </div>
                         <div id="desktop-qr-container" class="qr-container">
                             <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
+                        </div>
+                    </div>
+
+                    <!-- Room Password -->
+                    <div class="section-group room-password-section">
+                        <div class="section-header-row">
+                            <span class="section-title" data-i18n="connect.room_password_title">방 참여 시 암호 요구</span>
+                            <button type="button" class="room-password-toggle" id="desktop-room-password-toggle"
+                                aria-pressed="false" aria-label=""
+                                data-i18n-aria-label="connect.room_password_toggle_aria">
+                                <span class="room-password-toggle-knob" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                        <div class="room-password-code-row" id="desktop-room-password-code-row">
+                            <span class="room-password-code" id="desktop-room-password-code">- - - - - - - -</span>
+                            <button type="button" class="room-password-refresh" id="desktop-room-password-refresh"
+                                aria-label="" data-i18n-aria-label="connect.room_password_refresh_aria">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
 

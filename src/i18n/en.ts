@@ -183,6 +183,17 @@ const en: Record<I18nKey, string> = {
   'connect.kicked_message': 'You have been removed from the session by the host.',
   'connect.copy_invite_link': 'Copy invite link',
   'connect.link_copied': 'Invite link copied',
+  'connect.room_password_title': 'Require password to join',
+  'connect.room_password_set': 'Set',
+  'connect.room_password_toggle_aria': 'Toggle room password requirement',
+  'connect.room_password_input_aria': 'Enter 8-digit room password',
+  'connect.room_password_refresh_aria': 'Generate a new room password',
+  'connect.room_password_off': '- - - - - - - -',
+  'connect.room_password_pending': 'Waiting for 8 digits',
+  'connect.room_password_on': 'Password applied',
+  'connect.room_password_invalid': 'Enter 8 digits',
+  'connect.room_password_enabled': 'Anyone who tries to join this room will now be asked for the password',
+  'connect.room_password_disabled': 'People no longer need to enter a password when joining',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",
@@ -469,6 +480,8 @@ const en: Record<I18nKey, string> = {
   'error.browser_unsupported':
     'Your browser does not support real-time connections. Try a recent Chrome or Safari.',
   'error.ssl_required': 'A secure connection (HTTPS) is required.',
+  'error.room_password_required': 'This room requires a password.',
+  'error.room_password_invalid': 'Room password does not match.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': 'Leave Session',
@@ -480,6 +493,10 @@ const en: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Would you like to reconnect?',
   'dialog.reconnect': 'Reconnect',
   'dialog.go_back': 'Go back',
+  'dialog.room_password_title': 'Enter Room Password',
+  'dialog.room_password_msg': 'A password is required to join this room.',
+  'dialog.room_password_retry_msg': 'That password did not match. Try again.',
+  'dialog.room_password_placeholder': '8-digit password',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
   'dialog.session_lost_btn': 'Restart',

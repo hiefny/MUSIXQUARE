@@ -146,6 +146,8 @@ function createInitialState(): StateTree {
       connectedPeers: [],
       isOperator: false,
       maxGuestSlots: DEFAULT_MAX_GUEST_SLOTS,
+      roomPasswordRequired: false,
+      roomPassword: '',
       isConnecting: false,
       isIntentionalDisconnect: false,
       lastKnownDeviceList: null,

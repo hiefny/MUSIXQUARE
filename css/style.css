@@ -1627,6 +1627,125 @@
         display: block;
     }
 
+    .room-password-toggle {
+        position: relative;
+        width: 48px;
+        height: 28px;
+        flex: 0 0 48px;
+        border: none;
+        border-radius: 999px;
+        background: var(--surface-2);
+        padding: 3px;
+        cursor: pointer;
+        transition: background 0.18s ease, opacity 0.18s ease;
+        -webkit-tap-highlight-color: transparent;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+
+    .room-password-toggle-knob {
+        display: block;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--text-muted);
+        transition: transform 0.18s ease, background 0.18s ease;
+    }
+
+    .room-password-toggle.active {
+        background: rgba(var(--primary-rgb), 0.18);
+    }
+
+    .room-password-toggle.active .room-password-toggle-knob {
+        background: var(--primary);
+        transform: translateX(20px);
+    }
+
+    .room-password-toggle[aria-pressed="true"] {
+        background: rgba(var(--primary-rgb), 0.18) !important;
+    }
+
+    .room-password-toggle[aria-pressed="true"] .room-password-toggle-knob {
+        background: var(--primary) !important;
+        transform: translateX(20px) !important;
+    }
+
+    .room-password-toggle:disabled,
+    .room-password-refresh:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .room-password-code-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 2px 0 0;
+    }
+
+    .room-password-code {
+        color: var(--text-main);
+        font-size: 22px;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.10em;
+        line-height: 36px;
+        min-width: 136px;
+        text-align: center;
+    }
+
+    .room-password-code.is-placeholder {
+        color: var(--text-muted);
+        font-weight: 800;
+        letter-spacing: 0.02em;
+    }
+
+    .room-password-refresh {
+        width: 36px;
+        height: 36px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        appearance: none;
+        -webkit-appearance: none;
+    }
+
+    .room-password-refresh[hidden] {
+        display: none !important;
+    }
+
+    .room-password-refresh svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+    }
+
+    .room-password-refresh:not(:disabled):hover,
+    .room-password-refresh:not(:disabled):focus-visible {
+        background: var(--surface-2);
+        color: var(--text-main);
+    }
+
+    .room-password-refresh:not(:disabled):active {
+        transform: scale(0.95);
+    }
+
+    @media (max-width: 420px) {
+        .room-password-code {
+            font-size: 22px;
+            min-width: 132px;
+        }
+    }
+
     /* Target only the very first section (Language) directly inside .tab-body */
     #tab-settings>.tab-body>.section-group:first-of-type .section-header-row,
     #tab-settings .settings-subtab-panel>.section-group:first-of-type .section-header-row,

@@ -39,11 +39,14 @@ import {
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { showDialog } from './dialog.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
 /** goBack callback — set by the orchestrator to avoid circular imports */
 let _goBack: () => void = () => {};
+let _pendingPasswordJoin: { code: string; mode: number; inviteLink: boolean } | null = null;
+let _roomPasswordPromptOpen = false;
 
 export function setGuestGoBack(fn: () => void): void {
   _goBack = fn;
@@ -54,6 +57,8 @@ setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
   bus.emit('audio:activate');
+  _pendingPasswordJoin = null;
+  _roomPasswordPromptOpen = false;
 
   // Cancel any in-flight join attempt (back button pressed during connecting)
   if (getState('network.isConnecting')) {
@@ -210,6 +215,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
     'horizontal-with-back',
   );
 
+  _pendingPasswordJoin = { code: autoCode, mode, inviteLink: true };
   joinSession(autoCode);
 }
 
@@ -299,5 +305,102 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
     'horizontal-with-back',
   );
 
+  _pendingPasswordJoin = { code, mode, inviteLink: false };
   joinSession(code);
+}
+
+function restoreJoinControlsAfterPasswordCancel(): void {
+  setupSetGuestJoinBusy(false);
+
+  if (_pendingPasswordJoin?.inviteLink) {
+    _renderInviteLinkActions();
+    return;
+  }
+
+  setupRenderActions(
+    [
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+      {
+        id: 'btn-setup-confirm',
+        text: t('common.start'),
+        kind: 'primary',
+        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+      },
+    ],
+    'horizontal-with-back',
+  );
+
+  const input = setupEl('setup-join-code') as HTMLInputElement | null;
+  if (input) {
+    input.disabled = false;
+    if (_pendingPasswordJoin?.code) input.value = _pendingPasswordJoin.code;
+    input.focus();
+  }
+}
+
+function renderPasswordRetryBusy(inviteLink: boolean): void {
+  setupSetGuestJoinBusy(true);
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        kind: 'icon-only',
+        onClick: inviteLink
+          ? () => {
+              markIntentionalNav();
+              window.location.href = '/';
+            }
+          : () => startGuestFlow(),
+        disabled: true,
+      },
+      { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
+    ],
+    'horizontal-with-back',
+  );
+}
+
+export async function promptForRoomPassword(invalid = false): Promise<void> {
+  const pending = _pendingPasswordJoin;
+  if (!pending || _roomPasswordPromptOpen) return;
+
+  _roomPasswordPromptOpen = true;
+  setupSetGuestJoinBusy(false);
+
+  const result = await showDialog({
+    title: t('dialog.room_password_title'),
+    message: invalid ? t('dialog.room_password_retry_msg') : t('dialog.room_password_msg'),
+    inputField: {
+      placeholder: t('dialog.room_password_placeholder'),
+      maxLength: 8,
+      validator: (value) => (/^\d{8}$/.test(value.trim()) ? null : t('connect.room_password_invalid')),
+    },
+    buttonText: t('common.ok'),
+    secondaryText: t('common.cancel'),
+    defaultFocus: 'primary',
+  });
+
+  _roomPasswordPromptOpen = false;
+
+  if (result.action !== 'ok') {
+    restoreJoinControlsAfterPasswordCancel();
+    return;
+  }
+
+  const password = (result.inputValue || '').replace(/\D+/g, '').slice(0, 8);
+  if (!/^\d{8}$/.test(password)) {
+    restoreJoinControlsAfterPasswordCancel();
+    return;
+  }
+
+  setPendingGuestRoleMode(pending.mode);
+  setState('network.lastJoinCode', pending.code);
+  updateInviteCodeUI();
+  renderPasswordRetryBusy(pending.inviteLink);
+  joinSession(pending.code, password);
+}
+
+export function clearPendingRoomPasswordJoin(): void {
+  _pendingPasswordJoin = null;
+  _roomPasswordPromptOpen = false;
 }

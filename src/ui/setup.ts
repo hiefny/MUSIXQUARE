@@ -23,7 +23,13 @@ import { updateRoleBadge } from './player-controls.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
-import { startGuestFlow, setGuestGoBack, handleSetupJoinWithRole } from './setup-guest.ts';
+import {
+  startGuestFlow,
+  setGuestGoBack,
+  handleSetupJoinWithRole,
+  promptForRoomPassword,
+  clearPendingRoomPasswordJoin,
+} from './setup-guest.ts';
 import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import {
@@ -171,6 +177,8 @@ function initSetupOverlay(): void {
 
   setState('network.appRole', 'idle');
   setState('network.sessionCode', '');
+  setState('network.roomPasswordRequired', false);
+  setState('network.roomPassword', '');
   setCurrentObSlide(0);
   setState('setup.sessionStarted', false);
   setPendingSetupRole(null);
@@ -322,6 +330,7 @@ export function initSetup(): void {
   // Guest join success/failure events
   bus.on('setup:guest-join-success', () => {
     setState('network.isConnecting', false);
+    clearPendingRoomPasswordJoin();
 
     // Mark session as started so guests can see QR / invite link in Connect tab
     setState('setup.sessionStarted', true);
@@ -397,6 +406,20 @@ export function initSetup(): void {
     const msg = (err as Error | null)?.message || '';
     const peerType = err && typeof err === 'object' ? String(err.type || '') : '';
     let userMsg = t('error.network_generic');
+    const isRoomPasswordRequired =
+      msg === 'ROOM_PASSWORD_REQUIRED' || peerType === 'room-password-required';
+    const isRoomPasswordInvalid =
+      msg === 'ROOM_PASSWORD_INVALID' || peerType === 'room-password-invalid';
+
+    if (isRoomPasswordRequired || isRoomPasswordInvalid) {
+      setState('network.isConnecting', false);
+      updateRoleBadge();
+      showLoader(false);
+      promptForRoomPassword(isRoomPasswordInvalid).catch((e) =>
+        log.warn('[Setup] Room password dialog error:', e),
+      );
+      return;
+    }
 
     // Our custom error messages
     if (msg === 'HOST_UNREACHABLE') userMsg = t('error.host_unreachable');

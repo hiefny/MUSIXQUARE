@@ -535,6 +535,8 @@ export interface StateTree {
     lastKnownDeviceList: DeviceInfo[] | null;
     peerLabels: Record<string, string>;
     maxGuestSlots: number;
+    roomPasswordRequired: boolean;
+    roomPassword: string;
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
@@ -828,6 +830,7 @@ interface BaseEventMap {
   'network:kick-device': [peerId: string];
   'network:kicked-explicitly': [];
   'network:rename-device': [newName: string];
+  'network:room-password-changed': [password: string | null];
   'chat:muted-state-changed': [isMuted: boolean];
   'chat:clear-all': [];
 

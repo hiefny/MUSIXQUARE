@@ -32,6 +32,7 @@ export class MusixquareRoom {
   constructor(state) {
     this.state = state;
     this.roomSecret = null;
+    this.roomPassword = '';
     this.host = null;
     this.hostPeerId = null;
     this.guests = new Map();
@@ -105,6 +106,56 @@ export class MusixquareRoom {
       return;
     }
 
+    if (this.roomPassword) {
+      this.waitForGuestAuth(ws, roomId, peerId);
+      return;
+    }
+
+    this.completeGuestAccept(ws, roomId, peerId);
+  }
+
+  waitForGuestAuth(ws, roomId, peerId) {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
+    }, 5000);
+
+    const finish = (event) => {
+      if (done) return;
+      const message = this.parse(event.data);
+      if (!message || message.type !== 'guest-auth') return;
+
+      done = true;
+      clearTimeout(timer);
+      ws.removeEventListener('message', finish);
+
+      const password = typeof message.password === 'string' ? message.password : '';
+      if (!password) {
+        closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
+        return;
+      }
+      if (password !== this.roomPassword) {
+        closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
+        return;
+      }
+
+      this.completeGuestAccept(ws, roomId, peerId);
+    };
+
+    ws.addEventListener('message', finish);
+    ws.addEventListener(
+      'close',
+      () => {
+        done = true;
+        clearTimeout(timer);
+      },
+      { once: true },
+    );
+  }
+
+  completeGuestAccept(ws, roomId, peerId) {
     const previous = this.guests.get(peerId);
     if (previous && previous !== ws) {
       try {
@@ -147,6 +198,7 @@ export class MusixquareRoom {
   clearRoomSecret() {
     this.clearHostReleaseTimer();
     this.roomSecret = null;
+    this.roomPassword = '';
     this.hostPeerId = null;
   }
 
@@ -161,6 +213,11 @@ export class MusixquareRoom {
 
   handleHostMessage(raw) {
     const message = this.parse(raw);
+    if (message?.type === 'room-password-set') {
+      const password = typeof message.password === 'string' ? message.password : '';
+      this.roomPassword = /^\d{8}$/.test(password) ? password : '';
+      return;
+    }
     if (!message || typeof message.to !== 'string') return;
     const guest = this.guests.get(message.to);
     if (!guest) return;

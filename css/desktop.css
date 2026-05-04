@@ -411,6 +411,7 @@
     /* Connect sub-panel content — match 20px inner padding of other panels */
     #desktop-connect-content .qr-container,
     #desktop-connect-content .device-list,
+    #desktop-connect-content .room-password-code-row,
     #desktop-connect-content .number-stepper {
         margin-left: 20px;
         margin-right: 20px;

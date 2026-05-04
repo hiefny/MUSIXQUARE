@@ -181,6 +181,17 @@ const ko = {
   'connect.kicked_message': '방장에 의해 세션에서 내보내졌어요.',
   'connect.copy_invite_link': '초대 링크 복사하기',
   'connect.link_copied': '초대 링크가 복사되었어요',
+  'connect.room_password_title': '방 참여 시 암호 요구',
+  'connect.room_password_set': '설정',
+  'connect.room_password_toggle_aria': '방 참여 암호 요구 전환',
+  'connect.room_password_input_aria': '방 참여 암호 8자리 입력',
+  'connect.room_password_refresh_aria': '방 암호 새로 만들기',
+  'connect.room_password_off': '- - - - - - - -',
+  'connect.room_password_pending': '8자리 암호 대기 중',
+  'connect.room_password_on': '암호 적용됨',
+  'connect.room_password_invalid': '8자리 숫자를 입력해 주세요',
+  'connect.room_password_enabled': '이제 누군가가 이 방에 참여를 시도하면 암호가 요구돼요',
+  'connect.room_password_disabled': '누군가가 참여할 때 더이상 암호를 입력할 필요가 없어요',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',
@@ -466,6 +477,8 @@ const ko = {
   'error.webrtc_failed': 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.',
   'error.browser_unsupported': '실시간 연결을 지원하지 않는 브라우저예요. 최신 Chrome이나 Safari로 시도해 주세요.',
   'error.ssl_required': 'HTTPS 보안 연결이 필요해요.',
+  'error.room_password_required': '이 방은 암호가 필요해요.',
+  'error.room_password_invalid': '방 암호가 맞지 않아요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': '세션 나가기',
@@ -477,6 +490,10 @@ const ko = {
   'dialog.reconnect_ask': '다시 연결할까요?',
   'dialog.reconnect': '다시 연결',
   'dialog.go_back': '돌아가기',
+  'dialog.room_password_title': '방 암호 입력',
+  'dialog.room_password_msg': '이 방에 참여하려면 암호가 필요해요.',
+  'dialog.room_password_retry_msg': '암호가 맞지 않아요. 다시 입력해 주세요.',
+  'dialog.room_password_placeholder': '8자리 암호',
   'dialog.session_lost_msg':
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',
   'dialog.session_lost_btn': '다시 시작',

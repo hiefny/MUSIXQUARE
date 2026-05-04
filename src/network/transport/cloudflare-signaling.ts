@@ -33,6 +33,7 @@ type SignalingMessage =
   | { type: 'peer-left'; peerId: string };
 
 type OutgoingSignal =
+  | { type: 'room-password-set'; password: string }
   | { type: 'signal-offer'; to: 'host'; sdp: RTCSessionDescriptionInit; metadata?: unknown }
   | { type: 'signal-answer'; to: string; sdp: RTCSessionDescriptionInit }
   | { type: 'signal-candidate'; to: string; candidate: RTCIceCandidateInit }
@@ -350,9 +351,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly mediaCalls = new Map<string, CloudflareMediaConnection>();
   private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private readonly roomSockets = new Map<string, WebSocket>();
+  private readonly roomPasswords = new Map<string, string>();
   private hostSocket: WebSocket | null = null;
   private readonly hostRoomId: string | null;
   private readonly hostSecret = randomBase64Url(24);
+  private roomPassword: string | null = null;
 
   constructor(
     requestedId: string | null,
@@ -377,8 +380,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   connect(roomId: string, options?: TransportConnectOptions): TransportDataConnection {
     if (this.destroyed) throw createTransportError('disconnected', 'PEER_DESTROYED');
     const conn = new CloudflareDataConnection(roomId, options?.metadata);
+    const roomPassword =
+      typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
+    if (roomPassword) this.roomPasswords.set(roomId, roomPassword);
+    else this.roomPasswords.delete(roomId);
     this.connections.set(roomId, conn);
-    this.openGuestSocket(roomId, conn, options?.metadata);
+    this.openGuestSocket(roomId, conn, options?.metadata, roomPassword);
     return conn;
   }
 
@@ -421,9 +428,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     for (const [roomId, socket] of this.roomSockets) {
       if (socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
         const conn = this.connections.get(roomId);
-        if (conn) this.openGuestSocket(roomId, conn, conn.metadata);
+        if (conn) this.openGuestSocket(roomId, conn, conn.metadata, this.roomPasswords.get(roomId) || '');
       }
     }
+  }
+
+  setRoomPassword(password: string | null): void {
+    if (!this.hostRoomId) return;
+    const normalized = typeof password === 'string' && /^\d{8}$/.test(password) ? password : '';
+    this.roomPassword = normalized || null;
+    this.sendRoomPassword();
   }
 
   destroy(): void {
@@ -464,7 +478,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     secret?: string,
   ): string {
     const base = new URL(this.requireSignalingUrl());
-    base.protocol = base.protocol === 'http:' ? 'ws:' : 'wss:';
+    if (base.protocol === 'http:') base.protocol = 'ws:';
+    else if (base.protocol === 'https:') base.protocol = 'wss:';
     base.pathname = `${base.pathname.replace(/\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;
     base.searchParams.set('role', role);
     base.searchParams.set('peerId', peerId);
@@ -477,6 +492,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       throw createTransportError('socket-closed', 'SIGNALING_SOCKET_NOT_OPEN');
     }
     socket.send(JSON.stringify(message));
+  }
+
+  private sendRoomPassword(): void {
+    if (!this.hostRoomId) return;
+    const socket = this.hostSocket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    try {
+      this.send(socket, { type: 'room-password-set', password: this.roomPassword || '' });
+    } catch (error) {
+      this.emit('error', error);
+    }
   }
 
   private openHostSocket(): void {
@@ -513,6 +539,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomId: string,
     conn: CloudflareDataConnection,
     metadata: unknown,
+    roomPassword: string,
   ): void {
     if (!this.id) return;
     let socket: WebSocket;
@@ -524,6 +551,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.roomSockets.set(roomId, socket);
+    socket.addEventListener('open', () => {
+      try {
+        socket.send(JSON.stringify({ type: 'guest-auth', password: roomPassword || '' }));
+      } catch (error) {
+        conn.emit('error', error);
+      }
+    });
     socket.addEventListener('message', (event) => {
       this.handleGuestMessage(roomId, socket, conn, metadata, event.data).catch((error) =>
         conn.emit('error', error),
@@ -532,8 +566,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socket.addEventListener('close', () => {
       if (this.destroyed) return;
       if (this.roomSockets.get(roomId) === socket) {
-        this.disconnected = true;
-        this.emit('disconnected');
+        this.roomSockets.delete(roomId);
+        if (conn.peerConnection) {
+          this.disconnected = true;
+          this.emit('disconnected');
+        }
       }
     });
     socket.addEventListener('error', (event) => conn.emit('error', event));
@@ -550,6 +587,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.open = true;
       this.disconnected = false;
       this.emit('open', message.peerId);
+      this.sendRoomPassword();
       return;
     }
     if (message.type === 'error') {

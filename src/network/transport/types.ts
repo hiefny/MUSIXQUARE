@@ -3,6 +3,7 @@ export type TransportProvider = 'peerjs' | 'cloudflare';
 export interface TransportConnectOptions {
   reliable?: boolean;
   metadata?: unknown;
+  roomPassword?: string;
 }
 
 export interface TransportCallOptions {
@@ -57,6 +58,7 @@ export interface TransportPeer {
     options?: TransportCallOptions,
   ): TransportMediaConnection;
   reconnect?(): void;
+  setRoomPassword?(password: string | null): void;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;

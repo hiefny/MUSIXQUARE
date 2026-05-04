@@ -8,7 +8,7 @@
 import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
-import { getState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
 import { t, getResolvedLanguage } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
@@ -225,6 +225,113 @@ function syncAllValues(value: number): void {
   });
 }
 
+// ─── Room Password ───────────────────────────────────────────────
+
+const ROOM_PASSWORD_TOGGLE_IDS = ['room-password-toggle', 'desktop-room-password-toggle'];
+const ROOM_PASSWORD_CODE_ROW_IDS = ['room-password-code-row', 'desktop-room-password-code-row'];
+const ROOM_PASSWORD_CODE_IDS = ['room-password-code', 'desktop-room-password-code'];
+const ROOM_PASSWORD_REFRESH_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
+const ROOM_PASSWORD_OFF_TEXT = '- - - - - - - -';
+
+function _canEditRoomPassword(): boolean {
+  return getState('network.appRole') === 'host' && !getState('network.hostConn');
+}
+
+function _guardRoomPasswordCtrl(): boolean {
+  if (!_canEditRoomPassword()) {
+    showToast(t('toast.host_only_control'));
+    return true;
+  }
+  return false;
+}
+
+function _generateRoomPassword(): string {
+  try {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    return String(values[0]! % 100_000_000).padStart(8, '0');
+  } catch {
+    return String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0');
+  }
+}
+
+function _applyRoomPassword(password: string | null): void {
+  const next = password && /^\d{8}$/.test(password) ? password : '';
+  setState('network.roomPasswordRequired', !!next);
+  setState('network.roomPassword', next);
+  bus.emit('network:room-password-changed', next || null);
+  syncRoomPasswordControls();
+}
+
+function syncRoomPasswordControls(): void {
+  const password = getState('network.roomPassword') || '';
+  const active = getState('network.roomPasswordRequired') && /^\d{8}$/.test(password);
+  const canEdit = _canEditRoomPassword();
+
+  ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
+    const toggle = document.getElementById(id) as HTMLButtonElement | null;
+    if (!toggle) return;
+    toggle.classList.toggle('active', active);
+    toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+    toggle.disabled = !canEdit;
+    toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
+    const knob = toggle.querySelector('.room-password-toggle-knob') as HTMLElement | null;
+    if (knob) {
+      knob.style.background = active ? 'var(--primary)' : '';
+      knob.style.transform = active ? 'translateX(20px)' : '';
+    }
+  });
+
+  ROOM_PASSWORD_CODE_ROW_IDS.forEach((id) => {
+    const row = document.getElementById(id) as HTMLElement | null;
+    if (row) row.hidden = false;
+  });
+
+  ROOM_PASSWORD_CODE_IDS.forEach((id) => {
+    const code = document.getElementById(id);
+    if (!code) return;
+    code.textContent = active ? password : ROOM_PASSWORD_OFF_TEXT;
+    code.classList.toggle('is-placeholder', !active);
+  });
+
+  ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
+    const button = document.getElementById(id) as HTMLButtonElement | null;
+    if (!button) return;
+    button.hidden = !active;
+    button.disabled = !active || !canEdit;
+  });
+}
+
+function initRoomPasswordControls(): void {
+  ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
+    const toggle = document.getElementById(id);
+    if (!toggle) return;
+    toggle.addEventListener('click', () => {
+      if (_guardRoomPasswordCtrl()) return;
+
+      if (getState('network.roomPasswordRequired')) {
+        _applyRoomPassword(null);
+        showToast(t('connect.room_password_disabled'));
+        return;
+      }
+
+      _applyRoomPassword(_generateRoomPassword());
+      showToast(t('connect.room_password_enabled'));
+    });
+  });
+
+  ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.addEventListener('click', () => {
+      if (_guardRoomPasswordCtrl()) return;
+      _applyRoomPassword(_generateRoomPassword());
+    });
+  });
+
+  syncRoomPasswordControls();
+}
+
 // ─── Device List Rendering ──────────────────────────────────────
 
 let _lastDeviceCount = 0;
@@ -339,6 +446,7 @@ export function initConnect(): void {
 
   initStepper('max-device-stepper');
   initStepper('desktop-max-device-stepper');
+  initRoomPasswordControls();
 
   // Slot-guide ⓘ buttons (mobile + desktop). Same info dialog either way.
   const openSlotGuide = () => {
@@ -368,7 +476,10 @@ export function initConnect(): void {
 
   // Re-render title on language change (disconnect previous on re-init)
   if (_langObserver) _langObserver.disconnect();
-  _langObserver = new MutationObserver(() => _updateDeviceTitles());
+  _langObserver = new MutationObserver(() => {
+    _updateDeviceTitles();
+    syncRoomPasswordControls();
+  });
   _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
@@ -383,7 +494,12 @@ export function initConnect(): void {
   });
   _busScope.on('state:setup.sessionStarted', () => {
     refreshAllQR();
+    syncRoomPasswordControls();
   });
+  _busScope.on('state:network.roomPasswordRequired', () => syncRoomPasswordControls());
+  _busScope.on('state:network.roomPassword', () => syncRoomPasswordControls());
+  _busScope.on('state:network.hostConn', () => syncRoomPasswordControls());
+  _busScope.on('state:network.appRole', () => syncRoomPasswordControls());
 
   // Leave Session buttons (mobile + desktop)
   const leaveHandler = () => {

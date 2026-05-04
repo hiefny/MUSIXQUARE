@@ -18,6 +18,7 @@ import { broadcastSystemNotice, sendLatestPinnedNotice } from '../chat/protocol.
 
 import {
   detectConnectionType,
+  getPeer,
   getPeerLabelBySlot,
   getAvailablePeerSlot,
   assignPeerSlot,
@@ -510,6 +511,18 @@ bus.on('network:max-guests-changed', (max: number) => {
     bus.emit('network:kick-device', peerId);
   }
   log.info(`[Peer] Max guest slots changed to ${max}`);
+});
+
+bus.on('network:room-password-changed', (password: string | null) => {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return;
+
+  const peer = getPeer();
+  try {
+    peer?.setRoomPassword?.(password);
+  } catch (error) {
+    log.warn('[Host] Failed to update room password:', error);
+  }
 });
 
 bus.on('network:device-list', (list) => {

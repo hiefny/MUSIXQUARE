@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Static OG PNG generator for /roadmap and /changelog.
+ * Static OG PNG generator for /history and /designsystem.
  *
  * Unlike the invite card which renders per-request at the edge, these
- * two pages have fixed copy — so we render them once here and commit
+ * pages have fixed copy — so we render them once here and commit
  * the resulting PNGs under public/. The runtime cost of this is zero.
  *
  * Output:
- *   public/og-roadmap.png
- *   public/og-changelog.png
+ *   public/og-history.png
+ *   public/og-designsystem.png
  *
  * Cards share the invite card's visual language (blue gradient, white
  * Pretendard) so the /musixquare.com namespace reads as one family.
@@ -86,17 +86,10 @@ function card({ wordmarkDataUrl, headline, tagline }) {
 
 const CARDS = [
   {
-    outFile: "public/og-roadmap.png",
+    outFile: "public/og-history.png",
     props: {
-      headline: "Roadmap",
-      tagline: "Every known limit · Documented",
-    },
-  },
-  {
-    outFile: "public/og-changelog.png",
-    props: {
-      headline: "Changelog",
-      tagline: "The build log · Oct 2025 → now",
+      headline: "History",
+      tagline: "Nine months · One developer · Shipped",
     },
   },
   {

@@ -17,6 +17,12 @@ import { registerHandler } from './protocol.ts';
 import type { DataConnection, MediaConnection } from '../types/index.ts';
 
 import { forceStereoSdp } from './peer.ts';
+import {
+  cleanupWindowsAudioDecoderPrimer,
+  getAudioTrackStreamKey,
+  primeWindowsAudioDecoder,
+  type WindowsAudioDecoderPrimer,
+} from './windows-audio-decoder-primer.ts';
 
 // ─── Tuning ───────────────────────────────────────────────────────
 //
@@ -47,6 +53,7 @@ let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
+let _decoderPrimer: WindowsAudioDecoderPrimer | null = null;
 let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
@@ -59,6 +66,16 @@ function describeAudioTracks(tracks: MediaStreamTrack[]): string {
     tracks
       .map((track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`)
       .join(', ') || 'none'
+  );
+}
+
+function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
+  _decoderPrimer = primeWindowsAudioDecoder(
+    _decoderPrimer,
+    tracks,
+    getAudioTrackStreamKey(channel, tracks),
+    channel,
+    '[SysAudioGuest]',
   );
 }
 
@@ -219,6 +236,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     if (channel === 'STEREO') {
+      primeGuestWindowsAudioDecoder(channel, streamTracks);
       if (_sourceStereo) {
         try {
           _sourceStereo.disconnect();
@@ -266,6 +284,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           reason: string,
         ): void => {
           log.info(`[SysAudioGuest] ${reason}`);
+          primeGuestWindowsAudioDecoder(channel, [leftTrack, rightTrack]);
           _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
           _sourceL.connect(_merger!, 0, 0);
           _gotL = true;
@@ -297,6 +316,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
           log.info(
             `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
           );
+          primeGuestWindowsAudioDecoder(channel, [tracks[0]]);
           const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
           monoSource.connect(_merger, 0, 0);
           monoSource.connect(_merger, 0, 1);
@@ -307,6 +327,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
         if (channel === 'SYNCED') _gotSynced = true;
       } else {
+        primeGuestWindowsAudioDecoder(channel, streamTracks);
         const source = ctx.createMediaStreamSource(remoteStream);
         if (channel === 'L') {
           if (_sourceL) {
@@ -406,6 +427,8 @@ function cleanupGuestSystemAudio(): void {
     }
     _sourceStereo = null;
   }
+  cleanupWindowsAudioDecoderPrimer(_decoderPrimer);
+  _decoderPrimer = null;
   if (_merger) {
     try {
       _merger.disconnect();

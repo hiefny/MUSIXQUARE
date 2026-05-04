@@ -16,6 +16,12 @@ import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-cap
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
+import {
+  cleanupWindowsAudioDecoderPrimer,
+  getAudioTrackStreamKey,
+  primeWindowsAudioDecoder,
+  type WindowsAudioDecoderPrimer,
+} from './windows-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
@@ -84,6 +90,7 @@ let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
+const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
 function shouldUseRealtimeSfu(): boolean {
   return getRuntimeTransportConfig().provider !== 'cloudflare';
@@ -99,6 +106,29 @@ function buildTrackName(channel: Channel): string {
   const room = getState('network.sessionCode') || 'session';
   const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
   return `mxqr-system-audio-${room}-${channel}-${id}`.slice(0, 160);
+}
+
+function cleanupGuestDecoderPrimer(channel: Channel): void {
+  cleanupWindowsAudioDecoderPrimer(guestDecoderPrimers.get(channel) ?? null);
+  guestDecoderPrimers.delete(channel);
+}
+
+function cleanupGuestDecoderPrimers(): void {
+  cleanupGuestDecoderPrimer('L');
+  cleanupGuestDecoderPrimer('R');
+}
+
+function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack): void {
+  const primer = primeWindowsAudioDecoder(
+    guestDecoderPrimers.get(channel) ?? null,
+    [track],
+    getAudioTrackStreamKey(`sfu:${channel}`, [track]),
+    channel,
+    '[SysAudioSFU]',
+  );
+
+  if (primer) guestDecoderPrimers.set(channel, primer);
+  else guestDecoderPrimers.delete(channel);
 }
 
 function getRealtimeEndpoints(): string[] {
@@ -498,6 +528,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
     }
   }
 
+  primeWindowsSfuAudioDecoder(channel, track);
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   source.connect(guestMerger, 0, channel === 'L' ? 0 : 1);
   if (channel === 'L') guestSourceL = source;
@@ -537,6 +568,7 @@ function cleanupGuestSfu(updateState = true): void {
     }
     guestMerger = null;
   }
+  cleanupGuestDecoderPrimers();
   if (guestPc) {
     guestPc.close();
     guestPc = null;

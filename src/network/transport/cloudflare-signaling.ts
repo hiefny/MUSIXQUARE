@@ -826,7 +826,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.pendingCandidates.set(peerId, queued);
       return;
     }
-    await pc.addIceCandidate(candidate);
+    try {
+      await pc.addIceCandidate(candidate);
+    } catch (error) {
+      log.warn('[Transport] Failed to add ICE candidate:', error);
+    }
   }
 
   private async flushRemoteCandidates(peerId: string): Promise<void> {
@@ -836,7 +840,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const queued = this.pendingCandidates.get(peerId) ?? [];
     this.pendingCandidates.delete(peerId);
     for (const candidate of queued) {
-      await pc.addIceCandidate(candidate);
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (error) {
+        log.warn('[Transport] Failed to add queued ICE candidate:', error);
+      }
     }
   }
 }

@@ -2,7 +2,7 @@
 
 **Multi-Device Synchronized Audio System**
 
-MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless audio system. Connect phones, tablets, and desktops on the same network to create surround sound, or use YouTube Together across any network.
+MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchronized wireless audio system. It supports local-room playback, remote file sharing, YouTube Together, and desktop system audio sharing through WebRTC.
 
 **https://musixquare.com/landing**
 
@@ -12,9 +12,10 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 
 - **6-Digit Code Join**: Guests enter a short code to connect instantly.
 - **Speaker Role Routing**: Each device picks its role: Stereo, Left, Right, or Subwoofer.
-- **Local File Sharing**: Host sends audio/video files directly to guests via P2P. Precise sync supported.
+- **Local File Sharing**: Host sends audio/video files directly to nearby guests when a direct WebRTC path is available. Precise sync supported.
+- **Remote File Sharing**: Remote guests can receive encrypted temporary file handoffs through Cloudflare-backed storage.
 - **YouTube Together**: Watch together with synced playback. Works across different networks.
-- **System Audio Sharing**: Stream desktop audio to connected devices in real-time stereo. Windows/Mac Chrome only.
+- **System Audio Sharing**: Stream desktop or tab audio to connected devices in real-time stereo.
 - **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass, all processed locally via Web Audio API.
 - **Chat**: Real-time P2P messaging with commands, whisper, and moderation.
 - **Precision Sync**: NTP-style rolling RTT measurement with min-latency selection for file mode. 2-stage rendezvous-synchronized playback for YouTube mode.
@@ -25,9 +26,12 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 
 - **TypeScript + Vite**: ES modules, strict mode, hot module replacement.
 - **Web Audio API**: Native browser audio graph, no external audio library.
-- **PeerJS (WebRTC)**: P2P data channels for file transfer, media streams for system audio.
-- **STUN + TURN**: Google STUN for NAT traversal. Metered.ca TURN via Netlify Function for remote connections.
-- **RAM-only storage**: Encoded chunks held in memory; no disk persistence.
+- **WebRTC Transport**: Data channels for control, chat, sync, and file transfer. Media streams for system audio.
+- **Cloudflare Signaling**: Durable Object signaling transport for production room connection and raw WebRTC negotiation.
+- **PeerJS Fallback**: PeerJS remains available as a fallback transport and for local development when no Cloudflare signaling URL is configured.
+- **Remote Share Worker**: Cloudflare Worker + R2 path for encrypted temporary remote file sharing.
+- **STUN + TURN**: Browser ICE with Cloudflare TURN support and optional Metered fallback.
+- **RAM-first playback**: Local playback buffers and received chunks stay in browser memory.
 
 ---
 
@@ -42,13 +46,24 @@ MUSIXQUARE is a web app that turns multiple devices into a synchronized wireless
 3. Choose a media source:
    - **Load local file**: audio/video from your device
    - **YouTube**: paste a link or playlist URL
-   - **System Audio**: stream your desktop audio (Windows/Mac Chrome)
+   - **System Audio**: stream desktop, tab, or system audio from a supported browser
 
 ### Guest
 
 1. Open the app and tap **"Join a session"**
 2. Enter the **6-digit code**
 3. Select your speaker role (Stereo / Left / Right / Woofer)
+
+For the lowest latency and strongest sync, keep devices on the same local network. Remote connections are supported, but the transport path depends on browser and network conditions.
+
+---
+
+## Related Pages
+
+- **App**: https://musixquare.com/
+- **Landing**: https://musixquare.com/landing
+- **History**: https://musixquare.com/history
+- **Design System**: https://musixquare.com/designsystem
 
 ---
 

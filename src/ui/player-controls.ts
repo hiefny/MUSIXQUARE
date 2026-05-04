@@ -699,6 +699,7 @@ export function initPlayerControls(): void {
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
   _busScope.on('state:network.connectionType', () => {
     refreshTrackTitle();
+    updateRoleBadge();
   });
 
   // Guest: dim media source button (host-only action)

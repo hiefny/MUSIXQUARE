@@ -7,10 +7,12 @@ import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
   getInviteCode,
+  updateRoleBadge,
 } from '../player-controls.ts';
 
 beforeEach(() => {
   resetState();
+  document.body.innerHTML = '';
 });
 
 describe('getRoleLabelByChannelMode', () => {
@@ -89,5 +91,42 @@ describe('getInviteCode', () => {
     setState('network.sessionCode', '111111');
     setState('network.lastJoinCode', '222222');
     expect(getInviteCode()).toBe('111111');
+  });
+});
+
+describe('updateRoleBadge', () => {
+  function renderBadge(): HTMLElement {
+    document.body.innerHTML = `
+      <div class="role-badge" id="role-badge">
+        <span id="role-text"></span>
+      </div>
+    `;
+    return document.getElementById('role-badge') as HTMLElement;
+  }
+
+  it('marks a connected remote guest with the remote class', () => {
+    const badge = renderBadge();
+    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.myDeviceLabel', 'GUEST 1');
+    setState('network.connectionType', 'remote');
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('remote')).toBe(true);
+    expect(document.getElementById('role-text')?.textContent).toContain('GUEST 1');
+  });
+
+  it('keeps a connected local guest blue by clearing the remote class', () => {
+    const badge = renderBadge();
+    badge.classList.add('remote');
+    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.myDeviceLabel', 'GUEST 1');
+    setState('network.connectionType', 'local');
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('connected')).toBe(true);
+    expect(badge.classList.contains('remote')).toBe(false);
   });
 });

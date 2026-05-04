@@ -11,25 +11,60 @@ const LOG_LEVEL = {
 } as const;
 
 type LogLevelValue = (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL];
+type LogLevelName = keyof typeof LOG_LEVEL;
 
-let _logLevel: LogLevelValue = LOG_LEVEL.INFO;
+function parseLogLevel(level: unknown): LogLevelValue | null {
+  if (typeof level !== 'string') return null;
+  const key = level.trim().toUpperCase() as LogLevelName;
+  return LOG_LEVEL[key] ?? null;
+}
+
+function getConfiguredLogLevel(): LogLevelValue | null {
+  const envLevel = parseLogLevel(import.meta.env?.VITE_MUSIXQUARE_LOG_LEVEL);
+  if (envLevel !== null) return envLevel;
+
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || '');
+    const queryLevel = parseLogLevel(params.get('mxqrLog') || params.get('logLevel'));
+    if (queryLevel !== null) return queryLevel;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const storedLevel = parseLogLevel(globalThis.localStorage?.getItem('mxqr:logLevel'));
+    if (storedLevel !== null) return storedLevel;
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
+let _logLevel: LogLevelValue = import.meta.env?.PROD ? LOG_LEVEL.WARN : LOG_LEVEL.INFO;
 
 // Auto-enable DEBUG on localhost
 try {
   const host = globalThis.location?.hostname;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+  if (
+    !import.meta.env?.PROD &&
+    (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0')
+  ) {
     _logLevel = LOG_LEVEL.DEBUG;
   }
 } catch {
   // ignore (worker context, etc.)
 }
 
+const configuredLogLevel = getConfiguredLogLevel();
+if (configuredLogLevel !== null) _logLevel = configuredLogLevel;
+
 /**
  * Change log level at runtime (e.g., from browser console: `setLogLevel('debug')`).
  */
-export function setLogLevel(level: keyof typeof LOG_LEVEL): void {
-  const v = LOG_LEVEL[level];
-  if (v !== undefined) _logLevel = v;
+export function setLogLevel(level: LogLevelName | Lowercase<LogLevelName>): void {
+  const v = parseLogLevel(level);
+  if (v !== null) _logLevel = v;
 }
 
 // Expose to browser console for runtime debugging

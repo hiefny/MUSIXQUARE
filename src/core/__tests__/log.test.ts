@@ -59,4 +59,21 @@ describe('log', () => {
     log.info();
     expect(spy).toHaveBeenCalledWith();
   });
+
+  it('setLogLevel accepts lowercase names and suppresses lower-priority logs', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { log, setLogLevel } = await import('../log.ts');
+
+    try {
+      setLogLevel('warn');
+      log.info('quiet');
+      log.warn('visible');
+
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith('visible');
+    } finally {
+      setLogLevel('info');
+    }
+  });
 });

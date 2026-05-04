@@ -4,7 +4,7 @@
 
 MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchronized wireless audio system. It supports local-room playback, remote file sharing, YouTube Together, and desktop system audio sharing through WebRTC.
 
-**https://musixquare.com/landing**
+**https://musixquare.com/about**
 
 ---
 
@@ -61,7 +61,7 @@ For the lowest latency and strongest sync, keep devices on the same local networ
 ## Related Pages
 
 - **App**: https://musixquare.com/
-- **Landing**: https://musixquare.com/landing
+- **About**: https://musixquare.com/about
 - **History**: https://musixquare.com/history
 - **Design System**: https://musixquare.com/designsystem
 

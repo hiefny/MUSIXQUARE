@@ -42,23 +42,51 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
       if (!conn.open) return 'remote';
 
       const stats = await pc.getStats();
+      const succeededPairs: Array<{
+        localType?: string;
+        remoteType?: string;
+        selected: boolean;
+      }> = [];
+
       for (const report of stats.values()) {
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const localCandidate = stats.get(report.localCandidateId);
           const remoteCandidate = stats.get(report.remoteCandidateId);
 
-          const localType = localCandidate?.candidateType;
-          const remoteType = remoteCandidate?.candidateType;
-
-          log.info(`[Peer] ICE (try ${i + 1}): local=${localType}, remote=${remoteType}`);
-
-          // If either side uses relay (TURN), it's remote
-          if (localType === 'relay' || remoteType === 'relay') return 'remote';
-          // Both sides host = same LAN
-          if (localType === 'host' && remoteType === 'host') return 'local';
-          // srflx (STUN) = different networks
-          return 'remote';
+          succeededPairs.push({
+            localType: localCandidate?.candidateType,
+            remoteType: remoteCandidate?.candidateType,
+            selected: report.selected === true || report.nominated === true,
+          });
         }
+      }
+
+      if (succeededPairs.length > 0) {
+        const directPair = succeededPairs.find(
+          (pair) => pair.localType === 'host' && pair.remoteType === 'host',
+        );
+        const selectedPair = succeededPairs.find((pair) => pair.selected) || succeededPairs[0];
+        const pair = directPair || selectedPair;
+        const suffix =
+          succeededPairs.length > 1
+            ? `, pairs=${succeededPairs
+                .map((p) => `${p.localType || '?'}-${p.remoteType || '?'}${p.selected ? '*' : ''}`)
+                .join('/')}`
+            : '';
+
+        log.info(
+          `[Peer] ICE (try ${i + 1}): local=${pair.localType}, remote=${pair.remoteType}${suffix}`,
+        );
+
+        // Any succeeded host-host pair means LAN traversal is available, even
+        // if relay/srflx succeeded first while ICE was still settling.
+        if (directPair) return 'local';
+        // If either side uses relay (TURN), it's remote.
+        if (pair.localType === 'relay' || pair.remoteType === 'relay') return 'remote';
+        // Both sides host = same LAN.
+        if (pair.localType === 'host' && pair.remoteType === 'host') return 'local';
+        // srflx (STUN) = different networks.
+        return 'remote';
       }
       await delay(200);
     }

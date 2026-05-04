@@ -137,10 +137,27 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     applySdpMunge(mediaConn);
   }
 
-  mediaConn.answer();
-
   mediaConn.on('stream', async (remoteStream: MediaStream) => {
     log.info(`[SysAudioGuest] Received ${channel} stream`);
+    const streamTracks = remoteStream.getAudioTracks();
+    log.info(
+      `[SysAudioGuest] ${channel} stream tracks: ${
+        streamTracks
+          .map((track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`)
+          .join(', ') || 'none'
+      }`,
+    );
+    for (const track of streamTracks) {
+      track.addEventListener('mute', () =>
+        log.warn(`[SysAudioGuest] ${channel} track muted: ${track.id.slice(0, 8)}`),
+      );
+      track.addEventListener('unmute', () =>
+        log.info(`[SysAudioGuest] ${channel} track unmuted: ${track.id.slice(0, 8)}`),
+      );
+      track.addEventListener('ended', () =>
+        log.info(`[SysAudioGuest] ${channel} track ended: ${track.id.slice(0, 8)}`),
+      );
+    }
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
@@ -211,30 +228,38 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
         // Use ID-to-Channel mapping from host if available (synced mode)
         const mapping = (mediaConn.metadata as any)?.mapping;
+        const connectDualTracks = (
+          leftTrack: MediaStreamTrack,
+          rightTrack: MediaStreamTrack,
+          reason: string,
+        ): void => {
+          log.info(`[SysAudioGuest] ${reason}`);
+          _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
+          _sourceL.connect(_merger!, 0, 0);
+          _gotL = true;
+          _sourceR = ctx.createMediaStreamSource(new MediaStream([rightTrack]));
+          _sourceR.connect(_merger!, 0, 1);
+          _gotR = true;
+        };
 
         if (mapping && tracks.length >= 2) {
-          log.info('[SysAudioGuest] Using ID-based track mapping for crystal-clear stereo');
-          for (const t of tracks) {
-            const role = mapping[t.id];
-            const source = ctx.createMediaStreamSource(new MediaStream([t]));
-            if (role === 'L') {
-              _sourceL = source;
-              source.connect(_merger, 0, 0);
-              _gotL = true;
-            } else if (role === 'R') {
-              _sourceR = source;
-              source.connect(_merger, 0, 1);
-              _gotR = true;
-            }
+          const mappedL = tracks.find((track) => mapping[track.id] === 'L');
+          const mappedR = tracks.find((track) => mapping[track.id] === 'R');
+          if (mappedL && mappedR) {
+            connectDualTracks(
+              mappedL,
+              mappedR,
+              'Using ID-based track mapping for crystal-clear stereo',
+            );
+          } else {
+            log.warn(
+              '[SysAudioGuest] Track ID mapping did not match remote IDs; falling back to track order',
+            );
+            connectDualTracks(tracks[0], tracks[1], 'Using track-order stereo fallback');
           }
         } else if (tracks.length >= 2) {
           // Standard track order (default)
-          _sourceL = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-          _sourceL.connect(_merger, 0, 0);
-          _gotL = true;
-          _sourceR = ctx.createMediaStreamSource(new MediaStream([tracks[1]]));
-          _sourceR.connect(_merger, 0, 1);
-          _gotR = true;
+          connectDualTracks(tracks[0], tracks[1], 'Using track-order stereo mapping');
         } else {
           // Failsafe: Upmix single track to center
           log.info(
@@ -312,6 +337,14 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   mediaConn.on('error', (err: unknown) => {
     log.warn(`[SysAudioGuest] ${channel} error:`, err);
   });
+
+  // Register stream/close/error handlers before answer(). Fast local desktop
+  // peers can emit the PeerJS stream event immediately after answering.
+  try {
+    mediaConn.answer();
+  } catch (err) {
+    log.warn(`[SysAudioGuest] ${channel} answer failed:`, err);
+  }
 }
 
 // ─── Cleanup ──────────────────────────────────────────────────────

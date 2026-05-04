@@ -711,6 +711,13 @@ export function registerSystemAudioSfuListeners(): void {
     if (!getState('network.hostConn')) cleanupGuestSfu();
   });
 
+  bus.on('system-audio:incoming-call', () => {
+    if (getState('network.appRole') !== 'guest') return;
+    if (!guestPc) return;
+    log.info('[SysAudioSFU] Local P2P system audio arrived; switching away from SFU');
+    cleanupGuestSfu(false);
+  });
+
   bus.on('system-audio:host-stopped', () => cleanupGuestSfu());
   bus.on('system-audio:force-stop', () => {
     cleanupHostSfu();

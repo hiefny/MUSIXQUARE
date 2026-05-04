@@ -107,6 +107,13 @@ function getSystemAudioCallChannel(
  */
 export function forceStereoSdp(sdp: string): string {
   let modified = sdp;
+  const stereoParams = [
+    'stereo=1',
+    'sprop-stereo=1',
+    'maxaveragebitrate=128000',
+    'useinbandfec=1',
+  ];
+
   // 1. Find opus payload types
   const opusPTs: string[] = [];
   const rtpmapRegex = /a=rtpmap:(\d+) opus\/48000\/2/g;
@@ -117,25 +124,27 @@ export function forceStereoSdp(sdp: string): string {
 
   // 2. Add/replace stereo params to ALL fmtp lines for these PTs
   for (const pt of opusPTs) {
-    const fmtpRegex = new RegExp(`a=fmtp:${pt}(.*)`, 'g');
-    if (fmtpRegex.test(modified)) {
-      modified = modified.replace(fmtpRegex, (line) => {
-        // Strip out existing stereo-related params
-        const newLine = line.replace(
-          /;?\s*(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=[^;]+/g,
-          '',
+    let foundFmtp = false;
+    const fmtpRegex = new RegExp(`^a=fmtp:${pt}(?:(?:\\s+|;)([^\\r\\n]*))?$`, 'gm');
+    modified = modified.replace(fmtpRegex, (_line, params: string | undefined) => {
+      foundFmtp = true;
+      const preservedParams = (params || '')
+        .split(';')
+        .map((param) => param.trim())
+        .filter(Boolean)
+        .filter(
+          (param) =>
+            !/^(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=/i.test(param),
         );
-        // Append our high-fidelity stereo params + sweet-spot bitrate (128kbps per track)
-        return newLine + '; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1';
-      });
-    } else {
+
+      return `a=fmtp:${pt} ${[...preservedParams, ...stereoParams].join('; ')}`;
+    });
+
+    if (!foundFmtp) {
       // If no fmtp line exists, append it after the rtpmap line
       const rtpmapLine = new RegExp(`a=rtpmap:${pt} opus/48000/2`);
       modified = modified.replace(rtpmapLine, (line) => {
-        return (
-          line +
-          `\r\na=fmtp:${pt} stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1`
-        );
+        return line + `\r\na=fmtp:${pt} ${stereoParams.join('; ')}`;
       });
     }
   }

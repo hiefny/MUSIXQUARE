@@ -5,7 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { detectConnectionType } from '../peer-state.ts';
-import { safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
+import {
+  forceStereoSdp,
+  safeSend,
+  isRemoteGuest,
+  isTrustedSystemAudioMediaCall,
+} from '../peer.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -133,6 +138,54 @@ describe('detectConnectionType', () => {
     await vi.advanceTimersByTimeAsync(2500);
 
     await expect(result).resolves.toBe('remote');
+  });
+});
+
+describe('forceStereoSdp', () => {
+  it('preserves the required fmtp payload separator when replacing first params', () => {
+    const sdp = [
+      'v=0',
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+      'a=rtpmap:111 opus/48000/2',
+      'a=fmtp:111 stereo=1;minptime=10;useinbandfec=1',
+      '',
+    ].join('\r\n');
+
+    const result = forceStereoSdp(sdp);
+
+    expect(result).toContain('a=fmtp:111 minptime=10; stereo=1;');
+    expect(result).not.toContain('a=fmtp:111;');
+  });
+
+  it('preserves unrelated fmtp params while replacing stereo tuning params', () => {
+    const sdp = [
+      'v=0',
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+      'a=rtpmap:111 opus/48000/2',
+      'a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=32000',
+      '',
+    ].join('\r\n');
+
+    const result = forceStereoSdp(sdp);
+
+    expect(result).toContain(
+      'a=fmtp:111 minptime=10; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1',
+    );
+  });
+
+  it('adds an fmtp line when opus has none', () => {
+    const sdp = [
+      'v=0',
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+      'a=rtpmap:111 opus/48000/2',
+      '',
+    ].join('\r\n');
+
+    const result = forceStereoSdp(sdp);
+
+    expect(result).toContain(
+      'a=fmtp:111 stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1',
+    );
   });
 });
 

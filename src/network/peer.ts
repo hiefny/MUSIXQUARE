@@ -18,7 +18,7 @@ import {
   TRANSFER_STATE,
   PLAYBACK_STATE,
 } from '../core/constants.ts';
-import { clearAllManagedTimers, setManagedTimer } from '../core/timers.ts';
+import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
@@ -285,18 +285,40 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
   // Wait for open (or fail fast on error)
   const id = await new Promise<string>((resolve, reject) => {
-    const onOpen = (id: string) => {
+    let settled = false;
+    const cleanup = () => {
+      clearManagedTimer('peer-open-timeout');
       newPeer.off('open', onOpen);
       newPeer.off('error', onError);
+    };
+    const onOpen = (id: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       resolve(id);
     };
     const onError = (err: unknown) => {
-      newPeer.off('open', onOpen);
-      newPeer.off('error', onError);
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(err);
     };
     newPeer.on('open', onOpen);
     newPeer.on('error', onError);
+
+    // Cloudflare guest peers can be locally ready before initNetwork attaches
+    // this waiter. PeerJS normally opens asynchronously, but the transport
+    // facade must tolerate either timing so setup never waits forever.
+    if (newPeer.open && newPeer.id) {
+      onOpen(newPeer.id);
+      return;
+    }
+
+    setManagedTimer(
+      'peer-open-timeout',
+      () => onError(new Error('PEER_OPEN_TIMEOUT')),
+      15000,
+    );
   });
 
   setState('network.myId', id);

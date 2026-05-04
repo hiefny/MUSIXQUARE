@@ -15,6 +15,7 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
+import { getRuntimeTransportConfig } from './transport/config.ts';
 import {
   cleanupWindowsAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -90,6 +91,10 @@ let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
 const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
+
+function shouldUseRealtimeSfu(): boolean {
+  return getRuntimeTransportConfig().provider !== 'cloudflare';
+}
 
 function buildCorrelationId(prefix: string): string {
   const room = getState('network.sessionCode') || getState('network.lastJoinCode') || 'session';
@@ -718,6 +723,8 @@ function handleSfuReady(
   data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY>,
   conn?: DataConnection,
 ): void {
+  if (!shouldUseRealtimeSfu()) return;
+
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (getState('network.connectionType') === 'local') return;
@@ -740,6 +747,7 @@ export function registerSystemAudioSfuListeners(): void {
   registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handleSfuReady);
 
   bus.on('system-audio:streams-ready', () => {
+    if (!shouldUseRealtimeSfu()) return;
     if (getState('network.appRole') !== 'host') return;
     if (!hasRemoteHostPeers()) {
       log.info('[SysAudioSFU] No remote peers; deferring SFU publish');
@@ -754,6 +762,7 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('orchestrator:peer-joined', (peerId: string) => {
+    if (!shouldUseRealtimeSfu()) return;
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (!isRemoteHostPeer(peerId)) {
@@ -769,6 +778,7 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('orchestrator:peer-evaluated', () => {
+    if (!shouldUseRealtimeSfu()) return;
     if (!isSystemAudioActive()) return;
     if (getState('network.appRole') !== 'host') return;
     if (!hasRemoteHostPeers()) cleanupHostSfu();

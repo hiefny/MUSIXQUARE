@@ -19,6 +19,7 @@ import { broadcast, safeSend } from './peer-state.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
+const ENABLE_WINDOWS_SFU_AUDIO_DECODER_PRIMER = true;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -83,6 +84,7 @@ let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
+const guestDecoderPrimers = new Map<Channel, { element: HTMLAudioElement; streamKey: string }>();
 
 function buildCorrelationId(prefix: string): string {
   const room = getState('network.sessionCode') || getState('network.lastJoinCode') || 'session';
@@ -94,6 +96,71 @@ function buildTrackName(channel: Channel): string {
   const room = getState('network.sessionCode') || 'session';
   const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
   return `mxqr-system-audio-${room}-${channel}-${id}`.slice(0, 160);
+}
+
+function isWindowsDesktop(): boolean {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = nav.userAgentData?.platform || navigator.platform || '';
+  return /windows/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
+}
+
+function cleanupGuestDecoderPrimer(channel: Channel): void {
+  const primer = guestDecoderPrimers.get(channel);
+  if (!primer) return;
+
+  try {
+    primer.element.pause();
+  } catch {
+    /* noop */
+  }
+  try {
+    primer.element.srcObject = null;
+  } catch {
+    /* noop */
+  }
+  try {
+    primer.element.remove();
+  } catch {
+    /* noop */
+  }
+
+  guestDecoderPrimers.delete(channel);
+}
+
+function cleanupGuestDecoderPrimers(): void {
+  cleanupGuestDecoderPrimer('L');
+  cleanupGuestDecoderPrimer('R');
+}
+
+function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack): void {
+  if (!ENABLE_WINDOWS_SFU_AUDIO_DECODER_PRIMER) return;
+  if (!isWindowsDesktop()) return;
+
+  const streamKey = `${channel}:${track.id}`;
+  const existing = guestDecoderPrimers.get(channel);
+  if (existing?.streamKey === streamKey) return;
+
+  cleanupGuestDecoderPrimer(channel);
+
+  const audioEl = document.createElement('audio');
+  audioEl.autoplay = true;
+  audioEl.controls = false;
+  audioEl.volume = 0;
+  audioEl.setAttribute('playsinline', 'true');
+  audioEl.preload = 'auto';
+  audioEl.srcObject = new MediaStream([track]);
+  audioEl.dataset.mxqrSystemAudio = 'sfu-windows-decoder-primer';
+  audioEl.style.display = 'none';
+  document.body.appendChild(audioEl);
+
+  guestDecoderPrimers.set(channel, { element: audioEl, streamKey });
+
+  audioEl
+    .play()
+    .then(() => log.info(`[SysAudioSFU] Windows WebRTC audio decoder primed (${channel})`))
+    .catch((error) =>
+      log.warn('[SysAudioSFU] Windows WebRTC audio decoder primer blocked:', error),
+    );
 }
 
 function getRealtimeEndpoints(): string[] {
@@ -456,6 +523,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
     }
   }
 
+  primeWindowsSfuAudioDecoder(channel, track);
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   source.connect(guestMerger, 0, channel === 'L' ? 0 : 1);
   if (channel === 'L') guestSourceL = source;
@@ -495,6 +563,7 @@ function cleanupGuestSfu(updateState = true): void {
     }
     guestMerger = null;
   }
+  cleanupGuestDecoderPrimers();
   if (guestPc) {
     guestPc.close();
     guestPc = null;

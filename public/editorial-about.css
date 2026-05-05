@@ -1,249 +1,4 @@
-/* MUSIXQUARE landing — mirrors the main app's design system directly.
-   Geometric. Dark. Minimal. No invented tokens. */
-
-:root {
-  --bg: #121212;
-  --surface-1: #1A1A1A;
-  --surface-2: #262626;
-  --surface-3: #404040;
-  --text-main: #ffffff;
-  --text-sub: #a1a1aa;
-  --text-muted: #71717a;
-  --primary: #3b82f6;
-  --radius-s: 14px;
-  --radius-m: 20px;
-  --glass-bg: rgba(38, 38, 38, 0.75);
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --dur-fast: 0.2s;
-  --dur-base: 0.3s;
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --header-h: calc(60px + var(--safe-top));
-  --tabs-h: 46px;
-  --hairline-scale: 1;
-  --pad-x: 48px;
-  --max-w: 1440px;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text-main);
-  font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 16px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  overflow-x: clip;
-}
-
-body {
-  padding-bottom: calc(80px + var(--safe-bottom));
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-svg {
-  display: block;
-}
-
-/* ── Header ─────────────────────────────────────────────── */
-
-.lp-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--header-h);
-  padding: var(--safe-top) calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  z-index: 100;
-  overflow: hidden;
-  animation:
-    lp-header-fade 0.6s cubic-bezier(0.22, 1, 0.36, 1) both,
-    lp-header-slide 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes lp-header-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes lp-header-slide {
-  from { transform: translateY(-20px); }
-  to { transform: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-header {
-    animation: none;
-  }
-}
-
-/* Mirrors the main app's .header-progress-bg — fills header height-wise,
-   animates width to match scroll position. */
-.lp-header-progress {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 0;
-  background-color: var(--primary);
-  opacity: 0.15;
-  z-index: 0;
-  pointer-events: none;
-  transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.lp-logo {
-  position: relative;
-  z-index: 1;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  color: var(--text-main);
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-
-.lp-logo:hover {
-  opacity: 0.7;
-}
-
-.lp-logo svg {
-  height: 16px;
-  width: auto;
-}
-
-/* Mirror the main app's .role-badge.connected pill (HOST/GUEST style). */
-.lp-try {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: var(--primary);
-  color: #fff;
-  border-radius: 100px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  position: relative;
-  z-index: 1;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-
-.lp-try__dot {
-  width: 6px;
-  height: 6px;
-  background: #fff;
-  border-radius: 50%;
-}
-
-.lp-try:hover {
-  opacity: 0.86;
-}
-
-.lp-try:active {
-  transform: scale(0.98);
-}
-
-.editorial-site-tabs {
-  position: fixed;
-  left: 50%;
-  right: auto;
-  bottom: calc(14px + var(--safe-bottom));
-  width: max-content;
-  max-width: calc(100% - 28px);
-  height: auto;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 0;
-  transform: translateX(-50%);
-  z-index: 120;
-}
-
-.editorial-site-tabs__inner {
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 5px;
-  overflow-x: auto;
-  border: 0;
-  border-radius: 100px;
-  background: rgba(26, 26, 26, 0.78);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  scrollbar-width: none;
-}
-
-.editorial-site-tabs__inner::-webkit-scrollbar {
-  display: none;
-}
-
-.editorial-site-tab {
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  height: 40px;
-  padding: 0 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 100px;
-  color: var(--text-sub);
-  font-size: 12px;
-  font-weight: 650;
-  font-synthesis: none;
-  letter-spacing: 0;
-  line-height: 1;
-  white-space: nowrap;
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
-}
-
-.editorial-site-tab[href="/about"] {
-  width: 72px;
-}
-
-.editorial-site-tab[href="/history"] {
-  width: 80px;
-}
-
-.editorial-site-tab[href="/designsystem"] {
-  width: 78px;
-}
-
-.editorial-site-tab:hover {
-  color: var(--text-main);
-  background: rgba(255, 255, 255, 0.055);
-}
-
-.editorial-site-tab.is-active {
-  color: #121212;
-  background: #fff;
-  font-weight: 800;
-}
-
-/* ── Layout ─────────────────────────────────────────────── */
+/* MUSIXQUARE about page. */
 
 main {
   padding-top: var(--header-h);
@@ -331,9 +86,6 @@ main {
   object-fit: cover;
 }
 
-/* Right-side thickness — inset top/bottom by the frame's border-radius so the
-   strip only covers the straight middle section and doesn't poke past the
-   rounded corners. */
 .lp-phone-3d__side {
   position: absolute;
   top: 36px;
@@ -370,115 +122,6 @@ main {
   border-top: 1px solid var(--surface-2);
   height: 0;
 }
-
-/* ── Typography ─────────────────────────────────────────── */
-
-.lp-h1 {
-  font-size: clamp(44px, 8vw, 104px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 0.98;
-  margin: 0 0 28px -0.03em;
-  color: var(--text-main);
-}
-
-.lp-h2 {
-  font-size: clamp(36px, 5.5vw, 72px);
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.05;
-  margin: 0 0 28px -0.03em;
-  color: var(--text-main);
-}
-
-.lp-lead {
-  font-size: 17px;
-  line-height: 1.55;
-  color: var(--text-sub);
-  max-width: 540px;
-  margin: 0 0 40px;
-  font-weight: 400;
-}
-
-.lp-hero .lp-lead {
-  line-height: 1.6;
-  margin-bottom: 34px;
-  font-weight: 500;
-}
-
-/* ── Buttons ────────────────────────────────────────────── */
-
-.lp-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 48px;
-  padding: 0 20px 0 28px;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: normal;
-  border-radius: 100px;
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: var(--text-main);
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-  cursor: pointer;
-}
-
-.lp-btn__arrow {
-  display: inline-block;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.lp-btn:hover .lp-btn__arrow--down {
-  transform: translateY(2px);
-}
-
-.lp-btn:hover .lp-btn__arrow--right {
-  transform: translateX(2px);
-}
-
-.lp-btn:hover {
-  opacity: 0.86;
-}
-
-.lp-btn:active {
-  transform: scale(0.98);
-}
-
-.lp-btn--ghost {
-  background: transparent;
-  color: var(--text-main);
-  border-color: var(--surface-3);
-}
-
-.lp-btn--ghost:hover {
-  opacity: 1;
-  border-color: var(--text-main);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.lp-btn--solid {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #121212;
-}
-
-.lp-btn--lg {
-  height: 56px;
-  padding: 0 28px 0 36px;
-  font-size: 15px;
-}
-
-.lp-btn-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-/* ── Device array (section 01) ──────────────────────────── */
 
 .lp-array {
   display: grid;
@@ -543,8 +186,6 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Split section (copy left, aside right on desktop) ──── */
-
 .lp-section--split {
   display: grid;
   grid-template-columns: 1fr;
@@ -573,8 +214,6 @@ main {
   margin: 0 auto;
 }
 
-/* ── QR code ────────────────────────────────────────────── */
-
 .lp-qr {
   width: 100%;
   aspect-ratio: 1;
@@ -592,8 +231,6 @@ main {
   fill: var(--text-main);
   stroke: var(--text-main);
 }
-
-/* ── Copy invite link button ────────────────────────────── */
 
 .lp-copy-link {
   display: flex;
@@ -629,8 +266,6 @@ main {
   transform: scale(0.97);
 }
 
-/* ── Toast (mirrors main app) ───────────────────────────── */
-
 .lp-toast {
   position: fixed;
   bottom: 40px;
@@ -665,8 +300,6 @@ main {
     transform 0.7s cubic-bezier(0.08, 0.82, 0.17, 1.15);
 }
 
-/* ── Room code display (section 02) ─────────────────────── */
-
 .lp-code {
   display: flex;
   flex-wrap: wrap;
@@ -697,8 +330,6 @@ main {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
-
-/* ── Sync panel (section 03 aside) ──────────────────────── */
 
 .lp-sync {
   width: 100%;
@@ -797,8 +428,6 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Spec list (section 03) ─────────────────────────────── */
-
 .lp-specs {
   margin: 16px 0 0;
   padding: 0;
@@ -837,8 +466,6 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Stand-in diagram (section: no speakers) ─────────────── */
-
 .lp-standin {
   width: 100%;
   display: flex;
@@ -851,8 +478,7 @@ main {
   width: 100%;
   max-width: 380px;
   height: auto;
-  /* Allow sound waves between phones and the computer to extend without
-     being clipped. */
+  
   overflow: visible;
 }
 
@@ -862,7 +488,6 @@ main {
   stroke: none;
 }
 
-/* Silent computer — dim, no fill, just an outline */
 .lp-standin__computer rect,
 .lp-standin__computer path {
   fill: none;
@@ -878,7 +503,6 @@ main {
   opacity: 1;
 }
 
-/* Active phones — primary outline, glowing screen */
 .lp-standin__phone > rect:first-child {
   fill: none;
   stroke: var(--primary);
@@ -891,12 +515,10 @@ main {
   stroke: none;
 }
 
-/* EQ bars: primary, static in the stand-in diagram */
 .lp-standin__eq rect {
   fill: var(--primary);
 }
 
-/* Captions under each device */
 .lp-standin__caption {
   font-family: inherit;
   font-size: 9px;
@@ -913,8 +535,6 @@ main {
   letter-spacing: 0.22em;
 }
 
-/* ── CTA ────────────────────────────────────────────────── */
-
 .lp-cta {
   align-items: center;
   min-height: 90vh;
@@ -925,7 +545,6 @@ main {
   padding-bottom: clamp(180px, 18vw, 280px);
 }
 
-/* Boost the CTA headline to match the hero H1 scale. */
 .lp-cta .lp-h2 {
   font-size: clamp(56px, 9vw, 128px);
   line-height: 0.95;
@@ -954,8 +573,6 @@ main {
   z-index: 0;
 }
 
-/* Top-left: shows "MUSIX" — right half overflows past the section.
-   SVG is 2× section width, left-aligned, so only x=0..50% of the mark is visible. */
 .lp-cta__wordmark--top {
   left: 0;
   top: -3vw;
@@ -963,7 +580,6 @@ main {
   transform: translateX(3vw) !important;
 }
 
-/* Bottom-right: shows "QUARE" — mirror of top. */
 .lp-cta__wordmark--bottom {
   right: 0;
   bottom: -5vw;
@@ -996,82 +612,12 @@ main {
   }
 }
 
-/* ── Footer ─────────────────────────────────────────────── */
-
-.lp-footer {
-  position: relative;
-  border-top: 0;
-  padding: 32px var(--pad-x);
-}
-
-.lp-footer::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 100vw;
-  height: 1px;
-  background: var(--surface-2);
-  transform: translateX(-50%) scaleY(var(--hairline-scale));
-  transform-origin: top center;
-}
-
-.lp-footer__inner {
-  max-width: var(--max-w);
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  line-height: normal;
-  gap: 22px;
-  flex-wrap: wrap;
-}
-
-.lp-footer__copy {
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.lp-footer__contact {
-  color: inherit;
-  text-decoration: none;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-
-.lp-footer__contact:hover {
-  color: var(--text-main);
-}
-
-.lp-footer__nav {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.lp-footer__nav a {
-  color: var(--text-sub);
-  transition: color var(--dur-fast) var(--ease-out);
-}
-
-.lp-footer__nav a:hover {
-  color: var(--text-main);
-}
-
-/* ── Remote / Chat bubble demo ──────────────────────────── */
-
 .lp-caveat {
   margin: 16px 0 0;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.5;
 }
-
-/* ── 3D extruded chat (section: remote) ─────────────────── */
 
 .lp-chat {
   position: relative;
@@ -1151,8 +697,6 @@ main {
   text-underline-offset: 2px;
   font-weight: 600;
 }
-
-/* ── Bubble base + 3D extrusion ─────────────────────────── */
 
 .lp-chat-bubble {
   position: relative;
@@ -1275,7 +819,6 @@ main {
     20px 30px 40px -12px rgba(0, 0, 0, 0.45);
 }
 
-/* Pinned bubble inner */
 .lp-chat-pin__label {
   font-size: 10px;
   font-weight: 800;
@@ -1289,7 +832,6 @@ main {
   line-height: 1.3;
 }
 
-/* YouTube card inner */
 .lp-chat-yt__row {
   display: flex;
   align-items: center;
@@ -1318,8 +860,6 @@ main {
   overflow: hidden;
 }
 
-/* Stagger groups when the section reveals (opacity-only — bubble tilt
-   lives on transform, so a Y-offset would clash with the rotateX/Y). */
 .lp-section--remote .lp-chat > .lp-chat-group {
   opacity: 0;
   transition: opacity 600ms var(--ease-out);
@@ -1334,9 +874,6 @@ main {
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(3) { transition-delay: 520ms; }
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(4) { transition-delay: 780ms; }
 .lp-section--remote.is-visible .lp-chat > .lp-chat-group:nth-child(5) { transition-delay: 960ms; }
-
-/* ── Flat (2D) variant — toggled by JS ~2s after the section reveals ──
-   Mirrors the pre-3D bubble look (solid colors, small tail radius). */
 
 .lp-chat--flat .lp-chat-bubble {
   transform: none;
@@ -1394,10 +931,6 @@ main {
   color: #ffc107;
 }
 
-/* Flat-mode grouped tails — connect consecutive rows in a group so the
-   speaker-side corners go from "tail" (single) to "merged" (middle) to
-   "kick-out" (last). Mine = right side, others = left side. */
-
 .lp-chat--flat .lp-chat-row + .lp-chat-row:not(:last-child) .lp-chat-bubble--mine {
   border-top-right-radius: 4px;
   border-bottom-right-radius: 4px;
@@ -1418,7 +951,6 @@ main {
   border-bottom-left-radius: 14px;
 }
 
-/* YT card sits on the mine (right) side — mirror the mine tail logic */
 .lp-chat--flat .lp-chat-group--mine .lp-chat-row + .lp-chat-row .lp-chat-bubble--yt {
   border-top-right-radius: 4px;
 }
@@ -1437,40 +969,6 @@ main {
   }
 }
 
-/* ── Reveal (staggered children) ────────────────────────── */
-
-[data-animate]>* {
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out);
-}
-
-[data-animate].is-visible>* {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-[data-animate].is-visible>*:nth-child(1) {
-  transition-delay: 0ms;
-}
-
-[data-animate].is-visible>*:nth-child(2) {
-  transition-delay: 80ms;
-}
-
-[data-animate].is-visible>*:nth-child(3) {
-  transition-delay: 160ms;
-}
-
-[data-animate].is-visible>*:nth-child(4) {
-  transition-delay: 240ms;
-}
-
-[data-animate].is-visible>*:nth-child(5) {
-  transition-delay: 320ms;
-}
-
-/* Device-array inner stagger (fires once the section is revealed) */
 .lp-array>* {
   opacity: 0;
   transform: translateY(12px);
@@ -1495,7 +993,6 @@ main {
   transition-delay: 480ms;
 }
 
-/* Hero copy inner stagger */
 .lp-hero__copy>*,
 .lp-split__copy>* {
   opacity: 0;
@@ -1556,8 +1053,6 @@ main {
   transition-delay: 40ms;
 }
 
-/* ── Responsive ─────────────────────────────────────────── */
-
 @media (max-width: 720px) {
   :root {
     --pad-x: 24px;
@@ -1577,7 +1072,7 @@ main {
     font-size: 16px;
   }
 
-  /* Two-row device array: phones on top, laptop spans below. */
+  
   .lp-array {
     grid-template-columns: 1fr 1fr;
     grid-template-areas:
@@ -1616,7 +1111,7 @@ main {
     border-radius: 14px;
   }
 
-  /* Phones reveal together, laptop last */
+  
   [data-animate].is-visible .lp-array>*:nth-child(1) {
     transition-delay: 320ms;
   }
@@ -1629,17 +1124,17 @@ main {
     transition-delay: 480ms;
   }
 
-  /* Phones: aside scales down but chat/sync need a touch more room than QR */
+  
   .lp-split__aside {
     max-width: 300px;
   }
 
-  /* QR aside stays tighter — QR+copy-link look better compact */
+  
   .lp-section--code .lp-split__aside {
     max-width: 280px;
   }
 
-  /* Sync panel more compact on mobile */
+  
   .lp-sync {
     padding: 28px 22px;
     gap: 22px;
@@ -1681,98 +1176,4 @@ main {
   .lp-lang-divider {
     display: none;
   }
-}
-
-@media (max-width: 420px) {
-  .editorial-site-tabs {
-    width: calc(100% - 24px);
-  }
-
-  .editorial-site-tabs__inner {
-    width: 100%;
-  }
-
-  .editorial-site-tab {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
-    padding: 0 10px;
-  }
-
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* ── Korean overrides ────────────────────────────────────
-   Pretendard Hangul has wider per-character width than Latin and looks
-   pinched at Latin tracking. Cap the display sizes so headlines stay
-   on the intended 2-line layout, and loosen the negative letter-spacing.
-   Triggered by <html lang="ko">, set synchronously by the head detection
-   script before first paint. */
-
-:lang(ko) .lp-h1 {
-  letter-spacing: -0.025em;
-  font-size: clamp(44px, 7vw, 88px);
-  line-height: 1.25;
-}
-
-:lang(ko) .lp-h2 {
-  letter-spacing: -0.02em;
-  font-size: clamp(32px, 4.6vw, 60px);
-  line-height: 1.2;
-}
-
-:lang(ko) .lp-cta .lp-h2 {
-  letter-spacing: -0.025em;
-  font-size: clamp(52px, 8vw, 104px);
-  line-height: 1.05;
-}
-
-/* Korean headlines: never break inside a word. Mobile-narrow CTAs like
-   "지금 시작해봐요!" otherwise split as "지금 시작해봐 / 요!" with the
-   trailing "요!" orphaned. keep-all forces the wrap to land on the space
-   between word groups instead. */
-:lang(ko) .lp-h1,
-:lang(ko) .lp-h2 {
-  word-break: keep-all;
-}
-
-:lang(ko) .lp-lead {
-  letter-spacing: 0;
-}
-
-/* ── Language toggle (footer) ─────────────────────────── */
-
-.lp-lang-divider {
-  color: var(--text-muted);
-  user-select: none;
-}
-
-.lp-lang-btn {
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-sub);
-  cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-
-.lp-lang-btn:hover {
-  color: var(--text-main);
-}
-
-.lp-lang-btn.is-active {
-  color: var(--text-main);
-  font-weight: 600;
 }

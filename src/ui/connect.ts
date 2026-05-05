@@ -365,7 +365,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   ].filter(Boolean) as HTMLElement[];
 
   containers.forEach((container) => {
-    container.innerHTML = '';
+    container.replaceChildren();
 
     list.forEach((p) => {
       const row = document.createElement('div');

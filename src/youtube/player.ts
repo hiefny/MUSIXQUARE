@@ -301,7 +301,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   }
 
   const container = document.getElementById('youtube-player-container');
-  if (container) container.innerHTML = '';
+  if (container) container.replaceChildren();
 
   // Remove iOS sync overlay if present (prevents orphaned overlay on mode exit)
   const iosOverlay = document.getElementById('youtube-ios-sync-overlay');

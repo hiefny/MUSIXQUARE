@@ -123,8 +123,8 @@ function _restoreDesktopDiagram(): void {
   _desktopSyncedDiagramNextSibling = null;
   const hc = document.getElementById('desktop-step-header');
   const dc = document.getElementById('desktop-diagram-area');
-  if (hc) hc.innerHTML = '';
-  if (dc) dc.innerHTML = '';
+  if (hc) hc.replaceChildren();
+  if (dc) dc.replaceChildren();
 }
 
 export function syncDesktopLeftPanel(): void {
@@ -150,8 +150,8 @@ export function syncDesktopLeftPanel(): void {
     _desktopSyncedDiagramParent = null;
     _desktopSyncedDiagramNextSibling = null;
   }
-  diagramContainer.innerHTML = '';
-  headerContainer.innerHTML = '';
+  diagramContainer.replaceChildren();
+  headerContainer.replaceChildren();
 
   const areas: Array<{ id: string; diagram: (el: HTMLElement) => HTMLElement | null }> = [
     { id: 'setup-welcome-area', diagram: () => document.getElementById('ob-slider-area') },
@@ -332,7 +332,7 @@ export function setupRenderActions(
 ): void {
   const area = setupEl('setup-actions');
   if (!area) return;
-  area.innerHTML = '';
+  area.replaceChildren();
 
   area.classList.remove('vertical', 'horizontal-with-back');
   if (layout === 'vertical') area.classList.add('vertical');

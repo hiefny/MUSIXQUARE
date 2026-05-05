@@ -69,6 +69,12 @@ import {
 import type { YTNamespace } from './_state.ts';
 declare const YT: YTNamespace;
 
+function resetYouTubePlayerHost(container: HTMLElement): void {
+  const playerHost = document.createElement('div');
+  playerHost.id = 'youtube-player';
+  container.replaceChildren(playerHost);
+}
+
 // ─── Iframe Runtime State ─────────────────────────────────────────
 // All mutable iframe-layer module state in one place. Previously scattered
 // as individual `let` bindings; grouping them exposes the full set of
@@ -203,7 +209,7 @@ export function loadYouTubeVideo(
       }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
-      if (container) container.innerHTML = '<div id="youtube-player"></div>';
+      if (container) resetYouTubePlayerHost(container);
     }
     // Stop existing media BEFORE creating new scope/session — otherwise
     // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
@@ -238,7 +244,7 @@ export function loadYouTubeVideo(
   }
 
   if (!getYouTubePlayer()) {
-    container.innerHTML = '<div id="youtube-player"></div>';
+    resetYouTubePlayerHost(container);
   }
 
   const w = window as unknown as Record<string, unknown>;
@@ -440,7 +446,7 @@ function createYouTubePlayer(
       }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
-      if (container) container.innerHTML = '<div id="youtube-player"></div>';
+      if (container) resetYouTubePlayerHost(container);
     }
   }
 
@@ -991,7 +997,7 @@ function updateYouTubeUI(): void {
       }
       setYouTubePlayer(null);
       const container = document.getElementById('youtube-player-container');
-      if (container) container.innerHTML = '<div id="youtube-player"></div>';
+      if (container) resetYouTubePlayerHost(container);
       showToast(t('youtube.load_fail'));
       // Reload the same video
       if (videoId || playlistId) {
@@ -1320,12 +1326,21 @@ function showYouTubeSyncOverlay(show: boolean): void {
           }
         }
       };
-      overlay.innerHTML = `
-        <div style="background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M8 5v14l11-7z"/></svg>
-          ${t('youtube.tap_to_play')}
-        </div>
-      `;
+      const chip = document.createElement('div');
+      chip.style.cssText =
+        'background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;';
+
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('width', '20');
+      icon.setAttribute('height', '20');
+      icon.setAttribute('fill', 'white');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M8 5v14l11-7z');
+      icon.appendChild(path);
+
+      chip.append(icon, document.createTextNode(t('youtube.tap_to_play')));
+      overlay.replaceChildren(chip);
       const wrapper = document.querySelector('.video-wrapper');
       if (wrapper) wrapper.appendChild(overlay);
     }

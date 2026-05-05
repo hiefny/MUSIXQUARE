@@ -436,7 +436,7 @@ export function renderDeviceList(list: Array<Record<string, unknown>>): void {
   const container = document.getElementById('device-list');
   if (!container) return;
 
-  container.innerHTML = '';
+  container.replaceChildren();
 
   list.forEach((p) => {
     const row = document.createElement('div');

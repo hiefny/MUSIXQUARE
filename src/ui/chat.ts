@@ -14,7 +14,6 @@ import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { sendToHost } from '../network/peer.ts';
-import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import {
@@ -265,7 +264,7 @@ export function sendChatMessage(): void {
   const cmd = parseCommand(text);
   if (cmd) {
     input.contentEditable = 'false';
-    input.innerHTML = '';
+    input.replaceChildren();
     void input.offsetHeight; // Force reflow
     input.contentEditable = 'true';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -348,12 +347,12 @@ export function sendChatMessage(): void {
   const dummy = document.getElementById('chat-ime-dummy') as HTMLInputElement | null;
   if (dummy) {
     dummy.focus();
-    input.innerHTML = '';
+    input.replaceChildren();
     input.focus();
   } else {
     // Fallback for unexpected DOM: legacy toggle (leak still possible on iOS).
     input.contentEditable = 'false';
-    input.innerHTML = '';
+    input.replaceChildren();
     void input.offsetHeight;
     input.contentEditable = 'true';
     input.focus();
@@ -530,7 +529,13 @@ export function initChat(): void {
           // Remove already-filled arg hints
           const remaining = hintParts.slice(typedArgs.length);
           if (remaining.length > 0) {
-            ghost.innerHTML = `<span class="chat-cmd-ghost-typed">${escapeHtml(val)}</span><span class="chat-cmd-ghost-hint">${escapeHtml(remaining.join(' '))}</span>`;
+            const typed = document.createElement('span');
+            typed.className = 'chat-cmd-ghost-typed';
+            typed.textContent = val;
+            const hintNode = document.createElement('span');
+            hintNode.className = 'chat-cmd-ghost-hint';
+            hintNode.textContent = remaining.join(' ');
+            ghost.replaceChildren(typed, hintNode);
             ghost.style.display = '';
             return;
           }
@@ -549,12 +554,24 @@ export function initChat(): void {
         suggest.style.display = 'none';
         return;
       }
-      suggest.innerHTML = items
-        .map(
-          (it, i) =>
-            `<div class="chat-cmd-item${i === 0 ? ' active' : ''}" data-idx="${i}"><span class="chat-cmd-usage">${escapeHtml(it.usage)}</span> <span class="chat-cmd-desc">${escapeHtml(it.description)}</span></div>`,
-        )
-        .join('');
+      suggest.replaceChildren(
+        ...items.map((it, i) => {
+          const item = document.createElement('div');
+          item.className = `chat-cmd-item${i === 0 ? ' active' : ''}`;
+          item.dataset.idx = String(i);
+
+          const usage = document.createElement('span');
+          usage.className = 'chat-cmd-usage';
+          usage.textContent = it.usage;
+
+          const desc = document.createElement('span');
+          desc.className = 'chat-cmd-desc';
+          desc.textContent = it.description;
+
+          item.append(usage, document.createTextNode(' '), desc);
+          return item;
+        }),
+      );
       suggest.style.display = '';
     }
 
@@ -775,7 +792,7 @@ export function initChat(): void {
   _busScope.on('chat:clear-all', () => {
     const container = document.getElementById('chat-messages');
     if (container) {
-      container.innerHTML = '';
+      container.replaceChildren();
       addSystemChatMessage(t('chat.cmd_clear'));
     }
     clearLatestPinnedNotice();

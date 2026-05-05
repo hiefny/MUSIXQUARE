@@ -366,15 +366,15 @@ export function resetState(): void {
 
 // ─── E2E Test Hook ─────────────────────────────────────────────────
 // Expose getState/setState/bus as a test observation + drive-through hook.
-// These are read-only (getState) or write-through (setState, which the app
-// itself calls internally) handles — they don't grant the test any
-// capability the app doesn't already have. The hooks are a few bytes each
-// and enable deterministic Playwright assertions against state transitions
-// without having to scrape the DOM. Previously gated by
-// `import.meta.env.DEV`, but that stripped them from preview/production
-// builds — which is exactly when the e2e suite runs — so the gate was
-// silently defeating its own purpose.
-if (typeof window !== 'undefined') {
+// Keep these out of the normal production bundle: if an XSS ever lands, these
+// globals would amplify it into easy app-state/event manipulation. E2E builds
+// opt in via `vite build --mode e2e`; local dev keeps the convenience hooks.
+const SHOULD_EXPOSE_TEST_HOOKS =
+  import.meta.env.DEV ||
+  import.meta.env.MODE === 'e2e' ||
+  import.meta.env.VITE_MUSIXQUARE_TEST_HOOKS === '1';
+
+if (typeof window !== 'undefined' && SHOULD_EXPOSE_TEST_HOOKS) {
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ = getState;
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ = setState;
   (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ = bus;

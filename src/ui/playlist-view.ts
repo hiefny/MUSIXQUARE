@@ -101,11 +101,14 @@ export function updatePlaylistUI(): void {
 
   // Preserve scroll position across rebuild
   const savedScrollTop = ul.scrollTop;
-  ul.innerHTML = '';
+  ul.replaceChildren();
   if (playlist.length === 0) {
     const isHost = !getState('network.hostConn');
     const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
-    ul.innerHTML = `<li class="list-empty-state">${escapeHtml(t(key))}</li>`;
+    const empty = document.createElement('li');
+    empty.className = 'list-empty-state';
+    empty.textContent = t(key);
+    ul.replaceChildren(empty);
     return;
   }
 
@@ -202,11 +205,13 @@ export function updatePlaylistUI(): void {
             subData.titles && subData.titles[sIdx]
               ? subData.titles[sIdx]
               : t('playlist.video_fallback', { idx: sIdx + 1 });
-          sli.innerHTML = `
-            <span class="sub-idx">${sIdx + 1}</span>
-            <span class="sub-name">${escapeHtml(sTitle)}</span>
-
-          `;
+          const subIdx = document.createElement('span');
+          subIdx.className = 'sub-idx';
+          subIdx.textContent = String(sIdx + 1);
+          const subName = document.createElement('span');
+          subName.className = 'sub-name';
+          subName.textContent = sTitle;
+          sli.replaceChildren(subIdx, subName);
 
           sli.onclick = (e) => {
             e.stopPropagation();
@@ -235,13 +240,22 @@ export function updatePlaylistUI(): void {
         if (subData.ids.length <= 1) {
           const hintLi = document.createElement('li');
           hintLi.className = 'sub-track-item loading';
-          hintLi.innerHTML = `<span class="sub-name">${escapeHtml(t('playlist.deferred_load_hint'))}</span>`;
+          const hint = document.createElement('span');
+          hint.className = 'sub-name';
+          hint.textContent = t('playlist.deferred_load_hint');
+          hintLi.replaceChildren(hint);
           subUl.appendChild(hintLi);
         }
       } else if (subData?.loadError) {
-        subUl.innerHTML = `<li class="sub-track-item error">${escapeHtml(t('playlist.sub_load_failed'))}</li>`;
+        const error = document.createElement('li');
+        error.className = 'sub-track-item error';
+        error.textContent = t('playlist.sub_load_failed');
+        subUl.replaceChildren(error);
       } else {
-        subUl.innerHTML = `<li class="sub-track-item loading">${escapeHtml(t('playlist.loading_info'))}</li>`;
+        const loading = document.createElement('li');
+        loading.className = 'sub-track-item loading';
+        loading.textContent = t('playlist.loading_info');
+        subUl.replaceChildren(loading);
       }
       ul.appendChild(subUl);
     }

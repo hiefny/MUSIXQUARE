@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
     "lint": "eslint src/",
@@ -18,10 +19,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "pretest:e2e": "npm run build:e2e",
     "test:e2e": "playwright test",
+    "pretest:e2e:report": "npm run build:e2e",
     "test:e2e:report": "playwright test --reporter=./e2e/live-reporter.ts,line",
     "test:report-viewer": "npx serve . -p 3333 -s",
-    "test:all": "vitest run && npm run build && playwright test"
+    "test:all": "vitest run && npm run build && npm run test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

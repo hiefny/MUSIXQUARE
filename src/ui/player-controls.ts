@@ -22,7 +22,6 @@ import {
   animateTransition,
   copyTextToClipboard,
   updateTitleWithMarquee,
-  escapeHtml,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
@@ -172,7 +171,10 @@ export function updateRoleBadge(): void {
     // from host broadcast in guest.ts:270/329. Without escape, a label like
     // "<svg onload=...>" (≤20 chars passes maxLength) would execute on the
     // labeled device's own role badge. Stored-XSS surface for guests too.
-    text.innerHTML = `${escapeHtml(label)} <span class="badge-ping">(${latency}ms)</span>`;
+    const ping = document.createElement('span');
+    ping.className = 'badge-ping';
+    ping.textContent = `(${latency}ms)`;
+    text.replaceChildren(document.createTextNode(`${label} `), ping);
     badge.classList.add('connected');
     if (getState('network.connectionType') === 'remote') {
       badge.classList.add('remote');

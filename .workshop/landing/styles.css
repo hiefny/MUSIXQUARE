@@ -797,37 +797,9 @@ main {
   stroke: none;
 }
 
-/* EQ bars — primary, animate with stagger */
+/* EQ bars: primary, static in the stand-in diagram */
 .lp-standin__eq rect {
   fill: var(--primary);
-  transform-box: fill-box;
-  transform-origin: bottom center;
-  animation: lp-standin-eq 1.4s ease-in-out infinite;
-}
-
-.lp-standin__eq rect:nth-child(2) {
-  animation-delay: 0.1s;
-}
-
-.lp-standin__eq rect:nth-child(3) {
-  animation-delay: 0.2s;
-}
-
-.lp-standin__eq rect:nth-child(4) {
-  animation-delay: 0.3s;
-}
-
-.lp-standin__eq rect:nth-child(5) {
-  animation-delay: 0.45s;
-}
-
-@keyframes lp-standin-eq {
-  0%, 100% {
-    transform: scaleY(0.4);
-  }
-  50% {
-    transform: scaleY(1);
-  }
 }
 
 /* Captions under each device */
@@ -845,13 +817,6 @@ main {
   fill: var(--text-muted);
   opacity: 0.55;
   letter-spacing: 0.22em;
-}
-
-/* Pause animations when reduced-motion is requested */
-@media (prefers-reduced-motion: reduce) {
-  .lp-standin__eq rect {
-    animation: none;
-  }
 }
 
 /* ── CTA ────────────────────────────────────────────────── */

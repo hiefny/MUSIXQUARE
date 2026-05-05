@@ -94,22 +94,142 @@
 # Case-variant redirects → canonical lowercase (301)
 [[redirects]]
   from = "/DESIGNSYSTEM"
-  to = "/designsystem/"
+  to = "/designsystem"
   status = 301
 
 [[redirects]]
   from = "/DESIGNSYSTEM/"
-  to = "/designsystem/"
+  to = "/designsystem"
   status = 301
 
 [[redirects]]
   from = "/DesignSystem"
-  to = "/designsystem/"
+  to = "/designsystem"
   status = 301
 
 [[redirects]]
   from = "/DesignSystem/"
-  to = "/designsystem/"
+  to = "/designsystem"
+  status = 301
+
+[[redirects]]
+  from = "/HISTORY"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/HISTORY/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/History"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/History/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/changelog"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/changelog/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/CHANGELOG"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/CHANGELOG/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/Changelog"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/Changelog/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/roadmap"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/roadmap/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/ROADMAP"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/ROADMAP/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/Roadmap"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/Roadmap/"
+  to = "/history"
+  status = 301
+
+[[redirects]]
+  from = "/ABOUT"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/ABOUT/"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/About"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/About/"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/LANDING"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/LANDING/"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/Landing"
+  to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/Landing/"
+  to = "/about"
   status = 301
 
 # SPA fallback: serve index.html for all routes

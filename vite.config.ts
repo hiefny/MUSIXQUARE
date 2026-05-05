@@ -17,17 +17,33 @@ const flattenLandingHtml = (): Plugin => ({
   },
 });
 
-// Lets `/about`, `/about/`, and `/about.html` resolve to the page
-// in dev the same way Netlify serves it in prod.
-const landingDevAlias = (): Plugin => ({
-  name: 'landing-dev-alias',
+// Lets local dev resolve public/canonical pages the same way Netlify does.
+const devPageAliases = (): Plugin => ({
+  name: 'dev-page-aliases',
   apply: 'serve',
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      const path = req.url?.split('?')[0];
-      if (path === '/about' || path === '/about/' || path === '/about.html') {
-        const q = req.url!.includes('?') ? '?' + req.url!.split('?')[1] : '';
-        req.url = '/.workshop/landing/landing.html' + q;
+      const rawUrl = req.url ?? '';
+      const queryStart = rawUrl.indexOf('?');
+      const pathname = queryStart === -1 ? rawUrl : rawUrl.slice(0, queryStart);
+      const query = queryStart === -1 ? '' : rawUrl.slice(queryStart);
+      const normalizedPath = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+
+      let target: string | null = null;
+      if (normalizedPath === '/about' || normalizedPath === '/about.html' || normalizedPath === '/landing') {
+        target = '/.workshop/landing/landing.html';
+      } else if (
+        normalizedPath === '/history' ||
+        normalizedPath === '/changelog' ||
+        normalizedPath === '/roadmap'
+      ) {
+        target = '/history/index.html';
+      } else if (normalizedPath === '/designsystem') {
+        target = '/designsystem/index.html';
+      }
+
+      if (target) {
+        req.url = target + query;
       }
       next();
     });
@@ -42,7 +58,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [flattenLandingHtml(), landingDevAlias()],
+  plugins: [flattenLandingHtml(), devPageAliases()],
   build: {
     outDir: 'dist',
     target: 'es2022',

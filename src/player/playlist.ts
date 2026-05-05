@@ -310,7 +310,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     void shareRemoteFileIfNeeded(file, sessionId, undefined, { index });
 
     // Reset host position to 0 and wait, mirroring the normal branch's UX
-    pause(0);
+    pause(0, { holdVisualizer: false });
     setState('player.pausedAt', 0);
 
     if (isFirstTrackLoad) {
@@ -565,7 +565,7 @@ function handleEndOfPlaylist(reason: string): void {
   // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
   // playback.lifecycle returns to IDLE in lockstep with guests.
   transition({ type: 'PAUSE', time: 0, endOfPlaylist: true });
-  broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true });
+  broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true, reason: 'end-of-playlist' });
   showToast(t('toast.playlist_ended'));
 }
 

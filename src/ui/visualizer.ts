@@ -135,7 +135,10 @@ const VIZ_SILENCE_THRESHOLD_DB = -100;
 const VIZ_SILENCE_SUSTAINED_MS = 1000;
 const VIZ_SILENCE_MAX_CAP_MS = 30_000;
 const VIZ_SILENCE_POLL_MS = 100;
+const VIZ_FADE_OUT_MS = 900;
 let _silenceFirstSeenAt = 0;
+let _holdNextPauseFrame = false;
+let _isHoldingPauseFrame = false;
 
 function stopVisualizerAndClear(): void {
   if (_animationId) {
@@ -144,16 +147,54 @@ function stopVisualizerAndClear(): void {
   }
   clearManagedTimer('viz-silence-poll');
   _silenceFirstSeenAt = 0;
-  // Intentionally NO clearRect: the silence-poll only stops once the
-  // analyser has been near-silent for 500ms, so the last drawn frame
-  // is already a tiny "idle" shape. clearing the canvas would leave a
-  // black void where the visualizer used to be — users read that as
-  // "the visualizer broke / disappeared". Leaving the residual silent
-  // frame keeps an idle visual on screen until playback resumes.
-  //
-  // Edge case: 30s hard-cap path with a disconnected analyser leaves
-  // whatever loud frame was last drawn frozen. That's still better
-  // than a black void, and the next playback will overwrite it.
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+}
+
+function fadeVisualizerOut(): void {
+  clearManagedTimer('viz-silence-poll');
+  _silenceFirstSeenAt = 0;
+  _holdNextPauseFrame = false;
+  _isHoldingPauseFrame = false;
+
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) {
+    stopVisualizerAndClear();
+    return;
+  }
+
+  if (_animationId) {
+    cancelAnimationFrame(_animationId);
+    _animationId = null;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  let startedAt = 0;
+
+  const fade = (now: number): void => {
+    if (!startedAt) startedAt = now;
+    const logicalW = canvas.width / dpr;
+    const logicalH = canvas.height / dpr;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+    ctx.fillRect(0, 0, logicalW, logicalH);
+    ctx.restore();
+
+    if (now - startedAt >= VIZ_FADE_OUT_MS) {
+      stopVisualizerAndClear();
+      return;
+    }
+
+    _animationId = requestAnimationFrame(fade);
+  };
+
+  _animationId = requestAnimationFrame(fade);
 }
 
 function scheduleVisualizerSilenceStop(): void {
@@ -166,7 +207,7 @@ function scheduleVisualizerSilenceStop(): void {
 
     const analyser = getEngineAnalyser();
     if (!analyser) {
-      stopVisualizerAndClear();
+      fadeVisualizerOut();
       return;
     }
 
@@ -183,7 +224,7 @@ function scheduleVisualizerSilenceStop(): void {
     if (isSilent) {
       if (!_silenceFirstSeenAt) _silenceFirstSeenAt = now;
       if (now - _silenceFirstSeenAt >= VIZ_SILENCE_SUSTAINED_MS) {
-        stopVisualizerAndClear();
+        fadeVisualizerOut();
         return;
       }
     } else {
@@ -191,7 +232,7 @@ function scheduleVisualizerSilenceStop(): void {
     }
 
     if (now - pollStart >= VIZ_SILENCE_MAX_CAP_MS) {
-      stopVisualizerAndClear();
+      fadeVisualizerOut();
       return;
     }
 
@@ -209,6 +250,10 @@ export function startVisualizer(): void {
   }
 
   clearManagedTimer('viz-retry');
+  clearManagedTimer('viz-silence-poll');
+  _silenceFirstSeenAt = 0;
+  _holdNextPauseFrame = false;
+  _isHoldingPauseFrame = false;
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -398,6 +443,10 @@ function drawSpectrumGrid(
 
 function startSpectrumVisualizer(): void {
   clearManagedTimer('viz-retry');
+  clearManagedTimer('viz-silence-poll');
+  _silenceFirstSeenAt = 0;
+  _holdNextPauseFrame = false;
+  _isHoldingPauseFrame = false;
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -560,7 +609,7 @@ export function initVisualizer(): void {
   _busScope.on('ui:visualizer-check', () => {
     const currentState = getState('appState');
     if (currentState === APP_STATE.PAUSED) {
-      // Keep last frame
+      if (!_isHoldingPauseFrame) fadeVisualizerOut();
     } else if (!_animationId) {
       startVisualizer();
     }
@@ -569,13 +618,18 @@ export function initVisualizer(): void {
   // Listen for playback state changes
   _busScope.on('state:appState', () => {
     const currentState = getState('appState');
-    if (currentState === APP_STATE.PAUSED) {
+    if (currentState === APP_STATE.PAUSED && _holdNextPauseFrame) {
       // PAUSED is a deliberate user action — freeze immediately so the
       // last frame stays visible until they press play again.
       if (_animationId) {
         cancelAnimationFrame(_animationId);
         _animationId = null;
       }
+      clearManagedTimer('viz-silence-poll');
+      _holdNextPauseFrame = false;
+      _isHoldingPauseFrame = true;
+    } else if (currentState === APP_STATE.PAUSED) {
+      fadeVisualizerOut();
     } else if (
       currentState === APP_STATE.PLAYING_AUDIO ||
       currentState === APP_STATE.PLAYING_YOUTUBE ||
@@ -585,11 +639,13 @@ export function initVisualizer(): void {
       // — we're playing again, the loop should keep running.
       clearManagedTimer('viz-silence-poll');
       _silenceFirstSeenAt = 0;
+      _holdNextPauseFrame = false;
+      _isHoldingPauseFrame = false;
       // Only spin up the rAF loop when there's actually audio to visualize.
       // Previously this branch fired for IDLE too — wasting frames during
       // landing/setup since the analyser had nothing to report.
       startVisualizer();
-    } else if (_animationId) {
+    } else {
       // IDLE / unknown — keep the rAF loop running until the analyser
       // actually goes silent, then stop. A fixed 800ms timeout was the
       // first try, but reverb tails can ring out for 10+ seconds and
@@ -599,13 +655,22 @@ export function initVisualizer(): void {
       // sustained window. Hard 30s cap as a safety net (analyser
       // can stay non-zero forever if the source was disconnected
       // without the data buffer being cleared).
-      scheduleVisualizerSilenceStop();
+      if (_animationId) scheduleVisualizerSilenceStop();
+      else fadeVisualizerOut();
     }
   });
 
   // Listen for visualizer start command from playback
   _busScope.on('visualizer:start', () => {
     startVisualizer();
+  });
+
+  _busScope.on('visualizer:hold-frame', () => {
+    _holdNextPauseFrame = true;
+  });
+
+  _busScope.on('visualizer:fade-out', () => {
+    fadeVisualizerOut();
   });
 
   // Visualizer mode switch

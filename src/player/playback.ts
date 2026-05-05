@@ -359,6 +359,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
 
   const time = Number(data.time) || 0;
   const endOfPlaylist = !!data.endOfPlaylist;
+  const reason = typeof data.reason === 'string' ? data.reason : undefined;
 
   // Lifecycle (Phase 3 dual-write): PAUSE is a global rule when
   // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
@@ -386,7 +387,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
     return;
   }
 
-  pause(time);
+  pause(time, { holdVisualizer: reason === undefined || reason === 'pause' });
 }
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {
@@ -442,7 +443,7 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
   pause();
-  broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
+  broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt'), reason: 'pause' });
 }
 
 function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection): void {
@@ -481,7 +482,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     });
   } else {
     setState('player.pausedAt', time);
-    broadcast({ type: MSG.PAUSE, time });
+    broadcast({ type: MSG.PAUSE, time, reason: 'seek' });
   }
   // SharedClock handles sync
 }
@@ -538,7 +539,7 @@ export function initPlayback(): void {
       log.debug(`[Guest] Deferring replay by ${delayMs}ms to match host autoPlayTimer`);
       // Pause locally so the old decoded buffer doesn't keep running, and
       // the guest shows a "lined up" UI while waiting for the host's rendezvous.
-      pause(0);
+      pause(0, { holdVisualizer: false });
       setManagedTimer('playback-replay-defer', doReplay, delayMs);
     } else {
       doReplay();
@@ -852,6 +853,7 @@ export function initPlayback(): void {
           index: currentTrackIndex,
           state: currentState,
           timestamp: Date.now(),
+          reason: currentState === APP_STATE.PAUSED ? 'pause' : 'stop',
         });
       }
       // YouTube state is handled by youtube/player.ts bootstrap

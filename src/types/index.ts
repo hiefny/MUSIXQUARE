@@ -241,6 +241,7 @@ export interface ProtocolMap {
     state?: AppStateValue;
     timestamp?: number;
     endOfPlaylist?: boolean;
+    reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
   };
   'play-preloaded': { index: number; name: string; mime?: string };
   'file-prepare': {
@@ -899,6 +900,8 @@ interface BaseEventMap {
 
   // ── Visualizer ────────────────────────────────────────────────────
   'visualizer:start': [];
+  'visualizer:hold-frame': [];
+  'visualizer:fade-out': [];
   'visualizer:set-type': [mode: 'circular' | 'spectrum'];
 
   // ── Worker ──────────────────────────────────────────────────────────

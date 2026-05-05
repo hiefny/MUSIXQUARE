@@ -11,7 +11,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
 } from '../_state.ts';
-import { stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
+import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
 
 beforeEach(() => {
   resetState();
@@ -73,6 +73,42 @@ describe('stopAllMedia', () => {
     setState('appState', 'PLAYING_AUDIO');
     stopAllMedia();
     expect(getState('appState')).toBe('IDLE');
+  });
+
+  it('requests visualizer fade-out instead of frame hold', () => {
+    const fade = vi.fn();
+    const hold = vi.fn();
+    bus.on('visualizer:fade-out', fade);
+    bus.on('visualizer:hold-frame', hold);
+
+    stopAllMedia({ silent: true });
+
+    expect(fade).toHaveBeenCalledTimes(1);
+    expect(hold).not.toHaveBeenCalled();
+  });
+});
+
+describe('pause', () => {
+  it('holds the current visualizer frame for an explicit pause', () => {
+    const hold = vi.fn();
+    bus.on('visualizer:hold-frame', hold);
+    setState('appState', 'PLAYING_AUDIO');
+
+    pause();
+
+    expect(hold).toHaveBeenCalledTimes(1);
+    expect(getState('appState')).toBe('PAUSED');
+  });
+
+  it('does not hold the visualizer for programmatic rendezvous pauses', () => {
+    const hold = vi.fn();
+    bus.on('visualizer:hold-frame', hold);
+    setState('appState', 'PLAYING_AUDIO');
+
+    pause(0, { holdVisualizer: false });
+
+    expect(hold).not.toHaveBeenCalled();
+    expect(getState('appState')).toBe('PAUSED');
   });
 });
 

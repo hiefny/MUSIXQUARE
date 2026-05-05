@@ -282,8 +282,9 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // on the guest side, and guests must not broadcast playback state.
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    broadcast({ type: MSG.PAUSE, time: 0 });
+    broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });
   }
+  bus.emit('visualizer:fade-out');
 }
 
 // ─── Seek ──────────────────────────────────────────────────────────
@@ -334,7 +335,7 @@ export function seekTo(time: number): void {
   } else {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
-    broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex });
+    broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex, reason: 'seek' });
   }
 }
 
@@ -547,7 +548,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
 // ─── Pause ─────────────────────────────────────────────────────────
 
-export function pause(forcedTime?: number): void {
+export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
   const currentState = getState('appState');
   if (isIdleOrPaused(currentState)) return;
 
@@ -560,6 +561,9 @@ export function pause(forcedTime?: number): void {
 
   stopPlayerNode();
 
+  if (opts?.holdVisualizer ?? forcedTime === undefined) {
+    bus.emit('visualizer:hold-frame');
+  }
   setAppState(APP_STATE.PAUSED);
   setState('player.pausedAt', pausePos);
 
@@ -656,7 +660,7 @@ export function togglePlay(): void {
   if (isActuallyPlaying) {
     if (!hostConn) {
       pause();
-      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt') });
+      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt'), reason: 'pause' });
     } else if (isOperator) {
       sendToHost({ type: MSG.REQUEST_PAUSE });
     }
@@ -721,7 +725,7 @@ export function stopPlayback(): void {
   stopAllMedia();
   bus.emit('ui:seek-reset');
 
-  if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0 });
+  if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });
   showToast(t('common.stop'));
 }
 
@@ -773,7 +777,7 @@ export function skipTime(sec: number): void {
     });
   } else {
     setState('player.pausedAt', target);
-    broadcast({ type: MSG.PAUSE, time: target });
+    broadcast({ type: MSG.PAUSE, time: target, reason: 'seek' });
   }
 }
 

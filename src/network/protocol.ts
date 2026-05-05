@@ -63,7 +63,14 @@ const isBoundedChunk = (v: unknown): boolean =>
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
   [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
-  [MSG.PAUSE]: (d) => d.time === undefined || isFiniteNumber(d.time),
+  [MSG.PAUSE]: (d) =>
+    (d.time === undefined || isFiniteNumber(d.time)) &&
+    (d.reason === undefined ||
+      d.reason === 'pause' ||
+      d.reason === 'stop' ||
+      d.reason === 'seek' ||
+      d.reason === 'transition' ||
+      d.reason === 'end-of-playlist'),
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) =>

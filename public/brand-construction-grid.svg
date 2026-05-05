@@ -3,98 +3,186 @@
     <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
       <path d="M0 0h2v6H0z" fill="#f2f2f2" opacity=".42"/>
     </pattern>
+    <style>
+      @media (prefers-reduced-motion: no-preference) {
+        .draw > path,
+        .draw > rect,
+        rect.draw {
+          stroke-dasharray: 1;
+          stroke-dashoffset: 1;
+          animation: draw-guide-line .82s cubic-bezier(.22, 1, .36, 1) forwards;
+        }
+
+        .hatch-marks,
+        .ghost-wordmark {
+          opacity: 0;
+        }
+
+        .hatch-marks {
+          animation: fade-hatch .7s ease-out 1.38s forwards;
+        }
+
+        .ghost-wordmark {
+          animation: fade-wordmark .9s ease-out 1.7s forwards;
+        }
+
+        .guides-main > :nth-child(1) { animation-delay: .04s; }
+        .guides-main > :nth-child(2) { animation-delay: .07s; }
+        .guides-main > :nth-child(3) { animation-delay: .1s; }
+        .guides-main > :nth-child(4) { animation-delay: .13s; }
+        .guides-main > :nth-child(5) { animation-delay: .16s; }
+        .guides-main > :nth-child(6) { animation-delay: .19s; }
+        .guides-main > :nth-child(7) { animation-delay: .22s; }
+        .guides-main > :nth-child(8) { animation-delay: .26s; }
+        .guides-main > :nth-child(9) { animation-delay: .29s; }
+        .guides-main > :nth-child(10) { animation-delay: .32s; }
+        .guides-main > :nth-child(11) { animation-delay: .35s; }
+        .guides-main > :nth-child(12) { animation-delay: .38s; }
+        .guides-main > :nth-child(13) { animation-delay: .41s; }
+        .guides-main > :nth-child(14) { animation-delay: .44s; }
+        .guides-main > :nth-child(15) { animation-delay: .47s; }
+        .guides-main > :nth-child(16) { animation-delay: .5s; }
+        .guides-main > :nth-child(17) { animation-delay: .53s; }
+        .guides-main > :nth-child(18) { animation-delay: .56s; }
+        .guides-main > :nth-child(19) { animation-delay: .59s; }
+        .guides-main > :nth-child(20) { animation-delay: .62s; }
+        .guides-main > :nth-child(21) { animation-delay: .65s; }
+        .guides-main > :nth-child(22) { animation-delay: .68s; }
+        .guides-main > :nth-child(23) { animation-delay: .71s; }
+        .guides-main > :nth-child(24) { animation-delay: .74s; }
+        .guides-main > :nth-child(25) { animation-delay: .77s; }
+        .guides-main > :nth-child(26) { animation-delay: .8s; }
+        .guides-main > :nth-child(27) { animation-delay: .83s; }
+        .guides-main > :nth-child(28) { animation-delay: .86s; }
+
+        .guides-centers > :nth-child(1) { animation-delay: .26s; }
+        .guides-centers > :nth-child(2) { animation-delay: .32s; }
+        .guides-centers > :nth-child(3) { animation-delay: .38s; }
+        .guides-centers > :nth-child(4) { animation-delay: .44s; }
+        .guides-centers > :nth-child(5) { animation-delay: .5s; }
+        .guides-centers > :nth-child(6) { animation-delay: .56s; }
+        .guides-centers > :nth-child(7) { animation-delay: .62s; }
+        .guides-centers > :nth-child(8) { animation-delay: .68s; }
+        .guides-centers > :nth-child(9) { animation-delay: .74s; }
+        .guides-centers > :nth-child(10) { animation-delay: .8s; }
+
+        .guides-glyph-boxes > :nth-child(1) { animation-delay: .58s; }
+        .guides-glyph-boxes > :nth-child(2) { animation-delay: .63s; }
+        .guides-glyph-boxes > :nth-child(3) { animation-delay: .68s; }
+        .guides-glyph-boxes > :nth-child(4) { animation-delay: .73s; }
+        .guides-glyph-boxes > :nth-child(5) { animation-delay: .78s; }
+        .guides-glyph-boxes > :nth-child(6) { animation-delay: .83s; }
+        .guides-glyph-boxes > :nth-child(7) { animation-delay: .88s; }
+        .guides-glyph-boxes > :nth-child(8) { animation-delay: .93s; }
+        .guides-glyph-boxes > :nth-child(9) { animation-delay: .98s; }
+        .guides-glyph-boxes > :nth-child(10) { animation-delay: 1.03s; }
+
+        .guides-diagonal > :nth-child(1) { animation-delay: .82s; }
+        .guides-diagonal > :nth-child(2) { animation-delay: .88s; }
+        .guides-diagonal > :nth-child(3) { animation-delay: .94s; }
+        .guides-diagonal > :nth-child(4) { animation-delay: 1s; }
+        .guides-diagonal > :nth-child(5) { animation-delay: 1.06s; }
+        .guides-diagonal > :nth-child(6) { animation-delay: 1.12s; }
+
+        rect.wordmark-bbox {
+          animation-delay: 1.18s;
+          animation-duration: .95s;
+        }
+      }
+
+      @keyframes draw-guide-line {
+        to { stroke-dashoffset: 0; }
+      }
+
+      @keyframes fade-hatch {
+        to { opacity: .86; }
+      }
+
+      @keyframes fade-wordmark {
+        to { opacity: .18; }
+      }
+    </style>
   </defs>
 
   <!-- Guides are derived from /designsystem/assets/logo-wordmark.svg getBBox() values. -->
-  <g stroke="#f2f2f2" stroke-width="1.1" opacity=".21">
-    <path d="M58 183.6h604"/>
-    <path d="M58 194.8h604"/>
-    <path d="M58 206h604"/>
-    <path d="M58 217.2h604"/>
-    <path d="M58 228.4h604"/>
-    <path d="M58 239.7h604"/>
-    <path d="M58 246.4h604"/>
+  <g class="draw guides-main" stroke="#f2f2f2" stroke-width="1.1" opacity=".21">
+    <path pathLength="1" d="M58 183.6h604"/>
+    <path pathLength="1" d="M58 194.8h604"/>
+    <path pathLength="1" d="M58 206h604"/>
+    <path pathLength="1" d="M58 217.2h604"/>
+    <path pathLength="1" d="M58 228.4h604"/>
+    <path pathLength="1" d="M58 239.7h604"/>
+    <path pathLength="1" d="M58 246.4h604"/>
 
-    <path d="M99 118v228"/>
-    <path d="M155 118v228"/>
-    <path d="M166.2 118v228"/>
-    <path d="M211 118v228"/>
-    <path d="M222.2 118v228"/>
-    <path d="M267 118v228"/>
-    <path d="M278.2 118v228"/>
-    <path d="M289.4 118v228"/>
-    <path d="M295.6 118v228"/>
-    <path d="M346 118v228"/>
-    <path d="M352.2 118v228"/>
-    <path d="M397 118v228"/>
-    <path d="M408.2 118v228"/>
-    <path d="M453 118v228"/>
-    <path d="M464.2 118v228"/>
-    <path d="M509 118v228"/>
-    <path d="M520.2 118v228"/>
-    <path d="M567.1 118v228"/>
-    <path d="M576.2 118v228"/>
-    <path d="M609.8 118v228"/>
-    <path d="M621 118v228"/>
+    <path pathLength="1" d="M99 118v194"/>
+    <path pathLength="1" d="M155 118v194"/>
+    <path pathLength="1" d="M166.2 118v194"/>
+    <path pathLength="1" d="M211 118v194"/>
+    <path pathLength="1" d="M222.2 118v194"/>
+    <path pathLength="1" d="M267 118v194"/>
+    <path pathLength="1" d="M278.2 118v194"/>
+    <path pathLength="1" d="M289.4 118v194"/>
+    <path pathLength="1" d="M295.6 118v194"/>
+    <path pathLength="1" d="M346 118v194"/>
+    <path pathLength="1" d="M352.2 118v194"/>
+    <path pathLength="1" d="M397 118v194"/>
+    <path pathLength="1" d="M408.2 118v194"/>
+    <path pathLength="1" d="M453 118v194"/>
+    <path pathLength="1" d="M464.2 118v194"/>
+    <path pathLength="1" d="M509 118v194"/>
+    <path pathLength="1" d="M520.2 118v194"/>
+    <path pathLength="1" d="M567.1 118v194"/>
+    <path pathLength="1" d="M576.2 118v194"/>
+    <path pathLength="1" d="M609.8 118v194"/>
+    <path pathLength="1" d="M621 118v194"/>
   </g>
 
-  <rect x="99" y="183.6" width="522" height="62.8" stroke="#f2f2f2" stroke-width=".85" opacity=".32"/>
+  <rect class="draw wordmark-bbox" pathLength="1" x="99" y="183.6" width="522" height="62.8" stroke="#f2f2f2" stroke-width=".85" opacity=".32"/>
 
-  <g stroke="#f2f2f2" stroke-width=".9" opacity=".13">
-    <path d="M127 132v170"/>
-    <path d="M188.6 132v170"/>
-    <path d="M244.6 132v170"/>
-    <path d="M283.8 132v170"/>
-    <path d="M320.8 132v170"/>
-    <path d="M374.6 132v170"/>
-    <path d="M430.6 132v170"/>
-    <path d="M486.6 132v170"/>
-    <path d="M543.6 132v170"/>
-    <path d="M598.6 132v170"/>
+  <g class="draw guides-centers" stroke="#f2f2f2" stroke-width=".9" opacity=".13">
+    <path pathLength="1" d="M127 132v170"/>
+    <path pathLength="1" d="M188.6 132v170"/>
+    <path pathLength="1" d="M244.6 132v170"/>
+    <path pathLength="1" d="M283.8 132v170"/>
+    <path pathLength="1" d="M320.8 132v170"/>
+    <path pathLength="1" d="M374.6 132v170"/>
+    <path pathLength="1" d="M430.6 132v170"/>
+    <path pathLength="1" d="M486.6 132v170"/>
+    <path pathLength="1" d="M543.6 132v170"/>
+    <path pathLength="1" d="M598.6 132v170"/>
   </g>
 
-  <g stroke="#f2f2f2" stroke-width=".9" opacity=".14">
-    <rect x="99" y="183.7" width="56" height="56"/>
-    <rect x="166.2" y="183.7" width="44.8" height="56"/>
-    <rect x="222.2" y="183.7" width="44.8" height="56"/>
-    <rect x="278.2" y="183.7" width="11.2" height="56"/>
-    <rect x="295.6" y="183.7" width="50.4" height="56"/>
-    <rect x="352.2" y="183.7" width="44.8" height="62.7"/>
-    <rect x="408.2" y="183.7" width="44.8" height="56"/>
-    <rect x="464.2" y="183.6" width="44.8" height="56"/>
-    <rect x="520.2" y="183.6" width="46.9" height="58.7"/>
-    <rect x="576.2" y="183.6" width="44.8" height="56.1"/>
+  <g class="draw guides-glyph-boxes" stroke="#f2f2f2" stroke-width=".9" opacity=".14">
+    <rect pathLength="1" x="99" y="183.7" width="56" height="56"/>
+    <rect pathLength="1" x="166.2" y="183.7" width="44.8" height="56"/>
+    <rect pathLength="1" x="222.2" y="183.7" width="44.8" height="56"/>
+    <rect pathLength="1" x="278.2" y="183.7" width="11.2" height="56"/>
+    <rect pathLength="1" x="295.6" y="183.7" width="50.4" height="56"/>
+    <rect pathLength="1" x="352.2" y="183.7" width="44.8" height="62.7"/>
+    <rect pathLength="1" x="408.2" y="183.7" width="44.8" height="56"/>
+    <rect pathLength="1" x="464.2" y="183.6" width="44.8" height="56"/>
+    <rect pathLength="1" x="520.2" y="183.6" width="46.9" height="58.7"/>
+    <rect pathLength="1" x="576.2" y="183.6" width="44.8" height="56.1"/>
   </g>
 
-  <g stroke="#f2f2f2" stroke-width="1" opacity=".16">
-    <path d="M58 163.7l604 100.2"/>
-    <path d="M58 268.6l604-100.2"/>
-    <path d="M295.6 132l50.4 170"/>
-    <path d="M346 132l-50.4 170"/>
-    <path d="M520.2 132l46.9 170"/>
-    <path d="M567.1 132l-46.9 170"/>
+  <g class="draw guides-diagonal" stroke="#f2f2f2" stroke-width="1" opacity=".16">
+    <path pathLength="1" d="M58 163.7l604 100.2"/>
+    <path pathLength="1" d="M58 268.6l604-100.2"/>
+    <path pathLength="1" d="M295.6 132l50.4 170"/>
+    <path pathLength="1" d="M346 132l-50.4 170"/>
+    <path pathLength="1" d="M520.2 132l46.9 170"/>
+    <path pathLength="1" d="M567.1 132l-46.9 170"/>
   </g>
 
-  <g fill="url(#hatch)" opacity=".86">
+  <g class="hatch-marks" fill="url(#hatch)" opacity=".86">
     <rect x="99" y="148" width="56" height="18" rx="2"/>
     <rect x="295.6" y="148" width="50.4" height="18" rx="2"/>
     <rect x="576.2" y="148" width="44.8" height="18" rx="2"/>
-    <rect x="74" y="183.6" width="18" height="56" rx="2"/>
-    <rect x="628" y="183.6" width="18" height="56" rx="2"/>
+    <rect x="278.2" y="264" width="11.2" height="18" rx="2"/>
     <rect x="352.2" y="264" width="44.8" height="18" rx="2"/>
   </g>
 
-  <g fill="#f2f2f2" opacity=".46" font-family="Pretendard, Arial, sans-serif" font-size="13" font-weight="800">
-    <text x="118" y="139">M 22.5</text>
-    <text x="297" y="139">X 20.3</text>
-    <text x="582" y="139">E 18</text>
-    <text x="76" y="176">top</text>
-    <text x="628" y="176">right</text>
-    <text x="606" y="258">bottom</text>
-    <text x="472" y="303">MUSIXQUARE WORDMARK</text>
-  </g>
-
-  <g fill="#f2f2f2" opacity=".18" transform="translate(-14.1423 151.8613) scale(2.48847)">
+  <g class="ghost-wordmark" fill="#f2f2f2" opacity=".18" transform="translate(-14.1423 151.8613) scale(2.48847)">
     <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
     <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/>
     <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/>

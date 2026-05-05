@@ -172,21 +172,15 @@ svg {
 }
 
 .editorial-kicker {
-  margin: 0 0 18px;
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
-  line-height: 1.2;
-  text-transform: uppercase;
+  display: none;
 }
 
 .lp-h1 {
-  margin: 0;
+  margin: 0 0 0 -0.03em;
   color: var(--text-main);
   font-size: clamp(48px, 7.5vw, 104px);
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
   line-height: 0.98;
 }
 
@@ -287,7 +281,7 @@ svg {
   position: absolute;
   inset: 0;
   border-radius: 0;
-  background: url("/brand-construction-grid.svg?v=8") center / 112% auto no-repeat;
+  background: url("/brand-construction-grid.svg?v=24") center / 112% auto no-repeat;
   opacity: 0.82;
   z-index: 2;
   mix-blend-mode: screen;
@@ -593,6 +587,90 @@ footer a:hover {
   transform: translateY(0) rotateY(-8deg) rotateX(4deg);
 }
 
+.editorial-history .hero > .history-hero-stats {
+  width: min(560px, 42vw);
+  min-height: auto;
+  align-self: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  place-items: stretch;
+  gap: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32);
+  transform: none;
+}
+
+.editorial-history .hero > .history-hero-stats::before {
+  display: none;
+}
+
+.history-stat-card {
+  position: relative;
+  min-height: clamp(140px, 13vw, 178px);
+  padding: clamp(22px, 2.4vw, 30px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: rgba(18, 18, 18, 0.86);
+}
+
+.history-stat-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.16), transparent 58%);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+
+.history-stat-card:hover::after {
+  opacity: 1;
+}
+
+.history-stat-value {
+  position: relative;
+  z-index: 1;
+  color: var(--text-main);
+  font-size: clamp(34px, 4.1vw, 56px);
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.history-stat-value span {
+  color: var(--primary);
+  font-size: 0.42em;
+  font-weight: 800;
+  vertical-align: 0.45em;
+}
+
+.history-stat-label {
+  position: relative;
+  z-index: 1;
+  max-width: 14em;
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.editorial-history .hero[data-animate] > .history-hero-stats {
+  transform: translateY(16px);
+}
+
+.editorial-history .hero[data-animate].is-visible > .history-hero-stats {
+  transform: translateY(0);
+}
+
 @media (max-width: 1023px) {
   .hero {
     grid-template-columns: 1fr;
@@ -605,6 +683,11 @@ footer a:hover {
     width: min(100%, 640px);
     min-height: 330px;
     transform: none;
+  }
+
+  .editorial-history .hero > .history-hero-stats {
+    width: min(100%, 640px);
+    min-height: auto;
   }
 
   .hero[data-animate] > .logo {
@@ -656,6 +739,15 @@ footer a:hover {
 
   .hero > .logo {
     min-height: 250px;
+  }
+
+  .editorial-history .hero > .history-hero-stats {
+    min-height: auto;
+  }
+
+  .history-stat-card {
+    min-height: 132px;
+    padding: 22px;
   }
 
   .stats {

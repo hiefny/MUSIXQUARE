@@ -325,7 +325,7 @@ main {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  border-radius: var(--radius-s);
+  border-radius: 100px;
   border: 1px solid var(--primary);
   background: var(--primary);
   color: var(--text-main);

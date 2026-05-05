@@ -282,7 +282,10 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   // on the guest side, and guests must not broadcast playback state.
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
-    broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });
+    // silent=true is the track-change / preload-swap / system-audio-swap path
+    // (a PLAY follows shortly). No silent flag means a deliberate terminal
+    // stop (stopPlayback, error path, end-of-track-without-next).
+    broadcast({ type: MSG.PAUSE, time: 0, reason: opts?.silent ? 'transition' : 'stop' });
   }
   bus.emit('visualizer:fade-out');
 }

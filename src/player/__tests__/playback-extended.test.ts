@@ -12,10 +12,17 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
+import { broadcast } from '../../network/peer.ts';
+
+vi.mock('../../network/peer.ts', () => ({
+  broadcast: vi.fn(),
+  sendToHost: vi.fn(),
+}));
 
 beforeEach(() => {
   resetState();
   bus.clear();
+  vi.mocked(broadcast).mockClear();
 });
 
 // ─── getCurrentAudioBuffer ───────────────────────────────────────────
@@ -85,6 +92,26 @@ describe('stopAllMedia', () => {
 
     expect(fade).toHaveBeenCalledTimes(1);
     expect(hold).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts PAUSE with reason=transition for silent track-change path', () => {
+    setState('appState', 'PLAYING_AUDIO');
+
+    stopAllMedia({ silent: true });
+
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'pause', reason: 'transition' }),
+    );
+  });
+
+  it('broadcasts PAUSE with reason=stop for explicit terminal stops', () => {
+    setState('appState', 'PLAYING_AUDIO');
+
+    stopAllMedia();
+
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'pause', reason: 'stop' }),
+    );
   });
 });
 

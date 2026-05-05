@@ -119,6 +119,11 @@ export function parseMessageContent(text: string): string {
   return result;
 }
 
+function renderParsedChatContent(target: HTMLElement, text: string): void {
+  // Keep chat HTML insertion constrained to parseMessageContent's escaped output.
+  target.innerHTML = parseMessageContent(text);
+}
+
 async function updateYouTubeChatTitle(elementId: string, url: string): Promise<void> {
   try {
     const title = await fetchOEmbedTitle(url);
@@ -191,7 +196,7 @@ export function addChatMessage(
       bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
       const chatTextDiv = document.createElement('div');
       chatTextDiv.className = 'chat-text';
-      chatTextDiv.innerHTML = parseMessageContent(text);
+      renderParsedChatContent(chatTextDiv, text);
       bubble.appendChild(chatTextDiv);
       try {
         if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
@@ -244,7 +249,7 @@ export function addChatMessage(
       bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
       const chatTextDiv = document.createElement('div');
       chatTextDiv.className = 'chat-text';
-      chatTextDiv.innerHTML = parseMessageContent(text);
+      renderParsedChatContent(chatTextDiv, text);
       bubble.appendChild(chatTextDiv);
       try {
         if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
@@ -377,7 +382,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   bubble.className = `chat-bubble ${isSent ? 'mine' : 'others'} whisper`;
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
-  chatTextDiv.innerHTML = parseMessageContent(text);
+  renderParsedChatContent(chatTextDiv, text);
   bubble.appendChild(chatTextDiv);
 
   const timeNode = document.createElement('div');

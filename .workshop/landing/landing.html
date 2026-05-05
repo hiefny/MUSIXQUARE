@@ -37,6 +37,7 @@
 
   <link rel="icon" href="/designsystem/assets/favicon.svg">
 
+  <link rel="preload" href="/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="/.workshop/landing/styles.css">
 </head>
@@ -75,6 +76,14 @@
       <span data-i18n="header.try">Try it now</span>
     </a>
   </header>
+
+  <nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
+    <div class="editorial-site-tabs__inner">
+      <a class="editorial-site-tab is-active" href="/about" aria-current="page">About</a>
+      <a class="editorial-site-tab" href="/history">History</a>
+      <a class="editorial-site-tab" href="/designsystem">Design</a>
+    </div>
+  </nav>
 
   <main>
     <section class="lp-section lp-hero" data-animate>
@@ -454,7 +463,7 @@
       <nav class="lp-footer__nav">
         <a href="https://musixquare.com" data-i18n="footer.app">App</a>
         <a href="/history" data-i18n="footer.history">History</a>
-        <a href="/designsystem" data-i18n="footer.designsystem">Design System</a>
+        <a href="/designsystem">Design</a>
         <span class="lp-lang-divider" aria-hidden="true">·</span>
         <button type="button" class="lp-lang-btn" data-lang-set="en">English</button>
         <button type="button" class="lp-lang-btn" data-lang-set="ko">한국어</button>

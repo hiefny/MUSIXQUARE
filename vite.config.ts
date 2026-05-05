@@ -1,16 +1,23 @@
 import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 
-// Emits about.html at dist root (instead of dist/.workshop/landing/)
-// so Netlify can serve it without exposing the dotfolder path.
-const flattenLandingHtml = (): Plugin => ({
-  name: 'flatten-landing-html',
+// Emits static workshop pages at dist root (instead of dist/.workshop/**/)
+// so Netlify can serve them without exposing dotfolder paths.
+const flattenWorkshopHtml = (): Plugin => ({
+  name: 'flatten-workshop-html',
   enforce: 'post',
   generateBundle(_opts, bundle) {
+    const outputs: Record<string, string> = {
+      '.workshop/landing/landing.html': 'about.html',
+      '.workshop/privacy/privacy.html': 'privacy.html',
+      '.workshop/terms/terms.html': 'terms.html',
+    };
     for (const key of Object.keys(bundle)) {
-      if (key.endsWith('/landing.html') && key.includes('.workshop')) {
+      const normalized = key.replace(/\\/g, '/');
+      const outputName = outputs[normalized];
+      if (outputName) {
         const chunk = bundle[key];
-        bundle['about.html'] = { ...chunk, fileName: 'about.html' };
+        bundle[outputName] = { ...chunk, fileName: outputName };
         delete bundle[key];
       }
     }
@@ -32,6 +39,10 @@ const devPageAliases = (): Plugin => ({
       let target: string | null = null;
       if (normalizedPath === '/about' || normalizedPath === '/about.html' || normalizedPath === '/landing') {
         target = '/.workshop/landing/landing.html';
+      } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
+        target = '/.workshop/privacy/privacy.html';
+      } else if (normalizedPath === '/terms' || normalizedPath === '/terms.html') {
+        target = '/.workshop/terms/terms.html';
       } else if (
         normalizedPath === '/history' ||
         normalizedPath === '/changelog' ||
@@ -58,7 +69,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [flattenLandingHtml(), devPageAliases()],
+  plugins: [flattenWorkshopHtml(), devPageAliases()],
   build: {
     outDir: 'dist',
     target: 'es2022',
@@ -67,6 +78,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         landing: resolve(__dirname, '.workshop/landing/landing.html'),
+        privacy: resolve(__dirname, '.workshop/privacy/privacy.html'),
+        terms: resolve(__dirname, '.workshop/terms/terms.html'),
       },
       output: {
         manualChunks: {

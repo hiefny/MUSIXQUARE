@@ -91,6 +91,28 @@
   to = "/about.html"
   status = 200
 
+# Privacy: serve /privacy and /privacy/ as the privacy policy page
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy/"
+  to = "/privacy.html"
+  status = 200
+
+# Terms: serve /terms and /terms/ as the terms of use page
+[[redirects]]
+  from = "/terms"
+  to = "/terms.html"
+  status = 200
+
+[[redirects]]
+  from = "/terms/"
+  to = "/terms.html"
+  status = 200
+
 # Case-variant redirects → canonical lowercase (301)
 [[redirects]]
   from = "/DESIGNSYSTEM"
@@ -210,6 +232,46 @@
 [[redirects]]
   from = "/About/"
   to = "/about"
+  status = 301
+
+[[redirects]]
+  from = "/PRIVACY"
+  to = "/privacy"
+  status = 301
+
+[[redirects]]
+  from = "/PRIVACY/"
+  to = "/privacy"
+  status = 301
+
+[[redirects]]
+  from = "/Privacy"
+  to = "/privacy"
+  status = 301
+
+[[redirects]]
+  from = "/Privacy/"
+  to = "/privacy"
+  status = 301
+
+[[redirects]]
+  from = "/TERMS"
+  to = "/terms"
+  status = 301
+
+[[redirects]]
+  from = "/TERMS/"
+  to = "/terms"
+  status = 301
+
+[[redirects]]
+  from = "/Terms"
+  to = "/terms"
+  status = 301
+
+[[redirects]]
+  from = "/Terms/"
+  to = "/terms"
   status = 301
 
 [[redirects]]

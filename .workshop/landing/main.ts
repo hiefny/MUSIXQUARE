@@ -64,6 +64,16 @@ function initScrollProgress(): void {
   window.addEventListener('resize', schedule, { passive: true });
 }
 
+function initHairlineScale(): void {
+  const update = (): void => {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    document.documentElement.style.setProperty('--hairline-scale', String(Math.min(1, 1 / dpr)));
+  };
+
+  update();
+  window.addEventListener('resize', update, { passive: true });
+}
+
 function initSmoothAnchor(): void {
   document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((link) => {
     link.addEventListener('click', (e) => {
@@ -285,6 +295,7 @@ function initChatMorph(): void {
 }
 
 function boot(): void {
+  initHairlineScale();
   initReveal();
   initSmoothAnchor();
   initScrollProgress();

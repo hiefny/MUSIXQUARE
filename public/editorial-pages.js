@@ -73,6 +73,16 @@
     window.addEventListener('resize', schedule, { passive: true });
   }
 
+  function initHairlineScale() {
+    function update() {
+      var dpr = Math.max(1, window.devicePixelRatio || 1);
+      document.documentElement.style.setProperty('--hairline-scale', String(Math.min(1, 1 / dpr)));
+    }
+
+    update();
+    window.addEventListener('resize', update, { passive: true });
+  }
+
   function initSmoothAnchor() {
     document.querySelectorAll('a[href^="#"]').forEach(function (link) {
       link.addEventListener('click', function (event) {
@@ -87,6 +97,7 @@
   }
 
   function boot() {
+    initHairlineScale();
     initReveal();
     initScrollProgress();
     initSmoothAnchor();

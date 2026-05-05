@@ -19,6 +19,18 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://musixquare.com/privacy</loc>
+    <lastmod>2026-05-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/terms</loc>
+    <lastmod>2026-05-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://musixquare.com/designsystem</loc>
     <lastmod>2026-04-22</lastmod>
     <changefreq>monthly</changefreq>

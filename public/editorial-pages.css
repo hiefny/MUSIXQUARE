@@ -21,6 +21,8 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --header-h: calc(60px + var(--safe-top));
+  --tabs-h: 46px;
+  --hairline-scale: 1;
   --pad-x: 48px;
   --max-w: 1440px;
 }
@@ -44,6 +46,7 @@ body {
 
 body {
   min-height: 100%;
+  padding-bottom: calc(80px + var(--safe-bottom));
 }
 
 ::selection {
@@ -156,6 +159,86 @@ svg {
   transform: scale(0.98);
 }
 
+.editorial-site-tabs {
+  position: fixed;
+  left: 50%;
+  right: auto;
+  bottom: calc(14px + var(--safe-bottom));
+  width: max-content;
+  max-width: calc(100% - 28px);
+  height: auto;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  transform: translateX(-50%);
+  z-index: 120;
+}
+
+.editorial-site-tabs__inner {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 100px;
+  background: rgba(26, 26, 26, 0.78);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  scrollbar-width: none;
+}
+
+.editorial-site-tabs__inner::-webkit-scrollbar {
+  display: none;
+}
+
+.editorial-site-tab {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100px;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 650;
+  font-synthesis: none;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+
+.editorial-site-tab[href="/about"] {
+  width: 72px;
+}
+
+.editorial-site-tab[href="/history"] {
+  width: 80px;
+}
+
+.editorial-site-tab[href="/designsystem"] {
+  width: 78px;
+}
+
+.editorial-site-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.editorial-site-tab.is-active {
+  color: #121212;
+  background: #fff;
+  font-weight: 800;
+}
+
 .hero {
   max-width: var(--max-w);
   min-height: calc(100vh - var(--header-h));
@@ -212,23 +295,22 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 24px;
-  border: 1px solid var(--surface-3);
+  height: 48px;
+  padding: 0 20px 0 28px;
+  border: 1px solid var(--primary);
   border-radius: 100px;
-  color: var(--text-main);
+  background: var(--primary);
+  color: #fff;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   transition:
     opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out);
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .lp-btn:hover {
-  border-color: var(--text-main);
-  background: rgba(255, 255, 255, 0.03);
+  opacity: 0.86;
 }
 
 .lp-btn:active {
@@ -242,7 +324,6 @@ svg {
 }
 
 .lp-btn--solid:hover {
-  background: #fff;
   opacity: 0.86;
 }
 
@@ -528,9 +609,10 @@ code {
 }
 
 footer {
+  position: relative;
   margin: 0 auto;
   padding: 32px var(--pad-x);
-  border-top: 1px solid var(--surface-2);
+  border-top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -538,6 +620,18 @@ footer {
   flex-wrap: wrap;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  height: 1px;
+  background: var(--surface-2);
+  transform: translateX(-50%) scaleY(var(--hairline-scale));
+  transform-origin: top center;
 }
 
 footer span:last-child {
@@ -722,6 +816,7 @@ footer a:hover {
 @media (max-width: 720px) {
   :root {
     --pad-x: 24px;
+    --tabs-h: 44px;
   }
 
   .lp-h1 {
@@ -793,6 +888,24 @@ footer a:hover {
   footer span:last-child {
     row-gap: 14px;
   }
+}
+
+@media (max-width: 420px) {
+  .editorial-site-tabs {
+    width: calc(100% - 24px);
+  }
+
+  .editorial-site-tabs__inner {
+    width: 100%;
+  }
+
+  .editorial-site-tab {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    padding: 0 10px;
+  }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

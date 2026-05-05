@@ -217,6 +217,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Need help?',
+  'help.install_app': 'Install as an app',
   'help.local_recommended': 'Local network recommended',
   'help.connect_all_wifi': 'Same-network connections are the most reliable',
   'help.local_file': 'Choose local file',
@@ -504,6 +505,8 @@ const en: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Restart',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
+  'help.install_app_html':
+    'Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul>',
   'help.local_recommended_html':
     'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':

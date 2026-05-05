@@ -215,6 +215,7 @@ const ko = {
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': '도움이 필요해요',
+  'help.install_app': '앱으로 설치하기',
   'help.local_recommended': '로컬 네트워크 권장',
   'help.connect_all_wifi': '같은 네트워크에서 가장 안정적이에요',
   'help.local_file': '로컬 파일 선택',
@@ -501,6 +502,8 @@ const ko = {
   'dialog.session_lost_btn': '다시 시작',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
+  'help.install_app_html':
+    '뮤직스퀘어가 마음에 든다면 앱처럼 설치할 수 있어요.<ul class="help-list"><li><strong>iOS:</strong> 공유 → 홈 화면에 추가</li><li><strong>Android:</strong> 메뉴 → 앱 설치</li><li><strong>Windows:</strong> 주소창 설치 아이콘</li><li><strong>macOS:</strong> 공유 → Dock에 추가</li></ul>',
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':

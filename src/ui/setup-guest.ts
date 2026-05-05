@@ -360,16 +360,25 @@ function renderPasswordRetryBusy(inviteLink: boolean): void {
   );
 }
 
-export async function promptForRoomPassword(invalid = false): Promise<void> {
+export async function promptForRoomPassword(
+  reason: 'required' | 'invalid' | 'timeout' = 'required',
+): Promise<void> {
   const pending = _pendingPasswordJoin;
   if (!pending || _roomPasswordPromptOpen) return;
 
   _roomPasswordPromptOpen = true;
   setupSetGuestJoinBusy(false);
 
+  const messageKey =
+    reason === 'invalid'
+      ? 'dialog.room_password_retry_msg'
+      : reason === 'timeout'
+        ? 'dialog.room_password_timeout_msg'
+        : 'dialog.room_password_msg';
+
   const result = await showDialog({
     title: t('dialog.room_password_title'),
-    message: invalid ? t('dialog.room_password_retry_msg') : t('dialog.room_password_msg'),
+    message: t(messageKey),
     inputField: {
       placeholder: t('dialog.room_password_placeholder'),
       maxLength: 8,

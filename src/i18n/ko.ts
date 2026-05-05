@@ -479,6 +479,7 @@ const ko = {
   'error.ssl_required': 'HTTPS 보안 연결이 필요해요.',
   'error.room_password_required': '이 방은 암호가 필요해요.',
   'error.room_password_invalid': '방 암호가 맞지 않아요.',
+  'error.room_password_auth_timeout': '네트워크가 불안정해요. 암호를 다시 입력해 주세요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': '세션 나가기',
@@ -493,6 +494,7 @@ const ko = {
   'dialog.room_password_title': '방 암호 입력',
   'dialog.room_password_msg': '이 방에 참여하려면 암호가 필요해요.',
   'dialog.room_password_retry_msg': '암호가 맞지 않아요. 다시 입력해 주세요.',
+  'dialog.room_password_timeout_msg': '연결 시간이 초과됐어요. 암호를 다시 입력해 주세요.',
   'dialog.room_password_placeholder': '8자리 암호',
   'dialog.session_lost_msg':
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',

@@ -482,6 +482,7 @@ const en: Record<I18nKey, string> = {
   'error.ssl_required': 'A secure connection (HTTPS) is required.',
   'error.room_password_required': 'This room requires a password.',
   'error.room_password_invalid': 'Room password does not match.',
+  'error.room_password_auth_timeout': 'Network is unstable. Try entering the password again.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': 'Leave Session',
@@ -496,6 +497,7 @@ const en: Record<I18nKey, string> = {
   'dialog.room_password_title': 'Enter Room Password',
   'dialog.room_password_msg': 'A password is required to join this room.',
   'dialog.room_password_retry_msg': 'That password did not match. Try again.',
+  'dialog.room_password_timeout_msg': 'The connection timed out. Re-enter the password to try again.',
   'dialog.room_password_placeholder': '8-digit password',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',

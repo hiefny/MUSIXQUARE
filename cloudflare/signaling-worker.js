@@ -119,8 +119,8 @@ export class MusixquareRoom {
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
-    }, 5000);
+      closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
+    }, 10000);
 
     const finish = (event) => {
       if (done) return;

@@ -410,12 +410,22 @@ export function initSetup(): void {
       msg === 'ROOM_PASSWORD_REQUIRED' || peerType === 'room-password-required';
     const isRoomPasswordInvalid =
       msg === 'ROOM_PASSWORD_INVALID' || peerType === 'room-password-invalid';
+    const isRoomPasswordAuthTimeout =
+      msg === 'ROOM_PASSWORD_AUTH_TIMEOUT' || peerType === 'room-password-auth-timeout';
 
-    if (isRoomPasswordRequired || isRoomPasswordInvalid) {
+    if (isRoomPasswordRequired || isRoomPasswordInvalid || isRoomPasswordAuthTimeout) {
       setState('network.isConnecting', false);
       updateRoleBadge();
       showLoader(false);
-      promptForRoomPassword(isRoomPasswordInvalid).catch((e) =>
+      if (isRoomPasswordAuthTimeout) {
+        showToast(t('error.room_password_auth_timeout'));
+      }
+      const reason: 'required' | 'invalid' | 'timeout' = isRoomPasswordInvalid
+        ? 'invalid'
+        : isRoomPasswordAuthTimeout
+          ? 'timeout'
+          : 'required';
+      promptForRoomPassword(reason).catch((e) =>
         log.warn('[Setup] Room password dialog error:', e),
       );
       return;

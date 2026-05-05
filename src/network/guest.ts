@@ -150,12 +150,13 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   });
   conn.on('error', handlePreOpenError);
 
-  // Timeout if host is unreachable (15s to allow TURN relay negotiation)
+  // Timeout if host is unreachable (10s — beyond this, the network is too
+  // unstable for a real-time sync session anyway).
   setManagedTimer(
     'join-timeout',
     () => {
       if (dataChannelOpened || getState('network.hostConn')) return;
-      log.warn('[Join] Connection timeout — data channel did not open in 15s');
+      log.warn('[Join] Connection timeout — data channel did not open in 10s');
       try {
         conn.close();
       } catch {
@@ -164,7 +165,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       setState('network.isConnecting', false);
       bus.emit('network:error', new Error('HOST_UNREACHABLE'));
     },
-    15000,
+    10000,
   );
 
   conn.on('open', () => {

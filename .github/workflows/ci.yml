@@ -36,8 +36,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build
-        run: npm run build
+      - name: Build and verify production bundle
+        run: npm run build:checked
 
       # E2E suite lives in its own workflow (e2e.yml, manual dispatch).
       # Serial 300-test run burns ~30 min per PR; keep fast CI gating

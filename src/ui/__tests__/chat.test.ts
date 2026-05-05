@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 
 // ─── Global stubs ────────────────────────────────────────────────────────
 window.matchMedia =
@@ -52,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearAllManagedTimers();
   vi.restoreAllMocks();
 });
 
@@ -187,6 +189,50 @@ describe('Chat Module', () => {
 
     it('preserves normal text', () => {
       expect(escapeHtml('Hello World')).toBe('Hello World');
+    });
+  });
+
+  describe('parseMessageContent XSS safety', () => {
+    async function renderParsedContent(text: string): Promise<HTMLElement> {
+      const { parseMessageContent } = await import('../chat-render.ts');
+      const root = document.createElement('div');
+      root.innerHTML = parseMessageContent(text);
+      return root;
+    }
+
+    function expectNoEventHandlerAttributes(root: HTMLElement): void {
+      root.querySelectorAll('*').forEach((el) => {
+        Array.from(el.attributes).forEach((attr) => {
+          expect(attr.name.toLowerCase().startsWith('on')).toBe(false);
+        });
+      });
+    }
+
+    it.each([
+      '<img src=x onerror=alert(1)>',
+      '<svg onload=alert(1)><foreignObject><iframe srcdoc="<script>alert(1)</script>"></iframe></foreignObject></svg>',
+      '</div><script>alert(1)</script>',
+      '<a href="javascript:alert(1)">click</a>',
+      '"><img src=x onerror=alert(1)>',
+    ])('renders malicious markup as inert text: %s', async (payload) => {
+      const root = await renderParsedContent(payload);
+
+      expect(root.querySelector('script,img,svg,iframe,object,embed,link,style,foreignObject,math,meta')).toBeNull();
+      expectNoEventHandlerAttributes(root);
+      expect(root.textContent).toContain(payload);
+    });
+
+    it('does not let YouTube URL attributes break into executable markup', async () => {
+      const root = await renderParsedContent(
+        'watch https://youtu.be/dQw4w9WgXcQ"onpointerenter="alert(1) then 0:42 <img src=x onerror=alert(1)>',
+      );
+
+      const button = root.querySelector('button.chat-youtube-btn');
+      expect(button).not.toBeNull();
+      expect(button?.getAttribute('onpointerenter')).toBeNull();
+      expect(root.querySelector('.chat-timestamp')?.getAttribute('data-seek')).toBe('42');
+      expect(root.querySelector('script,img,iframe,object,embed,link,style,foreignObject,math,meta')).toBeNull();
+      expectNoEventHandlerAttributes(root);
     });
   });
 

@@ -88,7 +88,9 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (!conn?.open) return;
   const hostTime = Date.now(); // Capture BEFORE async import
   const appState = getState('appState');
-  const isFilePlaying = appState === APP_STATE.PLAYING_AUDIO;
+  const lifecycle = getState('playback.lifecycle');
+  const isFilePlaying =
+    appState === APP_STATE.PLAYING_AUDIO && lifecycle === PLAYBACK_STATE.PLAYING;
 
   if (isFilePlaying) {
     if (conn.open) {
@@ -106,13 +108,19 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
       }
     }
   } else {
+    // During host track switches, stopAllMedia({ silent: true }) intentionally
+    // leaves appState as PLAYING_AUDIO to avoid UI flicker while the new file
+    // decodes and waits for autoPlayTimer. That is not audible playback.
+    // Advertising PLAYING_AUDIO here makes guests bootstrap at host position
+    // 0, then drift-correct back to 0 until the host really starts.
+    const syncAppState = appState === APP_STATE.PLAYING_AUDIO ? APP_STATE.PAUSED : appState;
     try {
       conn.send({
         type: MSG.SYNC_PONG,
         pingId: data.pingId,
         hostTime,
         position: 0,
-        appState,
+        appState: syncAppState,
         trackIndex: getState('playlist.currentTrackIndex'),
       });
     } catch {

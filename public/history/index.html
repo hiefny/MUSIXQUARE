@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#121212">
   <title>History · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/history">
   <meta name="description" content="The full story of MUSIXQUARE — nine months from a Web Audio prototype to a shipped real-time sync platform. Every milestone, every architectural decision, what comes next, and what's a platform wall.">
@@ -20,6 +23,7 @@
   <meta name="twitter:description" content="Nine months. One developer. A new way to listen together.">
   <meta name="twitter:image" content="https://musixquare.com/og-history.png">
   <link rel="icon" href="../designsystem/assets/favicon.svg">
+  <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="../designsystem/colors_and_type.css">
   <style>
     html, body { margin: 0; background: var(--bg); color: var(--text-main); }
@@ -252,11 +256,45 @@
       .ahead-item .a-tag, .wall-item .w-tag { justify-self: start; }
     }
   </style>
+  <link rel="stylesheet" href="/editorial-pages.css">
 </head>
-<body>
+<body class="editorial-page editorial-history">
+
+<header class="lp-header">
+  <div class="lp-header-progress" aria-hidden="true"></div>
+  <a class="lp-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+    <span class="editorial-wordmark" aria-hidden="true"></span>
+  </a>
+  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+    <span class="lp-try__dot" aria-hidden="true"></span>
+    <span>Try it now</span>
+  </a>
+</header>
 
 <!-- ── HERO ───────────────────────────────────── -->
-<section class="hero">
+<section class="hero" data-animate>
+  <div class="editorial-hero__copy">
+    <p class="editorial-kicker">History</p>
+    <h1 class="lp-h1">Nine months.<br>One system.</h1>
+    <p class="lp-lead">
+      Every prototype, rewrite, and shipped feature in the path from one <strong>AnalyserNode</strong>
+      to a real-time sync platform.
+    </p>
+    <div class="lp-btn-row">
+      <a class="lp-btn lp-btn--solid" href="#ship">
+        <span>Jump to ship</span>
+        <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+      </a>
+      <a class="lp-btn" href="/about">
+        <span>About</span>
+        <span class="lp-btn__arrow lp-btn__arrow--right" aria-hidden="true">→</span>
+      </a>
+      <a class="lp-btn" href="/designsystem">
+        <span>Design System</span>
+        <span class="lp-btn__arrow lp-btn__arrow--right" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </div>
   <div class="logo">
     <svg viewBox="43 12 214 26" fill="currentColor">
       <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
@@ -287,7 +325,7 @@
 </section>
 
 <!-- ── STATS ──────────────────────────────────── -->
-<div class="stats">
+<div class="stats" data-animate>
   <div class="stat">
     <span class="val">9 <em>mo</em></span>
     <span class="lbl">Prototype to shipped</span>
@@ -309,7 +347,7 @@
 <div class="page">
 
 <!-- ── 01 PROTOTYPE ───────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Prototype · Aug–Dec 2025</h2><span class="phase">Phase 01</span></div>
   <div class="phase-meta">
     <span class="phase-tag prototype"><span class="dot"></span>Prototype</span>
@@ -350,7 +388,7 @@
 </section>
 
 <!-- ── 02 BUILD ───────────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Build · Jan–Apr 2026</h2><span class="phase">Phase 02</span></div>
   <div class="phase-meta">
     <span class="phase-tag build"><span class="dot"></span>Build</span>
@@ -401,7 +439,7 @@
 </section>
 
 <!-- ── 03 SHIP ────────────────────────────────── -->
-<section class="section">
+<section class="section" id="ship" data-animate>
   <div class="section-head"><h2>Ship · May 2026</h2><span class="phase">Phase 03</span></div>
   <div class="phase-meta">
     <span class="phase-tag ship"><span class="dot"></span>Ship</span>
@@ -441,7 +479,7 @@
 </section>
 
 <!-- ── 04 INFRASTRUCTURE ──────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Infrastructure · Today</h2><span class="phase">Current</span></div>
   <div class="phase-meta">
     <span class="phase-tag now"><span class="dot"></span>Live</span>
@@ -490,7 +528,7 @@
 </section>
 
 <!-- ── 05 AHEAD ───────────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Ahead</h2><span class="phase">Upcoming</span></div>
   <div class="phase-meta">
     <span class="phase-tag build"><span class="dot"></span>Planned</span>
@@ -529,7 +567,7 @@
 </section>
 
 <!-- ── 06 PLATFORM WALLS ──────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Platform Walls</h2><span class="phase">Won't fix</span></div>
   <div class="phase-meta">
     <span class="phase-tag wall"><span class="dot"></span>Not ours</span>
@@ -565,12 +603,13 @@
 <footer>
   <span>MUSIXQUARE History v1.3</span>
   <span>
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a> &nbsp;·&nbsp;
-    <a href="../about/">About</a> &nbsp;·&nbsp;
-    <a href="../designsystem/">Design System</a> &nbsp;·&nbsp;
+    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+    <a href="/about">About</a>
+    <a href="/designsystem">Design System</a>
     <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
   </span>
 </footer>
 
+<script src="/editorial-pages.js"></script>
 </body>
 </html>

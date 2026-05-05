@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#121212">
   <title>Design System · MUSIXQUARE</title>
   <link rel="canonical" href="https://musixquare.com/designsystem">
   <meta name="description" content="MUSIXQUARE's design system — colors, type, components, and motion. Geometric, dark, minimal.">
@@ -20,6 +23,7 @@
   <meta name="twitter:description" content="Geometric · Dark · Minimal — the MUSIXQUARE visual language.">
   <meta name="twitter:image" content="https://musixquare.com/og-designsystem.png">
   <link rel="icon" href="assets/favicon.svg">
+  <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="colors_and_type.css">
   <style>
     html, body { margin: 0; background: var(--bg); color: var(--text-main); }
@@ -318,11 +322,45 @@
       .display-glyph { font-size: 96px; }
     }
   </style>
+  <link rel="stylesheet" href="/editorial-pages.css">
 </head>
-<body>
+<body class="editorial-page editorial-designsystem">
+
+<header class="lp-header">
+  <div class="lp-header-progress" aria-hidden="true"></div>
+  <a class="lp-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+    <span class="editorial-wordmark" aria-hidden="true"></span>
+  </a>
+  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+    <span class="lp-try__dot" aria-hidden="true"></span>
+    <span>Try it now</span>
+  </a>
+</header>
 
 <!-- ── HERO ───────────────────────────────────── -->
-<section class="hero">
+<section class="hero" data-animate>
+  <div class="editorial-hero__copy">
+    <p class="editorial-kicker">Design System</p>
+    <h1 class="lp-h1">Design<br>language.</h1>
+    <p class="lp-lead">
+      Tokens, type, components, and motion for the MUSIXQUARE interface:
+      geometric, dark, minimal, and tuned for real-time audio control.
+    </p>
+    <div class="lp-btn-row">
+      <a class="lp-btn lp-btn--solid" href="#components">
+        <span>See components</span>
+        <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+      </a>
+      <a class="lp-btn" href="/about">
+        <span>About</span>
+        <span class="lp-btn__arrow lp-btn__arrow--right" aria-hidden="true">→</span>
+      </a>
+      <a class="lp-btn" href="/history">
+        <span>History</span>
+        <span class="lp-btn__arrow lp-btn__arrow--right" aria-hidden="true">→</span>
+      </a>
+    </div>
+  </div>
   <div class="logo">
     <svg viewBox="43 12 214 26" fill="currentColor">
       <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
@@ -353,7 +391,7 @@
 <div class="page">
 
 <!-- ── 01 FOUNDATIONS ─────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Foundations</h2><span class="num">01</span></div>
 
   <!-- Color palette -->
@@ -392,7 +430,7 @@
 </section>
 
 <!-- ── 02 TYPOGRAPHY ──────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Typography</h2><span class="num">02</span></div>
 
   <div class="grid-2">
@@ -429,7 +467,7 @@
 </section>
 
 <!-- ── 03 SPACING & SHAPE ─────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Spacing &amp; shape</h2><span class="num">03</span></div>
 
   <div class="grid-2">
@@ -483,7 +521,7 @@
 </section>
 
 <!-- ── 04 COMPONENTS ──────────────────────────── -->
-<section class="section">
+<section class="section" id="components" data-animate>
   <div class="section-head"><h2>Components</h2><span class="num">04</span></div>
 
   <div class="grid-2">
@@ -558,7 +596,7 @@
 </section>
 
 <!-- ── 05 ICONOGRAPHY ─────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Iconography</h2><span class="num">05</span></div>
   <p style="color: var(--text-sub); font-size: 14px; line-height: 1.6; max-width: 640px; margin: -12px 0 24px;">
     Material Icons (Filled). 24×24 viewBox, single path, <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">fill="currentColor"</code>.
@@ -583,7 +621,7 @@
 </section>
 
 <!-- ── 06 TOKENS ──────────────────────────────── -->
-<section class="section">
+<section class="section" data-animate>
   <div class="section-head"><h2>Tokens</h2><span class="num">06</span></div>
   <p style="color: var(--text-sub); font-size: 14px; margin: -12px 0 24px;">
     Full list in <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">colors_and_type.css</code>.
@@ -610,14 +648,15 @@
 <footer>
   <span>MUSIXQUARE Design System v1.0</span>
   <span>
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a> &nbsp;·&nbsp;
-    <a href="../about/">About</a> &nbsp;·&nbsp;
-    <a href="../history/">History</a> &nbsp;·&nbsp;
-    <a href="README.md">README</a> &nbsp;·&nbsp;
-    <a href="ui_kits/app/index.html">UI Kit</a> &nbsp;·&nbsp;
+    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+    <a href="/about">About</a>
+    <a href="/history">History</a>
+    <a href="README.md">README</a>
+    <a href="ui_kits/app/index.html">UI Kit</a>
     <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">Source</a>
   </span>
 </footer>
 
+<script src="/editorial-pages.js"></script>
 </body>
 </html>

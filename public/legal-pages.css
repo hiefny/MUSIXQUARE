@@ -52,15 +52,13 @@ a {
   text-decoration: none;
 }
 
-.policy-logo svg {
-  height: 16px;
-  width: auto;
-}
-
-.policy-logo--text {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+.policy-wordmark {
+  display: block;
+  width: 132px;
+  height: 18px;
+  background: currentColor;
+  mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
+  -webkit-mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
 }
 
 .policy-home {

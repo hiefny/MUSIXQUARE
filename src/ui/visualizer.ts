@@ -135,66 +135,73 @@ const VIZ_SILENCE_THRESHOLD_DB = -100;
 const VIZ_SILENCE_SUSTAINED_MS = 1000;
 const VIZ_SILENCE_MAX_CAP_MS = 30_000;
 const VIZ_SILENCE_POLL_MS = 100;
-const VIZ_FADE_OUT_MS = 900;
 let _silenceFirstSeenAt = 0;
 let _holdNextPauseFrame = false;
 let _isHoldingPauseFrame = false;
 
-function stopVisualizerAndClear(): void {
-  if (_animationId) {
-    cancelAnimationFrame(_animationId);
-    _animationId = null;
-  }
-  clearManagedTimer('viz-silence-poll');
-  _silenceFirstSeenAt = 0;
+function drawRestingVisualizerFrame(): void {
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   const ctx = canvas?.getContext('2d');
   if (!canvas || !ctx) return;
+
+  refreshThemeCache();
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  syncCanvasSize(canvas, ctx, wrapper);
   const dpr = window.devicePixelRatio || 1;
-  ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-}
+  const logicalW = canvas.width / dpr;
+  const logicalH = canvas.height / dpr;
 
-function fadeVisualizerOut(): void {
-  clearManagedTimer('viz-silence-poll');
-  _silenceFirstSeenAt = 0;
-  _holdNextPauseFrame = false;
-  _isHoldingPauseFrame = false;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, logicalW, logicalH);
+  ctx.shadowBlur = 0;
 
-  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
-  const ctx = canvas?.getContext('2d');
-  if (!canvas || !ctx) {
-    stopVisualizerAndClear();
+  if (_vizMode === 'spectrum') {
+    const padX = 4;
+    const padY = 8;
+    const restY = dbToY(MIN_DB, logicalH, padY);
+    drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.38)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padX, restY);
+    ctx.lineTo(logicalW - padX, restY);
+    ctx.stroke();
     return;
   }
 
+  const logicalSize = Math.min(logicalW, logicalH);
+  const scale = logicalSize / 240;
+  const centerX = logicalSize / 2;
+  const centerY = logicalSize / 2;
+  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 55 * scale, 0, 2 * Math.PI);
+  ctx.fill();
+
+  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 40 * scale, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+function stopVisualizerAtRest(): void {
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
   }
+  clearManagedTimer('viz-silence-poll');
+  _silenceFirstSeenAt = 0;
+  drawRestingVisualizerFrame();
+}
 
-  const dpr = window.devicePixelRatio || 1;
-  let startedAt = 0;
-
-  const fade = (now: number): void => {
-    if (!startedAt) startedAt = now;
-    const logicalW = canvas.width / dpr;
-    const logicalH = canvas.height / dpr;
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
-    ctx.fillRect(0, 0, logicalW, logicalH);
-    ctx.restore();
-
-    if (now - startedAt >= VIZ_FADE_OUT_MS) {
-      stopVisualizerAndClear();
-      return;
-    }
-
-    _animationId = requestAnimationFrame(fade);
-  };
-
-  _animationId = requestAnimationFrame(fade);
+function fadeVisualizerOut(): void {
+  stopVisualizerAtRest();
+  // Keep the event-facing name for compatibility with transport/playback.
+  // The UX now settles to the minimum visualizer frame instead of erasing
+  // the canvas, so silence never leaves a blank hole in the player.
+  _silenceFirstSeenAt = 0;
+  _holdNextPauseFrame = false;
+  _isHoldingPauseFrame = false;
 }
 
 function scheduleVisualizerSilenceStop(): void {
@@ -207,7 +214,7 @@ function scheduleVisualizerSilenceStop(): void {
 
     const analyser = getEngineAnalyser();
     if (!analyser) {
-      fadeVisualizerOut();
+      stopVisualizerAtRest();
       return;
     }
 
@@ -224,7 +231,7 @@ function scheduleVisualizerSilenceStop(): void {
     if (isSilent) {
       if (!_silenceFirstSeenAt) _silenceFirstSeenAt = now;
       if (now - _silenceFirstSeenAt >= VIZ_SILENCE_SUSTAINED_MS) {
-        fadeVisualizerOut();
+        stopVisualizerAtRest();
         return;
       }
     } else {
@@ -232,7 +239,7 @@ function scheduleVisualizerSilenceStop(): void {
     }
 
     if (now - pollStart >= VIZ_SILENCE_MAX_CAP_MS) {
-      fadeVisualizerOut();
+      stopVisualizerAtRest();
       return;
     }
 

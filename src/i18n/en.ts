@@ -548,6 +548,8 @@ const en: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',
   'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to guests only.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
+  'system_audio.remote_receive_limit':
+    'Remote system audio paused after 2 hours. Rejoin the room to continue listening.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Service notes',

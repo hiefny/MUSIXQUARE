@@ -545,6 +545,8 @@ const ko = {
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
   'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only': 'Windows 또는 Mac의 Chrome에서만 사용할 수 있어요.',
+  'system_audio.remote_receive_limit':
+    '원격 시스템 오디오 수신이 2시간 후 자동 종료되었어요. 계속 들으려면 방에 다시 입장해주세요.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '서비스 이용 안내',

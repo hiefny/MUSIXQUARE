@@ -9,7 +9,9 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
+import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
@@ -24,6 +26,8 @@ import {
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
+const REMOTE_GUEST_SFU_LIMIT_MS = 2 * 60 * 60 * 1000;
+const REMOTE_GUEST_SFU_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -89,6 +93,8 @@ let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
+let guestLimitTimerActive = false;
+let guestLimitBlockedHostConn: DataConnection | null = null;
 const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
 function shouldUseRealtimeSfu(): boolean {
@@ -128,6 +134,30 @@ function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack):
 
   if (primer) guestDecoderPrimers.set(channel, primer);
   else guestDecoderPrimers.delete(channel);
+}
+
+function clearGuestLimitTimer(): void {
+  clearManagedTimer(REMOTE_GUEST_SFU_LIMIT_TIMER);
+  guestLimitTimerActive = false;
+}
+
+function startGuestLimitTimer(): void {
+  if (guestLimitTimerActive) return;
+  guestLimitTimerActive = true;
+  setManagedTimer(REMOTE_GUEST_SFU_LIMIT_TIMER, () => {
+    guestLimitTimerActive = false;
+    guestLimitBlockedHostConn = getState('network.hostConn');
+    log.info('[SysAudioSFU] Remote guest receive limit reached; pausing SFU until rejoin');
+    bus.emit('ui:show-toast', t('system_audio.remote_receive_limit'));
+    cleanupGuestSfu();
+  }, REMOTE_GUEST_SFU_LIMIT_MS);
+}
+
+function isGuestLimitedForHost(hostConn: DataConnection | null): boolean {
+  if (!guestLimitBlockedHostConn) return false;
+  if (hostConn === guestLimitBlockedHostConn) return true;
+  guestLimitBlockedHostConn = null;
+  return false;
 }
 
 function getRealtimeEndpoints(): string[] {
@@ -529,6 +559,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
 
   if (!guestReceiving) {
     guestReceiving = true;
+    startGuestLimitTimer();
     setState('systemAudio.isReceiving', true);
     setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
     bus.emit('visualizer:start');
@@ -537,6 +568,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
 }
 
 function cleanupGuestSfu(updateState = true): void {
+  clearGuestLimitTimer();
   if (guestSourceL) {
     try {
       guestSourceL.disconnect();
@@ -721,6 +753,10 @@ function handleSfuReady(
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (getState('network.connectionType') === 'local') return;
+  if (isGuestLimitedForHost(hostConn)) {
+    log.debug('[SysAudioSFU] Ignoring SFU ready until the guest rejoins the room');
+    return;
+  }
 
   const payload = normalizeSfuReadyPayload(data);
   if (!payload) return;
@@ -783,6 +819,7 @@ export function registerSystemAudioSfuListeners(): void {
       return;
     }
     if (getState('network.appRole') === 'guest' && !getState('network.hostConn')) {
+      guestLimitBlockedHostConn = null;
       cleanupGuestSfu();
     }
   });

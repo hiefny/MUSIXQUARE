@@ -375,10 +375,23 @@ export async function handleFilePrepare(
 ): Promise<void> {
   if (!isHostBroadcast(conn)) return;
 
-  // YouTube mode: ignore file transfers entirely — no file to receive
+  // YouTube mode normally owns its own transport, but demo is a deliberate
+  // cross-mode switch: remote guests fetch the bundled demo over HTTP after
+  // FILE_PREPARE. Accept that one and tear YouTube down before driving the
+  // file lifecycle.
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-    log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
-    return;
+    if (data.name !== DEMO_FILE_NAME) {
+      log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
+      return;
+    }
+    const pendingTime = getPendingPlayTime();
+    const pendingSetAt = getPendingPlayTimeSetAt();
+    log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
+    bus.emit('player:stop-all-media');
+    if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+      setState('appState', APP_STATE.IDLE);
+    }
+    if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
   }
 
   // New track arriving — reset the per-track decode failure counter so the

@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import {
+  APP_STATE,
+  DEMO_FILE_NAME,
+  LOAD_SOURCE,
+  PLAYBACK_STATE,
+  TRANSFER_STATE,
+} from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../storage.ts', () => ({
@@ -99,5 +105,36 @@ describe('remote-share to local direct transfer promotion', () => {
         sessionId: 7,
       }),
     );
+  });
+
+  it('accepts demo FILE_PREPARE while leaving YouTube mode', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      {
+        type: 'file',
+        name: DEMO_FILE_NAME,
+        title: 'demo_track',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: DEMO_FILE_NAME,
+        mime: 'audio/mpeg',
+        index: 0,
+        sessionId: 11,
+      },
+      conn,
+    );
+
+    expect(getState('appState')).toBe(APP_STATE.IDLE);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playlist.currentTrackIndex')).toBe(0);
   });
 });

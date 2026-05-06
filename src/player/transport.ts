@@ -200,6 +200,8 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean }): void {
+  const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
   if (isSystemAudioActive()) {
     bus.emit('system-audio:force-stop');
@@ -242,6 +244,14 @@ export function stopAllMedia(opts?: { silent?: boolean }): void {
   setPlayLocked(false);
   setPendingPlayTime(undefined);
   setPlayPreloadedInProgress(false);
+
+  // silent=true usually suppresses the IDLE flash while another audio track
+  // is taking over. YouTube is the exception: leaving appState at
+  // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
+  // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
+  if (opts?.silent && wasInYouTube && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    setAppState(APP_STATE.IDLE);
+  }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
   if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {

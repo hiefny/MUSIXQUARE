@@ -210,7 +210,12 @@ export async function loadAndBroadcastFile(
     if (connectedPeers.length > 0 && sessionId !== null) {
       showToast(t('transfer.file_sending'));
       broadcastFileDebounced(file, sessionId, prepareMsg);
-      void shareRemoteFileIfNeeded(file, sessionId);
+      // Demo is a public bundled asset: remote guests fetch it over HTTP from
+      // the app server. Also sending an R2 descriptor makes the HTTP and R2
+      // downloads race for the same preload slot.
+      if (file.name !== DEMO_FILE_NAME) {
+        void shareRemoteFileIfNeeded(file, sessionId);
+      }
     }
 
     if (!hostConn) {

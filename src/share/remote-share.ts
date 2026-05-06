@@ -17,7 +17,7 @@
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
@@ -609,6 +609,11 @@ async function handleRemoteFileShare(
   // mixed-version hosts; the active descriptor will arrive when selected.
   if (descriptor.preload === true) {
     log.debug('[RemoteShare] Ignoring remote preload descriptor; policy is active-only');
+    return;
+  }
+
+  if (descriptor.name === DEMO_FILE_NAME) {
+    log.debug('[RemoteShare] Ignoring demo descriptor; demo uses the HTTP fallback path');
     return;
   }
 

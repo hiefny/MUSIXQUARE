@@ -104,6 +104,14 @@ describe('stopAllMedia', () => {
     );
   });
 
+  it('clears YouTube mode during a silent audio takeover', () => {
+    setState('appState', 'PLAYING_YOUTUBE');
+
+    stopAllMedia({ silent: true });
+
+    expect(getState('appState')).toBe('IDLE');
+  });
+
   it('broadcasts PAUSE with reason=stop for explicit terminal stops', () => {
     setState('appState', 'PLAYING_AUDIO');
 

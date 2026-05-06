@@ -2459,6 +2459,11 @@
         display: block;
     }
 
+    /* Mobile stacks General and Audio, so keep the divider between them. */
+    .settings-subtab-panel[data-panel="general"]>.section-group:last-of-type {
+        border-bottom: 1px dotted var(--surface-3);
+    }
+
     /* Desktop connect sub-panel — hidden on mobile (duplicate of mobile #tab-connect) */
     .settings-subtab-panel[data-panel="connect"] {
         display: none;

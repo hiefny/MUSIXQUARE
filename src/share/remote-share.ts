@@ -4,29 +4,20 @@
  * This is intentionally a side path: LAN P2P transfer remains the primary
  * path, while remote/unknown guests receive an encrypted R2 descriptor.
  *
- * Two descriptor flavors share the same wire envelope (MSG.REMOTE_FILE_SHARE),
- * distinguished by the `preload` flag:
- *   - preload=false (default): Active descriptor for the CURRENT track. Guest
- *     stops the previous audio, transitions to AWAITING_PRELOAD, downloads,
- *     and promotes via storage:use-preloaded so loadPreloadedTrack consumes
- *     pendingPlayTime → play.
- *   - preload=true: Speculative descriptor for the NEXT track. Guest pre-
- *     downloads silently into preload.nextFileBlob WITHOUT touching the
- *     current playback. When host eventually advances and emits MSG.PLAY
- *     with the new index, the existing preload-promoted path activates the
- *     already-downloaded blob with zero wait.
+ * MSG.REMOTE_FILE_SHARE carries only the active CURRENT track descriptor.
+ * Remote speculative preload is intentionally disabled: mobile guests avoid
+ * extra R2 downloads, decrypted Blob retention, battery/GC churn, and URL
+ * expiry races. Legacy `preload: true` descriptors are accepted on the wire
+ * for compatibility but ignored by this client.
  *
  * Concurrency: only ONE active descriptor download runs at a time. A newer
- * active descriptor cancels the in-flight one via AbortController. Preload
- * downloads run independently of an active download (they target the
- * preload slot before the active path takes ownership), but a newer preload
- * supersedes an older preload.
+ * active descriptor cancels the in-flight one via AbortController.
  */
 
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
@@ -79,9 +70,6 @@ const _descriptorCache = new Map<string, RemoteFileSharePayload>();
 // Only one active (foreground) download at a time. A newer one supersedes
 // the in-flight one via abort.
 let _activeDownload: DownloadEntry | null = null;
-// Preload (background) download runs in parallel to the active download
-// because they target distinct ownership of preload.nextFileBlob slot.
-let _activePreloadDownload: DownloadEntry | null = null;
 let _lastUploadFailureNoticeAt = 0;
 
 function rawRemoteShareError(error: unknown): string {
@@ -95,11 +83,8 @@ function clearStaleRemotePlayback(reason: string): void {
   if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
 }
 
-function toRemoteShareMessage(
-  descriptor: RemoteFileSharePayload,
-  preload: boolean,
-): AnyProtocolMsg {
-  return { type: MSG.REMOTE_FILE_SHARE, ...descriptor, preload } as AnyProtocolMsg;
+function toRemoteShareMessage(descriptor: RemoteFileSharePayload): AnyProtocolMsg {
+  return { type: MSG.REMOTE_FILE_SHARE, ...descriptor } as AnyProtocolMsg;
 }
 
 function toRemoteFileUnavailableMessage(
@@ -330,15 +315,10 @@ function abortActiveUploadsIfNoRemoteTargets(reason: string): void {
 
 export function cancelRemoteShareWait(reason: string): void {
   const hadActiveDownload = !!_activeDownload;
-  const hadActivePreload = !!_activePreloadDownload;
 
   if (_activeDownload) {
     _activeDownload.abort.abort();
     _activeDownload = null;
-  }
-  if (_activePreloadDownload) {
-    _activePreloadDownload.abort.abort();
-    _activePreloadDownload = null;
   }
 
   clearManagedTimer(REMOTE_WAIT_TIMER);
@@ -346,11 +326,8 @@ export function cancelRemoteShareWait(reason: string): void {
     resetRemoteDownloadState();
     showLoader(false);
   }
-  if (hadActivePreload) {
-    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
-  }
 
-  if (hadActiveDownload || hadActivePreload) {
+  if (hadActiveDownload) {
     log.info(`[RemoteShare] Active remote download cancelled (${reason})`);
   }
 }
@@ -361,17 +338,8 @@ export function shouldWaitForRemoteShare(): boolean {
 
 export interface ShareRemoteFileOptions {
   /**
-   * Speculative pre-share for the NEXT track. The host runs this from
-   * preloadNextTrack so the encrypted object lands on R2 before the user
-   * advances. Guest receives a `preload: true` descriptor and silently
-   * pre-downloads into the preload slot without interrupting the current
-   * track.
-   */
-  preload?: boolean;
-  /**
-   * Override for the index recorded on the wire. Required when `preload`
-   * is true (caller passes the next-track index); ignored when omitted in
-   * the active path (defaults to playlist.currentTrackIndex).
+   * Override for the index recorded on the wire. Omitted active shares
+   * default to playlist.currentTrackIndex.
    */
   index?: number;
 }
@@ -394,7 +362,6 @@ export async function shareRemoteFileIfNeeded(
   if (sessionId === null) return;
   if (!targetConn && !hasRemoteTargets()) return;
 
-  const preload = options?.preload === true;
   const index =
     options?.index !== undefined ? options.index : (getState('playlist.currentTrackIndex') as number);
   if (!Number.isFinite(index) || index < 0) return;
@@ -419,16 +386,14 @@ export async function shareRemoteFileIfNeeded(
       const inFlight = _activeUploads.get(uploadKey);
       if (inFlight) {
         // Another caller already uploading the same file — share the result.
-        if (!preload) showUploadProgress(t('share.remote.uploading'));
+        showUploadProgress(t('share.remote.uploading'));
         descriptor = await inFlight.promise;
       } else {
         const abort = new AbortController();
         const promise = uploadRemoteFile(file, sessionId, index, {
           signal: abort.signal,
           onUploadProgress: (progress) => {
-            if (!preload) {
-              showUploadProgress(t('share.remote.uploading'), progress);
-            }
+            showUploadProgress(t('share.remote.uploading'), progress);
             bus.emit('remote-file:progress', 'upload', progress);
           },
         });
@@ -436,10 +401,8 @@ export async function shareRemoteFileIfNeeded(
         const entry: UploadEntry = { key: uploadKey, promise, abort };
         _activeUploads.set(uploadKey, entry);
 
-        if (!preload) {
-          showToast(t('share.remote.encrypting'));
-          showUploadProgress(t('share.remote.encrypting'));
-        }
+        showToast(t('share.remote.encrypting'));
+        showUploadProgress(t('share.remote.encrypting'));
 
         try {
           descriptor = await promise;
@@ -450,14 +413,11 @@ export async function shareRemoteFileIfNeeded(
       }
     }
 
-    if (!preload) showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
 
     // Stale-track guard (broadcast-mode only): if the host moved on during
     // the upload, suppress the broadcast so guests don't get a descriptor
-    // for a track they already advanced past. Different rules per flavor:
-    //   - active: stale if currentFileBlob is no longer this file
-    //   - preload: stale if preload.nextTrackIndex moved off our index
-    //     (host scheduled a newer preload before our upload finished)
+    // for a track they already advanced past.
     if (!targetConn) {
       if (!hasRemoteTargets()) {
         log.debug(
@@ -465,38 +425,28 @@ export async function shareRemoteFileIfNeeded(
         );
         return;
       }
-      if (!preload && !isHostActiveFile(file, index)) {
+      if (!isHostActiveFile(file, index)) {
         log.debug('[RemoteShare] Active upload completed for stale track; descriptor not broadcast');
-        return;
-      }
-      if (preload && (getState('preload.nextTrackIndex') as number) !== index) {
-        log.debug(
-          `[RemoteShare] Preload upload completed for stale next-index ${index}; descriptor not broadcast`,
-        );
         return;
       }
     }
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, index);
-    const msg = toRemoteShareMessage(outboundDescriptor, preload);
+    const msg = toRemoteShareMessage(outboundDescriptor);
     if (targetConn) {
       safeSend(targetConn, msg);
     } else {
       broadcast(msg);
     }
-    if (!preload) {
-      bus.emit('share:remote-file', outboundDescriptor);
-      log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
-      showToast(t('share.remote.upload_ready'));
-    } else {
-      log.info(`[RemoteShare] Shared preload descriptor for ${outboundDescriptor.name}`);
-    }
+    bus.emit('share:remote-file', outboundDescriptor);
+    log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
+    showToast(t('share.remote.upload_ready'));
   } catch (error) {
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Upload superseded — abort path is expected');
       return;
     }
-    if (!preload) showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
     const message = friendlyErrorMessage(error);
     setState('share.remote', {
       ...getState('share.remote'),
@@ -509,10 +459,8 @@ export async function shareRemoteFileIfNeeded(
       },
     });
     log.warn('[RemoteShare] Upload/share failed:', error);
-    if (!preload) {
-      maybeNotifyRemoteUploadFailure(error, file, sessionId, index, targetConn);
-      showToast(t('share.remote.upload_failed', { msg: message }));
-    }
+    maybeNotifyRemoteUploadFailure(error, file, sessionId, index, targetConn);
+    showToast(t('share.remote.upload_failed', { msg: message }));
   }
 }
 
@@ -616,103 +564,6 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
   );
 }
 
-/**
- * Pure preload path: fetch the encrypted blob into preload.nextFileBlob
- * WITHOUT touching active playback. The host's later MSG.PLAY for the
- * preloaded index activates it via the existing handlePlayMsg →
- * loadPreloadedTrack flow (zero-wait switch).
- */
-const REMOTE_PRELOAD_LOADER = 'remote-share-preload';
-
-async function downloadRemotePreload(descriptor: RemoteFileSharePayload): Promise<void> {
-  // Already in flight for the same object — drop dup.
-  if (_activePreloadDownload?.objectId === descriptor.objectId) return;
-  // Already have this exact track preloaded — drop dup.
-  const existingMeta = getState('preload.meta');
-  const existingBlob = getState('preload.nextFileBlob');
-  if (existingBlob && isPreloadedRemoteFile(descriptor, existingBlob, existingMeta)) {
-    return;
-  }
-
-  // Supersede any older preload for a different track.
-  if (_activePreloadDownload && _activePreloadDownload.objectId !== descriptor.objectId) {
-    _activePreloadDownload.abort.abort();
-    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
-  }
-
-  const abort = new AbortController();
-  _activePreloadDownload = {
-    objectId: descriptor.objectId,
-    index: descriptor.index,
-    abort,
-  };
-
-  // Surface the preload progress in the header loader (same channel as
-  // local-network preload UI in preload.ts → "preparing next" toast).
-  // Distinct loader id so the preload's "show: false" on completion
-  // doesn't clobber an active-download loader from a parallel track
-  // switch.
-  showLoader(true, t('share.remote.preload_downloading'), REMOTE_PRELOAD_LOADER);
-  updateLoader(0);
-
-  try {
-    const file = await downloadRemoteFile(
-      descriptor,
-      (progress) => {
-        if (abort.signal.aborted) return;
-        updateLoader(Math.round(progress * 100));
-        bus.emit('remote-file:progress', 'download', progress);
-      },
-      abort.signal,
-    );
-    if (abort.signal.aborted) return;
-
-    // Yield if an active download for a different track owns the slot now.
-    if (_activeDownload && _activeDownload.index !== descriptor.index) {
-      log.debug('[RemoteShare] Preload completed but active download owns slot; discarding');
-      return;
-    }
-
-    setState('preload.nextFileBlob', file);
-    setState('preload.meta', {
-      name: descriptor.name,
-      title: descriptor.name.replace(/\.[^/.]+$/, ''),
-      index: descriptor.index,
-      size: file.size,
-      mime: descriptor.mime,
-      sessionId: descriptor.sessionId,
-    });
-    setState('preload.nextTrackIndex', descriptor.index);
-    log.info(`[RemoteShare] Preload ready for index ${descriptor.index} (${descriptor.name})`);
-    promoteRemotePreloadIfActive(descriptor, file);
-  } catch (error) {
-    if (isAbortError(error)) {
-      log.debug('[RemoteShare] Preload download superseded — abort is expected');
-      return;
-    }
-    log.warn('[RemoteShare] Preload download failed:', error);
-    // Preload failure is silent toast-wise — the user-facing path (active
-    // descriptor arriving on track advance) will surface its own error if
-    // R2 is down.
-  } finally {
-    if (_activePreloadDownload?.objectId === descriptor.objectId) {
-      _activePreloadDownload = null;
-    }
-    showLoader(false, undefined, REMOTE_PRELOAD_LOADER);
-  }
-}
-
-function remoteFileMeta(descriptor: RemoteFileSharePayload, file: File): Record<string, unknown> {
-  return {
-    name: descriptor.name,
-    title: descriptor.name.replace(/\.[^/.]+$/, ''),
-    index: descriptor.index,
-    size: file.size,
-    mime: descriptor.mime,
-    sessionId: descriptor.sessionId,
-  };
-}
-
 function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean {
   const currentBlob = getState('files.currentFileBlob');
   const meta = getState('transfer.meta');
@@ -740,62 +591,12 @@ function isPreloadedRemoteFile(descriptor: RemoteFileSharePayload, blob: Blob, m
   );
 }
 
-function shouldPromoteRemotePreload(descriptor: RemoteFileSharePayload): boolean {
-  if ((getState('playlist.currentTrackIndex') as number) !== descriptor.index) return false;
-  if (isCurrentRemoteFileLoaded(descriptor)) return false;
-
-  const lifecycle = getState('playback.lifecycle');
-  const pendingTarget = getState('playback.pendingRecoveryTarget');
-  return (
-    pendingTarget?.index === descriptor.index ||
-    lifecycle === PLAYBACK_STATE.IDLE ||
-    lifecycle === PLAYBACK_STATE.DOWNLOADING ||
-    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
-  );
-}
-
-function promoteRemotePreloadIfActive(descriptor: RemoteFileSharePayload, file: File): void {
-  if (!shouldPromoteRemotePreload(descriptor)) return;
-
-  const meta = remoteFileMeta(descriptor, file);
-  log.info(
-    `[RemoteShare] Completed preload is now active (index ${descriptor.index}); promoting`,
-  );
-  clearStaleRemotePlayback('remote-share-preload-promote');
-  setPendingRecoveryTarget(descriptor.index, descriptor.name);
-  setState('preload.meta', meta);
-  setState('preload.nextTrackIndex', descriptor.index);
-  setState('transfer.meta', meta);
-  const playlist = getState('playlist.items') || [];
-  if (playlist[descriptor.index]) {
-    setState('player.currentTrackMeta', playlist[descriptor.index]);
-  } else {
-    setState('player.currentTrackMeta', {
-      type: 'file',
-      title: descriptor.name.replace(/\.[^/.]+$/, '') || descriptor.name,
-      name: descriptor.name,
-      videoId: null,
-      playlistId: null,
-    });
-  }
-  clearManagedTimer(REMOTE_WAIT_TIMER);
-  transition({
-    type: 'FILE_PREPARE',
-    variant: 'preload-match',
-    index: descriptor.index,
-    name: descriptor.name,
-  });
-  bus.emit('remote-file:ready', descriptor.index, descriptor.name);
-  bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
-}
-
 async function handleRemoteFileShare(
   descriptor: RemoteFileSharePayload,
   conn?: DataConnection,
 ): Promise<void> {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
 
   if (getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);
@@ -804,9 +605,10 @@ async function handleRemoteFileShare(
     return;
   }
 
-  // Preload descriptor: silent pre-fetch, no playback interruption.
+  // Remote speculative preload is disabled. Ignore legacy descriptors from
+  // mixed-version hosts; the active descriptor will arrive when selected.
   if (descriptor.preload === true) {
-    void downloadRemotePreload(descriptor);
+    log.debug('[RemoteShare] Ignoring remote preload descriptor; policy is active-only');
     return;
   }
 
@@ -817,9 +619,8 @@ async function handleRemoteFileShare(
     return;
   }
 
-  // Fast-path: an active descriptor for a track we already preloaded — the
-  // blob is in preload.nextFileBlob, just promote it. Skip the redundant
-  // download (and the R2 cost it would incur).
+  // Fast-path: an active descriptor for a track we already have in the
+  // preload slot. Skip the redundant download and promote the existing blob.
   const preMeta = getState('preload.meta');
   const preBlob = getState('preload.nextFileBlob');
   if (preBlob && isPreloadedRemoteFile(descriptor, preBlob, preMeta)) {
@@ -1059,9 +860,7 @@ export function initRemoteShare(): void {
       _activeUploads.clear();
       _descriptorCache.clear();
       _activeDownload?.abort.abort();
-      _activePreloadDownload?.abort.abort();
       _activeDownload = null;
-      _activePreloadDownload = null;
       clearManagedTimer(REMOTE_WAIT_TIMER);
       const blobUrl = getState('share.remote').download.blobUrl;
       if (blobUrl) URL.revokeObjectURL(blobUrl);

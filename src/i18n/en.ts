@@ -433,7 +433,6 @@ const en: Record<I18nKey, string> = {
   'share.remote.upload_ready': 'Remote share ready',
   'share.remote.waiting': 'Waiting for encrypted remote file…',
   'share.remote.downloading': 'Downloading encrypted remote file…',
-  'share.remote.preload_downloading': 'Pre-fetching next track…',
   'share.remote.upload_failed': 'Remote file share failed: {{msg}}',
   'share.remote.download_failed': 'Remote file download failed: {{msg}}',
   'share.remote.timeout': 'Remote file share timed out',

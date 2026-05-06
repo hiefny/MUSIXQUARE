@@ -431,7 +431,6 @@ const ko = {
   'share.remote.upload_ready': '원격 공유 준비 완료',
   'share.remote.waiting': '원격 파일을 기다리고 있어요…',
   'share.remote.downloading': '원격 파일을 받고 있어요…',
-  'share.remote.preload_downloading': '다음 트랙을 미리 받고 있어요…',
   'share.remote.upload_failed': '원격 공유 실패: {{msg}}',
   'share.remote.download_failed': '원격 파일 받기 실패: {{msg}}',
   'share.remote.timeout': '원격 파일 대기 시간이 초과됐어요',

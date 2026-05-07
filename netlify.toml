@@ -113,6 +113,17 @@
   to = "/terms.html"
   status = 200
 
+# FAQ: serve /faq and /faq/ as the FAQ page
+[[redirects]]
+  from = "/faq"
+  to = "/faq.html"
+  status = 200
+
+[[redirects]]
+  from = "/faq/"
+  to = "/faq.html"
+  status = 200
+
 # Case-variant redirects → canonical lowercase (301)
 [[redirects]]
   from = "/DESIGNSYSTEM"
@@ -272,6 +283,26 @@
 [[redirects]]
   from = "/Terms/"
   to = "/terms"
+  status = 301
+
+[[redirects]]
+  from = "/FAQ"
+  to = "/faq"
+  status = 301
+
+[[redirects]]
+  from = "/FAQ/"
+  to = "/faq"
+  status = 301
+
+[[redirects]]
+  from = "/Faq"
+  to = "/faq"
+  status = 301
+
+[[redirects]]
+  from = "/Faq/"
+  to = "/faq"
   status = 301
 
 [[redirects]]

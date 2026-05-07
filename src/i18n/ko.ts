@@ -512,7 +512,7 @@ const ko = {
   'player.play_media_action_html':
     '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장 환경이 Windows나 Mac의 Chrome인 경우 이용 가능</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 설정을 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 언제든 맨 하단의 이메일로 연락해주세요.</li></ul>',
+    '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 상태를 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 <a href="/faq?lang=ko" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>를 참고해주시거나 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}} 님이 접속했어요',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',

@@ -157,7 +157,7 @@ function getRoleClockDot(): HTMLElement | null {
   return document.querySelector<HTMLElement>('#role-badge .role-dot');
 }
 
-function canPulseRoleClock(): boolean {
+function shouldPulseRoleClock(): boolean {
   if (document.visibilityState === 'hidden') return false;
   const appRole = getState('network.appRole');
   if (appRole === 'host') return true;
@@ -172,7 +172,7 @@ function stopRoleClockPulse(): void {
 }
 
 function scheduleRoleClockPulse(realign = false): void {
-  if (!canPulseRoleClock()) {
+  if (!shouldPulseRoleClock()) {
     stopRoleClockPulse();
     return;
   }
@@ -182,7 +182,7 @@ function scheduleRoleClockPulse(realign = false): void {
   clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
 
   const dot = getRoleClockDot();
-  if (!dot || !canPulseRoleClock()) {
+  if (!dot || !shouldPulseRoleClock()) {
     stopRoleClockPulse();
     return;
   }

@@ -10,7 +10,7 @@ import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
-import { getClockOffset } from '../network/shared-clock.ts';
+import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
@@ -40,6 +40,11 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
   '1': { labelKey: 'common.right', placementToastKey: 'role.right_placement' },
   '2': { labelKey: 'common.woofer', placementToastKey: 'role.center_placement' },
 };
+
+const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
+const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
+const ROLE_CLOCK_PULSE_DURATION_MS = 120;
+const ROLE_CLOCK_SECOND_MS = 1000;
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
@@ -148,6 +153,59 @@ function toggleMute(): void {
 // Badge text is intentionally English-only (HOST, PEER, GUEST, etc.)
 // — treated as a brand/UI label, not translatable content.
 
+function getRoleClockDot(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('#role-badge .role-dot');
+}
+
+function canPulseRoleClock(): boolean {
+  const appRole = getState('network.appRole');
+  if (appRole === 'host') return true;
+  return !!getState('network.hostConn') && isClockCalibrated();
+}
+
+function pulseRoleClockDot(): void {
+  const dot = getRoleClockDot();
+  if (!dot || !canPulseRoleClock()) return;
+
+  dot.classList.remove('clock-beat');
+  // Restart the CSS animation even when consecutive beats reuse the same class.
+  void dot.offsetWidth;
+  dot.classList.add('clock-beat');
+
+  setManagedTimer(
+    ROLE_CLOCK_PULSE_RESET_TIMER,
+    () => {
+      dot.classList.remove('clock-beat');
+    },
+    ROLE_CLOCK_PULSE_DURATION_MS,
+  );
+}
+
+function scheduleRoleClockPulse(): void {
+  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
+
+  const dot = getRoleClockDot();
+  if (!dot || !canPulseRoleClock()) {
+    dot?.classList.remove('clock-beat');
+    clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
+    return;
+  }
+
+  const hostNow = getHostNow();
+  const remainder = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
+  const waitMs =
+    remainder < 1 ? ROLE_CLOCK_SECOND_MS : Math.max(1, ROLE_CLOCK_SECOND_MS - remainder);
+
+  setManagedTimer(
+    ROLE_CLOCK_PULSE_TIMER,
+    () => {
+      pulseRoleClockDot();
+      scheduleRoleClockPulse();
+    },
+    waitMs,
+  );
+}
+
 export function updateRoleBadge(): void {
   const badge = document.getElementById('role-badge');
   const text = document.getElementById('role-text');
@@ -158,6 +216,7 @@ export function updateRoleBadge(): void {
   const isConnecting = getState('network.isConnecting');
   if (isConnecting) {
     text.innerText = 'CONNECTING';
+    scheduleRoleClockPulse();
     return;
   }
 
@@ -179,6 +238,7 @@ export function updateRoleBadge(): void {
     if (getState('network.connectionType') === 'remote') {
       badge.classList.add('remote');
     }
+    scheduleRoleClockPulse();
     return;
   }
 
@@ -190,15 +250,18 @@ export function updateRoleBadge(): void {
   if (appRole === 'host') {
     text.innerText = 'HOST';
     badge.classList.add('connected');
+    scheduleRoleClockPulse();
     return;
   }
 
   if (appRole === 'guest') {
     text.innerText = 'GUEST';
+    scheduleRoleClockPulse();
     return;
   }
 
   text.innerText = 'SETUP';
+  scheduleRoleClockPulse();
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────

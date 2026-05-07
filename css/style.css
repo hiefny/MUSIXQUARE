@@ -637,7 +637,27 @@
         height: 6px;
         background: var(--text-muted);
         border-radius: 50%;
-        transition: transform 0.2s, background 0.2s;
+        opacity: 0.5;
+        transition: background 0.2s;
+    }
+
+    .role-dot.clock-beat {
+        animation: role-dot-clock-beat 120ms steps(1, end);
+    }
+
+    @keyframes role-dot-clock-beat {
+        0% {
+            opacity: 1;
+        }
+
+        60% {
+            opacity: 1;
+        }
+
+        61%,
+        100% {
+            opacity: 0.5;
+        }
     }
 
     .role-badge.connected {

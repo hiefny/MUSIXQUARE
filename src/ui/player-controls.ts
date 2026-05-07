@@ -41,10 +41,8 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
   '2': { labelKey: 'common.woofer', placementToastKey: 'role.center_placement' },
 };
 
-const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
-const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
-const ROLE_CLOCK_PULSE_DURATION_MS = 120;
 const ROLE_CLOCK_SECOND_MS = 1000;
+const ROLE_CLOCK_PULSE_WINDOW_MS = 120;
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
@@ -163,47 +161,37 @@ function canPulseRoleClock(): boolean {
   return !!getState('network.hostConn') && isClockCalibrated();
 }
 
-function pulseRoleClockDot(): void {
+let _roleClockRafId = 0;
+
+function stopRoleClockPulse(): void {
+  if (_roleClockRafId) {
+    cancelAnimationFrame(_roleClockRafId);
+    _roleClockRafId = 0;
+  }
   const dot = getRoleClockDot();
-  if (!dot || !canPulseRoleClock()) return;
-
-  dot.classList.remove('clock-beat');
-  // Restart the CSS animation even when consecutive beats reuse the same class.
-  void dot.offsetWidth;
-  dot.classList.add('clock-beat');
-
-  setManagedTimer(
-    ROLE_CLOCK_PULSE_RESET_TIMER,
-    () => {
-      dot.classList.remove('clock-beat');
-    },
-    ROLE_CLOCK_PULSE_DURATION_MS,
-  );
+  if (dot) dot.classList.remove('clock-beat');
 }
 
-function scheduleRoleClockPulse(): void {
-  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
-
+function runRoleClockPulseFrame(): void {
   const dot = getRoleClockDot();
   if (!dot || !canPulseRoleClock()) {
-    dot?.classList.remove('clock-beat');
-    clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
+    stopRoleClockPulse();
     return;
   }
 
   const hostNow = getHostNow();
-  const remainder = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
-  const waitMs =
-    remainder < 1 ? ROLE_CLOCK_SECOND_MS : Math.max(1, ROLE_CLOCK_SECOND_MS - remainder);
+  const phase = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
+  dot.classList.toggle('clock-beat', phase < ROLE_CLOCK_PULSE_WINDOW_MS);
+  _roleClockRafId = requestAnimationFrame(runRoleClockPulseFrame);
+}
 
-  setManagedTimer(
-    ROLE_CLOCK_PULSE_TIMER,
-    () => {
-      pulseRoleClockDot();
-      scheduleRoleClockPulse();
-    },
-    waitMs,
-  );
+function scheduleRoleClockPulse(): void {
+  if (!canPulseRoleClock()) {
+    stopRoleClockPulse();
+    return;
+  }
+  if (_roleClockRafId) return;
+  _roleClockRafId = requestAnimationFrame(runRoleClockPulseFrame);
 }
 
 export function updateRoleBadge(): void {

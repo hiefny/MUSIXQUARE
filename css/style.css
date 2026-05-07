@@ -642,22 +642,7 @@
     }
 
     .role-dot.clock-beat {
-        animation: role-dot-clock-beat 120ms steps(1, end);
-    }
-
-    @keyframes role-dot-clock-beat {
-        0% {
-            opacity: 1;
-        }
-
-        60% {
-            opacity: 1;
-        }
-
-        61%,
-        100% {
-            opacity: 0.5;
-        }
+        opacity: 1;
     }
 
     .role-badge.connected {

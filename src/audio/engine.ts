@@ -436,7 +436,7 @@ async function _doInitAudio(): Promise<void> {
   _graph.vbLimiter.connect(_graph.vbGain);
   _graph.vbGain.connect(_graph.masterGain);
 
-  // Visualizer — 2048 bins for accurate frequency mapping
+  // Visualizer analyser for accurate frequency mapping
   _graph.analyser = ctx.createAnalyser();
   _graph.analyser.fftSize = ANALYSER_FFT_SIZE;
   _graph.analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;

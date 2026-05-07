@@ -19,7 +19,7 @@ export const SUB_FREQ_MIN = 20;
 export const SUB_FREQ_MAX = 500;
 
 // ─── Analyser ────────────────────────────────────────────────────
-export const ANALYSER_FFT_SIZE = 2048;
+export const ANALYSER_FFT_SIZE = 4096;
 export const ANALYSER_SMOOTHING = 0.3;
 
 // ─── Reverb Defaults ─────────────────────────────────────────────

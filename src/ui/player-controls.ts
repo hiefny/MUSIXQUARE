@@ -43,6 +43,8 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
 
 const ROLE_CLOCK_SECOND_MS = 1000;
 const ROLE_CLOCK_PULSE_WINDOW_MS = 120;
+const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
+const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
@@ -156,23 +158,29 @@ function getRoleClockDot(): HTMLElement | null {
 }
 
 function canPulseRoleClock(): boolean {
+  if (document.visibilityState === 'hidden') return false;
   const appRole = getState('network.appRole');
   if (appRole === 'host') return true;
   return !!getState('network.hostConn') && isClockCalibrated();
 }
 
-let _roleClockRafId = 0;
-
 function stopRoleClockPulse(): void {
-  if (_roleClockRafId) {
-    cancelAnimationFrame(_roleClockRafId);
-    _roleClockRafId = 0;
-  }
+  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
+  clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
   const dot = getRoleClockDot();
   if (dot) dot.classList.remove('clock-beat');
 }
 
-function runRoleClockPulseFrame(): void {
+function scheduleRoleClockPulse(realign = false): void {
+  if (!canPulseRoleClock()) {
+    stopRoleClockPulse();
+    return;
+  }
+  if (!realign && getManagedTimer(ROLE_CLOCK_PULSE_TIMER)) return;
+
+  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
+  clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
+
   const dot = getRoleClockDot();
   if (!dot || !canPulseRoleClock()) {
     stopRoleClockPulse();
@@ -181,17 +189,27 @@ function runRoleClockPulseFrame(): void {
 
   const hostNow = getHostNow();
   const phase = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
-  dot.classList.toggle('clock-beat', phase < ROLE_CLOCK_PULSE_WINDOW_MS);
-  _roleClockRafId = requestAnimationFrame(runRoleClockPulseFrame);
-}
 
-function scheduleRoleClockPulse(): void {
-  if (!canPulseRoleClock()) {
-    stopRoleClockPulse();
-    return;
+  if (phase < ROLE_CLOCK_PULSE_WINDOW_MS) {
+    dot.classList.add('clock-beat');
+    setManagedTimer(
+      ROLE_CLOCK_PULSE_RESET_TIMER,
+      () => {
+        dot.classList.remove('clock-beat');
+      },
+      Math.max(1, ROLE_CLOCK_PULSE_WINDOW_MS - phase),
+    );
+  } else {
+    dot.classList.remove('clock-beat');
   }
-  if (_roleClockRafId) return;
-  _roleClockRafId = requestAnimationFrame(runRoleClockPulseFrame);
+
+  setManagedTimer(
+    ROLE_CLOCK_PULSE_TIMER,
+    () => {
+      scheduleRoleClockPulse(true);
+    },
+    Math.max(1, ROLE_CLOCK_SECOND_MS - phase),
+  );
 }
 
 export function updateRoleBadge(): void {
@@ -741,6 +759,7 @@ export function initPlayerControls(): void {
   // Latency update → refresh role badge + clock offset display
   _busScope.on('sync:latency-update', () => {
     updateRoleBadge();
+    scheduleRoleClockPulse(true);
     const autoEl = document.getElementById('auto-sync-value');
     if (autoEl) {
       const offset = getClockOffset();
@@ -753,6 +772,10 @@ export function initPlayerControls(): void {
   _busScope.on('state:network.connectionType', () => {
     refreshTrackTitle();
     updateRoleBadge();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    scheduleRoleClockPulse(true);
   });
 
   // Guest: dim media source button (host-only action)

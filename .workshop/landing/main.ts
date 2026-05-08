@@ -2,6 +2,11 @@
  * MUSIXQUARE landing — reveal-on-scroll with in-viewport fallback.
  */
 
+const EDITORIAL_LOAD_DELAY_MS = 300;
+
+let updateHeaderProgress: (() => void) | null = null;
+let pendingEditorialNavigation = false;
+
 function isInViewport(el: HTMLElement): boolean {
   const r = el.getBoundingClientRect();
   const vh = window.innerHeight || document.documentElement.clientHeight;
@@ -47,10 +52,12 @@ function initReveal(): void {
 function initScrollProgress(): void {
   const bar = document.querySelector<HTMLElement>('.lp-header-progress');
   if (!bar) return;
+  const header = document.querySelector<HTMLElement>('.lp-header');
   const doc = document.documentElement;
   let raf = 0;
   const update = () => {
     raf = 0;
+    if (header?.classList.contains('is-loading')) return;
     const max = doc.scrollHeight - doc.clientHeight;
     const pct = max > 0 ? (doc.scrollTop / max) * 100 : 0;
     bar.style.width = pct + '%';
@@ -59,9 +66,59 @@ function initScrollProgress(): void {
     if (raf) return;
     raf = requestAnimationFrame(update);
   };
+  updateHeaderProgress = update;
   update();
   window.addEventListener('scroll', schedule, { passive: true });
   window.addEventListener('resize', schedule, { passive: true });
+}
+
+function setHeaderLoading(loading: boolean): void {
+  const header = document.querySelector<HTMLElement>('.lp-header');
+  const bar = document.querySelector<HTMLElement>('.lp-header-progress');
+  if (!header) return;
+
+  if (loading) {
+    header.classList.add('is-loading');
+    if (bar) bar.style.width = '100%';
+    return;
+  }
+
+  header.classList.remove('is-loading');
+  requestAnimationFrame(() => updateHeaderProgress?.());
+}
+
+function initEditorialPageLoader(): void {
+  window.setTimeout(() => setHeaderLoading(false), EDITORIAL_LOAD_DELAY_MS);
+
+  document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab[href]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const href = link.getAttribute('href');
+      if (!href) return;
+
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+
+      event.preventDefault();
+      if (pendingEditorialNavigation) return;
+
+      pendingEditorialNavigation = true;
+      setHeaderLoading(true);
+      window.setTimeout(() => {
+        window.location.assign(url.href);
+      }, EDITORIAL_LOAD_DELAY_MS);
+    });
+  });
 }
 
 function initHairlineScale(): void {
@@ -299,6 +356,7 @@ function boot(): void {
   initReveal();
   initSmoothAnchor();
   initScrollProgress();
+  initEditorialPageLoader();
   initPhoneTilt();
   initCopyInvite();
   initSyncClock();

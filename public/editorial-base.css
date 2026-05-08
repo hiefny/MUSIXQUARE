@@ -81,19 +81,6 @@ svg {
   -webkit-backdrop-filter: blur(16px);
   z-index: 100;
   overflow: hidden;
-  animation:
-    editorial-header-fade 0.6s cubic-bezier(0.22, 1, 0.36, 1) both,
-    editorial-header-slide 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes editorial-header-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes editorial-header-slide {
-  from { transform: translateY(-20px); }
-  to { transform: none; }
 }
 
 .lp-header-progress {
@@ -109,6 +96,37 @@ svg {
   transition: width 0.4s var(--ease-out);
 }
 
+.lp-header.is-loading .lp-header-progress {
+  width: 100%;
+}
+
+.lp-header::after {
+  content: "loading...";
+  position: absolute;
+  top: var(--safe-top);
+  left: calc(24px + var(--safe-left));
+  right: calc(24px + var(--safe-right));
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(100%);
+  transition:
+    opacity 0.5s ease,
+    transform 1s cubic-bezier(0.08, 0.82, 0.17, 1);
+}
+
+.lp-header.is-loading::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .lp-logo {
   position: relative;
   z-index: 1;
@@ -116,22 +134,23 @@ svg {
   display: flex;
   align-items: center;
   color: var(--text-main);
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transition:
+    opacity 0.5s ease,
+    transform 1s cubic-bezier(0.08, 0.82, 0.17, 1);
 }
 
 .lp-logo:hover {
   opacity: 0.7;
 }
 
-.lp-logo svg {
-  height: 16px;
-  width: auto;
-}
-
+.lp-logo svg,
 .editorial-wordmark {
   display: block;
   width: 132px;
-  height: 18px;
+  height: 16px;
+}
+
+.editorial-wordmark {
   background: currentColor;
   mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
   -webkit-mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
@@ -150,7 +169,16 @@ svg {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition:
+    opacity 0.5s ease,
+    transform 1s cubic-bezier(0.08, 0.82, 0.17, 1);
+}
+
+.lp-header.is-loading .lp-logo,
+.lp-header.is-loading .lp-try {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-150%);
 }
 
 .lp-try__dot {

@@ -3,6 +3,10 @@
  */
 
 (function () {
+  var EDITORIAL_LOAD_DELAY_MS = 300;
+  var updateHeaderProgress = null;
+  var pendingEditorialNavigation = false;
+
   function initStandaloneMode() {
     var root = document.documentElement;
 
@@ -89,11 +93,13 @@
   function initScrollProgress() {
     var bar = document.querySelector('.lp-header-progress');
     if (!bar) return;
+    var header = document.querySelector('.lp-header');
     var doc = document.documentElement;
     var raf = 0;
 
     function update() {
       raf = 0;
+      if (header && header.classList.contains('is-loading')) return;
       var max = doc.scrollHeight - doc.clientHeight;
       var pct = max > 0 ? (doc.scrollTop / max) * 100 : 0;
       bar.style.width = pct + '%';
@@ -104,9 +110,63 @@
       raf = window.requestAnimationFrame(update);
     }
 
+    updateHeaderProgress = update;
     update();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule, { passive: true });
+  }
+
+  function setHeaderLoading(loading) {
+    var header = document.querySelector('.lp-header');
+    var bar = document.querySelector('.lp-header-progress');
+    if (!header) return;
+
+    if (loading) {
+      header.classList.add('is-loading');
+      if (bar) bar.style.width = '100%';
+      return;
+    }
+
+    header.classList.remove('is-loading');
+    window.requestAnimationFrame(function () {
+      if (updateHeaderProgress) updateHeaderProgress();
+    });
+  }
+
+  function initEditorialPageLoader() {
+    window.setTimeout(function () {
+      setHeaderLoading(false);
+    }, EDITORIAL_LOAD_DELAY_MS);
+
+    document.querySelectorAll('.editorial-site-tab[href]').forEach(function (link) {
+      link.addEventListener('click', function (event) {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
+
+        var href = link.getAttribute('href');
+        if (!href) return;
+
+        var url = new URL(href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+
+        event.preventDefault();
+        if (pendingEditorialNavigation) return;
+
+        pendingEditorialNavigation = true;
+        setHeaderLoading(true);
+        window.setTimeout(function () {
+          window.location.assign(url.href);
+        }, EDITORIAL_LOAD_DELAY_MS);
+      });
+    });
   }
 
   function initHairlineScale() {
@@ -137,6 +197,7 @@
     initHairlineScale();
     initReveal();
     initScrollProgress();
+    initEditorialPageLoader();
     initSmoothAnchor();
   }
 

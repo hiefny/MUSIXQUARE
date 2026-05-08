@@ -320,7 +320,9 @@ const en: Record<I18nKey, string> = {
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Enter YouTube link',
-  'youtube.enter_link_prompt': 'Enter a video or playlist link',
+  'youtube.enter_source': 'Enter YouTube link or search',
+  'youtube.enter_link_prompt': 'Enter a YouTube link or search term',
+  'youtube.enter_source_placeholder': 'Search term or https://youtube.com/',
   'youtube.watch_together': 'Watch YouTube together',
   'youtube.ready': 'YouTube is ready! Press Play.',
   'youtube.thumbnail': 'YouTube preview thumbnail',
@@ -330,6 +332,7 @@ const en: Record<I18nKey, string> = {
   'youtube.invalid_link': 'Invalid YouTube link',
   'youtube.effects_disabled': 'Watch YouTube together.\nAdvanced audio effects are disabled.',
   'youtube.enter_link_placeholder': 'Enter a video or playlist link',
+  'youtube.enter_source_toast': 'Enter a YouTube link or search term',
   'youtube.fetching_info': 'Loading video info...',
   'youtube.fetch_failed': 'Could not load video info',
   'youtube.enter_link_toast': 'Please enter a YouTube link',
@@ -338,6 +341,13 @@ const en: Record<I18nKey, string> = {
   'youtube.added_to_playlist': 'Added to playlist',
   'youtube.loading_large_playlist': 'Loading large playlist...',
   'youtube.indexing_playlist': 'Analyzing playlist items...',
+  'youtube.search_button': 'Search',
+  'youtube.search_prompt': 'Press Enter or Search to find videos',
+  'youtube.searching': 'Searching YouTube...',
+  'youtube.search_no_results': 'No videos found',
+  'youtube.search_failed': 'YouTube search is unavailable',
+  'youtube.search_selected': 'Selected video ready to add',
+  'youtube.search_results': 'YouTube search results',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Disconnected',
@@ -530,7 +540,7 @@ const en: Record<I18nKey, string> = {
     'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
   'setup.advanced_audio_desc_html':
     "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
-  'youtube.enter_link_desc_html': 'Only public links can be played together.',
+  'youtube.enter_link_desc_html': 'Paste a public link or search for a video.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',

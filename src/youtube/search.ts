@@ -12,6 +12,7 @@ import { MSG, DELAY } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { updateSubItemTitlesBulk } from './_state.ts';
+import type { I18nKey } from '../i18n/index.ts';
 import {
   OEMBED_CACHE_MAX,
   OEMBED_CACHE_TTL_MS,
@@ -20,6 +21,35 @@ import {
   OEMBED_BACKGROUND_THROTTLE_MS,
   OEMBED_PREVIEW_DEBOUNCE_MS,
 } from './constants.ts';
+
+const YOUTUBE_SEARCH_ENDPOINT = '/.netlify/functions/youtube-search';
+const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
+const YOUTUBE_SEARCH_CACHE_MAX = 25;
+const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+
+export type YouTubeInputKind =
+  | 'empty'
+  | 'video-url'
+  | 'playlist-url'
+  | 'search-query'
+  | 'invalid-url';
+
+export interface YouTubeInputIntent {
+  kind: YouTubeInputKind;
+  raw: string;
+  videoId: string | null;
+  playlistId: string | null;
+  query: string | null;
+}
+
+export interface YouTubeSearchResult {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  publishedAt?: string;
+  url: string;
+}
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
@@ -65,6 +95,36 @@ export function extractYouTubeVideoId(url: string): string | null {
 export function extractYouTubePlaylistId(url: string): string | null {
   const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
   return match ? match[1] : null;
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /^www\./i.test(value);
+}
+
+function normalizeSearchQuery(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+export function getYouTubeInputIntent(value: string): YouTubeInputIntent {
+  const raw = normalizeSearchQuery(value || '');
+  if (!raw) {
+    return { kind: 'empty', raw, videoId: null, playlistId: null, query: null };
+  }
+
+  const videoId = extractYouTubeVideoId(raw);
+  const playlistId = extractYouTubePlaylistId(raw);
+
+  if (videoId) {
+    return { kind: 'video-url', raw, videoId, playlistId, query: null };
+  }
+  if (playlistId) {
+    return { kind: 'playlist-url', raw, videoId: null, playlistId, query: null };
+  }
+  if (looksLikeUrl(raw)) {
+    return { kind: 'invalid-url', raw, videoId: null, playlistId: null, query: null };
+  }
+
+  return { kind: 'search-query', raw, videoId: null, playlistId: null, query: raw };
 }
 
 // ─── oEmbed Title Cache (LRU + TTL) ───────────────────────────────
@@ -124,6 +184,256 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
   return result;
 }
 
+// YouTube Search (Data API proxy)
+
+const _searchResultCache = new Map<string, { ts: number; results: YouTubeSearchResult[] }>();
+let _searchAbort: AbortController | null = null;
+let _selectedSearchResult: YouTubeSearchResult | null = null;
+let _selectedSearchQuery = '';
+let _latestSearchQuery = '';
+
+function cacheKeyForQuery(query: string): string {
+  return normalizeSearchQuery(query).toLocaleLowerCase();
+}
+
+function searchCacheGet(query: string): YouTubeSearchResult[] | null {
+  const key = cacheKeyForQuery(query);
+  const cached = _searchResultCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.ts > YOUTUBE_SEARCH_CACHE_TTL_MS) {
+    _searchResultCache.delete(key);
+    return null;
+  }
+  _searchResultCache.delete(key);
+  _searchResultCache.set(key, cached);
+  return cached.results;
+}
+
+function searchCacheSet(query: string, results: YouTubeSearchResult[]): void {
+  const key = cacheKeyForQuery(query);
+  if (_searchResultCache.size >= YOUTUBE_SEARCH_CACHE_MAX) {
+    const oldest = _searchResultCache.keys().next().value;
+    if (oldest !== undefined) _searchResultCache.delete(oldest);
+  }
+  _searchResultCache.set(key, { ts: Date.now(), results });
+}
+
+function normalizeSearchResults(value: unknown): YouTubeSearchResult[] {
+  const payload = value as { results?: unknown };
+  if (!Array.isArray(payload?.results)) return [];
+
+  return payload.results
+    .map((item): YouTubeSearchResult | null => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const videoId = typeof row.videoId === 'string' ? row.videoId : '';
+      if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null;
+      return {
+        videoId,
+        title: typeof row.title === 'string' ? row.title : '',
+        channelTitle: typeof row.channelTitle === 'string' ? row.channelTitle : '',
+        thumbnailUrl: typeof row.thumbnailUrl === 'string' ? row.thumbnailUrl : '',
+        publishedAt: typeof row.publishedAt === 'string' ? row.publishedAt : undefined,
+        url:
+          typeof row.url === 'string' && row.url.includes(videoId)
+            ? row.url
+            : `https://www.youtube.com/watch?v=${videoId}`,
+      };
+    })
+    .filter((item): item is YouTubeSearchResult => !!item);
+}
+
+export async function fetchYouTubeSearchResults(
+  query: string,
+  externalSignal?: AbortSignal,
+): Promise<YouTubeSearchResult[]> {
+  const normalizedQuery = normalizeSearchQuery(query);
+  if (!normalizedQuery) return [];
+
+  const cached = searchCacheGet(normalizedQuery);
+  if (cached) return cached;
+
+  const endpoint = `${YOUTUBE_SEARCH_ENDPOINT}?q=${encodeURIComponent(normalizedQuery)}`;
+  const response = await fetchWithTimeout(endpoint, YOUTUBE_SEARCH_TIMEOUT_MS, externalSignal);
+  if (!response.ok) throw new Error(`YouTube search HTTP ${response.status}`);
+
+  const results = normalizeSearchResults(await response.json());
+  searchCacheSet(normalizedQuery, results);
+  return results;
+}
+
+function getStatusText(): HTMLElement | null {
+  return document.getElementById('youtube-preview-status');
+}
+
+function getPreviewContainer(): HTMLElement | null {
+  return document.getElementById('youtube-preview');
+}
+
+function getSearchResultsContainer(): HTMLElement | null {
+  return document.getElementById('youtube-search-results');
+}
+
+function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
+  const status = getStatusText();
+  if (!status) return;
+  status.style.display = 'block';
+  status.textContent = t(key);
+  status.style.color = color;
+}
+
+function setYouTubePrimaryButton(enabled: boolean, labelKey: I18nKey = 'player.play_start'): void {
+  const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+  if (!playBtn) return;
+  playBtn.disabled = !enabled;
+  playBtn.style.opacity = enabled ? '1' : '0.5';
+  playBtn.setAttribute('data-i18n', labelKey);
+  playBtn.textContent = t(labelKey);
+}
+
+function hidePreviewCard(): void {
+  const preview = getPreviewContainer();
+  if (!preview) return;
+  preview.hidden = true;
+  preview.style.display = 'none';
+}
+
+function clearSearchResults(): void {
+  _selectedSearchResult = null;
+  _selectedSearchQuery = '';
+  const resultsEl = getSearchResultsContainer();
+  if (resultsEl) {
+    resultsEl.hidden = true;
+    resultsEl.replaceChildren();
+  }
+}
+
+function abortSearch(): void {
+  if (_searchAbort) {
+    _searchAbort.abort();
+    _searchAbort = null;
+  }
+}
+
+function selectSearchResult(result: YouTubeSearchResult, query: string): void {
+  _selectedSearchResult = result;
+  _selectedSearchQuery = normalizeSearchQuery(query);
+
+  const resultsEl = getSearchResultsContainer();
+  if (resultsEl) {
+    for (const el of Array.from(resultsEl.querySelectorAll<HTMLElement>('.yt-search-result'))) {
+      const isSelected = el.dataset.videoId === result.videoId;
+      el.classList.toggle('selected', isSelected);
+      el.setAttribute('aria-selected', String(isSelected));
+    }
+  }
+
+  setStatus('youtube.search_selected');
+  setYouTubePrimaryButton(true);
+}
+
+function renderSearchResults(query: string, results: YouTubeSearchResult[]): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl) return;
+
+  resultsEl.replaceChildren();
+  resultsEl.hidden = false;
+
+  for (const result of results) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'yt-search-result';
+    btn.dataset.videoId = result.videoId;
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', 'false');
+
+    const thumb = document.createElement('img');
+    thumb.className = 'yt-search-thumb';
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.src = result.thumbnailUrl || `https://i.ytimg.com/vi/${result.videoId}/mqdefault.jpg`;
+
+    const meta = document.createElement('span');
+    meta.className = 'yt-search-meta';
+
+    const title = document.createElement('span');
+    title.className = 'yt-search-title';
+    title.textContent = result.title || t('common.youtube_video');
+
+    const channel = document.createElement('span');
+    channel.className = 'yt-search-channel';
+    channel.textContent = result.channelTitle || 'YouTube';
+
+    meta.append(title, channel);
+    btn.append(thumb, meta);
+    btn.addEventListener('click', () => selectSearchResult(result, query));
+    resultsEl.appendChild(btn);
+  }
+
+  if (results.length > 0) {
+    selectSearchResult(results[0], query);
+    resultsEl.scrollTop = 0;
+  } else {
+    clearSearchResults();
+    setStatus('youtube.search_no_results');
+    setYouTubePrimaryButton(true, 'youtube.search_button');
+  }
+}
+
+export function getSelectedYouTubeSearchResult(inputValue?: string): YouTubeSearchResult | null {
+  if (!_selectedSearchResult) return null;
+  if (inputValue !== undefined && normalizeSearchQuery(inputValue) !== _selectedSearchQuery) {
+    return null;
+  }
+  return _selectedSearchResult;
+}
+
+export async function searchYouTubeFromInput(inputValue: string): Promise<void> {
+  const intent = getYouTubeInputIntent(inputValue);
+  if (intent.kind !== 'search-query' || !intent.query) return;
+
+  abortSearch();
+  hidePreviewCard();
+  clearSearchResults();
+  _latestSearchQuery = intent.query;
+  setStatus('youtube.searching');
+  setYouTubePrimaryButton(false, 'youtube.search_button');
+
+  const abort = new AbortController();
+  _searchAbort = abort;
+
+  try {
+    const results = await fetchYouTubeSearchResults(intent.query, abort.signal);
+    if (abort.signal.aborted) return;
+    renderSearchResults(intent.query, results);
+  } catch (e) {
+    if (abort.signal.aborted) return;
+    log.warn('[YouTube Search] Fetch failed:', e);
+    clearSearchResults();
+    setStatus('youtube.search_failed', 'var(--danger, #ef4444)');
+    setYouTubePrimaryButton(true, 'youtube.search_button');
+  } finally {
+    if (_searchAbort === abort) _searchAbort = null;
+  }
+}
+
+export function clearYouTubeInputState(): void {
+  clearPreviewDebounce();
+  abortSearch();
+  clearSearchResults();
+  _latestSearchQuery = '';
+  hidePreviewCard();
+  setStatus('youtube.enter_link_prompt');
+  setYouTubePrimaryButton(false);
+
+  const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
+  const title = document.getElementById('youtube-preview-title');
+  const channel = document.getElementById('youtube-preview-channel');
+  if (thumb) thumb.removeAttribute('src');
+  if (title) title.textContent = '';
+  if (channel) channel.textContent = '';
+}
+
 // ─── oEmbed Preview Fetch (UI-bound) ───────────────────────────────
 
 let _previewAbort: AbortController | null = null;
@@ -140,43 +450,48 @@ export function clearPreviewDebounce(): void {
 export function fetchYouTubePreview(url: string): void {
   const previewContainer = document.getElementById('youtube-preview');
   const statusText = document.getElementById('youtube-preview-status');
-  const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
 
   if (!previewContainer || !statusText) return;
 
-  const setPlayBtnEnabled = (enabled: boolean): void => {
-    if (!playBtn) return;
-    playBtn.disabled = !enabled;
-    playBtn.style.opacity = enabled ? '1' : '0.5';
-  };
-
   clearManagedTimer('yt-preview-debounce');
+  const intent = getYouTubeInputIntent(url);
 
-  if (!url || url.trim() === '') {
-    previewContainer.style.display = 'none';
-    statusText.style.display = 'block';
-    statusText.innerText = t('youtube.enter_link_placeholder');
-    statusText.style.color = 'var(--text-sub)';
-    setPlayBtnEnabled(false);
+  if (intent.kind === 'empty') {
+    abortSearch();
+    clearSearchResults();
+    hidePreviewCard();
+    setStatus('youtube.enter_link_placeholder');
+    setYouTubePrimaryButton(false);
     return;
   }
 
-  const videoId = extractYouTubeVideoId(url);
-  const playlistId = extractYouTubePlaylistId(url);
-
-  if (!videoId && !playlistId) {
-    previewContainer.style.display = 'none';
-    statusText.style.display = 'block';
-    statusText.innerText = t('youtube.invalid_link');
-    statusText.style.color = 'var(--danger, #ef4444)';
-    setPlayBtnEnabled(false);
+  if (intent.kind === 'search-query') {
+    hidePreviewCard();
+    if (intent.query !== _latestSearchQuery) {
+      abortSearch();
+      clearSearchResults();
+      _latestSearchQuery = '';
+    }
+    setStatus('youtube.search_prompt');
+    setYouTubePrimaryButton(true, 'youtube.search_button');
     return;
   }
 
-  statusText.style.display = 'block';
-  statusText.innerText = t('youtube.fetching_info');
-  statusText.style.color = 'var(--text-sub)';
-  setPlayBtnEnabled(false);
+  abortSearch();
+  clearSearchResults();
+
+  const videoId = intent.videoId;
+  const playlistId = intent.playlistId;
+
+  if (intent.kind === 'invalid-url' || (!videoId && !playlistId)) {
+    hidePreviewCard();
+    setStatus('youtube.invalid_link', 'var(--danger, #ef4444)');
+    setYouTubePrimaryButton(false);
+    return;
+  }
+
+  setStatus('youtube.fetching_info');
+  setYouTubePrimaryButton(false);
 
   setManagedTimer(
     'yt-preview-debounce',
@@ -189,6 +504,8 @@ export function fetchYouTubePreview(url: string): void {
         if (!freshPlayBtn) return;
         freshPlayBtn.disabled = !enabled;
         freshPlayBtn.style.opacity = enabled ? '1' : '0.5';
+        freshPlayBtn.setAttribute('data-i18n', 'player.play_start');
+        freshPlayBtn.textContent = t('player.play_start');
       };
       if (!freshPreview || !freshStatus) return;
 
@@ -229,12 +546,14 @@ export function fetchYouTubePreview(url: string): void {
         if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
         if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
 
+        freshPreview.hidden = false;
         freshPreview.style.display = 'block';
         freshStatus.style.display = 'none';
         freshSetPlayBtnEnabled(true);
       } catch (e) {
         if (abort.signal.aborted) return;
         log.error('[YouTube Preview] Error:', e);
+        freshPreview.hidden = true;
         freshPreview.style.display = 'none';
         freshStatus.style.display = 'block';
         freshStatus.innerText = t('youtube.fetch_failed');

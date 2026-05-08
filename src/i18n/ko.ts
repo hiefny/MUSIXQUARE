@@ -318,7 +318,9 @@ const ko = {
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube 링크 입력',
-  'youtube.enter_link_prompt': '동영상 또는 플레이리스트 링크를 입력하세요',
+  'youtube.enter_source': 'YouTube 링크 또는 검색어 입력',
+  'youtube.enter_link_prompt': 'YouTube 링크 또는 검색어를 입력하세요',
+  'youtube.enter_source_placeholder': '검색어 또는 https://youtube.com/',
   'youtube.watch_together': 'YouTube 함께보기',
   'youtube.ready': 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.',
   'youtube.thumbnail': 'YouTube 미리보기 썸네일',
@@ -328,6 +330,7 @@ const ko = {
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
   'youtube.effects_disabled': 'YouTube 같이 보기\n고급 오디오 효과가 비활성화돼요',
   'youtube.enter_link_placeholder': '동영상 또는 플레이리스트 링크를 입력하세요',
+  'youtube.enter_source_toast': 'YouTube 링크 또는 검색어를 입력하세요',
   'youtube.fetching_info': '영상 정보 불러오는 중...',
   'youtube.fetch_failed': '영상 정보를 불러올 수 없어요',
   'youtube.enter_link_toast': 'YouTube 링크를 입력하세요',
@@ -336,6 +339,13 @@ const ko = {
   'youtube.added_to_playlist': '재생 목록에 추가됐어요',
   'youtube.loading_large_playlist': '대형 플레이리스트를 불러오고 있어요',
   'youtube.indexing_playlist': '플레이리스트 목록 분석 중...',
+  'youtube.search_button': '검색',
+  'youtube.search_prompt': 'Enter 또는 검색을 눌러 영상을 찾아보세요',
+  'youtube.searching': 'YouTube 검색 중...',
+  'youtube.search_no_results': '검색 결과가 없어요',
+  'youtube.search_failed': 'YouTube 검색을 사용할 수 없어요',
+  'youtube.search_selected': '선택한 영상을 대기열에 추가할 수 있어요',
+  'youtube.search_results': 'YouTube 검색 결과',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': '연결이 끊어졌어요',
@@ -527,7 +537,7 @@ const ko = {
     '각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.',
   'setup.advanced_audio_desc_html':
     '방장의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할 수 있어요.',
-  'youtube.enter_link_desc_html': '공개된 링크만 함께 볼 수 있어요.',
+  'youtube.enter_link_desc_html': '공개 링크를 붙여넣거나 영상을 검색해보세요.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',

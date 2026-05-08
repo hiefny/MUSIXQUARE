@@ -26,7 +26,7 @@ import {
 import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
-import { clearPreviewDebounce } from '../youtube/search.ts';
+import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
@@ -372,6 +372,7 @@ function openYouTubePopup(): void {
       overlay.classList.add('active');
       updateOverlayOpenClass();
     }
+    clearYouTubeInputState();
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
     if (input) setManagedTimer('yt-url-focus', () => input.focus(), 100);
   });
@@ -379,6 +380,7 @@ function openYouTubePopup(): void {
 
 function closeYouTubePopup(): void {
   clearPreviewDebounce();
+  clearYouTubeInputState();
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) ytInput.textContent = '';
   animateTransition(() => {

@@ -35,6 +35,19 @@ MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchron
 
 ---
 
+## Environment Variables
+
+Server-only variables are configured in Netlify site environment settings.
+
+- `YOUTUBE_API_KEY`: YouTube Data API v3 key used by `/.netlify/functions/youtube-search`.
+- `YOUTUBE_SEARCH_MAX_RESULTS` (optional): Search result count, capped at 12. Default is 8.
+- `YOUTUBE_REGION_CODE` (optional): Two-letter region bias such as `KR`.
+- `YOUTUBE_RELEVANCE_LANGUAGE` (optional): Language bias such as `ko`.
+
+Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
+
+---
+
 ## How to Use
 
 **https://musixquare.com**, no install needed.
@@ -45,7 +58,7 @@ MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchron
 2. Share the **6-digit code** with guests
 3. Choose a media source:
    - **Load local file**: audio/video from your device
-   - **YouTube**: paste a link or playlist URL
+   - **YouTube**: paste a video link, playlist URL, or search term
    - **System Audio**: stream desktop, tab, or system audio from a supported browser
 
 ### Guest

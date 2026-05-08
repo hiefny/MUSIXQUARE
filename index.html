@@ -1675,7 +1675,8 @@
 
             <div class="setup-join-area setup-mt-0">
                 <div contenteditable="true" id="youtube-url-input" class="setup-join-input yt-intro-text" role="textbox" aria-label=""
-                    data-i18n-aria-label="youtube.enter_link" data-placeholder="https://youtube.com/..."></div>
+                    data-i18n-aria-label="youtube.enter_source" data-placeholder="검색어 또는 https://youtube.com/"
+                    data-i18n-data-placeholder="youtube.enter_source_placeholder"></div>
 
                 <div id="youtube-preview"
                     class="yt-preview-card" hidden>
@@ -1689,6 +1690,9 @@
                             class="yt-preview-channel"></p>
                     </div>
                 </div>
+
+                <div id="youtube-search-results" class="yt-search-results" role="listbox"
+                    data-i18n-aria-label="youtube.search_results" hidden></div>
 
                 <p id="youtube-preview-status"
                     class="yt-preview-meta"

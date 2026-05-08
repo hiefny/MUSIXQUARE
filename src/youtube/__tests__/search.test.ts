@@ -2,7 +2,11 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
-import { extractYouTubeVideoId, extractYouTubePlaylistId } from '../search.ts';
+import {
+  extractYouTubeVideoId,
+  extractYouTubePlaylistId,
+  getYouTubeInputIntent,
+} from '../search.ts';
 
 describe('extractYouTubeVideoId', () => {
   it('extracts from standard watch URL', () => {
@@ -69,5 +73,38 @@ describe('extractYouTubePlaylistId', () => {
 
   it('returns null for empty string', () => {
     expect(extractYouTubePlaylistId('')).toBeNull();
+  });
+});
+
+describe('getYouTubeInputIntent', () => {
+  it('classifies a video URL', () => {
+    expect(getYouTubeInputIntent('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toMatchObject({
+      kind: 'video-url',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: null,
+      query: null,
+    });
+  });
+
+  it('classifies a playlist URL', () => {
+    expect(getYouTubeInputIntent('https://youtube.com/playlist?list=PLtest123')).toMatchObject({
+      kind: 'playlist-url',
+      videoId: null,
+      playlistId: 'PLtest123',
+      query: null,
+    });
+  });
+
+  it('classifies plain text as a search query', () => {
+    expect(getYouTubeInputIntent('  city pop   live  ')).toMatchObject({
+      kind: 'search-query',
+      query: 'city pop live',
+    });
+  });
+
+  it('keeps non-YouTube URLs invalid instead of searching them', () => {
+    expect(getYouTubeInputIntent('https://example.com/watch?v=dQw4w9WgXcQ')).toMatchObject({
+      kind: 'invalid-url',
+    });
   });
 });

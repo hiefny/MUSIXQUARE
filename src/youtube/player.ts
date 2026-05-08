@@ -48,6 +48,10 @@ import {
   fetchYouTubePreview,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
+  getYouTubeInputIntent,
+  getSelectedYouTubeSearchResult,
+  searchYouTubeFromInput,
+  clearYouTubeInputState,
   fetchOEmbedTitle,
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
@@ -1019,18 +1023,46 @@ export function initYouTube(): void {
       .catch((e) => log.warn('[YouTube] Title fetch handler error:', e));
   }
 
+  function _closeYouTubeInputOverlay(input?: HTMLElement | null): void {
+    const overlay = document.getElementById('youtube-url-overlay');
+    if (overlay) overlay.classList.remove('active');
+    if (input) input.textContent = '';
+    clearYouTubeInputState();
+  }
+
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
     if (!input) return;
-    const url = (input.textContent || '').trim();
-    if (!url) {
-      showToast(t('youtube.enter_link_toast'));
+    const rawInput = (input.textContent || '').trim();
+    if (!rawInput) {
+      showToast(t('youtube.enter_source_toast'));
       return;
     }
 
-    const videoId = extractYouTubeVideoId(url);
-    let playlistId = extractYouTubePlaylistId(url);
+    const intent = getYouTubeInputIntent(rawInput);
+    let videoId = intent.videoId;
+    let playlistId = intent.playlistId;
+    let sourceUrl = rawInput;
+    let titleText = rawInput;
+
+    if (intent.kind === 'search-query') {
+      const selected = getSelectedYouTubeSearchResult(rawInput);
+      if (!selected) {
+        void searchYouTubeFromInput(rawInput);
+        return;
+      }
+      videoId = selected.videoId;
+      playlistId = null;
+      sourceUrl = selected.url;
+      titleText = selected.title || rawInput;
+    } else if (intent.kind === 'invalid-url' || intent.kind === 'empty') {
+      showToast(t('youtube.invalid_link'));
+      return;
+    } else {
+      const previewTitle = document.getElementById('youtube-preview-title');
+      titleText = previewTitle?.textContent?.trim() || rawInput;
+    }
 
     // Filter out Mix playlists (RD...) if a video ID is present to avoid
     // unintentional addition of auto-generated lists (Single-track intent)
@@ -1043,23 +1075,7 @@ export function initYouTube(): void {
       return;
     }
 
-    // Get title from preview UI BEFORE hiding it (innerText returns '' for hidden elements)
-    const previewTitle = document.getElementById('youtube-preview-title');
-    const titleText = previewTitle?.textContent?.trim() || url;
-
-    // Close the overlay + reset preview UI
-    const overlay = document.getElementById('youtube-url-overlay');
-    if (overlay) overlay.classList.remove('active');
-    input.textContent = '';
-    const previewEl = document.getElementById('youtube-preview');
-    if (previewEl) previewEl.style.display = 'none';
-    const statusEl = document.getElementById('youtube-preview-status');
-    if (statusEl) {
-      statusEl.style.display = '';
-      statusEl.textContent = t('youtube.enter_link_prompt');
-    }
-    const playBtnEl = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
-    if (playBtnEl) playBtnEl.disabled = true;
+    _closeYouTubeInputOverlay(input);
 
     // Index-before-Add flow for new playlists — only when IDLE. Indexing
     // takes over the iframe (loadYouTubeVideo fires player:stop-all-media
@@ -1091,7 +1107,7 @@ export function initYouTube(): void {
         );
         updateSubItemIds(playlistId!, ids);
 
-        _addYouTubeToPlaylist(ids[0], playlistId, titleText, url);
+        _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
 
         // Force highlight and expansion of the first track with a small delay
         // to ensure the UI has finished adding the item to the DOM.
@@ -1115,7 +1131,7 @@ export function initYouTube(): void {
       // Trigger the player to index (via cuePlaylist in iframe.ts)
       loadYouTubeVideo(videoId, playlistId, false);
     } else {
-      _addYouTubeToPlaylist(videoId, playlistId, titleText, url);
+      _addYouTubeToPlaylist(videoId, playlistId, titleText, sourceUrl);
     }
   });
 

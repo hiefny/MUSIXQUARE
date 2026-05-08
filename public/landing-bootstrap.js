@@ -36,5 +36,19 @@
     /* defensive: any failure → English fallback */
   }
   document.documentElement.lang = lang;
+
+  try {
+    var standalone =
+      window.matchMedia &&
+      window.matchMedia('(display-mode: standalone)').matches;
+    if (navigator.standalone) {
+      standalone = true;
+      document.documentElement.classList.add('ios-standalone');
+    }
+    if (standalone) document.documentElement.classList.add('standalone');
+  } catch (e) {
+    /* noop */
+  }
+
   window.__landingLang = lang;
 })();

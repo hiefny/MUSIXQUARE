@@ -3,6 +3,42 @@
  */
 
 (function () {
+  function initStandaloneMode() {
+    var root = document.documentElement;
+
+    function apply() {
+      var standalone = false;
+      try {
+        standalone =
+          window.matchMedia &&
+          window.matchMedia('(display-mode: standalone)').matches;
+      } catch (e) {
+        standalone = false;
+      }
+
+      try {
+        if (navigator.standalone) {
+          standalone = true;
+          root.classList.add('ios-standalone');
+        }
+      } catch (e) {
+        /* noop */
+      }
+
+      root.classList.toggle('standalone', !!standalone);
+    }
+
+    apply();
+
+    try {
+      var media = window.matchMedia('(display-mode: standalone)');
+      if (media.addEventListener) media.addEventListener('change', apply);
+      else if (media.addListener) media.addListener(apply);
+    } catch (e) {
+      /* noop */
+    }
+  }
+
   function isInViewport(el) {
     var r = el.getBoundingClientRect();
     var vh = window.innerHeight || document.documentElement.clientHeight;
@@ -97,6 +133,7 @@
   }
 
   function boot() {
+    initStandaloneMode();
     initHairlineScale();
     initReveal();
     initScrollProgress();

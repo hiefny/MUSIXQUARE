@@ -69,6 +69,25 @@ function getApiKey() {
   return process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || '';
 }
 
+function normalizeUpstreamError(payload) {
+  const firstError = payload?.error?.errors?.[0] || {};
+  const reason = firstError.reason || payload?.error?.status || 'unknown';
+  const message = firstError.message || payload?.error?.message || '';
+  return { reason, message };
+}
+
+function getClientStatusForUpstreamError(status, reason) {
+  const quotaReasons = new Set([
+    'quotaExceeded',
+    'dailyLimitExceeded',
+    'rateLimitExceeded',
+    'userRateLimitExceeded',
+  ]);
+  if (quotaReasons.has(reason)) return 429;
+  if (status === 400 || status === 401 || status === 403) return 403;
+  return 502;
+}
+
 function getBestThumbnail(thumbnails) {
   if (!thumbnails || typeof thumbnails !== 'object') return '';
   return (
@@ -156,12 +175,14 @@ exports.handler = async (event) => {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      const upstreamError = normalizeUpstreamError(payload);
       return jsonResponse(
-        response.status === 403 ? 429 : 502,
+        getClientStatusForUpstreamError(response.status, upstreamError.reason),
         {
           error: 'YOUTUBE_SEARCH_FAILED',
           upstreamStatus: response.status,
-          reason: payload?.error?.errors?.[0]?.reason || payload?.error?.status || 'unknown',
+          reason: upstreamError.reason,
+          message: upstreamError.message,
         },
         headers,
       );

@@ -51,6 +51,13 @@ export interface YouTubeSearchResult {
   url: string;
 }
 
+interface YouTubeSearchErrorPayload {
+  error?: string;
+  upstreamStatus?: number;
+  reason?: string;
+  message?: string;
+}
+
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
 async function fetchWithTimeout(
@@ -255,7 +262,17 @@ export async function fetchYouTubeSearchResults(
 
   const endpoint = `${YOUTUBE_SEARCH_ENDPOINT}?q=${encodeURIComponent(normalizedQuery)}`;
   const response = await fetchWithTimeout(endpoint, YOUTUBE_SEARCH_TIMEOUT_MS, externalSignal);
-  if (!response.ok) throw new Error(`YouTube search HTTP ${response.status}`);
+  if (!response.ok) {
+    let payload: YouTubeSearchErrorPayload = {};
+    try {
+      payload = (await response.json()) as YouTubeSearchErrorPayload;
+    } catch {
+      /* ignore malformed error bodies */
+    }
+    const reason = payload.reason || payload.error || 'unknown';
+    const detail = payload.message ? `: ${payload.message}` : '';
+    throw new Error(`YouTube search HTTP ${response.status} (${reason})${detail}`);
+  }
 
   const results = normalizeSearchResults(await response.json());
   searchCacheSet(normalizedQuery, results);

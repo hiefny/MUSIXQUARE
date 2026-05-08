@@ -319,7 +319,7 @@ const ko = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube 링크 입력',
   'youtube.enter_source': 'YouTube 링크 또는 검색어 입력',
-  'youtube.enter_link_prompt': 'YouTube 링크 또는 검색어를 입력하세요',
+  'youtube.enter_link_prompt': 'YouTube 검색어 또는 링크를 입력하세요',
   'youtube.enter_source_placeholder': '검색어 또는 https://youtube.com/',
   'youtube.watch_together': 'YouTube 함께보기',
   'youtube.ready': 'YouTube가 준비됐어요! 재생 버튼을 눌러 보세요.',

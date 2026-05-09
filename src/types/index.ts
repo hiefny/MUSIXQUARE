@@ -868,7 +868,7 @@ interface BaseEventMap {
   'sync:latency-update': [ms: number];
 
   // ── Orchestrator ────────────────────────────────────────────────
-  'orchestrator:peer-type-detected': [peerId: string];
+  'orchestrator:peer-type-detected': [peerId: string, isInitial?: boolean];
   'orchestrator:peer-evaluated': [peerId: string];
   'orchestrator:peer-joined': [peerId: string];
 

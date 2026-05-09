@@ -61,8 +61,8 @@ function handlePeerDisconnect(peerId: string): void {
 }
 
 export function initOrchestrator(): void {
-  bus.on('orchestrator:peer-type-detected', (peerId: string) => {
-    evaluatePeer(peerId, true);
+  bus.on('orchestrator:peer-type-detected', (peerId: string, isInitial = true) => {
+    evaluatePeer(peerId, isInitial);
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {

@@ -24,6 +24,43 @@ import { showToast } from '../ui/toast.ts';
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
 let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = null;
+type ConnectionType = 'local' | 'remote' | 'unknown';
+let _hostReportedConnectionType: ConnectionType | null = null;
+
+function asConnectionType(value: unknown): ConnectionType | null {
+  return value === 'local' || value === 'remote' || value === 'unknown' ? value : null;
+}
+
+function emitConnectionTypeChanged(): void {
+  bus.emit('network:role-badge-update');
+}
+
+function applyGuestDetectedConnectionType(type: ConnectionType, source: string): boolean {
+  const hostType = _hostReportedConnectionType;
+  if (hostType && hostType !== 'unknown' && hostType !== type) {
+    if (getState('network.connectionType') !== hostType) {
+      setState('network.connectionType', hostType);
+    }
+    log.info(`[Peer] ${source} detected ${type}, but host reports ${hostType}; keeping host routing`);
+    emitConnectionTypeChanged();
+    return false;
+  }
+
+  if (getState('network.connectionType') !== type) {
+    setState('network.connectionType', type);
+  }
+  emitConnectionTypeChanged();
+  return true;
+}
+
+function applyHostReportedConnectionType(type: ConnectionType): void {
+  _hostReportedConnectionType = type;
+  if (type === 'unknown') return;
+  if (getState('network.connectionType') !== type) {
+    setState('network.connectionType', type);
+  }
+  emitConnectionTypeChanged();
+}
 
 /** Called by peer.ts during bootstrap to inject initNetwork reference. */
 export function setInitNetwork(fn: (requestedId: string | null) => Promise<string>): void {
@@ -61,6 +98,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   // M-2: Clear ICE fallback timer from previous connection — prevents stale
   // timers from overwriting the new connection's ICE classification.
   clearManagedTimer('guest-ice-fallback');
+  _hostReportedConnectionType = null;
 
   if (!hostId) {
     bus.emit('network:error', new Error('NO_HOST_ID'));
@@ -226,9 +264,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
     detectConnectionType(conn).then((type) => {
-      setState('network.connectionType', type);
-      log.info(`[Peer] Connection type: ${type}`);
-      bus.emit('network:role-badge-update');
+      const applied = applyGuestDetectedConnectionType(type, 'Initial ICE detection');
+      if (applied) log.info(`[Peer] Connection type: ${type}`);
 
       // Worst-case fallback: see host.ts for rationale. Recheck once after
       // 30s to recover from a misclassified LAN peer where ICE was still
@@ -240,9 +277,11 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
             if (!conn.open) return;
             const recheck = await detectConnectionType(conn);
             if (recheck === 'local' && getState('network.connectionType') !== 'local') {
-              setState('network.connectionType', 'local');
-              log.info('[Peer] Reclassified as local on fallback');
-              bus.emit('network:role-badge-update');
+              const appliedFallback = applyGuestDetectedConnectionType(
+                'local',
+                'Fallback ICE detection',
+              );
+              if (appliedFallback) log.info('[Peer] Reclassified as local on fallback');
             }
           },
           30000,
@@ -329,12 +368,10 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
     // Trust host's connectionType over local ICE detection (host sees both sides)
-    const hostConnType = (amIStillConnected as unknown as Record<string, unknown>)
-      .connectionType as string | undefined;
-    if (hostConnType && hostConnType !== 'unknown') {
-      setState('network.connectionType', hostConnType as 'local' | 'remote' | 'unknown');
-      bus.emit('network:role-badge-update');
-    }
+    const hostConnType = asConnectionType(
+      (amIStillConnected as unknown as Record<string, unknown>).connectionType,
+    );
+    if (hostConnType) applyHostReportedConnectionType(hostConnType);
   }
 
   setState('network.lastKnownDeviceList', list);

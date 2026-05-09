@@ -298,7 +298,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
                 );
                 log.info(`[Host] ${deviceName} reclassified as local on fallback`);
                 broadcastDeviceList();
-                bus.emit('orchestrator:peer-type-detected', peerId);
+                bus.emit('orchestrator:peer-type-detected', peerId, false);
               }
             },
             30000,

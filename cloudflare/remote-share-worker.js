@@ -30,6 +30,8 @@ const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ]);
@@ -709,7 +711,7 @@ async function handleDelete(request, env, roomId, objectId) {
   const object = await env.REMOTE_SHARE_BUCKET.head(key);
   const expected = readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken');
   const supplied = request.headers.get('x-mxqr-cleanup-token') || '';
-  if (expected && supplied && supplied !== expected) {
+  if (expected && supplied !== expected) {
     return json(request, env, { error: 'forbidden' }, 403);
   }
 

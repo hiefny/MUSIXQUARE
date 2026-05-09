@@ -10,7 +10,7 @@ OBJECT_TTL_SECONDS = "3600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "0"
-ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 
 # Required secret, set outside this file:
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET

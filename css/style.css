@@ -1419,7 +1419,7 @@
 
     .track-name {
         flex: 1;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 500;
         color: var(--text-main);
         display: flex;
@@ -6116,11 +6116,21 @@ html:not(.ios-standalone) body {
     max-height: min(42vh, 360px);
     margin-top: 10px;
     overflow-y: auto;
-    padding-right: 2px;
+    padding-right: 10px;
 }
 
 .yt-search-results[hidden] {
     display: none;
+}
+
+#youtube-url-overlay .setup-join-area>.cscroll-track {
+    right: 28px;
+}
+
+@media (min-width: 1280px) {
+    #youtube-url-overlay .setup-join-area>.cscroll-track {
+        right: 40px;
+    }
 }
 
 .yt-search-result {

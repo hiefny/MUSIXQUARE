@@ -6,7 +6,7 @@
  */
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
-const DEFAULT_MAX_RESULTS = 8;
+const DEFAULT_MAX_RESULTS = 10;
 const MAX_RESULTS_LIMIT = 12;
 const QUERY_MAX_LENGTH = 120;
 

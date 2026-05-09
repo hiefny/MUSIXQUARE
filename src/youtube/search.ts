@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
@@ -308,6 +309,10 @@ function setYouTubePrimaryButton(enabled: boolean, labelKey: I18nKey = 'player.p
   playBtn.textContent = t(labelKey);
 }
 
+function scheduleSearchScrollbarRelayout(): void {
+  window.requestAnimationFrame(() => bus.emit('ui:scrollbar-relayout'));
+}
+
 function hidePreviewCard(): void {
   const preview = getPreviewContainer();
   if (!preview) return;
@@ -322,6 +327,7 @@ function clearSearchResults(): void {
   if (resultsEl) {
     resultsEl.hidden = true;
     resultsEl.replaceChildren();
+    scheduleSearchScrollbarRelayout();
   }
 }
 
@@ -355,6 +361,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
 
   resultsEl.replaceChildren();
   resultsEl.hidden = false;
+  scheduleSearchScrollbarRelayout();
 
   for (const result of results) {
     const btn = document.createElement('button');
@@ -390,6 +397,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
   if (results.length > 0) {
     selectSearchResult(results[0], query);
     resultsEl.scrollTop = 0;
+    scheduleSearchScrollbarRelayout();
   } else {
     clearSearchResults();
     setStatus('youtube.search_no_results');

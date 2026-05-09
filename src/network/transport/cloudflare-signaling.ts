@@ -50,6 +50,7 @@ type OutgoingSignal =
 
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
+const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -121,12 +122,14 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   private closed = false;
+  private readonly disconnectedTimerName: string;
 
   constructor(
     readonly peer: string,
     readonly metadata?: unknown,
   ) {
     super();
+    this.disconnectedTimerName = `cloudflare-data-disconnected-${peer}-${randomBase64Url(8)}`;
   }
 
   attach(pc: RTCPeerConnection, channel: RTCDataChannel): void {
@@ -144,13 +147,16 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
     channel.addEventListener('error', (event) => this.emit('error', event));
 
     pc.addEventListener('connectionstatechange', () => {
-      if (
-        pc.connectionState === 'closed' ||
-        pc.connectionState === 'failed' ||
-        pc.connectionState === 'disconnected'
-      ) {
+      if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+        this.clearDisconnectedGrace();
         this.markClosed();
+        return;
       }
+      if (pc.connectionState === 'disconnected') {
+        this.scheduleDisconnectedGrace();
+        return;
+      }
+      this.clearDisconnectedGrace();
     });
 
     if (channel.readyState === 'open') queueMicrotask(() => this.markOpen());
@@ -189,10 +195,29 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
 
   private markClosed(): void {
     if (this.closed) return;
+    this.clearDisconnectedGrace();
     this.closed = true;
     this.open = false;
     this.emit('close');
     this.clear();
+  }
+
+  private scheduleDisconnectedGrace(): void {
+    if (this.closed) return;
+    setManagedTimer(
+      this.disconnectedTimerName,
+      () => {
+        const state = this.peerConnection?.connectionState;
+        if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          this.markClosed();
+        }
+      },
+      DATA_CONNECTION_DISCONNECTED_GRACE_MS,
+    );
+  }
+
+  private clearDisconnectedGrace(): void {
+    clearManagedTimer(this.disconnectedTimerName);
   }
 }
 

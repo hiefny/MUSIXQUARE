@@ -9,7 +9,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE, PLAYBACK_STATE, RESERVED_NAMES } from '../core/constants.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
@@ -467,11 +467,21 @@ export function initSync(): void {
 }
 
 // ─── Host: Heartbeat Monitor ──────────────────────────────────────
-// Checks every 5s for peers whose lastHeartbeat is older than threshold.
-// Marks them as disconnected and cleans up.
+// Checks for peers whose app-level heartbeat stopped. Mobile browsers can
+// throttle timers for many seconds when the tab is backgrounded, so an open
+// WebRTC channel gets a longer grace window before cleanup.
 
-const HEARTBEAT_STALE_THRESHOLD = 8000; // 8s without heartbeat = stale
-const HEARTBEAT_CHECK_INTERVAL = 5000; // check every 5s
+const HEARTBEAT_STALE_THRESHOLD = 45_000;
+const HEARTBEAT_FORCE_CLEANUP_THRESHOLD = 120_000;
+const HEARTBEAT_CHECK_INTERVAL = 10_000;
+
+function isPeerTransportDead(peer: ConnectedPeer): boolean {
+  const conn = peer.conn as DataConnection | null;
+  if (!conn?.open) return true;
+
+  const state = conn.peerConnection?.connectionState;
+  return state === 'closed' || state === 'failed';
+}
 
 function startHeartbeatMonitor(): void {
   stopHeartbeatMonitor();
@@ -494,19 +504,26 @@ function startHeartbeatMonitor(): void {
       for (const p of connectedPeers) {
         if (p.status !== 'connected') continue;
         const elapsed = now - ((p.lastHeartbeat as number) || 0);
-        if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
-          log.warn(
-            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
-          );
-          stalePeerIds.push(p.id);
+        if (elapsed <= HEARTBEAT_STALE_THRESHOLD) continue;
 
-          // Try to close the stale connection
-          try {
-            const conn = p.conn as DataConnection;
-            if (conn) conn.close();
-          } catch {
-            /* noop */
-          }
+        const transportDead = isPeerTransportDead(p);
+        if (!transportDead && elapsed < HEARTBEAT_FORCE_CLEANUP_THRESHOLD) {
+          log.debug(
+            `[Heartbeat] Peer ${p.label || p.id} heartbeat stale (${(elapsed / 1000).toFixed(1)}s), but transport is still open`,
+          );
+          continue;
+        }
+        log.warn(
+          `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
+        );
+        stalePeerIds.push(p.id);
+
+        // Try to close the stale connection
+        try {
+          const conn = p.conn as DataConnection;
+          if (conn) conn.close();
+        } catch {
+          /* noop */
         }
       }
 
